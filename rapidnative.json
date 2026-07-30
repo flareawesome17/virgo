@@ -1,0 +1,28 @@
+{
+  "type": "fullstack-supabase",
+  "paths": {
+    "root": "mobile",
+    "app": "app",
+    "components": "components",
+    "src": "src",
+    "api": "api",
+    "web": "web",
+    "alias": { "@": "mobile" }
+  },
+  "workspaces": {
+    "mobile": { "type": "expo", "root": "mobile" },
+    "api": { "type": "express", "root": "api", "entry": "index.js" },
+    "web": { "type": "static", "root": "web" },
+    "database": { "type": "supabase", "root": "supabase", "migrations": "supabase/migrations" }
+  },
+  "dynamicRouteDefaults": {
+    "workspaces/[id]": { "id": "workspace-1" },
+    "albums/[albumId]": { "albumId": "album-1" },
+    "albums/[albumId]/gallery": { "albumId": "album-1" },
+    "albums/[albumId]/viewer": { "albumId": "album-1" },
+    "albums/[albumId]/videos": { "albumId": "album-1" },
+    "albums/[albumId]/audio": { "albumId": "album-1" },
+    "schedule/[eventId]": { "eventId": "event-1" },
+    "schedule/reminders/[reminderId]": { "reminderId": "reminder-1" }
+  }
+}

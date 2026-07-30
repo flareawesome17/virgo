@@ -1,0 +1,549 @@
+import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useLocalSearchParams, router } from 'expo-router';
+import { useState } from 'react';
+import {
+  ArrowLeftIcon,
+  PlusIcon,
+  UploadIcon,
+  UserPlusIcon,
+  CalendarPlusIcon,
+  ImageIcon,
+  UsersIcon,
+  ClockIcon,
+  ChevronRightIcon,
+  MessageCircleIcon,
+  MailIcon,
+  LayersIcon,
+} from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
+
+cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(UploadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(CalendarPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+
+const STATUS_BADGES: Record<string, { bg: string; text: string; label: string }> = {
+  draft: { bg: '#A8948920', text: '#8B7355', label: 'Draft' },
+  review: { bg: '#C1774520', text: '#C17745', label: 'In Review' },
+  delivered: { bg: '#6B8E4E20', text: '#4A6B3A', label: 'Delivered' },
+};
+
+const EVENT_TYPE_COLORS: Record<string, string> = {
+  shoot: '#B66A40',
+  editing: '#C17745',
+  review: '#8B5E3C',
+  delivery: '#6B8E4E',
+  meeting: '#5B7B9A',
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'Owner',
+  photographer: 'Photographer',
+  editor: 'Editor',
+  reviewer: 'Reviewer',
+  client: 'Client',
+};
+
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = d.getTime() - now.getTime();
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  if (days < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatTime(timeStr: string | null): string {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':');
+  const hour = parseInt(h);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const h12 = hour % 12 || 12;
+  return `${h12}:${m} ${ampm}`;
+}
+
+const QUICK_ACTIONS = [
+  { key: 'album', label: 'Create Album', icon: PlusIcon },
+  { key: 'upload', label: 'Upload', icon: UploadIcon },
+  { key: 'invite', label: 'Invite', icon: UserPlusIcon },
+  { key: 'schedule', label: 'Schedule', icon: CalendarPlusIcon },
+];
+
+export default function WorkspaceDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { client } = useApp();
+  const { user } = useAuth();
+  const { isDark } = useTheme();
+  const queryClient = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const { data: workspace, isLoading: wsLoading } = useQuery({
+    queryKey: ['workspace', id],
+    queryFn: async () => {
+      const { data, error } = await client
+        .from('workspaces')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+
+  const { data: albums = [] } = useQuery({
+    queryKey: ['albums', id],
+    queryFn: async () => {
+      const { data, error } = await client
+        .from('albums')
+        .select('*')
+        .eq('workspace_id', id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!id,
+  });
+
+  const { data: collaborators = [] } = useQuery({
+    queryKey: ['collaborators', id],
+    queryFn: async () => {
+      const { data, error } = await client
+        .from('collaborators')
+        .select('*')
+        .eq('workspace_id', id);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!id,
+  });
+
+  const { data: events = [] } = useQuery({
+    queryKey: ['schedule_events', id],
+    queryFn: async () => {
+      const { data, error } = await client
+        .from('schedule_events')
+        .select('*')
+        .eq('workspace_id', id)
+        .order('event_date', { ascending: true })
+        .limit(3);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!id,
+  });
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['workspace', id] });
+    await queryClient.invalidateQueries({ queryKey: ['albums', id] });
+    await queryClient.invalidateQueries({ queryKey: ['collaborators', id] });
+    await queryClient.invalidateQueries({ queryKey: ['schedule_events', id] });
+    setRefreshing(false);
+  };
+
+  if (wsLoading || !workspace) {
+    return (
+      <SafeAreaView edges={['top']} className="flex-1 bg-background">
+        <View className="flex-1 items-center justify-center gap-3">
+          <Text className="text-muted-foreground text-sm">Loading workspace...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const accent = workspace.accent_color || '#B66A40';
+  const albumCount = albums.length;
+  const totalItems = albums.reduce((s, a) => s + (a.item_count || 0), 0);
+
+  return (
+    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <ScrollView
+        className="flex-1"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isDark ? '#C17745' : '#B66A40'}
+          />
+        }
+      >
+        {/* ── Hero Header ── */}
+        <View className="relative">
+          {/* Color block */}
+          <View
+            style={{
+              backgroundColor: `${accent}12`,
+              paddingTop: 4,
+              paddingBottom: 28,
+              paddingHorizontal: 20,
+            }}
+          >
+            {/* Back button */}
+            <Pressable
+              onPress={() => router.back()}
+              className="w-10 h-10 rounded-2xl bg-white items-center justify-center mb-4 active:scale-[0.94]"
+              style={{
+                shadowColor: '#000',
+                shadowOpacity: 0.06,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 2,
+              }}
+            >
+              <ArrowLeftIcon size={18} style={{ color: '#1E1B18' }} />
+            </Pressable>
+
+            {/* Icon + title */}
+            <View className="flex-row items-center gap-4">
+              <View
+                style={{
+                  width: 60,
+                  height: 60,
+                  borderRadius: 20,
+                  backgroundColor: `${accent}22`,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 26, fontWeight: '700', color: accent }}>
+                  {workspace.name.charAt(0)}
+                </Text>
+              </View>
+              <View className="flex-1">
+                <Text className="text-foreground text-[22px] font-bold tracking-tight">
+                  {workspace.name}
+                </Text>
+                {workspace.description ? (
+                  <Text className="text-muted-foreground text-sm mt-0.5" numberOfLines={2}>
+                    {workspace.description}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            {/* Stats row */}
+            <View className="flex-row items-center gap-5 mt-5">
+              <View className="flex-row items-center gap-1.5">
+                <ImageIcon size={13} style={{ color: accent }} />
+                <Text className="text-foreground text-sm font-bold">
+                  {totalItems.toLocaleString()}
+                </Text>
+                <Text className="text-muted-foreground text-xs">items</Text>
+              </View>
+              <View className="flex-row items-center gap-1.5">
+                <LayersIcon size={13} style={{ color: accent }} />
+                <Text className="text-foreground text-sm font-bold">{albumCount}</Text>
+                <Text className="text-muted-foreground text-xs">albums</Text>
+              </View>
+              <View className="flex-row items-center gap-1.5">
+                <UsersIcon size={13} style={{ color: accent }} />
+                <Text className="text-foreground text-sm font-bold">
+                  {workspace.collaborator_count}
+                </Text>
+                <Text className="text-muted-foreground text-xs">members</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Quick Actions ── */}
+        <View className="-mt-5 mx-5">
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 10 }}
+          >
+            {QUICK_ACTIONS.map((action) => {
+              const Icon = action.icon;
+              const isInvite = action.key === 'invite';
+              return (
+                <Pressable
+                  key={action.key}
+                  onPress={() => {
+                    if (isInvite) {
+                      router.push(`/workspaces/${id}/invite`);
+                    } else if (action.key === 'album') {
+                      // Future: create album modal
+                    } else if (action.key === 'schedule') {
+                      // Future: create schedule event
+                    }
+                    // upload: future
+                  }}
+                  className="bg-card rounded-2xl px-5 py-3.5 flex-row items-center gap-2.5 active:scale-[0.96]"
+                  style={{
+                    shadowColor: '#000',
+                    shadowOpacity: 0.05,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 3 },
+                    elevation: 3,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: 10,
+                      backgroundColor: `${accent}18`,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Icon size={15} style={{ color: accent }} />
+                  </View>
+                  <Text className="text-foreground text-sm font-semibold">{action.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* ── Collaborators ── */}
+        <View className="px-5 mt-6">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-foreground text-base font-bold tracking-tight">Members</Text>
+            <Pressable
+              onPress={() => router.push(`/workspaces/${id}/invite`)}
+              className="flex-row items-center gap-1 active:opacity-60"
+            >
+              <UserPlusIcon size={13} className="text-primary" />
+              <Text className="text-primary text-sm font-semibold">Invite</Text>
+            </Pressable>
+          </View>
+
+          {collaborators.length === 0 ? (
+            <View className="bg-card rounded-2xl p-6 items-center gap-2">
+              <UsersIcon size={20} className="text-muted-foreground" />
+              <Text className="text-muted-foreground text-sm">No members yet</Text>
+            </View>
+          ) : (
+            <View
+              className="bg-card rounded-2xl overflow-hidden"
+              style={{
+                shadowColor: '#000',
+                shadowOpacity: 0.04,
+                shadowRadius: 10,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 3,
+              }}
+            >
+              {collaborators.map((collab, i) => (
+                <Pressable
+                  key={collab.id}
+                  className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
+                  style={
+                    i < collaborators.length - 1
+                      ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }
+                      : undefined
+                  }
+                >
+                  <Image
+                    source={{
+                      uri:
+                        collab.avatar_url ||
+                        `https://picsum.photos/seed/${collab.id}/80/80`,
+                    }}
+                    style={{ width: 36, height: 36, borderRadius: 18 }}
+                  />
+                  <View className="flex-1 min-w-0">
+                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                      {collab.name}
+                    </Text>
+                    <Text className="text-muted-foreground text-xs">
+                      {ROLE_LABELS[collab.role] || collab.role}
+                    </Text>
+                  </View>
+                  <View className="flex-row gap-1.5">
+                    <Pressable className="w-8 h-8 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
+                      <MessageCircleIcon size={13} className="text-muted-foreground" />
+                    </Pressable>
+                    <Pressable className="w-8 h-8 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
+                      <MailIcon size={13} className="text-muted-foreground" />
+                    </Pressable>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* ── Albums ── */}
+        <View className="px-5 mt-6">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-foreground text-base font-bold tracking-tight">Albums</Text>
+            <Pressable
+              onPress={() => router.push(`/albums?workspaceId=${id}`)}
+              className="flex-row items-center gap-1 active:opacity-60"
+            >
+              <Text className="text-primary text-sm font-semibold">See all</Text>
+              <ChevronRightIcon size={14} className="text-primary" />
+            </Pressable>
+          </View>
+
+          {albums.length === 0 ? (
+            <View className="bg-card rounded-2xl p-6 items-center gap-2">
+              <LayersIcon size={20} className="text-muted-foreground" />
+              <Text className="text-muted-foreground text-sm">No albums created yet</Text>
+              <Pressable
+                onPress={() => router.push(`/albums/create?workspaceId=${id}`)}
+                className="bg-primary rounded-xl px-4 py-2 active:scale-[0.96] mt-1"
+              >
+                <Text className="text-white text-sm font-semibold">Create first album</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View className="gap-3">
+              {albums.map((album) => {
+                const badge = STATUS_BADGES[album.status] || STATUS_BADGES.draft;
+                return (
+                  <Pressable
+                    key={album.id}
+                    className="bg-card rounded-2xl overflow-hidden flex-row active:scale-[0.98]"
+                    style={{
+                      shadowColor: '#000',
+                      shadowOpacity: 0.04,
+                      shadowRadius: 10,
+                      shadowOffset: { width: 0, height: 3 },
+                      elevation: 3,
+                    }}
+                  >
+                    <Image
+                      source={{
+                        uri:
+                          album.cover_url ||
+                          `https://picsum.photos/seed/${album.id}/200/200`,
+                      }}
+                      style={{ width: 80, height: 80 }}
+                    />
+                    <View className="flex-1 p-3 justify-center min-w-0">
+                      <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                        {album.name}
+                      </Text>
+                      {album.description ? (
+                        <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+                          {album.description}
+                        </Text>
+                      ) : null}
+                      <View className="flex-row items-center gap-3 mt-2">
+                        <Text className="text-muted-foreground text-[11px] font-medium">
+                          {album.item_count} items
+                        </Text>
+                        <View
+                          style={{
+                            paddingHorizontal: 6,
+                            paddingVertical: 2,
+                            borderRadius: 5,
+                            backgroundColor: badge.bg,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: badge.text,
+                              fontSize: 9,
+                              fontWeight: '600',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {badge.label}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        {/* ── Upcoming Schedule ── */}
+        <View className="px-5 mt-6">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-foreground text-base font-bold tracking-tight">
+              Upcoming Schedule
+            </Text>
+            <Pressable className="flex-row items-center gap-1 active:opacity-60">
+              <PlusIcon size={13} className="text-primary" />
+              <Text className="text-primary text-sm font-semibold">Add</Text>
+            </Pressable>
+          </View>
+
+          {events.length === 0 ? (
+            <View className="bg-card rounded-2xl p-6 items-center gap-2">
+              <CalendarPlusIcon size={20} className="text-muted-foreground" />
+              <Text className="text-muted-foreground text-sm">No upcoming events</Text>
+            </View>
+          ) : (
+            <View
+              className="bg-card rounded-2xl overflow-hidden"
+              style={{
+                shadowColor: '#000',
+                shadowOpacity: 0.04,
+                shadowRadius: 10,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 3,
+              }}
+            >
+              {events.map((event, i) => {
+                const dotColor = EVENT_TYPE_COLORS[event.event_type] || '#B66A40';
+                return (
+                  <Pressable
+                    key={event.id}
+                    className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
+                    style={
+                      i < events.length - 1
+                        ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }
+                        : undefined
+                    }
+                  >
+                    <View
+                      style={{
+                        width: 3,
+                        height: 34,
+                        borderRadius: 2,
+                        backgroundColor: dotColor,
+                      }}
+                    />
+                    <View className="flex-1 min-w-0">
+                      <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                        {event.title}
+                      </Text>
+                      <Text className="text-muted-foreground text-xs mt-0.5">
+                        {event.event_type.charAt(0).toUpperCase() + event.event_type.slice(1)}
+                      </Text>
+                    </View>
+                    <View className="items-end">
+                      <Text className="text-foreground text-xs font-bold">
+                        {formatDate(event.event_date)}
+                      </Text>
+                      {event.event_time ? (
+                        <Text className="text-muted-foreground text-xs mt-0.5">
+                          {formatTime(event.event_time)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}

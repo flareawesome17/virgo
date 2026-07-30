@@ -1,0 +1,22 @@
+# tinbase / Supabase project config.
+#
+# Lives at the repo ROOT, not under mobile/: the database is shared infrastructure (mobile, api and
+# web all reach it), and the CLI discovers supabase/config.toml, supabase/migrations/ and
+# supabase/seed.sql here.
+
+project_id = "rapidnative"
+
+[db]
+# Matches the hosted Postgres major version so migrations that apply locally apply in production.
+major_version = 17
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+enabled = true
+# Ordinary email + password sign-up. Sessions come from the app's own auth screens.
+enable_signup = true
+[auth.email]
+enable_confirmations = false
