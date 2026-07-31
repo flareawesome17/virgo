@@ -1,7 +1,6 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAuth, useReminders, useScheduleEventRange, useTheme } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import {
   ArrowLeftIcon, PlusIcon, CalendarDaysIcon, ClockIcon, BellIcon,
@@ -47,31 +46,17 @@ const HOURS = Array.from({ length: 18 }, (_, i) => i + 6); // 6 AM to 11 PM
 
 export default function AgendaScreen() {
   const { date } = useLocalSearchParams<{ date: string }>();
-  const { client } = useApp();
   const { user } = useAuth();
   const { isDark } = useTheme();
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['schedule_events', user?.id, date],
-    queryFn: async () => {
-      const { data, error } = await client.from('schedule_events')
-        .select('*').eq('user_id', user?.id).eq('event_date', date).order('event_time', { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id && !!date,
-  });
+  // A single-day agenda is the range endpoint with from == to; it already
+  // orders by event_date then event_time, which is what this screen wants.
+  const { events } = useScheduleEventRange(date, date);
 
-  const { data: reminders = [] } = useQuery({
-    queryKey: ['reminders', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('reminders')
-        .select('*').eq('user_id', user?.id).order('reminder_time', { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { reminders } = useReminders(
+    { orderBy: 'reminder_time', direction: 'asc', limit: 100 },
+    { enabled: !!user?.id },
+  );
 
   const dayReminders = reminders.filter(r => {
     const rt = new Date(r.reminder_time);
@@ -122,7 +107,7 @@ export default function AgendaScreen() {
                   {isNow && <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: '#B66A40', marginTop: 2 }} />}
                 </View>
                 {/* Events column */}
-                <View className="flex-1 pb-3" style={hour < 23 ? { borderLeftWidth: 1, borderLeftColor: '#F0E8E2' } : undefined}>
+                <View className="flex-1 pb-3" style={hour < 23 ? { borderLeftWidth: 1, borderLeftColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
                   {hourEvents.length > 0 ? (
                     <View className="ml-3 gap-2">
                       {hourEvents.map(ev => {
@@ -161,7 +146,7 @@ export default function AgendaScreen() {
               {dayReminders.map((rem, i) => (
                 <Pressable key={rem.id} onPress={() => router.push(`/schedule/reminders/${rem.id}`)}
                   className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
-                  style={i < dayReminders.length - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
+                  style={i < dayReminders.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
                   <View style={{ width: 30, height: 30, borderRadius: 10, backgroundColor: rem.is_alarm_enabled ? '#B66A4018' : '#A8948920', alignItems: 'center', justifyContent: 'center' }}>
                     {rem.is_alarm_enabled ? <BellIcon size={13} className="text-primary" /> : <BellIcon size={13} className="text-muted-foreground" />}
                   </View>

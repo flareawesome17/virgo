@@ -8,7 +8,6 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { queryClient, persistOptions } from '@/src/lib/queryClient'
 import { ThemeProvider } from '@/src/providers/ThemeProvider'
-import { AppProvider } from '@/src/providers/AppProvider'
 
 
 function RootLayoutNav() {
@@ -43,9 +42,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider>
         <QueryProvider>
-          <AppProvider>
-            <RootLayoutNav />
-          </AppProvider>
+          <RootLayoutNav />
         </QueryProvider>
       </ThemeProvider>
     </SafeAreaProvider>

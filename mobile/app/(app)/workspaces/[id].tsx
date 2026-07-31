@@ -1,7 +1,13 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import {
+  useAlbums,
+  useCollaborators,
+  useScheduleEvents,
+  useTheme,
+  useWorkspace,
+  usePlanLimits,
+} from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -19,6 +25,7 @@ import {
   LayersIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_COVER, PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -83,75 +90,52 @@ const QUICK_ACTIONS = [
 ];
 
 export default function WorkspaceDetailScreen() {
+  const { guardAlbumCreate } = usePlanLimits();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { client } = useApp();
-  const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: workspace, isLoading: wsLoading } = useQuery({
-    queryKey: ['workspace', id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('workspaces')
-        .select('*')
-        .eq('id', id)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!id,
-  });
+  const enabled = { enabled: !!id };
 
-  const { data: albums = [] } = useQuery({
-    queryKey: ['albums', id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('albums')
-        .select('*')
-        .eq('workspace_id', id)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!id,
-  });
+  const {
+    data: workspace,
+    isLoading: wsLoading,
+    refetch: refetchWorkspace,
+  } = useWorkspace(id);
 
-  const { data: collaborators = [] } = useQuery({
-    queryKey: ['collaborators', id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('collaborators')
-        .select('*')
-        .eq('workspace_id', id);
-      if (error) throw error;
-      return data ?? [];
+  const { albums, refetch: refetchAlbums } = useAlbums(
+    {
+      workspace_id: id,
+      orderBy: 'created_at',
+      direction: 'desc',
+      limit: 100,
     },
-    enabled: !!id,
-  });
+    enabled,
+  );
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['schedule_events', id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('schedule_events')
-        .select('*')
-        .eq('workspace_id', id)
-        .order('event_date', { ascending: true })
-        .limit(3);
-      if (error) throw error;
-      return data ?? [];
+  const { collaborators, refetch: refetchCollaborators } = useCollaborators(
+    { workspace_id: id, limit: 100 },
+    enabled,
+  );
+
+  const { events, refetch: refetchEvents } = useScheduleEvents(
+    {
+      workspace_id: id,
+      orderBy: 'event_date',
+      direction: 'asc',
+      limit: 3,
     },
-    enabled: !!id,
-  });
+    enabled,
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['workspace', id] });
-    await queryClient.invalidateQueries({ queryKey: ['albums', id] });
-    await queryClient.invalidateQueries({ queryKey: ['collaborators', id] });
-    await queryClient.invalidateQueries({ queryKey: ['schedule_events', id] });
+    await Promise.all([
+      refetchWorkspace(),
+      refetchAlbums(),
+      refetchCollaborators(),
+      refetchEvents(),
+    ]);
     setRefreshing(false);
   };
 
@@ -275,15 +259,18 @@ export default function WorkspaceDetailScreen() {
               return (
                 <Pressable
                   key={action.key}
+                  // These branches were empty stubs, so three of the four
+                  // quick actions did nothing when tapped.
                   onPress={() => {
-                    if (isInvite) {
+                    if (action.key === 'invite') {
                       router.push(`/workspaces/${id}/invite`);
                     } else if (action.key === 'album') {
-                      // Future: create album modal
+                      guardAlbumCreate(() => router.push(`/albums/create?workspaceId=${id}`))();
+                    } else if (action.key === 'upload') {
+                      router.push('/albums/upload');
                     } else if (action.key === 'schedule') {
-                      // Future: create schedule event
+                      router.push(`/schedule/create?workspaceId=${id}`);
                     }
-                    // upload: future
                   }}
                   className="bg-card rounded-2xl px-5 py-3.5 flex-row items-center gap-2.5 active:scale-[0.96]"
                   style={{
@@ -348,7 +335,7 @@ export default function WorkspaceDetailScreen() {
                   className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
                   style={
                     i < collaborators.length - 1
-                      ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }
+                      ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
                       : undefined
                   }
                 >
@@ -356,7 +343,7 @@ export default function WorkspaceDetailScreen() {
                     source={{
                       uri:
                         collab.avatar_url ||
-                        `https://picsum.photos/seed/${collab.id}/80/80`,
+                        PLACEHOLDER_IMAGE,
                     }}
                     style={{ width: 36, height: 36, borderRadius: 18 }}
                   />
@@ -400,7 +387,7 @@ export default function WorkspaceDetailScreen() {
               <LayersIcon size={20} className="text-muted-foreground" />
               <Text className="text-muted-foreground text-sm">No albums created yet</Text>
               <Pressable
-                onPress={() => router.push(`/albums/create?workspaceId=${id}`)}
+                onPress={guardAlbumCreate(() => router.push(`/albums/create?workspaceId=${id}`))}
                 className="bg-primary rounded-xl px-4 py-2 active:scale-[0.96] mt-1"
               >
                 <Text className="text-white text-sm font-semibold">Create first album</Text>
@@ -413,6 +400,8 @@ export default function WorkspaceDetailScreen() {
                 return (
                   <Pressable
                     key={album.id}
+                    // Had no onPress at all, so album cards were inert.
+                    onPress={() => router.push(`/albums/${album.id}`)}
                     className="bg-card rounded-2xl overflow-hidden flex-row active:scale-[0.98]"
                     style={{
                       shadowColor: '#000',
@@ -426,7 +415,7 @@ export default function WorkspaceDetailScreen() {
                       source={{
                         uri:
                           album.cover_url ||
-                          `https://picsum.photos/seed/${album.id}/200/200`,
+                          PLACEHOLDER_COVER,
                       }}
                       style={{ width: 80, height: 80 }}
                     />
@@ -477,7 +466,7 @@ export default function WorkspaceDetailScreen() {
             <Text className="text-foreground text-base font-bold tracking-tight">
               Upcoming Schedule
             </Text>
-            <Pressable className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push(`/schedule/create?workspaceId=${id}`)} className="flex-row items-center gap-1 active:opacity-60">
               <PlusIcon size={13} className="text-primary" />
               <Text className="text-primary text-sm font-semibold">Add</Text>
             </Pressable>
@@ -504,10 +493,11 @@ export default function WorkspaceDetailScreen() {
                 return (
                   <Pressable
                     key={event.id}
+                    onPress={() => router.push(`/schedule/${event.id}`)}
                     className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
                     style={
                       i < events.length - 1
-                        ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }
+                        ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
                         : undefined
                     }
                   >

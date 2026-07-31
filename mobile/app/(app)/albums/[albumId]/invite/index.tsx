@@ -1,7 +1,12 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import {
+  useAlbum,
+  useAuth,
+  useCollaborators,
+  useFriends,
+  useTheme,
+} from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useMemo } from 'react';
 import {
@@ -9,6 +14,7 @@ import {
   UserCheckIcon, ClockIcon, LayersIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -21,43 +27,25 @@ cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { colo
 
 export default function AlbumInviteScreen() {
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
-  const { client } = useApp();
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: album } = useQuery({
-    queryKey: ['album', albumId],
-    queryFn: async () => {
-      const { data, error } = await client.from('albums').select('id, name, item_count, cover_url').eq('id', albumId).single();
-      if (error) throw error; return data;
-    },
-    enabled: !!albumId,
-  });
+  const { data: album } = useAlbum(albumId);
 
-  const { data: friends = [] } = useQuery({
-    queryKey: ['friends', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('friends').select('*').eq('user_id', user?.id).order('created_at', { ascending: false });
-      if (error) throw error; return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { friends, refetch: refetchFriends } = useFriends(
+    { orderBy: 'created_at', direction: 'desc', limit: 100 },
+    { enabled: !!user?.id },
+  );
 
-  const { data: collaborators = [] } = useQuery({
-    queryKey: ['collaborators', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('collaborators').select('*').eq('user_id', user?.id);
-      if (error) throw error; return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { collaborators, refetch: refetchCollaborators } = useCollaborators(
+    { limit: 100 },
+    { enabled: !!user?.id },
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['friends'] });
-    await queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+    await Promise.all([refetchFriends(), refetchCollaborators()]);
     setRefreshing(false);
   };
 
@@ -88,7 +76,7 @@ export default function AlbumInviteScreen() {
         {/* Album info card */}
         {album && (
           <View className="mx-5 mt-3 bg-card rounded-2xl p-4 flex-row items-center gap-4" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
-            <Image source={{ uri: album.cover_url || `https://picsum.photos/seed/${album.id}/120/120` }}
+            <Image source={{ uri: album.cover_url || PLACEHOLDER_IMAGE }}
               style={{ width: 52, height: 52, borderRadius: 14 }} />
             <View className="flex-1">
               <Text className="text-foreground text-base font-bold">{album.name}</Text>
@@ -162,8 +150,8 @@ export default function AlbumInviteScreen() {
                 <Pressable key={f.id}
                   onPress={() => router.push(`/albums/${albumId}/invite/select`)}
                   className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
-                  style={i < Math.min(availableFriends.length, 5) - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
-                  <Image source={{ uri: f.friend_avatar_url || `https://picsum.photos/seed/${f.id}/80/80` }}
+                  style={i < Math.min(availableFriends.length, 5) - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
+                  <Image source={{ uri: f.friend_avatar_url || PLACEHOLDER_IMAGE }}
                     style={{ width: 40, height: 40, borderRadius: 20 }} />
                   <View className="flex-1 min-w-0">
                     <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>{f.friend_name}</Text>
@@ -199,7 +187,7 @@ export default function AlbumInviteScreen() {
             </View>
             <View className="flex-row -space-x-2">
               {collaborators.slice(0, 5).map((c, i) => (
-                <Image key={c.id} source={{ uri: c.avatar_url || `https://picsum.photos/seed/${c.id}/60/60` }}
+                <Image key={c.id} source={{ uri: c.avatar_url || PLACEHOLDER_IMAGE }}
                   style={{ width: 36, height: 36, borderRadius: 18, marginLeft: i > 0 ? -10 : 0, borderWidth: 2, borderColor: '#FFF8F4' }} />
               ))}
               {collaborators.length > 5 && (

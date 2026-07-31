@@ -1,7 +1,6 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth } from '@/src/hooks';
+import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth, useCreateScheduleEvent, useWorkspaces, useTheme } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -9,6 +8,8 @@ import {
   CalendarDaysIcon, ClockIcon, CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { DateTimeField } from '@/components';
+import { dateToKey, dateToTimeString, parseDateKey } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CameraIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -28,57 +29,79 @@ const EVENT_TYPES = [
   { key: 'meeting', label: 'Meeting', icon: PresentationIcon, color: '#5B7B9A' },
 ];
 
-function todayStr(): string { return new Date().toISOString().slice(0, 10); }
 
 export default function CreateEventScreen() {
-  const { date: initialDate } = useLocalSearchParams<{ date?: string }>();
-  const { client } = useApp();
+  const { isDark } = useTheme();
+  const insets = useSafeAreaInsets();
+  // workspaceId arrives when this is opened from a workspace's quick actions,
+  // so that workspace starts selected.
+  const { date: initialDate, workspaceId: initialWorkspaceId } =
+    useLocalSearchParams<{ date?: string; workspaceId?: string }>();
   const { user } = useAuth();
-  const queryClient = useQueryClient();
 
   const [eventType, setEventType] = useState('shoot');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [eventDate, setEventDate] = useState(initialDate || todayStr());
-  const [eventTime, setEventTime] = useState('09:00');
-  const [selectedWsId, setSelectedWsId] = useState<string | null>(null);
+  // One Date backs both pickers. The screen used to hold two hand-typed
+  // strings, which could disagree or be malformed.
+  const [when, setWhen] = useState(() => {
+    const base = initialDate ? parseDateKey(initialDate) : new Date();
+    base.setHours(9, 0, 0, 0);
+    return base;
+  });
+  const [selectedWsId, setSelectedWsId] = useState<string | null>(
+    initialWorkspaceId ?? null,
+  );
   const [showWsPicker, setShowWsPicker] = useState(false);
 
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('workspaces').select('id, name, accent_color').eq('user_id', user?.id).order('name', { ascending: true });
-      if (error) throw error; return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { workspaces } = useWorkspaces(
+    { orderBy: 'name', direction: 'asc', limit: 100 },
+    { enabled: !!user?.id },
+  );
 
-  const selectedWs = workspaces.find(w => w.id === selectedWsId);
+  const selectedWs = workspaces.find((w) => w.id === selectedWsId);
   const canSave = title.trim().length > 0;
 
-  const createEvent = useMutation({
-    mutationFn: async () => {
-      const now = new Date().toISOString();
-      const id = 'event-' + Date.now();
-      const { error } = await client.from('schedule_events').insert({
-        id, title: title.trim(), description: description.trim() || null,
-        event_date: eventDate, event_time: eventTime, event_type: eventType,
-        workspace_id: selectedWsId, user_id: user?.id, created_at: now,
-      });
-      if (error) throw error;
-      return id;
-    },
-    onSuccess: (newId) => {
-      queryClient.invalidateQueries({ queryKey: ['schedule_events'] });
-      router.replace(`/schedule/${newId}`);
-    },
-    onError: () => Alert.alert('Error', 'Could not create event.'),
-  });
+  const createEvent = useCreateScheduleEvent();
+
+  const handleCreate = () => {
+    createEvent.mutate(
+      {
+        title: title.trim(),
+        description: description.trim() || null,
+        event_date: dateToKey(when),
+        event_time: dateToTimeString(when),
+        event_type: eventType as 'shoot' | 'editing' | 'review' | 'delivery' | 'meeting',
+        // Omitted rather than null when unset: the API rejects an explicit null
+        // for an optional string, and a missing key simply leaves it NULL.
+        ...(selectedWsId ? { workspace_id: selectedWsId } : {}),
+      },
+      {
+        onSuccess: (event) => router.replace(`/schedule/${event.id}`),
+        // Show what actually went wrong. A flat "Could not create event"
+        // hides the difference between a validation problem, an expired
+        // session and the server being unreachable — all of which need a
+        // different response from the user.
+        onError: (err: any) =>
+          Alert.alert(
+            'Could not create event',
+            err?.message || 'Something went wrong. Please try again.',
+          ),
+      },
+    );
+  };
 
   const activeType = EVENT_TYPES.find(t => t.key === eventType) || EVENT_TYPES[0];
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      {/* Lifts the form above the keyboard. Without this the fields nearest
+          the bottom sat underneath it on iOS with no way to scroll to them. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
           <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
@@ -121,24 +144,21 @@ export default function CreateEventScreen() {
             className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2, minHeight: 72 }} />
         </View>
 
-        {/* Date & Time */}
+        {/* Date & Time — native pickers. These were free-text fields that
+            required typing YYYY-MM-DD and HH:MM by hand. */}
         <View className="px-5 mt-5 flex-row gap-3">
-          <View className="flex-1">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Date</Text>
-            <View className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-2" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-              <CalendarDaysIcon size={15} className="text-muted-foreground" />
-              <TextInput value={eventDate} onChangeText={setEventDate} placeholder="YYYY-MM-DD" placeholderTextColor="#A89489"
-                className="text-foreground text-sm flex-1" />
-            </View>
-          </View>
-          <View className="flex-1">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Time</Text>
-            <View className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-2" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-              <ClockIcon size={15} className="text-muted-foreground" />
-              <TextInput value={eventTime} onChangeText={setEventTime} placeholder="09:00" placeholderTextColor="#A89489"
-                className="text-foreground text-sm flex-1" />
-            </View>
-          </View>
+          <DateTimeField
+            label="Date"
+            mode="date"
+            value={when}
+            onChange={(next) => setWhen(next)}
+          />
+          <DateTimeField
+            label="Time"
+            mode="time"
+            value={when}
+            onChange={(next) => setWhen(next)}
+          />
         </View>
 
         {/* Workspace */}
@@ -156,7 +176,7 @@ export default function CreateEventScreen() {
           </Pressable>
           {showWsPicker && (
             <View className="mt-2 bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-              <Pressable onPress={() => { setSelectedWsId(null); setShowWsPicker(false); }} className="px-4 py-3 active:bg-muted/30 flex-row items-center gap-3" style={{ borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }}>
+              <Pressable onPress={() => { setSelectedWsId(null); setShowWsPicker(false); }} className="px-4 py-3 active:bg-muted/30 flex-row items-center gap-3" style={{ borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }}>
                 <Text className="text-muted-foreground text-sm flex-1">None</Text>
                 {!selectedWsId && <CheckIcon size={14} className="text-primary" />}
               </Pressable>
@@ -175,15 +195,16 @@ export default function CreateEventScreen() {
       </ScrollView>
 
       {/* Bottom actions */}
-      <View className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-4 bg-background flex-row gap-3">
+      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background flex-row gap-3" style={{ paddingBottom: insets.bottom + 16 }}>
         <Pressable onPress={() => router.back()} className="flex-1 bg-card rounded-2xl py-3.5 items-center active:scale-[0.97]"
           style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
           <Text className="text-foreground text-base font-semibold">Back</Text>
         </Pressable>
-        <Pressable onPress={() => canSave && createEvent.mutate()} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-primary' : 'bg-muted'}`} disabled={!canSave || createEvent.isPending}>
+        <Pressable onPress={() => canSave && handleCreate()} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-primary' : 'bg-muted'}`} disabled={!canSave || createEvent.isPending}>
           <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>{createEvent.isPending ? 'Creating...' : 'Create Event'}</Text>
         </Pressable>
       </View>
+          </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

@@ -1,7 +1,6 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAuth, useScheduleEvents, useTheme } from '@/src/hooks';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
@@ -9,6 +8,7 @@ import {
   CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { DAYS, formatTime, getMonthWeeks, todayKey } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -28,58 +28,23 @@ const EVENT_COLORS: Record<string, string> = {
   delivery: '#6B8E4E', meeting: '#5B7B9A',
 };
 
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-
-function getMonthGrid(year: number, month: number) {
-  const firstDay = new Date(year, month, 1).getDay();
-  const adjustedFirst = firstDay === 0 ? 6 : firstDay - 1;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date();
-  const cells: { day: number; month: number; year: number; isToday: boolean; isOutside: boolean }[] = [];
-  const prevDays = new Date(year, month, 0).getDate();
-  for (let i = adjustedFirst - 1; i >= 0; i--) {
-    cells.push({ day: prevDays - i, month: month - 1, year, isToday: false, isOutside: true });
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push({ day: d, month, year, isToday: today.getFullYear() === year && today.getMonth() === month && today.getDate() === d, isOutside: false });
-  }
-  const remaining = 7 - (cells.length % 7 === 0 ? 7 : cells.length % 7);
-  for (let d = 1; d <= remaining; d++) {
-    cells.push({ day: d, month: month + 1, year, isToday: false, isOutside: true });
-  }
-  return cells;
-}
-
-function dateKey(y: number, m: number, d: number) {
-  return `${y}-${String(m + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-}
-function formatTime(timeStr: string | null): string {
-  if (!timeStr) return '';
-  const [h, m] = timeStr.split(':');
-  const hour = parseInt(h), ampm = hour >= 12 ? 'PM' : 'AM', h12 = hour % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
-}
+// Long month names for this screen's header; the rest of the date helpers
+// come from src/lib/calendar.ts. The local copies mishandled month/year
+// rollover, emitting keys like 2026-00-29 and 2026-13-01.
+const MONTHS_LONG = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 export default function CalendarScreen() {
-  const { client } = useApp();
   const { user } = useAuth();
   const { isDark } = useTheme();
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
-  const [selectedDate, setSelectedDate] = useState(dateKey(today.getFullYear(), today.getMonth(), today.getDate()));
+  const [selectedDate, setSelectedDate] = useState(todayKey());
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['schedule_events', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('schedule_events')
-        .select('*').eq('user_id', user?.id).order('event_date', { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { events } = useScheduleEvents(
+    { orderBy: 'event_date', direction: 'asc', limit: 100 },
+    { enabled: !!user?.id },
+  );
 
   const eventsByDate = useMemo(() => {
     const m: Record<string, typeof events> = {};
@@ -87,9 +52,9 @@ export default function CalendarScreen() {
     return m;
   }, [events]);
 
-  const monthGrid = getMonthGrid(viewYear, viewMonth);
+  const monthWeeks = getMonthWeeks(viewYear, viewMonth);
   const selectedEvents = eventsByDate[selectedDate] || [];
-  const isSelToday = selectedDate === dateKey(today.getFullYear(), today.getMonth(), today.getDate());
+  const isSelToday = selectedDate === todayKey();
 
   const goPrev = () => { if (viewMonth === 0) { setViewYear(viewYear-1); setViewMonth(11); } else setViewMonth(viewMonth-1); };
   const goNext = () => { if (viewMonth === 11) { setViewYear(viewYear+1); setViewMonth(0); } else setViewMonth(viewMonth+1); };
@@ -119,7 +84,7 @@ export default function CalendarScreen() {
             <Pressable onPress={goPrev} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
               <Text className="text-foreground text-lg font-bold">‹</Text>
             </Pressable>
-            <Text className="text-foreground text-lg font-extrabold tracking-tight">{MONTHS[viewMonth]} {viewYear}</Text>
+            <Text className="text-foreground text-lg font-extrabold tracking-tight">{MONTHS_LONG[viewMonth]} {viewYear}</Text>
             <Pressable onPress={goNext} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
               <Text className="text-foreground text-lg font-bold">›</Text>
             </Pressable>
@@ -127,31 +92,34 @@ export default function CalendarScreen() {
           {/* Day labels */}
           <View className="flex-row mb-2">
             {DAYS.map(d => (
-              <View key={d} style={{ width: `${100/7}%` }} className="items-center py-1">
+              <View key={d} style={{ flex: 1 }} className="items-center py-1">
                 <Text className="text-muted-foreground text-[10px] font-bold uppercase tracking-[1.5px]">{d.slice(0,2)}</Text>
               </View>
             ))}
           </View>
-          {/* Grid */}
-          <View className="flex-row flex-wrap">
-            {monthGrid.map((cell, i) => {
-              const key = dateKey(cell.year, cell.month, cell.day);
+          {/* Grid — one View per week with flex-1 cells. A single wrapping
+              container of `width: 100/7 %` rounded past 100%, so the seventh
+              cell wrapped and the Sunday column rendered empty. */}
+          {monthWeeks.map((week, w) => (
+            <View key={w} className="flex-row">
+            {week.map((cell) => {
+              const key = cell.key;
               const dayEvents = eventsByDate[key] || [];
               const has = dayEvents.length > 0;
-              const isSel = key === selectedDate && !cell.isOutside;
+              const isSel = key === selectedDate;
               return (
-                <Pressable key={i} onPress={() => { if (!cell.isOutside) setSelectedDate(key); }}
-                  style={{ width: `${100/7}%` }} className="items-center pt-1 pb-2">
+                <Pressable key={key} onPress={() => setSelectedDate(key)}
+                  style={{ flex: 1 }} className="items-center pt-1 pb-2">
                   <View className={`w-9 h-9 rounded-xl items-center justify-center mb-1 ${
                     cell.isToday ? 'bg-primary' : isSel ? 'bg-primary/10' : ''}`}>
                     <Text className={`text-sm font-bold ${cell.isOutside ? 'text-muted-foreground/20' : cell.isToday ? 'text-white' : isSel ? 'text-primary' : 'text-foreground'}`}>
                       {cell.day}
                     </Text>
                   </View>
-                  {has && !cell.isOutside && (
-                    <View className="flex-row gap-[1.5px]">
-                      {dayEvents.slice(0,4).map((ev, j) => (
-                        <View key={j} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: EVENT_COLORS[ev.event_type] || '#B66A40' }} />
+                  {has && (
+                    <View className="flex-row gap-[1.5px]" style={{ opacity: cell.isOutside ? 0.35 : 1 }}>
+                      {dayEvents.slice(0,4).map((ev) => (
+                        <View key={ev.id} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: EVENT_COLORS[ev.event_type] || '#B66A40' }} />
                       ))}
                       {dayEvents.length > 4 && <Text className="text-muted-foreground text-[7px] font-bold">+{dayEvents.length - 4}</Text>}
                     </View>
@@ -159,7 +127,8 @@ export default function CalendarScreen() {
                 </Pressable>
               );
             })}
-          </View>
+            </View>
+          ))}
         </View>
 
         {/* Selected day detail */}

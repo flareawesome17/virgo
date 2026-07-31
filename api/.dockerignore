@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+*.tsbuildinfo
+
+# Never bake secrets into the image — they arrive at runtime via env_file.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+README.md
+*.log

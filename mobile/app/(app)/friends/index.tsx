@@ -1,7 +1,6 @@
 import { View, Text, FlatList, RefreshControl, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAuth, useFriends, useTheme } from '@/src/hooks';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
@@ -9,6 +8,7 @@ import {
   ClockIcon, MessageCircleIcon, MailIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -20,24 +20,18 @@ cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp:
 cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function FriendsScreen() {
-  const { client } = useApp();
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: friends = [] } = useQuery({
-    queryKey: ['friends', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('friends').select('*').eq('user_id', user?.id).order('friend_name', { ascending: true });
-      if (error) throw error; return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { friends, refetch } = useFriends(
+    { orderBy: 'friend_name', direction: 'asc', limit: 100 },
+    { enabled: !!user?.id },
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['friends'] });
+    await refetch();
     setRefreshing(false);
   };
 
@@ -123,7 +117,7 @@ export default function FriendsScreen() {
         renderItem={({ item }) => (
           <View className="mx-5 mb-2 bg-card rounded-2xl p-4 flex-row items-center gap-4"
             style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <Image source={{ uri: item.friend_avatar_url || `https://picsum.photos/seed/${item.id}/80/80` }}
+            <Image source={{ uri: item.friend_avatar_url || PLACEHOLDER_IMAGE }}
               style={{ width: 46, height: 46, borderRadius: 23 }} />
             <View className="flex-1 min-w-0">
               <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{item.friend_name}</Text>

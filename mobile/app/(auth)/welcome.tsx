@@ -1,6 +1,6 @@
 import { View, Text, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useAuth } from '@/src/hooks';
 import { ArrowRightIcon, MailIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -11,9 +11,13 @@ cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color:
 export default function WelcomeScreen() {
   const { user } = useAuth();
 
+  // Declarative redirect, not router.replace(). Calling replace() here ran a
+  // navigation side effect during render, which updates the navigation
+  // container while React is rendering this component — the "Cannot update a
+  // component while rendering a different component" error. <Redirect> defers
+  // the navigation until after the commit.
   if (process.env.EXPO_PUBLIC_RAPIDNATIVE_MODE !== 'designer' && user) {
-    router.replace('/(tabs)');
-    return null;
+    return <Redirect href="/(app)/(tabs)" />;
   }
 
   return (

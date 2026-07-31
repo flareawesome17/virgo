@@ -1,7 +1,6 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth } from '@/src/hooks';
+import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCreateFriend } from '@/src/hooks';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { ArrowLeftIcon, SendIcon, UserPlusIcon, SearchIcon, MailIcon } from 'lucide-react-native';
@@ -14,36 +13,34 @@ cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { colo
 cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function SendFriendRequestScreen() {
-  const { client } = useApp();
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
 
-  const sendRequest = useMutation({
-    mutationFn: async () => {
-      const now = new Date().toISOString();
-      const id = 'friend-' + Date.now();
-      const { error } = await client.from('friends').insert({
-        id, friend_name: name.trim(), friend_email: email.trim() || null,
-        status: 'pending', requested_by: 'me', created_at: now, updated_at: now,
-      });
-      if (error) throw error;
-      return id;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['friends'] });
-      setSent(true);
-    },
-    onError: () => Alert.alert('Error', 'Could not send friend request.'),
-  });
+  const sendRequest = useCreateFriend();
+
+  const handleSend = () => {
+    sendRequest.mutate(
+      {
+        friend_name: name.trim(),
+        friend_email: email.trim() || null,
+        status: 'pending',
+        requested_by: 'me',
+      },
+      {
+        onSuccess: () => setSent(true),
+        onError: () => Alert.alert('Error', 'Could not send friend request.'),
+      },
+    );
+  };
 
   const canSend = name.trim().length > 0;
 
   if (sent) {
     return (
       <SafeAreaView edges={['top']} className="flex-1 bg-background">
+
         <View className="flex-1 px-5 justify-center items-center" style={{ paddingBottom: 60 }}>
           <View className="w-24 h-24 rounded-full bg-[#6B8E4E18] items-center justify-center mb-6"
             style={{ shadowColor: '#6B8E4E', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: 3 }, elevation: 5 }}>
@@ -69,6 +66,12 @@ export default function SendFriendRequestScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      {/* Lifts the form above the keyboard. Without this the fields nearest
+          the bottom sat underneath it on iOS with no way to scroll to them. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
           <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
@@ -110,8 +113,8 @@ export default function SendFriendRequestScreen() {
         </View>
       </ScrollView>
 
-      <View className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-4 bg-background">
-        <Pressable onPress={() => canSend && sendRequest.mutate()}
+      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
+        <Pressable onPress={() => canSend && handleSend()}
           disabled={!canSend || sendRequest.isPending}
           className={`rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.97] ${canSend ? 'bg-primary' : 'bg-muted'}`}
           style={canSend ? { shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 } : undefined}>
@@ -121,6 +124,7 @@ export default function SendFriendRequestScreen() {
           </Text>
         </Pressable>
       </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

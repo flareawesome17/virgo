@@ -1,11 +1,11 @@
 import { View, Text, FlatList, RefreshControl, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAlbum, useAuth, useCollaborators, useTheme } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import { ArrowLeftIcon, UserPlusIcon, MessageCircleIcon, MailIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -21,30 +21,20 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function AlbumCollaboratorListScreen() {
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
-  const { client } = useApp();
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: album } = useQuery({
-    queryKey: ['album', albumId],
-    queryFn: async () => { const { data } = await client.from('albums').select('id, name').eq('id', albumId).single(); return data; },
-    enabled: !!albumId,
-  });
+  const { data: album } = useAlbum(albumId);
 
-  const { data: collaborators = [] } = useQuery({
-    queryKey: ['collaborators', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('collaborators').select('*').eq('user_id', user?.id).order('created_at', { ascending: false });
-      if (error) throw error; return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { collaborators, refetch: refetchCollaborators } = useCollaborators(
+    { orderBy: 'created_at', direction: 'desc', limit: 100 },
+    { enabled: !!user?.id },
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+    await refetchCollaborators();
     setRefreshing(false);
   };
 
@@ -86,7 +76,7 @@ export default function AlbumCollaboratorListScreen() {
           return (
             <Pressable className="mx-5 mb-1 bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
               style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-              <Image source={{ uri: item.avatar_url || `https://picsum.photos/seed/${item.id}/80/80` }}
+              <Image source={{ uri: item.avatar_url || PLACEHOLDER_IMAGE }}
                 style={{ width: 44, height: 44, borderRadius: 22 }} />
               <View className="flex-1 min-w-0">
                 <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{item.name}</Text>

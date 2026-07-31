@@ -1,13 +1,13 @@
 import { View, Text, ScrollView, Pressable, Image } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
-import { useApp, useAuth } from '@/src/hooks';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAlbum, useAuth, useCollaborators, useFriends, useTheme } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useMemo } from 'react';
 import {
   ArrowLeftIcon, CheckIcon, CircleIcon, SendIcon, UserCheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -22,39 +22,30 @@ const ROLES = [
 ];
 
 export default function SelectFriendsScreen() {
+  const { isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
-  const { client } = useApp();
   const { user } = useAuth();
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [role, setRole] = useState('editor');
 
-  const { data: album } = useQuery({
-    queryKey: ['album', albumId],
-    queryFn: async () => {
-      const { data, error } = await client.from('albums').select('id, name').eq('id', albumId).single();
-      if (error) throw error; return data;
-    },
-    enabled: !!albumId,
-  });
+  const { data: album } = useAlbum(albumId);
 
-  const { data: friends = [] } = useQuery({
-    queryKey: ['friends', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('friends').select('*').eq('user_id', user?.id).eq('status', 'accepted').order('friend_name', { ascending: true });
-      if (error) throw error; return data ?? [];
+  const { friends } = useFriends(
+    {
+      status: 'accepted',
+      orderBy: 'friend_name',
+      direction: 'asc',
+      limit: 100,
     },
-    enabled: !!user?.id,
-  });
+    { enabled: !!user?.id },
+  );
 
-  const { data: collaborators = [] } = useQuery({
-    queryKey: ['collaborators', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('collaborators').select('*').eq('user_id', user?.id);
-      if (error) throw error; return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { collaborators } = useCollaborators(
+    { limit: 100 },
+    { enabled: !!user?.id },
+  );
 
   const existingNames = new Set(collaborators.map(c => c.name.toLowerCase()));
   const available = friends.filter(f => !existingNames.has(f.friend_name.toLowerCase()));
@@ -119,11 +110,11 @@ export default function SelectFriendsScreen() {
                 return (
                   <Pressable key={f.id} onPress={() => toggle(f.id)}
                     className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
-                    style={i < available.length - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
+                    style={i < available.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
                     <View className="w-7 h-7 rounded-full items-center justify-center">
                       {isSel ? <CheckIcon size={18} className="text-primary" /> : <CircleIcon size={18} className="text-muted-foreground/40" />}
                     </View>
-                    <Image source={{ uri: f.friend_avatar_url || `https://picsum.photos/seed/${f.id}/80/80` }}
+                    <Image source={{ uri: f.friend_avatar_url || PLACEHOLDER_IMAGE }}
                       style={{ width: 40, height: 40, borderRadius: 20 }} />
                     <View className="flex-1 min-w-0">
                       <Text className={`text-sm font-semibold ${isSel ? 'text-primary' : 'text-foreground'}`} numberOfLines={1}>{f.friend_name}</Text>
@@ -140,7 +131,7 @@ export default function SelectFriendsScreen() {
 
       {/* Bottom send bar */}
       {canSend && (
-        <View className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-4 bg-background">
+        <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
           <Pressable onPress={() => {
               const ids = Array.from(selectedIds).join(',');
               const names = selectedFriends.map(f => f.friend_name).join(',');

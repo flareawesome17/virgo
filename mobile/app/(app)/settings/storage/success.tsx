@@ -1,4 +1,5 @@
 import { View, Text, Pressable } from 'react-native';
+import { useTheme } from '@/src/hooks';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -19,6 +20,7 @@ const PLAN_DATA: Record<string, { name: string; storage: string; priceMonthly: n
 };
 
 export default function PurchaseSuccessScreen() {
+  const { isDark } = useTheme();
   const { plan: planKey = 'creator', cycle = 'monthly' } = useLocalSearchParams<{ plan?: string; cycle?: string }>();
   const plan = PLAN_DATA[planKey] || PLAN_DATA.creator;
   const price = cycle === 'monthly' ? plan.priceMonthly : plan.priceYearly;
@@ -49,7 +51,7 @@ export default function PurchaseSuccessScreen() {
             </View>
           </View>
 
-          <View className="gap-2 pt-4" style={{ borderTopWidth: 1, borderTopColor: '#F0E8E2' }}>
+          <View className="gap-2 pt-4" style={{ borderTopWidth: 1, borderTopColor: isDark ? '#2A2522' : '#F0E8E2' }}>
             <Row label="Order ID" value={orderId} />
             <Row label="Storage" value={plan.storage} />
             <Row label="Billing" value={cycle === 'monthly' ? 'Monthly' : 'Yearly (-20%)'} />

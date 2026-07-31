@@ -1,11 +1,25 @@
 /**
  * useAuth Hook
  *
- * Authentication hook providing user state and auth actions via React Query.
+ * Authentication against the NestJS REST API. The public shape is unchanged
+ * from the Supabase version — `user`, `session`, `isAuthenticated`,
+ * `isLoading`, and the `signIn` / `signUp` / `signOut` mutations — so screens
+ * consuming it did not need to change.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useApp } from '@/src/providers/AppProvider';
+import { clearReminderNotifications } from '@/src/lib/notifications';
+import { useEffect } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  ApiError,
+  authApi,
+  getAccessToken,
+  hydrateTokens,
+  queryKeys,
+  setAuthFailureHandler,
+  type AuthUser,
+  type UpdateProfileInput,
+} from '@/src/api';
 
 export interface User {
   id: string;
@@ -13,71 +27,183 @@ export interface User {
 }
 
 export class AuthError extends Error {
+  /** HTTP status, when the failure came from the API. 0 means transport. */
+  status?: number;
+  /**
+   * Kept because screens read `err.reason` first. It must stay human-readable:
+   * putting the status code here made the sign-in screen display "401".
+   */
   reason?: string;
-  constructor(message: string, reason?: string) {
+
+  constructor(message: string, status?: number) {
     super(message);
-    this.reason = reason;
+    this.name = 'AuthError';
+    this.status = status;
+    this.reason = message;
   }
 }
 
+/** Kept for backwards compatibility with screens importing it. */
 export const authKeys = {
-  session: ['auth', 'session'] as const,
-  user: ['auth', 'user'] as const,
+  session: queryKeys.auth.session,
+  user: queryKeys.auth.user,
 };
 
+/**
+ * Turns a transport/API failure into a message worth showing a person.
+ *
+ * The API's own messages are already user-safe ("Invalid email or password",
+ * "An account with that email already exists"), so they are passed through
+ * rather than replaced with something vaguer.
+ */
+function toAuthError(err: unknown): AuthError {
+  if (err instanceof ApiError) {
+    if (err.isNetworkError) {
+      return new AuthError(
+        'Could not reach the server. Check your connection and try again.',
+        0,
+      );
+    }
+    if (err.status >= 500) {
+      return new AuthError(
+        'The server had a problem. Please try again in a moment.',
+        err.status,
+      );
+    }
+    return new AuthError(err.message, err.status);
+  }
+  return new AuthError('Something went wrong. Please try again.');
+}
+
 export function useAuth() {
-  const { client } = useApp();
   const queryClient = useQueryClient();
 
-  const sessionQuery = useQuery({
-    queryKey: authKeys.session,
+  // A 401 that survives a refresh attempt means the session is unrecoverable.
+  // Handling it centrally flips the app to the signed-out UI once, instead of
+  // every screen separately discovering that its queries now fail.
+  useEffect(() => {
+    setAuthFailureHandler(() => {
+      queryClient.setQueryData(queryKeys.auth.session, null);
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+    });
+    return () => setAuthFailureHandler(null);
+  }, [queryClient]);
+
+  const sessionQuery = useQuery<AuthUser | null>({
+    queryKey: queryKeys.auth.session,
     queryFn: async () => {
-      const { data, error } = await client.auth.getSession();
-      if (error) throw error;
-      return data.session;
+      // Tokens live in AsyncStorage, so the first call after a cold start has
+      // to read them before it can know whether a session exists.
+      await hydrateTokens();
+      if (!getAccessToken()) return null;
+
+      try {
+        return await authApi.me();
+      } catch (err) {
+        // A definitive 401 means the stored tokens are dead -> signed out.
+        if (err instanceof ApiError && err.isAuthError) return null;
+        // Anything else (offline, DNS, timeout, 5xx) is NOT proof of being
+        // signed out. Rethrow so the guard can show a retry instead of
+        // dumping someone to the login screen over a dropped connection.
+        throw err;
+      }
     },
     staleTime: 0,
+    // One retry covers a transient blip; more would stall the splash screen.
+    retry: 1,
   });
 
-  const session = sessionQuery.data ?? null;
-  const user: User | null = session?.user
-    ? { id: session.user.id, email: session.user.email ?? '' }
+  const authUser = sessionQuery.data ?? null;
+  const user: User | null = authUser
+    ? { id: authUser.id, email: authUser.email }
     : null;
 
   const signIn = useMutation({
-    mutationFn: async ({ email, password }: { email: string; password: string }) => {
-      const { data, error } = await client.auth.signInWithPassword({ email, password });
-      if (error) throw new AuthError(error.message, error.reason);
-      return data;
+    mutationFn: async ({
+      email,
+      password,
+    }: {
+      email: string;
+      password: string;
+    }) => {
+      try {
+        return await authApi.login({ email, password });
+      } catch (err) {
+        throw toAuthError(err);
+      }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: authKeys.session }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.auth.session, result.user);
+    },
   });
 
   const signUp = useMutation({
-    mutationFn: async ({ email, password }: { email: string; password: string }) => {
-      const { data, error } = await client.auth.signUp({ email, password });
-      if (error) throw new AuthError(error.message, error.reason);
-      return data;
+    mutationFn: async ({
+      email,
+      password,
+      displayName,
+    }: {
+      email: string;
+      password: string;
+      displayName?: string;
+    }) => {
+      try {
+        return await authApi.register({ email, password, displayName });
+      } catch (err) {
+        throw toAuthError(err);
+      }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: authKeys.session }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.auth.session, result.user);
+    },
+  });
+
+  const updateProfile = useMutation({
+    mutationFn: async (input: UpdateProfileInput) => {
+      try {
+        return await authApi.updateMe(input);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+    onSuccess: (updated) => {
+      // Write straight into the session cache so every screen reading `user`
+      // reflects the change immediately, without a refetch round-trip.
+      queryClient.setQueryData(queryKeys.auth.session, updated);
+    },
   });
 
   const signOut = useMutation({
     mutationFn: async () => {
-      const { error } = await client.auth.signOut();
-      if (error) throw new AuthError(error.message, error.reason);
+      await authApi.logout();
     },
     onSuccess: () => {
-      queryClient.setQueryData(authKeys.session, null);
+      queryClient.setQueryData(queryKeys.auth.session, null);
+      // Drop every non-auth query: the next user must not see the previous
+      // user's cached workspaces flash on screen before their own load.
       queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+      // Otherwise this account's alarms keep firing on the device after
+      // signing out, including for whoever signs in next.
+      void clearReminderNotifications();
     },
   });
 
   return {
     user,
-    session,
-    isAuthenticated: !!session,
+    /** Kept for shape compatibility; there is no Supabase session object now. */
+    session: authUser ? { user: authUser } : null,
+    isAuthenticated: !!authUser,
     isLoading: sessionQuery.isLoading,
+    /**
+     * True when the session could not be resolved for a reason other than a
+     * 401 — almost always the network. Distinct from "signed out": the guard
+     * offers a retry instead of redirecting to login.
+     */
+    isSessionError: sessionQuery.isError,
+    retrySession: sessionQuery.refetch,
+    /** Full profile from /auth/me — includes displayName / avatarUrl. */
+    profile: authUser,
+    updateProfile,
     signIn,
     signUp,
     signOut,

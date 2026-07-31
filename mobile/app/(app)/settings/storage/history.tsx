@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
+import { useTheme } from '@/src/hooks';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
@@ -26,6 +27,7 @@ const PAYMENT_METHODS = [
 ];
 
 export default function BillingHistoryScreen() {
+  const { isDark } = useTheme();
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
@@ -70,7 +72,7 @@ export default function BillingHistoryScreen() {
             {INVOICES.map((inv, i) => (
               <Pressable key={inv.id}
                 className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
-                style={i < INVOICES.length - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
+                style={i < INVOICES.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
                 <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: inv.status === 'paid' ? '#6B8E4E18' : '#C1774518', alignItems: 'center', justifyContent: 'center' }}>
                   {inv.status === 'paid' ? <CheckCircleIcon size={14} style={{ color: '#6B8E4E' }} /> : <ClockIcon size={14} style={{ color: '#C17745' }} />}
                 </View>

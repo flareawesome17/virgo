@@ -1,0 +1,272 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'node:crypto';
+import { DatabaseService } from '../../database/database.service';
+import { StorageConfig } from '../../storage/storage.config';
+
+export interface ShareLinkRow {
+  id: string;
+  album_id: string;
+  user_id: string;
+  token: string;
+  media_kinds: MediaKind[];
+  expires_at: Date | null;
+  revoked_at: Date | null;
+  created_at: Date;
+}
+
+/** Which media a link exposes. Matches the leading part of the content type. */
+export type MediaKind = 'image' | 'video' | 'audio';
+
+export const ALL_MEDIA_KINDS: MediaKind[] = ['image', 'video', 'audio'];
+
+export interface PublicAlbumView {
+  album: { name: string; description: string | null };
+  files: { url: string | null; contentType: string | null; sizeBytes: number }[];
+  /** Sections the link is scoped to, so the page renders only those. */
+  kinds: MediaKind[];
+}
+
+/**
+ * Public share links for albums.
+ *
+ * The token is the entire credential, so it is 32 bytes from a CSPRNG rather
+ * than anything derived from the album id — a guessable or enumerable token
+ * would expose other people's media.
+ */
+@Injectable()
+export class AlbumShareService {
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly storage: StorageConfig,
+    private readonly config: ConfigService,
+  ) {}
+
+  /** base64url of 32 random bytes — 256 bits, not enumerable. */
+  private newToken(): string {
+    return randomBytes(32).toString('base64url');
+  }
+
+  /**
+   * Where a share token is served. Falls back to the API's own public origin,
+   * which is what serves the client page.
+   */
+  private shareBaseUrl(): string {
+    return (
+      this.config.get<string>('PUBLIC_APP_URL') ??
+      this.config.get<string>('PUBLIC_API_URL') ??
+      'https://api.virgo.ph'
+    ).replace(/\/+$/, '');
+  }
+
+  urlFor(token: string): string {
+    return `${this.shareBaseUrl()}/s/${token}`;
+  }
+
+  /**
+   * Content-Security-Policy for the public gallery page.
+   *
+   * Helmet's global default is `img-src 'self' data:` with no `media-src`, so
+   * every photo, video and audio file — all served from the CDN, a different
+   * origin — was blocked. The page rendered but the media was blank; opening a
+   * file directly still worked, because a top-level navigation is not an
+   * embed and is not subject to these directives.
+   *
+   * Scoped to this one route rather than loosening the global policy, and
+   * still strict: no scripts at all, and only the CDN is added.
+   */
+  contentSecurityPolicy(): string {
+    const media = this.storage.cdnOrigin();
+    const sources = ["'self'", 'data:', media].filter(Boolean).join(' ');
+    return [
+      "default-src 'self'",
+      `img-src ${sources}`,
+      `media-src ${["'self'", media].filter(Boolean).join(' ')}`,
+      // The page is pure HTML with one inline <style> block and no JavaScript.
+      "style-src 'self' 'unsafe-inline'",
+      "script-src 'none'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'none'",
+      "frame-ancestors 'none'",
+    ].join('; ');
+  }
+
+  private async assertOwnsAlbum(userId: string, albumId: string): Promise<void> {
+    const row = await this.db.queryOne<{ id: string }>(
+      'select id from albums where id = $1 and user_id = $2',
+      [albumId, userId],
+    );
+    if (!row) throw new NotFoundException('Album not found');
+  }
+
+  /**
+   * Returns the album's active link, creating one if there is none.
+   *
+   * Idempotent on purpose: tapping "generate link" twice should hand back the
+   * same URL rather than quietly invalidating the one already sent to a client.
+   */
+  async createOrGet(
+    userId: string,
+    albumId: string,
+    kinds: MediaKind[] = ALL_MEDIA_KINDS,
+  ): Promise<{
+    token: string;
+    url: string;
+    createdAt: Date;
+    kinds: MediaKind[];
+  }> {
+    await this.assertOwnsAlbum(userId, albumId);
+
+    // Stored in a fixed order so two equivalent selections compare equal.
+    const wanted = ALL_MEDIA_KINDS.filter((k) => kinds.includes(k));
+    if (wanted.length === 0) {
+      throw new BadRequestException('Select at least one kind of media');
+    }
+
+    const existing = await this.db.queryOne<ShareLinkRow>(
+      `select * from album_share_links
+        where album_id = $1 and revoked_at is null
+        limit 1`,
+      [albumId],
+    );
+
+    if (existing) {
+      const same =
+        existing.media_kinds.length === wanted.length &&
+        wanted.every((k) => existing.media_kinds.includes(k));
+
+      // Re-scoping keeps the same token rather than issuing a new one: a link
+      // already sent to a client stays valid and simply shows more or less.
+      if (!same) {
+        await this.db.query(
+          'update album_share_links set media_kinds = $2 where id = $1',
+          [existing.id, wanted],
+        );
+      }
+
+      return {
+        token: existing.token,
+        url: this.urlFor(existing.token),
+        createdAt: existing.created_at,
+        kinds: wanted,
+      };
+    }
+
+    const token = this.newToken();
+    const row = await this.db.queryOne<ShareLinkRow>(
+      `insert into album_share_links (album_id, user_id, token, media_kinds)
+       values ($1, $2, $3, $4)
+       returning *`,
+      [albumId, userId, token, wanted],
+    );
+
+    return {
+      token,
+      url: this.urlFor(token),
+      createdAt: row?.created_at ?? new Date(),
+      kinds: wanted,
+    };
+  }
+
+  /** The active link for an album, if one exists. */
+  async find(
+    userId: string,
+    albumId: string,
+  ): Promise<{
+    token: string;
+    url: string;
+    createdAt: Date;
+    kinds: MediaKind[];
+  } | null> {
+    await this.assertOwnsAlbum(userId, albumId);
+    const row = await this.db.queryOne<ShareLinkRow>(
+      `select * from album_share_links
+        where album_id = $1 and revoked_at is null
+        limit 1`,
+      [albumId],
+    );
+    return row
+      ? {
+          token: row.token,
+          url: this.urlFor(row.token),
+          createdAt: row.created_at,
+          kinds: row.media_kinds,
+        }
+      : null;
+  }
+
+  /** Revokes the active link. The token is kept so it can never be reissued. */
+  async revoke(userId: string, albumId: string): Promise<{ revoked: boolean }> {
+    await this.assertOwnsAlbum(userId, albumId);
+    const rows = await this.db.query<{ id: string }>(
+      `update album_share_links
+          set revoked_at = now()
+        where album_id = $1 and user_id = $2 and revoked_at is null
+        returning id`,
+      [albumId, userId],
+    );
+    return { revoked: rows.length > 0 };
+  }
+
+  /**
+   * Resolves a token to the album's media. No authentication.
+   *
+   * Returns only what a client needs to view the work: the album's name,
+   * description and file URLs. Deliberately no owner identity, no album id,
+   * no other album, and no write path.
+   */
+  async resolve(token: string): Promise<PublicAlbumView> {
+    const link = await this.db.queryOne<{
+      album_id: string;
+      user_id: string;
+      name: string;
+      description: string | null;
+      media_kinds: MediaKind[];
+    }>(
+      `select l.album_id, l.user_id, l.media_kinds, a.name, a.description
+         from album_share_links l
+         join albums a on a.id = l.album_id
+        where l.token = $1
+          and l.revoked_at is null
+          and (l.expires_at is null or l.expires_at > now())`,
+      [token],
+    );
+
+    // Same error whether the token never existed, was revoked or expired —
+    // distinguishing them would confirm which tokens are real.
+    if (!link) throw new ForbiddenException('This link is no longer available');
+
+    // Filtered in SQL, not after fetching: a photos-only link must not put
+    // video URLs on the wire at all, or the scope would be cosmetic.
+    const files = await this.db.query<{
+      key: string;
+      content_type: string | null;
+      size_bytes: string;
+    }>(
+      `select key, content_type, size_bytes
+         from user_files
+        where user_id = $1
+          and album_id = $2
+          and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
+        order by created_at desc
+        limit 500`,
+      [link.user_id, link.album_id, link.media_kinds],
+    );
+
+    return {
+      album: { name: link.name, description: link.description },
+      kinds: link.media_kinds,
+      files: files.map((f) => ({
+        url: this.storage.publicUrl(f.key),
+        contentType: f.content_type,
+        sizeBytes: Number(f.size_bytes),
+      })),
+    };
+  }
+}

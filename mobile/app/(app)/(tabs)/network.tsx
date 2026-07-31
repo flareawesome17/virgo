@@ -1,8 +1,8 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, Image, TextInput } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable, Image, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAuth, useCollaborators, useTheme, useWorkspaces } from '@/src/hooks';
 import { useState, useMemo } from 'react';
+import { router } from 'expo-router';
 import {
   SearchIcon,
   UserPlusIcon,
@@ -12,6 +12,7 @@ import {
   UsersIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -37,39 +38,22 @@ const ROLE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 export default function NetworkScreen() {
-  const { client } = useApp();
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
 
-  const { data: collaborators = [] } = useQuery({
-    queryKey: ['collaborators', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('collaborators')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const enabled = { enabled: !!user?.id };
 
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('workspaces')
-        .select('*')
-        .eq('user_id', user?.id);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { collaborators, refetch: refetchCollaborators } = useCollaborators(
+    { orderBy: 'created_at', direction: 'desc', limit: 100 },
+    enabled,
+  );
+
+  const { workspaces, refetch: refetchWorkspaces } = useWorkspaces(
+    { limit: 100 },
+    enabled,
+  );
 
   const workspaceNameById = Object.fromEntries(workspaces.map((w) => [w.id, w.name]));
 
@@ -86,8 +70,7 @@ export default function NetworkScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['collaborators'] });
-    await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    await Promise.all([refetchCollaborators(), refetchWorkspaces()]);
     setRefreshing(false);
   };
 
@@ -106,7 +89,14 @@ export default function NetworkScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <ScrollView
+      {/* Lifts the form above the keyboard. Without this the fields nearest
+          the bottom sat underneath it on iOS with no way to scroll to them. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+
+      <ScrollView keyboardShouldPersistTaps="handled"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
@@ -142,7 +132,7 @@ export default function NetworkScreen() {
 
         {/* Quick invite */}
         <View className="px-5 pt-2 pb-4">
-          <Pressable className="bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
+          <Pressable onPress={() => router.push('/friends/send-request')} className="bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
             <View className="w-12 h-12 rounded-2xl bg-primary/10 items-center justify-center">
               <UserPlusIcon size={22} className="text-primary" />
             </View>
@@ -184,7 +174,7 @@ export default function NetworkScreen() {
                       className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
                       style={
                         i < grouped[wsName].length - 1
-                          ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }
+                          ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
                           : undefined
                       }
                     >
@@ -192,7 +182,7 @@ export default function NetworkScreen() {
                         source={{
                           uri:
                             collab.avatar_url ||
-                            `https://picsum.photos/seed/${collab.id}/100/100`,
+                            PLACEHOLDER_IMAGE,
                         }}
                         style={{ width: 40, height: 40, borderRadius: 20 }}
                       />
@@ -224,6 +214,7 @@ export default function NetworkScreen() {
           ))
         )}
       </ScrollView>
+          </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

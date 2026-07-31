@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
+import { useTheme } from '@/src/hooks';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
@@ -34,6 +35,7 @@ const PLAN_HEADERS = [
 ];
 
 export default function ComparePlansScreen() {
+  const { isDark } = useTheme();
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -51,7 +53,7 @@ export default function ComparePlansScreen() {
             {/* Table */}
             <View className="mx-5 bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
               {/* Plan headers */}
-              <View className="flex-row" style={{ borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }}>
+              <View className="flex-row" style={{ borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }}>
                 <View style={{ width: 130 }} className="p-4 justify-end">
                   <Text className="text-muted-foreground text-[10px] font-bold uppercase tracking-[1.5px]">Feature</Text>
                 </View>
@@ -67,7 +69,7 @@ export default function ComparePlansScreen() {
 
               {/* Feature rows */}
               {FEATURES.map((f, i) => (
-                <View key={f.label} className="flex-row" style={i < FEATURES.length - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
+                <View key={f.label} className="flex-row" style={i < FEATURES.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
                   <View style={{ width: 130 }} className="p-3.5 justify-center">
                     <Text className="text-foreground text-xs font-semibold">{f.label}</Text>
                   </View>

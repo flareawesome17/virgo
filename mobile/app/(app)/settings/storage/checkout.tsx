@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '@/src/hooks';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   ArrowLeftIcon, ShieldIcon, CheckIcon, LockIcon, CreditCardIcon,
@@ -20,6 +21,8 @@ const PLAN_DATA: Record<string, { name: string; storage: string; priceMonthly: n
 };
 
 export default function CheckoutScreen() {
+  const { isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const { plan: planKey = 'creator', cycle = 'monthly' } = useLocalSearchParams<{ plan?: string; cycle?: string }>();
   const plan = PLAN_DATA[planKey] || PLAN_DATA.creator;
   const price = cycle === 'monthly' ? plan.priceMonthly : plan.priceYearly;
@@ -52,16 +55,16 @@ export default function CheckoutScreen() {
 
         {/* Price summary */}
         <View className="mx-5 mt-4 bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-          <View className="px-4 py-3.5 flex-row items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }}>
+          <View className="px-4 py-3.5 flex-row items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }}>
             <Text className="text-foreground text-sm">{plan.name} Plan</Text>
             <Text className="text-foreground text-sm font-semibold">${price}/{period}</Text>
           </View>
-          <View className="px-4 py-3.5 flex-row items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }}>
+          <View className="px-4 py-3.5 flex-row items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }}>
             <Text className="text-foreground text-sm">Start date</Text>
             <Text className="text-muted-foreground text-sm">{today}</Text>
           </View>
           {cycle === 'yearly' && (
-            <View className="px-4 py-3.5 flex-row items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }}>
+            <View className="px-4 py-3.5 flex-row items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }}>
               <Text className="text-foreground text-sm">Annual discount</Text>
               <Text className="text-[#6B8E4E] text-sm font-semibold">-20%</Text>
             </View>
@@ -100,7 +103,7 @@ export default function CheckoutScreen() {
       </ScrollView>
 
       {/* Bottom CTA */}
-      <View className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-4 bg-background">
+      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
         <Pressable onPress={() => router.push(`/settings/storage/payment?plan=${planKey}&cycle=${cycle}`)}
           className="bg-primary rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.97]"
           style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>

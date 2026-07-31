@@ -1,7 +1,13 @@
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import {
+  useDeleteScheduleEvent,
+  useReminders,
+  useScheduleEvent,
+  useTheme,
+  useUpdateReminder,
+  useWorkspace,
+} from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -46,60 +52,31 @@ function formatDateFull(dateStr: string): string {
 
 export default function EventDetailScreen() {
   const { eventId } = useLocalSearchParams<{ eventId: string }>();
-  const { client } = useApp();
-  const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: event } = useQuery({
-    queryKey: ['schedule_event', eventId],
-    queryFn: async () => {
-      const { data, error } = await client.from('schedule_events').select('*').eq('id', eventId).single();
-      if (error) throw error; return data;
-    },
-    enabled: !!eventId,
-  });
+  // A 404 here now means "not yours or not there" — the API does not
+  // distinguish the two, deliberately, so record ids cannot be enumerated.
+  const { data: event, refetch: refetchEvent } = useScheduleEvent(eventId);
 
-  const { data: workspace } = useQuery({
-    queryKey: ['workspace', event?.workspace_id],
-    queryFn: async () => {
-      if (!event?.workspace_id) return null;
-      const { data } = await client.from('workspaces').select('id, name, accent_color').eq('id', event.workspace_id).single();
-      return data;
-    },
-    enabled: !!event?.workspace_id,
-  });
+  const { data: workspace } = useWorkspace(event?.workspace_id ?? undefined);
 
-  const { data: reminders = [] } = useQuery({
-    queryKey: ['reminders', eventId],
-    queryFn: async () => {
-      const { data, error } = await client.from('reminders').select('*').eq('schedule_event_id', eventId).order('reminder_time', { ascending: true });
-      if (error) throw error; return data ?? [];
-    },
-    enabled: !!eventId,
-  });
+  const { reminders, refetch: refetchReminders } = useReminders(
+    { schedule_event_id: eventId, orderBy: 'reminder_time', direction: 'asc' },
+    { enabled: !!eventId },
+  );
 
-  const toggleReminder = useMutation({
-    mutationFn: async ({ id, is_completed }: { id: string; is_completed: boolean }) => {
-      const { error } = await client.from('reminders').update({ is_completed }).eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reminders'] }),
-  });
+  const updateReminder = useUpdateReminder();
+  const toggleReminder = (id: string, is_completed: boolean) =>
+    updateReminder.mutate({ id, is_completed });
 
-  const deleteEvent = useMutation({
-    mutationFn: async () => {
-      const { error } = await client.from('schedule_events').delete().eq('id', eventId);
-      if (error) throw error;
-    },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['schedule_events'] }); router.back(); },
-  });
+  const deleteEventMutation = useDeleteScheduleEvent();
+  const deleteEvent = () =>
+    deleteEventMutation.mutate(eventId, { onSuccess: () => router.back() });
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['schedule_event', eventId] });
-    await queryClient.invalidateQueries({ queryKey: ['reminders'] });
+    await Promise.all([refetchEvent(), refetchReminders()]);
     setRefreshing(false);
   };
 
@@ -189,8 +166,8 @@ export default function EventDetailScreen() {
               {reminders.map((rem, i) => (
                 <Pressable key={rem.id} onPress={() => router.push(`/schedule/reminders/${rem.id}`)}
                   className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
-                  style={i < reminders.length - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
-                  <Pressable onPress={() => toggleReminder.mutate({ id: rem.id, is_completed: !rem.is_completed })} className="active:scale-[0.85]">
+                  style={i < reminders.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
+                  <Pressable onPress={() => toggleReminder(rem.id, !rem.is_completed)} className="active:scale-[0.85]">
                     {rem.is_completed ? <CheckCircleIcon size={18} className="text-[#6B8E4E]" /> : <CircleIcon size={18} className="text-muted-foreground" />}
                   </Pressable>
                   <View className="flex-1 min-w-0">
@@ -209,7 +186,7 @@ export default function EventDetailScreen() {
 
         {/* Delete */}
         <View className="px-5 mt-8">
-          <Pressable onPress={() => deleteEvent.mutate()} className="flex-row items-center justify-center gap-2 py-3 active:scale-[0.97]">
+          <Pressable onPress={() => deleteEvent()} className="flex-row items-center justify-center gap-2 py-3 active:scale-[0.97]">
             <Trash2Icon size={15} className="text-destructive" />
             <Text className="text-destructive text-sm font-semibold">Delete Event</Text>
           </Pressable>

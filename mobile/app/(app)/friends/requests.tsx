@@ -1,11 +1,11 @@
 import { View, Text, FlatList, RefreshControl, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAuth, useFriends, useTheme, useUpdateFriend } from '@/src/hooks';
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { ArrowLeftIcon, CheckIcon, XIcon, ClockIcon, UserPlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -14,42 +14,41 @@ cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function FriendRequestsScreen() {
-  const { client } = useApp();
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: friends = [] } = useQuery({
-    queryKey: ['friends', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('friends').select('*').eq('user_id', user?.id).eq('status', 'pending').order('created_at', { ascending: false });
-      if (error) throw error; return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  // Filtering by status is a query parameter now rather than a chained .eq().
+  const { friends, refetch } = useFriends(
+    { status: 'pending', orderBy: 'created_at', direction: 'desc', limit: 100 },
+    { enabled: !!user?.id },
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['friends'] });
+    await refetch();
     setRefreshing(false);
   };
 
-  const acceptRequest = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await client.from('friends').update({ status: 'accepted' }).eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['friends'] }),
-  });
+  // One mutation covers both actions; the hook invalidates the friends cache,
+  // which drops the row out of this pending-only list.
+  const updateFriend = useUpdateFriend();
 
-  const declineRequest = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await client.from('friends').update({ status: 'declined' }).eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['friends'] }),
-  });
+  // On success, show the existing confirmation screen. It was already built
+  // but nothing navigated to it, so it was unreachable.
+  const acceptRequest = (id: string, name: string, avatar: string | null) =>
+    updateFriend.mutate(
+      { id, status: 'accepted' },
+      {
+        onSuccess: () =>
+          router.push(
+            `/friends/accepted?name=${encodeURIComponent(name)}` +
+              (avatar ? `&avatar=${encodeURIComponent(avatar)}` : ''),
+          ),
+      },
+    );
+  const declineRequest = (id: string) =>
+    updateFriend.mutate({ id, status: 'declined' });
 
   const received = friends.filter(f => f.requested_by === 'them');
   const sent = friends.filter(f => f.requested_by === 'me');
@@ -80,16 +79,16 @@ export default function FriendRequestsScreen() {
                 {received.map((f, i) => (
                   <View key={f.id} className="bg-card rounded-2xl p-4 flex-row items-center gap-4 mb-2"
                     style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-                    <Image source={{ uri: f.friend_avatar_url || `https://picsum.photos/seed/${f.id}/80/80` }}
+                    <Image source={{ uri: f.friend_avatar_url || PLACEHOLDER_IMAGE }}
                       style={{ width: 46, height: 46, borderRadius: 23 }} />
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-bold">{f.friend_name}</Text>
                       {f.friend_email ? <Text className="text-muted-foreground text-xs mt-0.5">{f.friend_email}</Text> : null}
                     </View>
-                    <Pressable onPress={() => acceptRequest.mutate(f.id)} className="w-10 h-10 rounded-full bg-[#6B8E4E18] items-center justify-center active:scale-[0.92]">
+                    <Pressable onPress={() => acceptRequest(f.id, f.friend_name, f.friend_avatar_url)} className="w-10 h-10 rounded-full bg-[#6B8E4E18] items-center justify-center active:scale-[0.92]">
                       <CheckIcon size={18} style={{ color: '#6B8E4E' }} />
                     </Pressable>
-                    <Pressable onPress={() => declineRequest.mutate(f.id)} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
+                    <Pressable onPress={() => declineRequest(f.id)} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
                       <XIcon size={16} className="text-muted-foreground" />
                     </Pressable>
                   </View>
@@ -103,7 +102,7 @@ export default function FriendRequestsScreen() {
                 {sent.map((f, i) => (
                   <View key={f.id} className="bg-card rounded-2xl p-4 flex-row items-center gap-4 mb-2"
                     style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-                    <Image source={{ uri: f.friend_avatar_url || `https://picsum.photos/seed/${f.id}/80/80` }}
+                    <Image source={{ uri: f.friend_avatar_url || PLACEHOLDER_IMAGE }}
                       style={{ width: 46, height: 46, borderRadius: 23 }} />
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-bold">{f.friend_name}</Text>

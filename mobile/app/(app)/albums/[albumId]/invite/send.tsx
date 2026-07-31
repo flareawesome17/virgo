@@ -1,11 +1,12 @@
 import { View, Text, ScrollView, Pressable, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth } from '@/src/hooks';
+import type { CollaboratorRole } from '@/src/api';
+import { useAlbum, useAuth, useCreateCollaborator, useFriends, useTheme } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import { ArrowLeftIcon, SendIcon, UserCheckIcon, CheckIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SendIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -17,53 +18,47 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function SendInvitesScreen() {
+  const { isDark } = useTheme();
   const { albumId, ids, names, role } = useLocalSearchParams<{ albumId: string; ids: string; names: string; role: string }>();
-  const { client } = useApp();
   const { user } = useAuth();
-  const queryClient = useQueryClient();
   const [sent, setSent] = useState(false);
 
   const idList = (ids || '').split(',').filter(Boolean);
   const nameList = (names || '').split(',').filter(Boolean);
 
-  const { data: album } = useQuery({
-    queryKey: ['album', albumId],
-    queryFn: async () => {
-      const { data, error } = await client.from('albums').select('id, name, cover_url').eq('id', albumId).single();
-      if (error) throw error; return data;
-    },
-    enabled: !!albumId,
-  });
+  const { data: album } = useAlbum(albumId);
 
-  const { data: friends = [] } = useQuery({
-    queryKey: ['friends', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('friends').select('*').eq('user_id', user?.id);
-      if (error) throw error; return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { friends } = useFriends({ limit: 100 }, { enabled: !!user?.id });
 
-  const selectedFriends = friends.filter(f => idList.includes(f.id));
+  const selectedFriends = friends.filter((f) => idList.includes(f.id));
 
-  const sendInvites = useMutation({
-    mutationFn: async () => {
-      const now = new Date().toISOString();
-      for (const f of selectedFriends) {
-        const collabId = 'collab-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-        const { error } = await client.from('collaborators').insert({
-          id: collabId, workspace_id: '', name: f.friend_name,
-          avatar_url: f.friend_avatar_url, role: role || 'editor', created_at: now,
-        });
-        if (error) throw error;
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+  const createCollaborator = useCreateCollaborator();
+
+  // This previously inserted workspace_id: '' — collaborators.workspace_id is
+  // NOT NULL and references workspaces(id), so an empty string could never
+  // satisfy the foreign key. The album's own workspace is the correct owner.
+  const sendInvites = async () => {
+    if (!album?.workspace_id) {
+      Alert.alert('Error', 'This album is not linked to a workspace.');
+      return;
+    }
+
+    try {
+      await Promise.all(
+        selectedFriends.map((f) =>
+          createCollaborator.mutateAsync({
+            workspace_id: album.workspace_id,
+            name: f.friend_name,
+            avatar_url: f.friend_avatar_url,
+            role: (role || 'editor') as CollaboratorRole,
+          }),
+        ),
+      );
       setSent(true);
-    },
-    onError: () => Alert.alert('Error', 'Could not send invites.'),
-  });
+    } catch {
+      Alert.alert('Error', 'Could not send invites.');
+    }
+  };
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -98,7 +93,7 @@ export default function SendInvitesScreen() {
             {/* Album card */}
             {album && (
               <View className="mx-5 mt-4 bg-card rounded-2xl p-4 flex-row items-center gap-4" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-                <Image source={{ uri: album.cover_url || `https://picsum.photos/seed/${album.id}/100/100` }}
+                <Image source={{ uri: album.cover_url || PLACEHOLDER_IMAGE }}
                   style={{ width: 48, height: 48, borderRadius: 14 }} />
                 <View className="flex-1">
                   <Text className="text-foreground text-base font-bold">{album.name}</Text>
@@ -118,8 +113,8 @@ export default function SendInvitesScreen() {
                   return (
                     <View key={i}
                       className="flex-row items-center gap-3 px-4 py-3.5"
-                      style={i < nameList.length - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
-                      <Image source={{ uri: f?.friend_avatar_url || `https://picsum.photos/seed/friend-${i}/80/80` }}
+                      style={i < nameList.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
+                      <Image source={{ uri: f?.friend_avatar_url || PLACEHOLDER_IMAGE }}
                         style={{ width: 40, height: 40, borderRadius: 20 }} />
                       <View className="flex-1">
                         <Text className="text-foreground text-sm font-semibold">{name}</Text>
@@ -137,12 +132,12 @@ export default function SendInvitesScreen() {
             </View>
 
             <View className="px-5 mt-8">
-              <Pressable onPress={() => sendInvites.mutate()}
+              <Pressable onPress={() => sendInvites()}
                 className="bg-primary rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.97]"
                 style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
                 <SendIcon size={17} className="text-white" />
                 <Text className="text-white text-base font-bold">
-                  {sendInvites.isPending ? 'Sending...' : `Send ${nameList.length} Invite${nameList.length > 1 ? 's' : ''}`}
+                  {createCollaborator.isPending ? 'Sending...' : `Send ${nameList.length} Invite${nameList.length > 1 ? 's' : ''}`}
                 </Text>
               </Pressable>
             </View>

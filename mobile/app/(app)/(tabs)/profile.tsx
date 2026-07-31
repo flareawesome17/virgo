@@ -1,7 +1,14 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import {
+  useAuth,
+  useCollaborators,
+  useScheduleEvents,
+  useTheme,
+  useUsage,
+  useWorkspaces,
+} from '@/src/hooks';
+import { formatBytes } from '@/src/api';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -46,74 +53,70 @@ const STATS = [
   { label: 'Events', icon: CalendarIcon },
 ];
 
-const SETTINGS_SECTIONS = [
+/**
+ * Every row here used to render a chevron and do nothing — none of them had an
+ * onPress. Rows that lead somewhere now carry a `route`; the rest are marked
+ * `soon` so they read as unbuilt rather than broken.
+ */
+const SETTINGS_SECTIONS: {
+  title: string;
+  items: {
+    icon: typeof BellIcon;
+    label: string;
+    color: string;
+    route?: string;
+    soon?: boolean;
+  }[];
+}[] = [
   {
     title: 'Preferences',
     items: [
-      { icon: BellIcon, label: 'Notifications', color: '#B66A40' },
-      { icon: PaletteIcon, label: 'Appearance', color: '#C17745' },
-      { icon: CloudIcon, label: 'Sync & Storage', color: '#8B5E3C' },
+      { icon: BellIcon, label: 'Notifications', color: '#B66A40', soon: true },
+      { icon: PaletteIcon, label: 'Appearance', color: '#C17745', route: '/settings/theme' },
+      { icon: CloudIcon, label: 'Sync & Storage', color: '#8B5E3C', route: '/settings/sync' },
     ],
   },
   {
     title: 'Security',
     items: [
-      { icon: LockIcon, label: 'Privacy', color: '#5B7B9A' },
-      { icon: ShieldIcon, label: 'Two-Factor Auth', color: '#6B8E4E' },
+      { icon: LockIcon, label: 'Privacy', color: '#5B7B9A', soon: true },
+      // No 2FA exists in the backend, so this cannot claim to be configurable.
+      { icon: ShieldIcon, label: 'Two-Factor Auth', color: '#6B8E4E', soon: true },
     ],
   },
   {
     title: 'Support',
     items: [
-      { icon: HelpCircleIcon, label: 'Help Center', color: '#B66A40' },
-      { icon: SettingsIcon, label: 'App Settings', color: '#54433C' },
+      { icon: HelpCircleIcon, label: 'Help Center', color: '#B66A40', soon: true },
+      { icon: SettingsIcon, label: 'App Settings', color: '#54433C', route: '/settings' },
     ],
   },
 ];
 
 export default function ProfileScreen() {
-  const { client } = useApp();
-  const { user } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const { isDark } = useTheme();
 
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('workspaces')
-        .select('*')
-        .eq('user_id', user?.id);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  // The button below used to have no onPress at all, which is why signing out
+  // appeared to do nothing. The auth guard in (app)/_layout.tsx handles the
+  // redirect once the session clears, so no manual navigation is needed here.
+  const handleSignOut = () => {
+    Alert.alert('Sign out', 'You will need to sign in again to continue.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign out',
+        style: 'destructive',
+        onPress: () => signOut.mutate(),
+      },
+    ]);
+  };
 
-  const { data: collaborators = [] } = useQuery({
-    queryKey: ['collaborators', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('collaborators')
-        .select('*')
-        .eq('user_id', user?.id);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const enabled = { enabled: !!user?.id };
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['schedule_events', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('schedule_events')
-        .select('*')
-        .eq('user_id', user?.id);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { workspaces } = useWorkspaces({ limit: 100 }, enabled);
+  const { collaborators } = useCollaborators({ limit: 100 }, enabled);
+  const { events } = useScheduleEvents({ limit: 100 }, enabled);
+  const { storageUsedBytes } = useUsage(enabled);
 
   const totalAssets = workspaces.reduce((s, w) => s + (w.media_count || 0), 0);
   const statValues = [workspaces.length, totalAssets, collaborators.length, events.length];
@@ -135,16 +138,38 @@ export default function ProfileScreen() {
 
         {/* Profile card */}
         <View className="mx-5 mt-2 bg-card rounded-3xl p-5 items-center" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}>
-          <Image
-            source={{ uri: 'https://picsum.photos/seed/virgo-user/200/200' }}
-            style={{ width: 80, height: 80, borderRadius: 40 }}
-          />
-          <Text className="text-foreground text-xl font-bold mt-3">Riya Kapoor</Text>
-          <Text className="text-muted-foreground text-sm mt-0.5">Creative Director & Photographer</Text>
+          {profile?.avatarUrl ? (
+            <Image
+              source={{ uri: profile.avatarUrl }}
+              style={{ width: 80, height: 80, borderRadius: 40 }}
+            />
+          ) : (
+            // Initial-letter placeholder rather than a stock photo, so an
+            // unset avatar reads as "not set yet" instead of someone else's face.
+            <View
+              style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#B66A4018', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={{ color: '#B66A40', fontSize: 30, fontWeight: '700' }}>
+                {(profile?.displayName || user?.email || '?').charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <Text className="text-foreground text-xl font-bold mt-3">
+            {profile?.displayName || 'Add your name'}
+          </Text>
+          <Text className="text-muted-foreground text-sm mt-0.5">{user?.email ?? ''}</Text>
+          <Pressable
+            onPress={() => router.push('/settings/profile')}
+            className="mt-3 bg-muted rounded-full px-4 py-1.5 active:scale-[0.96]"
+          >
+            <Text className="text-foreground text-[11px] font-bold">Edit profile</Text>
+          </Pressable>
           <View className="flex-row items-center gap-2 mt-3">
             <View className="flex-row items-center gap-1 bg-muted rounded-full px-3 py-1.5">
               <HardDriveIcon size={12} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-[11px] font-semibold">128.4 GB used</Text>
+              <Text className="text-muted-foreground text-[11px] font-semibold">
+                {formatBytes(storageUsedBytes)} used
+              </Text>
             </View>
             <View className="flex-row items-center gap-1 bg-muted rounded-full px-3 py-1.5">
               <WifiIcon size={12} className="text-[#6B8E4E]" />
@@ -184,10 +209,19 @@ export default function ProfileScreen() {
                   return (
                     <Pressable
                       key={item.label}
+                      onPress={
+                        item.route
+                          ? () => router.push(item.route as never)
+                          : () =>
+                              Alert.alert(
+                                item.label,
+                                'This is not available yet.',
+                              )
+                      }
                       className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
                       style={
                         i < section.items.length - 1
-                          ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }
+                          ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
                           : undefined
                       }
                     >
@@ -204,6 +238,11 @@ export default function ProfileScreen() {
                         <Icon size={15} style={{ color: item.color }} />
                       </View>
                       <Text className="text-foreground text-sm font-semibold flex-1">{item.label}</Text>
+                      {item.soon && (
+                        <Text className="text-muted-foreground text-[10px] font-bold uppercase tracking-wider mr-1">
+                          Soon
+                        </Text>
+                      )}
                       <ChevronRightIcon size={14} className="text-muted-foreground" />
                     </Pressable>
                   );
@@ -215,9 +254,16 @@ export default function ProfileScreen() {
 
         {/* Sign out */}
         <View className="px-5 mt-6">
-          <Pressable className="bg-card rounded-2xl p-4 flex-row items-center gap-3 active:scale-[0.98]" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+          <Pressable
+            onPress={handleSignOut}
+            disabled={signOut.isPending}
+            className="bg-card rounded-2xl p-4 flex-row items-center gap-3 active:scale-[0.98]"
+            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+          >
             <LogOutIcon size={18} className="text-destructive" />
-            <Text className="text-destructive text-sm font-semibold">Sign Out</Text>
+            <Text className="text-destructive text-sm font-semibold">
+              {signOut.isPending ? 'Signing out…' : 'Sign Out'}
+            </Text>
           </Pressable>
         </View>
 

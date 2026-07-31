@@ -1,7 +1,8 @@
 import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAuth, useCollaborators, useTheme, useWorkspaces,
+  usePlanLimits,
+} from '@/src/hooks';
 import { useMemo, useState } from 'react';
 import { router } from 'expo-router';
 import {
@@ -82,40 +83,29 @@ function AvatarStack({ urls, count }: { urls: string[]; count: number }) {
 }
 
 export default function WorkspacesScreen() {
-  const { client } = useApp();
+  const { guardWorkspaceCreate } = usePlanLimits();
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [activeCategory, setActiveCategory] = useState('All');
 
-  const { data: workspaces = [], isLoading } = useQuery({
-    queryKey: ['workspaces', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('workspaces')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('updated_at', { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  // The API scopes every row to the authenticated user, so there is no longer
+  // a user_id filter to pass — the JWT is the filter.
+  const {
+    workspaces,
+    isLoading,
+    refetch: refetchWorkspaces,
+  } = useWorkspaces(
+    { orderBy: 'updated_at', direction: 'desc', limit: 50 },
+    { enabled: !!user?.id },
+  );
 
-  // Fetch all collaborators for avatar stacks
-  const { data: collaborators = [] } = useQuery({
-    queryKey: ['collaborators', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('collaborators')
-        .select('*')
-        .eq('user_id', user?.id);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  // Fetch all collaborators for avatar stacks. Limit is explicit because the
+  // API defaults to 50, and these span every workspace rather than one.
+  const { collaborators, refetch: refetchCollaborators } = useCollaborators(
+    { limit: 100 },
+    { enabled: !!user?.id },
+  );
 
   // Build avatar map per workspace
   const avatarMap = useMemo(() => {
@@ -129,8 +119,7 @@ export default function WorkspacesScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-    await queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+    await Promise.all([refetchWorkspaces(), refetchCollaborators()]);
     setRefreshing(false);
   };
 
@@ -164,7 +153,7 @@ export default function WorkspacesScreen() {
                 </Text>
               </View>
               <Pressable
-                onPress={() => router.push('/workspaces/create')}
+                onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
                 className="w-11 h-11 rounded-2xl bg-primary items-center justify-center active:scale-[0.94]"
                 style={{
                   shadowColor: '#B66A40',
@@ -256,7 +245,7 @@ export default function WorkspacesScreen() {
               </Text>
             </View>
             <Pressable
-              onPress={() => router.push('/workspaces/create')}
+              onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
               className="bg-primary rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
             >
               <PlusIcon size={18} className="text-white" />

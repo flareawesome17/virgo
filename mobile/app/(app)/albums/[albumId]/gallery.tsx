@@ -1,7 +1,9 @@
-import { View, Text, FlatList, RefreshControl, Pressable, Image, Dimensions } from 'react-native';
+import { View, Text, FlatList, RefreshControl, Pressable, Dimensions } from 'react-native';
+// expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
+// versions where the RN one silently renders nothing.
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAlbum, useAlbumFiles, useTheme } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useCallback, useRef } from 'react';
 import {
@@ -9,6 +11,7 @@ import {
   ImageIcon,
   Grid3X3Icon,
   ListIcon,
+  UploadIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -16,18 +19,13 @@ cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { c
 cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(Grid3X3Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ListIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(UploadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const COLUMN_COUNT = 3;
 const GAP = 2;
 const ITEM_SIZE = (SCREEN_WIDTH - GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT;
 
-// Generate consistent placeholder photos
-const GENERATED_PHOTOS = Array.from({ length: 36 }, (_, i) => ({
-  id: `photo-${i + 1}`,
-  uri: `https://picsum.photos/seed/album-gallery-${i + 1}/600/600`,
-  aspect: [1, 4/3, 3/4, 1, 16/9, 1, 4/3, 3/4][i % 8],
-}));
 
 function SkeletonGrid() {
   return (
@@ -40,7 +38,9 @@ function SkeletonGrid() {
             height: ITEM_SIZE,
             margin: GAP / 2,
             borderRadius: 2,
-            backgroundColor: '#F0E8E2',
+            // This grid only ever renders on the gallery's fixed dark
+            // backdrop, so it does not follow the app theme.
+            backgroundColor: '#2A2522',
           }}
         />
       ))}
@@ -50,34 +50,21 @@ function SkeletonGrid() {
 
 export default function GalleryScreen() {
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
-  const { client } = useApp();
-  const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'large'>('grid');
 
-  const { data: album, isLoading } = useQuery({
-    queryKey: ['album', albumId],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('albums')
-        .select('id, name, item_count')
-        .eq('id', albumId)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!albumId,
-  });
+  const { data: album, isLoading, refetch: refetchAlbum } = useAlbum(albumId);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['album', albumId] });
+    await refetchAlbum();
     setRefreshing(false);
   };
 
-  const photos = GENERATED_PHOTOS.slice(0, album?.item_count || 24);
+  // Real objects stored against this album. An empty album now renders empty
+  // instead of showing generated stock photos.
+  const { images: photos, isLoading: filesLoading } = useAlbumFiles(albumId);
 
   const openViewer = (index: number) => {
     router.push(`/albums/${albumId}/viewer?index=${index}`);
@@ -103,7 +90,7 @@ export default function GalleryScreen() {
               {album?.name || 'Gallery'}
             </Text>
             <Text className="text-white/50 text-xs mt-0.5">
-              {album?.item_count || photos.length} photos
+              {photos.length} photo{photos.length === 1 ? '' : 's'}
             </Text>
           </View>
         </View>
@@ -120,12 +107,12 @@ export default function GalleryScreen() {
       </View>
 
       {/* Grid */}
-      {isLoading ? (
+      {isLoading || filesLoading ? (
         <SkeletonGrid />
       ) : (
         <FlatList
           data={photos}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.key}
           key={viewMode}
           numColumns={colCount}
           contentContainerStyle={{ paddingBottom: 120 }}
@@ -148,17 +135,17 @@ export default function GalleryScreen() {
               className="active:opacity-80"
               style={{
                 width: itemW,
-                height: viewMode === 'grid' ? itemH : itemW * (item.aspect || 1),
+                height: viewMode === 'grid' ? itemH : itemW,
               }}
             >
               <Image
-                source={{ uri: item.uri }}
+                source={{ uri: item.url ?? undefined }}
                 style={{
                   width: '100%',
                   height: '100%',
                   backgroundColor: '#2A2522',
                 }}
-                resizeMode="cover"
+                contentFit="cover"
               />
             </Pressable>
           )}
@@ -168,6 +155,16 @@ export default function GalleryScreen() {
                 <ImageIcon size={28} className="text-white/40" />
               </View>
               <Text className="text-white/40 text-sm">No photos yet</Text>
+              {/* The Videos and Audio tabs both offer an upload here; this one
+                  was a dead end. kind=media opens the gallery, not the file
+                  browser, since photos and videos live in the gallery. */}
+              <Pressable
+                onPress={() => router.push(`/albums/upload?albumId=${albumId}&kind=media`)}
+                className="mt-4 bg-primary rounded-2xl px-7 py-3 flex-row items-center gap-2 active:scale-[0.96]"
+              >
+                <UploadIcon size={16} className="text-white" />
+                <Text className="text-white text-sm font-bold">Upload photos</Text>
+              </Pressable>
             </View>
           }
         />

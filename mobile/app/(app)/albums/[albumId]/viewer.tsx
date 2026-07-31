@@ -1,4 +1,7 @@
-import { View, Text, Pressable, Image, Dimensions, ScrollView } from 'react-native';
+import { View, Text, Pressable, Dimensions, ScrollView, Share, Platform, Alert, ActivityIndicator } from 'react-native';
+// expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
+// versions where the RN one silently renders nothing.
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useRef } from 'react';
@@ -11,6 +14,10 @@ import {
   ChevronRightIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system/legacy';
+import { fileDate, fileNameFromKey, useAlbumFiles } from '@/src/hooks';
+import { formatBytes } from '@/src/api';
 
 cssInterop(XIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ShareIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -22,30 +29,102 @@ cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
-const PHOTOS = Array.from({ length: 36 }, (_, i) => ({
-  id: `photo-${i + 1}`,
-  uri: `https://picsum.photos/seed/album-viewer-${i + 1}/1200/1600`,
-  name: `IMG_${4821 + i}.CR3`,
-  date: new Date(Date.now() - i * 86400000).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }),
-  size: `${(Math.random() * 20 + 18).toFixed(1)} MB`,
-  dimensions: `${3000 + Math.floor(Math.random() * 2000)} × ${2000 + Math.floor(Math.random() * 2000)}`,
-  iso: [100, 200, 400, 800, 1600][Math.floor(Math.random() * 5)],
-  aperture: `f/${[1.4, 2.0, 2.8, 4.0, 5.6][Math.floor(Math.random() * 5)]}`,
-  shutter: ['1/125', '1/250', '1/500', '1/1000', '1/2000'][Math.floor(Math.random() * 5)],
-}));
-
 export default function PhotoViewerScreen() {
   const { albumId, index: paramIndex } = useLocalSearchParams<{ albumId: string; index?: string }>();
   const [currentIndex, setCurrentIndex] = useState(parseInt(paramIndex || '0'));
   const [showInfo, setShowInfo] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  const totalPhotos = PHOTOS.length;
-  const photo = PHOTOS[currentIndex] || PHOTOS[0];
+  // Real stored images. The old array invented 36 photos with random ISO,
+  // aperture and shutter values — none of which exist on a stored object.
+  const { images } = useAlbumFiles(albumId);
+  const photos = images.map((f) => ({
+    id: f.key,
+    uri: f.url ?? undefined,
+    name: fileNameFromKey(f.key),
+    date: fileDate(f.createdAt),
+    size: formatBytes(f.sizeBytes),
+  }));
+
+  const totalPhotos = photos.length;
+  const photo = photos[currentIndex] ?? photos[0];
+
+  const [saving, setSaving] = useState(false);
+
+  /** Hands the image's URL to the system share sheet. */
+  const sharePhoto = async () => {
+    if (!photo?.uri) return;
+    try {
+      await Share.share(
+        // iOS renders `url` as a proper link preview; Android has no url field
+        // and only reads `message`.
+        Platform.OS === 'ios'
+          ? { url: photo.uri, message: photo.name }
+          : { message: `${photo.name} — ${photo.uri}` },
+      );
+    } catch {
+      // The user dismissing the sheet throws on some platforms; not an error.
+    }
+  };
+
+  /**
+   * Saves the image to the device's photo library.
+   *
+   * Downloads to the cache first: MediaLibrary only accepts a local file, not
+   * a remote URL.
+   */
+  const savePhoto = async () => {
+    if (!photo?.uri || saving) return;
+    setSaving(true);
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Allow photo access to save images to your library.',
+        );
+        return;
+      }
+
+      const target = `${FileSystem.cacheDirectory}${photo.name}`;
+      const { uri, status } = await FileSystem.downloadAsync(photo.uri, target);
+      if (status < 200 || status >= 300) {
+        Alert.alert('Download failed', 'The image could not be fetched.');
+        return;
+      }
+
+      await MediaLibrary.saveToLibraryAsync(uri);
+      // Cached copy has served its purpose; leaving it doubles the space used.
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+      Alert.alert('Saved', 'The photo is in your library.');
+    } catch (err) {
+      Alert.alert(
+        'Could not save',
+        err instanceof Error ? err.message : 'Please try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // With no stored images `photo` is undefined and every read below would
+  // crash. The old generated array made this state unreachable.
+  if (!photo) {
+    return (
+      <View className="flex-1 bg-black items-center justify-center px-10">
+        <Text className="text-white text-base font-bold">No photos yet</Text>
+        <Text className="text-white/50 text-sm text-center mt-2">
+          Upload some media to this album to view it here.
+        </Text>
+        <Pressable
+          onPress={() => router.back()}
+          className="mt-7 bg-white/15 rounded-2xl px-7 py-3 active:scale-[0.96]"
+        >
+          <Text className="text-white text-sm font-bold">Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   const goNext = () => {
     if (currentIndex < totalPhotos - 1) {
@@ -77,7 +156,7 @@ export default function PhotoViewerScreen() {
         }}
         contentOffset={{ x: currentIndex * SCREEN_WIDTH, y: 0 }}
       >
-        {PHOTOS.map((p, i) => (
+        {photos.map((p, i) => (
           <View key={p.id} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', alignItems: 'center' }}>
             <Image
               source={{ uri: p.uri }}
@@ -85,7 +164,7 @@ export default function PhotoViewerScreen() {
                 width: SCREEN_WIDTH,
                 height: SCREEN_HEIGHT * 0.7,
               }}
-              resizeMode="contain"
+              contentFit="contain"
             />
           </View>
         ))}
@@ -130,11 +209,23 @@ export default function PhotoViewerScreen() {
           <View className="flex-row items-center justify-between">
             {/* Actions */}
             <View className="flex-row items-center gap-3">
-              <Pressable className="w-10 h-10 rounded-full bg-white/12 items-center justify-center active:scale-[0.90]">
+              {/* Both of these rendered as buttons and had no onPress. */}
+              <Pressable
+                onPress={sharePhoto}
+                className="w-10 h-10 rounded-full bg-white/12 items-center justify-center active:scale-[0.90]"
+              >
                 <ShareIcon size={18} className="text-white" />
               </Pressable>
-              <Pressable className="w-10 h-10 rounded-full bg-white/12 items-center justify-center active:scale-[0.90]">
-                <DownloadIcon size={18} className="text-white" />
+              <Pressable
+                onPress={savePhoto}
+                disabled={saving}
+                className="w-10 h-10 rounded-full bg-white/12 items-center justify-center active:scale-[0.90]"
+              >
+                {saving ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <DownloadIcon size={18} className="text-white" />
+                )}
               </Pressable>
               <Pressable
                 onPress={() => setShowInfo(!showInfo)}
@@ -157,12 +248,10 @@ export default function PhotoViewerScreen() {
               style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
             >
               <View className="flex-row flex-wrap gap-x-5 gap-y-2">
+                {/* Only what a stored object actually carries. ISO, aperture,
+                    shutter and dimensions were Math.random() values. */}
                 <InfoRow label="Date" value={photo.date} />
                 <InfoRow label="Size" value={photo.size} />
-                <InfoRow label="Dimensions" value={photo.dimensions} />
-                <InfoRow label="ISO" value={String(photo.iso)} />
-                <InfoRow label="Aperture" value={photo.aperture} />
-                <InfoRow label="Shutter" value={photo.shutter} />
               </View>
             </View>
           )}

@@ -1,12 +1,13 @@
 import { View, Text, ScrollView, Pressable, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { useState } from 'react';
+
 import {
   ArrowLeftIcon, PaletteIcon, SunIcon, MoonIcon, MonitorIcon,
   CheckIcon, EyeIcon, TypeIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { useTheme } from '@/src/hooks';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PaletteIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -52,7 +53,10 @@ const THEMES = [
 
 export default function ThemeSettingsScreen() {
   const systemScheme = useColorScheme();
-  const [selected, setSelected] = useState<string>('light');
+  // This was `useState('light')` — the selection lived only in this component,
+  // so tapping an option moved the checkmark and changed nothing. It now reads
+  // and writes the real, persisted preference.
+  const { preference: selected, setPreference: setSelected } = useTheme();
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -84,7 +88,7 @@ export default function ThemeSettingsScreen() {
             return (
               <Pressable
                 key={theme.key}
-                onPress={() => setSelected(theme.key)}
+                onPress={() => setSelected(theme.key as 'light' | 'dark' | 'system')}
                 className={`rounded-2xl p-5 active:scale-[0.98] border-2 ${
                   isActive ? 'border-primary' : 'border-transparent'
                 }`}

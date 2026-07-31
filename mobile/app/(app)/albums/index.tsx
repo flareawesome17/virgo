@@ -1,7 +1,11 @@
-import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
+import { View, Text, FlatList, ScrollView, RefreshControl, Pressable } from 'react-native';
+// expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
+// versions where the RN one silently renders nothing.
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAlbums, useAuth, useTheme, useWorkspaces,
+  usePlanLimits,
+} from '@/src/hooks';
 import { useMemo, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -16,6 +20,7 @@ import {
   ClockIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -60,47 +65,30 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function AlbumsListScreen() {
-  const { client } = useApp();
+  const { guardAlbumCreate } = usePlanLimits();
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [activeStatus, setActiveStatus] = useState('All');
 
   const { workspaceId } = useLocalSearchParams<{ workspaceId?: string }>();
 
-  const { data: albums = [] } = useQuery({
-    queryKey: ['albums', user?.id, workspaceId],
-    queryFn: async () => {
-      let query = client
-        .from('albums')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false });
-
-      if (workspaceId) {
-        query = query.eq('workspace_id', workspaceId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data ?? [];
+  // The optional workspace filter is a query parameter now; undefined is
+  // dropped from the query string rather than sent as an empty value.
+  const { albums, refetch: refetchAlbums } = useAlbums(
+    {
+      workspace_id: workspaceId,
+      orderBy: 'created_at',
+      direction: 'desc',
+      limit: 100,
     },
-    enabled: !!user?.id,
-  });
+    { enabled: !!user?.id },
+  );
 
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ['workspaces', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('workspaces')
-        .select('id, name, accent_color')
-        .eq('user_id', user?.id);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { workspaces, refetch: refetchWorkspaces } = useWorkspaces(
+    { limit: 100 },
+    { enabled: !!user?.id },
+  );
 
   const workspaceMap = useMemo(
     () => Object.fromEntries(workspaces.map((w) => [w.id, w])),
@@ -114,8 +102,7 @@ export default function AlbumsListScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['albums'] });
-    await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    await Promise.all([refetchAlbums(), refetchWorkspaces()]);
     setRefreshing(false);
   };
 
@@ -166,11 +153,11 @@ export default function AlbumsListScreen() {
                 </View>
               </View>
               <Pressable
-                onPress={() =>
+                onPress={guardAlbumCreate(() =>
                   router.push(
                     `/albums/create${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
                   )
-                }
+                )}
                 className="w-11 h-11 rounded-2xl bg-primary items-center justify-center active:scale-[0.94]"
                 style={{
                   shadowColor: '#B66A40',
@@ -237,11 +224,11 @@ export default function AlbumsListScreen() {
               </Text>
             </View>
             <Pressable
-              onPress={() =>
+              onPress={guardAlbumCreate(() =>
                 router.push(
                   `/albums/create${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
                 )
-              }
+              )}
               className="bg-primary rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
             >
               <PlusIcon size={18} className="text-white" />
@@ -270,7 +257,7 @@ export default function AlbumsListScreen() {
                 source={{
                   uri:
                     item.cover_url ||
-                    `https://picsum.photos/seed/${item.id}/400/300`,
+                    PLACEHOLDER_COVER,
                 }}
                 style={{ width: '100%', aspectRatio: 4 / 3 }}
               />

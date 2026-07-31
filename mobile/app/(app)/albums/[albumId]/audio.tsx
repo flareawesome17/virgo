@@ -1,55 +1,57 @@
-import { View, Text, FlatList, RefreshControl, Pressable } from 'react-native';
+import { View, Text, FlatList, RefreshControl, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ArrowLeftIcon,
+  MusicIcon,
+  UploadIcon,
   PlayIcon,
   PauseIcon,
   SkipBackIcon,
   SkipForwardIcon,
   ShuffleIcon,
   RepeatIcon,
-  MusicIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { fileNameFromKey, useAlbum, useAlbumFiles } from '@/src/hooks';
+import { formatBytes, type StoredFile } from '@/src/api';
+import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(MusicIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(UploadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlayIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PauseIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SkipBackIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SkipForwardIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ShuffleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(RepeatIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MusicIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const TRACKS = [
-  { id: 'track-1', title: 'Voice Note — Direction Notes', artist: 'Riya Kapoor', duration: '2:34', durationSec: 154, size: '3.2 MB', type: 'voice' },
-  { id: 'track-2', title: 'Ambient — Malibu Coast', artist: 'Field Recording', duration: '12:08', durationSec: 728, size: '18.7 MB', type: 'ambient' },
-  { id: 'track-3', title: 'Client Briefing Call — Nov 10', artist: 'Recording', duration: '22:41', durationSec: 1361, size: '34.1 MB', type: 'voice' },
-  { id: 'track-4', title: 'BTS Interview — Maya Chen', artist: 'Recording', duration: '8:15', durationSec: 495, size: '12.4 MB', type: 'voice' },
-  { id: 'track-5', title: 'Soundscape — Forest Morning', artist: 'Field Recording', duration: '6:50', durationSec: 410, size: '10.3 MB', type: 'ambient' },
-  { id: 'track-6', title: 'Stills Set Audio — Look 2', artist: 'Riya Kapoor', duration: '3:22', durationSec: 202, size: '5.1 MB', type: 'voice' },
-  { id: 'track-7', title: 'Mood Reference — Warm Tones', artist: 'Reference', duration: '4:17', durationSec: 257, size: '8.2 MB', type: 'ambient' },
-];
-
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+/** Seconds -> `m:ss`, or `h:mm:ss` past an hour. */
+function clock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
 }
 
 function AudioTrackRow({
-  track,
+  file,
   isActive,
   isPlaying,
+  duration,
   onSelect,
 }: {
-  track: (typeof TRACKS)[0];
+  file: StoredFile;
   isActive: boolean;
   isPlaying: boolean;
+  /** Only known once loaded — a stored object carries no duration. */
+  duration: string | null;
   onSelect: () => void;
 }) {
   return (
@@ -59,7 +61,6 @@ function AudioTrackRow({
         isActive ? 'bg-white/[0.05]' : ''
       }`}
     >
-      {/* Track number / Play button */}
       <View
         className={`w-11 h-11 rounded-xl items-center justify-center ${
           isActive ? 'bg-primary' : 'bg-white/[0.08]'
@@ -72,147 +73,166 @@ function AudioTrackRow({
         )}
       </View>
 
-      {/* Info */}
       <View className="flex-1 min-w-0">
         <Text
           className={`text-sm font-semibold ${isActive ? 'text-primary' : 'text-white'}`}
           numberOfLines={1}
         >
-          {track.title}
+          {fileNameFromKey(file.key)}
         </Text>
         <View className="flex-row items-center gap-2 mt-0.5">
-          <Text className="text-white/30 text-xs">{track.artist}</Text>
-          <Text className="text-white/20 text-[10px]">·</Text>
-          <Text className="text-white/30 text-xs">{track.duration}</Text>
-          {track.type === 'voice' && (
+          {/* The original showed an invented artist and duration on every row.
+              A stored object has neither, so this shows what it does have. */}
+          <Text className="text-white/30 text-xs">
+            {file.contentType?.split('/')[1]?.toUpperCase() ?? 'AUDIO'}
+          </Text>
+          {duration && (
             <>
               <Text className="text-white/20 text-[10px]">·</Text>
-              <View className="bg-primary/20 rounded px-1.5 py-0.5">
-                <Text className="text-primary text-[9px] font-bold uppercase">VOICE</Text>
-              </View>
+              <Text className="text-white/30 text-xs">{duration}</Text>
             </>
           )}
         </View>
       </View>
 
-      {/* Size */}
-      <Text className="text-white/20 text-[11px] font-mono">{track.size}</Text>
+      <Text className="text-white/20 text-[11px] font-mono">{formatBytes(file.sizeBytes)}</Text>
     </Pressable>
   );
 }
 
+/**
+ * Audio stored in an album, with playback.
+ *
+ * The screen shipped with a hardcoded TRACKS list — six invented recordings
+ * with fake artists and durations — and a setInterval that advanced a progress
+ * bar while nothing played. Its seek handler literally called `Math.random()`.
+ *
+ * The layout here is that original design, restored. Everything behind it is
+ * real: files come from the bucket, and position, duration, seeking, skipping,
+ * shuffle and repeat are all driven by expo-audio.
+ */
 export default function AudioScreen() {
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
-  const { client } = useApp();
-  const { user } = useAuth();
-  const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
+  const [barWidth, setBarWidth] = useState(0);
 
-  const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const { data: album, refetch: refetchAlbum } = useAlbum(albumId);
+  const { audio: files, refetch: refetchFiles, isLoading } = useAlbumFiles(albumId);
+
+  // One player, re-pointed at each track. A player per file would leak.
+  const player = useAudioPlayer();
+  const status = useAudioPlayerStatus(player);
+
+  const [currentKey, setCurrentKey] = useState<string | null>(null);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const currentIdx = TRACKS.findIndex((t) => t.id === currentTrackId);
-  const currentTrack = currentIdx >= 0 ? TRACKS[currentIdx] : null;
-  const currentDuration = currentTrack?.durationSec || 0;
-  const currentPos = (progress / 100) * currentDuration;
+  const currentIdx = files.findIndex((f) => f.key === currentKey);
+  const currentFile = currentIdx >= 0 ? files[currentIdx] : null;
 
-  const { data: album } = useQuery({
-    queryKey: ['album', albumId],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('albums')
-        .select('id, name, item_count')
-        .eq('id', albumId)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!albumId,
-  });
+  const duration = status.isLoaded ? status.duration : 0;
+  const position = status.isLoaded ? status.currentTime : 0;
+  const progress = duration > 0 ? Math.min((position / duration) * 100, 100) : 0;
 
+  // iOS will not play with the ringer switch silenced unless this is set,
+  // which otherwise reads as the player being broken.
   useEffect(() => {
-    if (playing && currentTrack) {
-      timerRef.current = setInterval(() => {
-        setProgress((prev) => {
-          const next = prev + (100 / currentTrack.durationSec) * 0.12;
-          if (next >= 100) {
-            setPlaying(false);
-            if (timerRef.current) clearInterval(timerRef.current);
-            if (repeat) {
-              setTimeout(() => { setProgress(0); setPlaying(true); }, 300);
-            }
-            return 100;
-          }
-          return next;
-        });
-      }, 120);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [playing, currentTrack, repeat]);
+    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+  }, []);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['album', albumId] });
-    setRefreshing(false);
+  const playFile = (file: StoredFile) => {
+    if (!file.url) {
+      Alert.alert('Cannot play', 'This file has no playable URL.');
+      return;
+    }
+    player.replace({ uri: file.url });
+    setCurrentKey(file.key);
+    player.play();
   };
 
-  const selectTrack = (trackId: string) => {
-    setCurrentTrackId(trackId);
-    setProgress(0);
-    setPlaying(true);
+  const selectTrack = (file: StoredFile) => {
+    if (file.key === currentKey) {
+      status.playing ? player.pause() : player.play();
+      return;
+    }
+    playFile(file);
   };
 
   const togglePlay = () => {
-    if (!currentTrackId && TRACKS.length > 0) {
-      selectTrack(TRACKS[0].id);
+    if (!currentFile) {
+      // Matches the original's empty-state affordance: pressing play with
+      // nothing selected starts the first track.
+      if (files.length > 0) playFile(files[0]);
       return;
     }
-    setPlaying(!playing);
+    status.playing ? player.pause() : player.play();
+  };
+
+  const nextIndex = (): number => {
+    if (files.length === 0) return -1;
+    if (shuffle && files.length > 1) {
+      // Never pick the track already playing, or shuffle stalls on it.
+      let pick = currentIdx;
+      while (pick === currentIdx) pick = Math.floor(Math.random() * files.length);
+      return pick;
+    }
+    return (currentIdx + 1) % files.length;
   };
 
   const skipNext = () => {
-    if (!currentTrackId) return;
-    let next = currentIdx + 1;
-    if (next >= TRACKS.length) next = repeat ? 0 : currentIdx;
-    if (next !== currentIdx) selectTrack(TRACKS[next].id);
+    const i = nextIndex();
+    if (i >= 0) playFile(files[i]);
   };
 
   const skipPrev = () => {
-    if (!currentTrackId) return;
-    if (progress > 5) {
-      setProgress(0);
+    if (files.length === 0) return;
+    // Standard transport behaviour: restart the track first, and only step
+    // back when already near the beginning.
+    if (position > 3) {
+      player.seekTo(0);
       return;
     }
-    let prev = currentIdx - 1;
-    if (prev < 0) prev = 0;
-    selectTrack(TRACKS[prev].id);
+    const i = currentIdx <= 0 ? files.length - 1 : currentIdx - 1;
+    playFile(files[i]);
   };
+
+  // Advance when a track ends. The original faked this with a timer counting
+  // down a hardcoded duration.
+  useEffect(() => {
+    if (!status.didJustFinish) return;
+    if (repeat) {
+      player.seekTo(0);
+      player.play();
+      return;
+    }
+    skipNext();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status.didJustFinish]);
+
+  const seekToFraction = (fraction: number) => {
+    if (!status.isLoaded || duration <= 0) return;
+    player.seekTo(Math.max(0, Math.min(fraction, 1)) * duration);
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([refetchAlbum(), refetchFiles()]);
+    setRefreshing(false);
+  };
+
+  const totalBytes = files.reduce((s, f) => s + f.sizeBytes, 0);
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-[#141210]">
       <FlatList
-        data={TRACKS}
-        keyExtractor={(item) => item.id}
+        data={files}
+        keyExtractor={(item) => item.key}
         contentContainerStyle={{ paddingBottom: 280 }}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#C17745"
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#C17745" />
         }
         ListHeaderComponent={
           <View>
-            {/* Header */}
             <View className="px-4 pt-3 pb-2 flex-row items-center gap-3">
               <Pressable
                 onPress={() => router.back()}
@@ -220,98 +240,101 @@ export default function AudioScreen() {
               >
                 <ArrowLeftIcon size={18} className="text-white" />
               </Pressable>
-              <View>
-                <Text className="text-white text-lg font-bold tracking-tight">
+              <View className="flex-1 min-w-0">
+                <Text className="text-white text-lg font-bold tracking-tight" numberOfLines={1}>
                   {album?.name || 'Audio'}
                 </Text>
                 <Text className="text-white/40 text-xs mt-0.5">
-                  {TRACKS.length} tracks
+                  {files.length} track{files.length === 1 ? '' : 's'}
                 </Text>
               </View>
             </View>
 
-            {/* Track count pill */}
-            <View className="px-4 pb-4 flex-row items-center gap-3">
-              <View className="bg-white/[0.06] rounded-full px-3 py-1.5 flex-row items-center gap-1.5">
-                <MusicIcon size={11} className="text-white/40" />
-                <Text className="text-white/40 text-[11px] font-medium">
-                  {TRACKS.length} tracks · {TRACKS.reduce((s, t) => s + t.durationSec, 0) > 3600
-                    ? `${Math.floor(TRACKS.reduce((s, t) => s + t.durationSec, 0) / 3600)}h `
-                    : ''}
-                  {Math.floor((TRACKS.reduce((s, t) => s + t.durationSec, 0) % 3600) / 60)}m
-                </Text>
+            {files.length > 0 && (
+              <View className="px-4 pb-4 flex-row items-center gap-3">
+                <View className="bg-white/[0.06] rounded-full px-3 py-1.5 flex-row items-center gap-1.5">
+                  <MusicIcon size={11} className="text-white/40" />
+                  <Text className="text-white/40 text-[11px] font-medium">
+                    {files.length} track{files.length === 1 ? '' : 's'} · {formatBytes(totalBytes)}
+                  </Text>
+                </View>
               </View>
-            </View>
+            )}
           </View>
         }
         renderItem={({ item }) => (
           <AudioTrackRow
-            track={item}
-            isActive={currentTrackId === item.id}
-            isPlaying={playing && currentTrackId === item.id}
-            onSelect={() => selectTrack(item.id)}
+            file={item}
+            isActive={currentKey === item.key}
+            isPlaying={status.playing && currentKey === item.key}
+            duration={
+              currentKey === item.key && status.isLoaded && duration > 0 ? clock(duration) : null
+            }
+            onSelect={() => selectTrack(item)}
           />
         )}
+        ListEmptyComponent={
+          isLoading ? null : (
+            <View className="items-center px-10 mt-20">
+              <View className="w-20 h-20 rounded-full bg-white/[0.06] items-center justify-center mb-5">
+                <MusicIcon size={30} className="text-white/30" />
+              </View>
+              <Text className="text-white text-base font-bold">No audio yet</Text>
+              <Text className="text-white/40 text-sm text-center mt-2">
+                Audio you upload to this album will appear here.
+              </Text>
+              <Pressable
+                onPress={() => router.push(`/albums/upload?albumId=${albumId}&kind=audio`)}
+                className="mt-7 bg-primary rounded-2xl px-7 py-3 flex-row items-center gap-2 active:scale-[0.96]"
+              >
+                <UploadIcon size={16} className="text-white" />
+                <Text className="text-white text-sm font-bold">Upload audio</Text>
+              </Pressable>
+            </View>
+          )
+        }
       />
 
       {/* ── Bottom Player Bar ── */}
-      <SafeAreaView edges={['bottom']} className="absolute bottom-0 left-0 right-0">
-        <View className="bg-[#1E1B18] border-t border-white/[0.06]">
-          {/* Mini progress bar (top edge) */}
-          <View className="h-0.5 bg-white/[0.08]">
-            {currentTrack && (
-              <View
-                className="h-full bg-primary"
-                style={{ width: `${progress}%` }}
-              />
-            )}
-          </View>
+      {files.length > 0 && (
+        <SafeAreaView edges={['bottom']} className="absolute bottom-0 left-0 right-0">
+          <View className="bg-[#1E1B18] border-t border-white/[0.06]">
+            {/* Mini progress along the top edge */}
+            <View className="h-0.5 bg-white/[0.08]">
+              {currentFile && (
+                <View className="h-full bg-primary" style={{ width: `${progress}%` }} />
+              )}
+            </View>
 
-          {currentTrack ? (
-            <>
-              {/* Track info + controls */}
+            {currentFile ? (
               <View className="px-4 pt-3 pb-4">
                 <View className="flex-row items-center gap-3">
-                  {/* Artwork placeholder */}
                   <View
                     className="w-12 h-12 rounded-xl items-center justify-center"
-                    style={{
-                      backgroundColor:
-                        currentTrack.type === 'voice' ? '#B66A4022' : '#C1774522',
-                    }}
+                    style={{ backgroundColor: '#C1774522' }}
                   >
-                    <MusicIcon
-                      size={20}
-                      style={{
-                        color: currentTrack.type === 'voice' ? '#B66A40' : '#C17745',
-                      }}
-                    />
+                    <MusicIcon size={20} style={{ color: '#C17745' }} />
                   </View>
 
-                  {/* Track info */}
                   <View className="flex-1 min-w-0">
                     <Text className="text-white text-sm font-bold" numberOfLines={1}>
-                      {currentTrack.title}
+                      {fileNameFromKey(currentFile.key)}
                     </Text>
                     <Text className="text-white/40 text-xs mt-0.5">
-                      {currentTrack.artist} · {currentTrack.duration}
+                      {status.isLoaded ? formatBytes(currentFile.sizeBytes) : 'Loading…'}
                     </Text>
                   </View>
 
-                  {/* Time */}
                   <Text className="text-white/30 text-xs font-mono">
-                    {formatTime(currentPos)} / {currentTrack.duration}
+                    {clock(position)} / {duration > 0 ? clock(duration) : '--:--'}
                   </Text>
                 </View>
 
-                {/* Seek bar */}
+                {/* Seek bar. The original's onPress called Math.random(). */}
                 <Pressable
                   className="mt-3 h-6 justify-center"
-                  onPress={(e) => {
-                    // Simple tap-to-seek — use relative position
-                    const pct = Math.max(0, Math.min(100, Math.random() * 100));
-                    setProgress(pct);
-                  }}
+                  onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
+                  onPress={(e) => seekToFraction(e.nativeEvent.locationX / Math.max(barWidth, 1))}
                 >
                   <View className="h-1 bg-white/[0.12] rounded-full overflow-hidden">
                     <View
@@ -321,7 +344,7 @@ export default function AudioScreen() {
                   </View>
                 </Pressable>
 
-                {/* Transport controls */}
+                {/* Transport */}
                 <View className="flex-row items-center justify-between mt-3 px-6">
                   <Pressable
                     onPress={() => setShuffle(!shuffle)}
@@ -345,7 +368,7 @@ export default function AudioScreen() {
                       elevation: 6,
                     }}
                   >
-                    {playing ? (
+                    {status.playing ? (
                       <PauseIcon size={24} className="text-white" />
                     ) : (
                       <PlayIcon size={26} className="text-white ml-1" />
@@ -364,26 +387,28 @@ export default function AudioScreen() {
                   </Pressable>
                 </View>
               </View>
-            </>
-          ) : (
-            <View className="px-4 py-4 flex-row items-center gap-3">
-              <View className="w-12 h-12 rounded-xl bg-white/[0.06] items-center justify-center">
-                <MusicIcon size={20} className="text-white/30" />
+            ) : (
+              <View className="px-4 py-4 flex-row items-center gap-3">
+                <View className="w-12 h-12 rounded-xl bg-white/[0.06] items-center justify-center">
+                  <MusicIcon size={20} className="text-white/30" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-white/30 text-sm">No track selected</Text>
+                  <Text className="text-white/15 text-xs mt-0.5">
+                    Tap a track to start listening
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={togglePlay}
+                  className="w-10 h-10 rounded-full bg-white/[0.08] items-center justify-center active:scale-[0.92]"
+                >
+                  <PlayIcon size={16} className="text-white/50 ml-0.5" />
+                </Pressable>
               </View>
-              <View className="flex-1">
-                <Text className="text-white/30 text-sm">No track selected</Text>
-                <Text className="text-white/15 text-xs mt-0.5">Tap a track to start listening</Text>
-              </View>
-              <Pressable
-                onPress={togglePlay}
-                className="w-10 h-10 rounded-full bg-white/[0.08] items-center justify-center active:scale-[0.92]"
-              >
-                <PlayIcon size={16} className="text-white/50 ml-0.5" />
-              </Pressable>
-            </View>
-          )}
-        </View>
-      </SafeAreaView>
+            )}
+          </View>
+        </SafeAreaView>
+      )}
     </SafeAreaView>
   );
 }

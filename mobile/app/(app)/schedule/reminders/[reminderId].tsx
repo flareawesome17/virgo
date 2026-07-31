@@ -1,7 +1,13 @@
 import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import type { UpdateReminderInput } from '@/src/api';
+import {
+  useDeleteReminder,
+  useReminder,
+  useScheduleEvent,
+  useTheme,
+  useUpdateReminder,
+} from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -30,50 +36,29 @@ function formatDateTime(ts: string): { date: string; time: string } {
 
 export default function ReminderDetailScreen() {
   const { reminderId } = useLocalSearchParams<{ reminderId: string }>();
-  const { client } = useApp();
-  const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: reminder } = useQuery({
-    queryKey: ['reminder', reminderId],
-    queryFn: async () => {
-      const { data, error } = await client.from('reminders').select('*').eq('id', reminderId).single();
-      if (error) throw error; return data;
-    },
-    enabled: !!reminderId,
-  });
+  const { data: reminder, refetch: refetchReminder } = useReminder(reminderId);
 
-  const { data: event } = useQuery({
-    queryKey: ['schedule_event', reminder?.schedule_event_id],
-    queryFn: async () => {
-      if (!reminder?.schedule_event_id) return null;
-      const { data } = await client.from('schedule_events').select('id, title, event_date, event_type').eq('id', reminder.schedule_event_id).single();
-      return data;
-    },
-    enabled: !!reminder?.schedule_event_id,
-  });
+  const { data: event } = useScheduleEvent(
+    reminder?.schedule_event_id ?? undefined,
+  );
 
-  const updateReminder = useMutation({
-    mutationFn: async (updates: Record<string, any>) => {
-      const { error } = await client.from('reminders').update(updates).eq('id', reminderId);
-      if (error) throw error;
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reminders'] }),
-  });
+  // The id is injected here so call sites stay as plain partial updates.
+  const updateReminderMutation = useUpdateReminder();
+  const updateReminder = (updates: UpdateReminderInput) =>
+    updateReminderMutation.mutate({ id: reminderId, ...updates });
 
-  const deleteReminder = useMutation({
-    mutationFn: async () => {
-      const { error } = await client.from('reminders').delete().eq('id', reminderId);
-      if (error) throw error;
-    },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['reminders'] }); router.back(); },
-  });
+  const deleteReminderMutation = useDeleteReminder();
+  const deleteReminder = () =>
+    deleteReminderMutation.mutate(reminderId, {
+      onSuccess: () => router.back(),
+    });
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['reminder', reminderId] });
+    await refetchReminder();
     setRefreshing(false);
   };
 
@@ -171,8 +156,8 @@ export default function ReminderDetailScreen() {
         {/* Toggles */}
         <View className="mx-5 mt-5 bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
           {/* Alarm toggle */}
-          <Pressable onPress={() => updateReminder.mutate({ is_alarm_enabled: !reminder.is_alarm_enabled })}
-            className="flex-row items-center justify-between px-4 py-3.5 active:bg-muted/30" style={{ borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }}>
+          <Pressable onPress={() => updateReminder({ is_alarm_enabled: !reminder.is_alarm_enabled })}
+            className="flex-row items-center justify-between px-4 py-3.5 active:bg-muted/30" style={{ borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }}>
             <View className="flex-row items-center gap-3">
               <View style={{ width: 30, height: 30, borderRadius: 10, backgroundColor: reminder.is_alarm_enabled ? '#B66A4018' : '#A8948920', alignItems: 'center', justifyContent: 'center' }}>
                 {reminder.is_alarm_enabled ? <BellIcon size={14} className="text-primary" /> : <BellOffIcon size={14} className="text-muted-foreground" />}
@@ -187,7 +172,7 @@ export default function ReminderDetailScreen() {
             </View>
           </Pressable>
           {/* Push notification toggle */}
-          <Pressable onPress={() => updateReminder.mutate({ has_push_notification: !reminder.has_push_notification })}
+          <Pressable onPress={() => updateReminder({ has_push_notification: !reminder.has_push_notification })}
             className="flex-row items-center justify-between px-4 py-3.5 active:bg-muted/30">
             <View className="flex-row items-center gap-3">
               <View style={{ width: 30, height: 30, borderRadius: 10, backgroundColor: '#5B7B9A18', alignItems: 'center', justifyContent: 'center' }}>
@@ -206,13 +191,13 @@ export default function ReminderDetailScreen() {
 
         {/* Mark Complete / Delete */}
         <View className="px-5 mt-6 gap-3">
-          <Pressable onPress={() => updateReminder.mutate({ is_completed: !reminder.is_completed })}
+          <Pressable onPress={() => updateReminder({ is_completed: !reminder.is_completed })}
             className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${reminder.is_completed ? 'bg-muted' : 'bg-[#6B8E4E]'}`}>
             <Text className={`text-base font-bold ${reminder.is_completed ? 'text-muted-foreground' : 'text-white'}`}>
               {reminder.is_completed ? 'Mark Incomplete' : 'Mark Complete'}
             </Text>
           </Pressable>
-          <Pressable onPress={() => deleteReminder.mutate()} className="flex-row items-center justify-center gap-2 py-3 active:scale-[0.97]">
+          <Pressable onPress={() => deleteReminder()} className="flex-row items-center justify-center gap-2 py-3 active:scale-[0.97]">
             <Trash2Icon size={15} className="text-destructive" />
             <Text className="text-destructive text-sm font-semibold">Delete Reminder</Text>
           </Pressable>

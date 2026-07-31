@@ -1,7 +1,6 @@
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import { useAuth, useReminders, useScheduleEvents, useTheme, useUpdateReminder } from '@/src/hooks';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
@@ -20,6 +19,14 @@ import {
   CircleIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import {
+  DAYS,
+  MONTHS,
+  formatTime,
+  getMonthWeeks,
+  labelForDateKey,
+  todayKey,
+} from '@/src/lib/calendar';
 
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -44,103 +51,37 @@ const EVENT_COLORS: Record<string, string> = {
   delivery: '#6B8E4E', meeting: '#5B7B9A',
 };
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-
-function getMonthGrid(year: number, month: number) {
-  const firstDay = new Date(year, month, 1).getDay();
-  const adjustedFirst = firstDay === 0 ? 6 : firstDay - 1;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date();
-  const cells: { day: number; month: number; year: number; isToday: boolean; isOutside: boolean }[] = [];
-  const prevDays = new Date(year, month, 0).getDate();
-  for (let i = adjustedFirst - 1; i >= 0; i--) {
-    cells.push({ day: prevDays - i, month: month - 1, year, isToday: false, isOutside: true });
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push({
-      day: d, month, year,
-      isToday: today.getFullYear() === year && today.getMonth() === month && today.getDate() === d,
-      isOutside: false,
-    });
-  }
-  const remaining = 7 - (cells.length % 7 === 0 ? 7 : cells.length % 7);
-  for (let d = 1; d <= remaining; d++) {
-    cells.push({ day: d, month: month + 1, year, isToday: false, isOutside: true });
-  }
-  return cells;
-}
-
-function dateKey(y: number, m: number, d: number) {
-  return `${y}-${String(m + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-}
-
-function formatTime(timeStr: string | null): string {
-  if (!timeStr) return '';
-  const [h, m] = timeStr.split(':');
-  const hour = parseInt(h);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const h12 = hour % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
-}
-
-function isTodayDate(dateStr: string): boolean {
-  const d = new Date(dateStr);
-  const t = new Date();
-  return d.toDateString() === t.toDateString();
-}
-function isTomorrowDate(dateStr: string): boolean {
-  const d = new Date(dateStr);
-  const t = new Date();
-  t.setDate(t.getDate() + 1);
-  return d.toDateString() === t.toDateString();
-}
-function labelForDate(dateStr: string): string {
-  if (isTodayDate(dateStr)) return 'Today';
-  if (isTomorrowDate(dateStr)) return 'Tomorrow';
-  return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
+// Date helpers live in src/lib/calendar.ts — they were duplicated here and in
+// schedule/calendar.tsx, and both copies mishandled month/year rollover.
 
 export default function ScheduleScreen() {
-  const { client } = useApp();
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
-  const [selectedDate, setSelectedDate] = useState(dateKey(today.getFullYear(), today.getMonth(), today.getDate()));
+  const [selectedDate, setSelectedDate] = useState(todayKey);
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['schedule_events', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('schedule_events')
-        .select('*').eq('user_id', user?.id)
-        .order('event_date', { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { events, refetch: refetchEvents } = useScheduleEvents(
+    { orderBy: 'event_date', direction: 'asc', limit: 100 },
+    { enabled: !!user?.id },
+  );
 
-  const { data: reminders = [] } = useQuery({
-    queryKey: ['reminders', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client.from('reminders')
-        .select('*').eq('user_id', user?.id)
-        .order('reminder_time', { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { reminders, refetch: refetchReminders } = useReminders(
+    { orderBy: 'reminder_time', direction: 'asc', limit: 100 },
+    { enabled: !!user?.id },
+  );
+
+  // The tick had no handler, so reminders could not be completed from here.
+  const updateReminder = useUpdateReminder();
+  const toggleReminder = (id: string, is_completed: boolean) =>
+    updateReminder.mutate({ id, is_completed });
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['schedule_events'] });
-    await queryClient.invalidateQueries({ queryKey: ['reminders'] });
+    await Promise.all([refetchEvents(), refetchReminders()]);
     setRefreshing(false);
   };
 
@@ -153,9 +94,9 @@ export default function ScheduleScreen() {
     return m;
   }, [events]);
 
-  const monthGrid = getMonthGrid(viewYear, viewMonth);
+  const monthWeeks = getMonthWeeks(viewYear, viewMonth);
   const selectedEvents = eventsByDate[selectedDate] || [];
-  const upcomingEvents = events.filter(e => e.event_date >= dateKey(today.getFullYear(), today.getMonth(), today.getDate())).slice(0, 3);
+  const upcomingEvents = events.filter((e) => e.event_date >= todayKey()).slice(0, 3);
   const activeReminders = reminders.filter(r => !r.is_completed);
 
   const goPrevMonth = () => {
@@ -203,45 +144,60 @@ export default function ScheduleScreen() {
               </Pressable>
             </View>
           </View>
-          {/* Day labels */}
+          {/* Day labels — flex-1 so the columns line up exactly with the grid */}
           <View className="flex-row mb-1">
             {DAYS.map(d => (
-              <View key={d} style={{ width: `${100/7}%` }} className="items-center py-1">
+              <View key={d} style={{ flex: 1 }} className="items-center py-1">
                 <Text className="text-muted-foreground text-[10px] font-bold uppercase tracking-wider">{d.slice(0,2)}</Text>
               </View>
             ))}
           </View>
-          {/* Day cells */}
-          <View className="flex-row flex-wrap">
-            {monthGrid.map((cell, i) => {
-              const key = dateKey(cell.year, cell.month, cell.day);
-              const hasEvents = (eventsByDate[key]?.length || 0) > 0;
-              const isSel = key === selectedDate;
+          {/* Day cells — one View per week. A single wrapping container with
+              percentage widths dropped the 7th cell onto the next row. */}
+          {monthWeeks.map((week, w) => (
+            <View key={w} className="flex-row">
+            {week.map((cell) => {
+              const dayEvents = eventsByDate[cell.key] ?? [];
+              const isSel = cell.key === selectedDate;
               return (
-                <Pressable key={i} onPress={() => { if (!cell.isOutside) { setSelectedDate(key); if (cell.month !== viewMonth) { setViewMonth(cell.month); setViewYear(cell.year); } } }}
-                  style={{ width: `${100/7}%` }} className="items-center py-1.5">
+                <Pressable
+                  key={cell.key}
+                  // Outside days are selectable and page the view to their
+                  // month — standard calendar behaviour. Previously they were
+                  // inert, and the month-switch branch was unreachable.
+                  onPress={() => {
+                    setSelectedDate(cell.key);
+                    if (cell.month !== viewMonth || cell.year !== viewYear) {
+                      setViewMonth(cell.month);
+                      setViewYear(cell.year);
+                    }
+                  }}
+                  style={{ flex: 1 }}
+                  className="items-center py-1.5"
+                >
                   <View className={`w-8 h-8 rounded-full items-center justify-center ${cell.isToday ? 'bg-primary' : isSel ? 'bg-primary/15' : ''}`}>
                     <Text className={`text-xs font-bold ${cell.isOutside ? 'text-muted-foreground/25' : cell.isToday ? 'text-white' : isSel ? 'text-primary' : 'text-foreground'}`}>
                       {cell.day}
                     </Text>
                   </View>
-                  {hasEvents && !cell.isOutside && (
+                  {dayEvents.length > 0 && (
                     <View className="flex-row gap-0.5 mt-0.5">
-                      {(eventsByDate[key] || []).slice(0,3).map((ev, j) => (
-                        <View key={j} style={{ width: 3.5, height: 3.5, borderRadius: 2, backgroundColor: EVENT_COLORS[ev.event_type] || '#B66A40' }} />
+                      {dayEvents.slice(0, 3).map((ev) => (
+                        <View key={ev.id} style={{ width: 3.5, height: 3.5, borderRadius: 2, backgroundColor: EVENT_COLORS[ev.event_type] || '#B66A40', opacity: cell.isOutside ? 0.35 : 1 }} />
                       ))}
                     </View>
                   )}
                 </Pressable>
               );
             })}
-          </View>
+            </View>
+          ))}
         </View>
 
         {/* Selected Day Agenda */}
         <View className="px-5 mt-5">
           <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-lg font-bold tracking-tight">{labelForDate(selectedDate)}</Text>
+            <Text className="text-foreground text-lg font-bold tracking-tight">{labelForDateKey(selectedDate)}</Text>
             <Pressable onPress={() => router.push(`/schedule/agenda?date=${selectedDate}`)} className="flex-row items-center gap-1 active:opacity-60">
               <Text className="text-primary text-sm font-semibold">Agenda</Text>
               <ChevronRightIcon size={14} className="text-primary" />
@@ -265,7 +221,7 @@ export default function ScheduleScreen() {
                 return (
                   <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
                     className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
-                    style={i < selectedEvents.length - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
+                    style={i < selectedEvents.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
                     <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: `${color}18`, alignItems: 'center', justifyContent: 'center' }}>
                       <IconComp size={16} style={{ color }} />
                     </View>
@@ -309,7 +265,7 @@ export default function ScheduleScreen() {
                     <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: color }} />
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>{ev.title}</Text>
-                      <Text className="text-muted-foreground text-xs mt-0.5">{labelForDate(ev.event_date)}{ev.event_time ? ` · ${formatTime(ev.event_time)}` : ''}</Text>
+                      <Text className="text-muted-foreground text-xs mt-0.5">{labelForDateKey(ev.event_date)}{ev.event_time ? ` · ${formatTime(ev.event_time)}` : ''}</Text>
                     </View>
                     <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: `${color}14` }}>
                       <Text style={{ color, fontSize: 9, fontWeight: '700', textTransform: 'uppercase' }}>{ev.event_type}</Text>
@@ -334,7 +290,7 @@ export default function ScheduleScreen() {
               {activeReminders.slice(0, 4).map((rem, i) => (
                 <Pressable key={rem.id} onPress={() => router.push(`/schedule/reminders/${rem.id}`)}
                   className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
-                  style={i < Math.min(activeReminders.length, 4) - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
+                  style={i < Math.min(activeReminders.length, 4) - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
                   <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: rem.is_alarm_enabled ? '#B66A4018' : '#A8948920', alignItems: 'center', justifyContent: 'center' }}>
                     {rem.is_alarm_enabled ? <BellIcon size={14} className="text-primary" /> : <BellOffIcon size={14} className="text-muted-foreground" />}
                   </View>
@@ -349,7 +305,10 @@ export default function ScheduleScreen() {
                       )}
                     </View>
                   </View>
-                  <Pressable className="active:scale-[0.90]">
+                  <Pressable
+                    onPress={() => toggleReminder(rem.id, !rem.is_completed)}
+                    className="active:scale-[0.90]"
+                  >
                     {rem.is_completed ? <CheckCircleIcon size={18} className="text-[#6B8E4E]" /> : <CircleIcon size={18} className="text-muted-foreground" />}
                   </Pressable>
                 </Pressable>

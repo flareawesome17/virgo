@@ -1,7 +1,7 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth } from '@/src/hooks';
+import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { CollaboratorRole } from '@/src/api';
+import { useCreateCollaborator, useWorkspace, useTheme } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -38,29 +38,15 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 export default function InviteCollaboratorsScreen() {
+  const { isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { client } = useApp();
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('photographer');
   const [invites, setInvites] = useState<{ name: string; email: string; role: string }[]>([]);
 
-  const { data: workspace } = useQuery({
-    queryKey: ['workspace', id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('workspaces')
-        .select('id, name, accent_color')
-        .eq('id', id)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!id,
-  });
+  const { data: workspace } = useWorkspace(id);
 
   const addInvite = () => {
     if (!name.trim() || !email.trim()) {
@@ -77,36 +63,37 @@ export default function InviteCollaboratorsScreen() {
     setInvites((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const sendInvites = useMutation({
-    mutationFn: async () => {
-      const now = new Date().toISOString();
-      for (const inv of invites) {
-        const collabId = 'collab-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-        const { error } = await client.from('collaborators').insert({
-          id: collabId,
-          workspace_id: id,
-          name: inv.name,
-          role: inv.role,
-          created_at: now,
-        });
-        if (error) throw error;
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['collaborators'] });
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+  const createCollaborator = useCreateCollaborator();
+
+  const sendInvites = async () => {
+    try {
+      await Promise.all(
+        invites.map((inv) =>
+          createCollaborator.mutateAsync({
+            workspace_id: id,
+            name: inv.name,
+            role: inv.role as CollaboratorRole,
+          }),
+        ),
+      );
       router.back();
-    },
-    onError: (err) => {
+    } catch (err) {
       Alert.alert('Error', 'Could not send invites. Please try again.');
       console.error(err);
-    },
-  });
+    }
+  };
 
   const accent = workspace?.accent_color || '#B66A40';
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      {/* Lifts the form above the keyboard. Without this the fields nearest
+          the bottom sat underneath it on iOS with no way to scroll to them. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
@@ -303,7 +290,7 @@ export default function InviteCollaboratorsScreen() {
                   className="flex-row items-center gap-3 px-4 py-3"
                   style={
                     i < invites.length - 1
-                      ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }
+                      ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
                       : undefined
                   }
                 >
@@ -356,21 +343,22 @@ export default function InviteCollaboratorsScreen() {
 
       {/* Send button */}
       {invites.length > 0 && (
-        <View className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-4 bg-background">
+        <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
           <Pressable
-            onPress={() => sendInvites.mutate()}
+            onPress={() => sendInvites()}
             className="bg-primary rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.97]"
-            disabled={sendInvites.isPending}
+            disabled={createCollaborator.isPending}
           >
             <SendIcon size={17} className="text-white" />
             <Text className="text-white text-base font-bold">
-              {sendInvites.isPending
+              {createCollaborator.isPending
                 ? 'Sending...'
                 : `Send ${invites.length} Invite${invites.length > 1 ? 's' : ''}`}
             </Text>
           </Pressable>
         </View>
       )}
+          </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

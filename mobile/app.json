@@ -16,23 +16,104 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFF8F4"
       },
-      "package": "com.virgo.app"
+      "package": "com.virgo.app",
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "SCHEDULE_EXACT_ALARM"
+      ]
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash.png",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220,
           "resizeMode": "contain",
-          "backgroundColor": "#FFF8F4"
+          "backgroundColor": "#FFF8F4",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#161311"
+          }
         }
-      ]
+      ],
+      "expo-font",
+      "expo-web-browser",
+      [
+        "@react-native-community/datetimepicker",
+        {
+          "android": {
+            "datePicker": {
+              "colorAccent": {
+                "light": "#B66A40",
+                "dark": "#C17745"
+              },
+              "colorControlActivated": {
+                "light": "#B66A40",
+                "dark": "#C17745"
+              },
+              "textColor": {
+                "light": "#1E1B18",
+                "dark": "#F2EDE8"
+              },
+              "textColorPrimary": {
+                "light": "#1E1B18",
+                "dark": "#F2EDE8"
+              },
+              "textColorSecondary": {
+                "light": "#847167",
+                "dark": "#948278"
+              },
+              "windowBackground": {
+                "light": "#FFFFFF",
+                "dark": "#1E1B18"
+              }
+            },
+            "timePicker": {
+              "background": {
+                "light": "#FFFFFF",
+                "dark": "#1E1B18"
+              },
+              "headerBackground": {
+                "light": "#FFFFFF",
+                "dark": "#1E1B18"
+              },
+              "numbersBackgroundColor": {
+                "light": "#FFFFFF",
+                "dark": "#1E1B18"
+              },
+              "numbersTextColor": {
+                "light": "#1E1B18",
+                "dark": "#F2EDE8"
+              },
+              "numbersSelectorColor": {
+                "light": "#B66A40",
+                "dark": "#C17745"
+              }
+            }
+          }
+        }
+      ],
+      "expo-audio",
+      [
+        "expo-notifications",
+        {
+          "color": "#B66A40"
+        }
+      ],
+      "expo-video"
     ],
-    "extra": {
-      "defaultAppIconSet": true,
-      "selectedIconUrl": "https://sqgedrruthtbkskkjeqa.supabase.co/storage/v1/object/public/projects/e1783080-141a-48df-807b-c02cc168c3fe/fs/assets/images/icon.png?t=1785419567341",
-      "selectedIconId": "99aa6d70-970d-42a7-853b-7d05e56e910d"
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFF8F4",
+      "dark": {
+        "image": "./assets/splash-icon.png",
+        "backgroundColor": "#161311"
+      }
     }
   }
 }

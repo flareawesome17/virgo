@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { MailIcon, ArrowRightIcon, SendIcon, RefreshCwIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { useAuth } from '@/src/hooks';
 import { useState } from 'react';
 
 cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -10,10 +11,11 @@ cssInterop(ArrowRightIcon, { className: { target: 'style', nativeStyleToProp: { 
 cssInterop(SendIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(RefreshCwIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const demoEmail = 'riya@virgo.studio';
-
 export default function CheckInboxScreen() {
   const [resending, setResending] = useState(false);
+  // The signed-in address, not a hardcoded demo one.
+  const { user } = useAuth();
+  const demoEmail = user?.email ?? 'your email';
 
   const handleResend = async () => {
     setResending(true);

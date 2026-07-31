@@ -1,5 +1,5 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -16,11 +16,12 @@ cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color
 cssInterop(CircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function PaymentMethodScreen() {
+  const insets = useSafeAreaInsets();
   const { plan: planKey = 'creator', cycle = 'monthly' } = useLocalSearchParams<{ plan?: string; cycle?: string }>();
   const [cardNumber, setCardNumber] = useState('');
   const [expiry, setExpiry] = useState('');
   const [cvc, setCvc] = useState('');
-  const [name, setName] = useState('Riya Kapoor');
+  const [name, setName] = useState('');
   const [saved, setSaved] = useState(false);
   const [processing, setProcessing] = useState(false);
 
@@ -47,6 +48,13 @@ export default function PaymentMethodScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      {/* Lifts the form above the keyboard. Without this the fields nearest
+          the bottom sat underneath it on iOS with no way to scroll to them. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
         {/* Header */}
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
@@ -72,7 +80,7 @@ export default function PaymentMethodScreen() {
           <View className="flex-row justify-between">
             <View>
               <Text className="text-white/40 text-[9px] font-semibold uppercase tracking-wide">Cardholder</Text>
-              <Text className="text-white/80 text-xs mt-0.5">{name || 'Riya Kapoor'}</Text>
+              <Text className="text-white/80 text-xs mt-0.5">{name || 'Name on card'}</Text>
             </View>
             <View>
               <Text className="text-white/40 text-[9px] font-semibold uppercase tracking-wide">Expires</Text>
@@ -106,7 +114,7 @@ export default function PaymentMethodScreen() {
           <View>
             <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Name on Card</Text>
             <TextInput value={name} onChangeText={setName}
-              placeholder="Riya Kapoor" placeholderTextColor="#A89489"
+              placeholder="Name on card" placeholderTextColor="#A89489"
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }} />
           </View>
         </View>
@@ -119,7 +127,7 @@ export default function PaymentMethodScreen() {
       </ScrollView>
 
       {/* Pay button */}
-      <View className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-4 bg-background">
+      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
         <View className="flex-row items-center gap-2 mb-3 justify-center">
           <LockIcon size={11} className="text-muted-foreground" />
           <Text className="text-muted-foreground text-[11px]">Payments are encrypted & secure</Text>
@@ -132,6 +140,7 @@ export default function PaymentMethodScreen() {
           </Text>
         </Pressable>
       </View>
+          </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

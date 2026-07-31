@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/src/hooks';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useState } from 'react';
 import {
   ArrowLeftIcon, UserIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
@@ -25,9 +25,11 @@ export default function SignUpScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // <Redirect> rather than router.replace(): navigating during render mutates
+  // the navigation container mid-render and triggers React's
+  // "Cannot update a component while rendering a different component" error.
   if (process.env.EXPO_PUBLIC_RAPIDNATIVE_MODE !== 'designer' && user) {
-    router.replace('/(tabs)');
-    return null;
+    return <Redirect href="/(app)/(tabs)" />;
   }
 
   const validate = (): string | null => {
@@ -45,7 +47,9 @@ export default function SignUpScreen() {
     if (err) { setErrorMsg(err); return; }
     setErrorMsg('');
     signUp.mutate(
-      { email: email.trim(), password },
+      // displayName was collected and validated, then dropped — every new
+      // account ended up with a null name despite the user typing one.
+      { email: email.trim(), password, displayName: name.trim() },
       {
         onSuccess: () => router.push('/check-inbox'),
         onError: (err: any) => {
@@ -93,7 +97,7 @@ export default function SignUpScreen() {
               <View className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3"
                 style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
                 <UserIcon size={16} className="text-muted-foreground" />
-                <TextInput value={name} onChangeText={setName} placeholder="Riya Kapoor"
+                <TextInput value={name} onChangeText={setName} placeholder="Your name"
                   placeholderTextColor="#A89489" className="flex-1 text-foreground text-base" autoCapitalize="words" />
               </View>
             </View>

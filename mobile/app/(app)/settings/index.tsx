@@ -1,6 +1,7 @@
-import { View, Text, ScrollView, Pressable, Image } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useAuth, useTheme } from '@/src/hooks';
 import {
   ArrowLeftIcon, ChevronRightIcon, UserIcon, BellIcon, LockIcon, ShieldIcon,
   PaletteIcon, HardDriveIcon, WifiIcon, CloudIcon, HelpCircleIcon,
@@ -30,41 +31,52 @@ interface SettingsRow {
   value?: string;
   route?: string;
   color: string;
+  /**
+   * Marks a row whose feature has no implementation behind it yet. These
+   * previously carried a `route` to a screen that did not exist, so tapping
+   * them dropped the user on Expo's raw "Unmatched Route" page. Showing an
+   * honest "Soon" badge beats both that and a fake screen.
+   */
+  soon?: boolean;
 }
 
 const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
   {
     title: 'Account',
     rows: [
-      { icon: UserIcon, label: 'Account', value: 'riya@virgo.studio', route: '/settings/account', color: '#B66A40' },
-      { icon: UserIcon, label: 'Profile', value: 'Riya Kapoor', route: '/settings/profile', color: '#C17745' },
+      // `value` is filled in from the signed-in user at render — it used to be
+      // a hardcoded placeholder address.
+      { icon: UserIcon, label: 'Account', route: '/settings/account', color: '#B66A40' },
+      { icon: UserIcon, label: 'Profile', route: '/settings/profile', color: '#C17745' },
     ],
   },
   {
     title: 'Preferences',
     rows: [
-      { icon: BellIcon, label: 'Notifications', route: '/settings/notifications', color: '#B66A40' },
-      { icon: PaletteIcon, label: 'Theme', value: 'Light', route: '/settings/theme', color: '#C17745' },
+      { icon: BellIcon, label: 'Notifications', color: '#B66A40', soon: true },
+      { icon: PaletteIcon, label: 'Theme', route: '/settings/theme', color: '#C17745' },
     ],
   },
   {
     title: 'Privacy & Security',
     rows: [
-      { icon: LockIcon, label: 'Privacy', route: '/settings/privacy', color: '#5B7B9A' },
-      { icon: ShieldIcon, label: 'Security', value: '2FA enabled', route: '/settings/security', color: '#6B8E4E' },
+      { icon: LockIcon, label: 'Privacy', color: '#5B7B9A', soon: true },
+      // The old row read "2FA enabled" — there is no 2FA in the backend, so
+      // that was a claim the app could not honour.
+      { icon: ShieldIcon, label: 'Security', color: '#6B8E4E', soon: true },
     ],
   },
   {
     title: 'Storage & Sync',
     rows: [
-      { icon: HardDriveIcon, label: 'Storage', value: '128.4 GB of 512 GB', route: '/settings/storage', color: '#B66A40' },
-      { icon: CloudIcon, label: 'Offline Sync', value: '3 workspaces', route: '/settings/sync', color: '#C17745' },
+      { icon: HardDriveIcon, label: 'Storage', route: '/settings/storage', color: '#B66A40' },
+      { icon: CloudIcon, label: 'Offline Sync', color: '#C17745', soon: true },
     ],
   },
   {
     title: 'Support',
     rows: [
-      { icon: HelpCircleIcon, label: 'Help Center', route: '/settings/help', color: '#B66A40' },
+      { icon: HelpCircleIcon, label: 'Help Center', color: '#B66A40', soon: true },
       { icon: FileTextIcon, label: 'Terms of Service', color: '#54433C' },
       { icon: StarIcon, label: 'Rate Virgo', color: '#C17745' },
     ],
@@ -78,6 +90,27 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
 ];
 
 export default function SettingsHomeScreen() {
+  const { isDark } = useTheme();
+  const { user, profile, signOut } = useAuth();
+
+  // This button had no onPress either — there were two dead Sign Out buttons,
+  // here and on the Profile tab. The auth guard handles the redirect.
+  const handleSignOut = () => {
+    Alert.alert('Sign out', 'You will need to sign in again to continue.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign out', style: 'destructive', onPress: () => signOut.mutate() },
+    ]);
+  };
+
+  // Show the real signed-in address on the Account row rather than a
+  // placeholder baked into the section table.
+  const sections = SECTIONS.map((section) => ({
+    ...section,
+    rows: section.rows.map((row) =>
+      row.label === 'Account' ? { ...row, value: user?.email } : row,
+    ),
+  }));
+
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       <ScrollView
@@ -106,20 +139,34 @@ export default function SettingsHomeScreen() {
           className="mx-5 mb-2 bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
           style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}
         >
-          <Image
-            source={{ uri: 'https://picsum.photos/seed/virgo-user/100/100' }}
-            style={{ width: 48, height: 48, borderRadius: 24 }}
-          />
+          {profile?.avatarUrl ? (
+            <Image
+              source={{ uri: profile.avatarUrl }}
+              style={{ width: 48, height: 48, borderRadius: 24 }}
+            />
+          ) : (
+            <View
+              style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#B66A4018', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={{ color: '#B66A40', fontSize: 18, fontWeight: '700' }}>
+                {(profile?.displayName || user?.email || '?').charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
           <View className="flex-1">
-            <Text className="text-foreground text-base font-bold">Riya Kapoor</Text>
-            <Text className="text-muted-foreground text-xs mt-0.5">Creative Director & Photographer</Text>
+            <Text className="text-foreground text-base font-bold">
+              {profile?.displayName || 'Add your name'}
+            </Text>
+            <Text className="text-muted-foreground text-xs mt-0.5">
+              {profile?.title || user?.email || ''}
+            </Text>
           </View>
           <ChevronRightIcon size={16} className="text-muted-foreground" />
         </Pressable>
 
         {/* Sections */}
         <View className="px-5 mt-4 gap-5">
-          {SECTIONS.map((section) => (
+          {sections.map((section) => (
             <View key={section.title}>
               <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 px-1">
                 {section.title}
@@ -137,7 +184,7 @@ export default function SettingsHomeScreen() {
                       className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
                       style={
                         i < section.rows.length - 1
-                          ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' }
+                          ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
                           : undefined
                       }
                     >
@@ -158,7 +205,15 @@ export default function SettingsHomeScreen() {
                           {row.value}
                         </Text>
                       )}
-                      <ChevronRightIcon size={14} className="text-muted-foreground" />
+                      {row.soon ? (
+                        <View className="rounded-md px-2 py-0.5 bg-muted">
+                          <Text className="text-muted-foreground text-[10px] font-bold uppercase tracking-wide">
+                            Soon
+                          </Text>
+                        </View>
+                      ) : (
+                        <ChevronRightIcon size={14} className="text-muted-foreground" />
+                      )}
                     </Pressable>
                   );
                 })}
@@ -169,10 +224,15 @@ export default function SettingsHomeScreen() {
 
         {/* Logout */}
         <View className="px-5 mt-6">
-          <Pressable className="bg-card rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
+          <Pressable
+            onPress={handleSignOut}
+            disabled={signOut.isPending}
+            className="bg-card rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <LogOutIcon size={17} className="text-destructive" />
-            <Text className="text-destructive text-sm font-semibold">Sign Out</Text>
+            <Text className="text-destructive text-sm font-semibold">
+              {signOut.isPending ? 'Signing out…' : 'Sign Out'}
+            </Text>
           </Pressable>
         </View>
       </ScrollView>

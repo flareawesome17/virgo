@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: virgo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-virgo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-virgo_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-virgo}
+    ports:
+      # Standard 5432. Override POSTGRES_PORT if another Postgres ever claims
+      # it — and remember to update DATABASE_URL in .env to match, since that
+      # is the host-side connection string.
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - virgo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-virgo} -d ${POSTGRES_DB:-virgo}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: virgo-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # OVERRIDES .env. Inside the compose network Postgres answers on its
+      # service name at its *container* port — the 5434 host mapping does not
+      # exist in here, and `localhost` would be this container itself.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-virgo}:${POSTGRES_PASSWORD:-virgo_dev_password}@postgres:5432/${POSTGRES_DB:-virgo}
+      NODE_ENV: production
+      # NODE_ENV=production disables auto-migrate, so switch it back on
+      # explicitly. Safe with a single replica; if you ever scale this service,
+      # move migrations to a release step — concurrent runners race.
+      RUN_MIGRATIONS_ON_BOOT: 'true'
+      # Always behind cloudflared here.
+      TRUST_PROXY: 'true'
+    ports:
+      # Published to the host for local testing. Do NOT forward this port on
+      # your router — the tunnel is the only ingress that should exist, and
+      # CF-Connecting-IP is only trustworthy while that holds.
+      - '${API_PORT:-3000}:3000'
+    depends_on:
+      postgres:
+        # Wait for real readiness, not just "container started" — otherwise
+        # boot-time migrations hit a Postgres that is still initialising.
+        condition: service_healthy
+
+  # Cloudflare Tunnel — publishes the API at your public hostname without
+  # opening a single inbound port. cloudflared dials OUT to Cloudflare and
+  # traffic returns down that connection, so there is no port forwarding, no
+  # firewall hole, and your origin IP is never exposed.
+  #
+  # Routing is configured in the Cloudflare dashboard (token-based tunnels are
+  # remotely managed, so it does not live in this file):
+  #
+  #   Public hostname : api.virgo.ph
+  #   Service         : http://api:3000
+  #
+  # Note `api:3000`, NOT host.docker.internal:3000 — now that the API runs in
+  # this compose network, cloudflared reaches it by service name and the
+  # traffic never leaves Docker.
+  #
+  # Keep port 3000 unforwarded at the router — the tunnel is the only ingress,
+  # and CF-Connecting-IP can only be trusted while that stays true.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: virgo-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in api/.env}
+    depends_on:
+      - api
+    extra_hosts:
+      # cloudflared runs in Docker; Metro runs on the Windows host, so the
+      # tunnel needs this name to reach port 8081.
+      - 'host.docker.internal:host-gateway'
+
+volumes:
+  virgo_pgdata:

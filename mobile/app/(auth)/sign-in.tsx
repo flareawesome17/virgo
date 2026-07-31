@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/src/hooks';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useState } from 'react';
 import {
   ArrowLeftIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
@@ -22,9 +22,11 @@ export default function SignInScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // <Redirect> rather than router.replace(): navigating during render mutates
+  // the navigation container mid-render and triggers React's
+  // "Cannot update a component while rendering a different component" error.
   if (process.env.EXPO_PUBLIC_RAPIDNATIVE_MODE !== 'designer' && user) {
-    router.replace('/(tabs)');
-    return null;
+    return <Redirect href="/(app)/(tabs)" />;
   }
 
   const canSubmit = email.trim().length > 0 && password.length > 0;
@@ -35,7 +37,7 @@ export default function SignInScreen() {
     signIn.mutate(
       { email: email.trim(), password },
       {
-        onSuccess: () => router.replace('/(tabs)'),
+        onSuccess: () => router.replace('/(app)/(tabs)'),
         onError: (err: any) => {
           const msg = err?.reason || err?.message || 'Sign in failed. Please check your credentials.';
           setErrorMsg(msg);

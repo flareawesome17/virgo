@@ -1,7 +1,8 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth } from '@/src/hooks';
+import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCreateWorkspace,
+  usePlanLimits,
+} from '@/src/hooks';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -27,45 +28,48 @@ const ACCENT_COLORS = [
 ];
 
 export default function CreateWorkspaceScreen() {
-  const { client } = useApp();
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-
+  const { atWorkspaceLimit, workspaceLimit, plan } = usePlanLimits();
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [accentColor, setAccentColor] = useState('#B66A40');
 
-  const createWorkspace = useMutation({
-    mutationFn: async () => {
-      const now = new Date().toISOString();
-      const id = 'workspace-' + Date.now();
-      const { error } = await client.from('workspaces').insert({
-        id,
+  // The API owns id generation and the created_at / updated_at timestamps, so
+  // none of them are sent from here any more.
+  const createWorkspace = useCreateWorkspace();
+
+  const handleCreate = () => {
+    createWorkspace.mutate(
+      {
         name: name.trim(),
         description: description.trim() || null,
         accent_color: accentColor,
         media_count: 0,
         collaborator_count: 1,
-        created_at: now,
-        updated_at: now,
-      });
-      if (error) throw error;
-      return id;
-    },
-    onSuccess: (newId) => {
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-      router.replace(`/workspaces/${newId}`);
-    },
-    onError: (err) => {
-      Alert.alert('Error', 'Could not create workspace. Please try again.');
-      console.error(err);
-    },
-  });
+      },
+      {
+        onSuccess: (workspace) => router.replace(`/workspaces/${workspace.id}`),
+        onError: (err) => {
+          Alert.alert('Error', 'Could not create workspace. Please try again.');
+          console.error(err);
+        },
+      },
+    );
+  };
 
-  const canSave = name.trim().length > 0;
+  // Blocked before the form can be submitted rather than after: the API
+  // rejects it either way, but discovering that at the end wastes the effort.
+  const canSave = name.trim().length > 0 && !atWorkspaceLimit;
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      {/* Lifts the form above the keyboard. Without this the fields nearest
+          the bottom sat underneath it on iOS with no way to scroll to them. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
@@ -96,6 +100,25 @@ export default function CreateWorkspaceScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Explains the disabled Create button. Without this the form simply
+            refuses to submit with no stated reason. */}
+        {atWorkspaceLimit && (
+          <View className="mx-5 mt-4 rounded-2xl p-4" style={{ backgroundColor: '#C76B4A18' }}>
+            <Text className="text-[#C76B4A] text-sm font-bold">Workspace limit reached</Text>
+            <Text className="text-[#C76B4A] text-xs mt-1">
+              The {plan} plan includes {workspaceLimit} workspace
+              {workspaceLimit === 1 ? '' : 's'}. Delete one, or upgrade to add another.
+            </Text>
+            <Pressable
+              onPress={() => router.push('/settings/storage/plans')}
+              className="mt-3 rounded-xl py-2.5 items-center active:scale-[0.97]"
+              style={{ backgroundColor: '#C76B4A' }}
+            >
+              <Text className="text-white text-xs font-bold">See plans</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Form */}
         <View className="px-5 mt-5 gap-5">
@@ -230,9 +253,9 @@ export default function CreateWorkspaceScreen() {
       </ScrollView>
 
       {/* Save button */}
-      <View className="absolute bottom-0 left-0 right-0 px-5 pb-10 pt-4 bg-background">
+      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
         <Pressable
-          onPress={() => canSave && createWorkspace.mutate()}
+          onPress={() => canSave && handleCreate()}
           className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${
             canSave ? 'bg-primary' : 'bg-muted'
           }`}
@@ -247,6 +270,7 @@ export default function CreateWorkspaceScreen() {
           </Text>
         </Pressable>
       </View>
+          </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

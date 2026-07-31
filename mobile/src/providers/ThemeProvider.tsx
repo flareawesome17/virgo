@@ -1,8 +1,14 @@
 // ThemeProvider.tsx
 import { useColorScheme } from 'nativewind';
-import { useEffect } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { lightTheme, darkTheme } from '@/theme';
+import {
+  applyThemePreference,
+  loadThemePreference,
+  saveThemePreference,
+  type ThemePreference,
+} from '@/src/lib/themePreference';
 
 interface ThemeProviderProps {
   children: React.ReactNode;
@@ -10,6 +16,28 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const { colorScheme } = useColorScheme();
+  const [preference, setPreferenceState] = useState<ThemePreference>('system');
+
+  // Restore the saved choice on boot. Without this the app always followed the
+  // device, so picking Light or Dark in settings never survived a restart.
+  useEffect(() => {
+    let cancelled = false;
+    loadThemePreference().then((pref) => {
+      if (cancelled) return;
+      setPreferenceState(pref);
+      applyThemePreference(pref);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const setPreference = useCallback((pref: ThemePreference) => {
+    // Apply first so the UI turns over immediately; persistence can lag.
+    applyThemePreference(pref);
+    setPreferenceState(pref);
+    void saveThemePreference(pref);
+  }, []);
 
   const themeVars = colorScheme === 'dark' ? darkTheme : lightTheme;
 
@@ -39,17 +67,38 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   }, [themeVars, colorScheme]);
 
   return (
-    <View style={themeVars} className={`${colorScheme} flex-1 bg-background`}>
-      {children}
-    </View>
+    <ThemePreferenceContext.Provider value={{ preference, setPreference }}>
+      <View style={themeVars} className={`${colorScheme} flex-1 bg-background`}>
+        {children}
+      </View>
+    </ThemePreferenceContext.Provider>
   );
 }
 
+/**
+ * Carries the *choice* (including "system"), which NativeWind does not track —
+ * its colorScheme is only the resolved light/dark for this session.
+ *
+ * The default keeps `useTheme()` usable outside the provider: setting a
+ * preference still applies, it just is not persisted or shared.
+ */
+const ThemePreferenceContext = createContext<{
+  preference: ThemePreference;
+  setPreference: (pref: ThemePreference) => void;
+}>({
+  preference: 'system',
+  setPreference: applyThemePreference,
+});
+
 export const useTheme = () => {
   const { colorScheme, setColorScheme } = useColorScheme();
+  const { preference, setPreference } = useContext(ThemePreferenceContext);
   return {
     isDark: colorScheme === 'dark',
     colorScheme,
     setColorScheme,
+    /** 'light' | 'dark' | 'system' — what the user picked, not what resolved. */
+    preference,
+    setPreference,
   };
 };

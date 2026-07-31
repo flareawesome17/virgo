@@ -1,8 +1,20 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
+// expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
+// versions where the RN one silently renders nothing.
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApp, useAuth, useTheme } from '@/src/hooks';
+import {
+  useAlbums,
+  useAuth,
+  useScheduleEvents,
+  useTheme,
+  useUsage,
+  useWorkspaces,
+  usePlanLimits,
+} from '@/src/hooks';
+import { formatBytes, toGB } from '@/src/api';
 import { useState } from 'react';
+import { router } from 'expo-router';
 import {
   HardDriveIcon,
   ImageIcon,
@@ -11,7 +23,6 @@ import {
   WifiIcon,
   WifiOffIcon,
   PlusIcon,
-  UploadIcon,
   UserPlusIcon,
   FolderPlusIcon,
   ArrowUpRightIcon,
@@ -19,6 +30,7 @@ import {
   CircleIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
 import { LinearGradient } from 'expo-linear-gradient';
 
 cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -28,7 +40,6 @@ cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { co
 cssInterop(WifiIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(WifiOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UploadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ArrowUpRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -38,7 +49,6 @@ cssInterop(CircleIcon, { className: { target: 'style', nativeStyleToProp: { colo
 const QUICK_ACTIONS = [
   { key: 'workspace', label: 'New Workspace', icon: FolderPlusIcon },
   { key: 'album', label: 'Create Album', icon: PlusIcon },
-  { key: 'upload', label: 'Upload', icon: UploadIcon },
   { key: 'invite', label: 'Invite', icon: UserPlusIcon },
 ];
 
@@ -71,7 +81,8 @@ function formatTime(timeStr: string | null): string {
 }
 
 function StorageBar({ used, total }: { used: number; total: number }) {
-  const pct = Math.min((used / total) * 100, 100);
+  // total is 0 on an unlimited plan; dividing by it would render a full bar.
+  const pct = total > 0 ? Math.min((used / total) * 100, 100) : 0;
   return (
     <View className="h-2 bg-muted rounded-full overflow-hidden">
       <View className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: '#B66A40' }} />
@@ -113,69 +124,52 @@ function AvatarStack({ urls, count }: { urls: string[]; count: number }) {
 }
 
 export default function HomeScreen() {
-  const { client } = useApp();
-  const { user } = useAuth();
+  const { guardWorkspaceCreate, guardAlbumCreate } = usePlanLimits();
+  const { user, profile } = useAuth();
   const { isDark } = useTheme();
-  const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: workspaces = [], isLoading: wsLoading } = useQuery({
-    queryKey: ['workspaces', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('workspaces')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('updated_at', { ascending: false })
-        .limit(3);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const enabled = { enabled: !!user?.id };
 
-  const { data: albums = [] } = useQuery({
-    queryKey: ['albums', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('albums')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false })
-        .limit(3);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const {
+    workspaces,
+    isLoading: wsLoading,
+    refetch: refetchWorkspaces,
+  } = useWorkspaces(
+    { orderBy: 'updated_at', direction: 'desc', limit: 3 },
+    enabled,
+  );
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['schedule_events', user?.id],
-    queryFn: async () => {
-      const { data, error } = await client
-        .from('schedule_events')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('event_date', { ascending: true })
-        .limit(4);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!user?.id,
-  });
+  const { albums, refetch: refetchAlbums } = useAlbums(
+    { orderBy: 'created_at', direction: 'desc', limit: 3 },
+    enabled,
+  );
+
+  const { events, refetch: refetchEvents } = useScheduleEvents(
+    { orderBy: 'event_date', direction: 'asc', limit: 4 },
+    enabled,
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-    await queryClient.invalidateQueries({ queryKey: ['albums'] });
-    await queryClient.invalidateQueries({ queryKey: ['schedule_events'] });
+    await Promise.all([
+      refetchWorkspaces(),
+      refetchAlbums(),
+      refetchEvents(),
+    ]);
     setRefreshing(false);
   };
 
   const totalMedia = workspaces.reduce((s, w) => s + (w.media_count || 0), 0);
   const totalAlbums = albums.length;
-  const storageUsedGB = 128.4;
-  const storageTotalGB = 512;
+  // Real cloud usage from the API — recorded from what B2 reports when an
+  // upload is confirmed. Was hardcoded 128.4 / 512 GB.
+  const {
+    usage,
+    storageUsedBytes,
+    storageLimitBytes,
+    storageFraction,
+  } = useUsage({ enabled: !!user?.id });
 
   const todayEvent = events.length > 0 ? events[0] : null;
   const upcomingEvents = events.slice(0, 3);
@@ -201,14 +195,22 @@ export default function HomeScreen() {
           <View>
             <Text className="text-muted-foreground text-sm font-medium">Good morning</Text>
             <Text className="text-foreground text-[28px] font-bold tracking-tight leading-[34px]">
-              Riya
+              {profile?.displayName?.split(' ')[0] ?? 'there'}
             </Text>
           </View>
-          <Pressable className="active:scale-[0.96]">
-            <Image
-              source={{ uri: 'https://picsum.photos/seed/virgo-user/100/100' }}
-              style={{ width: 44, height: 44, borderRadius: 22 }}
-            />
+          <Pressable onPress={() => router.push('/profile')} className="active:scale-[0.96]">
+            {profile?.avatarUrl ? (
+              <Image
+                source={{ uri: profile.avatarUrl }}
+                style={{ width: 44, height: 44, borderRadius: 22 }}
+              />
+            ) : (
+              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#B66A4018', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: '#B66A40', fontSize: 17, fontWeight: '700' }}>
+                  {(profile?.displayName || user?.email || '?').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
             <View
               style={{
                 position: 'absolute',
@@ -236,14 +238,22 @@ export default function HomeScreen() {
               <Text className="text-foreground text-xs font-semibold">Storage</Text>
             </View>
             <Text className="text-foreground text-[26px] font-extrabold tracking-tight">
-              {storageUsedGB}
-              <Text className="text-muted-foreground text-sm font-medium"> / {storageTotalGB} GB</Text>
+              {formatBytes(storageUsedBytes).split(' ')[0]}
+              <Text className="text-muted-foreground text-sm font-medium">
+                {' '}
+                {formatBytes(storageUsedBytes).split(' ')[1]}
+                {storageLimitBytes != null
+                  ? ` / ${Math.round(toGB(storageLimitBytes))} GB`
+                  : ''}
+              </Text>
             </Text>
             <View className="mt-3">
-              <StorageBar used={storageUsedGB} total={storageTotalGB} />
+              <StorageBar used={storageUsedBytes} total={storageLimitBytes ?? 0} />
             </View>
             <Text className="text-muted-foreground text-[11px] mt-2 font-medium">
-              {Math.round((storageUsedGB / storageTotalGB) * 100)}% used · {storageTotalGB - storageUsedGB} GB free
+              {storageLimitBytes != null
+                ? `${Math.round(storageFraction * 100)}% used · ${formatBytes(Math.max(storageLimitBytes - storageUsedBytes, 0))} free`
+                : `${usage?.storage.fileCount ?? 0} files`}
             </Text>
           </View>
 
@@ -287,6 +297,11 @@ export default function HomeScreen() {
             return (
               <Pressable
                 key={action.key}
+                onPress={() => {
+                  if (action.key === 'workspace') guardWorkspaceCreate(() => router.push('/workspaces/create'))();
+                  else if (action.key === 'album') guardAlbumCreate(() => router.push('/albums/create'))();
+                  else if (action.key === 'invite') router.push('/friends/send-request');
+                }}
                 className="bg-card rounded-2xl px-5 py-3 flex-row items-center gap-2 active:scale-[0.96]"
                 style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
               >
@@ -301,7 +316,7 @@ export default function HomeScreen() {
         <View className="px-5">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-lg font-bold tracking-tight">Upcoming</Text>
-            <Pressable className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push('/schedule')} className="flex-row items-center gap-1 active:opacity-60">
               <Text className="text-primary text-sm font-semibold">See all</Text>
               <ChevronRightIcon size={14} className="text-primary" />
             </Pressable>
@@ -319,8 +334,9 @@ export default function HomeScreen() {
               {upcomingEvents.map((event, i) => (
                 <Pressable
                   key={event.id}
+                  onPress={() => router.push(`/schedule/${event.id}`)}
                   className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
-                  style={i < upcomingEvents.length - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}
+                  style={i < upcomingEvents.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
                 >
                   <View style={{ width: 3, height: 36, borderRadius: 2, backgroundColor: EVENT_TYPE_COLORS[event.event_type] || '#B66A40' }} />
                   <View className="flex-1 min-w-0">
@@ -350,7 +366,7 @@ export default function HomeScreen() {
         <View className="px-5 mt-6">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-lg font-bold tracking-tight">Active Workspaces</Text>
-            <Pressable className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push('/workspaces')} className="flex-row items-center gap-1 active:opacity-60">
               <Text className="text-primary text-sm font-semibold">See all</Text>
               <ChevronRightIcon size={14} className="text-primary" />
             </Pressable>
@@ -368,7 +384,10 @@ export default function HomeScreen() {
                 <FolderPlusIcon size={22} className="text-muted-foreground" />
               </View>
               <Text className="text-muted-foreground text-sm font-medium">No workspaces yet</Text>
-              <Pressable className="bg-primary rounded-xl px-4 py-2 active:scale-[0.96]">
+              <Pressable
+                onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
+                className="bg-primary rounded-xl px-4 py-2 active:scale-[0.96]"
+              >
                 <Text className="text-white text-sm font-semibold">Create your first workspace</Text>
               </Pressable>
             </View>
@@ -377,6 +396,7 @@ export default function HomeScreen() {
               {workspaces.map((ws) => (
                 <Pressable
                   key={ws.id}
+                  onPress={() => router.push(`/workspaces/${ws.id}`)}
                   className="bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
                   style={{
                     shadowColor: '#000',
@@ -419,7 +439,7 @@ export default function HomeScreen() {
         <View className="px-5 mt-6">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-lg font-bold tracking-tight">Recent Albums</Text>
-            <Pressable className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push('/albums')} className="flex-row items-center gap-1 active:opacity-60">
               <Text className="text-primary text-sm font-semibold">See all</Text>
               <ChevronRightIcon size={14} className="text-primary" />
             </Pressable>
@@ -437,6 +457,7 @@ export default function HomeScreen() {
               {albums.map((album) => (
                 <Pressable
                   key={album.id}
+                  onPress={() => router.push(`/albums/${album.id}`)}
                   className="bg-card rounded-2xl overflow-hidden flex-row active:scale-[0.98]"
                   style={{
                     shadowColor: '#000',
@@ -447,7 +468,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <Image
-                    source={{ uri: album.cover_url || 'https://picsum.photos/seed/virgo-default/200/200' }}
+                    source={{ uri: album.cover_url || PLACEHOLDER_COVER }}
                     style={{ width: 80, height: 80 }}
                   />
                   <View className="flex-1 p-3 justify-center min-w-0">

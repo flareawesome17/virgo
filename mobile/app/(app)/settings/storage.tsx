@@ -3,9 +3,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
   ArrowLeftIcon, HardDriveIcon, CloudIcon, ImageIcon, VideoIcon,
-  MusicIcon, ChevronRightIcon, ShieldIcon, ZapIcon,
+  MusicIcon, ChevronRightIcon, ShieldIcon, ZapIcon, FileIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { formatBytes } from '@/src/api';
+import { useStorageBreakdown, useUsage, useTheme } from '@/src/hooks';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -16,26 +18,31 @@ cssInterop(MusicIcon, { className: { target: 'style', nativeStyleToProp: { color
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ShieldIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ZapIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(FileIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const WORKSPACE_BREAKDOWN = [
-  { name: 'Autumn Collection', media: 78.2, color: '#B66A40' },
-  { name: 'Riverside Wedding', media: 94.5, color: '#C17745' },
-  { name: 'Brand Campaign — Alinea', media: 42.1, color: '#8B5E3C' },
-  { name: 'Personal Archive', media: 32.3, color: '#6B8E4E' },
-  { name: 'Other', media: 7.3, color: '#A89489' },
-];
+/** Presentation for each media kind the API reports. */
+const TYPE_META: Record<string, { label: string; icon: typeof ImageIcon; color: string }> = {
+  image: { label: 'Photos', icon: ImageIcon, color: '#B66A40' },
+  video: { label: 'Videos', icon: VideoIcon, color: '#C17745' },
+  audio: { label: 'Audio', icon: MusicIcon, color: '#8B5E3C' },
+  other: { label: 'Other', icon: FileIcon, color: '#A89489' },
+};
 
-const MEDIA_TYPES = [
-  { type: 'Photos', icon: ImageIcon, size: 156.2, color: '#B66A40', pct: 61 },
-  { type: 'Videos', icon: VideoIcon, size: 82.4, color: '#C17745', pct: 32 },
-  { type: 'Audio', icon: MusicIcon, size: 15.8, color: '#8B5E3C', pct: 7 },
-];
-
-const STORAGE_USED = 254.4;
-const STORAGE_LIMIT = 512;
-const USED_PCT = Math.round((STORAGE_USED / STORAGE_LIMIT) * 100);
+/** Album row colours, cycled — the API returns names and sizes, not colours. */
+const ALBUM_COLORS = ['#B66A40', '#C17745', '#8B5E3C', '#6B8E4E', '#5B7B9A', '#A89489'];
 
 export default function StorageOverviewScreen() {
+  const { isDark } = useTheme();
+  // Every number on this screen used to be hardcoded — 254.4 GB of 512 GB with
+  // an invented workspace breakdown, shown identically to every account.
+  const { storageUsedBytes, storageLimitBytes, storageFraction, usage } = useUsage();
+  const { breakdown } = useStorageBreakdown();
+
+  const usedPct = Math.round(storageFraction * 100);
+  const remainingBytes =
+    storageLimitBytes != null ? Math.max(storageLimitBytes - storageUsedBytes, 0) : null;
+  const fileCount = usage?.storage.fileCount ?? 0;
+
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
@@ -51,22 +58,35 @@ export default function StorageOverviewScreen() {
           </View>
         </View>
 
-        {/* Hero gauge */}
+        {/* Hero gauge. The old version layered a fixed 45°-rotated arc over the
+            ring, so the graphic showed the same amount whatever the real usage
+            was — only the linear bar below tracks the number. */}
         <View className="mx-5 mt-4 bg-card rounded-3xl p-6 items-center" style={{ shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 5 }}>
-          {/* Radial-like gauge */}
-          <View className="relative mb-4">
-            <View style={{ width: 140, height: 140, borderRadius: 70, borderWidth: 14, borderColor: '#F0E8E2' }} />
-            <View style={{ position: 'absolute', top: -7, left: -7, width: 140, height: 140, borderRadius: 70, borderWidth: 14, borderColor: 'transparent', borderTopColor: '#B66A40', borderRightColor: '#B66A40', transform: [{ rotate: '45deg' }], opacity: 0.85 }} />
-            <View className="absolute inset-0 items-center justify-center">
-              <Text className="text-foreground text-4xl font-extrabold">{USED_PCT}<Text className="text-muted-foreground text-lg">%</Text></Text>
-              <Text className="text-muted-foreground text-xs mt-0.5">used</Text>
-            </View>
+          <View className="items-center justify-center mb-4" style={{ width: 140, height: 140, borderRadius: 70, borderWidth: 14, borderColor: isDark ? '#2A2522' : '#F0E8E2' }}>
+            <Text className="text-foreground text-4xl font-extrabold">
+              {storageLimitBytes != null ? usedPct : fileCount}
+              <Text className="text-muted-foreground text-lg">{storageLimitBytes != null ? '%' : ''}</Text>
+            </Text>
+            <Text className="text-muted-foreground text-xs mt-0.5">
+              {storageLimitBytes != null ? 'used' : `file${fileCount === 1 ? '' : 's'}`}
+            </Text>
           </View>
-          <Text className="text-foreground text-lg font-bold">{STORAGE_USED} GB <Text className="text-muted-foreground text-sm font-medium">of {STORAGE_LIMIT} GB</Text></Text>
-          <View className="w-full h-2.5 bg-muted rounded-full mt-4 overflow-hidden">
-            <View className="h-full rounded-full" style={{ width: `${USED_PCT}%`, backgroundColor: USED_PCT > 80 ? '#C76B4A' : '#B66A40' }} />
-          </View>
-          <Text className="text-muted-foreground text-xs mt-2 font-medium">{STORAGE_LIMIT - STORAGE_USED} GB remaining</Text>
+          <Text className="text-foreground text-lg font-bold">
+            {formatBytes(storageUsedBytes)}
+            {storageLimitBytes != null && (
+              <Text className="text-muted-foreground text-sm font-medium"> of {formatBytes(storageLimitBytes)}</Text>
+            )}
+          </Text>
+          {storageLimitBytes != null && (
+            <>
+              <View className="w-full h-2.5 bg-muted rounded-full mt-4 overflow-hidden">
+                <View className="h-full rounded-full" style={{ width: `${usedPct}%`, backgroundColor: usedPct > 80 ? '#C76B4A' : '#B66A40' }} />
+              </View>
+              <Text className="text-muted-foreground text-xs mt-2 font-medium">
+                {formatBytes(remainingBytes ?? 0)} remaining
+              </Text>
+            </>
+          )}
         </View>
 
         {/* Upgrade CTA */}
@@ -81,41 +101,78 @@ export default function StorageOverviewScreen() {
         <View className="px-5 mt-6">
           <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Media Breakdown</Text>
           <View className="bg-card rounded-2xl p-4 gap-4" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            {MEDIA_TYPES.map((m) => {
-              const Icon = m.icon;
-              return (
-                <View key={m.type}>
-                  <View className="flex-row items-center justify-between mb-1.5">
-                    <View className="flex-row items-center gap-2">
-                      <View style={{ width: 24, height: 24, borderRadius: 8, backgroundColor: `${m.color}18`, alignItems: 'center', justifyContent: 'center' }}>
-                        <Icon size={12} style={{ color: m.color }} />
+            {breakdown.byType.length === 0 ? (
+              <Text className="text-muted-foreground text-sm text-center py-2">
+                Nothing stored yet.
+              </Text>
+            ) : (
+              breakdown.byType.map((row) => {
+                const meta = TYPE_META[row.kind] ?? TYPE_META.other;
+                const Icon = meta.icon;
+                const pct = storageUsedBytes > 0 ? (row.bytes / storageUsedBytes) * 100 : 0;
+                return (
+                  <View key={row.kind}>
+                    <View className="flex-row items-center justify-between mb-1.5">
+                      <View className="flex-row items-center gap-2">
+                        <View style={{ width: 24, height: 24, borderRadius: 8, backgroundColor: `${meta.color}18`, alignItems: 'center', justifyContent: 'center' }}>
+                          <Icon size={12} style={{ color: meta.color }} />
+                        </View>
+                        <Text className="text-foreground text-sm font-semibold">{meta.label}</Text>
                       </View>
-                      <Text className="text-foreground text-sm font-semibold">{m.type}</Text>
+                      <Text className="text-foreground text-sm font-bold">{formatBytes(row.bytes)}</Text>
                     </View>
-                    <Text className="text-foreground text-sm font-bold">{m.size} GB</Text>
+                    <View className="h-1.5 bg-muted rounded-full overflow-hidden">
+                      <View className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: meta.color }} />
+                    </View>
                   </View>
-                  <View className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <View className="h-full rounded-full" style={{ width: `${m.pct}%`, backgroundColor: m.color }} />
-                  </View>
-                </View>
-              );
-            })}
+                );
+              })
+            )}
           </View>
         </View>
 
-        {/* Workspace breakdown */}
+        {/* Album breakdown. Files are attached to albums, not workspaces, so
+            this reports the level the data actually has. */}
         <View className="px-5 mt-6">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Workspace Breakdown</Text>
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Album Breakdown</Text>
           <View className="bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            {WORKSPACE_BREAKDOWN.map((ws, i) => (
-              <View key={ws.name} className="flex-row items-center gap-3 px-4 py-3" style={i < WORKSPACE_BREAKDOWN.length - 1 ? { borderBottomWidth: 1, borderBottomColor: '#F0E8E2' } : undefined}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: ws.color }} />
-                <Text className="text-foreground text-sm flex-1" numberOfLines={1}>{ws.name}</Text>
-                <Text className="text-foreground text-sm font-bold">{ws.media.toFixed(1)} GB</Text>
-              </View>
-            ))}
+            {breakdown.byAlbum.length === 0 ? (
+              <Text className="text-muted-foreground text-sm text-center py-5">
+                Nothing stored yet.
+              </Text>
+            ) : (
+              breakdown.byAlbum.map((row, i) => (
+                <Pressable
+                  key={row.albumId ?? 'unfiled'}
+                  onPress={row.albumId ? () => router.push(`/albums/${row.albumId}`) : undefined}
+                  disabled={!row.albumId}
+                  className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
+                  style={i < breakdown.byAlbum.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
+                >
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: ALBUM_COLORS[i % ALBUM_COLORS.length] }} />
+                  <Text className="text-foreground text-sm flex-1" numberOfLines={1}>
+                    {row.name ?? 'Not in an album'}
+                  </Text>
+                  <Text className="text-foreground text-sm font-bold">{formatBytes(row.bytes)}</Text>
+                </Pressable>
+              ))
+            )}
           </View>
         </View>
+
+        {/* Wipe lives on the Sync & Storage screen; link rather than duplicate. */}
+        <Pressable onPress={() => router.push('/settings/sync')}
+          className="mx-5 mt-6 bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
+          style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+          <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: '#8B5E3C18' }}>
+            <CloudIcon size={18} style={{ color: '#8B5E3C' }} />
+          </View>
+          <View className="flex-1">
+            <Text className="text-foreground text-sm font-semibold">Sync & Storage</Text>
+            <Text className="text-muted-foreground text-xs mt-0.5">Manage or wipe your cloud data</Text>
+          </View>
+          <ChevronRightIcon size={14} className="text-muted-foreground" />
+        </Pressable>
 
         {/* Billing history link */}
         <Pressable onPress={() => router.push('/settings/storage/history')}
