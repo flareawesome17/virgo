@@ -15,6 +15,8 @@ export interface CollaboratorRow {
   workspace_id: string;
   name: string;
   avatar_url: string | null;
+  /** The friend this row represents. Null only on rows predating migration 014. */
+  collaborator_user_id: string | null;
   role: CollaboratorRole;
   created_at: Date;
 }
@@ -26,6 +28,7 @@ export class CollaboratorsRepository extends OwnedRepository<CollaboratorRow> {
   protected readonly writableColumns = [
     'id',
     'workspace_id',
+    'collaborator_user_id',
     'name',
     'avatar_url',
     'role',

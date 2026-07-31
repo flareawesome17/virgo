@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, Alert, ActivityIndicator, Share, Platform } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable, Alert, ActivityIndicator, Share, Platform, Modal } from 'react-native';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
 import { Image } from 'expo-image';
@@ -26,6 +26,7 @@ import {
   UploadIcon,
   UserPlusIcon,
   MoreHorizontalIcon,
+  CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import * as Clipboard from 'expo-clipboard';
@@ -41,6 +42,7 @@ cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { colo
 cssInterop(UploadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MoreHorizontalIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 type MediaTab = 'photos' | 'videos' | 'audio';
 
@@ -57,6 +59,20 @@ const MEDIA_TABS: {
   { key: 'photos', label: 'Photos', noun: 'photos', singular: 'photo', icon: ImageIcon, route: 'gallery' },
   { key: 'videos', label: 'Videos', noun: 'videos', singular: 'video', icon: VideoIcon, route: 'videos' },
   { key: 'audio', label: 'Audio', noun: 'audio files', singular: 'audio file', icon: MusicIcon, route: 'audio' },
+];
+
+/** Checkbox rows in the client-link sheet. */
+const LINK_SCOPE_ROWS: {
+  kind: ShareMediaKind;
+  tab: MediaTab;
+  label: string;
+  singular: string;
+  plural: string;
+  icon: typeof ImageIcon;
+}[] = [
+  { kind: 'image', tab: 'photos', label: 'Photos', singular: 'photo', plural: 'photos', icon: ImageIcon },
+  { kind: 'video', tab: 'videos', label: 'Videos', singular: 'video', plural: 'videos', icon: VideoIcon },
+  { kind: 'audio', tab: 'audio', label: 'Audio', singular: 'file', plural: 'files', icon: MusicIcon },
 ];
 
 const STATUS_BADGES: Record<string, { bg: string; text: string; label: string }> = {
@@ -153,33 +169,34 @@ export default function AlbumDetailScreen() {
 
   const [isLinking, setIsLinking] = useState(false);
 
-  /**
-   * Asks what the link should cover before issuing it.
-   *
-   * Presets rather than a checkbox list: these are the combinations that
-   * actually get used — everything, one kind, or stills-and-motion together.
-   */
-  const chooseLinkScope = () => {
-    const options: { label: string; kinds: ShareMediaKind[] }[] = [
-      { label: 'All media', kinds: ['image', 'video', 'audio'] },
-      { label: 'Photos only', kinds: ['image'] },
-      { label: 'Videos only', kinds: ['video'] },
-      { label: 'Audio only', kinds: ['audio'] },
-      { label: 'Photos & videos', kinds: ['image', 'video'] },
-    ];
+  const [showLinkSheet, setShowLinkSheet] = useState(false);
+  const [linkKinds, setLinkKinds] = useState<ShareMediaKind[]>([
+    'image',
+    'video',
+    'audio',
+  ]);
 
-    Alert.alert(
-      'What should the client see?',
-      'Anything left out is not served by the link at all.',
-      [
-        ...options.map((o) => ({
-          text: o.label,
-          onPress: () => generateClientLink(o.kinds),
-        })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ],
-    );
+  /**
+   * Opens the scope sheet, pre-filled with the album's current link scope.
+   *
+   * Preset buttons could only offer a fixed handful of combinations; these are
+   * checkboxes so any mix works, and so an existing link can be re-scoped by
+   * seeing what it covers today and changing it.
+   */
+  const chooseLinkScope = async () => {
+    try {
+      const existing = await albumShareApi.get(albumId);
+      if (existing?.kinds?.length) setLinkKinds(existing.kinds);
+    } catch {
+      // No link yet, or the lookup failed — fall back to everything selected.
+    }
+    setShowLinkSheet(true);
   };
+
+  const toggleLinkKind = (kind: ShareMediaKind) =>
+    setLinkKinds((prev) =>
+      prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind],
+    );
 
   /**
    * Issues (or re-scopes) the album's client link.
@@ -574,6 +591,98 @@ export default function AlbumDetailScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Client link scope. A sheet rather than an Alert because Alert can only
+          offer fixed buttons — these are checkboxes, so any combination works. */}
+      <Modal
+        visible={showLinkSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowLinkSheet(false)}
+      >
+        <Pressable
+          className="flex-1"
+          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+          onPress={() => setShowLinkSheet(false)}
+        />
+        <View className="bg-card rounded-t-3xl px-5 pt-5" style={{ paddingBottom: 32 }}>
+          <Text className="text-foreground text-lg font-bold">Client link</Text>
+          <Text className="text-muted-foreground text-sm mt-1">
+            Choose what the client can see. Anything unticked is not served by
+            the link at all.
+          </Text>
+
+          <View className="mt-5 gap-2">
+            {LINK_SCOPE_ROWS.map((row) => {
+              const Icon = row.icon;
+              const checked = linkKinds.includes(row.kind);
+              const count = filesFor(row.tab).length;
+              return (
+                <Pressable
+                  key={row.kind}
+                  onPress={() => toggleLinkKind(row.kind)}
+                  className="flex-row items-center gap-3 rounded-2xl px-4 py-3.5 active:scale-[0.98]"
+                  style={{ backgroundColor: checked ? '#B66A4014' : 'transparent', borderWidth: 1, borderColor: checked ? '#B66A4033' : (isDark ? '#2A2522' : '#F0E8E2') }}
+                >
+                  <View
+                    className="items-center justify-center rounded-md"
+                    style={{
+                      width: 22,
+                      height: 22,
+                      backgroundColor: checked ? '#B66A40' : 'transparent',
+                      borderWidth: checked ? 0 : 1.5,
+                      borderColor: isDark ? '#4A423C' : '#D9C2B7',
+                    }}
+                  >
+                    {checked && <CheckIcon size={14} className="text-white" />}
+                  </View>
+                  <Icon size={17} className={checked ? 'text-primary' : 'text-muted-foreground'} />
+                  <View className="flex-1">
+                    <Text className="text-foreground text-sm font-semibold">{row.label}</Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">
+                      {count} {count === 1 ? row.singular : row.plural}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {linkKinds.length === 0 && (
+            <Text className="text-[#C76B4A] text-xs mt-3 ml-1">
+              Pick at least one kind of media.
+            </Text>
+          )}
+
+          <View className="flex-row gap-3 mt-5">
+            <Pressable
+              onPress={() => setShowLinkSheet(false)}
+              className="flex-1 bg-muted rounded-2xl py-3.5 items-center active:scale-[0.97]"
+            >
+              <Text className="text-foreground text-base font-semibold">Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setShowLinkSheet(false);
+                generateClientLink(linkKinds);
+              }}
+              disabled={linkKinds.length === 0 || isLinking}
+              className={`flex-[2] rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97] ${
+                linkKinds.length === 0 ? 'bg-muted' : 'bg-primary'
+              }`}
+            >
+              {isLinking && <ActivityIndicator size="small" color="#FFFFFF" />}
+              <Text
+                className={`text-base font-bold ${
+                  linkKinds.length === 0 ? 'text-muted-foreground' : 'text-white'
+                }`}
+              >
+                {isLinking ? 'Creating…' : 'Create link'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

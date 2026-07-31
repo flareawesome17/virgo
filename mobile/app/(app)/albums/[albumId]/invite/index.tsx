@@ -138,7 +138,7 @@ export default function AlbumInviteScreen() {
                   You need confirmed friends in your network before inviting them to albums
                 </Text>
               </View>
-              <Pressable onPress={() => router.push('/friends/send-request')}
+              <Pressable onPress={() => router.push('/(app)/(tabs)/network')}
                 className="bg-primary rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]">
                 <UserPlusIcon size={18} className="text-white" />
                 <Text className="text-white text-sm font-semibold">Add Friends First</Text>

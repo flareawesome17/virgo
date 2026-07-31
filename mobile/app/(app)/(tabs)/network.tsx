@@ -1,6 +1,14 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, Image, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable, Image, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth, useCollaborators, useTheme, useWorkspaces } from '@/src/hooks';
+import {
+  useAuth,
+  useCollaborators,
+  useFriends,
+  useRespondToFriendRequest,
+  useSendFriendRequest,
+  useTheme,
+  useWorkspaces,
+} from '@/src/hooks';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
@@ -38,6 +46,36 @@ const ROLE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 export default function NetworkScreen() {
+  const [friendEmail, setFriendEmail] = useState('');
+  const [friendError, setFriendError] = useState('');
+
+  const sendRequest = useSendFriendRequest();
+  const respond = useRespondToFriendRequest();
+
+  // Requests addressed to me. `requested_by: 'them'` is the recipient's side of
+  // the pair the server writes.
+  const { friends: incoming, refetch: refetchIncoming } = useFriends({
+    status: 'pending',
+    requested_by: 'them',
+    limit: 50,
+  });
+
+  const submitFriendRequest = () => {
+    const email = friendEmail.trim();
+    if (!email || sendRequest.isPending) return;
+    sendRequest.mutate(email, {
+      onSuccess: () => {
+        setFriendEmail('');
+        setFriendError('');
+        Alert.alert('Request sent', `${email} will see it in their network.`);
+      },
+      // The API's messages are already user-facing ("You are already friends",
+      // "No Virgo account uses that email address"), so they are shown as-is.
+      onError: (err: any) =>
+        setFriendError(err?.message || 'Could not send the request.'),
+    });
+  };
+
   const { user } = useAuth();
   const { isDark } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
@@ -70,7 +108,7 @@ export default function NetworkScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetchCollaborators(), refetchWorkspaces()]);
+    await Promise.all([refetchCollaborators(), refetchWorkspaces(), refetchIncoming()]);
     setRefreshing(false);
   };
 
@@ -130,19 +168,111 @@ export default function NetworkScreen() {
           </View>
         </View>
 
-        {/* Quick invite */}
+        {/* Add a friend, inline. This used to push a separate screen; adding
+            someone is a one-field action and belongs where the network is. */}
         <View className="px-5 pt-2 pb-4">
-          <Pressable onPress={() => router.push('/friends/send-request')} className="bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
-            <View className="w-12 h-12 rounded-2xl bg-primary/10 items-center justify-center">
-              <UserPlusIcon size={22} className="text-primary" />
+          <View
+            className="bg-card rounded-2xl p-4"
+            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}
+          >
+            <View className="flex-row items-center gap-4">
+              <View className="w-12 h-12 rounded-2xl bg-primary/10 items-center justify-center">
+                <UserPlusIcon size={22} className="text-primary" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-foreground text-base font-semibold">Add a friend</Text>
+                <Text className="text-muted-foreground text-xs mt-0.5">
+                  Only friends can be added to workspaces and albums
+                </Text>
+              </View>
             </View>
-            <View className="flex-1">
-              <Text className="text-foreground text-base font-semibold">Invite Collaborators</Text>
-              <Text className="text-muted-foreground text-xs mt-0.5">Share a workspace link via email or message</Text>
+
+            <View className="flex-row items-center gap-2 mt-3">
+              <View className="flex-1 bg-muted rounded-xl px-3 py-2.5 flex-row items-center gap-2">
+                <MailIcon size={14} className="text-muted-foreground" />
+                <TextInput
+                  value={friendEmail}
+                  onChangeText={(t) => { setFriendEmail(t); setFriendError(''); }}
+                  placeholder="their@email.com"
+                  placeholderTextColor="#A89489"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onSubmitEditing={submitFriendRequest}
+                  returnKeyType="send"
+                  className="text-foreground text-sm flex-1"
+                />
+              </View>
+              <Pressable
+                onPress={submitFriendRequest}
+                disabled={!friendEmail.trim() || sendRequest.isPending}
+                className={`rounded-xl px-4 py-2.5 items-center justify-center active:scale-[0.96] ${
+                  friendEmail.trim() ? 'bg-primary' : 'bg-muted'
+                }`}
+              >
+                {sendRequest.isPending ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text className={`text-sm font-bold ${friendEmail.trim() ? 'text-white' : 'text-muted-foreground'}`}>
+                    Send
+                  </Text>
+                )}
+              </Pressable>
             </View>
-            <ChevronRightIcon size={16} className="text-muted-foreground" />
-          </Pressable>
+
+            {friendError ? (
+              <Text className="text-[#C76B4A] text-xs mt-2">{friendError}</Text>
+            ) : null}
+          </View>
         </View>
+
+        {/* Incoming requests. Previously invisible: a request created no row
+            for the recipient, so there was nothing here to show. */}
+        {incoming.length > 0 && (
+          <View className="px-5 pb-4">
+            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+              Friend requests
+            </Text>
+            <View
+              className="bg-card rounded-2xl overflow-hidden"
+              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+            >
+              {incoming.map((req, i) => (
+                <View
+                  key={req.id}
+                  className="px-4 py-3 flex-row items-center gap-3"
+                  style={i < incoming.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
+                >
+                  <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
+                    <Text style={{ color: '#B66A40', fontWeight: '700' }}>
+                      {req.friend_name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View className="flex-1 min-w-0">
+                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                      {req.friend_name}
+                    </Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+                      {req.friend_email ?? 'wants to connect'}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => respond.mutate({ id: req.id, accept: false })}
+                    className="px-3 py-2 rounded-xl bg-muted active:scale-[0.94]"
+                  >
+                    <Text className="text-muted-foreground text-xs font-bold">Decline</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => respond.mutate({ id: req.id, accept: true })}
+                    className="px-3 py-2 rounded-xl bg-primary active:scale-[0.94]"
+                  >
+                    <Text className="text-white text-xs font-bold">Accept</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Collaborator list grouped by workspace */}
         {groupKeys.length === 0 ? (

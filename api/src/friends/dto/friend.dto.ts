@@ -9,6 +9,13 @@ import {
 } from 'class-validator';
 import { ListQueryDto } from '../../common/dto/list-query.dto';
 
+/** A request is addressed to an account, so an email is all that is needed. */
+export class SendFriendRequestDto {
+  @IsEmail({}, { message: 'Enter a valid email address' })
+  @MaxLength(255)
+  email!: string;
+}
+
 const STATUSES = ['pending', 'accepted', 'declined'] as const;
 const REQUESTED_BY = ['me', 'them'] as const;
 

@@ -66,3 +66,33 @@ export function useDeleteFriend() {
     },
   });
 }
+
+/**
+ * Sends a friend request by email.
+ *
+ * The old flow called useCreateFriend with a typed-in name, which wrote a row
+ * describing someone rather than reaching them. This addresses a real account,
+ * writes both sides of the friendship, and pushes the recipient.
+ */
+export function useSendFriendRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (email: string) => friendsApi.sendRequest(email),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+    },
+  });
+}
+
+export function useRespondToFriendRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, accept }: { id: string; accept: boolean }) =>
+      accept ? friendsApi.accept(id) : friendsApi.decline(id),
+    onSuccess: () => {
+      // Both sides change, and collaborator pickers read the accepted list.
+      queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+      queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+    },
+  });
+}

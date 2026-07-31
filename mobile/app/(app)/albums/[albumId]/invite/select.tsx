@@ -99,7 +99,7 @@ export default function SelectFriendsScreen() {
             <View className="bg-card rounded-2xl p-6 items-center gap-3">
               <UserCheckIcon size={22} className="text-muted-foreground" />
               <Text className="text-muted-foreground text-sm text-center">No confirmed friends available to invite.</Text>
-              <Pressable onPress={() => router.push('/friends/send-request')} className="bg-primary rounded-xl px-5 py-2.5 flex-row items-center gap-2 active:scale-[0.96]">
+              <Pressable onPress={() => router.push('/(app)/(tabs)/network')} className="bg-primary rounded-xl px-5 py-2.5 flex-row items-center gap-2 active:scale-[0.96]">
                 <Text className="text-white text-sm font-semibold">Add Friends</Text>
               </Pressable>
             </View>

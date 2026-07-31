@@ -17,6 +17,11 @@ const ROLES = [
 ] as const;
 
 export class CreateCollaboratorDto {
+  /** The friend being added. Required: collaborators are real accounts. */
+  @IsString()
+  @MaxLength(64)
+  collaborator_user_id!: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(64)

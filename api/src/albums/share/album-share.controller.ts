@@ -19,7 +19,10 @@ import {
   AlbumShareService,
   type MediaKind,
 } from './album-share.service';
-import { renderClientGallery } from './client-gallery.template';
+import {
+  renderClientGallery,
+  renderLinkUnavailable,
+} from './client-gallery.template';
 
 /**
  * Which media the link should expose. Omitted means everything, so a client
@@ -79,8 +82,6 @@ export class PublicAlbumController {
   @Header('X-Robots-Tag', 'noindex, nofollow')
   @Header('Cache-Control', 'no-store')
   async page(@Param('token') token: string, @Res() res: Response) {
-    const view = await this.share.resolve(token);
-
     // Overrides helmet's global policy, which allows images only from 'self'
     // and has no media-src — that blocked every CDN-hosted photo, video and
     // audio file on this page.
@@ -89,6 +90,18 @@ export class PublicAlbumController {
     // origin, so embedding its responses has to be permitted here.
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+
+    let view: Awaited<ReturnType<typeof this.share.resolve>>;
+    try {
+      view = await this.share.resolve(token);
+    } catch {
+      // Caught here rather than left to Nest's exception filter: this route
+      // declares Content-Type: text/html, so the filter's JSON body reached
+      // the browser as a raw {"message":...,"statusCode":403} blob. The status
+      // is still 403 — only the body changes.
+      res.status(403).send(renderLinkUnavailable());
+      return;
+    }
 
     res.send(renderClientGallery(view));
   }

@@ -25,7 +25,31 @@ export type UpdateFriendInput = Partial<
   Omit<CreateFriendInput, 'id' | 'requested_by'>
 >;
 
+export interface SendRequestResult {
+  status: string;
+  friend: Friend;
+}
+
 export const friendsApi = {
+  /**
+   * Sends a request to the account using this email.
+   *
+   * Replaces creating a friend row directly: that only described someone and
+   * never reached them. The server writes both sides and pushes the recipient.
+   */
+  sendRequest(email: string): Promise<SendRequestResult> {
+    return api.post<SendRequestResult>('/friends/request', { body: { email } });
+  },
+
+  /** Only an incoming request can be accepted; the server enforces that. */
+  accept(id: string): Promise<Friend> {
+    return api.post<Friend>(`/friends/${id}/accept`);
+  },
+
+  decline(id: string): Promise<Friend> {
+    return api.post<Friend>(`/friends/${id}/decline`);
+  },
+
   list(params: ListFriendsParams = {}): Promise<ListResponse<Friend>> {
     return api.get<ListResponse<Friend>>('/friends', { query: params });
   },

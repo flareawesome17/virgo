@@ -300,7 +300,7 @@ export default function HomeScreen() {
                 onPress={() => {
                   if (action.key === 'workspace') guardWorkspaceCreate(() => router.push('/workspaces/create'))();
                   else if (action.key === 'album') guardAlbumCreate(() => router.push('/albums/create'))();
-                  else if (action.key === 'invite') router.push('/friends/send-request');
+                  else if (action.key === 'invite') router.push('/(app)/(tabs)/network');
                 }}
                 className="bg-card rounded-2xl px-5 py-3 flex-row items-center gap-2 active:scale-[0.96]"
                 style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}

@@ -58,7 +58,7 @@ export default function FriendsScreen() {
                   <Text className="text-muted-foreground text-sm mt-1">{confirmed.length} confirmed · {pending.length} pending</Text>
                 </View>
               </View>
-              <Pressable onPress={() => router.push('/friends/send-request')}
+              <Pressable onPress={() => router.push('/(app)/(tabs)/network')}
                 className="w-11 h-11 rounded-2xl bg-primary items-center justify-center active:scale-[0.94]"
                 style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
                 <UserPlusIcon size={20} className="text-white" />
@@ -108,7 +108,7 @@ export default function FriendsScreen() {
                 <Text className="text-foreground text-lg font-bold">No friends yet</Text>
                 <Text className="text-muted-foreground text-sm text-center px-8">Add creative collaborators to your network to invite them to albums and workspaces</Text>
               </View>
-              <Pressable onPress={() => router.push('/friends/send-request')} className="bg-primary rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]">
+              <Pressable onPress={() => router.push('/(app)/(tabs)/network')} className="bg-primary rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]">
                 <UserPlusIcon size={18} className="text-white" /><Text className="text-white text-sm font-semibold">Add Friend</Text>
               </Pressable>
             </View>

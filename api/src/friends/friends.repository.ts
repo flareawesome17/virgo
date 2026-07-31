@@ -8,6 +8,8 @@ export type RequestedBy = 'me' | 'them';
 export interface FriendRow {
   id: string;
   user_id: string;
+  /** The account this friendship points at. Null on rows predating 014. */
+  friend_user_id: string | null;
   friend_name: string;
   friend_email: string | null;
   friend_avatar_url: string | null;

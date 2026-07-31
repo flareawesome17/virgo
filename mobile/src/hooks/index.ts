@@ -58,6 +58,8 @@ export {
   useCreateFriend,
   useUpdateFriend,
   useDeleteFriend,
+  useSendFriendRequest,
+  useRespondToFriendRequest,
 } from '@/src/hooks/useFriends'
 
 export { useUpload, useDeleteUpload, type UploadInput } from '@/src/hooks/useUpload'
