@@ -45,6 +45,8 @@ type LocalApi = {
   scheduleNotificationAsync: NotificationsModule['scheduleNotificationAsync'];
   getAllScheduledNotificationsAsync: NotificationsModule['getAllScheduledNotificationsAsync'];
   cancelScheduledNotificationAsync: NotificationsModule['cancelScheduledNotificationAsync'];
+  addNotificationResponseReceivedListener: NotificationsModule['addNotificationResponseReceivedListener'];
+  getLastNotificationResponseAsync: NotificationsModule['getLastNotificationResponseAsync'];
   AndroidImportance: NotificationsModule['AndroidImportance'];
   AndroidNotificationVisibility: NotificationsModule['AndroidNotificationVisibility'];
   SchedulableTriggerInputTypes: NotificationsModule['SchedulableTriggerInputTypes'];
@@ -65,6 +67,9 @@ function loadNotifications(): LocalApi | null {
     const handler = require('expo-notifications/build/NotificationsHandler');
     const types = require('expo-notifications/build/Notifications.types');
     const channelTypes = require('expo-notifications/build/NotificationChannelManager.types');
+    // Taps only. This module imports the emitter and nothing token-related, so
+    // it stays clear of DevicePushTokenAutoRegistration like the rest.
+    const emitter = require('expo-notifications/build/NotificationsEmitter');
 
     cached = {
       setNotificationHandler: handler.setNotificationHandler,
@@ -74,6 +79,9 @@ function loadNotifications(): LocalApi | null {
       scheduleNotificationAsync: schedule.default,
       getAllScheduledNotificationsAsync: getAll.default,
       cancelScheduledNotificationAsync: cancel.default,
+      addNotificationResponseReceivedListener:
+        emitter.addNotificationResponseReceivedListener,
+      getLastNotificationResponseAsync: emitter.getLastNotificationResponseAsync,
       AndroidImportance: channelTypes.AndroidImportance,
       AndroidNotificationVisibility: channelTypes.AndroidNotificationVisibility,
       SchedulableTriggerInputTypes: types.SchedulableTriggerInputTypes,
@@ -143,6 +151,20 @@ export async function ensureChannels(): Promise<void> {
     importance: N.AndroidImportance.DEFAULT,
     sound: null,
     lightColor: '#B66A40',
+  });
+
+  // Separate from 'reminders', which is deliberately silent and still. A chat
+  // message should buzz, and importance cannot be raised on a channel that
+  // already exists.
+  await N.setNotificationChannelAsync('messages', {
+    name: 'Messages',
+    importance: N.AndroidImportance.HIGH,
+    sound: 'default',
+    vibrationPattern: [0, 120, 90, 120],
+    lightColor: '#B66A40',
+    // PRIVATE, not PUBLIC: the body is someone's message, and it should not be
+    // readable over a shoulder on a locked screen.
+    lockscreenVisibility: N.AndroidNotificationVisibility.PRIVATE,
   });
 }
 
@@ -281,4 +303,79 @@ export async function getPushRegistration(): Promise<PushRegistration | null> {
 /** True when remote push cannot work here, so the UI can say why. */
 export function isRemotePushAvailable(): boolean {
   return !isRunningInExpoGo() && Device.isDevice;
+}
+
+/** What a notification's `data` carries, for routing a tap. */
+export interface NotificationPayload {
+  type?: 'message' | 'reminder' | string;
+  conversationId?: string;
+  reminderId?: string;
+}
+
+function payloadOf(response: unknown): NotificationPayload | null {
+  const data = (
+    response as {
+      notification?: { request?: { content?: { data?: NotificationPayload } } };
+    }
+  )?.notification?.request?.content?.data;
+  return data ?? null;
+}
+
+/**
+ * Calls back when a notification is tapped, including the one that launched
+ * the app from cold.
+ *
+ * The cold-start case is separate because the listener is registered after the
+ * tap already happened — without `getLastNotificationResponseAsync` the app
+ * would open on the home screen having ignored what the user actually tapped.
+ *
+ * Returns an unsubscribe function.
+ */
+export function onNotificationTap(
+  handle: (payload: NotificationPayload) => void,
+): () => void {
+  const N = loadNotifications();
+  if (!N) return () => {};
+
+  let cancelled = false;
+
+  void N.getLastNotificationResponseAsync()
+    .then((last) => {
+      if (cancelled || !last) return;
+      const payload = payloadOf(last);
+      if (payload) handle(payload);
+    })
+    .catch(() => {
+      // A missing launch response is normal; nothing to recover from.
+    });
+
+  const sub = N.addNotificationResponseReceivedListener((response) => {
+    const payload = payloadOf(response);
+    if (payload) handle(payload);
+  });
+
+  return () => {
+    cancelled = true;
+    sub.remove();
+  };
+}
+
+/**
+ * A short buzz for a message that arrived while the app is open.
+ *
+ * The notification channel covers the background case, but a foreground
+ * message never reaches it — polling puts the message on screen with no
+ * system notification at all, so the feedback has to be triggered here.
+ *
+ * Haptics is loaded lazily and failures are swallowed: a device without a
+ * vibrator, or web, should cost nothing and break nothing.
+ */
+export async function buzzForMessage(): Promise<void> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Haptics = require('expo-haptics') as typeof import('expo-haptics');
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch {
+    // No vibrator, no permission, or web — silence is an acceptable fallback.
+  }
 }

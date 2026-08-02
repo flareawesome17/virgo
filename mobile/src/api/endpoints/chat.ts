@@ -11,6 +11,15 @@ export interface Conversation {
   lastAt: string | null;
   lastSender: string | null;
   unread: number;
+  /**
+   * The line that matched a search, when the hit was inside the thread rather
+   * than on its name. Null outside of search, and null when it would just
+   * repeat `lastMessage`.
+   */
+  matchSnippet: string | null;
+  /** Whether you have muted it, and until when. */
+  muted: boolean;
+  mutedUntil: string | null;
 }
 
 export interface ConversationMessage {
@@ -20,12 +29,41 @@ export interface ConversationMessage {
   body: string;
   created_at: string;
   sender_name?: string;
+  /** Set when deleted for everyone; `body` is then empty. */
+  deleted_at?: string | null;
+  /** Account ids named in the body. */
+  mentions?: string[];
+  reply_to_id?: string | null;
+  /** Quoted preview, null when the quoted message was itself deleted. */
+  reply_to_body?: string | null;
+  reply_to_sender?: string | null;
+  reply_to_deleted?: boolean;
+}
+
+export interface SendMessageInput {
+  body: string;
+  replyToId?: string;
+  mentionIds?: string[];
 }
 
 export interface Participant {
   id: string;
   name: string;
   avatar_url: string | null;
+  /**
+   * How far this person has read. Your own message counts as read once
+   * someone else's `last_read_at` is at or past the moment you sent it.
+   */
+  last_read_at: string | null;
+  /** How far messages have reached this person's device. */
+  last_delivered_at: string | null;
+}
+
+export interface Thread {
+  data: ConversationMessage[];
+  total: number;
+  /** Where you had read up to before this request, for the unread divider. */
+  lastReadAt: string | null;
 }
 
 /**
@@ -35,8 +73,9 @@ export interface Participant {
  * owns `POST /chat` for the AI proxy.
  */
 export const chatApi = {
-  conversations(): Promise<{ data: Conversation[]; total: number }> {
-    return api.get('/messages/conversations');
+  /** `q` matches a group name, a participant's name, or a message body. */
+  conversations(q?: string): Promise<{ data: Conversation[]; total: number }> {
+    return api.get('/messages/conversations', { query: q ? { q } : undefined });
   },
 
   unread(): Promise<{ count: number }> {
@@ -52,7 +91,7 @@ export const chatApi = {
     return api.post('/messages/groups', { body: { title, memberIds } });
   },
 
-  messages(id: string, limit = 100): Promise<{ data: ConversationMessage[]; total: number }> {
+  messages(id: string, limit = 100): Promise<Thread> {
     return api.get(`/messages/${id}/messages`, { query: { limit } });
   },
 
@@ -60,8 +99,22 @@ export const chatApi = {
     return api.get(`/messages/${id}/participants`);
   },
 
-  send(id: string, body: string): Promise<ConversationMessage> {
-    return api.post(`/messages/${id}/messages`, { body: { body } });
+  send(id: string, input: SendMessageInput): Promise<ConversationMessage> {
+    return api.post(`/messages/${id}/messages`, { body: input });
+  },
+
+  /**
+   * Removes one message.
+   *
+   * 'me' hides it from your own view only; 'everyone' clears the text for all
+   * participants and is limited to your own messages.
+   */
+  deleteMessage(
+    id: string,
+    messageId: string,
+    scope: 'me' | 'everyone',
+  ): Promise<{ deleted: boolean; scope: 'me' | 'everyone' }> {
+    return api.delete(`/messages/${id}/messages/${messageId}`, { query: { scope } });
   },
 
   markRead(id: string): Promise<{ read: boolean }> {
@@ -74,5 +127,23 @@ export const chatApi = {
 
   leave(id: string): Promise<{ left: boolean }> {
     return api.delete(`/messages/${id}/members/me`);
+  },
+
+  /** Silences push for this conversation. `minutes: 0` unmutes. */
+  mute(id: string, minutes: number): Promise<{ muted: boolean; mutedUntil: string | null }> {
+    return api.post(`/messages/${id}/mute`, { body: { minutes } });
+  },
+
+  /** Groups only — a direct chat is titled from the other person. */
+  rename(id: string, title: string): Promise<{ id: string; title: string }> {
+    return api.patch(`/messages/${id}`, { body: { title } });
+  },
+
+  /**
+   * Removes the conversation from your view. A group is left as well; a direct
+   * chat stays open so the other person can still reach you.
+   */
+  remove(id: string): Promise<{ deleted: boolean; left: boolean }> {
+    return api.delete(`/messages/${id}`);
   },
 };

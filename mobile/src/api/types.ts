@@ -120,6 +120,8 @@ export interface AuthUser {
   website: string | null;
   location: string | null;
   bio: string | null;
+  /** Whether name search can surface this account. Email lookup is unaffected. */
+  discoverable: boolean;
   createdAt: string;
 }
 
@@ -132,6 +134,8 @@ export interface UpdateProfileInput {
   website?: string | null;
   location?: string | null;
   bio?: string | null;
+  /** A setting rather than a field, so it is never cleared to null. */
+  discoverable?: boolean;
 }
 
 export interface AuthResult {

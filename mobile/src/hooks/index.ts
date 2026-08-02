@@ -88,16 +88,27 @@ export { usePlanLimits } from '@/src/hooks/usePlanLimits'
 
 export {
   useConversations,
+  useConversation,
+  useMuteConversation,
+  useRenameConversation,
+  useAddConversationMember,
+  useDeleteConversation,
   useUnreadCount,
   useThread,
   useParticipants,
   useSendMessage,
+  useDeleteMessage,
   useOpenDirectChat,
   useCreateGroupChat,
   useMarkThreadRead,
   useLeaveConversation,
+  useMessageAlerts,
+  setOpenConversation,
+  getOpenConversation,
   chatKeys,
 } from '@/src/hooks/useChat'
+
+export { useNotificationRouting } from '@/src/hooks/useNotificationRouting'
 
 export {
   useLocationSharing,

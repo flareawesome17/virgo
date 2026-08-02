@@ -2,6 +2,8 @@ import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { Redirect, Stack } from 'expo-router';
 import {
   useAuth,
+  useMessageAlerts,
+  useNotificationRouting,
   usePushRegistration,
   useReminderNotifications,
   useReminders,
@@ -62,21 +64,22 @@ export default function AppLayout() {
   return (
     <>
       {/* Mounted here rather than on the schedule tab so alarms stay scheduled
-          no matter which screen the user is on. */}
-      <ReminderNotifications />
+          and messages announce themselves no matter which screen is showing. */}
+      <NotificationServices />
       <Stack screenOptions={{ headerShown: false }} />
     </>
   );
 }
 
 /**
- * Keeps device alarms in sync and registers for server push.
+ * Keeps device alarms in sync, registers for server push, routes notification
+ * taps, and buzzes for messages that arrive while the app is open.
  *
  * A component rather than hooks in AppLayout because it must only run once the
  * user is authenticated — AppLayout returns early in three other states, and
  * hooks cannot be called conditionally.
  */
-function ReminderNotifications() {
+function NotificationServices() {
   const { reminders } = useReminders({
     orderBy: 'reminder_time',
     direction: 'asc',
@@ -85,6 +88,8 @@ function ReminderNotifications() {
 
   useReminderNotifications(reminders);
   usePushRegistration(true);
+  useNotificationRouting(true);
+  useMessageAlerts(true);
 
   return null;
 }

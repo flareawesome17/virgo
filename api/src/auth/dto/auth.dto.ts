@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEmail,
   IsOptional,
   IsString,
@@ -90,4 +91,14 @@ export class UpdateProfileDto {
   @IsString()
   @MaxLength(1000)
   bio?: string | null;
+
+  /**
+   * Whether name search can surface this account.
+   *
+   * Not nullable like the rest: this is a setting, and "unset" is not a state
+   * it can be in.
+   */
+  @IsOptional()
+  @IsBoolean()
+  discoverable?: boolean;
 }

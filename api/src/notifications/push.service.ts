@@ -14,6 +14,12 @@ export interface PushMessage {
   sound?: 'default' | null;
   /** Android channel; must match one created on the device. */
   channelId?: string;
+  /**
+   * Delivery urgency. 'high' wakes a dozing Android device rather than
+   * queueing until its next maintenance window — right for a message, and
+   * needlessly rude for anything that can wait.
+   */
+  priority?: 'default' | 'normal' | 'high';
 }
 
 interface ExpoTicket {

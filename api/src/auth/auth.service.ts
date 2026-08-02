@@ -199,6 +199,7 @@ export class AuthService {
       website?: string | null;
       location?: string | null;
       bio?: string | null;
+      discoverable?: boolean;
     },
   ): Promise<PublicUser> {
     const user = await this.users.updateProfile(userId, {
@@ -209,6 +210,7 @@ export class AuthService {
       website: input.website,
       location: input.location,
       bio: input.bio,
+      discoverable: input.discoverable,
     });
     if (!user) throw new UnauthorizedException();
     return toPublicUser(user);

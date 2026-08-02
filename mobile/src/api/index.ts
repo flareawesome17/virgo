@@ -86,6 +86,8 @@ export {
   // Not 'ChatMessage' — the AI proxy in services.ts already owns that name.
   type ConversationMessage,
   type Participant,
+  type Thread,
+  type SendMessageInput,
 } from './endpoints/chat';
 export { discoverApi, type NearbyPerson, type LocationStatus } from './endpoints/discover';
 

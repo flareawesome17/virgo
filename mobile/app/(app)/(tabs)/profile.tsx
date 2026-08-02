@@ -79,7 +79,7 @@ const SETTINGS_SECTIONS: {
   {
     title: 'Security',
     items: [
-      { icon: LockIcon, label: 'Privacy', color: '#5B7B9A', soon: true },
+      { icon: LockIcon, label: 'Privacy', color: '#5B7B9A', route: '/settings/privacy' },
       // No 2FA exists in the backend, so this cannot claim to be configurable.
       { icon: ShieldIcon, label: 'Two-Factor Auth', color: '#6B8E4E', soon: true },
     ],
@@ -87,7 +87,7 @@ const SETTINGS_SECTIONS: {
   {
     title: 'Support',
     items: [
-      { icon: HelpCircleIcon, label: 'Help Center', color: '#B66A40', soon: true },
+      { icon: HelpCircleIcon, label: 'Help Center', color: '#B66A40', route: '/settings/help' },
       { icon: SettingsIcon, label: 'App Settings', color: '#54433C', route: '/settings' },
     ],
   },

@@ -94,7 +94,13 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
          left join friends f
            on f.user_id = $1 and f.friend_user_id = u.id
         where u.id <> $1
-          and (u.display_name ilike $2 or lower(u.email) = lower($3))
+          and (
+                -- Opting out of discovery hides you from name search only.
+                -- Someone who already knows your address can still reach you,
+                -- which is what makes an invitation possible at all.
+                (u.discoverable and u.display_name ilike $2)
+                or lower(u.email) = lower($3)
+              )
         order by u.display_name nulls last, u.email
         limit 20`,
       // Prefix match on the name, but an exact match on the email: a partial

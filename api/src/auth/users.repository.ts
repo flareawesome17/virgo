@@ -12,6 +12,8 @@ export interface UserRow {
   website: string | null;
   location: string | null;
   bio: string | null;
+  /** Whether name search can surface this account. Email lookup is unaffected. */
+  discoverable: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -27,6 +29,7 @@ export interface PublicUser {
   website: string | null;
   location: string | null;
   bio: string | null;
+  discoverable: boolean;
   createdAt: Date;
 }
 
@@ -41,6 +44,9 @@ export function toPublicUser(row: UserRow): PublicUser {
     website: row.website,
     location: row.location,
     bio: row.bio,
+    // Defaulted rather than assumed present: a row read before migration 020
+    // has no column, and search should stay open in that case.
+    discoverable: row.discoverable ?? true,
     createdAt: row.created_at,
   };
 }
@@ -56,6 +62,7 @@ export type ProfileFields = Partial<
     | 'website'
     | 'location'
     | 'bio'
+    | 'discoverable'
   >
 >;
 

@@ -60,7 +60,7 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
   {
     title: 'Privacy & Security',
     rows: [
-      { icon: LockIcon, label: 'Privacy', color: '#5B7B9A', soon: true },
+      { icon: LockIcon, label: 'Privacy', route: '/settings/privacy', color: '#5B7B9A' },
       // The old row read "2FA enabled" — there is no 2FA in the backend, so
       // that was a claim the app could not honour.
       { icon: ShieldIcon, label: 'Security', color: '#6B8E4E', soon: true },
@@ -70,15 +70,17 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
     title: 'Storage & Sync',
     rows: [
       { icon: HardDriveIcon, label: 'Storage', route: '/settings/storage', color: '#B66A40' },
-      { icon: CloudIcon, label: 'Offline Sync', color: '#C17745', soon: true },
+      { icon: CloudIcon, label: 'Offline Sync', route: '/settings/offline', color: '#C17745' },
     ],
   },
   {
     title: 'Support',
     rows: [
-      { icon: HelpCircleIcon, label: 'Help Center', color: '#B66A40', soon: true },
-      { icon: FileTextIcon, label: 'Terms of Service', color: '#54433C' },
-      { icon: StarIcon, label: 'Rate Virgo', color: '#C17745' },
+      { icon: HelpCircleIcon, label: 'Help Center', route: '/settings/help', color: '#B66A40' },
+      { icon: FileTextIcon, label: 'Terms of Service', route: '/legal', color: '#54433C' },
+      // Nothing to rate against until the app is on a store listing, and a row
+      // that opens nowhere is worse than one that says so.
+      { icon: StarIcon, label: 'Rate Virgo', color: '#C17745', soon: true },
     ],
   },
   {

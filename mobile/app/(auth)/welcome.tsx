@@ -104,11 +104,25 @@ export default function WelcomeScreen() {
           </Pressable>
         </View>
 
-        {/* Terms */}
+        {/* Terms. Both used to be styled as links and were not tappable — the
+            document lives outside (app) precisely so it can be read before
+            signing in. */}
         <Text className="text-muted-foreground text-[11px] text-center mt-8 leading-relaxed px-4">
           By continuing, you agree to Virgo’s{' '}
-          <Text className="text-primary font-semibold">Terms of Service</Text> and{' '}
-          <Text className="text-primary font-semibold">Privacy Policy</Text>.
+          <Text
+            className="text-primary font-semibold"
+            onPress={() => router.push('/legal')}
+          >
+            Terms of Service
+          </Text>{' '}
+          and{' '}
+          <Text
+            className="text-primary font-semibold"
+            onPress={() => router.push('/legal?tab=privacy')}
+          >
+            Privacy Policy
+          </Text>
+          .
         </Text>
       </View>
     </SafeAreaView>
