@@ -40,6 +40,9 @@ export interface SubscriptionRow {
 /** A subscription still entitled to its plan. */
 const ENTITLED: SubscriptionStatus[] = ['active', 'past_due'];
 
+/** Which app the customer is paying from, so they are sent back to it. */
+export type BillingPlatform = 'web' | 'mobile';
+
 /**
  * Paid plans.
  *
@@ -73,6 +76,38 @@ export class BillingService {
 
   get isConfigured(): boolean {
     return this.paymongo.isConfigured;
+  }
+
+  /**
+   * Where PayMongo sends the customer once they are done.
+   *
+   * A *return* URL, not the webhook — this is a page a person looks at, and
+   * pointing it at the webhook endpoint sends them to a machine endpoint that
+   * answers 401 to a browser.
+   *
+   * Chosen from the platform the client declares, never from a URL the client
+   * supplies: a caller-controlled redirect on a payment page is how a phishing
+   * flow gets built.
+   */
+  private returnUrls(platform: BillingPlatform): { success: string; cancel: string } {
+    if (platform === 'mobile') {
+      // A deep link back into the app. `virgo` is the scheme in app.json, and
+      // /settings/storage/plans is the real route — the (app) group does not
+      // appear in the path.
+      const base = this.config.get<string>(
+        'PAYMONGO_RETURN_URL_MOBILE',
+        'virgo://settings/storage/plans',
+      );
+      const join = base.includes('?') ? '&' : '?';
+      return { success: `${base}${join}paid=1`, cancel: base };
+    }
+
+    const base = this.config.get<string>(
+      'PAYMONGO_RETURN_URL_WEB',
+      `${this.mailConfig.appUrl}/settings/plans`,
+    );
+    const join = base.includes('?') ? '&' : '?';
+    return { success: `${base}${join}paid=1`, cancel: base };
   }
 
   /**
@@ -245,6 +280,7 @@ export class BillingService {
   async subscribe(
     userId: string,
     planName: string,
+    platform: BillingPlatform = 'web',
   ): Promise<{
     subscriptionId: string;
     status: string;
@@ -288,7 +324,7 @@ export class BillingService {
       this.logger.warn(
         'Subscriptions are not enabled on this PayMongo account; falling back to a one-month checkout',
       );
-      return this.subscribeOneMonth(userId, plan);
+      return this.subscribeOneMonth(userId, plan, platform);
     }
   }
 
@@ -346,13 +382,14 @@ export class BillingService {
   private async subscribeOneMonth(
     userId: string,
     plan: PlanInfo,
+    platform: BillingPlatform,
   ): Promise<{
     subscriptionId: string;
     status: string;
     checkoutUrl: string | null;
     renews: boolean;
   }> {
-    const appUrl = this.mailConfig.appUrl;
+    const { success, cancel } = this.returnUrls(platform);
 
     const session = await this.paymongo.request<{
       checkout_url: string;
@@ -366,8 +403,8 @@ export class BillingService {
         },
       ],
       payment_method_types: ['card', 'gcash', 'paymaya', 'grab_pay'],
-      success_url: `${appUrl}/settings/plans?paid=1`,
-      cancel_url: `${appUrl}/settings/plans`,
+      success_url: success,
+      cancel_url: cancel,
       description: `Virgo ${plan.label}, one month`,
       send_email_receipt: true,
       // Comes back on the webhook. Without it the payment cannot be tied to an

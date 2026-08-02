@@ -49,9 +49,18 @@ export const billingApi = {
     return api.get<BillingStatus>('/billing');
   },
 
-  /** Starts a checkout and returns where to send the customer. */
-  subscribe(plan: string): Promise<StartedCheckout> {
-    return api.post<StartedCheckout>('/billing/subscribe', { body: { plan } });
+  /**
+   * Starts a checkout and returns where to send the customer.
+   *
+   * `platform` decides where PayMongo returns them afterwards — the web app,
+   * or a deep link back into the mobile app. It is a name, not a URL: the
+   * server owns the destinations, so a caller cannot redirect a payment page
+   * anywhere it likes.
+   */
+  subscribe(plan: string, platform: 'web' | 'mobile' = 'web'): Promise<StartedCheckout> {
+    return api.post<StartedCheckout>('/billing/subscribe', {
+      body: { plan, platform },
+    });
   },
 
   /**

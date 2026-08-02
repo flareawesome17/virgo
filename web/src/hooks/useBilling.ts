@@ -47,9 +47,9 @@ export function useSettlePendingCheckout(): void {
  * Returns where to send the customer; it does not change the plan, because
  * paying happens at PayMongo and the grant arrives by webhook afterwards.
  */
-export function useSubscribe() {
+export function useSubscribe(platform: 'web' | 'mobile' = 'web') {
   return useMutation({
-    mutationFn: (plan: string) => billingApi.subscribe(plan),
+    mutationFn: (plan: string) => billingApi.subscribe(plan, platform),
   });
 }
 

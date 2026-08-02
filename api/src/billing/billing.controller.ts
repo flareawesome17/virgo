@@ -12,6 +12,17 @@ export class SubscribeDto {
     message: `Choose one of: ${PURCHASABLE.join(', ')}`,
   })
   plan!: string;
+
+  /**
+   * Which app is asking, so PayMongo returns the customer to it.
+   *
+   * A platform name, deliberately not a URL: the server picks the destination
+   * from its own configuration. Letting a caller supply where a payment page
+   * redirects to is how a phishing flow gets built.
+   */
+  @IsOptional()
+  @IsIn(['web', 'mobile'])
+  platform?: 'web' | 'mobile';
 }
 
 export class CancelSubscriptionDto {
@@ -47,7 +58,7 @@ export class BillingController {
   @HttpCode(200)
   @Post('subscribe')
   subscribe(@CurrentUser('id') userId: string, @Body() dto: SubscribeDto) {
-    return this.billing.subscribe(userId, dto.plan);
+    return this.billing.subscribe(userId, dto.plan, dto.platform ?? 'web');
   }
 
   /**

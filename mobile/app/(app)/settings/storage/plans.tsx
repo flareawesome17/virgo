@@ -68,7 +68,7 @@ export default function PlansScreen() {
   const { plans, isLoading } = usePlans();
   const { usage } = useUsage();
   const { billing } = useBilling();
-  const subscribe = useSubscribe();
+  const subscribe = useSubscribe('mobile');
   const cancelPlan = useCancelSubscription();
   const refresh = useRefreshBilling();
 
