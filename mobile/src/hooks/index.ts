@@ -115,10 +115,12 @@ export {
 
 export { useNotificationRouting } from '@/src/hooks/useNotificationRouting'
 export { useRealtime } from '@/src/hooks/useRealtime'
+export { useRoles } from '@/src/hooks/useRoles'
 
 export {
   useLocationSharing,
   useShareLocation,
   useStopSharingLocation,
   useNearbyPeople,
+  useNearbyRoleCounts,
 } from '@/src/hooks/useNearby'

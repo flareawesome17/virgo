@@ -15,11 +15,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   useLocationSharing,
   useNearbyPeople,
+  useNearbyRoleCounts,
   useShareLocation,
   useStopSharingLocation,
 } from '@/hooks/useNearby';
 import { useFriends, useRespondToFriendRequest, useSendFriendRequest } from '@/hooks/useFriends';
 import { useOpenDirectChat } from '@/hooks/useChat';
+import { RolePicker } from '@/components/role-picker';
 import type { NearbyPerson } from '@/api';
 
 /** The API caps the radius at 200km. */
@@ -28,11 +30,14 @@ const RADII = [5, 25, 50, 100, 200];
 export default function NearbyPage() {
   const router = useRouter();
   const [radiusKm, setRadiusKm] = useState(50);
+  /** Empty means everyone; otherwise only people who do one of these. */
+  const [roleFilter, setRoleFilter] = useState<string[]>([]);
 
   const { sharing, isLoading: loadingStatus } = useLocationSharing();
   const startSharing = useShareLocation();
   const stopSharing = useStopSharingLocation();
-  const { people, isLoading } = useNearbyPeople(radiusKm);
+  const { people, isLoading } = useNearbyPeople(radiusKm, roleFilter);
+  const { counts } = useNearbyRoleCounts(radiusKm);
 
   const sendRequest = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
@@ -73,6 +78,21 @@ export default function NearbyPage() {
           <MapPin className="size-3" />
           {person.distanceKm < 1 ? 'under 1 km away' : `${person.distanceKm} km away`}
         </p>
+        {person.roles.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {person.roles.map((role) => (
+              <Badge
+                key={role}
+                // The role you searched for is highlighted, so a person with
+                // five roles still shows why they are in this list.
+                variant={roleFilter.includes(role) ? 'default' : 'secondary'}
+                className="px-1.5 py-0 text-[10px] font-medium"
+              >
+                {role}
+              </Badge>
+            ))}
+          </div>
+        )}
       </div>
       {person.relationship === 'accepted' ? (
         <Button
@@ -184,6 +204,38 @@ export default function NearbyPage() {
           </div>
         </div>
 
+        {/* Role filter — the point of the screen: "an SDE photo editor within
+            30km", not "whoever happens to be around". */}
+        {sharing && (
+          <div className="mt-5">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                Looking for
+              </p>
+              {roleFilter.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => setRoleFilter([])}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+            <RolePicker
+              selected={roleFilter}
+              onChange={setRoleFilter}
+              counts={counts}
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              {roleFilter.length === 0
+                ? `Everyone within ${radiusKm} km. Pick a role to narrow it down — the number is how many are in range.`
+                : `Anyone who does ${roleFilter.join(' or ')}.`}
+            </p>
+          </div>
+        )}
+
         {/* Results */}
         <div className="mt-6">
           {!sharing ? (
@@ -200,8 +252,23 @@ export default function NearbyPage() {
             <Card>
               <EmptyState
                 icon={MapPin}
-                title={`Nobody within ${radiusKm} km`}
-                description="Try a wider radius. Only people sharing their location appear here."
+                title={
+                  roleFilter.length > 0
+                    ? `No ${roleFilter.join(' or ')} within ${radiusKm} km`
+                    : `Nobody within ${radiusKm} km`
+                }
+                description={
+                  roleFilter.length > 0
+                    ? 'Try a wider radius or a different role. Only people sharing their location appear here.'
+                    : 'Try a wider radius. Only people sharing their location appear here.'
+                }
+                action={
+                  roleFilter.length > 0 ? (
+                    <Button size="sm" variant="outline" onClick={() => setRoleFilter([])}>
+                      Clear the filter
+                    </Button>
+                  ) : undefined
+                }
               />
             </Card>
           ) : (

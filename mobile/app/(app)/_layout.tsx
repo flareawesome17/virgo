@@ -9,6 +9,7 @@ import {
   useReminderNotifications,
   useReminders,
 } from '@/src/hooks';
+import { RolesRequiredSheet } from '@/components';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
@@ -67,6 +68,9 @@ export default function AppLayout() {
       {/* Mounted here rather than on the schedule tab so alarms stay scheduled
           and messages announce themselves no matter which screen is showing. */}
       <NotificationServices />
+      {/* Here rather than on a settings screen, so an account with no roles is
+          asked wherever it lands rather than only if it goes looking. */}
+      <RolesRequiredSheet />
       <Stack screenOptions={{ headerShown: false }} />
     </>
   );

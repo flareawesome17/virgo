@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Loader2, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { RolesRequiredDialog } from '@/components/roles-required';
 import { useAuth } from '@/hooks/useAuth';
 
 /**
@@ -65,5 +66,12 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {/* Here rather than in a page, so an account with no roles is asked
+          wherever it lands rather than only if it happens to open Profile. */}
+      <RolesRequiredDialog />
+      {children}
+    </>
+  );
 }

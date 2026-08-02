@@ -24,6 +24,7 @@ import {
   useFriends,
   useLocationSharing,
   useNearbyPeople,
+  useNearbyRoleCounts,
   useOpenDirectChat,
   useRespondToFriendRequest,
   useSendFriendRequest,
@@ -31,6 +32,7 @@ import {
   useStopSharingLocation,
   useTheme,
 } from '@/src/hooks';
+import { RolePicker } from '@/components';
 import type { NearbyPerson } from '@/src/api';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -57,13 +59,16 @@ function distanceLabel(km: number): string {
 export default function NearbyScreen() {
   const { isDark } = useTheme();
   const [radiusKm, setRadiusKm] = useState(50);
+  /** Empty means everyone; otherwise only people who do one of these. */
+  const [roleFilter, setRoleFilter] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const { sharing, isLoading: loadingStatus } = useLocationSharing();
   const startSharing = useShareLocation();
   const stopSharing = useStopSharingLocation();
 
-  const { people, isLoading, refetch } = useNearbyPeople(radiusKm);
+  const { people, isLoading, refetch } = useNearbyPeople(radiusKm, roleFilter);
+  const { counts } = useNearbyRoleCounts(radiusKm);
 
   const sendRequest = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
@@ -167,6 +172,36 @@ export default function NearbyScreen() {
             {distanceLabel(person.distanceKm)}
           </Text>
         </View>
+        {person.roles.length > 0 && (
+          <View className="flex-row flex-wrap gap-1 mt-1.5">
+            {person.roles.map((role) => {
+              // The role you searched for is highlighted, so somebody with
+              // five roles still shows why they are in this list.
+              const matched = roleFilter.includes(role);
+              return (
+                <View
+                  key={role}
+                  style={{
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: 5,
+                    backgroundColor: matched ? '#B66A40' : '#B66A4014',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 9,
+                      fontWeight: '700',
+                      color: matched ? '#FFFFFF' : '#B66A40',
+                    }}
+                  >
+                    {role}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
       </View>
 
       {person.relationship === 'accepted' ? (
@@ -314,6 +349,36 @@ export default function NearbyScreen() {
           </ScrollView>
         </View>
 
+        {/* Role filter — the point of the screen: "an SDE photo editor within
+            30km", not "whoever happens to be around". */}
+        {sharing && (
+          <View className="px-5 mt-5">
+            <View className="flex-row items-center justify-between mb-2">
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] ml-1">
+                Looking for
+              </Text>
+              {roleFilter.length > 0 && (
+                <Pressable
+                  onPress={() => setRoleFilter([])}
+                  className="active:opacity-60"
+                >
+                  <Text className="text-primary text-xs font-semibold">Clear</Text>
+                </Pressable>
+              )}
+            </View>
+            <RolePicker
+              selected={roleFilter}
+              onChange={setRoleFilter}
+              counts={counts}
+            />
+            <Text className="text-muted-foreground text-xs mt-2 ml-1 leading-4">
+              {roleFilter.length === 0
+                ? `Everyone within ${radiusKm} km. Pick a role to narrow it down — the number is how many are in range.`
+                : `Anyone who does ${roleFilter.join(' or ')}.`}
+            </Text>
+          </View>
+        )}
+
         {/* Results */}
         {!sharing ? (
           <View className="px-10 pt-14 items-center">
@@ -335,11 +400,26 @@ export default function NearbyScreen() {
         ) : people.length === 0 ? (
           <View className="px-10 pt-14 items-center">
             <Text className="text-foreground text-base font-bold text-center">
-              Nobody within {radiusKm} km
+              {roleFilter.length > 0
+                ? `No ${roleFilter.join(' or ')} within ${radiusKm} km`
+                : `Nobody within ${radiusKm} km`}
             </Text>
             <Text className="text-muted-foreground text-sm text-center mt-2 leading-5">
-              Try a wider radius. Only people sharing their location appear here.
+              {roleFilter.length > 0
+                ? 'Try a wider radius or a different role. Only people sharing their location appear here.'
+                : 'Try a wider radius. Only people sharing their location appear here.'}
             </Text>
+            {roleFilter.length > 0 && (
+              <Pressable
+                onPress={() => setRoleFilter([])}
+                className="mt-4 bg-card rounded-xl px-5 py-2.5 active:scale-[0.96]"
+                style={cardShadow}
+              >
+                <Text className="text-foreground text-sm font-semibold">
+                  Clear the filter
+                </Text>
+              </Pressable>
+            )}
           </View>
         ) : (
           <>

@@ -161,8 +161,17 @@ export class UpdateProfileDto {
   @IsBoolean()
   discoverable?: boolean;
 
+  /**
+   * Required if supplied at all.
+   *
+   * ArrayMinSize as well as ArrayMaxSize: roles are what Nearby filters on, so
+   * an account with none is invisible to anyone searching for the thing they
+   * actually do. Sign-up already demands at least one; without this, the edit
+   * screen would be a way to undo that.
+   */
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(1, { message: 'Choose at least one role' })
   @ArrayMaxSize(USER_ROLES.length)
   @IsIn(USER_ROLES as readonly string[], { each: true, message: 'Unknown role' })
   roles?: string[];

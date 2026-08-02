@@ -175,6 +175,14 @@ export interface UpdateProfileInput {
   bio?: string | null;
   /** A setting rather than a field, so it is never cleared to null. */
   discoverable?: boolean;
+  /**
+   * What they do on a shoot.
+   *
+   * Never null and never empty: the API requires at least one, because roles
+   * are what Nearby filters on and an account with none cannot be found by
+   * anyone looking to hire. Omit the key to leave them unchanged.
+   */
+  roles?: string[];
 }
 
 export interface AuthResult {

@@ -1,8 +1,19 @@
 import { Body, Controller, Delete, Get, HttpCode, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { Type } from 'class-transformer';
-import { IsLatitude, IsLongitude, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsLatitude,
+  IsLongitude,
+  IsNumber,
+  IsOptional,
+  Max,
+  Min,
+} from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { USER_ROLES } from '../auth/roles';
 import { DiscoverService } from './discover.service';
 
 export class UpdateLocationDto {
@@ -22,6 +33,26 @@ export class NearbyQueryDto {
   @Min(1)
   @Max(200)
   radiusKm?: number;
+
+  /**
+   * Show only people who do at least one of these.
+   *
+   * Accepts `?roles=Photographer&roles=Host` and `?roles=Photographer,Host` —
+   * a single query value arrives as a string, not an array, and a client that
+   * sends the comma form should not get a confusing validation error.
+   */
+  @IsOptional()
+  @Transform(({ value }) => {
+    const list = Array.isArray(value) ? value : [value];
+    return list
+      .flatMap((entry: unknown) => String(entry).split(','))
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  })
+  @IsArray()
+  @ArrayMaxSize(USER_ROLES.length)
+  @IsIn(USER_ROLES as readonly string[], { each: true, message: 'Unknown role' })
+  roles?: string[];
 }
 
 @Controller('discover')
@@ -54,6 +85,21 @@ export class DiscoverController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Get('nearby')
   nearby(@CurrentUser('id') userId: string, @Query() query: NearbyQueryDto) {
-    return this.discover.nearby(userId, query.radiusKm);
+    return this.discover.nearby(userId, query.radiusKm, query.roles);
+  }
+
+  /**
+   * How many people nearby do each role.
+   *
+   * Its own endpoint rather than a field on `nearby`, because the counts must
+   * not narrow as filters are applied — they are what you choose *from*.
+   */
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get('nearby/roles')
+  roleCounts(
+    @CurrentUser('id') userId: string,
+    @Query() query: NearbyQueryDto,
+  ) {
+    return this.discover.roleCounts(userId, query.radiusKm);
   }
 }

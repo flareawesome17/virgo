@@ -4,7 +4,10 @@ import { discoverApi } from '@/src/api';
 
 export const nearbyKeys = {
   status: ['discover', 'location'] as const,
-  nearby: (radiusKm: number) => ['discover', 'nearby', radiusKm] as const,
+  nearby: (radiusKm: number, roles: string[] = []) =>
+    ['discover', 'nearby', radiusKm, roles.join(',')] as const,
+  roleCounts: (radiusKm: number) =>
+    ['discover', 'nearby', 'role-counts', radiusKm] as const,
 };
 
 /** Whether the caller is discoverable, and when they last updated. */
@@ -60,15 +63,38 @@ export function useStopSharingLocation() {
   });
 }
 
-/** People nearby. Returns `sharing: false` rather than failing when opted out. */
-export function useNearbyPeople(radiusKm = 50) {
+/**
+ * People nearby, optionally only those who do a particular job.
+ *
+ * Returns `sharing: false` rather than failing when opted out.
+ *
+ * `placeholderData` keeps the previous list on screen while a new filter
+ * loads, so toggling a role chip does not blink the screen empty.
+ */
+export function useNearbyPeople(radiusKm = 50, roles: string[] = []) {
   const query = useQuery({
-    queryKey: nearbyKeys.nearby(radiusKm),
-    queryFn: () => discoverApi.nearby(radiusKm),
+    queryKey: nearbyKeys.nearby(radiusKm, roles),
+    queryFn: () => discoverApi.nearby(radiusKm, roles),
+    placeholderData: (previous) => previous,
   });
   return {
     ...query,
     people: query.data?.people ?? [],
     sharing: query.data?.sharing ?? false,
   };
+}
+
+/**
+ * How many people nearby do each role.
+ *
+ * Deliberately not narrowed by the active filter: these are the counts you
+ * choose from, and narrowing them would zero every other chip the moment one
+ * was picked.
+ */
+export function useNearbyRoleCounts(radiusKm = 50) {
+  const query = useQuery({
+    queryKey: nearbyKeys.roleCounts(radiusKm),
+    queryFn: () => discoverApi.nearbyRoleCounts(radiusKm),
+  });
+  return { ...query, counts: query.data ?? {} };
 }

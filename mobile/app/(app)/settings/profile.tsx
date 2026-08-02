@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth, useUpload } from '@/src/hooks';
+import { RolePicker } from '@/components';
 import {
   ArrowLeftIcon, CameraIcon, UserIcon, MailIcon, BriefcaseIcon, PhoneIcon,
   GlobeIcon, MapPinIcon, ChevronRightIcon, CheckIcon,
@@ -34,6 +35,7 @@ export default function ProfileSettingsScreen() {
   const [website, setWebsite] = useState('');
   const [location, setLocation] = useState('');
   const [bio, setBio] = useState('');
+  const [roles, setRoles] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -44,6 +46,7 @@ export default function ProfileSettingsScreen() {
     setWebsite(profile.website ?? '');
     setLocation(profile.location ?? '');
     setBio(profile.bio ?? '');
+    setRoles(profile.roles ?? []);
     setHydrated(true);
   }, [profile, hydrated]);
 
@@ -61,6 +64,9 @@ export default function ProfileSettingsScreen() {
         website: orNull(website),
         location: orNull(location),
         bio: orNull(bio),
+        // Omitted when empty: the API requires at least one, and an empty
+        // array would fail the whole save rather than just leaving roles be.
+        ...(roles.length > 0 ? { roles } : {}),
       },
       {
         onSuccess: () => {
@@ -200,6 +206,25 @@ export default function ProfileSettingsScreen() {
               style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2, minHeight: 100 }}
             />
           </View>
+
+          {/* Roles */}
+          <View>
+            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-1 ml-1">
+              What you do{' '}
+              <Text style={{ color: '#C4776A' }}>· required</Text>
+            </Text>
+            <Text className="text-muted-foreground text-xs mb-2.5 ml-1 leading-4">
+              This is what people search for in Nearby. Somebody looking to hire
+              a photographer finds you by this and nothing else, so an account
+              with none is invisible to them.
+            </Text>
+            <RolePicker selected={roles} onChange={setRoles} />
+            {roles.length === 0 && (
+              <Text style={{ color: '#C4776A' }} className="text-xs font-semibold mt-2 ml-1">
+                Choose at least one.
+              </Text>
+            )}
+          </View>
         </View>
       </ScrollView>
 
@@ -207,11 +232,25 @@ export default function ProfileSettingsScreen() {
       <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
         <Pressable
           onPress={handleSave}
-          disabled={busy}
-          className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${saved ? 'bg-[#6B8E4E]' : 'bg-primary'}`}
+          // Roles are required, so saving with none would be rejected by the
+          // API anyway — better to say so before the round trip.
+          disabled={busy || roles.length === 0}
+          className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${
+            roles.length === 0 ? 'bg-muted' : saved ? 'bg-[#6B8E4E]' : 'bg-primary'
+          }`}
         >
-          <Text className="text-white text-base font-bold flex-row items-center">
-            {saved ? '✓  Saved' : updateProfile.isPending ? 'Saving…' : 'Save Changes'}
+          <Text
+            className={`text-base font-bold ${
+              roles.length === 0 ? 'text-muted-foreground' : 'text-white'
+            }`}
+          >
+            {roles.length === 0
+              ? 'Choose a role to save'
+              : saved
+                ? '✓  Saved'
+                : updateProfile.isPending
+                  ? 'Saving…'
+                  : 'Save Changes'}
           </Text>
         </Pressable>
       </View>

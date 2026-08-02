@@ -7,6 +7,8 @@ export interface NearbyPerson {
   /** Kilometres. The API never returns anyone else's coordinates. */
   distanceKm: number;
   relationship: 'none' | 'pending_out' | 'pending_in' | 'accepted';
+  /** What they do on a shoot. Empty only on accounts predating roles. */
+  roles: string[];
 }
 
 export interface LocationStatus {
@@ -35,7 +37,32 @@ export const discoverApi = {
     return api.delete('/discover/location');
   },
 
-  nearby(radiusKm = 50): Promise<{ sharing: boolean; people: NearbyPerson[] }> {
-    return api.get('/discover/nearby', { query: { radiusKm } });
+  /**
+   * People nearby, optionally only those who do a particular job.
+   *
+   * `roles` is sent comma-separated; the API accepts that and the repeated
+   * form, and matches on overlap — somebody who is both a photographer and an
+   * editor turns up under either.
+   */
+  nearby(
+    radiusKm = 50,
+    roles: string[] = [],
+  ): Promise<{ sharing: boolean; people: NearbyPerson[] }> {
+    return api.get('/discover/nearby', {
+      query: {
+        radiusKm,
+        ...(roles.length > 0 ? { roles: roles.join(',') } : {}),
+      },
+    });
+  },
+
+  /**
+   * How many people nearby do each role.
+   *
+   * Unaffected by the current filter on purpose — these are the counts you
+   * choose from, so they must not collapse to zero once a chip is picked.
+   */
+  nearbyRoleCounts(radiusKm = 50): Promise<Record<string, number>> {
+    return api.get('/discover/nearby/roles', { query: { radiusKm } });
   },
 };

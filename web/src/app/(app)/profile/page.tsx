@@ -32,6 +32,7 @@ import { useScheduleEvents } from '@/hooks/useScheduleEvents';
 import { useCollaborators } from '@/hooks/useCollaborators';
 import { useUsage } from '@/hooks/useUsage';
 import { useOnline } from '@/hooks/useOnline';
+import { RolePicker } from '@/components/role-picker';
 import { formatBytes } from '@/api';
 
 /**
@@ -59,6 +60,7 @@ export default function ProfilePage() {
     location: '',
     bio: '',
   });
+  const [roles, setRoles] = useState<string[]>([]);
   const [seeded, setSeeded] = useState(false);
 
   // Seeded once the profile lands, not on every render: re-seeding would wipe
@@ -73,6 +75,7 @@ export default function ProfilePage() {
       location: profile.location ?? '',
       bio: profile.bio ?? '',
     });
+    setRoles(profile.roles ?? []);
     setSeeded(true);
   }, [profile, seeded]);
 
@@ -83,7 +86,8 @@ export default function ProfilePage() {
       form.phone !== (profile?.phone ?? '') ||
       form.website !== (profile?.website ?? '') ||
       form.location !== (profile?.location ?? '') ||
-      form.bio !== (profile?.bio ?? ''));
+      form.bio !== (profile?.bio ?? '') ||
+      roles.join(',') !== (profile?.roles ?? []).join(','));
 
   const save = () => {
     updateProfile.mutate(
@@ -95,6 +99,9 @@ export default function ProfilePage() {
         website: form.website.trim() || null,
         location: form.location.trim() || null,
         bio: form.bio.trim() || null,
+        // Omitted when empty: the API requires at least one, and an empty
+        // array would fail the whole save rather than just leaving roles be.
+        ...(roles.length > 0 ? { roles } : {}),
       },
       {
         onSuccess: () => toast.success('Profile saved'),
@@ -218,10 +225,33 @@ export default function ProfilePage() {
                     rows={3}
                   />
                 </div>
+
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label>
+                    What you do
+                    <span className="ml-1 font-normal text-destructive">·  required</span>
+                  </Label>
+                  <p className="-mt-1 text-xs text-muted-foreground">
+                    This is what people search for in Nearby. Somebody looking to
+                    hire a photographer finds you by this and nothing else, so an
+                    account with none is invisible to them.
+                  </p>
+                  <RolePicker selected={roles} onChange={setRoles} />
+                  {roles.length === 0 && (
+                    <p className="text-xs font-medium text-destructive">
+                      Choose at least one.
+                    </p>
+                  )}
+                </div>
               </div>
 
               <div className="mt-5 flex items-center gap-3">
-                <Button onClick={save} disabled={!dirty || updateProfile.isPending}>
+                <Button
+                  onClick={save}
+                  // Roles are required, so saving with none would be rejected
+                  // by the API anyway — better to say so before the round trip.
+                  disabled={!dirty || roles.length === 0 || updateProfile.isPending}
+                >
                   {updateProfile.isPending && <Loader2 className="size-4 animate-spin" />}
                   Save changes
                 </Button>
