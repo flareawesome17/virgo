@@ -13,6 +13,7 @@ import {
 } from './dto/auth.dto';
 import { AccountFlowsService } from './account-flows.service';
 import { USER_ROLES } from './roles';
+import { AllowUnverified } from './allow-unverified.decorator';
 import { Public } from './public.decorator';
 
 @Controller('auth')
@@ -87,6 +88,7 @@ export class AuthController {
   }
 
   /** Re-sends the verification link to the signed-in user's own address. */
+  @AllowUnverified()
   @Throttle({ default: { limit: 3, ttl: 300_000 } })
   @HttpCode(202)
   @Post('resend-verification')
@@ -122,6 +124,7 @@ export class AuthController {
     return this.auth.me(userId);
   }
 
+  @AllowUnverified()
   @Patch('me')
   updateMe(
     @CurrentUser('id') userId: string,

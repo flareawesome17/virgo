@@ -5,6 +5,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AlbumsModule } from './albums/albums.module';
 import { AuthModule } from './auth/auth.module';
+import { EmailVerifiedGuard } from './auth/email-verified.guard';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { CollaboratorsModule } from './collaborators/collaborators.module';
 import { DatabaseExceptionFilter } from './common/filters/database-exception.filter';
@@ -52,6 +53,8 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     // @Public(). Adding an endpoint without thinking about auth yields a locked
     // endpoint, not an open one.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // After JwtAuthGuard: it needs request.user, which that one attaches.
+    { provide: APP_GUARD, useClass: EmailVerifiedGuard },
     // Buckets by CF-Connecting-IP so the tunnel does not collapse every user
     // into a single rate-limit bucket.
     { provide: APP_GUARD, useClass: CloudflareThrottlerGuard },

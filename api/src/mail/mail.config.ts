@@ -23,7 +23,14 @@ export class MailConfig {
   readonly fromName: string;
   readonly replyTo: string;
 
-  /** Where links in emails point. The web app, not the API. */
+  /**
+   * Where links in emails point: the web app.
+   *
+   * Its own variable, *not* PUBLIC_APP_URL — that one is client.virgo.ph, the
+   * public gallery a photographer sends to a client, and it has no
+   * /reset-password to land on. Reusing it silently pointed every reset and
+   * verification link at the wrong app.
+   */
   readonly appUrl: string;
 
   constructor(private readonly config: ConfigService) {
@@ -42,7 +49,7 @@ export class MailConfig {
     this.replyTo = config.get<string>('MAIL_REPLY_TO', 'support@virgo.ph');
 
     this.appUrl = (
-      config.get<string>('PUBLIC_APP_URL') ?? 'https://web.virgo.ph'
+      config.get<string>('WEB_APP_URL') ?? 'https://web.virgo.ph'
     ).replace(/\/+$/, '');
 
     if (!this.isConfigured) {

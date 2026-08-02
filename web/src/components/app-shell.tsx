@@ -32,6 +32,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useUnreadCount } from '@/hooks/useChat';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { VerifyEmailBanner } from '@/components/verify-email-banner';
 
 interface NavItem {
   href: string;
@@ -247,7 +248,10 @@ export function AppShell({
           {actions}
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <VerifyEmailBanner />
+          {children}
+        </main>
       </div>
     </div>
   );
