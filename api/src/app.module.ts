@@ -5,6 +5,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AlbumsModule } from './albums/albums.module';
 import { AuthModule } from './auth/auth.module';
+import { BillingModule } from './billing/billing.module';
 import { EmailVerifiedGuard } from './auth/email-verified.guard';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { CollaboratorsModule } from './collaborators/collaborators.module';
@@ -49,6 +50,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     NotificationsModule,
     DiscoverModule,
     MessagesModule,
+    BillingModule,
   ],
   providers: [
     // Deny by default: every route requires a valid JWT unless it carries

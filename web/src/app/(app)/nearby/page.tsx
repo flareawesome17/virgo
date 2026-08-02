@@ -78,9 +78,12 @@ export default function NearbyPage() {
           <MapPin className="size-3" />
           {person.distanceKm < 1 ? 'under 1 km away' : `${person.distanceKm} km away`}
         </p>
-        {person.roles.length > 0 && (
+        {/* Defaulted, not assumed present: a response cached before roles
+            existed has no such field, and a missing badge list must not take
+            the whole screen down with it. */}
+        {(person.roles ?? []).length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {person.roles.map((role) => (
+            {(person.roles ?? []).map((role) => (
               <Badge
                 key={role}
                 // The role you searched for is highlighted, so a person with

@@ -19,7 +19,9 @@ export type NotificationTopic =
   | 'collaborator-response'
   | 'event-invite'
   | 'event-response'
-  | 'reminder';
+  | 'reminder'
+  /** A plan started, lapsed, or failed to renew. */
+  | 'billing';
 
 /** What the server pushes. Discriminated on `type`. */
 export type ServerEvent =

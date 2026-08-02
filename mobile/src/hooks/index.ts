@@ -124,3 +124,10 @@ export {
   useNearbyPeople,
   useNearbyRoleCounts,
 } from '@/src/hooks/useNearby'
+
+export {
+  useBilling,
+  useSubscribe,
+  useCancelSubscription,
+  useRefreshBilling,
+} from '@/src/hooks/useBilling'

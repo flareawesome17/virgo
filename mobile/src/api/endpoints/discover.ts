@@ -7,8 +7,14 @@ export interface NearbyPerson {
   /** Kilometres. The API never returns anyone else's coordinates. */
   distanceKm: number;
   relationship: 'none' | 'pending_out' | 'pending_in' | 'accepted';
-  /** What they do on a shoot. Empty only on accounts predating roles. */
-  roles: string[];
+  /**
+   * What they do on a shoot.
+   *
+   * Optional because a response cached by a client running against an older
+   * API has no such field, and typing it as always-present is what let a
+   * `.length` on it crash the Nearby screen. Read it as `roles ?? []`.
+   */
+  roles?: string[];
 }
 
 export interface LocationStatus {

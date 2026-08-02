@@ -1,5 +1,6 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { Public } from '../auth/public.decorator';
+import { BillingService } from '../billing/billing.service';
 import { DatabaseService } from '../database/database.service';
 import { MailService } from '../mail/mail.service';
 
@@ -8,6 +9,7 @@ export class HealthController {
   constructor(
     private readonly db: DatabaseService,
     private readonly mail: MailService,
+    private readonly billing: BillingService,
   ) {}
 
   /**
@@ -53,6 +55,25 @@ export class HealthController {
       status: result.ok ? 'ok' : 'degraded',
       enabled: this.mail.isEnabled,
       detail: result.detail,
+    };
+  }
+
+  /**
+   * Whether this PayMongo account can actually take a subscription.
+   *
+   * Subscriptions are off until PayMongo support switch them on, and there is
+   * no way to tell from the keys alone — so this asks. Without it, the failure
+   * mode is a customer reaching checkout and being told to contact support.
+   *
+   * Authenticated: it reports the mode the keys are in and repeats PayMongo's
+   * error text, neither of which an anonymous caller needs.
+   */
+  @Get('health/billing')
+  async billingHealth() {
+    const result = await this.billing.capability();
+    return {
+      status: result.subscriptionsEnabled ? 'ok' : 'degraded',
+      ...result,
     };
   }
 }

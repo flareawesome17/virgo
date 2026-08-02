@@ -15,8 +15,15 @@ export interface UsageSummary {
 export interface PlanInfo {
   name: string;
   label: string;
-  /** Cents per month. Zero on free and on plans not yet purchasable. */
-  priceCents: number;
+  /**
+   * Price per month in minor units — centavos, so 140000 is ₱1,400.
+   *
+   * Minor units because that is what PayMongo charges in; a float that has
+   * been near a currency conversion is how somebody gets billed ₱1,399.99.
+   */
+  priceMinor: number;
+  /** ISO 4217. PayMongo settles PHP only, so this is PHP. */
+  currency: string;
   /** Listed but not purchasable yet. */
   comingSoon: boolean;
   storageBytes: number;
@@ -56,4 +63,25 @@ export function formatBytes(bytes: number): string {
 /** Gigabytes as a number, for progress bars. */
 export function toGB(bytes: number): number {
   return bytes / 1024 ** 3;
+}
+
+/**
+ * `₱1,400` — a price in minor units, rendered.
+ *
+ * Grouped, and without decimals when there are none: ₱1,400.00 on a pricing
+ * card reads like a form field rather than a price.
+ */
+export function formatMoney(minor: number, currency = 'PHP'): string {
+  const major = minor / 100;
+  try {
+    return new Intl.NumberFormat('en-PH', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: major % 1 === 0 ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(major);
+  } catch {
+    // An unknown currency code should not take the pricing page down.
+    return `${currency} ${major.toFixed(2)}`;
+  }
 }

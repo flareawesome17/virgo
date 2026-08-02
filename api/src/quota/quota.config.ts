@@ -24,8 +24,16 @@ export interface PlanLimits {
 export interface PlanInfo extends PlanLimits {
   name: PlanName;
   label: string;
-  /** Cents per month, billed monthly. Zero on free. */
-  priceCents: number;
+  /**
+   * Price per month in minor units — centavos, so 140000 is ₱1,400.
+   *
+   * Minor units rather than a decimal because that is what PayMongo charges
+   * in, and a float that has been through a currency conversion is how a
+   * customer gets billed ₱1,399.99.
+   */
+  priceMinor: number;
+  /** ISO 4217. PayMongo settles PHP only, so this is PHP everywhere. */
+  currency: 'PHP';
   /** Listed but not purchasable yet. */
   comingSoon: boolean;
   features: string[];
@@ -66,7 +74,8 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
   {
     name: 'free',
     label: 'Free',
-    priceCents: 0,
+    priceMinor: 0,
+    currency: 'PHP',
     comingSoon: false,
     ...PLAN_LIMITS.free,
     features: ['15 GB cloud storage', '1 workspace', '2 albums', 'Client share links'],
@@ -74,7 +83,9 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
   {
     name: 'freelance',
     label: 'Freelance',
-    priceCents: 2500,
+    // ₱1,400 a month.
+    priceMinor: 140_000,
+    currency: 'PHP',
     comingSoon: false,
     ...FREELANCE,
     features: [
@@ -88,7 +99,8 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
   {
     name: 'studio',
     label: 'Studio',
-    priceCents: 0,
+    priceMinor: 0,
+    currency: 'PHP',
     comingSoon: true,
     ...PLAN_LIMITS.studio,
     features: [
@@ -98,6 +110,15 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
     ],
   },
 ];
+
+/** The tiers that can actually be bought. */
+export const PURCHASABLE_PLANS = PLAN_CATALOGUE.filter(
+  (plan) => !plan.comingSoon && plan.priceMinor > 0,
+);
+
+export function planInfo(name: string): PlanInfo | undefined {
+  return PLAN_CATALOGUE.find((plan) => plan.name === name);
+}
 
 export function limitsFor(plan: string): PlanLimits {
   return PLAN_LIMITS[(plan as PlanName) in PLAN_LIMITS ? (plan as PlanName) : 'free'];

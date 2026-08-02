@@ -62,10 +62,17 @@ export { servicesApi, type ChatMessage } from './endpoints/services';
 export {
   usageApi,
   formatBytes,
+  formatMoney,
   toGB,
   type UsageSummary,
   type PlanInfo,
 } from './endpoints/usage';
+export {
+  billingApi,
+  type BillingStatus,
+  type StartedCheckout,
+  type SubscriptionStatus,
+} from './endpoints/billing';
 export {
   storageApi,
   contentTypeForName,

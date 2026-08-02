@@ -43,6 +43,14 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: false,
+    // Keeps the untouched request body on `request.rawBody`.
+    //
+    // PayMongo signs the exact bytes it sent, so the signature has to be
+    // checked against those and not against a re-serialised object: JSON.parse
+    // followed by JSON.stringify reorders nothing but does change whitespace
+    // and unicode escaping, and either is enough to make a legitimate webhook
+    // look forged.
+    rawBody: true,
   });
   const config = app.get(ConfigService);
 

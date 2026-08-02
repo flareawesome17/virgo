@@ -172,9 +172,12 @@ export default function NearbyScreen() {
             {distanceLabel(person.distanceKm)}
           </Text>
         </View>
-        {person.roles.length > 0 && (
+        {/* Defaulted, not assumed present: a response cached before roles
+            existed has no such field, and a missing badge list must not take
+            the whole screen down with it. */}
+        {(person.roles ?? []).length > 0 && (
           <View className="flex-row flex-wrap gap-1 mt-1.5">
-            {person.roles.map((role) => {
+            {(person.roles ?? []).map((role) => {
               // The role you searched for is highlighted, so somebody with
               // five roles still shows why they are in this list.
               const matched = roleFilter.includes(role);

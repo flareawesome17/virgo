@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowLeft, Check, Info } from 'lucide-react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { ArrowLeft, Check, Info, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { AppShell, PageHeader } from '@/components/app-shell';
@@ -9,8 +11,24 @@ import { CenteredSpinner } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { usePlans, useUsage } from '@/hooks/useUsage';
-import type { PlanInfo } from '@/api';
+import {
+  useBilling,
+  useCancelSubscription,
+  useRefreshBilling,
+  useSubscribe,
+} from '@/hooks/useBilling';
+import { formatMoney, type PlanInfo } from '@/api';
 
 const GB = 1024 ** 3;
 
@@ -20,34 +38,72 @@ function storageLabel(bytes: number): string {
   return gb >= 1024 ? `${Math.round(gb / 1024)} TB` : `${Math.round(gb)} GB`;
 }
 
-function priceLabel(cents: number): string {
-  if (cents === 0) return 'Free';
-  const dollars = cents / 100;
-  return `$${dollars % 1 === 0 ? dollars.toFixed(0) : dollars.toFixed(2)}`;
+function dateLabel(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-PH', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 }
 
 /**
- * Plans.
+ * Plans, and paying for one.
  *
- * Served from the API, which reads the same table the quota service enforces —
- * a page with its own copy of the limits eventually advertises something the
- * server refuses.
- *
- * There is no checkout: no billing backend exists, and a card form in front of
- * nothing is worse than saying so.
+ * The card never touches this app: starting a checkout returns a PayMongo URL
+ * and the browser goes there. Coming back proves nothing — the plan changes
+ * when PayMongo tells the server the money arrived — so the return trip
+ * refetches and the screen reports what the server says rather than what the
+ * redirect implies.
  */
-export default function PlansPage() {
+function PlansContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
   const { plans, isLoading } = usePlans();
   const { usage } = useUsage();
+  const { billing } = useBilling();
+  const subscribe = useSubscribe();
+  const cancel = useCancelSubscription();
+  const refresh = useRefreshBilling();
+
+  const [cancelling, setCancelling] = useState(false);
+  /** Which plan's button is mid-flight. */
+  const [starting, setStarting] = useState<string | null>(null);
+
+  // ?paid=1 is where PayMongo sends people back to. It means "they came back",
+  // not "they paid" — so this only prompts a refetch.
+  useEffect(() => {
+    if (searchParams.get('paid') !== '1') return;
+    refresh();
+    toast.success('Thanks — checking your payment', {
+      description: 'Your plan updates as soon as PayMongo confirms it.',
+    });
+    router.replace('/settings/plans');
+  }, [searchParams, router, refresh]);
 
   // `pro` predates the rename and carries the freelance limits.
-  const raw = usage?.plan ?? 'free';
+  const raw = billing?.plan ?? usage?.plan ?? 'free';
   const currentPlan = raw === 'pro' ? 'freelance' : raw;
+  const subscription = billing?.subscription ?? null;
 
   const upgrade = (plan: PlanInfo) => {
-    toast.info(`${plan.label} — ${priceLabel(plan.priceCents)}/month`, {
-      description:
-        'Payments are not connected yet, so this plan cannot be purchased. Your account stays on its current plan until billing goes live.',
+    setStarting(plan.name);
+    subscribe.mutate(plan.name, {
+      onSuccess: ({ checkoutUrl }) => {
+        if (!checkoutUrl) {
+          toast.error('PayMongo did not return a checkout page', {
+            description: 'Nothing has been charged. Try again in a moment.',
+          });
+          return;
+        }
+        // Same tab: PayMongo redirects back here when it is done, and a popup
+        // would be blocked as often as not.
+        window.location.href = checkoutUrl;
+      },
+      onError: (err: Error) =>
+        toast.error('Could not start checkout', { description: err.message }),
+      onSettled: () => setStarting(null),
     });
   };
 
@@ -64,10 +120,46 @@ export default function PlansPage() {
             Plans
           </span>
         }
-        description="Billed monthly. Cancel any time."
+        description="Billed monthly in Philippine pesos. Cancel any time."
       />
 
       <div className="mx-auto w-full max-w-5xl px-6 py-6">
+        {/* What they are on now, when it renews, and how to stop it. */}
+        {subscription && subscription.status !== 'incomplete' && (
+          <Card className="mb-6 border-primary/30">
+            <CardContent className="flex flex-wrap items-center gap-4 py-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">
+                  {plans.find((p) => p.name === subscription.planName)?.label ??
+                    subscription.planName}
+                  <span className="ml-2 font-normal text-muted-foreground">
+                    {formatMoney(subscription.amountMinor, subscription.currency)} a month
+                  </span>
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {subscription.status === 'past_due'
+                    ? 'Your last payment did not go through. Update your card to keep this plan.'
+                    : subscription.cancelledAt
+                      ? `Cancelled — your access runs until ${dateLabel(subscription.currentPeriodEnd)}.`
+                      : subscription.renews
+                        ? `Renews on ${dateLabel(subscription.currentPeriodEnd)}.`
+                        : `Paid until ${dateLabel(subscription.currentPeriodEnd)}. This does not renew on its own.`}
+                </p>
+              </div>
+              {!subscription.cancelledAt &&
+                ['active', 'past_due'].includes(subscription.status) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCancelling(true)}
+                  >
+                    Cancel plan
+                  </Button>
+                )}
+            </CardContent>
+          </Card>
+        )}
+
         {isLoading && plans.length === 0 ? (
           <CenteredSpinner />
         ) : (
@@ -102,8 +194,12 @@ export default function PlansPage() {
                     </div>
 
                     <p className="mt-4 text-3xl font-extrabold tabular-nums">
-                      {plan.comingSoon ? '—' : priceLabel(plan.priceCents)}
-                      {plan.priceCents > 0 && !plan.comingSoon && (
+                      {plan.comingSoon
+                        ? '—'
+                        : plan.priceMinor === 0
+                          ? 'Free'
+                          : formatMoney(plan.priceMinor, plan.currency)}
+                      {plan.priceMinor > 0 && !plan.comingSoon && (
                         <span className="text-sm font-normal text-muted-foreground">
                           /month
                         </span>
@@ -136,9 +232,20 @@ export default function PlansPage() {
                         <Button variant="secondary" className="w-full" disabled>
                           Not available yet
                         </Button>
-                      ) : plan.priceCents === 0 ? null : (
-                        <Button className="w-full" onClick={() => upgrade(plan)}>
-                          Upgrade to {plan.label}
+                      ) : plan.priceMinor === 0 ? null : (
+                        <Button
+                          className="w-full"
+                          disabled={
+                            starting !== null || billing?.paymentsEnabled === false
+                          }
+                          onClick={() => upgrade(plan)}
+                        >
+                          {starting === plan.name && (
+                            <Loader2 className="size-4 animate-spin" />
+                          )}
+                          {billing?.paymentsEnabled === false
+                            ? 'Payments unavailable'
+                            : `Get ${plan.label}`}
                         </Button>
                       )}
                     </div>
@@ -151,6 +258,16 @@ export default function PlansPage() {
 
         <Card className="mt-6">
           <CardContent className="flex items-start gap-3 py-4">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Payment is handled by PayMongo — card, GCash, Maya and GrabPay.
+              Your card details never reach Virgo&rsquo;s servers.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-3">
+          <CardContent className="flex items-start gap-3 py-4">
             <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <p className="text-xs leading-relaxed text-muted-foreground">
               Album limits are counted per workspace, not in total. Storage
@@ -160,6 +277,53 @@ export default function PlansPage() {
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={cancelling} onOpenChange={setCancelling}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel your plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You keep everything until{' '}
+              {dateLabel(subscription?.currentPeriodEnd ?? null) || 'the end of the period'}
+              , which you have already paid for. After that the account returns
+              to Free — nothing is deleted, but uploads stop once you are over
+              the free storage limit.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={cancel.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                cancel.mutate('other', {
+                  onSuccess: ({ accessUntil }) => {
+                    setCancelling(false);
+                    toast.success('Plan cancelled', {
+                      description: accessUntil
+                        ? `You keep it until ${dateLabel(accessUntil)}.`
+                        : undefined,
+                    });
+                  },
+                  onError: (err: Error) =>
+                    toast.error('Could not cancel', { description: err.message }),
+                });
+              }}
+            >
+              {cancel.isPending && <Loader2 className="size-4 animate-spin" />}
+              Cancel plan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
+  );
+}
+
+export default function PlansPage() {
+  return (
+    <Suspense fallback={null}>
+      <PlansContent />
+    </Suspense>
   );
 }
