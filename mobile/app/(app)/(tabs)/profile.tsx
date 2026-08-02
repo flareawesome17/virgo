@@ -1,8 +1,9 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, Image, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useAuth,
   useCollaborators,
+  useOffline,
   useScheduleEvents,
   useTheme,
   useUsage,
@@ -10,41 +11,30 @@ import {
 } from '@/src/hooks';
 import { formatBytes } from '@/src/api';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import Constants from 'expo-constants';
 import {
   SettingsIcon,
   ChevronRightIcon,
   HardDriveIcon,
-  CloudIcon,
   WifiIcon,
-  BellIcon,
-  LockIcon,
-  PaletteIcon,
-  HelpCircleIcon,
+  WifiOffIcon,
   LogOutIcon,
-  ShieldIcon,
   FolderIcon,
   ImageIcon,
   UsersIcon,
   CalendarIcon,
+  UserCogIcon,
+  CreditCardIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
-cssInterop(SettingsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CloudIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(WifiIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(LockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PaletteIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(HelpCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(LogOutIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ShieldIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(FolderIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+for (const Icon of [
+  SettingsIcon, ChevronRightIcon, HardDriveIcon, WifiIcon, WifiOffIcon,
+  LogOutIcon, FolderIcon, ImageIcon, UsersIcon, CalendarIcon, UserCogIcon,
+  CreditCardIcon,
+]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 const STATS = [
   { label: 'Workspaces', icon: FolderIcon },
@@ -54,48 +44,40 @@ const STATS = [
 ];
 
 /**
- * Every row here used to render a chevron and do nothing — none of them had an
- * onPress. Rows that lead somewhere now carry a `route`; the rest are marked
- * `soon` so they read as unbuilt rather than broken.
+ * Rows about *this account*.
+ *
+ * The app's preferences — appearance, notifications, privacy, sync, support —
+ * used to be duplicated here as well as in Settings, with two entry points to
+ * Settings itself and two Sign Out buttons. They live in Settings now; what
+ * stays is only what is about you.
  */
-const SETTINGS_SECTIONS: {
-  title: string;
-  items: {
-    icon: typeof BellIcon;
-    label: string;
-    color: string;
-    route?: string;
-    soon?: boolean;
-  }[];
+const ACCOUNT_ROWS: {
+  icon: typeof UserCogIcon;
+  label: string;
+  detail: string;
+  route: string;
+  color: string;
 }[] = [
   {
-    title: 'Preferences',
-    items: [
-      { icon: BellIcon, label: 'Notifications', color: '#B66A40', soon: true },
-      { icon: PaletteIcon, label: 'Appearance', color: '#C17745', route: '/settings/theme' },
-      { icon: CloudIcon, label: 'Sync & Storage', color: '#8B5E3C', route: '/settings/sync' },
-    ],
+    icon: UserCogIcon,
+    label: 'Account & security',
+    detail: 'Email and password',
+    route: '/settings/account',
+    color: '#B66A40',
   },
   {
-    title: 'Security',
-    items: [
-      { icon: LockIcon, label: 'Privacy', color: '#5B7B9A', route: '/settings/privacy' },
-      // No 2FA exists in the backend, so this cannot claim to be configurable.
-      { icon: ShieldIcon, label: 'Two-Factor Auth', color: '#6B8E4E', soon: true },
-    ],
-  },
-  {
-    title: 'Support',
-    items: [
-      { icon: HelpCircleIcon, label: 'Help Center', color: '#B66A40', route: '/settings/help' },
-      { icon: SettingsIcon, label: 'App Settings', color: '#54433C', route: '/settings' },
-    ],
+    icon: CreditCardIcon,
+    label: 'Storage & plan',
+    detail: 'What you are using, and your limits',
+    route: '/settings/storage',
+    color: '#8B5E3C',
   },
 ];
 
 export default function ProfileScreen() {
   const { user, profile, signOut } = useAuth();
   const { isDark } = useTheme();
+  const { isOffline } = useOffline();
 
   // The button below used to have no onPress at all, which is why signing out
   // appeared to do nothing. The auth guard in (app)/_layout.tsx handles the
@@ -116,10 +98,20 @@ export default function ProfileScreen() {
   const { workspaces } = useWorkspaces({ limit: 100 }, enabled);
   const { collaborators } = useCollaborators({ limit: 100 }, enabled);
   const { events } = useScheduleEvents({ limit: 100 }, enabled);
-  const { storageUsedBytes } = useUsage(enabled);
+  const { storageUsedBytes, usage } = useUsage(enabled);
 
   const totalAssets = workspaces.reduce((s, w) => s + (w.media_count || 0), 0);
   const statValues = [workspaces.length, totalAssets, collaborators.length, events.length];
+
+  const version = Constants.expoConfig?.version ?? '1.0';
+  const border = isDark ? '#2A2522' : '#F0E8E2';
+  const cardShadow = {
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  } as const;
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -128,16 +120,25 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
       >
-        {/* Header */}
+        {/* Header. The gear is the only route into Settings — there used to be
+            this button and an "App Settings" row further down the same page. */}
         <View className="px-5 pt-4 pb-2 flex-row items-center justify-between">
           <Text className="text-foreground text-[28px] font-bold tracking-tight">Profile</Text>
-          <Pressable onPress={() => router.push('/settings')} className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+          <Pressable
+            onPress={() => router.push('/settings')}
+            accessibilityLabel="Settings"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            style={cardShadow}
+          >
             <SettingsIcon size={20} className="text-muted-foreground" />
           </Pressable>
         </View>
 
         {/* Profile card */}
-        <View className="mx-5 mt-2 bg-card rounded-3xl p-5 items-center" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}>
+        <View
+          className="mx-5 mt-2 bg-card rounded-3xl p-5 items-center"
+          style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}
+        >
           {profile?.avatarUrl ? (
             <Image
               source={{ uri: profile.avatarUrl }}
@@ -157,24 +158,49 @@ export default function ProfileScreen() {
           <Text className="text-foreground text-xl font-bold mt-3">
             {profile?.displayName || 'Add your name'}
           </Text>
+          {profile?.title ? (
+            <Text className="text-muted-foreground text-xs font-semibold mt-0.5">
+              {profile.title}
+            </Text>
+          ) : null}
           <Text className="text-muted-foreground text-sm mt-0.5">{user?.email ?? ''}</Text>
+
           <Pressable
             onPress={() => router.push('/settings/profile')}
             className="mt-3 bg-muted rounded-full px-4 py-1.5 active:scale-[0.96]"
           >
             <Text className="text-foreground text-[11px] font-bold">Edit profile</Text>
           </Pressable>
+
           <View className="flex-row items-center gap-2 mt-3">
-            <View className="flex-row items-center gap-1 bg-muted rounded-full px-3 py-1.5">
+            <Pressable
+              onPress={() => router.push('/settings/storage')}
+              className="flex-row items-center gap-1 bg-muted rounded-full px-3 py-1.5 active:scale-[0.96]"
+            >
               <HardDriveIcon size={12} className="text-muted-foreground" />
               <Text className="text-muted-foreground text-[11px] font-semibold">
                 {formatBytes(storageUsedBytes)} used
+                {usage?.plan ? ` · ${usage.plan}` : ''}
               </Text>
-            </View>
-            <View className="flex-row items-center gap-1 bg-muted rounded-full px-3 py-1.5">
-              <WifiIcon size={12} className="text-[#6B8E4E]" />
-              <Text className="text-[#6B8E4E] text-[11px] font-semibold">Synced</Text>
-            </View>
+            </Pressable>
+            {/* Was a hardcoded green "Synced" that said the same thing with the
+                network off. */}
+            <Pressable
+              onPress={() => router.push('/settings/offline')}
+              className="flex-row items-center gap-1 bg-muted rounded-full px-3 py-1.5 active:scale-[0.96]"
+            >
+              {isOffline ? (
+                <WifiOffIcon size={12} style={{ color: '#C76B4A' }} />
+              ) : (
+                <WifiIcon size={12} style={{ color: '#6B8E4E' }} />
+              )}
+              <Text
+                className="text-[11px] font-semibold"
+                style={{ color: isOffline ? '#C76B4A' : '#6B8E4E' }}
+              >
+                {isOffline ? 'Offline' : 'Synced'}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -186,90 +212,74 @@ export default function ProfileScreen() {
               <View
                 key={stat.label}
                 className="flex-1 bg-card rounded-2xl p-3 items-center"
-                style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+                style={cardShadow}
               >
                 <Icon size={16} className="text-primary mb-1.5" />
-                <Text className="text-foreground text-lg font-bold">{statValues[i].toLocaleString()}</Text>
-                <Text className="text-muted-foreground text-[10px] font-medium mt-0.5">{stat.label}</Text>
+                <Text className="text-foreground text-lg font-bold">
+                  {statValues[i].toLocaleString()}
+                </Text>
+                <Text className="text-muted-foreground text-[10px] font-medium mt-0.5">
+                  {stat.label}
+                </Text>
               </View>
             );
           })}
         </View>
 
-        {/* Settings sections */}
-        <View className="px-5 mt-6 gap-5">
-          {SETTINGS_SECTIONS.map((section) => (
-            <View key={section.title}>
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 px-1">
-                {section.title}
-              </Text>
-              <View className="bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-                {section.items.map((item, i) => {
-                  const Icon = item.icon;
-                  return (
-                    <Pressable
-                      key={item.label}
-                      onPress={
-                        item.route
-                          ? () => router.push(item.route as never)
-                          : () =>
-                              Alert.alert(
-                                item.label,
-                                'This is not available yet.',
-                              )
-                      }
-                      className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
-                      style={
-                        i < section.items.length - 1
-                          ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
-                          : undefined
-                      }
-                    >
-                      <View
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 10,
-                          backgroundColor: `${item.color}14`,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Icon size={15} style={{ color: item.color }} />
-                      </View>
-                      <Text className="text-foreground text-sm font-semibold flex-1">{item.label}</Text>
-                      {item.soon && (
-                        <Text className="text-muted-foreground text-[10px] font-bold uppercase tracking-wider mr-1">
-                          Soon
-                        </Text>
-                      )}
-                      <ChevronRightIcon size={14} className="text-muted-foreground" />
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          ))}
+        {/* Account */}
+        <View className="px-5 mt-6">
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 px-1">
+            Account
+          </Text>
+          <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
+            {ACCOUNT_ROWS.map((row, i) => {
+              const Icon = row.icon;
+              return (
+                <Pressable
+                  key={row.label}
+                  onPress={() => router.push(row.route as never)}
+                  className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
+                  style={i < ACCOUNT_ROWS.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
+                >
+                  <View
+                    style={{
+                      width: 32, height: 32, borderRadius: 10,
+                      backgroundColor: `${row.color}14`,
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    <Icon size={15} style={{ color: row.color }} />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-foreground text-sm font-semibold">{row.label}</Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">{row.detail}</Text>
+                  </View>
+                  <ChevronRightIcon size={14} className="text-muted-foreground" />
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
-        {/* Sign out */}
+        {/* Sign out. The only one in the app — Settings carried a second copy. */}
         <View className="px-5 mt-6">
           <Pressable
             onPress={handleSignOut}
             disabled={signOut.isPending}
-            className="bg-card rounded-2xl p-4 flex-row items-center gap-3 active:scale-[0.98]"
-            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+            className="bg-card rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
+            style={cardShadow}
           >
-            <LogOutIcon size={18} className="text-destructive" />
+            <LogOutIcon size={17} className="text-destructive" />
             <Text className="text-destructive text-sm font-semibold">
               {signOut.isPending ? 'Signing out…' : 'Sign Out'}
             </Text>
           </Pressable>
         </View>
 
-        {/* App version */}
         <View className="items-center mt-8 mb-4">
-          <Text className="text-muted-foreground text-xs">Virgo v1.0 · Made for creators</Text>
+          <Text className="text-muted-foreground text-xs">
+            Virgo v{version} · Made for creators
+          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
