@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Virgo for web
 
-## Getting Started
+The browser app. Next.js (App Router) + shadcn/ui, talking to the same NestJS
+API in `../api` as the mobile app in `../mobile`.
 
-First, run the development server:
+## Running it
 
 ```bash
+npm install
+cp .env.example .env.local   # already points at http://localhost:3001
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open http://localhost:3005. The API must be up (`cd ../api && docker compose up -d`)
+and must list this origin in `CORS_ORIGINS`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## What is shared with mobile
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`src/api/` is the mobile app's typed API layer, copied verbatim except for
+three files:
 
-## Learn More
+| File | Why it differs |
+| --- | --- |
+| `config.ts` | `NEXT_PUBLIC_API_URL` instead of `EXPO_PUBLIC_API_URL` |
+| `tokens.ts` | `localStorage` instead of AsyncStorage, plus cross-tab sign-out |
+| `endpoints/storage.ts` | `XMLHttpRequest` instead of `expo-file-system` — `fetch` still cannot report upload progress in any browser |
 
-To learn more about Next.js, take a look at the following resources:
+`src/hooks/` is likewise the mobile hooks, with `expo-location` replaced by the
+Geolocation API and haptics replaced by a title-bar unread count, an optional
+OS notification, and `navigator.vibrate` where it exists.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+If you change one of these in `mobile/`, change it here too.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The legal text in `src/lib/legal-content.ts` is extracted from
+`mobile/app/legal.tsx`. One product must not present two sets of terms.
 
-## Deploy on Vercel
+## Required Backblaze B2 CORS rules
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**Uploads from the browser do not work until the bucket allows them.**
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The API issues a presigned `PUT` straight to B2 and the browser sends the file
+there directly — so the *bucket* has to accept a cross-origin request, which is
+separate from the API's own `CORS_ORIGINS`. Mobile has never needed this: it
+uploads from native code, where CORS does not apply.
+
+Without a rule the upload fails with `Failed to fetch` at the preflight, which
+the UI reports as "Could not reach storage."
+
+Add this to the bucket's CORS rules (B2 console → Bucket Settings → CORS Rules,
+or via `b2 bucket update`):
+
+```json
+[
+  {
+    "corsRuleName": "virgoWebUpload",
+    "allowedOrigins": ["https://web.virgo.ph", "http://localhost:3005"],
+    "allowedOperations": ["s3_put", "s3_head", "s3_get"],
+    "allowedHeaders": ["*"],
+    "exposeHeaders": ["etag"],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+`s3_put` is the one that matters; `s3_head` and `s3_get` let the browser read
+back an object directly rather than only through the CDN.
+
+## Deployment
+
+`web.virgo.ph` is served by the `web` service in `../api/docker-compose.yml`
+and routed through the Cloudflare Tunnel:
+
+- **Public hostname**: `web.virgo.ph`
+- **Service**: `http://web:3000` — the container name, so traffic never leaves Docker
+
+```bash
+cd ../api && docker compose up -d --build web
+```
+
+`NEXT_PUBLIC_API_URL` is inlined at **build** time, not read at runtime, so it
+is a Docker build argument (`WEB_API_URL` in `api/.env`). Changing the API URL
+means rebuilding the image, not restarting the container.
+
+## Layout
+
+```
+src/
+  api/          typed client, shared with mobile
+  hooks/        React Query wrappers, shared with mobile
+  lib/          browser-side helpers (alerts, calendar, legal text)
+  components/   app shell, shared pieces, and shadcn/ui in components/ui
+  app/
+    (auth)/     sign in, sign up, legal — no session required
+    (app)/      everything behind the auth guard
+```
