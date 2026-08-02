@@ -68,6 +68,36 @@ services:
   #
   # Keep port 3000 unforwarded at the router — the tunnel is the only ingress,
   # and CF-Connecting-IP can only be trusted while that stays true.
+  # The Next.js app in ../web.
+  #
+  # Its own Node server rather than a static export: the app has dynamic
+  # routes, and `next start` is what Next supports for them.
+  #
+  # NEXT_PUBLIC_API_URL is a *build* argument, not a runtime variable — Next
+  # inlines NEXT_PUBLIC_* values into the client bundle at build time. Changing
+  # it means rebuilding the image, not restarting the container.
+  #
+  # Add the tunnel route in the Cloudflare Zero Trust dashboard:
+  #
+  #   Public hostname : web.virgo.ph
+  #   Service         : http://web:3000
+  #
+  # And add https://web.virgo.ph to CORS_ORIGINS in api/.env, or the browser
+  # blocks every API call before it leaves the page.
+  web:
+    build:
+      context: ../web
+      args:
+        NEXT_PUBLIC_API_URL: ${WEB_API_URL:-https://api.virgo.ph}
+    container_name: virgo-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    expose:
+      - '3000'
+    depends_on:
+      - api
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: virgo-cloudflared
@@ -77,6 +107,7 @@ services:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in api/.env}
     depends_on:
       - api
+      - web
     extra_hosts:
       # cloudflared runs in Docker; Metro runs on the Windows host, so the
       # tunnel needs this name to reach port 8081.

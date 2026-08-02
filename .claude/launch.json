@@ -3,6 +3,14 @@
   "configurations": [
     {
       "name": "virgo-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "3005"],
+      "cwd": "web",
+      "port": 3005,
+      "autoPort": false
+    },
+    {
+      "name": "virgo-mobile-web",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["expo", "start", "--web", "--port", "8099"],
       "cwd": "mobile",

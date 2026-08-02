@@ -1,0 +1,204 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-success: var(--success);
+  --color-info: var(--info);
+  --color-warning: var(--warning);
+  --color-brand-accent: var(--brand-accent);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /**
+   * The Virgo palette, mapped onto shadcn's token names.
+   *
+   * Same values as mobile/theme.ts — one product should not be two different
+   * shades of itself. Mapping onto shadcn's names rather than adding a parallel
+   * set means every component picks the brand up for free.
+   */
+  --background: #fff8f4;
+  --foreground: #1e1b18;
+  --card: #ffffff;
+  --card-foreground: #1e1b18;
+  --popover: #ffffff;
+  --popover-foreground: #1e1b18;
+  --primary: #b66a40;
+  --primary-foreground: #ffffff;
+  --secondary: #faf2ec;
+  --secondary-foreground: #54433c;
+  --muted: #f5eee8;
+  --muted-foreground: #847167;
+  /* shadcn uses --accent for hover surfaces, not as a brand colour, so it
+     takes the app's `secondary` tone. The brand accent is --brand-accent. */
+  --accent: #f5eee8;
+  --accent-foreground: #54433c;
+  --brand-accent: #c17745;
+  --destructive: #b44632;
+  --border: #d9c2b7;
+  --input: #d9c2b7;
+  --ring: #b66a40;
+  --chart-1: #b66a40;
+  --chart-2: #c17745;
+  --chart-3: #8b5e3c;
+  --chart-4: #6b8e4e;
+  --chart-5: #5b7b9a;
+  --radius: 0.75rem;
+  --success: #6b8e4e;
+  --info: #5b7b9a;
+  --warning: #c17745;
+  --sidebar: #faf2ec;
+  --sidebar-foreground: #1e1b18;
+  --sidebar-primary: #b66a40;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f5eee8;
+  --sidebar-accent-foreground: #54433c;
+  --sidebar-border: #d9c2b7;
+  --sidebar-ring: #b66a40;
+}
+
+.dark {
+  --background: #161311;
+  --foreground: #f2ede8;
+  --card: #1e1b18;
+  --card-foreground: #f2ede8;
+  --popover: #1e1b18;
+  --popover-foreground: #f2ede8;
+  --primary: #c17745;
+  --primary-foreground: #ffffff;
+  --secondary: #26221f;
+  --secondary-foreground: #bcada3;
+  --muted: #2a2522;
+  --muted-foreground: #948278;
+  --accent: #2a2522;
+  --accent-foreground: #f2ede8;
+  --brand-accent: #b66a40;
+  --destructive: #c8503c;
+  --border: #362f2b;
+  --input: #362f2b;
+  --ring: #c17745;
+  /* Dark leads with its own primary, matching the app. */
+  --chart-1: #c17745;
+  --chart-2: #b66a40;
+  --chart-3: #8b5e3c;
+  --chart-4: #6b8e4e;
+  --chart-5: #5b7b9a;
+  --success: #7da55c;
+  --info: #6d90b1;
+  --warning: #c17745;
+  --sidebar: #1a1715;
+  --sidebar-foreground: #f2ede8;
+  --sidebar-primary: #c17745;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2a2522;
+  --sidebar-accent-foreground: #f2ede8;
+  --sidebar-border: #362f2b;
+  --sidebar-ring: #c17745;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  /* The app shell owns scrolling; a scrolling body would take the sidebar
+     with it. */
+  body {
+    overflow: hidden;
+  }
+
+  /* The OS default is a light-mode grey bar that looks broken against the
+     dark palette. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+}
+
+@layer utilities {
+  /* Fills the row with as many tiles as fit, rather than a fixed column count
+     that leaves gaps on a wide screen. */
+  .media-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: 0.75rem;
+  }
+}
