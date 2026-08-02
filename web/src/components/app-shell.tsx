@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useState, type ComponentType, type ReactNode } from 'react';
 import {
@@ -123,9 +124,16 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col bg-sidebar">
       <div className="flex h-14 items-center gap-2.5 px-5">
-        <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
-          <span className="text-sm font-bold">V</span>
-        </div>
+        {/* The mark is transparent, so it sits on either palette without a
+            plate behind it. */}
+        <Image
+          src="/logo.png"
+          alt=""
+          width={32}
+          height={32}
+          className="size-8 shrink-0 object-contain"
+          priority
+        />
         <div className="min-w-0">
           <p className="truncate text-sm font-bold leading-none">Virgo</p>
           <p className="mt-1 truncate text-[10px] uppercase tracking-[0.14em] text-muted-foreground">

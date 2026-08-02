@@ -22,6 +22,13 @@ export const metadata: Metadata = {
     'A private workspace for photographers — shoots, albums, client delivery, and the people you work with.',
   // The app is a signed-in tool; there is nothing here for a crawler.
   robots: { index: false, follow: false },
+  icons: {
+    icon: [
+      { url: '/favicon.png', sizes: '48x48', type: 'image/png' },
+      { url: '/logo.png', sizes: 'any', type: 'image/png' },
+    ],
+    apple: '/icon.png',
+  },
 };
 
 export const viewport: Viewport = {

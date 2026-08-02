@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -60,9 +61,14 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
       <div className="flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-sm">
           <div className="mb-8 text-center">
-            <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground">
-              <span className="text-xl font-bold">V</span>
-            </div>
+            <Image
+              src="/logo.png"
+              alt="Virgo"
+              width={72}
+              height={72}
+              className="mx-auto size-18 object-contain"
+              priority
+            />
             <h1 className="mt-5 text-2xl font-bold tracking-tight">
               {isSignUp ? 'Create your account' : 'Welcome back'}
             </h1>
