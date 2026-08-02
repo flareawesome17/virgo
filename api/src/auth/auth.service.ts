@@ -128,6 +128,33 @@ export class AuthService {
     });
   }
 
+  /**
+   * Refuses a session while the account is paused.
+   *
+   * Applied to login *and* refresh, for the same reason as assertVerified: a
+   * session already open would otherwise outlive the pause by however long its
+   * access token has left.
+   *
+   * The date is returned rather than hidden. Someone who paused their account
+   * and forgot needs to be told when it comes back, or their only option is to
+   * guess — and a bare "account disabled" reads as a ban.
+   */
+  private assertNotDisabled(user: UserRow): void {
+    if (!user.disabled_until) return;
+    const until = new Date(user.disabled_until);
+    // Lifts on its own: nothing clears the column, the comparison just stops
+    // being true. See migration 027.
+    if (until.getTime() <= Date.now()) return;
+
+    throw new ForbiddenException({
+      message: `You paused this account. It comes back on ${until.toISOString().slice(0, 10)}.`,
+      error: 'AccountDisabled',
+      code: 'ACCOUNT_DISABLED',
+      disabledUntil: until.toISOString(),
+      statusCode: 403,
+    });
+  }
+
   async register(
     email: string,
     password: string,
@@ -190,8 +217,10 @@ export class AuthService {
     }
 
     // After the password check, never before: answering "verify your email"
-    // to a wrong password would confirm the account exists.
+    // or "this account is paused" to a wrong password would confirm the
+    // account exists.
     this.assertVerified(user);
+    this.assertNotDisabled(user);
 
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
   }
@@ -213,6 +242,7 @@ export class AuthService {
     // leaving it replayable.
     await this.users.revokeRefreshToken(tokenHash);
     this.assertVerified(user);
+    this.assertNotDisabled(user);
 
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
   }

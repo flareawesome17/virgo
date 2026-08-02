@@ -1,8 +1,10 @@
-import { Body, Controller, Get, HttpCode, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Patch, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import {
+  DeleteAccountDto,
+  DisableAccountDto,
   ForgotPasswordDto,
   LoginDto,
   RefreshDto,
@@ -11,6 +13,7 @@ import {
   UpdateProfileDto,
   VerifyEmailDto,
 } from './dto/auth.dto';
+import { AccountService } from './account.service';
 import { AccountFlowsService } from './account-flows.service';
 import { USER_ROLES } from './roles';
 import { AllowUnverified } from './allow-unverified.decorator';
@@ -21,6 +24,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly accounts: AccountFlowsService,
+    private readonly account: AccountService,
   ) {}
 
   // Tighter than the global limit: these are the endpoints worth brute-forcing.
@@ -150,5 +154,47 @@ export class AuthController {
     @Body() dto: UpdateProfileDto,
   ) {
     return this.auth.updateProfile(userId, dto);
+  }
+
+  // ─── Closing an account ────────────────────────────────────────────────────
+  //
+  // Throttled like the other password-checking endpoints: both take a password,
+  // so both are worth guessing at.
+
+  /**
+   * Pauses the account for a number of days.
+   *
+   * AllowUnverified: somebody who never confirmed their address should still be
+   * able to put the account away rather than being stuck with it.
+   */
+  @AllowUnverified()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('me/disable')
+  disable(
+    @CurrentUser('id') userId: string,
+    @Body() dto: DisableAccountDto,
+  ) {
+    return this.account.disable(userId, dto.password, dto.days);
+  }
+
+  /** Lifts a pause early, while a session is still valid. */
+  @AllowUnverified()
+  @HttpCode(200)
+  @Post('me/enable')
+  enable(@CurrentUser('id') userId: string) {
+    return this.account.enable(userId);
+  }
+
+  /** Deletes the account, its rows and its uploaded files. Irreversible. */
+  @AllowUnverified()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(200)
+  @Delete('me')
+  remove(
+    @CurrentUser('id') userId: string,
+    @Body() dto: DeleteAccountDto,
+  ) {
+    return this.account.remove(userId, dto.password);
   }
 }

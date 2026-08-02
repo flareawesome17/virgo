@@ -12,6 +12,7 @@ import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ApiError,
+  clearTokens,
   authApi,
   getAccessToken,
   hydrateTokens,
@@ -204,6 +205,33 @@ export function useAuth() {
     },
   });
 
+  /**
+   * Pauses the account, then signs out.
+   *
+   * The server revokes every refresh token, including this session's, so the
+   * local sign-out is not a courtesy — the UI would otherwise sit there until
+   * its access token expired and every request started failing.
+   */
+  const disableAccount = useMutation({
+    mutationFn: ({ password, days }: { password: string; days: number }) =>
+      authApi.disableAccount(password, days),
+    onSuccess: async () => {
+      await clearTokens();
+      queryClient.setQueryData(queryKeys.auth.session, null);
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+    },
+  });
+
+  /** Deletes the account for good, then signs out. */
+  const deleteAccount = useMutation({
+    mutationFn: (password: string) => authApi.deleteAccount(password),
+    onSuccess: async () => {
+      await clearTokens();
+      queryClient.setQueryData(queryKeys.auth.session, null);
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+    },
+  });
+
   return {
     user,
     /** Kept for shape compatibility; there is no Supabase session object now. */
@@ -220,6 +248,8 @@ export function useAuth() {
     /** Full profile from /auth/me — includes displayName / avatarUrl. */
     profile: authUser,
     updateProfile,
+    disableAccount,
+    deleteAccount,
     signIn,
     signUp,
     signOut,

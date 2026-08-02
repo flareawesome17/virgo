@@ -696,6 +696,15 @@ function ScheduleContent() {
                               {labelForDateKey(event.event_date)}
                               {event.event_time ? ` · ${formatTime(event.event_time)}` : ''}
                             </p>
+                            {event.is_owner !== false ? (
+                              <span className="mt-1 block">
+                                <AttendeeSummary eventId={event.id} />
+                              </span>
+                            ) : (
+                              <Badge variant="outline" className="mt-1 text-[10px]">
+                                Guest
+                              </Badge>
+                            )}
                           </CardContent>
                         </Card>
                       </button>

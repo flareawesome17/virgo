@@ -254,6 +254,69 @@ export function eventInvite(options: {
   };
 }
 
+/**
+ * Sent when an account is paused.
+ *
+ * The point is the same as passwordChanged: if this was not you, this email is
+ * how you find out, and it names the date so nobody has to guess.
+ */
+export function accountDisabled(options: {
+  name: string;
+  until: string;
+  days: number;
+  url: string;
+}): RenderedEmail {
+  const intro = `Your Virgo account is paused for ${options.days} day${options.days === 1 ? '' : 's'} and comes back on ${options.until}. Nothing has been deleted — your workspaces, albums and files are exactly as you left them.`;
+  return {
+    subject: `Your Virgo account is paused until ${options.until}`,
+    html: layout({
+      heading: 'Your account is paused',
+      intro,
+      cta: { label: 'Sign in from', url: options.url },
+      fineprint: [
+        `You will not be able to sign in until ${options.until}.`,
+        'Nobody can message you or invite you while it is paused.',
+      ],
+      outro:
+        'If you did not do this, reset your password immediately and contact support@virgo.ph.',
+    }),
+    text: [
+      'Your account is paused',
+      '',
+      intro,
+      '',
+      `You will not be able to sign in until ${options.until}.`,
+      'If you did not do this, reset your password and contact support@virgo.ph.',
+    ].join('\n'),
+  };
+}
+
+/** The last email this address will get from us. */
+export function accountDeleted(options: { name: string }): RenderedEmail {
+  const intro = `Your Virgo account has been deleted${options.name ? `, ${options.name}` : ''}. Your workspaces, albums, messages and every file you uploaded are gone, and this cannot be undone.`;
+  return {
+    subject: 'Your Virgo account has been deleted',
+    html: layout({
+      heading: 'Your account has been deleted',
+      intro,
+      fineprint: [
+        'Share links you created no longer work.',
+        'This is the last email you will receive from Virgo.',
+      ],
+      outro:
+        'If you did not do this, contact support@virgo.ph straight away.',
+    }),
+    text: [
+      'Your account has been deleted',
+      '',
+      intro,
+      '',
+      'Share links you created no longer work.',
+      'If you did not do this, contact support@virgo.ph straight away.',
+    ].join('\n'),
+  };
+}
+
 export function friendRequest(options: {
   requesterName: string;
   url: string;

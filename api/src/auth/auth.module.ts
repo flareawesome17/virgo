@@ -4,9 +4,11 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AccountService } from './account.service';
 import { AccountFlowsService } from './account-flows.service';
 import { AuthTokensService } from './auth-tokens.service';
 import { JwtStrategy } from './jwt.strategy';
+import { StorageModule } from '../storage/storage.module';
 import { UsersRepository } from './users.repository';
 
 @Module({
@@ -16,9 +18,19 @@ import { UsersRepository } from './users.repository';
     // Secrets are passed per-sign call in AuthService so access and refresh
     // paths cannot accidentally share one.
     JwtModule.register({}),
+    // Deleting an account has to empty its bucket objects too, or they are
+    // stranded — paid for, unreachable, and impossible to find again.
+    StorageModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, AccountFlowsService, AuthTokensService, JwtStrategy, UsersRepository],
+  providers: [
+    AuthService,
+    AccountService,
+    AccountFlowsService,
+    AuthTokensService,
+    JwtStrategy,
+    UsersRepository,
+  ],
   exports: [AuthService],
 })
 export class AuthModule {}

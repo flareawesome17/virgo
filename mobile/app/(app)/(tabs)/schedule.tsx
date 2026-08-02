@@ -19,7 +19,7 @@ import {
   CircleIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { EventInvitationsCard } from '@/components';
+import { AttendeeSummary, EventInvitationsCard } from '@/components';
 import {
   DAYS,
   MONTHS,
@@ -235,7 +235,12 @@ export default function ScheduleScreen() {
                     </View>
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{ev.title}</Text>
-                      <Text className="text-muted-foreground text-xs mt-0.5">{ev.event_type.charAt(0).toUpperCase() + ev.event_type.slice(1)}</Text>
+                      <Text className="text-muted-foreground text-xs mt-0.5">
+                        {ev.event_type.charAt(0).toUpperCase() + ev.event_type.slice(1)}
+                        {ev.is_owner === false ? ' · Guest' : ''}
+                      </Text>
+                      {/* Renders nothing unless somebody was invited. */}
+                      {ev.is_owner !== false && <AttendeeSummary eventId={ev.id} />}
                     </View>
                     <View className="items-end gap-1">
                       {ev.event_time && <Text className="text-foreground text-sm font-bold">{formatTime(ev.event_time)}</Text>}

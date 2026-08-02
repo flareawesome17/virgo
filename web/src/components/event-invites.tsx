@@ -260,19 +260,55 @@ export function ManageAttendeesDialog({
   );
 }
 
-/** A compact "3 going" summary for an event card. */
+/**
+ * Who is coming, on the event card itself.
+ *
+ * Names and faces rather than a count behind a dialog: the question an
+ * organiser actually has is "did Ana say yes", and a number does not answer
+ * it. Anyone who has not replied is a muted count on the end — still worth
+ * knowing, not worth the same space as a yes.
+ */
 export function AttendeeSummary({ eventId }: { eventId: string }) {
   const { attendees } = useEventAttendees(eventId);
   if (attendees.length === 0) return null;
 
-  const going = attendees.filter((a) => a.status === 'accepted').length;
+  const going = attendees.filter((a) => a.status === 'accepted');
   const waiting = attendees.filter((a) => a.status === 'pending').length;
+  const declined = attendees.filter((a) => a.status === 'declined').length;
+
+  if (going.length === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+        <Users className="size-3" />
+        {waiting > 0 ? `${waiting} awaiting a reply` : `${declined} declined`}
+      </span>
+    );
+  }
 
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-      <Users className="size-3" />
-      {going} going
-      {waiting > 0 && ` · ${waiting} pending`}
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+      <span className="flex -space-x-1.5">
+        {going.slice(0, 4).map((person) => (
+          <Avatar
+            key={person.id}
+            className="size-5 ring-2 ring-card"
+            title={person.name}
+          >
+            <AvatarImage src={person.avatar_url ?? undefined} />
+            <AvatarFallback className="text-[8px]">
+              {initials(person.name)}
+            </AvatarFallback>
+          </Avatar>
+        ))}
+      </span>
+      <span className="text-foreground">
+        {going.length <= 2
+          ? going.map((p) => p.name.split(' ')[0]).join(' and ')
+          : `${going[0].name.split(' ')[0]} and ${going.length - 1} others`}{' '}
+        going
+      </span>
+      {waiting > 0 && <span>· {waiting} pending</span>}
+      {declined > 0 && <span>· {declined} declined</span>}
     </span>
   );
 }

@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -5,10 +6,14 @@ import {
   IsBoolean,
   IsIn,
   IsEmail,
+  IsInt,
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
@@ -59,6 +64,42 @@ export class LoginDto {
 export class RefreshDto {
   @IsString()
   refreshToken!: string;
+}
+
+/**
+ * Pausing an account.
+ *
+ * The password is required rather than relying on the bearer token: an
+ * unlocked, borrowed phone is a session, not the account's owner, and this is
+ * one of the two actions that cannot be undone by signing in again.
+ */
+export class DisableAccountDto {
+  @IsString()
+  @MaxLength(72)
+  password!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1, { message: 'Pause for at least one day' })
+  @Max(365, { message: 'Pause for at most a year' })
+  days!: number;
+}
+
+export class DeleteAccountDto {
+  @IsString()
+  @MaxLength(72)
+  password!: string;
+
+  /**
+   * The word DELETE, typed out.
+   *
+   * Belt and braces on top of the password: a password can be in a manager and
+   * filled without reading the dialog, and this is the one action in the app
+   * with nothing behind it to undo.
+   */
+  @IsString()
+  @Matches(/^DELETE$/, { message: 'Type DELETE to confirm' })
+  confirm!: string;
 }
 
 export class UpdateProfileDto {

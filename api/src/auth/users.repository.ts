@@ -18,6 +18,14 @@ export interface UserRow {
   email_verified_at: Date | null;
   /** What they do on a shoot. See auth/roles.ts. */
   roles: string[];
+  /**
+   * When a self-imposed pause ends. Null, or in the past, means active.
+   *
+   * A date rather than a flag so it lifts on its own — see migration 027.
+   */
+  disabled_until: Date | null;
+  /** When they last disabled it. Kept after it lifts, as history. */
+  disabled_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -164,12 +172,54 @@ export class UsersRepository {
     );
   }
 
-  /** Used on password change or "sign out everywhere". */
+  /** Used on password change, "sign out everywhere", disable and delete. */
   async revokeAllForUser(userId: string): Promise<void> {
     await this.db.query(
       `update refresh_tokens set revoked_at = now()
         where user_id = $1 and revoked_at is null`,
       [userId],
     );
+  }
+
+  /** Pauses the account until `until`. */
+  async disable(userId: string, until: Date): Promise<UserRow | null> {
+    return this.db.queryOne<UserRow>(
+      `update users set disabled_until = $2, disabled_at = now(), updated_at = now()
+        where id = $1
+        returning *`,
+      [userId, until],
+    );
+  }
+
+  /**
+   * Lifts a pause early.
+   *
+   * `disabled_at` is kept: it is the record that the user did this, and the
+   * app says "you paused this on the 14th" rather than nothing.
+   */
+  async enable(userId: string): Promise<UserRow | null> {
+    return this.db.queryOne<UserRow>(
+      `update users set disabled_until = null, updated_at = now()
+        where id = $1
+        returning *`,
+      [userId],
+    );
+  }
+
+  /**
+   * Removes the account.
+   *
+   * Everything owned by the user is reached by `on delete cascade` from
+   * users.id — workspaces, albums, events, reminders, messages, friendships,
+   * tokens. Deleting the row is the whole operation; the storage objects are
+   * the caller's job, because they live in a bucket Postgres knows nothing
+   * about.
+   */
+  async remove(userId: string): Promise<boolean> {
+    const rows = await this.db.query<{ id: string }>(
+      'delete from users where id = $1 returning id',
+      [userId],
+    );
+    return rows.length > 0;
   }
 }

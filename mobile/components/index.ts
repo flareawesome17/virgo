@@ -8,4 +8,5 @@ export {
   InvitePeoplePicker,
   EventAttendeesSection,
   EventInvitationsCard,
+  AttendeeSummary,
 } from '@/components/EventInvites'

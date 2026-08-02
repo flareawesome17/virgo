@@ -346,6 +346,39 @@ export function EventAttendeesSection({ eventId }: { eventId: string }) {
 }
 
 /**
+ * Who is coming, in one line, for an agenda row.
+ *
+ * Names rather than a count: "did Ana say yes" is the question, and a number
+ * does not answer it. Renders nothing when nobody has been invited, so an
+ * ordinary solo event looks exactly as it did.
+ */
+export function AttendeeSummary({ eventId }: { eventId: string }) {
+  const { attendees } = useEventAttendees(eventId);
+  if (attendees.length === 0) return null;
+
+  const going = attendees.filter((a) => a.status === 'accepted');
+  const waiting = attendees.filter((a) => a.status === 'pending').length;
+
+  return (
+    <View className="flex-row items-center gap-1.5 mt-1">
+      {going.slice(0, 3).map((person, i) => (
+        <View key={person.id} style={{ marginLeft: i === 0 ? 0 : -8 }}>
+          <PersonAvatar name={person.name} avatarUrl={person.avatar_url} size={16} />
+        </View>
+      ))}
+      <Text className="text-muted-foreground text-[11px]" numberOfLines={1}>
+        {going.length === 0
+          ? `${waiting} awaiting a reply`
+          : going.length === 1
+            ? `${going[0].name.split(' ')[0]} is going`
+            : `${going.length} going`}
+        {going.length > 0 && waiting > 0 ? ` · ${waiting} pending` : ''}
+      </Text>
+    </View>
+  );
+}
+
+/**
  * Event invitations waiting on an answer.
  *
  * A full-width stacked list rather than a horizontal carousel. An invitation

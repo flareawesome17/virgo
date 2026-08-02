@@ -105,4 +105,36 @@ export const authApi = {
   updateMe(input: UpdateProfileInput): Promise<AuthUser> {
     return api.patch<AuthUser>('/auth/me', { body: input });
   },
+
+  // ─── Closing the account ───────────────────────────────────────────────────
+
+  /**
+   * Pauses the account for a number of days.
+   *
+   * Every session is revoked server-side, including this one, so the caller
+   * must clear its own tokens afterwards rather than waiting for the next
+   * request to fail.
+   */
+  disableAccount(
+    password: string,
+    days: number,
+  ): Promise<{ disabledUntil: string }> {
+    return api.post('/auth/me/disable', { body: { password, days } });
+  },
+
+  /** Lifts a pause early, while a session is still valid. */
+  enableAccount(): Promise<AuthUser> {
+    return api.post('/auth/me/enable');
+  },
+
+  /**
+   * Deletes the account, its data and its uploaded files. Irreversible.
+   *
+   * `confirm` is the literal word DELETE; the server rejects anything else.
+   */
+  deleteAccount(
+    password: string,
+  ): Promise<{ deleted: true; filesDeleted: number }> {
+    return api.delete('/auth/me', { body: { password, confirm: 'DELETE' } });
+  },
 };
