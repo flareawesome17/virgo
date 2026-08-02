@@ -65,6 +65,8 @@ export {
   usageApi,
   formatBytes,
   formatMoney,
+  planPrice,
+  planCurrency,
   toGB,
   type UsageSummary,
   type PlanInfo,

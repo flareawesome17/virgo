@@ -14,7 +14,7 @@ import {
   useSubscribe,
   useUsage,
 } from '@/src/hooks';
-import { formatMoney } from '@/src/api';
+import { formatMoney, planCurrency, planPrice } from '@/src/api';
 import type { PlanInfo } from '@/src/api';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -30,8 +30,16 @@ function storageLabel(bytes: number): string {
   return `${Math.round(gb)} GB`;
 }
 
-function priceLabel(minor: number, currency: string): string {
-  return minor === 0 ? 'Free' : formatMoney(minor, currency);
+/**
+ * A plan's price, from whichever field the server sent.
+ *
+ * Free only when the price is genuinely zero — an unknown price is a dash,
+ * never "Free", or a cached catalogue advertises ₱1,400 as gratis.
+ */
+function priceLabel(plan: PlanInfo): string {
+  const minor = planPrice(plan);
+  if (minor === null) return '—';
+  return minor === 0 ? 'Free' : formatMoney(minor, planCurrency(plan));
 }
 
 function dateLabel(iso: string | null): string {
@@ -164,7 +172,7 @@ export default function PlansScreen() {
                 subscription.planName}
               <Text className="text-muted-foreground font-normal">
                 {'  '}
-                {priceLabel(subscription.amountMinor, subscription.currency)} a month
+                {formatMoney(subscription.amountMinor, subscription.currency)} a month
               </Text>
             </Text>
             <Text className="text-muted-foreground text-xs mt-1 leading-4">
@@ -243,9 +251,9 @@ export default function PlansScreen() {
 
                     <View className="items-end">
                       <Text className="text-foreground text-2xl font-extrabold">
-                        {plan.comingSoon ? '—' : priceLabel(plan.priceMinor, plan.currency)}
+                        {plan.comingSoon ? '—' : priceLabel(plan)}
                       </Text>
-                      {plan.priceMinor > 0 && !plan.comingSoon && (
+                      {(planPrice(plan) ?? 0) > 0 && !plan.comingSoon && (
                         <Text className="text-muted-foreground text-[11px]">/month</Text>
                       )}
                     </View>
@@ -275,7 +283,7 @@ export default function PlansScreen() {
                         Not available yet
                       </Text>
                     </View>
-                  ) : plan.priceMinor === 0 ? null : (
+                  ) : planPrice(plan) === 0 ? null : (
                     <Pressable
                       onPress={() => upgrade(plan)}
                       disabled={

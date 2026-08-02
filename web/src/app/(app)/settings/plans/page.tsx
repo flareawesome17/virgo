@@ -28,7 +28,7 @@ import {
   useRefreshBilling,
   useSubscribe,
 } from '@/hooks/useBilling';
-import { formatMoney, type PlanInfo } from '@/api';
+import { formatMoney, planCurrency, planPrice, type PlanInfo } from '@/api';
 
 const GB = 1024 ** 3;
 
@@ -45,6 +45,19 @@ function dateLabel(iso: string | null): string {
     month: 'long',
     year: 'numeric',
   });
+}
+
+/**
+ * A plan's price, from whichever field the server sent.
+ *
+ * Free only when the price is genuinely zero — an unknown price is a dash,
+ * never "Free", or a cached catalogue advertises ₱1,400 as gratis.
+ */
+function planLabel(plan: PlanInfo): string {
+  if (plan.comingSoon) return '—';
+  const minor = planPrice(plan);
+  if (minor === null) return '—';
+  return minor === 0 ? 'Free' : formatMoney(minor, planCurrency(plan));
 }
 
 /**
@@ -194,12 +207,8 @@ function PlansContent() {
                     </div>
 
                     <p className="mt-4 text-3xl font-extrabold tabular-nums">
-                      {plan.comingSoon
-                        ? '—'
-                        : plan.priceMinor === 0
-                          ? 'Free'
-                          : formatMoney(plan.priceMinor, plan.currency)}
-                      {plan.priceMinor > 0 && !plan.comingSoon && (
+                      {planLabel(plan)}
+                      {(planPrice(plan) ?? 0) > 0 && !plan.comingSoon && (
                         <span className="text-sm font-normal text-muted-foreground">
                           /month
                         </span>
@@ -232,7 +241,7 @@ function PlansContent() {
                         <Button variant="secondary" className="w-full" disabled>
                           Not available yet
                         </Button>
-                      ) : plan.priceMinor === 0 ? null : (
+                      ) : planPrice(plan) === 0 ? null : (
                         <Button
                           className="w-full"
                           disabled={

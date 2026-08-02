@@ -20,10 +20,16 @@ export interface PlanInfo {
    *
    * Minor units because that is what PayMongo charges in; a float that has
    * been near a currency conversion is how somebody gets billed ₱1,399.99.
+   *
+   * Optional because a cached catalogue can predate the field: usePlans holds
+   * this response for the whole session, so a copy fetched before the rename
+   * has only `priceCents`. Read it with `planPrice()`, never directly.
    */
-  priceMinor: number;
+  priceMinor?: number;
+  /** @deprecated The old name. Same number, same units. Use `planPrice()`. */
+  priceCents?: number;
   /** ISO 4217. PayMongo settles PHP only, so this is PHP. */
-  currency: string;
+  currency?: string;
   /** Listed but not purchasable yet. */
   comingSoon: boolean;
   storageBytes: number;
@@ -68,6 +74,27 @@ export function toGB(bytes: number): number {
 const CURRENCY_SYMBOLS: Record<string, string> = { PHP: '₱', USD: '$' };
 
 /**
+ * A plan's monthly price in minor units, whichever name the server used.
+ *
+ * The field was renamed from `priceCents` to `priceMinor`, and `usePlans`
+ * caches the catalogue for the whole session — so a response fetched before
+ * the rename is still in hand, carrying only the old name. Both are centavos;
+ * only the key differs.
+ *
+ * Returns null when neither is present, which is genuinely unknown and must
+ * not be shown as a price.
+ */
+export function planPrice(plan: PlanInfo): number | null {
+  const value = plan.priceMinor ?? plan.priceCents;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** A plan's currency, defaulting to the only one PayMongo settles. */
+export function planCurrency(plan: PlanInfo): string {
+  return plan.currency ?? 'PHP';
+}
+
+/**
  * `₱1,400` — a price in minor units, rendered.
  *
  * Grouped by hand rather than through Intl. React Native runs on Hermes, whose
@@ -80,9 +107,11 @@ const CURRENCY_SYMBOLS: Record<string, string> = { PHP: '₱', USD: '$' };
  * like a form field rather than a price.
  */
 export function formatMoney(minor: number, currency = 'PHP'): string {
-  // A missing or malformed amount must read as something sane, not "₱NaN".
-  // This is what an older client sees when the field it expects was renamed.
-  if (!Number.isFinite(minor)) return 'Free';
+  // An unknown amount reads as unknown. It previously returned 'Free', which
+  // is far worse than the "₱NaN" it replaced: NaN is visibly broken, whereas
+  // "Free" is a confident, wrong price on a plan that costs ₱1,400. Only a
+  // real zero may say Free, and that is the caller's decision, not this one's.
+  if (!Number.isFinite(minor)) return '—';
 
   const major = Math.abs(minor) / 100;
   const whole = Math.floor(major);
