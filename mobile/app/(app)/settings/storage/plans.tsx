@@ -32,9 +32,10 @@ function priceLabel(cents: number): string {
  * enforces — a screen with its own copy of the limits eventually advertises
  * something the server will refuse.
  *
- * The upgrade button does not open a card form. There is no billing backend
- * yet, and the previous checkout flow collected a card number and then simply
- * navigated to a success screen.
+ * The upgrade button does not open a card form. There is no billing backend,
+ * so there is nothing to collect a card for — the checkout, payment, success,
+ * invoice-history and comparison screens that used to sit alongside this one
+ * were removed for that reason.
  */
 export default function PlansScreen() {
   const { plans, isLoading } = usePlans();

@@ -174,9 +174,9 @@ export default function StorageOverviewScreen() {
           <ChevronRightIcon size={14} className="text-muted-foreground" />
         </Pressable>
 
-        {/* Was "Billing History", which listed four invented paid invoices
-            against a card nobody had entered. Plans is the real destination
-            until there is a billing backend to read history from. */}
+        {/* Was "Billing History", a screen of invented paid invoices against a
+            card nobody had entered. Plans is the real destination until there
+            is a billing backend with history to read. */}
         <Pressable onPress={() => router.push('/settings/storage/plans')}
           className="mx-5 mt-6 bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
           style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
