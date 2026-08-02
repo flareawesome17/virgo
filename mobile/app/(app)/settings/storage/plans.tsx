@@ -4,13 +4,14 @@ import { router } from 'expo-router';
 import { ArrowLeftIcon, CheckIcon, InfoIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { Linking } from 'react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import {
   useBilling,
   useCancelSubscription,
   usePlans,
   useRefreshBilling,
+  useSettlePendingCheckout,
   useSubscribe,
   useUsage,
 } from '@/src/hooks';
@@ -70,14 +71,22 @@ export default function PlansScreen() {
   const subscribe = useSubscribe();
   const cancelPlan = useCancelSubscription();
   const refresh = useRefreshBilling();
+
+  // Settles a checkout that was paid but never confirmed — see the hook.
+  useSettlePendingCheckout();
   const { paid } = useLocalSearchParams<{ paid?: string }>();
   const [starting, setStarting] = useState<string | null>(null);
 
-  // PayMongo redirects to ?paid=1. That means "they came back", not "they
-  // paid", so it only triggers a refetch.
+  // PayMongo redirects back with ?paid=1. That means "they came back", not
+  // "they paid" — the server confirms with PayMongo before anything moves.
+  //
+  // The ref makes it run once: refresh() invalidates queries, which
+  // re-renders, which would re-enter the effect.
+  const reconciled = useRef(false);
   useEffect(() => {
-    if (paid !== '1') return;
-    refresh();
+    if (paid !== '1' || reconciled.current) return;
+    reconciled.current = true;
+    void refresh();
   }, [paid, refresh]);
 
   // `pro` predates the rename and carries the freelance limits.

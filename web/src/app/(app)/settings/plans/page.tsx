@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Check, Info, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
@@ -26,6 +26,7 @@ import {
   useBilling,
   useCancelSubscription,
   useRefreshBilling,
+  useSettlePendingCheckout,
   useSubscribe,
 } from '@/hooks/useBilling';
 import { formatMoney, planCurrency, planPrice, type PlanInfo } from '@/api';
@@ -80,17 +81,28 @@ function PlansContent() {
   const cancel = useCancelSubscription();
   const refresh = useRefreshBilling();
 
+  // Settles a checkout that was paid but never confirmed — see the hook.
+  useSettlePendingCheckout();
+
   const [cancelling, setCancelling] = useState(false);
   /** Which plan's button is mid-flight. */
   const [starting, setStarting] = useState<string | null>(null);
 
   // ?paid=1 is where PayMongo sends people back to. It means "they came back",
-  // not "they paid" — so this only prompts a refetch.
+  // not "they paid" — the server confirms with PayMongo before anything moves.
+  //
+  // The ref makes this run once. `router.replace` does not clear the param
+  // synchronously, so without it the effect re-entered on the next render and
+  // fired the toast again, roughly once a second.
+  const reconciled = useRef(false);
   useEffect(() => {
-    if (searchParams.get('paid') !== '1') return;
-    refresh();
-    toast.success('Thanks — checking your payment', {
-      description: 'Your plan updates as soon as PayMongo confirms it.',
+    if (searchParams.get('paid') !== '1' || reconciled.current) return;
+    reconciled.current = true;
+
+    void refresh().then(() => {
+      toast.success('Payment received', {
+        description: 'Your plan is up to date.',
+      });
     });
     router.replace('/settings/plans');
   }, [searchParams, router, refresh]);

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { PURCHASABLE_PLANS } from '../quota/quota.config';
@@ -47,6 +48,20 @@ export class BillingController {
   @Post('subscribe')
   subscribe(@CurrentUser('id') userId: string, @Body() dto: SubscribeDto) {
     return this.billing.subscribe(userId, dto.plan);
+  }
+
+  /**
+   * Asks PayMongo whether anything this user started has since been paid.
+   *
+   * Called when they come back from checkout. Throttled because it makes
+   * outbound calls per pending session, and nothing is lost by making an
+   * impatient client wait.
+   */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('reconcile')
+  reconcile(@CurrentUser('id') userId: string) {
+    return this.billing.reconcile(userId);
   }
 
   /** Cancels. Access continues to the end of the period already paid for. */

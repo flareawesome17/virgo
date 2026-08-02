@@ -130,4 +130,5 @@ export {
   useSubscribe,
   useCancelSubscription,
   useRefreshBilling,
+  useSettlePendingCheckout,
 } from '@/src/hooks/useBilling'

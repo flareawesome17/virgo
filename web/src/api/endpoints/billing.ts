@@ -54,6 +54,17 @@ export const billingApi = {
     return api.post<StartedCheckout>('/billing/subscribe', { body: { plan } });
   },
 
+  /**
+   * Asks the server to check with PayMongo whether anything this user started
+   * has since been paid, and to apply it.
+   *
+   * Called on the way back from checkout. It does not assert that a payment
+   * happened — the server asks PayMongo and believes only PayMongo.
+   */
+  reconcile(): Promise<{ applied: number; plan: string }> {
+    return api.post('/billing/reconcile');
+  },
+
   /** Cancels. Access runs to the end of the period already paid for. */
   cancel(reason?: string): Promise<{ cancelled: true; accessUntil: string | null }> {
     return api.post('/billing/cancel', { body: reason ? { reason } : {} });

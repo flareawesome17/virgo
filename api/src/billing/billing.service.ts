@@ -687,6 +687,82 @@ export class BillingService {
     await this.announce(userId, 'active', plan.name);
   }
 
+  /**
+   * Asks PayMongo whether anything the caller started has since been paid.
+   *
+   * The webhook is the normal path, but it is a delivery to a URL somebody
+   * typed into a dashboard, and it had been pointed at the web app instead of
+   * the API — so four real payments sat unapplied while the account stayed on
+   * free. A payment that has happened should not depend on that.
+   *
+   * Safe to call from a client because it does not believe the client: it asks
+   * PayMongo about sessions this user actually started, and grants only what
+   * PayMongo says was paid. The worst a caller can do by hammering it is make
+   * their own account correct.
+   */
+  async reconcile(userId: string): Promise<{ applied: number; plan: string }> {
+    const pending = await this.db.query<SubscriptionRow>(
+      `select * from subscriptions
+        where user_id = $1 and status in ('incomplete', 'past_due')
+        order by created_at desc limit 10`,
+      [userId],
+    );
+
+    let applied = 0;
+    for (const row of pending) {
+      try {
+        if (row.kind === 'one_time') {
+          // v1 to read, v2 to create. PayMongo's own split, verified against
+          // the live API — /v2/checkout_sessions/{id} answers "the requested
+          // route does not exist".
+          const session = await this.paymongo.request<{
+            payment_intent?: { attributes?: { status?: string }; status?: string };
+            payments?: unknown[];
+          }>('GET', `/v1/checkout_sessions/${row.provider_id}`);
+
+          // Two signals, either sufficient. The session's own `status` is not
+          // one of them — it reads 'active' meaning "not expired", including
+          // on a session that has already been paid.
+          const intent = session.attributes.payment_intent;
+          const paid =
+            intent?.attributes?.status === 'succeeded' ||
+            intent?.status === 'succeeded' ||
+            (session.attributes.payments?.length ?? 0) > 0;
+
+          if (paid) {
+            await this.applyOneTimePayment(row.provider_id, userId, row.plan_name);
+            applied++;
+          }
+          continue;
+        }
+
+        const sub = await this.paymongo.request<{
+          status: SubscriptionStatus;
+          next_billing_schedule?: string;
+        }>('GET', `/subscriptions/${row.provider_id}`);
+
+        if (sub.attributes.status !== row.status) {
+          const end = sub.attributes.next_billing_schedule
+            ? new Date(sub.attributes.next_billing_schedule)
+            : null;
+          await this.applyEntitlement(row.provider_id, sub.attributes.status, end);
+          applied++;
+        }
+      } catch (err) {
+        // One unreadable session must not stop the others being checked.
+        this.logger.warn(
+          `Reconciling ${row.provider_id} failed: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    const user = await this.db.queryOne<{ plan: string }>(
+      'select plan from users where id = $1',
+      [userId],
+    );
+    return { applied, plan: user?.plan ?? 'free' };
+  }
+
   /** Records a webhook, returning false if it has already been handled. */
   async recordEvent(
     id: string,

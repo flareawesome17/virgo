@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { billingApi, queryKeys } from '@/api';
 
@@ -12,6 +13,32 @@ export function useBilling() {
     queryFn: () => billingApi.status(),
   });
   return { ...query, billing: query.data ?? null };
+}
+
+/**
+ * Settles a checkout that was started but never confirmed.
+ *
+ * Someone who paid and then closed the tab — or whose webhook went astray —
+ * has a subscription sitting at `incomplete` against a payment PayMongo has
+ * already taken. This notices that on the next visit and asks the server to
+ * check, so the account fixes itself rather than waiting for somebody to
+ * notice they are still on Free.
+ *
+ * Bounded on purpose: it only fires when something is actually pending, and
+ * once per mount, so a page view does not become a call to PayMongo.
+ */
+export function useSettlePendingCheckout(): void {
+  const { billing } = useBilling();
+  const refresh = useRefreshBilling();
+  const done = useRef(false);
+
+  const pending = billing?.subscription?.status === 'incomplete';
+
+  useEffect(() => {
+    if (!pending || done.current) return;
+    done.current = true;
+    void refresh();
+  }, [pending, refresh]);
 }
 
 /**
@@ -40,18 +67,32 @@ export function useCancelSubscription() {
 }
 
 /**
- * Refetches plan and limits.
+ * Confirms a payment with the server, then refetches.
  *
- * Called when the user comes back from PayMongo. The webhook is what actually
- * grants the plan, and it may land a moment before or after the redirect, so
- * this is a refetch rather than an assumption — and the screen still reads
- * "waiting for payment" until the server agrees.
+ * Called when the user comes back from PayMongo. It asks the server to check
+ * with PayMongo directly rather than waiting on the webhook — the webhook is
+ * a URL somebody typed into a dashboard, and a payment that has happened
+ * should not depend on that having been typed correctly.
+ *
+ * useCallback is load-bearing, not tidiness: this goes in an effect's
+ * dependency list, and a fresh function each render re-ran the effect, which
+ * invalidated queries, which re-rendered — a loop that fired a toast about
+ * once a second.
  */
 export function useRefreshBilling() {
   const queryClient = useQueryClient();
-  return () => {
-    queryClient.invalidateQueries({ queryKey: billingKeys.status });
-    queryClient.invalidateQueries({ queryKey: ['usage'] });
-    queryClient.invalidateQueries({ queryKey: queryKeys.auth.all });
-  };
+
+  return useCallback(async () => {
+    try {
+      await billingApi.reconcile();
+    } catch {
+      // Best-effort. The webhook may still land, and the refetch below shows
+      // whatever the server currently believes either way.
+    }
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: billingKeys.status }),
+      queryClient.invalidateQueries({ queryKey: ['me', 'usage'] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.all }),
+    ]);
+  }, [queryClient]);
 }
