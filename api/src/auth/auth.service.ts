@@ -13,6 +13,7 @@ import {
   UsersRepository,
   UserRow,
 } from './users.repository';
+import { normalizeRoles } from './roles';
 
 export interface AuthTokens {
   accessToken: string;
@@ -104,6 +105,7 @@ export class AuthService {
     email: string,
     password: string,
     displayName?: string,
+    roles: string[] = [],
   ): Promise<AuthResult> {
     const normalized = this.normalizeEmail(email);
 
@@ -117,7 +119,15 @@ export class AuthService {
 
     const rounds = Number(this.config.get('BCRYPT_ROUNDS', '12'));
     const passwordHash = await bcrypt.hash(password, rounds);
-    const user = await this.users.create(normalized, passwordHash, displayName);
+    // Normalized rather than trusted: the DTO rejects unknown values, this
+    // de-duplicates and fixes the order so two people with the same roles
+    // always render identically.
+    const user = await this.users.create(
+      normalized,
+      passwordHash,
+      displayName,
+      normalizeRoles(roles),
+    );
 
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
   }
@@ -200,6 +210,7 @@ export class AuthService {
       location?: string | null;
       bio?: string | null;
       discoverable?: boolean;
+      roles?: string[];
     },
   ): Promise<PublicUser> {
     const user = await this.users.updateProfile(userId, {
@@ -211,6 +222,7 @@ export class AuthService {
       location: input.location,
       bio: input.bio,
       discoverable: input.discoverable,
+      roles: input.roles ? normalizeRoles(input.roles) : undefined,
     });
     if (!user) throw new UnauthorizedException();
     return toPublicUser(user);

@@ -14,6 +14,10 @@ export interface UserRow {
   bio: string | null;
   /** Whether name search can surface this account. Email lookup is unaffected. */
   discoverable: boolean;
+  /** Null until the address is proven by following a verification link. */
+  email_verified_at: Date | null;
+  /** What they do on a shoot. See auth/roles.ts. */
+  roles: string[];
   created_at: Date;
   updated_at: Date;
 }
@@ -30,6 +34,8 @@ export interface PublicUser {
   location: string | null;
   bio: string | null;
   discoverable: boolean;
+  emailVerified: boolean;
+  roles: string[];
   createdAt: Date;
 }
 
@@ -47,6 +53,9 @@ export function toPublicUser(row: UserRow): PublicUser {
     // Defaulted rather than assumed present: a row read before migration 020
     // has no column, and search should stay open in that case.
     discoverable: row.discoverable ?? true,
+    emailVerified: !!row.email_verified_at,
+    // Defaulted for rows written before the column existed.
+    roles: row.roles ?? [],
     createdAt: row.created_at,
   };
 }
@@ -63,6 +72,7 @@ export type ProfileFields = Partial<
     | 'location'
     | 'bio'
     | 'discoverable'
+    | 'roles'
   >
 >;
 
@@ -85,12 +95,13 @@ export class UsersRepository {
     email: string,
     passwordHash: string,
     displayName?: string,
+    roles: string[] = [],
   ): Promise<UserRow> {
     const row = await this.db.queryOne<UserRow>(
-      `insert into users (email, password_hash, display_name)
-       values ($1, $2, $3)
+      `insert into users (email, password_hash, display_name, roles)
+       values ($1, $2, $3, $4::text[])
        returning *`,
-      [email, passwordHash, displayName ?? null],
+      [email, passwordHash, displayName ?? null, roles],
     );
     return row as UserRow;
   }

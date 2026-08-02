@@ -4,6 +4,8 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { ArrowLeftIcon, MailIcon, ArrowRightIcon, SendIcon, CheckCircleIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { useMutation } from '@tanstack/react-query';
+import { authApi } from '@/src/api';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -14,17 +16,29 @@ cssInterop(CheckCircleIcon, { className: { target: 'style', nativeStyleToProp: {
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
+  /**
+   * This screen used to await a 1500ms sleep and claim success — no email was
+   * ever sent. It now calls the real endpoint.
+   *
+   * The server answers identically whether or not the address has an account,
+   * so the confirmation below must not imply one exists.
+   */
+  const request = useMutation({
+    mutationFn: (address: string) => authApi.forgotPassword(address),
+    onSuccess: () => setSent(true),
+    onError: (err: any) =>
+      setErrorMsg(err?.message || 'Could not send the email. Please try again.'),
+  });
+
+  const loading = request.isPending;
   const canSend = email.trim().length > 0;
 
-  const handleSend = async () => {
-    if (!canSend) return;
-    setLoading(true);
-    // Simulate sending reset email
-    await new Promise((r) => setTimeout(r, 1500));
-    setLoading(false);
-    setSent(true);
+  const handleSend = () => {
+    if (!canSend || loading) return;
+    setErrorMsg('');
+    request.mutate(email.trim());
   };
 
   return (
@@ -69,6 +83,12 @@ export default function ForgotPasswordScreen() {
                     keyboardType="email-address" autoCapitalize="none" autoFocus />
                 </View>
               </View>
+
+              {errorMsg ? (
+                <View className="bg-destructive/10 rounded-xl px-4 py-3 mt-4">
+                  <Text className="text-destructive text-sm">{errorMsg}</Text>
+                </View>
+              ) : null}
             </View>
           )}
         </ScrollView>

@@ -111,6 +111,10 @@ export interface Friend {
 }
 
 export interface AuthUser {
+  /** False until the address is proven by following the emailed link. */
+  emailVerified?: boolean;
+  /** What they do on a shoot. Chosen at sign-up, editable later. */
+  roles?: string[];
   id: string;
   email: string;
   displayName: string | null;

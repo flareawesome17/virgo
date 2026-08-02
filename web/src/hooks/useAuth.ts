@@ -130,6 +130,7 @@ export function useAuth() {
       email: string;
       password: string;
       displayName?: string;
+      roles: string[];
     }) => {
       try {
         return await authApi.register(input);

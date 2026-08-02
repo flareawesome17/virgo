@@ -142,13 +142,15 @@ export function useAuth() {
       email,
       password,
       displayName,
+      roles,
     }: {
       email: string;
       password: string;
       displayName?: string;
+      roles: string[];
     }) => {
       try {
-        return await authApi.register({ email, password, displayName });
+        return await authApi.register({ email, password, displayName, roles });
       } catch (err) {
         throw toAuthError(err);
       }

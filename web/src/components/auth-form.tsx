@@ -4,7 +4,10 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Check, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { authApi } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,10 +29,25 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [roles, setRoles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+
 
   const isSignUp = mode === 'sign-up';
   const mutation = isSignUp ? signUp : signIn;
+
+  /**
+   * The roles come from the server, not a copy in this file — the same list
+   * the register endpoint validates against, so the form cannot offer
+   * something that will be rejected.
+   */
+  const { data: roleList } = useQuery({
+    queryKey: ['auth', 'roles'],
+    queryFn: () => authApi.listRoles(),
+    enabled: isSignUp,
+    staleTime: Infinity,
+  });
+
 
   // Where the guard wanted to go before it bounced here.
   const next = searchParams.get('next') || '/';
@@ -42,8 +60,18 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     event.preventDefault();
     setError(null);
 
+    if (isSignUp && roles.length === 0) {
+      setError('Choose at least one role so collaborators know what you do.');
+      return;
+    }
+
     const payload = isSignUp
-      ? { email: email.trim(), password, displayName: displayName.trim() || undefined }
+      ? {
+          email: email.trim(),
+          password,
+          displayName: displayName.trim() || undefined,
+          roles,
+        }
       : { email: email.trim(), password };
 
     mutation.mutate(payload as never, {
@@ -110,7 +138,17 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="password">Password</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                    {!isSignUp && (
+                      <Link
+                        href="/forgot-password"
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Forgot password?
+                      </Link>
+                    )}
+                  </div>
                   <Input
                     id="password"
                     type="password"
@@ -121,6 +159,45 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
                     autoComplete={isSignUp ? 'new-password' : 'current-password'}
                   />
                 </div>
+
+                {isSignUp && (
+                  <div className="grid gap-2">
+                    <Label>
+                      What do you do?{' '}
+                      <span className="font-normal text-muted-foreground">
+                        Pick every one that applies
+                      </span>
+                    </Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(roleList?.data ?? []).map((role) => {
+                        const on = roles.includes(role);
+                        return (
+                          <button
+                            key={role}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() =>
+                              setRoles((prev) =>
+                                prev.includes(role)
+                                  ? prev.filter((r) => r !== role)
+                                  : [...prev, role],
+                              )
+                            }
+                            className={cn(
+                              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                              on
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border bg-card hover:bg-accent',
+                            )}
+                          >
+                            {on && <Check className="size-3" />}
+                            {role}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {error && (
                   <p

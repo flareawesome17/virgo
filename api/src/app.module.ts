@@ -14,6 +14,7 @@ import { DatabaseModule } from './database/database.module';
 import { FriendsModule } from './friends/friends.module';
 import { HealthModule } from './health/health.module';
 import { QuotaModule } from './quota/quota.module';
+import { MailModule } from './mail/mail.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { ScheduleEventsModule } from './schedule-events/schedule-events.module';
 import { ServicesModule } from './services/services.module';
@@ -31,6 +32,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     ScheduleModule.forRoot(),
     DatabaseModule,
     QuotaModule,
+    MailModule,
     AuthModule,
     HealthModule,
     WorkspacesModule,

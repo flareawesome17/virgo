@@ -16,7 +16,7 @@ export interface Credentials {
  */
 export const authApi = {
   async register(
-    credentials: Credentials & { displayName?: string },
+    credentials: Credentials & { displayName?: string; roles: string[] },
   ): Promise<AuthResult> {
     const result = await api.post<AuthResult>('/auth/register', {
       body: credentials,
@@ -24,6 +24,38 @@ export const authApi = {
     });
     await setTokens(result.accessToken, result.refreshToken);
     return result;
+  },
+
+  /** The roles a sign-up may choose from, as the server defines them. */
+  listRoles(): Promise<{ data: string[]; total: number }> {
+    return api.get('/auth/roles', { anonymous: true });
+  },
+
+  /**
+   * Starts a password reset.
+   *
+   * Always resolves, whether or not the address has an account — the server
+   * deliberately gives the same answer either way, so the UI must not imply
+   * otherwise.
+   */
+  forgotPassword(email: string): Promise<{ accepted: boolean; message: string }> {
+    return api.post('/auth/forgot-password', { body: { email }, anonymous: true });
+  },
+
+  resetPassword(token: string, password: string): Promise<{ reset: boolean }> {
+    return api.post('/auth/reset-password', {
+      body: { token, password },
+      anonymous: true,
+    });
+  },
+
+  verifyEmail(token: string): Promise<{ verified: boolean }> {
+    return api.post('/auth/verify-email', { body: { token }, anonymous: true });
+  },
+
+  /** Re-sends the confirmation link to the signed-in user's own address. */
+  resendVerification(): Promise<{ accepted: boolean }> {
+    return api.post('/auth/resend-verification');
   },
 
   async login(credentials: Credentials): Promise<AuthResult> {

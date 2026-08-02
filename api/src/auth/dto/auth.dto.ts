@@ -1,5 +1,9 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
+  IsIn,
   IsEmail,
   IsOptional,
   IsString,
@@ -8,6 +12,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
+import { USER_ROLES } from '../roles';
 
 export class RegisterDto {
   @IsEmail({}, { message: 'A valid email address is required' })
@@ -26,6 +31,19 @@ export class RegisterDto {
   @IsString()
   @MaxLength(120)
   displayName?: string;
+
+  /**
+   * What they do on a shoot. Required, and more than one is normal — a
+   * photographer who also cuts the SDE holds both.
+   */
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Choose at least one role' })
+  @ArrayMaxSize(USER_ROLES.length)
+  @IsIn(USER_ROLES as readonly string[], {
+    each: true,
+    message: 'Unknown role',
+  })
+  roles!: string[];
 }
 
 export class LoginDto {
@@ -101,4 +119,36 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsBoolean()
   discoverable?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(USER_ROLES.length)
+  @IsIn(USER_ROLES as readonly string[], { each: true, message: 'Unknown role' })
+  roles?: string[];
+}
+
+export class ForgotPasswordDto {
+  @IsEmail({}, { message: 'A valid email address is required' })
+  @MaxLength(255)
+  email!: string;
+}
+
+export class ResetPasswordDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(256)
+  token!: string;
+
+  // The same floor and 72-byte bcrypt ceiling as registration.
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  @MaxLength(72)
+  password!: string;
+}
+
+export class VerifyEmailDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(256)
+  token!: string;
 }

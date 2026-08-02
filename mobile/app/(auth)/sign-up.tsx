@@ -1,10 +1,13 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/src/hooks';
+import { useQuery } from '@tanstack/react-query';
+import { authApi } from '@/src/api';
 import { Redirect, router } from 'expo-router';
 import { useState } from 'react';
 import {
   ArrowLeftIcon, UserIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
+  CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -15,6 +18,7 @@ cssInterop(LockIcon, { className: { target: 'style', nativeStyleToProp: { color:
 cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(EyeOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ArrowRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function SignUpScreen() {
   const { signUp, user } = useAuth();
@@ -23,7 +27,19 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [roles, setRoles] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
+
+  /**
+   * The roles come from the server, not a copy in this file — the same list
+   * the register endpoint validates against, so the form cannot offer
+   * something that will be rejected.
+   */
+  const { data: roleList } = useQuery({
+    queryKey: ['auth', 'roles'],
+    queryFn: () => authApi.listRoles(),
+    staleTime: Infinity,
+  });
 
   // <Redirect> rather than router.replace(): navigating during render mutates
   // the navigation container mid-render and triggers React's
@@ -37,10 +53,21 @@ export default function SignUpScreen() {
     if (!email.trim()) return 'Please enter your email.';
     if (password.length < 8) return 'Password must be at least 8 characters.';
     if (password !== confirmPassword) return 'Passwords do not match.';
+    if (roles.length === 0) return 'Choose at least one role so collaborators know what you do.';
     return null;
   };
 
-  const canSubmit = name.trim().length > 0 && email.trim().length > 0 && password.length >= 8 && confirmPassword.length > 0;
+  const canSubmit =
+    name.trim().length > 0 &&
+    email.trim().length > 0 &&
+    password.length >= 8 &&
+    confirmPassword.length > 0 &&
+    roles.length > 0;
+
+  const toggleRole = (role: string) =>
+    setRoles((prev) =>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
+    );
 
   const handleSignUp = () => {
     const err = validate();
@@ -49,7 +76,7 @@ export default function SignUpScreen() {
     signUp.mutate(
       // displayName was collected and validated, then dropped — every new
       // account ended up with a null name despite the user typing one.
-      { email: email.trim(), password, displayName: name.trim() },
+      { email: email.trim(), password, displayName: name.trim(), roles },
       {
         onSuccess: () => router.push('/check-inbox'),
         onError: (err: any) => {
@@ -132,6 +159,38 @@ export default function SignUpScreen() {
                 <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Re-enter password"
                   placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
                   secureTextEntry={!showPassword} autoCapitalize="none" />
+              </View>
+            </View>
+
+            {/* Roles. Chips rather than a picker: several apply at once — a
+                photographer who also cuts the SDE holds both — and a one-of
+                control would force people to misrepresent themselves. */}
+            <View>
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-1 ml-1">
+                What do you do?
+              </Text>
+              <Text className="text-muted-foreground text-xs mb-2.5 ml-1">
+                Pick every one that applies.
+              </Text>
+              <View className="flex-row flex-wrap gap-2">
+                {(roleList?.data ?? []).map((role) => {
+                  const on = roles.includes(role);
+                  return (
+                    <Pressable
+                      key={role}
+                      onPress={() => toggleRole(role)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      className={`flex-row items-center gap-1.5 rounded-full px-3.5 py-2 active:scale-[0.96] ${on ? 'bg-primary' : 'bg-card'}`}
+                      style={on ? undefined : { borderWidth: 1, borderColor: '#D9C2B7' }}
+                    >
+                      {on && <CheckIcon size={12} className="text-white" />}
+                      <Text className={`text-xs font-semibold ${on ? 'text-white' : 'text-foreground'}`}>
+                        {role}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
             </View>
 
