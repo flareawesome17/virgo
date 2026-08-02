@@ -1,10 +1,12 @@
 import { View, Text, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { MailIcon, ArrowRightIcon, SendIcon, RefreshCwIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useAuth } from '@/src/hooks';
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { authApi } from '@/src/api';
 
 cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ArrowRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -12,15 +14,28 @@ cssInterop(SendIcon, { className: { target: 'style', nativeStyleToProp: { color:
 cssInterop(RefreshCwIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function CheckInboxScreen() {
-  const [resending, setResending] = useState(false);
-  // The signed-in address, not a hardcoded demo one.
+  // The address comes from the sign-in attempt when verification blocked it;
+  // otherwise from the session, for someone who just registered.
+  const { email: emailParam } = useLocalSearchParams<{ email?: string }>();
   const { user } = useAuth();
-  const demoEmail = user?.email ?? 'your email';
+  const demoEmail = emailParam ?? user?.email ?? 'your email';
+  const [sent, setSent] = useState(false);
 
-  const handleResend = async () => {
-    setResending(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setResending(false);
+  /**
+   * This awaited a 1000ms sleep and claimed success — no email was ever sent.
+   * It now calls the public resend, which needs no session: sign-in is blocked
+   * until the address is confirmed, so an authenticated resend would be
+   * unreachable to exactly the people who need it.
+   */
+  const resend = useMutation({
+    mutationFn: () => authApi.requestVerification(demoEmail),
+    onSuccess: () => setSent(true),
+  });
+
+  const resending = resend.isPending;
+  const handleResend = () => {
+    if (!emailParam && !user?.email) return;
+    resend.mutate();
   };
 
   return (

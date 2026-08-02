@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -101,6 +102,32 @@ export class AuthService {
     return { accessToken, refreshToken, expiresIn: accessTtl };
   }
 
+  /**
+   * Refuses a session to an account that has not confirmed its address.
+   *
+   * Applied to login *and* refresh. Blocking refresh is what makes this a
+   * force-logout rather than a door policy: an existing session dies at the
+   * end of its access token — fifteen minutes by default — instead of living
+   * on until the user happens to sign out.
+   *
+   * The code lets clients show "check your inbox, resend?" instead of a
+   * generic permission error.
+   */
+  private assertVerified(user: UserRow): void {
+    if (this.config.get<string>('REQUIRE_EMAIL_VERIFICATION') === 'false') return;
+    if (user.email_verified_at) return;
+
+    throw new ForbiddenException({
+      message:
+        'Confirm your email address before signing in. Check your inbox for the link.',
+      error: 'EmailNotVerified',
+      code: 'EMAIL_NOT_VERIFIED',
+      // Echoed so the client can offer to resend without asking for it again.
+      email: user.email,
+      statusCode: 403,
+    });
+  }
+
   async register(
     email: string,
     password: string,
@@ -162,6 +189,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    // After the password check, never before: answering "verify your email"
+    // to a wrong password would confirm the account exists.
+    this.assertVerified(user);
+
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
   }
 
@@ -178,7 +209,10 @@ export class AuthService {
     const user = await this.users.findById(stored.user_id);
     if (!user) throw new UnauthorizedException('Invalid refresh token');
 
+    // Revoke first, so a blocked refresh still consumes the token rather than
+    // leaving it replayable.
     await this.users.revokeRefreshToken(tokenHash);
+    this.assertVerified(user);
 
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
   }

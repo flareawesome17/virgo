@@ -1,0 +1,21 @@
+# Local env must never reach the image.
+#
+# Next reads .env.local at build time and it takes precedence over the build
+# ARG, so copying it in silently baked NEXT_PUBLIC_API_URL=http://localhost:3001
+# into the deployed bundle — which resolves only on the machine that built it.
+# Every other visitor got an app that could not reach the API at all.
+.env
+.env.*
+!.env.example
+
+node_modules
+.next
+out
+
+.git
+.gitignore
+README.md
+AGENTS.md
+CLAUDE.md
+Dockerfile
+.dockerignore

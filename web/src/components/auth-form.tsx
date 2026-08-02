@@ -4,15 +4,15 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Check, Loader2 } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { Check, Eye, EyeOff, Loader2, MailWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { authApi } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth, type AuthError } from '@/hooks/useAuth';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 /**
@@ -30,7 +30,18 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Set when the API refuses the session because the address is unconfirmed.
+   * A generic error would leave the user with nothing to act on; this swaps
+   * the form for the one thing that helps.
+   */
+  const [unverified, setUnverified] = useState<string | null>(null);
+
+  const resend = useMutation({
+    mutationFn: (address: string) => authApi.requestVerification(address),
+  });
 
 
   const isSignUp = mode === 'sign-up';
@@ -76,9 +87,69 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
 
     mutation.mutate(payload as never, {
       onSuccess: () => router.replace(next),
-      onError: (err: Error) => setError(err.message),
+      onError: (err: Error) => {
+        const authError = err as AuthError;
+        if (authError.code === 'EMAIL_NOT_VERIFIED') {
+          setUnverified(authError.email ?? email.trim());
+          return;
+        }
+        setError(err.message);
+      },
     });
   };
+
+  // Signing in is blocked until the address is confirmed, so the form is not
+  // the useful thing to show — the resend is.
+  if (unverified) {
+    return (
+      <div className="flex min-h-full flex-col">
+        <div className="flex justify-end p-4">
+          <ThemeToggle />
+        </div>
+        <div className="flex flex-1 items-center justify-center px-4 pb-16">
+          <div className="w-full max-w-sm text-center">
+            <MailWarning className="mx-auto size-10 text-warning" />
+            <h1 className="mt-5 text-2xl font-bold tracking-tight">
+              Confirm your email
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              We sent a link to <span className="font-semibold text-foreground">{unverified}</span>.
+              Click it to finish setting up, then sign in.
+            </p>
+
+            <Card className="mt-6">
+              <CardContent className="pt-6">
+                {resend.isSuccess ? (
+                  <p className="text-sm text-muted-foreground">
+                    A new link is on its way. Check your spam folder too.
+                  </p>
+                ) : (
+                  <Button
+                    className="w-full"
+                    disabled={resend.isPending}
+                    onClick={() => resend.mutate(unverified)}
+                  >
+                    {resend.isPending && <Loader2 className="size-4 animate-spin" />}
+                    Resend the link
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            <button
+              onClick={() => {
+                setUnverified(null);
+                resend.reset();
+              }}
+              className="mt-6 text-sm font-semibold text-primary hover:underline"
+            >
+              Back to sign in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-full flex-col">
@@ -149,15 +220,28 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
                       </Link>
                     )}
                   </div>
-                  <Input
-                    id="password"
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={isSignUp ? 'At least 8 characters' : 'Your password'}
-                    autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={isSignUp ? 'At least 8 characters' : 'Your password'}
+                      autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      // Skipped by Tab: a convenience, not a step in the form.
+                      tabIndex={-1}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 {isSignUp && (

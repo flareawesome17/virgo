@@ -58,6 +58,17 @@ export const authApi = {
     return api.post('/auth/resend-verification');
   },
 
+  /**
+   * Re-sends the confirmation link to an address, with no session.
+   *
+   * The authenticated version above is unreachable once verification blocks
+   * sign-in — which is exactly when someone needs it. Always resolves, whether
+   * or not the address exists.
+   */
+  requestVerification(email: string): Promise<{ accepted: boolean; message: string }> {
+    return api.post('/auth/request-verification', { body: { email }, anonymous: true });
+  },
+
   async login(credentials: Credentials): Promise<AuthResult> {
     const result = await api.post<AuthResult>('/auth/login', {
       body: credentials,

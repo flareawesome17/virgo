@@ -68,6 +68,26 @@ export class AccountFlowsService {
     );
   }
 
+  /**
+   * Re-sends the verification link to an address, without a session.
+   *
+   * Needed because verification now blocks sign-in: a user who never received
+   * the first email has no way to authenticate, so the authenticated resend is
+   * unreachable to exactly the people who need it.
+   *
+   * Silent about whether the address exists or is already verified, for the
+   * same reason forgot-password is.
+   */
+  async requestVerificationEmail(email: string): Promise<void> {
+    const normalized = email.trim().toLowerCase();
+    const user = await this.users.findByEmail(normalized);
+    if (!user || user.email_verified_at) {
+      this.logger.log('Verification resend requested for an unknown or already-verified address');
+      return;
+    }
+    await this.sendVerificationEmail(user.id);
+  }
+
   /** Redeems a verification link. */
   async verifyEmail(token: string): Promise<{ verified: boolean }> {
     const userId = await this.tokens.redeem(token, 'verify_email');

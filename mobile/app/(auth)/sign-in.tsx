@@ -39,6 +39,15 @@ export default function SignInScreen() {
       {
         onSuccess: () => router.replace('/(app)/(tabs)'),
         onError: (err: any) => {
+          // Signing in is blocked until the address is confirmed, so the
+          // useful destination is the resend screen, not an error banner.
+          if (err?.code === 'EMAIL_NOT_VERIFIED') {
+            router.push({
+              pathname: '/check-inbox',
+              params: { email: err.email ?? email.trim() },
+            });
+            return;
+          }
           const msg = err?.reason || err?.message || 'Sign in failed. Please check your credentials.';
           setErrorMsg(msg);
         },

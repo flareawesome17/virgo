@@ -79,6 +79,25 @@ export class AuthController {
     return this.accounts.resetPassword(dto.token, dto.password);
   }
 
+  /**
+   * Re-sends the confirmation link to an address, no session required.
+   *
+   * The authenticated resend is unreachable once verification blocks sign-in,
+   * which is precisely when someone needs it. Always 202, so it cannot be used
+   * to discover which addresses are registered.
+   */
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @HttpCode(202)
+  @Post('request-verification')
+  async requestVerification(@Body() dto: ForgotPasswordDto) {
+    await this.accounts.requestVerificationEmail(dto.email);
+    return {
+      accepted: true,
+      message: 'If that address needs confirming, a new link is on its way.',
+    };
+  }
+
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(200)

@@ -30,6 +30,14 @@ export class AuthError extends Error {
   /** HTTP status, when the failure came from the API. 0 means transport. */
   status?: number;
   /**
+   * Machine-readable reason, when the API gave one. EMAIL_NOT_VERIFIED is the
+   * one that matters: it needs a "confirm your email" prompt, not the generic
+   * error banner.
+   */
+  code?: string;
+  /** The address the API named, so a resend needs no second ask. */
+  email?: string;
+  /**
    * Kept because screens read `err.reason` first. It must stay human-readable:
    * putting the status code here made the sign-in screen display "401".
    */
@@ -70,7 +78,13 @@ function toAuthError(err: unknown): AuthError {
         err.status,
       );
     }
-    return new AuthError(err.message, err.status);
+    const error = new AuthError(err.message, err.status);
+    const body = err.body as { code?: string; email?: string } | undefined;
+    if (body && typeof body === 'object') {
+      error.code = body.code;
+      error.email = body.email;
+    }
+    return error;
   }
   return new AuthError('Something went wrong. Please try again.');
 }
