@@ -109,6 +109,7 @@ export {
 } from '@/src/hooks/useChat'
 
 export { useNotificationRouting } from '@/src/hooks/useNotificationRouting'
+export { useRealtime } from '@/src/hooks/useRealtime'
 
 export {
   useLocationSharing,

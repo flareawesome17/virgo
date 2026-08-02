@@ -16,6 +16,7 @@ import { FriendsModule } from './friends/friends.module';
 import { HealthModule } from './health/health.module';
 import { QuotaModule } from './quota/quota.module';
 import { MailModule } from './mail/mail.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { ScheduleEventsModule } from './schedule-events/schedule-events.module';
 import { ServicesModule } from './services/services.module';
@@ -34,6 +35,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     DatabaseModule,
     QuotaModule,
     MailModule,
+    RealtimeModule,
     AuthModule,
     HealthModule,
     WorkspacesModule,

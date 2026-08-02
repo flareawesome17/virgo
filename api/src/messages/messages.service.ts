@@ -7,6 +7,7 @@ import {
 import { DatabaseService } from '../database/database.service';
 import { FriendsService } from '../friends/friends.service';
 import { PushService } from '../notifications/push.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 export interface ConversationSummary {
   id: string;
@@ -95,7 +96,17 @@ export class MessagesService {
     private readonly db: DatabaseService,
     private readonly friends: FriendsService,
     private readonly push: PushService,
+    private readonly realtime: RealtimeGateway,
   ) {}
+
+  /** Everyone in a conversation, for fan-out. */
+  private async participantIds(conversationId: string): Promise<string[]> {
+    const rows = await this.db.query<{ user_id: string }>(
+      'select user_id from conversation_participants where conversation_id = $1',
+      [conversationId],
+    );
+    return rows.map((r) => r.user_id);
+  }
 
   private async assertFriends(userId: string, otherIds: string[]): Promise<void> {
     for (const id of otherIds) {
@@ -572,6 +583,12 @@ export class MessagesService {
           where id = $1 and deleted_at is null`,
         [messageId],
       );
+      this.realtime.emitToUsers(await this.participantIds(conversationId), {
+        type: 'message-deleted',
+        conversationId,
+        messageId,
+        scope,
+      });
       return { deleted: true, scope };
     }
 
@@ -580,6 +597,13 @@ export class MessagesService {
        on conflict do nothing`,
       [messageId, userId],
     );
+    // Only the caller: hiding a message for yourself changes nobody else's view.
+    this.realtime.emitToUsers([userId], {
+      type: 'message-deleted',
+      conversationId,
+      messageId,
+      scope,
+    });
     return { deleted: true, scope };
   }
 
@@ -631,6 +655,15 @@ export class MessagesService {
       conversationId,
     ]);
 
+    // Live first: an open client should see the message now, not after the
+    // push round trip. Muting does not apply here — it silences interruptions,
+    // and a thread you are looking at is not an interruption.
+    this.realtime.emitToUsers(await this.participantIds(conversationId), {
+      type: 'message',
+      conversationId,
+      message: row,
+    });
+
     await this.notify(userId, conversationId, text, mentions);
     return row!;
   }
@@ -643,6 +676,13 @@ export class MessagesService {
         where conversation_id = $1 and user_id = $2`,
       [conversationId, userId],
     );
+
+    this.realtime.emitToUsers(await this.participantIds(conversationId), {
+      type: 'read',
+      conversationId,
+      userId,
+      at: new Date().toISOString(),
+    });
     return { read: true };
   }
 

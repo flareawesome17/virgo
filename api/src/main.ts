@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module';
 import { DatabaseService } from './database/database.service';
 import { runMigrations } from './database/migrator';
@@ -44,6 +45,10 @@ async function bootstrap(): Promise<void> {
     bufferLogs: false,
   });
   const config = app.get(ConfigService);
+
+  // Plain `ws`, not socket.io: React Native and the browser both speak the
+  // WebSocket protocol natively, so no client library is needed on either.
+  app.useWebSocketAdapter(new WsAdapter(app));
 
   // Behind a Cloudflare Tunnel there is exactly one hop in front of us
   // (cloudflared), so trust a single proxy — `true` would trust an

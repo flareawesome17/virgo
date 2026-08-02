@@ -3,6 +3,7 @@ import { Redirect, Stack } from 'expo-router';
 import {
   useAuth,
   useMessageAlerts,
+  useRealtime,
   useNotificationRouting,
   usePushRegistration,
   useReminderNotifications,
@@ -90,6 +91,7 @@ function NotificationServices() {
   usePushRegistration(true);
   useNotificationRouting(true);
   useMessageAlerts(true);
+  useRealtime(true);
 
   return null;
 }

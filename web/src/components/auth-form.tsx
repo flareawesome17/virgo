@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth, type AuthError } from '@/hooks/useAuth';
 import { ThemeToggle } from '@/components/theme-toggle';
 
@@ -31,6 +32,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [displayName, setDisplayName] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
   const [showPassword, setShowPassword] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /**
    * Set when the API refuses the session because the address is unconfirmed.
@@ -67,14 +69,27 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     if (isAuthenticated) router.replace(next);
   }, [isAuthenticated, next, router]);
 
+  /**
+   * Everything sign-up requires. Kept as a list so the button can be disabled
+   * *and* the reason can be named — a greyed-out button with no explanation is
+   * the worst version of a required field.
+   */
+  const missing = isSignUp
+    ? [
+        !email.trim() && 'an email address',
+        password.length < 8 && 'a password of at least 8 characters',
+        roles.length === 0 && 'at least one role',
+        !acceptedTerms && 'the Terms and Privacy Policy',
+      ].filter(Boolean as unknown as (v: unknown) => v is string)
+    : [];
+  const canSubmit = isSignUp
+    ? missing.length === 0
+    : !!email.trim() && password.length > 0;
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setError(null);
 
-    if (isSignUp && roles.length === 0) {
-      setError('Choose at least one role so collaborators know what you do.');
-      return;
-    }
 
     const payload = isSignUp
       ? {
@@ -247,7 +262,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
                 {isSignUp && (
                   <div className="grid gap-2">
                     <Label>
-                      What do you do?{' '}
+                      What do you do? <span className="text-destructive">*</span>{' '}
                       <span className="font-normal text-muted-foreground">
                         Pick every one that applies
                       </span>
@@ -280,7 +295,48 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
                         );
                       })}
                     </div>
+                    <p
+                      className={cn(
+                        'text-xs',
+                        roles.length === 0 ? 'text-destructive' : 'text-muted-foreground',
+                      )}
+                    >
+                      {roles.length === 0
+                        ? 'Required — choose at least one.'
+                        : `${roles.length} selected`}
+                    </p>
                   </div>
+                )}
+
+                {isSignUp && (
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3">
+                    <Checkbox
+                      checked={acceptedTerms}
+                      onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                      className="mt-0.5"
+                    />
+                    <span className="text-xs leading-relaxed text-muted-foreground">
+                      I have read and agree to the{' '}
+                      {/* target=_blank so ticking the box is not lost to a
+                          navigation away from a half-filled form. */}
+                      <Link
+                        href="/legal"
+                        target="_blank"
+                        className="font-semibold text-primary hover:underline"
+                      >
+                        Terms of Service
+                      </Link>{' '}
+                      and{' '}
+                      <Link
+                        href="/legal?tab=privacy"
+                        target="_blank"
+                        className="font-semibold text-primary hover:underline"
+                      >
+                        Privacy Policy
+                      </Link>
+                      . <span className="text-destructive">*</span>
+                    </span>
+                  </label>
                 )}
 
                 {error && (
@@ -292,10 +348,22 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
                   </p>
                 )}
 
-                <Button type="submit" disabled={mutation.isPending} className="mt-1">
+                <Button
+                  type="submit"
+                  disabled={mutation.isPending || !canSubmit}
+                  className="mt-1"
+                >
                   {mutation.isPending && <Loader2 className="size-4 animate-spin" />}
                   {isSignUp ? 'Create account' : 'Sign in'}
                 </Button>
+
+                {/* Says what is still missing rather than leaving a dead
+                    button to be puzzled over. */}
+                {isSignUp && missing.length > 0 && (
+                  <p className="text-center text-xs text-muted-foreground">
+                    Still needed: {missing.join(', ')}.
+                  </p>
+                )}
               </form>
             </CardContent>
           </Card>

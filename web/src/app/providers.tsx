@@ -6,6 +6,9 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { queryClient } from '@/lib/queryClient';
 import type { ReactNode } from 'react';
+import { useMessageAlerts } from '@/hooks/useChat';
+import { useRealtime } from '@/hooks/useRealtime';
+import { useAuth } from '@/hooks/useAuth';
 
 /**
  * Everything the client tree needs.
@@ -32,10 +35,25 @@ export function Providers({ children }: { children: ReactNode }) {
     >
       <QueryClientProvider client={queryClient}>
         <TooltipProvider delayDuration={300}>
+          <RealtimeBridge />
           {children}
           <Toaster position="bottom-right" richColors closeButton />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );
+}
+
+/**
+ * Holds the live connection and the unread-count alerts open for the whole
+ * session.
+ *
+ * A component rather than hooks in Providers because both need the session,
+ * which only exists inside QueryClientProvider.
+ */
+function RealtimeBridge() {
+  const { isAuthenticated } = useAuth();
+  useRealtime(isAuthenticated);
+  useMessageAlerts(isAuthenticated);
+  return null;
 }

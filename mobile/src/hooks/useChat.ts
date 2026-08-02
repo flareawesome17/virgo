@@ -28,7 +28,9 @@ export function useConversations(q?: string) {
   const query = useQuery({
     queryKey: chatKeys.conversations(term),
     queryFn: () => chatApi.conversations(term),
-    refetchInterval: 15_000,
+    // A slow safety net: the WebSocket delivers new messages, so this only
+    // has to catch what a dropped connection missed.
+    refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   });
   return { ...query, conversations: query.data?.data ?? [] };
@@ -39,7 +41,7 @@ export function useUnreadCount() {
   const query = useQuery({
     queryKey: chatKeys.unread,
     queryFn: () => chatApi.unread(),
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
   });
   return query.data?.count ?? 0;
 }
@@ -67,8 +69,8 @@ export function useThread(conversationId: string | undefined) {
     queryKey: chatKeys.thread(conversationId ?? ''),
     queryFn: () => chatApi.messages(conversationId!),
     enabled: !!conversationId,
-    // Faster than the list: an open thread is where a reply is expected.
-    refetchInterval: 8_000,
+    // The socket pushes new messages; this only backstops a dropped one.
+    refetchInterval: 45_000,
   });
 
   /**
