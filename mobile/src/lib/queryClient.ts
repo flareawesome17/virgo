@@ -72,17 +72,49 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // Persist Options
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Bump this when a cached response's shape changes.
+ *
+ * The persisted cache outlives an app update, so a payload that changed
+ * server-side meets client code expecting the old one. Renaming a price field
+ * did exactly that: phones kept a catalogue on disk and priced Freelance at
+ * ₱25 — the old amount — for a day after the change. Changing the buster
+ * throws the whole persisted cache away on next launch.
+ */
+const CACHE_VERSION = 'v2-prices-in-centavos'
+
+/**
+ * Never written to disk, whatever their staleTime says.
+ *
+ * Matched against the real key each hook uses — `['me', 'usage']` is the
+ * quota reading, not `['usage']`, and a guess would have silently kept
+ * persisting it.
+ */
+function isPerishable(queryKey: readonly unknown[]): boolean {
+  const [root, second] = queryKey
+  // Auth, for security — a session should not be readable from storage.
+  if (root === 'auth') return true
+  // Prices and what the current plan is. Showing a stale price is not a
+  // cosmetic problem: somebody who reads ₱25 can reasonably expect to pay ₱25.
+  // Both are small and quick to fetch, so there is nothing to gain by keeping
+  // them on disk.
+  if (root === 'plans' || root === 'billing') return true
+  // ['me', 'usage'] — the plan and its limits.
+  if (root === 'me' && second === 'usage') return true
+  return false
+}
+
 export const persistOptions = {
   persister: asyncStoragePersister,
   // Maximum age of persisted data (24 hours)
   maxAge: 1000 * 60 * 60 * 24,
+  buster: CACHE_VERSION,
   // Only persist successful queries
   dehydrateOptions: {
     shouldDehydrateQuery: (query: any) => {
       // Don't persist queries with errors
       if (query.state.status === 'error') return false
-      // Don't persist auth queries (security)
-      if (query.queryKey[0] === 'auth') return false
+      if (isPerishable(query.queryKey)) return false
       return true
     },
   },

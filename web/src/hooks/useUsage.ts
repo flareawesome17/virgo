@@ -8,14 +8,20 @@ export const plansQueryKey = ['plans'] as const;
  * The plans on offer.
  *
  * Fetched rather than hardcoded so the screen cannot advertise limits the
- * server does not actually grant. Cached for the session — tiers change on
- * deploys, not between screens.
+ * server does not actually grant.
+ *
+ * Deliberately NOT cached for the session, which is what it used to do.
+ * These are prices: somebody who reads ₱25 can reasonably expect to pay
+ * ₱25, and an immortal cache kept exactly that on screen for a day after
+ * the price changed. Refetched on every mount, and never written to disk
+ * — see isPerishable in lib/queryClient.
  */
 export function usePlans() {
   const query = useQuery({
     queryKey: plansQueryKey,
     queryFn: () => usageApi.plans(),
-    staleTime: Infinity,
+    staleTime: 60_000,
+    refetchOnMount: 'always',
   });
   return { ...query, plans: query.data?.data ?? [] };
 }
