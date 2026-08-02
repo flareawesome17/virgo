@@ -224,6 +224,36 @@ export function collaboratorInvite(options: {
   };
 }
 
+export function eventInvite(options: {
+  inviterName: string;
+  eventTitle: string;
+  /** Already formatted for reading — "Fri 14 Mar at 09:00". */
+  when: string;
+  url: string;
+}): RenderedEmail {
+  const intro = `${options.inviterName} invited you to “${options.eventTitle}” on ${options.when}. Let them know whether you can make it.`;
+  return {
+    subject: `${options.inviterName} invited you to ${options.eventTitle}`,
+    html: layout({
+      heading: 'You have been invited to an event',
+      intro,
+      cta: { label: 'Accept or decline', url: options.url },
+      fineprint: [
+        'Accepting adds it to your schedule. Declining tells the organiser you cannot make it.',
+      ],
+    }),
+    text: [
+      'You have been invited to an event',
+      '',
+      intro,
+      '',
+      options.url,
+      '',
+      'Accepting adds it to your schedule.',
+    ].join('\n'),
+  };
+}
+
 export function friendRequest(options: {
   requesterName: string;
   url: string;

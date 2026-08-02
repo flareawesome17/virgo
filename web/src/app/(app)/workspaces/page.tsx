@@ -113,7 +113,7 @@ function WorkspacesContent() {
   const [creating, setCreating] = useState(false);
 
   const { workspaces, isLoading } = useWorkspaces({ limit: 100 });
-  const { albums } = useAlbums({ limit: 200 });
+  const { albums } = useAlbums({ limit: 100 });
   const { atWorkspaceLimit, usage } = useUsage();
 
   // ?new=1 opens the dialog, so "New workspace" links from anywhere land here

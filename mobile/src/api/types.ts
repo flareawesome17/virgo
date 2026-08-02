@@ -51,6 +51,41 @@ export interface ScheduleEvent {
   event_time: string | null;
   event_type: EventType;
   created_at: string;
+  /**
+   * False when you are attending somebody else's event.
+   *
+   * Optional because only the read paths return it — a freshly created event
+   * comes back from the insert, which has nobody else's invitation to consider.
+   */
+  is_owner?: boolean;
+}
+
+export type AttendeeStatus = 'pending' | 'accepted' | 'declined';
+
+/** Somebody invited to an event, and what they said. */
+export interface EventAttendee {
+  id: string;
+  event_id: string;
+  user_id: string;
+  name: string;
+  avatar_url: string | null;
+  status: AttendeeStatus;
+  responded_at: string | null;
+  invited_by: string;
+}
+
+/** An invitation addressed to you, with enough of the event to decide. */
+export interface EventInvitation {
+  id: string;
+  event_id: string;
+  status: AttendeeStatus;
+  title: string;
+  description: string | null;
+  event_date: string;
+  event_time: string | null;
+  event_type: EventType;
+  inviter_name: string;
+  created_at: string;
 }
 
 export type CollaboratorRole =

@@ -19,6 +19,7 @@ import {
   CircleIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { EventInvitationsCard } from '@/components';
 import {
   DAYS,
   MONTHS,
@@ -196,6 +197,10 @@ export default function ScheduleScreen() {
             </View>
           ))}
         </View>
+
+        {/* Invitations — renders nothing when there are none, so the usual
+            day is unchanged. Above the agenda because it needs a decision. */}
+        <EventInvitationsCard />
 
         {/* Selected Day Agenda */}
         <View className="px-5 mt-5">

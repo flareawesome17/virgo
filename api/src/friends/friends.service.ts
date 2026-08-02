@@ -5,7 +5,9 @@ import {
 } from '@nestjs/common';
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { DatabaseService } from '../database/database.service';
-import { PushService } from '../notifications/push.service';
+import { MailConfig } from '../mail/mail.config';
+import { friendRequest } from '../mail/mail.templates';
+import { NotifyService } from '../notifications/notify.service';
 import { generateId } from '../common/id';
 import { FriendRow, FriendsRepository } from './friends.repository';
 
@@ -32,7 +34,8 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
   constructor(
     private readonly friends: FriendsRepository,
     private readonly db: DatabaseService,
-    private readonly push: PushService,
+    private readonly notifier: NotifyService,
+    private readonly mailConfig: MailConfig,
   ) {
     super(friends, 'Friend');
   }
@@ -228,10 +231,15 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
       return rows[0];
     });
 
-    await this.notify(target.id, {
+    await this.notifier.notify([target.id], {
+      topic: 'friend-request',
       title: 'New friend request',
       body: `${this.nameFor(me)} wants to connect on Virgo`,
       data: { type: 'friend_request', fromUserId: userId },
+      email: friendRequest({
+        requesterName: this.nameFor(me),
+        url: `${this.mailConfig.appUrl}/network`,
+      }),
     });
 
     return { status: 'pending', friend: mine };
@@ -283,9 +291,12 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
       return rows[0];
     });
 
+    // Declining is deliberately silent. "X declined your request" is a message
+    // nobody benefits from receiving.
     if (status === 'accepted' && mine.friend_user_id) {
       const me = await this.accountById(userId);
-      await this.notify(mine.friend_user_id, {
+      await this.notifier.notify([mine.friend_user_id], {
+        topic: 'friend-accepted',
         title: 'Friend request accepted',
         body: `${me ? this.nameFor(me) : 'Someone'} accepted your request`,
         data: { type: 'friend_accepted', fromUserId: userId },
@@ -293,33 +304,5 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
     }
 
     return updated;
-  }
-
-  /**
-   * Best-effort push.
-   *
-   * Never throws: a delivery failure must not roll back a friendship that is
-   * already recorded, nor fail the request that created it.
-   */
-  private async notify(
-    userId: string,
-    message: { title: string; body: string; data: Record<string, unknown> },
-  ): Promise<void> {
-    try {
-      const tokens = await this.push.tokensFor(userId);
-      if (tokens.length === 0) return;
-      await this.push.send(
-        tokens.map((to) => ({
-          to,
-          title: message.title,
-          body: message.body,
-          channelId: 'reminders',
-          sound: 'default' as const,
-          data: message.data,
-        })),
-      );
-    } catch {
-      // Swallowed on purpose — see above.
-    }
   }
 }

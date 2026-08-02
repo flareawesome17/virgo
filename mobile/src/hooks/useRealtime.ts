@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   API_BASE_URL,
   getAccessToken,
   hydrateTokens,
+  queryKeys,
   type ConversationMessage,
   type Thread,
 } from '@/src/api';
@@ -12,13 +13,60 @@ import { chatKeys, getOpenConversation } from '@/src/hooks/useChat';
 import { useAuth } from '@/src/hooks/useAuth';
 import { buzzForMessage } from '@/src/lib/notifications';
 
+/** Mirrors NotificationTopic on the server. */
+type NotificationTopic =
+  | 'friend-request'
+  | 'friend-accepted'
+  | 'collaborator-invite'
+  | 'collaborator-response'
+  | 'event-invite'
+  | 'event-response'
+  | 'reminder';
+
 type ServerEvent =
   | { type: 'ready'; userId: string }
   | { type: 'message'; conversationId: string; message: ConversationMessage }
   | { type: 'message-deleted'; conversationId: string; messageId: string; scope: 'me' | 'everyone' }
   | { type: 'read'; conversationId: string; userId: string; at: string }
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
-  | { type: 'conversation'; conversationId: string };
+  | { type: 'conversation'; conversationId: string }
+  | {
+      type: 'notification';
+      topic: NotificationTopic;
+      title: string;
+      body: string;
+      data: Record<string, unknown>;
+      at: string;
+    };
+
+/**
+ * What each topic makes stale.
+ *
+ * The screen showing it is already open often enough that refetching is the
+ * whole job here — unlike the web, the OS notification is the push channel's
+ * responsibility, not this hook's.
+ */
+const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
+  'friend-request': [queryKeys.friends.all],
+  'friend-accepted': [queryKeys.friends.all],
+  'collaborator-invite': [queryKeys.collaborators.all, queryKeys.workspaces.all],
+  'collaborator-response': [queryKeys.collaborators.all, queryKeys.workspaces.all],
+  'event-invite': [queryKeys.scheduleEvents.all],
+  'event-response': [queryKeys.scheduleEvents.all],
+  reminder: [queryKeys.reminders.all],
+};
+
+function applyNotification(
+  event: Extract<ServerEvent, { type: 'notification' }>,
+  queryClient: QueryClient,
+): void {
+  for (const key of TOPIC_KEYS[event.topic] ?? []) {
+    queryClient.invalidateQueries({ queryKey: key });
+  }
+  // A buzz, not a local notification: the push for this is already in flight,
+  // and posting one here would show the same thing twice.
+  void buzzForMessage();
+}
 
 /** http(s) -> ws(s), same host. */
 function socketUrl(): string {
@@ -26,7 +74,7 @@ function socketUrl(): string {
 }
 
 /**
- * Live chat over a WebSocket.
+ * Live chat and notifications over a WebSocket.
  *
  * Polling still runs underneath — see useChat — but slowly. This is an
  * accelerator, not the source of truth: every event it delivers is something
@@ -92,6 +140,9 @@ export function useRealtime(enabled: boolean): void {
           break;
         case 'conversation':
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          break;
+        case 'notification':
+          applyNotification(event, queryClient);
           break;
       }
     };

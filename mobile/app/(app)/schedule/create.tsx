@@ -1,6 +1,12 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth, useCreateScheduleEvent, useWorkspaces, useTheme } from '@/src/hooks';
+import {
+  useAuth,
+  useCreateScheduleEvent,
+  useInviteToEvent,
+  useWorkspaces,
+  useTheme,
+} from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -8,7 +14,7 @@ import {
   CalendarDaysIcon, ClockIcon, CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { DateTimeField } from '@/components';
+import { DateTimeField, InvitePeoplePicker } from '@/components';
 import { dateToKey, dateToTimeString, parseDateKey } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -53,6 +59,7 @@ export default function CreateEventScreen() {
     initialWorkspaceId ?? null,
   );
   const [showWsPicker, setShowWsPicker] = useState(false);
+  const [guests, setGuests] = useState<string[]>([]);
 
   const { workspaces } = useWorkspaces(
     { orderBy: 'name', direction: 'asc', limit: 100 },
@@ -63,6 +70,7 @@ export default function CreateEventScreen() {
   const canSave = title.trim().length > 0;
 
   const createEvent = useCreateScheduleEvent();
+  const inviteToEvent = useInviteToEvent();
 
   const handleCreate = () => {
     createEvent.mutate(
@@ -77,7 +85,24 @@ export default function CreateEventScreen() {
         ...(selectedWsId ? { workspace_id: selectedWsId } : {}),
       },
       {
-        onSuccess: (event) => router.replace(`/schedule/${event.id}`),
+        onSuccess: (event) => {
+          // A second call on purpose: the event exists either way, so a failure
+          // here costs the invitations, not the shoot. The detail screen the
+          // user lands on shows who was actually invited.
+          if (guests.length > 0) {
+            inviteToEvent.mutate(
+              { eventId: event.id, userIds: guests },
+              {
+                onError: (err: any) =>
+                  Alert.alert(
+                    'Event created, but the invitations failed',
+                    err?.message || 'Try inviting them from the event.',
+                  ),
+              },
+            );
+          }
+          router.replace(`/schedule/${event.id}`);
+        },
         // Show what actually went wrong. A flat "Could not create event"
         // hides the difference between a validation problem, an expired
         // session and the server being unreachable — all of which need a
@@ -191,6 +216,20 @@ export default function CreateEventScreen() {
               ))}
             </View>
           )}
+        </View>
+
+        {/* Invitations */}
+        <View className="px-5 mt-5">
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+            Invite{' '}
+            <Text className="font-medium normal-case tracking-normal">
+              {guests.length > 0 ? `(${guests.length} selected)` : '(optional)'}
+            </Text>
+          </Text>
+          <Text className="text-muted-foreground text-xs mb-2 ml-1">
+            They choose whether to join. Accepting puts it on their calendar.
+          </Text>
+          <InvitePeoplePicker selected={guests} onChange={setGuests} />
         </View>
       </ScrollView>
 

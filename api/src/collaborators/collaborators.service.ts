@@ -6,7 +6,9 @@ import {
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { DatabaseService } from '../database/database.service';
 import { FriendsService } from '../friends/friends.service';
-import { PushService } from '../notifications/push.service';
+import { MailConfig } from '../mail/mail.config';
+import { collaboratorInvite } from '../mail/mail.templates';
+import { NotifyService } from '../notifications/notify.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
   CollaboratorRow,
@@ -20,7 +22,8 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     private readonly workspaces: WorkspacesService,
     private readonly friends: FriendsService,
     private readonly db: DatabaseService,
-    private readonly push: PushService,
+    private readonly notifier: NotifyService,
+    private readonly mailConfig: MailConfig,
   ) {
     super(collaborators, 'Collaborator');
   }
@@ -174,45 +177,59 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     return this.setSharedAlbums(userId, collaboratorId, row.workspace_id, albumIds);
   }
 
-  /** Tells the invitee. Best-effort: a push failure must not undo the invite. */
+  /** Tells the invitee. Best-effort: a failure must not undo the invite. */
   private async notifyInvitee(
     inviterId: string,
     inviteeId: string,
     workspaceId: string | undefined,
   ): Promise<void> {
     try {
-      const [inviter, workspace] = await Promise.all([
-        this.db.queryOne<{ display_name: string | null; email: string }>(
-          'select display_name, email from users where id = $1',
-          [inviterId],
-        ),
-        workspaceId
-          ? this.db.queryOne<{ name: string }>(
-              'select name from workspaces where id = $1',
-              [workspaceId],
-            )
-          : Promise.resolve(null),
-      ]);
-
-      const who = inviter?.display_name?.trim() || inviter?.email.split('@')[0] || 'Someone';
-      const what = workspace?.name ? `“${workspace.name}”` : 'a workspace';
-
-      const tokens = await this.push.tokensFor(inviteeId);
-      if (tokens.length === 0) return;
-
-      await this.push.send(
-        tokens.map((to) => ({
-          to,
-          title: 'Workspace invitation',
-          body: `${who} invited you to ${what}`,
-          channelId: 'reminders',
-          sound: 'default' as const,
-          data: { type: 'collaborator_invite', workspaceId },
-        })),
+      const { who, what, workspaceName } = await this.describe(
+        inviterId,
+        workspaceId,
       );
+
+      await this.notifier.notify([inviteeId], {
+        topic: 'collaborator-invite',
+        title: 'Workspace invitation',
+        body: `${who} invited you to ${what}`,
+        data: { type: 'collaborator_invite', workspaceId },
+        // An invitation is worth reaching someone who is not in the app.
+        email: collaboratorInvite({
+          inviterName: who,
+          workspaceName: workspaceName ?? 'a workspace',
+          role: 'a collaborator',
+          url: `${this.mailConfig.appUrl}/network`,
+        }),
+      });
     } catch {
       // Swallowed on purpose — see above.
     }
+  }
+
+  /** The inviter's name and the workspace's, both safe to interpolate. */
+  private async describe(
+    userId: string,
+    workspaceId: string | undefined | null,
+  ): Promise<{ who: string; what: string; workspaceName: string | null }> {
+    const [user, workspace] = await Promise.all([
+      this.db.queryOne<{ display_name: string | null; email: string }>(
+        'select display_name, email from users where id = $1',
+        [userId],
+      ),
+      workspaceId
+        ? this.db.queryOne<{ name: string }>(
+            'select name from workspaces where id = $1',
+            [workspaceId],
+          )
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      who: user?.display_name?.trim() || user?.email.split('@')[0] || 'Someone',
+      what: workspace?.name ? `“${workspace.name}”` : 'a workspace',
+      workspaceName: workspace?.name ?? null,
+    };
   }
 
   /** Invitations addressed to the caller and not yet answered. */
@@ -258,6 +275,26 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
         returning *`,
       [id, accept ? 'accepted' : 'declined'],
     );
+
+    // The inviter was told nothing at all before this, so a workspace could
+    // gain — or fail to gain — a collaborator with no sign either way.
+    try {
+      const { who, what } = await this.describe(userId, row.workspace_id);
+      await this.notifier.notify([row.user_id], {
+        topic: 'collaborator-response',
+        title: accept ? 'Invitation accepted' : 'Invitation declined',
+        body: `${who} ${accept ? 'joined' : 'declined'} ${what}`,
+        data: {
+          type: 'collaborator_response',
+          workspaceId: row.workspace_id,
+          collaboratorId: row.id,
+          accepted: accept,
+        },
+      });
+    } catch {
+      // Best-effort, as everywhere else here.
+    }
+
     return updated!;
   }
 

@@ -27,6 +27,9 @@ export const queryKeys = {
     list: (params?: unknown) =>
       ['schedule-events', 'list', params ?? {}] as const,
     detail: (id: string) => ['schedule-events', 'detail', id] as const,
+    /** Invitations addressed to the signed-in user. */
+    invitations: ['schedule-events', 'invitations'] as const,
+    attendees: (id: string) => ['schedule-events', 'attendees', id] as const,
   },
   collaborators: {
     all: ['collaborators'] as const,

@@ -5,11 +5,15 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Bell,
   CalendarDays,
+  Check,
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Mail,
   Plus,
   Trash2,
+  Users,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -40,8 +44,16 @@ import {
 import {
   useCreateScheduleEvent,
   useDeleteScheduleEvent,
+  useEventInvitations,
+  useInviteToEvent,
+  useRespondToEventInvitation,
   useScheduleEvents,
 } from '@/hooks/useScheduleEvents';
+import {
+  AttendeeSummary,
+  InvitePeople,
+  ManageAttendeesDialog,
+} from '@/components/event-invites';
 import { useCreateReminder, useDeleteReminder, useReminders } from '@/hooks/useReminders';
 import {
   DAYS,
@@ -56,6 +68,9 @@ import type { EventType } from '@/api';
 
 const EVENT_TYPES: EventType[] = ['shoot', 'editing', 'review', 'delivery', 'meeting'];
 
+/** Tab values that ?tab= may name. Anything else is ignored. */
+const TABS = ['day', 'upcoming', 'invites', 'reminders'];
+
 function NewEventDialog({
   open,
   onOpenChange,
@@ -66,11 +81,13 @@ function NewEventDialog({
   defaultDate: string;
 }) {
   const create = useCreateScheduleEvent();
+  const invite = useInviteToEvent();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(defaultDate);
   const [time, setTime] = useState('');
   const [type, setType] = useState<EventType>('shoot');
+  const [guests, setGuests] = useState<string[]>([]);
 
   useEffect(() => {
     if (open) setDate(defaultDate);
@@ -88,11 +105,29 @@ function NewEventDialog({
         event_type: type,
       },
       {
-        onSuccess: () => {
+        onSuccess: (event) => {
+          // Invitations are a second call on purpose: the event exists either
+          // way, so a failure here loses the invitations, not the shoot.
+          if (guests.length > 0) {
+            invite.mutate(
+              { eventId: event.id, userIds: guests },
+              {
+                onSuccess: ({ invited }) =>
+                  toast.success(
+                    `Event created · invited ${invited} ${invited === 1 ? 'person' : 'people'}`,
+                  ),
+                onError: (err: Error) =>
+                  toast.error('Event created, but the invitations failed', {
+                    description: err.message,
+                  }),
+              },
+            );
+          }
           onOpenChange(false);
           setTitle('');
           setDescription('');
           setTime('');
+          setGuests([]);
         },
         onError: (err: Error) =>
           toast.error('Could not create event', { description: err.message }),
@@ -168,6 +203,21 @@ function NewEventDialog({
               placeholder="Optional"
               rows={3}
             />
+          </div>
+
+          <div className="grid gap-2 border-t pt-3">
+            <Label>
+              Invite collaborators
+              {guests.length > 0 && (
+                <span className="ml-1 font-normal text-muted-foreground">
+                  · {guests.length} selected
+                </span>
+              )}
+            </Label>
+            <p className="-mt-1 text-xs text-muted-foreground">
+              They choose whether to join. Accepting puts it on their calendar.
+            </p>
+            <InvitePeople selected={guests} onChange={setGuests} />
           </div>
         </div>
 
@@ -264,6 +314,110 @@ function NewReminderDialog({
   );
 }
 
+/**
+ * Invitations waiting on an answer.
+ *
+ * Its own tab rather than inline on the day: an invitation is not yet part of
+ * your schedule, and showing it beside events you have actually committed to
+ * would blur the one thing that matters about it — that it needs a decision.
+ */
+function InvitationsTab() {
+  const { invitations, isLoading } = useEventInvitations();
+  const respond = useRespondToEventInvitation();
+  /** Which invitation is mid-flight, so only its buttons show a spinner. */
+  const [answering, setAnswering] = useState<string | null>(null);
+
+  const answer = (eventId: string, accept: boolean, title: string) => {
+    setAnswering(eventId);
+    respond.mutate(
+      { eventId, accept },
+      {
+        onSuccess: () =>
+          toast.success(accept ? `You’re going to ${title}` : 'Invitation declined'),
+        onError: (err: Error) =>
+          toast.error('Could not send your answer', { description: err.message }),
+        onSettled: () => setAnswering(null),
+      },
+    );
+  };
+
+  if (isLoading && invitations.length === 0) return <ListSkeleton rows={2} />;
+
+  if (invitations.length === 0) {
+    return (
+      <Card>
+        <EmptyState
+          icon={Mail}
+          title="No invitations"
+          description="When someone invites you to a shoot, it lands here."
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <ul className="flex flex-col gap-2">
+      {invitations.map((invitation) => (
+        <li key={invitation.id}>
+          <Card className="border-primary/30">
+            <CardContent className="py-3">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{invitation.title}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {labelForDateKey(invitation.event_date)}
+                    {invitation.event_time
+                      ? ` · ${formatTime(invitation.event_time)}`
+                      : ''}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Invited by {invitation.inviter_name}
+                  </p>
+                </div>
+                <Badge variant="secondary" className="shrink-0 capitalize">
+                  {invitation.event_type}
+                </Badge>
+              </div>
+
+              {invitation.description && (
+                <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                  {invitation.description}
+                </p>
+              )}
+
+              <div className="mt-3 flex gap-2">
+                <Button
+                  size="sm"
+                  className="flex-1"
+                  disabled={answering === invitation.event_id}
+                  onClick={() => answer(invitation.event_id, true, invitation.title)}
+                >
+                  {answering === invitation.event_id ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Check className="size-3.5" />
+                  )}
+                  Accept
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  disabled={answering === invitation.event_id}
+                  onClick={() => answer(invitation.event_id, false, invitation.title)}
+                >
+                  <X className="size-3.5" />
+                  Decline
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ScheduleContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -273,6 +427,11 @@ function ScheduleContent() {
   const [cursor, setCursor] = useState(() => new Date());
   const [creatingEvent, setCreatingEvent] = useState(false);
   const [creatingReminder, setCreatingReminder] = useState(false);
+  /** The event whose guest list is open, if any. */
+  const [managing, setManaging] = useState<{ id: string; title: string } | null>(
+    null,
+  );
+  const [tab, setTab] = useState('day');
 
   // ?new=1 and ?date=… let links from anywhere land on the right day, already
   // open. Cleared afterwards so a refresh does not reopen the dialog.
@@ -283,10 +442,15 @@ function ScheduleContent() {
       setCursor(new Date(`${date}T00:00:00`));
     }
     if (searchParams.get('new') === '1') setCreatingEvent(true);
-    if (date || searchParams.get('new')) router.replace('/schedule');
+    // ?tab=invites is where an event-invite notification points, so tapping it
+    // lands on the decision rather than on the calendar.
+    const wanted = searchParams.get('tab');
+    if (wanted && TABS.includes(wanted)) setTab(wanted);
+    if (date || searchParams.get('new') || wanted) router.replace('/schedule');
   }, [searchParams, router]);
 
-  const { events, isLoading } = useScheduleEvents({ limit: 200 });
+  const { events, isLoading } = useScheduleEvents({ limit: 100 });
+  const { invitations } = useEventInvitations();
   const { reminders } = useReminders({ orderBy: 'reminder_time', direction: 'asc', limit: 100 });
   const removeEvent = useDeleteScheduleEvent();
   const removeReminder = useDeleteReminder();
@@ -407,13 +571,21 @@ function ScheduleContent() {
 
         {/* Day detail + lists */}
         <div className="min-w-0">
-          <Tabs defaultValue="day">
+          <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="w-full">
               <TabsTrigger value="day" className="flex-1">
                 {labelForDateKey(selected)}
               </TabsTrigger>
               <TabsTrigger value="upcoming" className="flex-1">
                 Upcoming
+              </TabsTrigger>
+              <TabsTrigger value="invites" className="flex-1">
+                Invites
+                {invitations.length > 0 && (
+                  <span className="ml-1 rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">
+                    {invitations.length}
+                  </span>
+                )}
               </TabsTrigger>
               <TabsTrigger value="reminders" className="flex-1">
                 Reminders
@@ -435,36 +607,66 @@ function ScheduleContent() {
                 </Card>
               ) : (
                 <ul className="flex flex-col gap-2">
-                  {dayEvents.map((event) => (
-                    <li key={event.id}>
-                      <Card>
-                        <CardContent className="flex items-start gap-3 py-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold">{event.title}</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {event.event_time ? formatTime(event.event_time) : 'All day'}
-                            </p>
-                            {event.description && (
-                              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                                {event.description}
+                  {dayEvents.map((event) => {
+                    // Undefined on a just-created event, which is always yours.
+                    const mine = event.is_owner !== false;
+                    return (
+                      <li key={event.id}>
+                        <Card>
+                          <CardContent className="flex items-start gap-3 py-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold">{event.title}</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {event.event_time ? formatTime(event.event_time) : 'All day'}
                               </p>
-                            )}
-                          </div>
-                          <Badge variant="secondary" className="shrink-0 capitalize">
-                            {event.event_type}
-                          </Badge>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            aria-label="Delete event"
-                            onClick={() => removeEvent.mutate(event.id)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </CardContent>
-                      </Card>
-                    </li>
-                  ))}
+                              {event.description && (
+                                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                                  {event.description}
+                                </p>
+                              )}
+                              {mine && (
+                                <span className="mt-1 block">
+                                  <AttendeeSummary eventId={event.id} />
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                              <Badge variant="secondary" className="capitalize">
+                                {event.event_type}
+                              </Badge>
+                              {!mine && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  Guest
+                                </Badge>
+                              )}
+                            </div>
+                            {mine ? (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label="Manage who is invited"
+                                  onClick={() =>
+                                    setManaging({ id: event.id, title: event.title })
+                                  }
+                                >
+                                  <Users className="size-3.5" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label="Delete event"
+                                  onClick={() => removeEvent.mutate(event.id)}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </>
+                            ) : null}
+                          </CardContent>
+                        </Card>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </TabsContent>
@@ -501,6 +703,10 @@ function ScheduleContent() {
                   ))}
                 </ul>
               )}
+            </TabsContent>
+
+            <TabsContent value="invites" className="mt-4">
+              <InvitationsTab />
             </TabsContent>
 
             <TabsContent value="reminders" className="mt-4">
@@ -558,6 +764,14 @@ function ScheduleContent() {
         defaultDate={selected}
       />
       <NewReminderDialog open={creatingReminder} onOpenChange={setCreatingReminder} />
+      {managing && (
+        <ManageAttendeesDialog
+          eventId={managing.id}
+          eventTitle={managing.title}
+          open
+          onOpenChange={(next) => !next && setManaging(null)}
+        />
+      )}
     </AppShell>
   );
 }

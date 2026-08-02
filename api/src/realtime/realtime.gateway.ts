@@ -5,6 +5,22 @@ import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import type { Server, WebSocket } from 'ws';
 import type { JwtPayload } from '../auth/auth.service';
 
+/**
+ * What a notification is about.
+ *
+ * The client switches on this to decide which cached queries went stale, so
+ * adding a topic here means adding a case there — a topic nothing handles is
+ * still delivered, it just refreshes nothing.
+ */
+export type NotificationTopic =
+  | 'friend-request'
+  | 'friend-accepted'
+  | 'collaborator-invite'
+  | 'collaborator-response'
+  | 'event-invite'
+  | 'event-response'
+  | 'reminder';
+
 /** What the server pushes. Discriminated on `type`. */
 export type ServerEvent =
   | { type: 'ready'; userId: string }
@@ -12,7 +28,24 @@ export type ServerEvent =
   | { type: 'message-deleted'; conversationId: string; messageId: string; scope: 'me' | 'everyone' }
   | { type: 'read'; conversationId: string; userId: string; at: string }
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
-  | { type: 'conversation'; conversationId: string };
+  | { type: 'conversation'; conversationId: string }
+  /**
+   * Everything that is not chat: friend requests, invitations, reminders.
+   *
+   * One envelope rather than an event type per feature. Each of these needs
+   * the same three things on the client — refresh the affected list, show
+   * something, buzz — and a shared shape means a new notification is a new
+   * `topic`, not a new branch in every client.
+   */
+  | {
+      type: 'notification';
+      topic: NotificationTopic;
+      title: string;
+      body: string;
+      /** Whatever the tap handler needs to route; mirrors the push payload. */
+      data: Record<string, unknown>;
+      at: string;
+    };
 
 interface Session {
   socket: WebSocket;

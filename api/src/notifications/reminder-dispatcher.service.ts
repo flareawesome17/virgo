@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DatabaseService } from '../database/database.service';
-import { PushService, type PushMessage } from './push.service';
+import { NotifyService, type Delivery } from './notify.service';
 
 interface DueReminder {
   id: string;
@@ -19,6 +19,10 @@ interface DueReminder {
  * when the app has been force-quit, reinstalled, or is being used from a second
  * device. The device also schedules a local notification as a belt-and-braces
  * path for when it is offline; `data.reminderId` lets the client dedupe.
+ *
+ * Delivery goes through NotifyService, so a reminder reaches an open web tab
+ * over the socket as well — the web app has no Expo token and used to get
+ * nothing at all.
  */
 @Injectable()
 export class ReminderDispatcherService {
@@ -29,7 +33,7 @@ export class ReminderDispatcherService {
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly push: PushService,
+    private readonly notifier: NotifyService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -78,36 +82,19 @@ export class ReminderDispatcherService {
 
     if (due.length === 0) return { reminders: 0, sent: 0, failed: 0 };
 
-    // One token lookup per user rather than per reminder.
-    const byUser = new Map<string, DueReminder[]>();
-    for (const r of due) {
-      const list = byUser.get(r.user_id) ?? [];
-      list.push(r);
-      byUser.set(r.user_id, list);
-    }
+    const deliveries: Delivery[] = due.map((reminder) => ({
+      userId: reminder.user_id,
+      topic: 'reminder' as const,
+      title: reminder.title,
+      body: reminder.description ?? 'Reminder',
+      // The alarm channel carries sound and a higher importance; the quiet one
+      // does not. Both must exist on the device.
+      channelId: reminder.is_alarm_enabled ? ('alarms' as const) : ('reminders' as const),
+      sound: reminder.is_alarm_enabled ? ('default' as const) : null,
+      data: { reminderId: reminder.id, type: 'reminder' },
+    }));
 
-    const messages: PushMessage[] = [];
-    for (const [userId, reminders] of byUser) {
-      const tokens = await this.push.tokensFor(userId);
-      if (tokens.length === 0) continue;
-
-      for (const reminder of reminders) {
-        for (const to of tokens) {
-          messages.push({
-            to,
-            title: reminder.title,
-            body: reminder.description ?? 'Reminder',
-            // The alarm channel carries sound and a higher importance; the
-            // quiet one does not. Both must exist on the device.
-            channelId: reminder.is_alarm_enabled ? 'alarms' : 'reminders',
-            sound: reminder.is_alarm_enabled ? 'default' : null,
-            data: { reminderId: reminder.id, type: 'reminder' },
-          });
-        }
-      }
-    }
-
-    const { sent, failed } = await this.push.send(messages);
+    const { sent, failed } = await this.notifier.deliver(deliveries);
     if (sent > 0 || failed > 0) {
       this.logger.log(
         `Dispatched ${due.length} reminder(s): ${sent} sent, ${failed} failed`,

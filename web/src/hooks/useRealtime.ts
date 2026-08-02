@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   API_BASE_URL,
   getAccessToken,
   hydrateTokens,
+  queryKeys,
   type ConversationMessage,
   type Thread,
 } from '@/api';
@@ -11,13 +13,96 @@ import { chatKeys, getOpenConversation } from '@/hooks/useChat';
 import { useAuth } from '@/hooks/useAuth';
 import { buzzForMessage, notifyMessage } from '@/lib/alerts';
 
+/** Mirrors NotificationTopic on the server. */
+type NotificationTopic =
+  | 'friend-request'
+  | 'friend-accepted'
+  | 'collaborator-invite'
+  | 'collaborator-response'
+  | 'event-invite'
+  | 'event-response'
+  | 'reminder';
+
 type ServerEvent =
   | { type: 'ready'; userId: string }
   | { type: 'message'; conversationId: string; message: ConversationMessage }
   | { type: 'message-deleted'; conversationId: string; messageId: string; scope: 'me' | 'everyone' }
   | { type: 'read'; conversationId: string; userId: string; at: string }
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
-  | { type: 'conversation'; conversationId: string };
+  | { type: 'conversation'; conversationId: string }
+  | {
+      type: 'notification';
+      topic: NotificationTopic;
+      title: string;
+      body: string;
+      data: Record<string, unknown>;
+      at: string;
+    };
+
+/**
+ * What each topic makes stale, and where its notification leads.
+ *
+ * A table rather than a switch because the two are the same decision: a
+ * notification the user can act on has a screen to act on it from, and that
+ * screen's data is exactly what needs refetching.
+ */
+const TOPICS: Record<
+  NotificationTopic,
+  { keys: readonly (readonly unknown[])[]; href?: string }
+> = {
+  'friend-request': { keys: [queryKeys.friends.all], href: '/network' },
+  'friend-accepted': { keys: [queryKeys.friends.all], href: '/network' },
+  'collaborator-invite': {
+    keys: [queryKeys.collaborators.all, queryKeys.workspaces.all],
+    href: '/network',
+  },
+  'collaborator-response': {
+    keys: [queryKeys.collaborators.all, queryKeys.workspaces.all],
+    href: '/network',
+  },
+  'event-invite': {
+    keys: [queryKeys.scheduleEvents.all],
+    href: '/schedule?tab=invites',
+  },
+  'event-response': { keys: [queryKeys.scheduleEvents.all], href: '/schedule' },
+  reminder: { keys: [queryKeys.reminders.all], href: '/schedule' },
+};
+
+/**
+ * Shows a notification and refreshes whatever it invalidated.
+ *
+ * Both surfaces, deliberately: a toast for someone looking at the tab, and an
+ * OS notification for someone who is not — notifyMessage already stays quiet
+ * when the tab is visible, so the two never double up.
+ */
+function applyNotification(
+  event: Extract<ServerEvent, { type: 'notification' }>,
+  queryClient: QueryClient,
+): void {
+  const topic = TOPICS[event.topic];
+  for (const key of topic?.keys ?? []) {
+    queryClient.invalidateQueries({ queryKey: key });
+  }
+
+  toast(event.title, {
+    description: event.body,
+    action: topic?.href
+      ? { label: 'View', onClick: () => (window.location.href = topic.href!) }
+      : undefined,
+  });
+
+  buzzForMessage();
+  notifyMessage({
+    title: event.title,
+    body: event.body,
+    // Keyed by topic so a run of invitations replaces itself rather than
+    // stacking seven notifications the user has to dismiss one at a time.
+    tag: event.topic,
+    onClick: () => {
+      if (topic?.href) window.location.href = topic.href;
+    },
+  });
+}
 
 /** http(s) -> ws(s), same host. */
 function socketUrl(): string {
@@ -25,7 +110,7 @@ function socketUrl(): string {
 }
 
 /**
- * Live chat over a WebSocket.
+ * Live chat and notifications over a WebSocket.
  *
  * Polling still runs underneath — see useChat — but slowly. This is an
  * accelerator, not the source of truth: every event it delivers is something
@@ -96,6 +181,9 @@ export function useRealtime(enabled: boolean): void {
           break;
         case 'conversation':
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          break;
+        case 'notification':
+          applyNotification(event, queryClient);
           break;
       }
     };

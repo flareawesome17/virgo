@@ -166,6 +166,19 @@ export async function ensureChannels(): Promise<void> {
     // readable over a shoulder on a locked screen.
     lockscreenVisibility: N.AndroidNotificationVisibility.PRIVATE,
   });
+
+  // Invitations — to an event, a workspace, or a friendship — were going out
+  // on 'reminders', which is silent by design. They arrived with no sound and
+  // no buzz, so an invitation waiting on an answer looked like no notification
+  // at all. They need to interrupt: somebody is waiting on a reply.
+  await N.setNotificationChannelAsync('invitations', {
+    name: 'Invitations',
+    importance: N.AndroidImportance.HIGH,
+    sound: 'default',
+    vibrationPattern: [0, 150, 100, 150],
+    lightColor: '#B66A40',
+    lockscreenVisibility: N.AndroidNotificationVisibility.PRIVATE,
+  });
 }
 
 /**
@@ -307,9 +320,21 @@ export function isRemotePushAvailable(): boolean {
 
 /** What a notification's `data` carries, for routing a tap. */
 export interface NotificationPayload {
-  type?: 'message' | 'reminder' | string;
+  type?:
+    | 'message'
+    | 'reminder'
+    | 'friend_request'
+    | 'friend_accepted'
+    | 'collaborator_invite'
+    | 'collaborator_response'
+    | 'event_invite'
+    | 'event_response'
+    | string;
   conversationId?: string;
   reminderId?: string;
+  eventId?: string;
+  workspaceId?: string;
+  fromUserId?: string;
 }
 
 function payloadOf(response: unknown): NotificationPayload | null {

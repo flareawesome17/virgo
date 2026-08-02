@@ -46,8 +46,8 @@ export default function ProfilePage() {
   const online = useOnline();
 
   const { workspaces } = useWorkspaces({ limit: 100 });
-  const { albums } = useAlbums({ limit: 200 });
-  const { events } = useScheduleEvents({ limit: 200 });
+  const { albums } = useAlbums({ limit: 100 });
+  const { events } = useScheduleEvents({ limit: 100 });
   const { collaborators } = useCollaborators({ limit: 100 });
   const { storageUsedBytes, usage } = useUsage();
 

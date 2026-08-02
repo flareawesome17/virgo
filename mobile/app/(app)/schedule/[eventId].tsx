@@ -8,6 +8,7 @@ import {
   useUpdateReminder,
   useWorkspace,
 } from '@/src/hooks';
+import { EventAttendeesSection } from '@/components';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -87,6 +88,8 @@ export default function EventDetailScreen() {
   const color = EVENT_COLORS[event.event_type] || '#B66A40';
   const IconComp = EVENT_ICONS[event.event_type] || CalendarDaysIcon;
   const wsAccent = workspace?.accent_color || color;
+  // Undefined on a just-created event, which is always yours.
+  const isOwner = event.is_owner !== false;
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -112,6 +115,11 @@ export default function EventDetailScreen() {
                 {workspace && (
                   <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${wsAccent}15` }}>
                     <Text style={{ color: wsAccent, fontSize: 11, fontWeight: '600' }}>{workspace.name}</Text>
+                  </View>
+                )}
+                {!isOwner && (
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: '#5B7B9A18' }}>
+                    <Text style={{ color: '#5B7B9A', fontSize: 11, fontWeight: '600' }}>Guest</Text>
                   </View>
                 )}
               </View>
@@ -146,6 +154,9 @@ export default function EventDetailScreen() {
             <Text className="text-foreground text-sm leading-relaxed">{event.description}</Text>
           </View>
         )}
+
+        {/* Attendees — only the organiser can change who is invited. */}
+        {isOwner && <EventAttendeesSection eventId={eventId} />}
 
         {/* Reminders */}
         <View className="px-5 mt-5">
@@ -184,13 +195,15 @@ export default function EventDetailScreen() {
           )}
         </View>
 
-        {/* Delete */}
-        <View className="px-5 mt-8">
-          <Pressable onPress={() => deleteEvent()} className="flex-row items-center justify-center gap-2 py-3 active:scale-[0.97]">
-            <Trash2Icon size={15} className="text-destructive" />
-            <Text className="text-destructive text-sm font-semibold">Delete Event</Text>
-          </Pressable>
-        </View>
+        {/* Delete — hidden for a guest, whose delete would 404 anyway. */}
+        {isOwner && (
+          <View className="px-5 mt-8">
+            <Pressable onPress={() => deleteEvent()} className="flex-row items-center justify-center gap-2 py-3 active:scale-[0.97]">
+              <Trash2Icon size={15} className="text-destructive" />
+              <Text className="text-destructive text-sm font-semibold">Delete Event</Text>
+            </Pressable>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

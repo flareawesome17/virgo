@@ -1,5 +1,7 @@
 import { api } from '../client';
 import type {
+  EventAttendee,
+  EventInvitation,
   EventType,
   ListParams,
   ListResponse,
@@ -61,5 +63,45 @@ export const scheduleEventsApi = {
 
   remove(id: string): Promise<void> {
     return api.delete<void>(`/schedule-events/${id}`);
+  },
+
+  // ─── Invitations ───────────────────────────────────────────────────────────
+
+  /** Invites people to an event. Organiser only, and friends only. */
+  invite(eventId: string, userIds: string[]): Promise<{ invited: number }> {
+    return api.post<{ invited: number }>(`/schedule-events/${eventId}/invite`, {
+      body: { user_ids: userIds },
+    });
+  },
+
+  /** Who was invited and what they said. */
+  attendees(eventId: string): Promise<ListResponse<EventAttendee>> {
+    return api.get<ListResponse<EventAttendee>>(
+      `/schedule-events/${eventId}/attendees`,
+    );
+  },
+
+  /** Withdraws an invitation. Organiser only. */
+  uninvite(eventId: string, userId: string): Promise<{ removed: boolean }> {
+    return api.delete<{ removed: boolean }>(
+      `/schedule-events/${eventId}/attendees/${userId}`,
+    );
+  },
+
+  /** Invitations addressed to the signed-in user and not yet answered. */
+  invitations(): Promise<ListResponse<EventInvitation>> {
+    return api.get<ListResponse<EventInvitation>>(
+      '/schedule-events/invitations',
+    );
+  },
+
+  /** Keyed by event, not by invitation row — one invitation per event per person. */
+  respondToInvitation(
+    eventId: string,
+    accept: boolean,
+  ): Promise<{ status: 'accepted' | 'declined' }> {
+    return api.post<{ status: 'accepted' | 'declined' }>(
+      `/schedule-events/invitations/${eventId}/${accept ? 'accept' : 'decline'}`,
+    );
   },
 };

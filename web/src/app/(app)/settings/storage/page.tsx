@@ -69,7 +69,7 @@ const TYPE_META: Record<
  */
 function UnassignedFiles() {
   const { files, isLoading } = useUnassignedFiles();
-  const { albums } = useAlbums({ limit: 200 });
+  const { albums } = useAlbums({ limit: 100 });
   const attach = useAttachToAlbum();
 
   const [picked, setPicked] = useState<string[]>([]);

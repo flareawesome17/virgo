@@ -34,6 +34,11 @@ export {
   useCreateScheduleEvent,
   useUpdateScheduleEvent,
   useDeleteScheduleEvent,
+  useEventInvitations,
+  useEventAttendees,
+  useInviteToEvent,
+  useUninviteFromEvent,
+  useRespondToEventInvitation,
 } from '@/src/hooks/useScheduleEvents'
 
 export {

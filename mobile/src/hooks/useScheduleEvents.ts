@@ -90,3 +90,67 @@ export function useDeleteScheduleEvent() {
     },
   });
 }
+
+// ─── Invitations ─────────────────────────────────────────────────────────────
+
+/** Event invitations waiting on the signed-in user. */
+export function useEventInvitations() {
+  const query = useQuery({
+    queryKey: queryKeys.scheduleEvents.invitations,
+    queryFn: () => scheduleEventsApi.invitations(),
+  });
+  return { ...query, invitations: query.data?.data ?? [] };
+}
+
+/** Who is coming to one event. */
+export function useEventAttendees(eventId: string | undefined) {
+  const query = useQuery({
+    queryKey: queryKeys.scheduleEvents.attendees(eventId ?? ''),
+    queryFn: () => scheduleEventsApi.attendees(eventId as string),
+    enabled: !!eventId,
+  });
+  return { ...query, attendees: query.data?.data ?? [] };
+}
+
+export function useInviteToEvent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ eventId, userIds }: { eventId: string; userIds: string[] }) =>
+      scheduleEventsApi.invite(eventId, userIds),
+    onSuccess: (_result, { eventId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.scheduleEvents.attendees(eventId),
+      });
+    },
+  });
+}
+
+export function useUninviteFromEvent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ eventId, userId }: { eventId: string; userId: string }) =>
+      scheduleEventsApi.uninvite(eventId, userId),
+    onSuccess: (_result, { eventId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.scheduleEvents.attendees(eventId),
+      });
+    },
+  });
+}
+
+/**
+ * Accepts or declines.
+ *
+ * Invalidates every schedule key, not just the invitation list: accepting puts
+ * the event on the calendar, so the range queries behind it are stale too.
+ */
+export function useRespondToEventInvitation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ eventId, accept }: { eventId: string; accept: boolean }) =>
+      scheduleEventsApi.respondToInvitation(eventId, accept),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.scheduleEvents.all });
+    },
+  });
+}
