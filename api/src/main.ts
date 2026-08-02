@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { setDefaultResultOrder } from 'node:dns';
+import { setDefaultAutoSelectFamily } from 'node:net';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -7,6 +9,34 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { DatabaseService } from './database/database.service';
 import { runMigrations } from './database/migrator';
+
+/**
+ * Connect to one address at a time, IPv4 first.
+ *
+ * Node 20 turned on Happy Eyeballs by default: `net.connect` races the
+ * resolved addresses, abandoning each after `autoSelectFamilyAttemptTimeout`
+ * — 250ms — and moving to the next. Backblaze publishes eight records for its
+ * S3 endpoint (four A, four AAAA) and its TLS handshake from here takes
+ * 600ms-8s, comfortably longer than 250ms. So every attempt was cancelled
+ * mid-handshake and the whole connection failed after about a second, even
+ * though each address works fine when dialled directly.
+ *
+ * Measured in the API container:
+ *   default (racing, 250ms)   ETIMEDOUT after 1033ms
+ *   autoSelectFamily: false   connected in 637ms
+ *
+ * The visible symptom was every upload failing at the confirm step with
+ * "Could not reach storage", on files that had already reached the bucket —
+ * devices upload straight to B2 and are not affected, only the API's own
+ * HEAD is.
+ *
+ * `ipv4first` pairs with it: with the race off, the first address is the one
+ * that gets used, and the bridge network has no IPv6 route.
+ *
+ * Both set at module scope so they apply before anything opens a socket.
+ */
+setDefaultResultOrder('ipv4first');
+setDefaultAutoSelectFamily(false);
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');

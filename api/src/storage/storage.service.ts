@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { Agent as HttpsAgent } from 'node:https';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import {
   BadRequestException,
   ForbiddenException,
@@ -61,6 +63,31 @@ export class StorageService {
             secretAccessKey: config.applicationKey,
           },
           forcePathStyle: config.forcePathStyle,
+          /**
+           * The SDK's defaults assume a fast, close network. On a home
+           * connection behind Docker's NAT the TLS handshake to B2 measures
+           * 8+ seconds, which blew the default connection timeout and
+           * surfaced to users as "Could not reach storage" on a file that had
+           * in fact uploaded perfectly.
+           *
+           * A NodeHttpHandler instance rather than the plain-object form: the
+           * object form was silently ignored here, leaving the ~1s default in
+           * place.
+           *
+           * These calls carry metadata only — a HEAD or a DELETE, never the
+           * bytes, which go straight from the device to the bucket — so
+           * waiting longer costs nothing but a slower failure in the
+           * genuinely-broken case. The keep-alive agent means the expensive
+           * handshake is paid once rather than per request.
+           */
+          requestHandler: new NodeHttpHandler({
+            connectionTimeout: 20_000,
+            requestTimeout: 30_000,
+            httpsAgent: new HttpsAgent({ keepAlive: true, maxSockets: 50 }),
+          }),
+          // Three attempts with the SDK's own backoff, so one slow handshake
+          // does not fail a confirm that would have worked on a retry.
+          maxAttempts: 3,
         })
       : null;
   }
