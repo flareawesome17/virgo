@@ -169,6 +169,31 @@ export class BillingService {
     return created.id;
   }
 
+  /**
+   * A phone number in the shape PayMongo accepts, or null.
+   *
+   * They want `+63` followed by ten digits and reject anything else, including
+   * the `0917…` form every Filipino actually writes. Sending the stored value
+   * verbatim is what made checkout fail with "Phone number accepts numbers and
+   * the plus sign only".
+   *
+   * Null rather than a placeholder when it cannot be salvaged: the field is
+   * optional at PayMongo, and inventing a number to satisfy a validator puts
+   * a stranger's phone number on somebody's receipt.
+   */
+  private normalizePhone(raw: string | null): string | null {
+    if (!raw) return null;
+    const digits = raw.replace(/\D/g, '');
+
+    // 09171234567 -> 9171234567
+    const local = digits.startsWith('0') ? digits.slice(1) : digits;
+    // 639171234567 -> 9171234567
+    const national = local.startsWith('63') ? local.slice(2) : local;
+
+    // A PH mobile number is 10 digits and starts with 9.
+    return /^9\d{9}$/.test(national) ? `+63${national}` : null;
+  }
+
   /** The user's PayMongo customer, created once and reused. */
   private async providerCustomerId(userId: string): Promise<string> {
     const user = await this.db.queryOne<{
@@ -186,6 +211,7 @@ export class BillingService {
 
     const name = (user.display_name ?? user.email.split('@')[0]).trim();
     const [first, ...rest] = name.split(/\s+/);
+    const phone = this.normalizePhone(user.phone);
 
     const customer = await this.paymongo.request<{ email: string }>(
       'POST',
@@ -194,10 +220,11 @@ export class BillingService {
         first_name: first || 'Virgo',
         last_name: rest.join(' ') || 'Member',
         email: user.email,
-        // PayMongo requires a phone; theirs if we have it, a placeholder in
-        // their national format otherwise. It is not used to contact anyone.
-        phone: user.phone?.replace(/\s+/g, '') || '+639000000000',
-        default_device: 'phone',
+        // Phone is optional at PayMongo, so an unusable one is left out
+        // entirely rather than guessed at. Email is always present — it is
+        // how the account was created — so it is the reliable default_device.
+        ...(phone ? { phone } : {}),
+        default_device: 'email',
       },
     );
 
@@ -275,10 +302,15 @@ export class BillingService {
     checkoutUrl: string | null;
     renews: boolean;
   }> {
-    const [planId, customerId] = await Promise.all([
-      this.providerPlanId(plan),
-      this.providerCustomerId(userId),
-    ]);
+    // Sequential, not Promise.all. The plan lookup is what discovers whether
+    // subscriptions are enabled at all, and it has to run first: in parallel,
+    // a customer problem — a phone PayMongo will not accept, say — rejects the
+    // pair with an error that is not "not enabled", so the caller rethrows and
+    // the one-month fallback never gets a chance. The one-time path needs no
+    // customer, so creating one before knowing which path we are on is both
+    // wasteful and, as it turned out, a way to fail checkout outright.
+    const planId = await this.providerPlanId(plan);
+    const customerId = await this.providerCustomerId(userId);
 
     const created = await this.paymongo.request<{
       status: SubscriptionStatus;

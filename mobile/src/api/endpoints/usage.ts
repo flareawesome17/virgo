@@ -65,23 +65,33 @@ export function toGB(bytes: number): number {
   return bytes / 1024 ** 3;
 }
 
+const CURRENCY_SYMBOLS: Record<string, string> = { PHP: '₱', USD: '$' };
+
 /**
  * `₱1,400` — a price in minor units, rendered.
  *
- * Grouped, and without decimals when there are none: ₱1,400.00 on a pricing
- * card reads like a form field rather than a price.
+ * Grouped by hand rather than through Intl. React Native runs on Hermes, whose
+ * Intl support varies by platform and build, and a pricing screen is the wrong
+ * place to find out that this device is one of the ones without it. Grouping
+ * thousands is three lines; depending on a polyfill for it is not worth the
+ * chance of rendering a price wrong.
+ *
+ * Decimals are dropped when there are none: ₱1,400.00 on a pricing card reads
+ * like a form field rather than a price.
  */
 export function formatMoney(minor: number, currency = 'PHP'): string {
-  const major = minor / 100;
-  try {
-    return new Intl.NumberFormat('en-PH', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: major % 1 === 0 ? 0 : 2,
-      maximumFractionDigits: 2,
-    }).format(major);
-  } catch {
-    // An unknown currency code should not take the pricing page down.
-    return `${currency} ${major.toFixed(2)}`;
-  }
+  // A missing or malformed amount must read as something sane, not "₱NaN".
+  // This is what an older client sees when the field it expects was renamed.
+  if (!Number.isFinite(minor)) return 'Free';
+
+  const major = Math.abs(minor) / 100;
+  const whole = Math.floor(major);
+  const cents = Math.round((major - whole) * 100);
+
+  const grouped = String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const amount = cents > 0 ? `${grouped}.${String(cents).padStart(2, '0')}` : grouped;
+
+  const symbol = CURRENCY_SYMBOLS[currency];
+  const sign = minor < 0 ? '-' : '';
+  return symbol ? `${sign}${symbol}${amount}` : `${sign}${currency} ${amount}`;
 }
