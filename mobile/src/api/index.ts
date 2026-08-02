@@ -55,7 +55,13 @@ export {
   type UpdateFriendInput,
 } from './endpoints/friends';
 export { servicesApi, type ChatMessage } from './endpoints/services';
-export { usageApi, formatBytes, toGB, type UsageSummary } from './endpoints/usage';
+export {
+  usageApi,
+  formatBytes,
+  toGB,
+  type UsageSummary,
+  type PlanInfo,
+} from './endpoints/usage';
 export {
   storageApi,
   contentTypeForAsset,
@@ -73,5 +79,14 @@ export {
   type ShareLink,
   type ShareMediaKind,
 } from './endpoints/albumShare';
+
+export {
+  chatApi,
+  type Conversation,
+  // Not 'ChatMessage' — the AI proxy in services.ts already owns that name.
+  type ConversationMessage,
+  type Participant,
+} from './endpoints/chat';
+export { discoverApi, type NearbyPerson, type LocationStatus } from './endpoints/discover';
 
 export type * from './types';

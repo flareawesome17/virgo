@@ -18,6 +18,9 @@ export interface CollaboratorRow {
   /** The friend this row represents. Null only on rows predating migration 014. */
   collaborator_user_id: string | null;
   role: CollaboratorRole;
+  /** pending until the invitee answers. */
+  status: 'pending' | 'accepted' | 'declined';
+  responded_at: Date | null;
   created_at: Date;
 }
 
@@ -32,9 +35,10 @@ export class CollaboratorsRepository extends OwnedRepository<CollaboratorRow> {
     'name',
     'avatar_url',
     'role',
+    'status',
   ];
 
-  protected readonly filterableColumns = ['workspace_id', 'role'];
+  protected readonly filterableColumns = ['status', 'workspace_id', 'role'];
   protected readonly sortableColumns = ['created_at', 'name'];
 
   constructor(db: DatabaseService) {

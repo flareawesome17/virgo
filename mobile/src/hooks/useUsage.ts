@@ -2,6 +2,23 @@ import { useQuery } from '@tanstack/react-query';
 import { usageApi, type UsageSummary } from '@/src/api';
 
 export const usageQueryKey = ['me', 'usage'] as const;
+export const plansQueryKey = ['plans'] as const;
+
+/**
+ * The plans on offer.
+ *
+ * Fetched rather than hardcoded so the screen cannot advertise limits the
+ * server does not actually grant. Cached for the session — tiers change on
+ * deploys, not between screens.
+ */
+export function usePlans() {
+  const query = useQuery({
+    queryKey: plansQueryKey,
+    queryFn: () => usageApi.plans(),
+    staleTime: Infinity,
+  });
+  return { ...query, plans: query.data?.data ?? [] };
+}
 
 /**
  * Plan limits and current usage.

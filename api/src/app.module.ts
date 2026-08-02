@@ -19,6 +19,8 @@ import { ScheduleEventsModule } from './schedule-events/schedule-events.module';
 import { ServicesModule } from './services/services.module';
 import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { DiscoverModule } from './discover/discover.module';
+import { MessagesModule } from './messages/messages.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 
 @Module({
@@ -40,6 +42,8 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     ServicesModule,
     StorageModule,
     NotificationsModule,
+    DiscoverModule,
+    MessagesModule,
   ],
   providers: [
     // Deny by default: every route requires a valid JWT unless it carries

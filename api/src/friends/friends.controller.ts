@@ -9,6 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
   CreateFriendDto,
@@ -41,7 +42,21 @@ export class FriendsController {
   }
 
   /**
-   * Sends a request by email, addressed to a real account.
+   * People the caller could add, with their current relationship.
+   *
+   * Rate-limited: it reads across accounts, so it should not be cheap to call
+   * in a loop.
+   */
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get('search/people')
+  search(@CurrentUser('id') userId: string, @Query('q') q = '') {
+    return this.friends
+      .searchPeople(userId, q)
+      .then((data) => ({ data, total: data.length }));
+  }
+
+  /**
+   * Sends a request to an account picked from search.
    *
    * Replaces creating a friend row directly: that only ever described someone,
    * and the person described was never told.
@@ -52,7 +67,9 @@ export class FriendsController {
     @CurrentUser('id') userId: string,
     @Body() dto: SendFriendRequestDto,
   ) {
-    return this.friends.sendRequest(userId, dto.email);
+    return dto.userId
+      ? this.friends.sendRequestToUser(userId, dto.userId)
+      : this.friends.sendRequest(userId, dto.email!);
   }
 
   @HttpCode(200)

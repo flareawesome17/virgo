@@ -45,14 +45,19 @@ export default function SendInvitesScreen() {
 
     try {
       await Promise.all(
-        selectedFriends.map((f) =>
-          createCollaborator.mutateAsync({
-            workspace_id: album.workspace_id,
-            name: f.friend_name,
-            avatar_url: f.friend_avatar_url,
-            role: (role || 'editor') as CollaboratorRole,
-          }),
-        ),
+        // collaborator_user_id is what makes this a real invitation rather
+        // than a label — the API rejects anyone who is not an accepted friend.
+        selectedFriends
+          .filter((f) => f.friend_user_id)
+          .map((f) =>
+            createCollaborator.mutateAsync({
+              workspace_id: album.workspace_id,
+              collaborator_user_id: f.friend_user_id!,
+              name: f.friend_name,
+              avatar_url: f.friend_avatar_url,
+              role: (role || 'editor') as CollaboratorRole,
+            }),
+          ),
       );
       setSent(true);
     } catch {

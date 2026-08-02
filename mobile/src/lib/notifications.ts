@@ -1,6 +1,6 @@
-import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
+import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
 
 /**
@@ -10,25 +10,101 @@ import { Platform } from 'react-native';
  *
  *   Local  — scheduled on the device for `reminder_time`. Fires with no network
  *            and no server, and is what makes the alarm toggle mean something.
+ *            Still works in Expo Go.
  *   Remote — the API pushes at the due time, so a reminder still arrives if the
- *            app was reinstalled or is being used from another device.
+ *            app was reinstalled or is being used from another device. Requires
+ *            a development build; Expo Go dropped remote push in SDK 53.
  *
- * Both carry `data.reminderId`, so a client that receives both for the same
- * reminder can tell they are the same event.
+ * Both carry `data.reminderId`, so a client receiving both for one reminder can
+ * tell they are the same event.
  *
- * Before this existed, `is_alarm_enabled` and `has_push_notification` were
- * booleans stored in Postgres that nothing ever read.
+ * `expo-notifications` is loaded lazily rather than imported at the top of this
+ * file. Importing it runs DevicePushTokenAutoRegistration, which registers a
+ * push-token listener and — in Expo Go — logs a console.error about remote push
+ * being unavailable. This module is reached from useAuth, so that fired on
+ * every app start, before anything had asked for a notification.
  */
 
-/** Shows the notification even while the app is in the foreground. */
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+type NotificationsModule = typeof import('expo-notifications');
+
+/**
+ * The local-notification surface, imported without the package barrel.
+ *
+ * `expo-notifications/build/index` pulls in DevicePushTokenAutoRegistration,
+ * which registers a push-token listener on load and, in Expo Go, logs a
+ * console.error saying remote push was removed in SDK 53. None of the
+ * submodules below reach that code, so scheduling still works in Expo Go and
+ * says nothing — the warning is about remote push, which is genuinely
+ * unavailable there and is loaded separately in `getPushRegistration`.
+ */
+type LocalApi = {
+  setNotificationHandler: NotificationsModule['setNotificationHandler'];
+  getPermissionsAsync: NotificationsModule['getPermissionsAsync'];
+  requestPermissionsAsync: NotificationsModule['requestPermissionsAsync'];
+  setNotificationChannelAsync: NotificationsModule['setNotificationChannelAsync'];
+  scheduleNotificationAsync: NotificationsModule['scheduleNotificationAsync'];
+  getAllScheduledNotificationsAsync: NotificationsModule['getAllScheduledNotificationsAsync'];
+  cancelScheduledNotificationAsync: NotificationsModule['cancelScheduledNotificationAsync'];
+  AndroidImportance: NotificationsModule['AndroidImportance'];
+  AndroidNotificationVisibility: NotificationsModule['AndroidNotificationVisibility'];
+  SchedulableTriggerInputTypes: NotificationsModule['SchedulableTriggerInputTypes'];
+};
+
+let cached: LocalApi | null = null;
+let handlerSet = false;
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+function loadNotifications(): LocalApi | null {
+  if (cached) return cached;
+  try {
+    const perms = require('expo-notifications/build/NotificationPermissions');
+    const channels = require('expo-notifications/build/setNotificationChannelAsync');
+    const schedule = require('expo-notifications/build/scheduleNotificationAsync');
+    const getAll = require('expo-notifications/build/getAllScheduledNotificationsAsync');
+    const cancel = require('expo-notifications/build/cancelScheduledNotificationAsync');
+    const handler = require('expo-notifications/build/NotificationsHandler');
+    const types = require('expo-notifications/build/Notifications.types');
+    const channelTypes = require('expo-notifications/build/NotificationChannelManager.types');
+
+    cached = {
+      setNotificationHandler: handler.setNotificationHandler,
+      getPermissionsAsync: perms.getPermissionsAsync,
+      requestPermissionsAsync: perms.requestPermissionsAsync,
+      setNotificationChannelAsync: channels.default,
+      scheduleNotificationAsync: schedule.default,
+      getAllScheduledNotificationsAsync: getAll.default,
+      cancelScheduledNotificationAsync: cancel.default,
+      AndroidImportance: channelTypes.AndroidImportance,
+      AndroidNotificationVisibility: channelTypes.AndroidNotificationVisibility,
+      SchedulableTriggerInputTypes: types.SchedulableTriggerInputTypes,
+    };
+  } catch {
+    // Deep imports are internal paths and could move between SDK versions, so
+    // fall back to the barrel rather than losing notifications entirely. The
+    // Expo Go warning is the cost, and only in that case.
+    try {
+      cached = require('expo-notifications') as unknown as LocalApi;
+    } catch {
+      return null;
+    }
+  }
+
+  if (cached && !handlerSet) {
+    handlerSet = true;
+    // Shows the notification even while the app is in the foreground.
+    cached.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+  }
+
+  return cached;
+}
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 /** Marks our own scheduled notifications so a sync never touches others'. */
 const VIRGO_TAG = 'virgo.reminder';
@@ -50,19 +126,21 @@ export interface SchedulableReminder {
  */
 export async function ensureChannels(): Promise<void> {
   if (Platform.OS !== 'android') return;
+  const N = loadNotifications();
+  if (!N) return;
 
-  await Notifications.setNotificationChannelAsync('alarms', {
+  await N.setNotificationChannelAsync('alarms', {
     name: 'Alarms',
-    importance: Notifications.AndroidImportance.MAX,
+    importance: N.AndroidImportance.MAX,
     sound: 'default',
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#B66A40',
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    lockscreenVisibility: N.AndroidNotificationVisibility.PUBLIC,
   });
 
-  await Notifications.setNotificationChannelAsync('reminders', {
+  await N.setNotificationChannelAsync('reminders', {
     name: 'Reminders',
-    importance: Notifications.AndroidImportance.DEFAULT,
+    importance: N.AndroidImportance.DEFAULT,
     sound: null,
     lightColor: '#B66A40',
   });
@@ -75,11 +153,14 @@ export async function ensureChannels(): Promise<void> {
  * dialog once, so asking again is a silent no.
  */
 export async function ensurePermissions(): Promise<boolean> {
-  const existing = await Notifications.getPermissionsAsync();
+  const N = loadNotifications();
+  if (!N) return false;
+
+  const existing = await N.getPermissionsAsync();
   if (existing.granted) return true;
   if (!existing.canAskAgain) return false;
 
-  const asked = await Notifications.requestPermissionsAsync({
+  const asked = await N.requestPermissionsAsync({
     ios: { allowAlert: true, allowSound: true, allowBadge: false },
   });
   return asked.granted;
@@ -106,21 +187,23 @@ function isSchedulable(reminder: SchedulableReminder): boolean {
 export async function syncReminderNotifications(
   reminders: SchedulableReminder[],
 ): Promise<number> {
+  const N = loadNotifications();
+  if (!N) return 0;
   if (!(await ensurePermissions())) return 0;
   await ensureChannels();
 
-  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  const scheduled = await N.getAllScheduledNotificationsAsync();
   await Promise.all(
     scheduled
       .filter((n) => (n.content.data as { tag?: string } | null)?.tag === VIRGO_TAG)
-      .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
+      .map((n) => N.cancelScheduledNotificationAsync(n.identifier)),
   );
 
   const upcoming = reminders.filter(isSchedulable);
 
   await Promise.all(
     upcoming.map((reminder) =>
-      Notifications.scheduleNotificationAsync({
+      N.scheduleNotificationAsync({
         content: {
           title: reminder.title,
           body: reminder.description ?? 'Reminder',
@@ -128,7 +211,7 @@ export async function syncReminderNotifications(
           data: { tag: VIRGO_TAG, reminderId: reminder.id, type: 'reminder' },
         },
         trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          type: N.SchedulableTriggerInputTypes.DATE,
           date: new Date(reminder.reminder_time),
           channelId: reminder.is_alarm_enabled ? 'alarms' : 'reminders',
         },
@@ -141,11 +224,14 @@ export async function syncReminderNotifications(
 
 /** Drops every reminder notification this app scheduled — used on sign-out. */
 export async function clearReminderNotifications(): Promise<void> {
-  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  const N = loadNotifications();
+  if (!N) return;
+
+  const scheduled = await N.getAllScheduledNotificationsAsync();
   await Promise.all(
     scheduled
       .filter((n) => (n.content.data as { tag?: string } | null)?.tag === VIRGO_TAG)
-      .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
+      .map((n) => N.cancelScheduledNotificationAsync(n.identifier)),
   );
 }
 
@@ -158,13 +244,14 @@ export interface PushRegistration {
  * Obtains an Expo push token for server-side delivery.
  *
  * Returns null rather than throwing whenever remote push is unavailable — on a
- * simulator, without permission, and in Expo Go, which cannot issue push tokens
- * (it has no bundle identifier of its own to register with APNs/FCM). Local
- * notifications are unaffected and still work in all of those cases.
+ * simulator, without an EAS project id, and in Expo Go, which dropped remote
+ * push in SDK 53. The Expo Go check comes first and short-circuits before the
+ * native module is even loaded, so the unavailable path costs nothing and logs
+ * nothing. Local notifications are unaffected in all of those cases.
  */
 export async function getPushRegistration(): Promise<PushRegistration | null> {
+  if (isRunningInExpoGo()) return null;
   if (!Device.isDevice) return null;
-  if (!(await ensurePermissions())) return null;
 
   // getExpoPushTokenAsync needs the EAS project id; without one it throws.
   const projectId =
@@ -172,15 +259,26 @@ export async function getPushRegistration(): Promise<PushRegistration | null> {
     (Constants as { easConfig?: { projectId?: string } }).easConfig?.projectId;
   if (!projectId) return null;
 
+  if (!(await ensurePermissions())) return null;
+
   try {
-    const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+    // The barrel, not the local-only surface: this is the one call that needs
+    // the push machinery. Reached only outside Expo Go, where loading it is
+    // silent and remote push actually works.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const N = require('expo-notifications') as NotificationsModule;
+    const { data } = await N.getExpoPushTokenAsync({ projectId });
     return {
       token: data,
-      platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+      platform:
+        Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
     };
   } catch {
-    // Expo Go lands here. Not an error worth surfacing: the local alarm still
-    // fires, and remote push starts working once a dev build is installed.
     return null;
   }
+}
+
+/** True when remote push cannot work here, so the UI can say why. */
+export function isRemotePushAvailable(): boolean {
+  return !isRunningInExpoGo() && Device.isDevice;
 }

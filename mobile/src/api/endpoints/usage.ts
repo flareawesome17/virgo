@@ -12,6 +12,21 @@ export interface UsageSummary {
   albums: { used: number; limit: number | null };
 }
 
+export interface PlanInfo {
+  name: string;
+  label: string;
+  /** Cents per month. Zero on free and on plans not yet purchasable. */
+  priceCents: number;
+  /** Listed but not purchasable yet. */
+  comingSoon: boolean;
+  storageBytes: number;
+  /** null means unlimited. */
+  workspaces: number | null;
+  /** Per workspace, not in total. null means unlimited. */
+  albumsPerWorkspace: number | null;
+  features: string[];
+}
+
 /**
  * Plan limits and current consumption.
  *
@@ -22,6 +37,11 @@ export interface UsageSummary {
 export const usageApi = {
   get(): Promise<UsageSummary> {
     return api.get<UsageSummary>('/me/usage');
+  },
+
+  /** The tiers on offer, straight from the limits the server enforces. */
+  plans(): Promise<{ data: PlanInfo[]; total: number }> {
+    return api.get('/plans');
   },
 };
 

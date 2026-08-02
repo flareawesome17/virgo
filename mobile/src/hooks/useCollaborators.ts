@@ -73,3 +73,59 @@ export function useDeleteCollaborator() {
     },
   });
 }
+
+/**
+ * Workspace invitations waiting on the current user.
+ *
+ * Before invitations existed, a collaborator row was owned by the inviter, so
+ * the person added had nothing to read and nothing to accept.
+ */
+export function useCollaboratorInvitations() {
+  const query = useQuery({
+    queryKey: ['collaborators', 'invitations'],
+    queryFn: () => collaboratorsApi.invitations(),
+  });
+  return { ...query, invitations: query.data?.data ?? [] };
+}
+
+export function useRespondToInvitation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, accept }: { id: string; accept: boolean }) =>
+      collaboratorsApi.respondToInvitation(id, accept),
+    onSuccess: () => {
+      // Accepting grants access, so the workspace and album lists change too.
+      queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      queryClient.invalidateQueries({ queryKey: ['albums'] });
+    },
+  });
+}
+
+/** Sets exactly which albums a collaborator can see. */
+export function useSetCollaboratorAlbums() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, albumIds }: { id: string; albumIds: string[] }) =>
+      collaboratorsApi.setAlbums(id, albumIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+      queryClient.invalidateQueries({ queryKey: ['albums'] });
+    },
+  });
+}
+
+/**
+ * The workspace's albums with this collaborator's current access.
+ *
+ * Only fetched when an id is supplied, so the edit sheet loads on demand
+ * rather than for every row in the list.
+ */
+export function useCollaboratorAlbums(collaboratorId: string | null) {
+  const query = useQuery({
+    queryKey: ['collaborators', collaboratorId, 'albums'],
+    queryFn: () => collaboratorsApi.albumsFor(collaboratorId!),
+    enabled: !!collaboratorId,
+  });
+  return { ...query, albums: query.data?.data ?? [] };
+}

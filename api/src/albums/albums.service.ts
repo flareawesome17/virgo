@@ -35,7 +35,10 @@ export class AlbumsService extends OwnedResourceService<AlbumRow> {
     userId: string,
     data: Record<string, unknown>,
   ): Promise<AlbumRow> {
-    await this.quota.assertCanCreateAlbum(userId);
+    await this.quota.assertCanCreateAlbum(
+      userId,
+      data.workspace_id as string | undefined,
+    );
     await this.assertWorkspace(userId, data.workspace_id as string | undefined);
     return super.create(userId, data);
   }

@@ -15,6 +15,7 @@ export interface UsageSummary {
   plan: string;
   storage: { usedBytes: number; limitBytes: number | null; fileCount: number };
   workspaces: { used: number; limit: number | null };
+  /** `limit` is per workspace; `used` is the total across all of them. */
   albums: { used: number; limit: number | null };
 }
 
@@ -82,7 +83,7 @@ export class QuotaService {
         fileCount,
       },
       workspaces: { used: workspaces, limit: toJsonLimit(limits.workspaces) },
-      albums: { used: albums, limit: toJsonLimit(limits.albums) },
+      albums: { used: albums, limit: toJsonLimit(limits.albumsPerWorkspace) },
     };
   }
 
@@ -98,13 +99,30 @@ export class QuotaService {
     }
   }
 
-  async assertCanCreateAlbum(userId: string): Promise<void> {
+  /**
+   * Album limits are per workspace, not global.
+   *
+   * "2 workspaces with 5 albums each" is how the plan is sold, and a global cap
+   * would let one workspace consume the whole allowance and leave the second
+   * unusable.
+   */
+  async assertCanCreateAlbum(userId: string, workspaceId?: string): Promise<void> {
     const limits = await this.limits(userId);
-    if (!Number.isFinite(limits.albums)) return;
-    const used = await this.countRows('albums', userId);
-    if (used >= limits.albums) {
+    if (!Number.isFinite(limits.albumsPerWorkspace)) return;
+
+    const row = await this.db.queryOne<{ count: string }>(
+      workspaceId
+        ? `select count(*)::text as count from albums
+            where user_id = $1 and workspace_id = $2`
+        : 'select count(*)::text as count from albums where user_id = $1',
+      workspaceId ? [userId, workspaceId] : [userId],
+    );
+    const used = Number(row?.count ?? 0);
+
+    if (used >= limits.albumsPerWorkspace) {
+      const n = limits.albumsPerWorkspace;
       throw new ForbiddenException(
-        `Your plan includes ${limits.albums} album${limits.albums === 1 ? '' : 's'}. Upgrade to add more.`,
+        `Your plan includes ${n} album${n === 1 ? '' : 's'} per workspace. Upgrade to add more.`,
       );
     }
   }
@@ -174,6 +192,25 @@ export class QuotaService {
     if (filter.albumId) {
       params.push(filter.albumId);
       where += ` and album_id = $${params.length}`;
+
+      // A collaborator's files are owned by the album owner, so scoping to
+      // `user_id` alone left a shared album looking empty to the person
+      // invited into it. Widened to the album's own owner, but only when this
+      // caller genuinely has access to that album.
+      where =
+        `album_id = $${params.length} and (user_id = $1 or exists (
+           select 1 from albums a
+            join collaborators c
+              on c.workspace_id = a.workspace_id
+             and c.collaborator_user_id = $1
+             and c.status = 'accepted'
+            where a.id = $${params.length}
+              and a.user_id = user_files.user_id
+              and not exists (
+                select 1 from album_collaborator_exclusions x
+                 where x.album_id = a.id and x.collaborator_id = c.id
+              )
+         ))`;
     }
 
     params.push(Math.min(Math.max(filter.limit ?? 200, 1), 500));

@@ -9,11 +9,22 @@ import {
 } from 'class-validator';
 import { ListQueryDto } from '../../common/dto/list-query.dto';
 
-/** A request is addressed to an account, so an email is all that is needed. */
+/**
+ * Addresses a request to a real account.
+ *
+ * Normally `userId`, picked from the people search. `email` stays supported so
+ * someone can be added by exact address when they are not easy to find by name.
+ */
 export class SendFriendRequestDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  userId?: string;
+
+  @IsOptional()
   @IsEmail({}, { message: 'Enter a valid email address' })
   @MaxLength(255)
-  email!: string;
+  email?: string;
 }
 
 const STATUSES = ['pending', 'accepted', 'declined'] as const;

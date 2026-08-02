@@ -1,13 +1,22 @@
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { HomeIcon, FolderIcon, UsersIcon, CalendarIcon, UserIcon } from 'lucide-react-native';
+import {
+  HomeIcon,
+  FolderIcon,
+  UsersIcon,
+  CalendarIcon,
+  UserIcon,
+  MessageCircleIcon,
+} from 'lucide-react-native';
 import { cssInterop, useColorScheme } from 'nativewind';
+import { useUnreadCount } from '@/src/hooks';
 
 cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /** Icon + label area, excluding padding. */
 const TAB_CONTENT_HEIGHT = 52;
@@ -17,6 +26,7 @@ export default function TabsLayout() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
+  const unread = useUnreadCount();
 
   // The bar was a fixed height:88 / paddingBottom:28. On an iPhone with a home
   // indicator the bottom inset is 34pt, so 28 put the labels *underneath* it;
@@ -39,10 +49,12 @@ export default function TabsLayout() {
         },
         tabBarActiveTintColor: isDark ? '#C17745' : '#B66A40',
         tabBarInactiveTintColor: isDark ? '#54433C' : '#A89489',
+        // 10pt, not 11: with Chat there are six tabs, and at 11 "Workspaces"
+        // ellipsizes on a 360pt-wide screen.
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '600',
-          letterSpacing: 0.3,
+          letterSpacing: 0.2,
         },
       }}
     >
@@ -96,6 +108,28 @@ export default function TabsLayout() {
               strokeWidth={focused ? 2.5 : 2}
             />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: 'Chat',
+          tabBarIcon: ({ focused }) => (
+            <MessageCircleIcon
+              className={focused ? 'text-[#B66A40]' : 'text-[#A89489]'}
+              size={22}
+              strokeWidth={focused ? 2.5 : 2}
+            />
+          ),
+          tabBarBadge: unread > 0 ? (unread > 99 ? '99+' : unread) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#B66A40',
+            fontSize: 10,
+            fontWeight: '700',
+            minWidth: 17,
+            height: 17,
+            lineHeight: 13,
+          },
         }}
       />
       <Tabs.Screen

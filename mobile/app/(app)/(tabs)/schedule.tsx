@@ -25,8 +25,7 @@ import {
   formatTime,
   getMonthWeeks,
   labelForDateKey,
-  todayKey,
-} from '@/src/lib/calendar';
+  todayKey, isEventUpcoming } from '@/src/lib/calendar';
 
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -96,7 +95,11 @@ export default function ScheduleScreen() {
 
   const monthWeeks = getMonthWeeks(viewYear, viewMonth);
   const selectedEvents = eventsByDate[selectedDate] || [];
-  const upcomingEvents = events.filter((e) => e.event_date >= todayKey()).slice(0, 3);
+  // Compared against the moment, not the date: a 9am event was still listed as
+  // upcoming that same evening.
+  const upcomingEvents = events
+    .filter((e) => isEventUpcoming(e.event_date, e.event_time))
+    .slice(0, 3);
   const activeReminders = reminders.filter(r => !r.is_completed);
 
   const goPrevMonth = () => {

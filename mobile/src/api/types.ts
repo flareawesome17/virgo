@@ -63,10 +63,15 @@ export type CollaboratorRole =
 export interface Collaborator {
   id: string;
   user_id: string;
+  /** The account this collaborator is. Null on rows predating real friendships. */
+  collaborator_user_id: string | null;
   workspace_id: string;
   name: string;
   avatar_url: string | null;
   role: CollaboratorRole;
+  /** Invitations start pending; only 'accepted' grants access. */
+  status: 'pending' | 'accepted' | 'declined';
+  responded_at: string | null;
   created_at: string;
 }
 
@@ -89,6 +94,13 @@ export type RequestedBy = 'me' | 'them';
 export interface Friend {
   id: string;
   user_id: string;
+  /**
+   * The account this friendship points at.
+   *
+   * Null only on rows created before friendships referenced real users, when
+   * a "friend" was free text the other person never saw.
+   */
+  friend_user_id: string | null;
   friend_name: string;
   friend_email: string | null;
   friend_avatar_url: string | null;

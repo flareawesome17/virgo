@@ -25,18 +25,37 @@ export type UpdateFriendInput = Partial<
   Omit<CreateFriendInput, 'id' | 'requested_by'>
 >;
 
+export interface PersonResult {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  /** The caller's relationship to this account. */
+  relationship: 'none' | 'pending_out' | 'pending_in' | 'accepted';
+}
+
 export interface SendRequestResult {
   status: string;
   friend: Friend;
 }
 
 export const friendsApi = {
+  /** People matching a name prefix or an exact email address. */
+  searchPeople(q: string): Promise<{ data: PersonResult[]; total: number }> {
+    return api.get('/friends/search/people', { query: { q } });
+  },
+
   /**
-   * Sends a request to the account using this email.
+   * Sends a request to an account picked from search.
    *
    * Replaces creating a friend row directly: that only described someone and
    * never reached them. The server writes both sides and pushes the recipient.
    */
+  sendRequestToUser(userId: string): Promise<SendRequestResult> {
+    return api.post<SendRequestResult>('/friends/request', { body: { userId } });
+  },
+
+  /** Adding by exact address, for someone hard to find by name. */
   sendRequest(email: string): Promise<SendRequestResult> {
     return api.post<SendRequestResult>('/friends/request', { body: { email } });
   },

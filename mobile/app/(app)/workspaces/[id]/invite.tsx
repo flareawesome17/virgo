@@ -1,27 +1,25 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, ScrollView, Pressable, Alert, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { CollaboratorRole } from '@/src/api';
-import { useCreateCollaborator, useWorkspace, useTheme } from '@/src/hooks';
+import {
+  useAlbums,
+  useCreateCollaborator,
+  useFriends,
+  useWorkspace,
+  useTheme,
+} from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeftIcon,
   SendIcon,
-  LinkIcon,
-  CopyIcon,
-  XIcon,
-  UserPlusIcon,
-  UsersIcon,
+  CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SendIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(LinkIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CopyIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(XIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const ROLES = [
   { key: 'photographer', label: 'Photographer', desc: 'Can upload, edit media' },
@@ -39,49 +37,66 @@ const ROLE_COLORS: Record<string, string> = {
 
 export default function InviteCollaboratorsScreen() {
   const { isDark } = useTheme();
-  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [role, setRole] = useState('photographer');
-  const [invites, setInvites] = useState<{ name: string; email: string; role: string }[]>([]);
+  const [selectedFriendId, setSelectedFriendId] = useState<string | null>(null);
 
   const { data: workspace } = useWorkspace(id);
 
-  const addInvite = () => {
-    if (!name.trim() || !email.trim()) {
-      Alert.alert('Missing info', 'Please enter both name and email.');
+  // Only accepted friends are eligible; the API rejects anyone else.
+  const { friends } = useFriends({ status: 'accepted', limit: 100 });
+
+  const { albums } = useAlbums({ workspace_id: id, limit: 100 }, { enabled: !!id });
+
+  const [sharedAlbumIds, setSharedAlbumIds] = useState<string[]>([]);
+
+  // Default to sharing everything, matching the inheritance rule. Only seeded
+  // once the albums arrive, and never again, so a deliberate deselection is
+  // not undone by a refetch.
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || albums.length === 0) return;
+    seeded.current = true;
+    setSharedAlbumIds(albums.map((a) => a.id));
+  }, [albums]);
+
+  /** Sends one invitation straight away. */
+  const sendOne = async () => {
+    const friend = friends.find((f) => f.id === selectedFriendId);
+    if (!friend) {
+      Alert.alert('Choose someone', 'Pick a friend to invite to this workspace.');
       return;
     }
-    setInvites((prev) => [...prev, { name: name.trim(), email: email.trim(), role }]);
-    setName('');
-    setEmail('');
-    setRole('photographer');
-  };
+    if (!friend.friend_user_id) {
+      // Predates real friendships, so there is no account to invite.
+      Alert.alert(
+        'Cannot invite',
+        'This contact is not linked to a Virgo account. Add them again from Network.',
+      );
+      return;
+    }
 
-  const removeInvite = (index: number) => {
-    setInvites((prev) => prev.filter((_, i) => i !== index));
+    try {
+      await createCollaborator.mutateAsync({
+        workspace_id: id,
+        collaborator_user_id: friend.friend_user_id,
+        name: friend.friend_name,
+        role: role as CollaboratorRole,
+        album_ids: sharedAlbumIds,
+      });
+      setSelectedFriendId(null);
+      setRole('photographer');
+      Alert.alert(
+        'Invitation sent',
+        `${friend.friend_name} will see it in their network and can accept it there.`,
+        [{ text: 'Done', onPress: () => router.back() }, { text: 'Invite someone else' }],
+      );
+    } catch (err: any) {
+      Alert.alert('Could not invite', err?.message || 'Please try again.');
+    }
   };
 
   const createCollaborator = useCreateCollaborator();
-
-  const sendInvites = async () => {
-    try {
-      await Promise.all(
-        invites.map((inv) =>
-          createCollaborator.mutateAsync({
-            workspace_id: id,
-            name: inv.name,
-            role: inv.role as CollaboratorRole,
-          }),
-        ),
-      );
-      router.back();
-    } catch (err) {
-      Alert.alert('Error', 'Could not send invites. Please try again.');
-      console.error(err);
-    }
-  };
 
   const accent = workspace?.accent_color || '#B66A40';
 
@@ -127,85 +142,65 @@ export default function InviteCollaboratorsScreen() {
           </View>
         </View>
 
-        {/* Share link card */}
-        <View
-          className="mx-5 mt-5 bg-card rounded-2xl p-4"
-          style={{
-            shadowColor: '#000',
-            shadowOpacity: 0.04,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 3 },
-            elevation: 3,
-          }}
-        >
-          <View className="flex-row items-center gap-3 mb-3">
-            <View
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 12,
-                backgroundColor: `${accent}18`,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <LinkIcon size={16} style={{ color: accent }} />
-            </View>
-            <View className="flex-1">
-              <Text className="text-foreground text-sm font-semibold">Share workspace link</Text>
-              <Text className="text-muted-foreground text-xs mt-0.5">
-                Anyone with the link can request access
-              </Text>
-            </View>
-          </View>
-          <View className="flex-row items-center gap-2 bg-muted rounded-xl px-3 py-2.5">
-            <Text className="text-muted-foreground text-xs flex-1" numberOfLines={1}>
-              virgo.app/workspaces/{id}/join
-            </Text>
-            <Pressable className="w-8 h-8 rounded-lg bg-card items-center justify-center active:scale-[0.92]">
-              <CopyIcon size={14} className="text-muted-foreground" />
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Add collaborator form */}
+        {/* Friend picker. This was a name + email form, which created a label
+            rather than inviting anyone — collaborators are accounts now, and
+            only accepted friends are eligible. */}
         <View className="px-5 mt-6">
-          <Text className="text-foreground text-base font-bold tracking-tight mb-3">
-            Add by name & email
+          <Text className="text-foreground text-base font-bold tracking-tight mb-1">
+            Choose a friend
+          </Text>
+          <Text className="text-muted-foreground text-xs mb-3">
+            Only people you are friends with can join a workspace.
           </Text>
 
-          <View className="gap-3">
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Full name"
-              placeholderTextColor="#A89489"
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.03,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 2,
-              }}
-            />
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Email address"
-              placeholderTextColor="#A89489"
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.03,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 2,
-              }}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          </View>
+          {friends.length === 0 ? (
+            <Pressable
+              onPress={() => router.push('/(app)/(tabs)/network')}
+              className="bg-card rounded-2xl px-4 py-5 items-center active:scale-[0.98]"
+              style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+            >
+              <Text className="text-foreground text-sm font-semibold">No friends yet</Text>
+              <Text className="text-muted-foreground text-xs mt-1 text-center">
+                Search for someone in Network and add them first.
+              </Text>
+              <Text className="text-primary text-xs font-bold mt-3">Go to Network</Text>
+            </Pressable>
+          ) : (
+            <View
+              className="bg-card rounded-2xl overflow-hidden"
+              style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+            >
+              {friends.map((f, i) => {
+                const picked = selectedFriendId === f.id;
+                return (
+                  <Pressable
+                    key={f.id}
+                    onPress={() => setSelectedFriendId(picked ? null : f.id)}
+                    className="px-4 py-3 flex-row items-center gap-3 active:bg-muted/30"
+                    style={i < friends.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
+                  >
+                    <View className="w-9 h-9 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
+                      <Text style={{ color: '#B66A40', fontWeight: '700' }}>
+                        {f.friend_name.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View className="flex-1 min-w-0">
+                      <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                        {f.friend_name}
+                      </Text>
+                      {f.friend_email ? (
+                        <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+                          {f.friend_email}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {picked && <CheckIcon size={16} className="text-primary" />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+
 
           {/* Role picker */}
           <Text className="text-muted-foreground text-xs font-semibold uppercase tracking-wide mt-4 mb-2 ml-1">
@@ -249,116 +244,105 @@ export default function InviteCollaboratorsScreen() {
             ))}
           </View>
 
-          <Pressable
-            onPress={addInvite}
-            className="bg-card rounded-2xl py-3.5 items-center mt-4 flex-row justify-center gap-2 active:scale-[0.97]"
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: 0.04,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 2,
-            }}
-          >
-            <UserPlusIcon size={16} className="text-primary" />
-            <Text className="text-primary text-sm font-bold">Add to invite list</Text>
-          </Pressable>
-        </View>
-
-        {/* Pending invites */}
-        {invites.length > 0 && (
-          <View className="px-5 mt-6">
-            <View className="flex-row items-center gap-2 mb-3">
-              <UsersIcon size={14} className="text-muted-foreground" />
-              <Text className="text-foreground text-base font-bold">
-                Pending Invites ({invites.length})
-              </Text>
-            </View>
-            <View
-              className="bg-card rounded-2xl overflow-hidden"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.04,
-                shadowRadius: 10,
-                shadowOffset: { width: 0, height: 3 },
-                elevation: 3,
-              }}
-            >
-              {invites.map((inv, i) => (
-                <View
-                  key={i}
-                  className="flex-row items-center gap-3 px-4 py-3"
-                  style={
-                    i < invites.length - 1
-                      ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
-                      : undefined
+          {/* Which albums to share. Everything is selected by default, which
+              matches the inheritance rule: a collaborator gets the workspace's
+              albums, including ones created later, unless excluded. */}
+          {albums.length > 0 && (
+            <View className="mt-6">
+              <View className="flex-row items-center justify-between mb-2">
+                <Text className="text-muted-foreground text-xs font-semibold uppercase tracking-wide ml-1">
+                  Albums to share
+                </Text>
+                <Pressable
+                  onPress={() =>
+                    setSharedAlbumIds(
+                      sharedAlbumIds.length === albums.length ? [] : albums.map((a) => a.id),
+                    )
                   }
+                  className="active:opacity-60"
                 >
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 12,
-                      backgroundColor: `${ROLE_COLORS[inv.role] || accent}18`,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        fontWeight: '700',
-                        color: ROLE_COLORS[inv.role] || accent,
-                      }}
-                    >
-                      {inv.name.charAt(0)}
-                    </Text>
-                  </View>
-                  <View className="flex-1 min-w-0">
-                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                      {inv.name}
-                    </Text>
-                    <View className="flex-row items-center gap-2 mt-0.5">
-                      <Text className="text-muted-foreground text-xs" numberOfLines={1}>
-                        {inv.email}
-                      </Text>
-                      <Text className="text-muted-foreground text-[10px]">·</Text>
-                      <Text className="text-muted-foreground text-[10px] font-medium uppercase">
-                        {inv.role}
-                      </Text>
-                    </View>
-                  </View>
-                  <Pressable
-                    onPress={() => removeInvite(i)}
-                    className="w-7 h-7 rounded-full bg-muted items-center justify-center active:scale-[0.90]"
-                  >
-                    <XIcon size={11} className="text-muted-foreground" />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-      </ScrollView>
+                  <Text className="text-primary text-xs font-bold">
+                    {sharedAlbumIds.length === albums.length ? 'Clear all' : 'Select all'}
+                  </Text>
+                </Pressable>
+              </View>
 
-      {/* Send button */}
-      {invites.length > 0 && (
-        <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
+              <View
+                className="bg-card rounded-2xl overflow-hidden"
+                style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+              >
+                {albums.map((a, i) => {
+                  const on = sharedAlbumIds.includes(a.id);
+                  return (
+                    <Pressable
+                      key={a.id}
+                      onPress={() =>
+                        setSharedAlbumIds((prev) =>
+                          prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id],
+                        )
+                      }
+                      className="px-4 py-3 flex-row items-center gap-3 active:bg-muted/30"
+                      style={i < albums.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
+                    >
+                      <View
+                        className="items-center justify-center rounded-md"
+                        style={{
+                          width: 20,
+                          height: 20,
+                          backgroundColor: on ? '#B66A40' : 'transparent',
+                          borderWidth: on ? 0 : 1.5,
+                          borderColor: isDark ? '#4A423C' : '#D9C2B7',
+                        }}
+                      >
+                        {on && <CheckIcon size={13} className="text-white" />}
+                      </View>
+                      <Text className="text-foreground text-sm flex-1" numberOfLines={1}>
+                        {a.name}
+                      </Text>
+                      <Text className="text-muted-foreground text-xs">
+                        {a.item_count ?? 0}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {sharedAlbumIds.length === 0 && (
+                <Text className="text-muted-foreground text-xs mt-2 ml-1">
+                  They will join the workspace but see no albums yet.
+                </Text>
+              )}
+            </View>
+          )}
+
+          {/* Sends immediately. This used to stage into a list, and the Send
+              button only appeared once something had been staged — so picking a
+              friend looked like it did nothing. */}
           <Pressable
-            onPress={() => sendInvites()}
-            className="bg-primary rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.97]"
-            disabled={createCollaborator.isPending}
+            onPress={sendOne}
+            disabled={!selectedFriendId || createCollaborator.isPending}
+            className={`rounded-2xl py-3.5 items-center mt-4 flex-row justify-center gap-2 active:scale-[0.97] ${
+              selectedFriendId ? 'bg-primary' : 'bg-muted'
+            }`}
+            style={
+              selectedFriendId
+                ? { shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }
+                : undefined
+            }
           >
-            <SendIcon size={17} className="text-white" />
-            <Text className="text-white text-base font-bold">
-              {createCollaborator.isPending
-                ? 'Sending...'
-                : `Send ${invites.length} Invite${invites.length > 1 ? 's' : ''}`}
+            {createCollaborator.isPending ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <SendIcon size={16} className={selectedFriendId ? 'text-white' : 'text-muted-foreground'} />
+            )}
+            <Text className={`text-sm font-bold ${selectedFriendId ? 'text-white' : 'text-muted-foreground'}`}>
+              {createCollaborator.isPending ? 'Sending…' : 'Send invitation'}
             </Text>
           </Pressable>
         </View>
-      )}
-          </KeyboardAvoidingView>
+
+      </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

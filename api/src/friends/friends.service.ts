@@ -56,6 +56,83 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
     return account.display_name?.trim() || account.email.split('@')[0];
   }
 
+  /**
+   * Finds people to add as friends.
+   *
+   * Each result carries the caller's relationship to that account, so the UI
+   * can show "Add", "Pending" or "Friends" without a second round trip.
+   *
+   * A minimum query length and a hard result cap keep this from being a way to
+   * walk the whole user table; the caller is always excluded.
+   */
+  async searchPeople(
+    userId: string,
+    query: string,
+  ): Promise<
+    {
+      id: string;
+      name: string;
+      email: string;
+      avatarUrl: string | null;
+      relationship: 'none' | 'pending_out' | 'pending_in' | 'accepted';
+    }[]
+  > {
+    const q = query.trim();
+    if (q.length < 2) return [];
+
+    const rows = await this.db.query<{
+      id: string;
+      email: string;
+      display_name: string | null;
+      avatar_url: string | null;
+      status: string | null;
+      requested_by: string | null;
+    }>(
+      `select u.id, u.email, u.display_name, u.avatar_url,
+              f.status, f.requested_by
+         from users u
+         left join friends f
+           on f.user_id = $1 and f.friend_user_id = u.id
+        where u.id <> $1
+          and (u.display_name ilike $2 or lower(u.email) = lower($3))
+        order by u.display_name nulls last, u.email
+        limit 20`,
+      // Prefix match on the name, but an exact match on the email: a partial
+      // email match would turn this into an address harvester.
+      [userId, `${q}%`, q],
+    );
+
+    return rows.map((r) => ({
+      id: r.id,
+      name: this.nameFor({
+        id: r.id,
+        email: r.email,
+        display_name: r.display_name,
+        avatar_url: r.avatar_url,
+      }),
+      email: r.email,
+      avatarUrl: r.avatar_url,
+      relationship:
+        r.status === 'accepted'
+          ? 'accepted'
+          : r.status === 'pending'
+            ? r.requested_by === 'me'
+              ? 'pending_out'
+              : 'pending_in'
+            : 'none',
+    }));
+  }
+
+  /** Sends a request to an account chosen from search. */
+  async sendRequestToUser(
+    userId: string,
+    targetUserId: string,
+  ): Promise<{ status: string; friend: FriendRow }> {
+    const target = await this.accountById(targetUserId);
+    if (!target) throw new NotFoundException('That account no longer exists');
+    return this.sendRequest(userId, target.email);
+  }
+
   /** True when an accepted friendship exists in the caller's direction. */
   async areFriends(userId: string, otherUserId: string): Promise<boolean> {
     const row = await this.db.queryOne<{ id: string }>(
@@ -77,6 +154,9 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
     userId: string,
     email: string,
   ): Promise<{ status: string; friend: FriendRow }> {
+    if (!email?.trim()) {
+      throw new BadRequestException('Choose someone to send a request to');
+    }
     const target = await this.findAccountByEmail(email);
 
     // Same message whether no account uses the address or it is the caller's

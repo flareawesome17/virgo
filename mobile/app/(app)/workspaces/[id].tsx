@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
+import { isEventUpcoming } from '@/src/lib/calendar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useAlbums,
@@ -118,15 +119,24 @@ export default function WorkspaceDetailScreen() {
     enabled,
   );
 
+  // A window, not 3: ascending order puts the *oldest* events first, so a
+  // small limit returns only past ones and leaves Upcoming empty once they are
+  // filtered out.
   const { events, refetch: refetchEvents } = useScheduleEvents(
     {
       workspace_id: id,
       orderBy: 'event_date',
       direction: 'asc',
-      limit: 3,
+      limit: 50,
     },
     enabled,
   );
+
+  // Compared against the moment, not the date — a 9am event was still listed
+  // as upcoming that same evening.
+  const upcomingEvents = events
+    .filter((e) => isEventUpcoming(e.event_date, e.event_time))
+    .slice(0, 3);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -472,7 +482,7 @@ export default function WorkspaceDetailScreen() {
             </Pressable>
           </View>
 
-          {events.length === 0 ? (
+          {upcomingEvents.length === 0 ? (
             <View className="bg-card rounded-2xl p-6 items-center gap-2">
               <CalendarPlusIcon size={20} className="text-muted-foreground" />
               <Text className="text-muted-foreground text-sm">No upcoming events</Text>
@@ -488,7 +498,7 @@ export default function WorkspaceDetailScreen() {
                 elevation: 3,
               }}
             >
-              {events.map((event, i) => {
+              {upcomingEvents.map((event, i) => {
                 const dotColor = EVENT_TYPE_COLORS[event.event_type] || '#B66A40';
                 return (
                   <Pressable
@@ -496,7 +506,7 @@ export default function WorkspaceDetailScreen() {
                     onPress={() => router.push(`/schedule/${event.id}`)}
                     className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
                     style={
-                      i < events.length - 1
+                      i < upcomingEvents.length - 1
                         ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
                         : undefined
                     }

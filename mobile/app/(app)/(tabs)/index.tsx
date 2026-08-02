@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
+import { isEventUpcoming } from '@/src/lib/calendar';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
 import { Image } from 'expo-image';
@@ -145,8 +146,11 @@ export default function HomeScreen() {
     enabled,
   );
 
+  // Fetches a window rather than 4: sorted ascending, the first few rows are
+  // the *oldest* events, so a small limit could return nothing but past ones
+  // and leave Upcoming permanently empty once they were filtered out.
   const { events, refetch: refetchEvents } = useScheduleEvents(
-    { orderBy: 'event_date', direction: 'asc', limit: 4 },
+    { orderBy: 'event_date', direction: 'asc', limit: 50 },
     enabled,
   );
 
@@ -171,8 +175,13 @@ export default function HomeScreen() {
     storageFraction,
   } = useUsage({ enabled: !!user?.id });
 
-  const todayEvent = events.length > 0 ? events[0] : null;
-  const upcomingEvents = events.slice(0, 3);
+  // Both of these had no time filter at all — `events[0]` and `slice(0, 3)`
+  // over an ascending list meant the oldest events, past ones included.
+  const upcomingEvents = events
+    .filter((e) => isEventUpcoming(e.event_date, e.event_time))
+    .slice(0, 3);
+
+  const todayEvent = upcomingEvents[0] ?? null;
 
   const workspaceNameById = Object.fromEntries(workspaces.map((w) => [w.id, w.name]));
 

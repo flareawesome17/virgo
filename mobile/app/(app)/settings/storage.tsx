@@ -174,16 +174,18 @@ export default function StorageOverviewScreen() {
           <ChevronRightIcon size={14} className="text-muted-foreground" />
         </Pressable>
 
-        {/* Billing history link */}
-        <Pressable onPress={() => router.push('/settings/storage/history')}
+        {/* Was "Billing History", which listed four invented paid invoices
+            against a card nobody had entered. Plans is the real destination
+            until there is a billing backend to read history from. */}
+        <Pressable onPress={() => router.push('/settings/storage/plans')}
           className="mx-5 mt-6 bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
           style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
           <View className="w-10 h-10 rounded-xl bg-primary/10 items-center justify-center">
             <ShieldIcon size={18} className="text-primary" />
           </View>
           <View className="flex-1">
-            <Text className="text-foreground text-sm font-semibold">Billing History</Text>
-            <Text className="text-muted-foreground text-xs mt-0.5">View invoices and payment history</Text>
+            <Text className="text-foreground text-sm font-semibold">Plans</Text>
+            <Text className="text-muted-foreground text-xs mt-0.5">Compare storage and workspace limits</Text>
           </View>
           <ChevronRightIcon size={14} className="text-muted-foreground" />
         </Pressable>

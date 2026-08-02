@@ -43,6 +43,12 @@ export {
   useUpdateCollaborator,
   useDeleteCollaborator,
 } from '@/src/hooks/useCollaborators'
+export {
+  useCollaboratorInvitations,
+  useRespondToInvitation,
+  useSetCollaboratorAlbums,
+  useCollaboratorAlbums,
+} from '@/src/hooks/useCollaborators'
 
 export {
   useReminders,
@@ -60,10 +66,11 @@ export {
   useDeleteFriend,
   useSendFriendRequest,
   useRespondToFriendRequest,
+  usePeopleSearch,
 } from '@/src/hooks/useFriends'
 
 export { useUpload, useDeleteUpload, type UploadInput } from '@/src/hooks/useUpload'
-export { useUsage, usageQueryKey } from '@/src/hooks/useUsage'
+export { useUsage, usePlans, usageQueryKey, plansQueryKey } from '@/src/hooks/useUsage'
 export { useAlbumFiles, albumFilesQueryKey, kindOf, fileNameFromKey, fileDate, type MediaKind } from '@/src/hooks/useAlbumFiles'
 
 export {
@@ -78,3 +85,23 @@ export {
 export { useReminderNotifications, usePushRegistration } from '@/src/hooks/useReminderNotifications'
 
 export { usePlanLimits } from '@/src/hooks/usePlanLimits'
+
+export {
+  useConversations,
+  useUnreadCount,
+  useThread,
+  useParticipants,
+  useSendMessage,
+  useOpenDirectChat,
+  useCreateGroupChat,
+  useMarkThreadRead,
+  useLeaveConversation,
+  chatKeys,
+} from '@/src/hooks/useChat'
+
+export {
+  useLocationSharing,
+  useShareLocation,
+  useStopSharingLocation,
+  useNearbyPeople,
+} from '@/src/hooks/useNearby'

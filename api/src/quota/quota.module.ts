@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { QuotaController } from './quota.controller';
+import { PlansController, QuotaController } from './quota.controller';
 import { QuotaService } from './quota.service';
 
 /**
@@ -8,7 +8,7 @@ import { QuotaService } from './quota.service';
  */
 @Global()
 @Module({
-  controllers: [QuotaController],
+  controllers: [QuotaController, PlansController],
   providers: [QuotaService],
   exports: [QuotaService],
 })

@@ -186,6 +186,27 @@ export function dateToTimeString(d: Date): string {
   return `${h}:${m}`;
 }
 
+/**
+ * Is this event still ahead of us?
+ *
+ * Compares the moment, not the day. `event_date >= today` counted a 9am shoot
+ * as upcoming all afternoon, which is what put finished events in the Upcoming
+ * list.
+ *
+ * An event with no time is treated as lasting its whole day, so it stays
+ * upcoming until midnight rather than vanishing at 00:00 — the alternative
+ * would hide an all-day booking from the moment it started.
+ */
+export function isEventUpcoming(
+  eventDate: string,
+  eventTime: string | null,
+  now: Date = new Date(),
+): boolean {
+  if (!eventDate) return false;
+  if (!eventTime) return eventDate >= dateToKey(now);
+  return combineDateAndTime(eventDate, eventTime).getTime() > now.getTime();
+}
+
 /** Combines a `YYYY-MM-DD` key and an `HH:MM` string into a local Date. */
 export function combineDateAndTime(key: string, time: string): Date {
   const base = parseDateKey(key);

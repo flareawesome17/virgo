@@ -5,6 +5,8 @@ import {
   IsUrl,
   MaxLength,
   MinLength,
+  IsArray,
+  ArrayMaxSize,
 } from 'class-validator';
 import { ListQueryDto } from '../../common/dto/list-query.dto';
 
@@ -17,6 +19,16 @@ const ROLES = [
 ] as const;
 
 export class CreateCollaboratorDto {
+  /**
+   * Albums to share. Omitted means every album in the workspace, including
+   * ones created later.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  album_ids?: string[];
+
   /** The friend being added. Required: collaborators are real accounts. */
   @IsString()
   @MaxLength(64)
@@ -72,4 +84,12 @@ export class ListCollaboratorsDto extends ListQueryDto {
   @IsOptional()
   @IsIn(ROLES)
   role?: (typeof ROLES)[number];
+}
+
+/** Replaces which albums an existing collaborator can see. */
+export class UpdateCollaboratorAlbumsDto {
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  album_ids!: string[];
 }

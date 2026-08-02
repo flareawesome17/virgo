@@ -77,7 +77,12 @@ export function useDeleteFriend() {
 export function useSendFriendRequest() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (email: string) => friendsApi.sendRequest(email),
+    // Takes an account id from the people search; an email is still accepted
+    // for adding someone by exact address.
+    mutationFn: (target: { userId: string } | { email: string }) =>
+      'userId' in target
+        ? friendsApi.sendRequestToUser(target.userId)
+        : friendsApi.sendRequest(target.email),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
     },
@@ -95,4 +100,20 @@ export function useRespondToFriendRequest() {
       queryClient.invalidateQueries({ queryKey: ['collaborators'] });
     },
   });
+}
+
+/**
+ * People matching a search, with the caller's relationship to each.
+ *
+ * Debounced by the caller; disabled under two characters, which is also what
+ * the server requires.
+ */
+export function usePeopleSearch(query: string) {
+  const q = query.trim();
+  const result = useQuery({
+    queryKey: ['friends', 'search', q],
+    queryFn: () => friendsApi.searchPeople(q),
+    enabled: q.length >= 2,
+  });
+  return { ...result, people: result.data?.data ?? [] };
 }

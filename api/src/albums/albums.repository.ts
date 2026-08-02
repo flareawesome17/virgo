@@ -93,13 +93,97 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     });
   }
 
+  /**
+   * Albums visible to the user: their own, plus those in workspaces they have
+   * accepted an invitation to and have not been excluded from.
+   *
+   * The exclusion check is what makes per-album removal real rather than
+   * cosmetic — an excluded album must not appear in the collaborator's list at
+   * all, not merely be hidden by the owner's screen.
+   */
+  private sharedClause(paramIndex: number): string {
+    return `(
+      user_id = $${paramIndex}
+      or (
+        workspace_id in (
+          select workspace_id from collaborators
+           where collaborator_user_id = $${paramIndex} and status = 'accepted'
+        )
+        and id not in (
+          select x.album_id
+            from album_collaborator_exclusions x
+            join collaborators c on c.id = x.collaborator_id
+           where c.collaborator_user_id = $${paramIndex}
+        )
+      )
+    )`;
+  }
+
   async findAll(userId: string, options: ListOptions = {}): Promise<AlbumRow[]> {
-    return this.withDerivedFields(await super.findAll(userId, options));
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
+    const offset = Math.max(options.offset ?? 0, 0);
+    const orderBy = this.sortableColumns.includes(options.orderBy ?? '')
+      ? (options.orderBy as string)
+      : 'created_at';
+    const direction = options.direction === 'asc' ? 'ASC' : 'DESC';
+
+    const params: unknown[] = [userId];
+    let where = this.sharedClause(1);
+
+    // Only workspace_id and status are filterable; both are safe to compare.
+    for (const column of ['workspace_id', 'status'] as const) {
+      const value = options.filters?.[column];
+      if (value === undefined || value === null) continue;
+      params.push(value);
+      where += ` and ${column} = $${params.length}`;
+    }
+
+    params.push(limit, offset);
+
+    return this.withDerivedFields(
+      await this.db.query<AlbumRow>(
+        `select * from albums
+          where ${where}
+          order by ${orderBy} ${direction}
+          limit $${params.length - 1} offset $${params.length}`,
+        params,
+      ),
+    );
   }
 
   async findOne(userId: string, id: string): Promise<AlbumRow | null> {
-    const row = await super.findOne(userId, id);
+    const row = await this.db.queryOne<AlbumRow>(
+      `select * from albums where id = $2 and ${this.sharedClause(1)}`,
+      [userId, id],
+    );
     if (!row) return null;
     return (await this.withDerivedFields([row]))[0];
+  }
+
+  /**
+   * Must match findAll's visibility.
+   *
+   * The inherited count is owner-only, so a collaborator saw their shared
+   * albums listed under a total of 0.
+   */
+  async count(
+    userId: string,
+    filters: Record<string, unknown> = {},
+  ): Promise<number> {
+    const params: unknown[] = [userId];
+    let where = this.sharedClause(1);
+
+    for (const column of ['workspace_id', 'status'] as const) {
+      const value = filters[column];
+      if (value === undefined || value === null) continue;
+      params.push(value);
+      where += ` and ${column} = $${params.length}`;
+    }
+
+    const row = await this.db.queryOne<{ count: string }>(
+      `select count(*)::text as count from albums where ${where}`,
+      params,
+    );
+    return Number(row?.count ?? 0);
   }
 }
