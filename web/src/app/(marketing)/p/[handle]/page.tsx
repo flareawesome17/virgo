@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowUpRight, Globe, ImageIcon, MapPin } from 'lucide-react';
+import { Globe, MapPin } from 'lucide-react';
 import { LandingFooter } from '@/components/landing/closing';
+import { ProfileGallery } from '@/components/profile-gallery';
 import { API_BASE_URL, type PublicProfile } from '@/api';
 import { APP_URL, SIGN_UP_URL } from '@/components/landing/links';
 
@@ -129,6 +130,9 @@ export default async function ProfilePage({
       item.kind === 'album' && Boolean(item.url),
   );
 
+  /** Their best photograph, or an album cover, for the banner. */
+  const cover = images[0]?.url ?? albums.find((a) => a.coverUrl)?.coverUrl ?? null;
+
   /**
    * Structured data, so a search result can show the person rather than a blue
    * link. `Person` inside `ProfilePage` is the shape Google documents for
@@ -173,180 +177,174 @@ export default async function ProfilePage({
         </div>
       </header>
 
-      <main className="grain relative overflow-hidden">
-        <div className="hero-glow" aria-hidden />
+      <main>
+        {/*
+          Cover.
 
-        <div className="relative mx-auto w-full max-w-4xl px-5 py-14 sm:px-8 sm:py-20">
-          <div className="flex flex-col items-start gap-6 sm:flex-row sm:items-center">
+          Their own best photograph, blurred and dimmed hard enough to read over.
+          A photographer's profile that opens on a flat gradient wastes the one
+          thing they have most of; using their work makes the page theirs before
+          a word is read. Falls back to the site's own glow when there is
+          nothing to show yet.
+        */}
+        <div className="relative h-40 overflow-hidden bg-[#c17745]/10 sm:h-56">
+          {cover ? (
+            <>
+              <Image
+                src={cover}
+                alt=""
+                fill
+                priority
+                sizes="100vw"
+                className="scale-110 object-cover blur-[2px]"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/55 to-background/20" />
+            </>
+          ) : (
+            <div className="grain absolute inset-0">
+              <div className="hero-glow" aria-hidden />
+            </div>
+          )}
+        </div>
+
+        <div className="mx-auto w-full max-w-4xl px-5 sm:px-8">
+          {/*
+            The avatar overlaps the cover, the arrangement every social profile
+            uses. It ties the two bands together and gives the name somewhere to
+            start, instead of a row of details floating on a flat background.
+          */}
+          <div className="-mt-12 flex flex-col gap-4 sm:-mt-14 sm:flex-row sm:items-end">
             {profile.avatarUrl ? (
               <Image
                 src={profile.avatarUrl}
                 alt=""
-                width={112}
-                height={112}
-                className="size-24 shrink-0 rounded-full object-cover sm:size-28"
+                width={144}
+                height={144}
+                className="size-24 shrink-0 rounded-full border-4 border-background bg-background object-cover sm:size-32"
               />
             ) : (
-              <div className="grid size-24 shrink-0 place-items-center rounded-full bg-[#c17745]/15 text-2xl font-bold text-[#c17745] sm:size-28">
+              <div className="grid size-24 shrink-0 place-items-center rounded-full border-4 border-background bg-[#c17745]/20 text-2xl font-bold text-[#e0a274] sm:size-32 sm:text-3xl">
                 {profile.displayName.slice(0, 2).toUpperCase()}
               </div>
             )}
 
-            <div className="min-w-0">
-              <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+            <div className="min-w-0 flex-1 sm:pb-1">
+              <h1 className="truncate text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
                 {profile.displayName}
               </h1>
-              <p className="mt-1 text-sm text-white/40">@{profile.handle}</p>
-              {profile.title && (
-                <p className="mt-2 text-[15px] text-white/70">{profile.title}</p>
-              )}
-
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-white/45">
-                {profile.location && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <MapPin className="size-3.5" />
-                    {profile.location}
-                  </span>
-                )}
-                {profile.website && (
-                  <a
-                    href={
-                      /^https?:\/\//i.test(profile.website)
-                        ? profile.website
-                        : `https://${profile.website}`
-                    }
-                    // The link is user-supplied: noopener stops the target
-                    // reaching back through window.opener, nofollow stops a
-                    // public profile becoming a way to pass link juice.
-                    target="_blank"
-                    rel="noopener noreferrer nofollow ugc"
-                    className="inline-flex items-center gap-1.5 transition-colors hover:text-white"
-                  >
-                    <Globe className="size-3.5" />
-                    {profile.website.replace(/^https?:\/\//i, '')}
-                  </a>
-                )}
-                <span>On Virgo since {profile.memberSince}</span>
-              </div>
+              <p className="text-[13px] text-white/40">@{profile.handle}</p>
             </div>
+
+            {/* The whole point of the page, so it sits with the name rather
+                than only at the bottom. Full-width on a phone, where a thumb
+                expects it. */}
+            <a
+              href={`${APP_URL}/hire/${profile.handle}`}
+              className="shrink-0 rounded-xl bg-[#c17745] px-6 py-3 text-center text-[14px] font-bold text-white transition-colors hover:bg-[#cd8250] sm:mb-1"
+            >
+              Hire {profile.displayName.split(' ')[0]}
+            </a>
           </div>
 
+          {profile.title && (
+            <p className="mt-4 text-[15px] font-medium text-white/80">
+              {profile.title}
+            </p>
+          )}
+
           {profile.roles.length > 0 && (
-            <div className="mt-8">
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
-                What they do
-              </h2>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {profile.roles.map((role) => (
-                  <span
-                    key={role}
-                    className="rounded-full border border-[#c17745]/30 bg-[#c17745]/10 px-3.5 py-1.5 text-[13px] font-semibold text-[#e0a274]"
-                  >
-                    {role}
-                  </span>
-                ))}
-              </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {profile.roles.map((role) => (
+                <span
+                  key={role}
+                  className="rounded-full border border-[#c17745]/30 bg-[#c17745]/10 px-3 py-1 text-[12px] font-semibold text-[#e0a274]"
+                >
+                  {role}
+                </span>
+              ))}
             </div>
           )}
 
           {profile.bio && (
-            <div className="mt-8 max-w-2xl">
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
-                About
-              </h2>
-              <p className="mt-3 whitespace-pre-line text-[15px] leading-relaxed text-white/60">
-                {profile.bio}
-              </p>
-            </div>
+            <p className="mt-4 max-w-2xl whitespace-pre-line text-[14px] leading-relaxed text-white/60">
+              {profile.bio}
+            </p>
           )}
 
-          {images.length > 0 && (
-            <div className="mt-10">
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-white/45">
+            {profile.location && (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="size-3.5" />
+                {profile.location}
+              </span>
+            )}
+            {profile.website && (
+              <a
+                href={
+                  /^https?:\/\//i.test(profile.website)
+                    ? profile.website
+                    : `https://${profile.website}`
+                }
+                // The link is user-supplied: noopener stops the target reaching
+                // back through window.opener, nofollow stops a public profile
+                // becoming a way to pass link juice.
+                target="_blank"
+                rel="noopener noreferrer nofollow ugc"
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-white"
+              >
+                <Globe className="size-3.5" />
+                {profile.website.replace(/^https?:\/\//i, '')}
+              </a>
+            )}
+          </div>
+
+          {/*
+            Counts, in the row every social profile puts them in. It is the
+            fastest read on the page: somebody deciding whether to keep
+            scrolling wants to know there is something to scroll to.
+          */}
+          <dl className="mt-6 flex gap-8 border-y border-white/8 py-4">
+            <div>
+              <dt className="text-[11px] uppercase tracking-[0.12em] text-white/35">
                 Work
-              </h2>
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
-                {images.map((item) => (
-                  <figure
-                    key={item.id}
-                    className="group relative aspect-square overflow-hidden rounded-xl bg-white/[0.04]"
-                  >
-                    <Image
-                      src={item.url}
-                      alt={item.caption ?? ''}
-                      fill
-                      // Three columns at most, so a phone never downloads a
-                      // desktop-width file for a thumbnail.
-                      sizes="(max-width: 640px) 50vw, 300px"
-                      className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                    />
-                    {item.caption && (
-                      <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-3 pt-8 text-[12px] font-medium text-white/90 opacity-0 transition-opacity group-hover:opacity-100">
-                        {item.caption}
-                      </figcaption>
-                    )}
-                  </figure>
-                ))}
-              </div>
+              </dt>
+              <dd className="text-lg font-bold tabular-nums text-white">
+                {images.length}
+              </dd>
             </div>
-          )}
-
-          {albums.length > 0 && (
-            <div className="mt-10">
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
+            <div>
+              <dt className="text-[11px] uppercase tracking-[0.12em] text-white/35">
                 Galleries
-              </h2>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {albums.map((album) => (
-                  <a
-                    key={album.id}
-                    href={album.url ?? undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-3 transition-colors hover:border-[#c17745]/40 hover:bg-white/[0.05]"
-                  >
-                    {album.coverUrl ? (
-                      <Image
-                        src={album.coverUrl}
-                        alt=""
-                        width={72}
-                        height={72}
-                        className="size-[72px] shrink-0 rounded-lg object-cover"
-                      />
-                    ) : (
-                      <div className="grid size-[72px] shrink-0 place-items-center rounded-lg bg-[#c17745]/12">
-                        <ImageIcon className="size-6 text-[#c17745]" />
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <p className="truncate text-[14px] font-bold text-white">
-                        {album.name}
-                      </p>
-                      <p className="mt-0.5 text-[12px] text-white/40">
-                        {album.itemCount} {album.itemCount === 1 ? 'photo' : 'photos'}
-                      </p>
-                      {album.caption && (
-                        <p className="mt-1 truncate text-[12px] text-white/50">
-                          {album.caption}
-                        </p>
-                      )}
-                    </div>
-                    <ArrowUpRight className="ml-auto size-4 shrink-0 text-white/25 transition-colors group-hover:text-[#c17745]" />
-                  </a>
-                ))}
-              </div>
+              </dt>
+              <dd className="text-lg font-bold tabular-nums text-white">
+                {albums.length}
+              </dd>
             </div>
-          )}
+            <div>
+              <dt className="text-[11px] uppercase tracking-[0.12em] text-white/35">
+                On Virgo
+              </dt>
+              <dd className="text-lg font-bold tabular-nums text-white">
+                {profile.memberSince}
+              </dd>
+            </div>
+          </dl>
+        </div>
 
-          {/* Contact is a Virgo account, not an email address on a public page.
-              The link goes to the app host: the enquiry form needs a session,
-              and the AuthGuard there already bounces a signed-out visitor
-              through sign-in and back to this exact form. */}
-          <div className="mt-12 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+        <div className="mx-auto w-full max-w-4xl">
+          <ProfileGallery
+            images={images}
+            albums={albums}
+            displayName={profile.displayName}
+          />
+        </div>
+
+        <div className="mx-auto w-full max-w-4xl px-5 pb-16 pt-10 sm:px-8">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center">
             <p className="text-[15px] font-bold text-white">
               Want to work with {profile.displayName.split(' ')[0]}?
             </p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-white/50">
+            <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-white/50">
               Send an enquiry with the date, the brief and your budget. If they
               accept, you are connected and can talk it through in chat.
             </p>
