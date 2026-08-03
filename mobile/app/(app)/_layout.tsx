@@ -9,7 +9,7 @@ import {
   useReminderNotifications,
   useReminders,
 } from '@/src/hooks';
-import { RolesRequiredSheet } from '@/components';
+import { RolesRequiredSheet, VerifyEmailBanner } from '@/components';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
@@ -71,7 +71,13 @@ export default function AppLayout() {
       {/* Here rather than on a settings screen, so an account with no roles is
           asked wherever it lands rather than only if it goes looking. */}
       <RolesRequiredSheet />
-      <Stack screenOptions={{ headerShown: false }} />
+      {/* Wraps the Stack rather than sitting beside it: when the banner shows
+          it takes the top safe area, and it zeroes that inset for the screens
+          underneath so they do not pad for the notch a second time. Renders
+          its children untouched once the address is confirmed. */}
+      <VerifyEmailBanner>
+        <Stack screenOptions={{ headerShown: false }} />
+      </VerifyEmailBanner>
     </>
   );
 }

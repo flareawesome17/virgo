@@ -73,8 +73,11 @@ export class EmailVerifiedGuard implements CanActivate {
     if (await this.isVerified(user.id)) return true;
 
     throw new ForbiddenException({
+      // Names the scope of what is blocked, because the old wording — "finish
+      // setting up" — read like an onboarding nag next to an action the user
+      // had just deliberately taken, and did not explain why it failed.
       message:
-        'Confirm your email address to finish setting up. Check your inbox for the link.',
+        'Confirm your email address before sending or changing anything. The link is in your inbox.',
       error: 'EmailNotVerified',
       // A machine-readable marker so clients can show the resend prompt rather
       // than a generic permission error.

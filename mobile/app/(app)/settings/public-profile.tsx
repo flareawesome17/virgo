@@ -15,8 +15,11 @@ import {
   useSetPublished,
   useAlbums,
   useTheme,
+  // On mobile `kindOf` lives with the album-file helpers, not in the api
+  // barrel — storage.ts is one of the platform-specific modules.
+  kindOf,
 } from '@/src/hooks';
-import { profilesApi, storageApi, kindOf, profileUrl } from '@/src/api';
+import { profilesApi, storageApi, profileUrl } from '@/src/api';
 import {
   ArrowLeftIcon, AlertCircleIcon, CheckIcon, ExternalLinkIcon,
   ImagePlusIcon, LayersIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon,

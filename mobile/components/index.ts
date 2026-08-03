@@ -12,6 +12,7 @@ export {
 } from '@/components/EventInvites'
 export { RolePicker } from '@/components/RolePicker'
 export { RolesRequiredSheet } from '@/components/RolesRequired'
+export { VerifyEmailBanner } from '@/components/VerifyEmailBanner'
 export {
   PresenceDot,
   PresenceLine,

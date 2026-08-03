@@ -2,11 +2,8 @@
  * API layer.
  *
  * One typed module per resource, each mapping directly onto the NestJS
- * endpoints in `api/`. Shared verbatim with the mobile app apart from
- * `config.ts` and `tokens.ts`, which are the only platform-specific pieces.
- *
- * Routes go through the hooks in `src/hooks`, which wrap these with React
- * Query; call these directly only outside a component.
+ * endpoints in `api/`. Screens go through the hooks in `src/hooks`, which wrap
+ * these with React Query; call these directly only outside a component.
  */
 
 export { api, request, setAuthFailureHandler } from './client';
@@ -18,7 +15,6 @@ export {
   getRefreshToken,
   hydrateTokens,
   setTokens,
-  watchTokensAcrossTabs,
 } from './tokens';
 export { queryKeys } from './queryKeys';
 
@@ -60,16 +56,6 @@ export {
 } from './endpoints/friends';
 export { servicesApi, type ChatMessage } from './endpoints/services';
 export {
-  usageApi,
-  formatBytes,
-  formatMoney,
-  planPrice,
-  planCurrency,
-  toGB,
-  type UsageSummary,
-  type PlanInfo,
-} from './endpoints/usage';
-export {
   profilesApi,
   portfolioApi,
   profileUrl,
@@ -91,9 +77,18 @@ export {
   type SubscriptionStatus,
 } from './endpoints/billing';
 export {
+  usageApi,
+  formatBytes,
+  formatMoney,
+  planPrice,
+  planCurrency,
+  toGB,
+  type UsageSummary,
+  type PlanInfo,
+} from './endpoints/usage';
+export {
   storageApi,
-  contentTypeForName,
-  kindOf,
+  contentTypeForAsset,
   type UploadResult,
   type UploadScope,
   type UploadTicket,
