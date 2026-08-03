@@ -1,6 +1,6 @@
 import { View, Text, FlatList, RefreshControl, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth, useFriends, useTheme, useUpdateFriend } from '@/src/hooks';
+import { useAuth, useFriends, useRespondToFriendRequest, useTheme } from '@/src/hooks';
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { ArrowLeftIcon, CheckIcon, XIcon, ClockIcon, UserPlusIcon } from 'lucide-react-native';
@@ -30,15 +30,19 @@ export default function FriendRequestsScreen() {
     setRefreshing(false);
   };
 
-  // One mutation covers both actions; the hook invalidates the friends cache,
-  // which drops the row out of this pending-only list.
-  const updateFriend = useUpdateFriend();
+  // POST /accept and /decline, not a PATCH of the status field.
+  //
+  // The PATCH this used to send updated only *this* user's row, leaving the
+  // sender's copy pending — so the person who asked still could not message
+  // the person who had just accepted them. respond() writes both sides in one
+  // transaction and refuses a request you sent yourself.
+  const respond = useRespondToFriendRequest();
 
   // On success, show the existing confirmation screen. It was already built
   // but nothing navigated to it, so it was unreachable.
   const acceptRequest = (id: string, name: string, avatar: string | null) =>
-    updateFriend.mutate(
-      { id, status: 'accepted' },
+    respond.mutate(
+      { id, accept: true },
       {
         onSuccess: () =>
           router.push(
@@ -48,7 +52,7 @@ export default function FriendRequestsScreen() {
       },
     );
   const declineRequest = (id: string) =>
-    updateFriend.mutate({ id, status: 'declined' });
+    respond.mutate({ id, accept: false });
 
   const received = friends.filter(f => f.requested_by === 'them');
   const sent = friends.filter(f => f.requested_by === 'me');

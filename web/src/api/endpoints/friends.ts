@@ -21,8 +21,15 @@ export interface CreateFriendInput {
   requested_by: RequestedBy;
 }
 
+/**
+ * Only the denormalised display fields.
+ *
+ * `status` is not editable: answering a request is friendsApi.accept() or
+ * .decline(), which updates both sides of the friendship. Sending it here
+ * used to let the requester approve their own request.
+ */
 export type UpdateFriendInput = Partial<
-  Omit<CreateFriendInput, 'id' | 'requested_by'>
+  Omit<CreateFriendInput, 'id' | 'requested_by' | 'status'>
 >;
 
 export interface PersonResult {

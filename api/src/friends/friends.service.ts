@@ -143,13 +143,27 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
   }
 
   /** True when an accepted friendship exists in the caller's direction. */
+  /**
+   * Whether these two have actually agreed to know each other.
+   *
+   * Both rows must say so. A friendship is two rows written together by
+   * `respond()`, and checking only the caller's own copy meant one side could
+   * manufacture the relationship alone — which is precisely what the writable
+   * `status` column allowed until it was removed.
+   *
+   * Requiring both is defence in depth: even if some future path writes one row
+   * in isolation, it grants nothing on its own.
+   */
   async areFriends(userId: string, otherUserId: string): Promise<boolean> {
-    const row = await this.db.queryOne<{ id: string }>(
-      `select id from friends
-        where user_id = $1 and friend_user_id = $2 and status = 'accepted'`,
+    const row = await this.db.queryOne<{ both: string }>(
+      `select count(*)::text as both
+         from friends
+        where status = 'accepted'
+          and ((user_id = $1 and friend_user_id = $2)
+            or (user_id = $2 and friend_user_id = $1))`,
       [userId, otherUserId],
     );
-    return row !== null;
+    return Number(row?.both ?? 0) === 2;
   }
 
   /**

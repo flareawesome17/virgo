@@ -76,9 +76,10 @@ export class UpdateFriendDto {
   @MaxLength(2048)
   friend_avatar_url?: string;
 
-  @IsOptional()
-  @IsIn(STATUSES)
-  status?: (typeof STATUSES)[number];
+  // No `status` here on purpose. Answering a request is POST /friends/:id/accept
+  // or /decline, which updates both sides of the friendship and checks that the
+  // request was actually addressed to you. Accepting it as a field let the
+  // sender approve their own request — see friends.repository.ts.
 }
 
 export class ListFriendsDto extends ListQueryDto {
