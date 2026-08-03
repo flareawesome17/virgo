@@ -1,5 +1,39 @@
 import { api } from '../client';
 
+/** A single photograph on a profile. */
+export interface PortfolioImage {
+  id: string;
+  kind: 'image';
+  url: string;
+  caption: string | null;
+  /**
+   * The object key behind `url`. Present on `GET /me/portfolio` only — the
+   * editor needs it to know which uploads are already on the profile. The
+   * public payload omits it.
+   */
+  fileKey?: string;
+}
+
+/**
+ * A whole gallery, shown as one card.
+ *
+ * `url` points at a share link created specifically for the portfolio — never
+ * the one the album's client was sent.
+ */
+export interface PortfolioAlbum {
+  id: string;
+  kind: 'album';
+  name: string;
+  caption: string | null;
+  coverUrl: string | null;
+  itemCount: number;
+  url: string | null;
+  /** Owner's list only, so the picker can hide albums already showcased. */
+  albumId?: string;
+}
+
+export type PortfolioItem = PortfolioImage | PortfolioAlbum;
+
 /**
  * What the public page shows.
  *
@@ -18,6 +52,7 @@ export interface PublicProfile {
   roles: string[];
   /** Year only. */
   memberSince: number;
+  portfolio: PortfolioItem[];
 }
 
 export interface ProfileSettings {
@@ -59,6 +94,35 @@ export const profilesApi = {
 
   setPublished(published: boolean): Promise<{ published: boolean; handle: string | null }> {
     return api.patch('/me/profile/publish', { body: { published } });
+  },
+};
+
+/**
+ * The portfolio editor.
+ *
+ * Every mutation answers with the whole list, so a client never has to guess
+ * what the new order or the new caps left behind.
+ */
+export const portfolioApi = {
+  list(): Promise<{ data: PortfolioItem[]; total: number }> {
+    return api.get('/me/portfolio');
+  },
+
+  addImage(fileKey: string, caption?: string): Promise<{ data: PortfolioItem[] }> {
+    return api.post('/me/portfolio', { body: { kind: 'image', fileKey, caption } });
+  },
+
+  addAlbum(albumId: string, caption?: string): Promise<{ data: PortfolioItem[] }> {
+    return api.post('/me/portfolio', { body: { kind: 'album', albumId, caption } });
+  },
+
+  remove(id: string): Promise<{ data: PortfolioItem[] }> {
+    return api.delete(`/me/portfolio/${id}`);
+  },
+
+  /** Ids in the order they should appear. */
+  reorder(ids: string[]): Promise<{ data: PortfolioItem[] }> {
+    return api.patch('/me/portfolio/order', { body: { ids } });
   },
 };
 

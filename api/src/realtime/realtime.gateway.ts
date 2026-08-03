@@ -20,6 +20,9 @@ export type NotificationTopic =
   | 'collaborator-response'
   | 'event-invite'
   | 'event-response'
+  /** Someone wants to hire you, and said what for. */
+  | 'hire-enquiry'
+  | 'hire-response'
   | 'reminder'
   /** A plan started, lapsed, or failed to renew. */
   | 'billing'

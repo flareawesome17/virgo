@@ -17,8 +17,18 @@ export interface ShareLinkRow {
   media_kinds: MediaKind[];
   expires_at: Date | null;
   revoked_at: Date | null;
+  purpose: SharePurpose;
   created_at: Date;
 }
+
+/**
+ * Who a link was made for.
+ *
+ * 'client' is the delivery URL sent to the person who commissioned the work.
+ * 'portfolio' is the one a public profile points at. Keeping them apart is what
+ * stops publishing a profile from also publishing a client's private gallery.
+ */
+export type SharePurpose = 'client' | 'portfolio';
 
 /** Which media a link exposes. Matches the leading part of the content type. */
 export type MediaKind = 'image' | 'video' | 'audio';
@@ -110,11 +120,17 @@ export class AlbumShareService {
    *
    * Idempotent on purpose: tapping "generate link" twice should hand back the
    * same URL rather than quietly invalidating the one already sent to a client.
+   *
+   * `purpose` separates the link a client was sent from the one a public
+   * profile links to. They must not be the same row: publishing a profile would
+   * otherwise put a paying client's private delivery URL on an indexable page,
+   * and revoking either would break the other.
    */
   async createOrGet(
     userId: string,
     albumId: string,
     kinds: MediaKind[] = ALL_MEDIA_KINDS,
+    purpose: SharePurpose = 'client',
   ): Promise<{
     token: string;
     url: string;
@@ -131,9 +147,9 @@ export class AlbumShareService {
 
     const existing = await this.db.queryOne<ShareLinkRow>(
       `select * from album_share_links
-        where album_id = $1 and revoked_at is null
+        where album_id = $1 and purpose = $2 and revoked_at is null
         limit 1`,
-      [albumId],
+      [albumId, purpose],
     );
 
     if (existing) {
@@ -160,10 +176,10 @@ export class AlbumShareService {
 
     const token = this.newToken();
     const row = await this.db.queryOne<ShareLinkRow>(
-      `insert into album_share_links (album_id, user_id, token, media_kinds)
-       values ($1, $2, $3, $4)
+      `insert into album_share_links (album_id, user_id, token, media_kinds, purpose)
+       values ($1, $2, $3, $4, $5)
        returning *`,
-      [albumId, userId, token, wanted],
+      [albumId, userId, token, wanted, purpose],
     );
 
     return {
@@ -178,6 +194,7 @@ export class AlbumShareService {
   async find(
     userId: string,
     albumId: string,
+    purpose: SharePurpose = 'client',
   ): Promise<{
     token: string;
     url: string;
@@ -187,9 +204,9 @@ export class AlbumShareService {
     await this.assertOwnsAlbum(userId, albumId);
     const row = await this.db.queryOne<ShareLinkRow>(
       `select * from album_share_links
-        where album_id = $1 and revoked_at is null
+        where album_id = $1 and purpose = $2 and revoked_at is null
         limit 1`,
-      [albumId],
+      [albumId, purpose],
     );
     return row
       ? {
@@ -201,15 +218,25 @@ export class AlbumShareService {
       : null;
   }
 
-  /** Revokes the active link. The token is kept so it can never be reissued. */
-  async revoke(userId: string, albumId: string): Promise<{ revoked: boolean }> {
+  /**
+   * Revokes the active link. The token is kept so it can never be reissued.
+   *
+   * Scoped to one purpose, so "stop sharing with the client" does not also
+   * silently empty the album out of a public portfolio.
+   */
+  async revoke(
+    userId: string,
+    albumId: string,
+    purpose: SharePurpose = 'client',
+  ): Promise<{ revoked: boolean }> {
     await this.assertOwnsAlbum(userId, albumId);
     const rows = await this.db.query<{ id: string }>(
       `update album_share_links
           set revoked_at = now()
-        where album_id = $1 and user_id = $2 and revoked_at is null
+        where album_id = $1 and user_id = $2 and purpose = $3
+          and revoked_at is null
         returning id`,
-      [albumId, userId],
+      [albumId, userId, purpose],
     );
     return { revoked: rows.length > 0 };
   }

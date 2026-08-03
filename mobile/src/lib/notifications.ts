@@ -329,6 +329,8 @@ export interface NotificationPayload {
     | 'collaborator_response'
     | 'event_invite'
     | 'event_response'
+    | 'hire_enquiry'
+    | 'hire_response'
     | string;
   conversationId?: string;
   reminderId?: string;

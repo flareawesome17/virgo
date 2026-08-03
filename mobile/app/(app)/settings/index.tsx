@@ -7,13 +7,15 @@ import {
   ArrowLeftIcon, ChevronRightIcon, BellIcon, LockIcon, ShieldIcon,
   PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon,
   InfoIcon, FileTextIcon, StarIcon,
+  GlobeIcon,
+  BriefcaseIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
 for (const Icon of [
   ArrowLeftIcon, ChevronRightIcon, BellIcon, LockIcon, ShieldIcon,
   PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, InfoIcon,
-  FileTextIcon, StarIcon,
+  FileTextIcon, StarIcon, GlobeIcon, BriefcaseIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -65,6 +67,20 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
   {
     title: 'Privacy & Security',
     rows: [
+      {
+        icon: GlobeIcon,
+        label: 'Public profile',
+        detail: 'Your virgo.ph address, and the work you show on it',
+        route: '/settings/public-profile',
+        color: '#B66A40',
+      },
+      {
+        icon: BriefcaseIcon,
+        label: 'Hire enquiries',
+        detail: 'Work people have offered you',
+        route: '/friends/enquiries',
+        color: '#7C9A5B',
+      },
       {
         icon: LockIcon,
         label: 'Privacy',

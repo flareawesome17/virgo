@@ -10,5 +10,7 @@ import { MessagesService } from './messages.service';
   imports: [FriendsModule, NotificationsModule],
   controllers: [MessagesController],
   providers: [MessagesService],
+  // Accepting a hire enquiry opens the direct chat as part of the same action.
+  exports: [MessagesService],
 })
 export class MessagesModule {}

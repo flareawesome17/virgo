@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { PoolClient } from 'pg';
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { DatabaseService } from '../database/database.service';
 import { MailConfig } from '../mail/mail.config';
@@ -257,6 +258,64 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
     });
 
     return { status: 'pending', friend: mine };
+  }
+
+  /**
+   * Makes two accounts friends outright, both directions, in one transaction.
+   *
+   * For flows where consent has already been given somewhere else — accepting a
+   * hire enquiry is agreeing to work with the person who sent it, so making
+   * them go and accept a separate friend request afterwards is ceremony.
+   *
+   * Deliberately not reachable from a controller, and deliberately not the
+   * generic `OwnedRepository.update` path: writing `status` from a request body
+   * is precisely the hole that let a sender accept their own request. This
+   * writes *both* rows or neither, which is the invariant `areFriends` checks.
+   *
+   * Accepts an optional client so a caller already inside a transaction gets
+   * one atomic unit rather than two that can half-fail.
+   */
+  async connect(
+    userIdA: string,
+    userIdB: string,
+    client?: PoolClient,
+  ): Promise<void> {
+    if (userIdA === userIdB) {
+      throw new BadRequestException('You cannot connect to yourself');
+    }
+
+    const [a, b] = await Promise.all([
+      this.accountById(userIdA),
+      this.accountById(userIdB),
+    ]);
+    if (!a || !b) throw new NotFoundException('Account not found');
+
+    const upsert = `
+      insert into friends
+        (id, user_id, friend_user_id, friend_name, friend_email,
+         friend_avatar_url, status, requested_by)
+      values ($1, $2, $3, $4, $5, $6, 'accepted', $7)
+      on conflict (user_id, friend_user_id) where friend_user_id is not null
+      do update set status = 'accepted',
+                    friend_name = excluded.friend_name,
+                    friend_email = excluded.friend_email,
+                    friend_avatar_url = excluded.friend_avatar_url
+      returning id`;
+
+    const run = async (c: PoolClient) => {
+      await c.query(upsert, [
+        generateId(), a.id, b.id, this.nameFor(b), b.email, b.avatar_url, 'me',
+      ]);
+      await c.query(upsert, [
+        generateId(), b.id, a.id, this.nameFor(a), a.email, a.avatar_url, 'them',
+      ]);
+    };
+
+    if (client) {
+      await run(client);
+      return;
+    }
+    await this.db.transaction(run);
   }
 
   /** Accepts a request addressed to the caller, and tells the sender. */

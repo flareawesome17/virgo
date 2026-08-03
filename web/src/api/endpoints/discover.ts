@@ -15,6 +15,13 @@ export interface NearbyPerson {
    * `.length` on it crash the Nearby screen. Read it as `roles ?? []`.
    */
   roles?: string[];
+  /**
+   * Their public profile address, when they have published one.
+   *
+   * Null for everyone else, which is what decides whether a "View profile"
+   * link is offered at all — a handle without a published profile 404s.
+   */
+  handle?: string | null;
 }
 
 export interface LocationStatus {

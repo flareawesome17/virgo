@@ -27,7 +27,11 @@ type NotificationTopic =
   | 'collaborator-response'
   | 'event-invite'
   | 'event-response'
-  | 'reminder';
+  | 'hire-enquiry'
+  | 'hire-response'
+  | 'reminder'
+  | 'billing'
+  | 'retention';
 
 type ServerEvent =
   | { type: 'ready'; userId: string }
@@ -67,7 +71,15 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   'collaborator-response': [queryKeys.collaborators.all, queryKeys.workspaces.all],
   'event-invite': [queryKeys.scheduleEvents.all],
   'event-response': [queryKeys.scheduleEvents.all],
+  'hire-enquiry': [queryKeys.hire.all],
+  // Accepting also creates a friendship and a conversation, so all three lists
+  // are stale for the sender the moment this arrives.
+  'hire-response': [queryKeys.hire.all, queryKeys.friends.all, ['chat']],
   reminder: [queryKeys.reminders.all],
+  // These two exist on the server and were missing here, so their notifications
+  // arrived without refreshing anything.
+  billing: [['usage'], ['plans']],
+  retention: [queryKeys.albums.all],
 };
 
 function applyNotification(

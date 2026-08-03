@@ -134,6 +134,7 @@ export class DiscoverService {
       display_name: string | null;
       avatar_url: string | null;
       roles: string[] | null;
+      handle: string | null;
       distance_km: string | number;
       status: string | null;
       requested_by: string | null;
@@ -147,6 +148,9 @@ export class DiscoverService {
       // a single radius query.
       `select * from (
          select u.id, u.email, u.display_name, u.avatar_url, u.roles,
+                -- Only when the profile is actually published: an unpublished
+                -- handle is not a link, and offering one would 404.
+                case when u.public_profile then u.handle end as handle,
                 f.status, f.requested_by,
                 round((
                   6371 * acos(
@@ -188,6 +192,7 @@ export class DiscoverService {
         avatarUrl: r.avatar_url,
         distanceKm: Number(r.distance_km),
         roles: r.roles ?? [],
+        handle: r.handle,
         relationship:
           r.status === 'accepted'
             ? 'accepted'

@@ -18,6 +18,7 @@ import {
   MessageCircleIcon,
   UserPlusIcon,
   ShieldCheckIcon,
+  BriefcaseIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -40,6 +41,7 @@ cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { colo
 cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ShieldCheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(BriefcaseIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /** The API caps the radius at 200km. */
 const RADII = [5, 25, 50, 100, 200];
@@ -204,6 +206,22 @@ export default function NearbyScreen() {
               );
             })}
           </View>
+        )}
+
+        {/* What turns Nearby from a list of names into a hiring tool: see the
+            work before deciding whether to reach out. Only offered to people
+            who have actually published — a handle alone would 404. */}
+        {person.handle && (
+          <Pressable
+            className="flex-row items-center gap-1 mt-1.5"
+            hitSlop={6}
+            onPress={() => router.push(`/hire/${person.handle}`)}
+          >
+            <BriefcaseIcon size={11} style={{ color: '#B66A40' }} />
+            <Text className="text-[11px] font-semibold" style={{ color: '#B66A40' }}>
+              View profile & hire
+            </Text>
+          </Pressable>
         )}
       </View>
 

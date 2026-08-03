@@ -2,8 +2,11 @@
  * API layer.
  *
  * One typed module per resource, each mapping directly onto the NestJS
- * endpoints in `api/`. Screens go through the hooks in `src/hooks`, which wrap
- * these with React Query; call these directly only outside a component.
+ * endpoints in `api/`. Shared verbatim with the mobile app apart from
+ * `config.ts` and `tokens.ts`, which are the only platform-specific pieces.
+ *
+ * Routes go through the hooks in `src/hooks`, which wrap these with React
+ * Query; call these directly only outside a component.
  */
 
 export { api, request, setAuthFailureHandler } from './client';
@@ -15,6 +18,7 @@ export {
   getRefreshToken,
   hydrateTokens,
   setTokens,
+  watchTokensAcrossTabs,
 } from './tokens';
 export { queryKeys } from './queryKeys';
 
@@ -56,18 +60,6 @@ export {
 } from './endpoints/friends';
 export { servicesApi, type ChatMessage } from './endpoints/services';
 export {
-  profilesApi,
-  profileUrl,
-  type PublicProfile,
-  type ProfileSettings,
-} from './endpoints/profiles';
-export {
-  billingApi,
-  type BillingStatus,
-  type StartedCheckout,
-  type SubscriptionStatus,
-} from './endpoints/billing';
-export {
   usageApi,
   formatBytes,
   formatMoney,
@@ -78,8 +70,30 @@ export {
   type PlanInfo,
 } from './endpoints/usage';
 export {
+  profilesApi,
+  portfolioApi,
+  profileUrl,
+  type PublicProfile,
+  type ProfileSettings,
+  type PortfolioItem,
+  type PortfolioImage,
+  type PortfolioAlbum,
+} from './endpoints/profiles';
+export {
+  hireApi,
+  type HireEnquiry,
+  type SendEnquiryInput,
+} from './endpoints/hire';
+export {
+  billingApi,
+  type BillingStatus,
+  type StartedCheckout,
+  type SubscriptionStatus,
+} from './endpoints/billing';
+export {
   storageApi,
-  contentTypeForAsset,
+  contentTypeForName,
+  kindOf,
   type UploadResult,
   type UploadScope,
   type UploadTicket,

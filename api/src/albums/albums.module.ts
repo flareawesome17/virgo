@@ -17,5 +17,7 @@ import { AlbumShareService } from './share/album-share.service';
     AlbumShareService,
     AlbumRetentionService,
   ],
+  // Public profiles showcase albums through the same share-link machinery.
+  exports: [AlbumShareService],
 })
 export class AlbumsModule {}

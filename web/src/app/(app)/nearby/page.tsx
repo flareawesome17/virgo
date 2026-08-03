@@ -2,7 +2,15 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, MapPin, MessageCircle, ShieldCheck, UserPlus } from 'lucide-react';
+import Link from 'next/link';
+import {
+  BriefcaseBusiness,
+  Loader2,
+  MapPin,
+  MessageCircle,
+  ShieldCheck,
+  UserPlus,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { AppShell, PageHeader } from '@/components/app-shell';
@@ -95,6 +103,18 @@ export default function NearbyPage() {
               </Badge>
             ))}
           </div>
+        )}
+        {/* What turns Nearby from a list of names into a hiring tool: see the
+            work before deciding whether to reach out. Only offered to people
+            who have actually published — a handle alone would 404. */}
+        {person.handle && (
+          <Link
+            href={`/hire/${person.handle}`}
+            className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <BriefcaseBusiness className="size-3" />
+            View profile &amp; hire
+          </Link>
         )}
       </div>
       {person.relationship === 'accepted' ? (

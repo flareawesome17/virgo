@@ -224,6 +224,53 @@ export function collaboratorInvite(options: {
   };
 }
 
+/**
+ * Somebody wants to pay you for work.
+ *
+ * Worth an email even for a user who ignores push: this is the one notification
+ * in the product that is a lead, and a freelancer who misses it loses a booking
+ * rather than a bit of context.
+ *
+ * The brief is deliberately not quoted in full — the point is to get them into
+ * the app to read and answer it, and a message written by a stranger should not
+ * be relayed verbatim into an inbox.
+ */
+export function hireEnquiry(options: {
+  fromName: string;
+  /** "Photographer", when they said. */
+  roleWanted: string | null;
+  /** Already formatted for reading — "Sat 14 Mar". */
+  when: string | null;
+  url: string;
+}): RenderedEmail {
+  const what = options.roleWanted
+    ? `a ${options.roleWanted.toLowerCase()}`
+    : 'someone to work with';
+  const when = options.when ? ` for ${options.when}` : '';
+  const intro = `${options.fromName} is looking for ${what}${when} and sent you an enquiry on Virgo. Open it to read the brief and reply.`;
+
+  return {
+    subject: `${options.fromName} wants to hire you`,
+    html: layout({
+      heading: 'New hire enquiry',
+      intro,
+      cta: { label: 'Read the enquiry', url: options.url },
+      fineprint: [
+        'Accepting connects you and opens a chat, so you can talk details.',
+      ],
+    }),
+    text: [
+      'New hire enquiry',
+      '',
+      intro,
+      '',
+      options.url,
+      '',
+      'Accepting connects you and opens a chat, so you can talk details.',
+    ].join('\n'),
+  };
+}
+
 export function eventInvite(options: {
   inviterName: string;
   eventTitle: string;

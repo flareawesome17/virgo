@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { PortfolioService, type PortfolioItem } from './portfolio.service';
 import {
   HANDLE_CHANGE_COOLDOWN_DAYS,
   handleProblem,
@@ -33,6 +34,8 @@ export interface PublicProfile {
   roles: string[];
   /** Year only. "Since 2026" is context; a join date is a fingerprint. */
   memberSince: number;
+  /** Their chosen work, in their chosen order. Empty is a valid profile. */
+  portfolio: PortfolioItem[];
 }
 
 /** Everything that must never reach the public payload, asserted in tests. */
@@ -56,6 +59,7 @@ export const NEVER_PUBLIC = [
 ] as const;
 
 interface ProfileRow {
+  id: string;
   handle: string;
   display_name: string | null;
   email: string;
@@ -72,7 +76,10 @@ interface ProfileRow {
 export class ProfilesService {
   private readonly logger = new Logger(ProfilesService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly portfolio: PortfolioService,
+  ) {}
 
   /**
    * A published profile, or nothing.
@@ -87,8 +94,8 @@ export class ProfilesService {
     const handle = normalizeHandle(rawHandle);
 
     const row = await this.db.queryOne<ProfileRow>(
-      `select u.handle, u.display_name, u.email, u.avatar_url, u.title, u.bio,
-              u.location, u.website, u.roles, u.created_at
+      `select u.id, u.handle, u.display_name, u.email, u.avatar_url, u.title,
+              u.bio, u.location, u.website, u.roles, u.created_at
          from users u
         where lower(u.handle) = $1
           and u.public_profile = true
@@ -96,6 +103,11 @@ export class ProfilesService {
       [handle],
     );
     if (!row) throw new NotFoundException('Profile not found');
+
+    // `id` is selected to reach the portfolio and then dropped — the explicit
+    // return shape below is what leaves this method, and a uuid is a handle for
+    // every other endpoint in the product.
+    const portfolio = await this.portfolio.list(row.id);
 
     return {
       handle: row.handle,
@@ -109,6 +121,7 @@ export class ProfilesService {
       website: row.website,
       roles: row.roles ?? [],
       memberSince: row.created_at.getFullYear(),
+      portfolio,
     };
   }
 

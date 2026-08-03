@@ -45,6 +45,17 @@ export function useNotificationRouting(enabled: boolean): void {
         case 'collaborator_response':
           router.push('/(app)/(tabs)/network');
           return;
+
+        // Both sides of a hire enquiry are answered from the same list, and an
+        // accepted one is the only notification here that has a chat waiting
+        // on the other end of it.
+        case 'hire_enquiry':
+          router.push('/friends/enquiries');
+          return;
+        case 'hire_response':
+          if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
+          else router.push('/friends/enquiries');
+          return;
       }
     };
 

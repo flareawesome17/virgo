@@ -16,6 +16,7 @@ import { DatabaseModule } from './database/database.module';
 import { FriendsModule } from './friends/friends.module';
 import { HealthModule } from './health/health.module';
 import { ProfilesModule } from './profiles/profiles.module';
+import { HireModule } from './hire/hire.module';
 import { QuotaModule } from './quota/quota.module';
 import { MailModule } from './mail/mail.module';
 import { RealtimeModule } from './realtime/realtime.module';
@@ -53,6 +54,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     MessagesModule,
     BillingModule,
     ProfilesModule,
+    HireModule,
   ],
   providers: [
     // Deny by default: every route requires a valid JWT unless it carries
@@ -61,8 +63,10 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     // After JwtAuthGuard: it needs request.user, which that one attaches.
     { provide: APP_GUARD, useClass: EmailVerifiedGuard },
-    // Buckets by CF-Connecting-IP so the tunnel does not collapse every user
-    // into a single rate-limit bucket.
+    // Last, and that ordering is load-bearing: it buckets an authenticated
+    // request by account, which needs the request.user that JwtAuthGuard
+    // attaches. Move it above JwtAuthGuard and every signed-in caller silently
+    // falls back to sharing one bucket per IP.
     { provide: APP_GUARD, useClass: CloudflareThrottlerGuard },
     { provide: APP_FILTER, useClass: DatabaseExceptionFilter },
   ],

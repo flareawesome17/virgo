@@ -132,3 +132,17 @@ export {
   useRefreshBilling,
   useSettlePendingCheckout,
 } from '@/src/hooks/useBilling'
+
+export {
+  useHireEnquiries,
+  useSendEnquiry,
+  useAnswerEnquiry,
+} from '@/src/hooks/useHire'
+
+export {
+  useProfileSettings,
+  useSetHandle,
+  useSetPublished,
+  usePortfolio,
+  usePortfolioActions,
+} from '@/src/hooks/useProfile'

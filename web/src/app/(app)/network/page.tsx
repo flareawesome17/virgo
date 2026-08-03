@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Check, Loader2, MapPin, Search, UserPlus, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -37,6 +38,8 @@ import {
   useSetCollaboratorAlbums,
 } from '@/hooks/useCollaborators';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
+import { useHireEnquiries } from '@/hooks/useHire';
+import { EnquiriesTab } from '@/components/enquiries';
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner',
@@ -151,7 +154,14 @@ function AccessDialog({
   );
 }
 
-export default function NetworkPage() {
+function NetworkPageBody() {
+  const searchParams = useSearchParams();
+  // Notifications and the "sent" toast both link to ?tab=enquiries, so the
+  // landing tab comes from the URL rather than always being Friends.
+  const [tab, setTab] = useState(
+    searchParams.get('tab') === 'enquiries' ? 'enquiries' : 'friends',
+  );
+  const { pending: pendingEnquiries } = useHireEnquiries();
   const [search, setSearch] = useState('');
   const [term, setTerm] = useState('');
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
@@ -402,11 +412,19 @@ export default function NetworkPage() {
         )}
 
         {!showingSearch && (
-          <Tabs defaultValue="friends">
+          <Tabs value={tab} onValueChange={setTab}>
             <TabsList>
               <TabsTrigger value="friends">Friends ({friends.length})</TabsTrigger>
               <TabsTrigger value="collaborators">
                 Collaborators ({collaborators.length})
+              </TabsTrigger>
+              <TabsTrigger value="enquiries">
+                Enquiries
+                {pendingEnquiries.length > 0 && (
+                  <Badge className="ml-1.5 h-5 min-w-5 justify-center px-1 text-[11px]">
+                    {pendingEnquiries.length}
+                  </Badge>
+                )}
               </TabsTrigger>
             </TabsList>
 
@@ -530,11 +548,28 @@ export default function NetworkPage() {
                 </Card>
               )}
             </TabsContent>
+
+            <TabsContent value="enquiries" className="mt-4">
+              <EnquiriesTab />
+            </TabsContent>
           </Tabs>
         )}
       </div>
 
       <AccessDialog collaborator={editing} onOpenChange={(o) => !o && setEditing(null)} />
     </AppShell>
+  );
+}
+
+/**
+ * Suspense is required, not decorative: useSearchParams (for ?tab=enquiries)
+ * opts the tree into client rendering, and Next fails the build without a
+ * boundary around it.
+ */
+export default function NetworkPage() {
+  return (
+    <Suspense fallback={null}>
+      <NetworkPageBody />
+    </Suspense>
   );
 }

@@ -71,10 +71,19 @@ export {
 } from './endpoints/usage';
 export {
   profilesApi,
+  portfolioApi,
   profileUrl,
   type PublicProfile,
   type ProfileSettings,
+  type PortfolioItem,
+  type PortfolioImage,
+  type PortfolioAlbum,
 } from './endpoints/profiles';
+export {
+  hireApi,
+  type HireEnquiry,
+  type SendEnquiryInput,
+} from './endpoints/hire';
 export {
   billingApi,
   type BillingStatus,

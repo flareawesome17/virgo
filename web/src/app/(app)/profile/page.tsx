@@ -33,6 +33,7 @@ import { useCollaborators } from '@/hooks/useCollaborators';
 import { useUsage } from '@/hooks/useUsage';
 import { useOnline } from '@/hooks/useOnline';
 import { RolePicker } from '@/components/role-picker';
+import { PublicProfileCard } from '@/components/public-profile-card';
 import { formatBytes } from '@/api';
 
 /**
@@ -261,6 +262,8 @@ export default function ProfilePage() {
               </div>
             </CardContent>
           </Card>
+
+          <PublicProfileCard />
         </div>
 
         <aside className="flex flex-col gap-4">

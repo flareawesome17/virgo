@@ -27,7 +27,11 @@ type NotificationTopic =
   | 'collaborator-response'
   | 'event-invite'
   | 'event-response'
-  | 'reminder';
+  | 'hire-enquiry'
+  | 'hire-response'
+  | 'reminder'
+  | 'billing'
+  | 'retention';
 
 type ServerEvent =
   | { type: 'ready'; userId: string }
@@ -79,7 +83,18 @@ const TOPICS: Record<
     href: '/schedule?tab=invites',
   },
   'event-response': { keys: [queryKeys.scheduleEvents.all], href: '/schedule' },
+  'hire-enquiry': { keys: [queryKeys.hire.all], href: '/network?tab=enquiries' },
+  // Accepting also creates a friendship and a conversation, so all three lists
+  // are stale for the sender the moment this arrives.
+  'hire-response': {
+    keys: [queryKeys.hire.all, queryKeys.friends.all, ['chat']],
+    href: '/network?tab=enquiries',
+  },
   reminder: { keys: [queryKeys.reminders.all], href: '/schedule' },
+  // These two exist on the server and were missing here, so their notifications
+  // arrived without refreshing anything.
+  billing: { keys: [['usage'], ['plans']], href: '/settings/billing' },
+  retention: { keys: [queryKeys.albums.all], href: '/albums' },
 };
 
 /**

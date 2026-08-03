@@ -2,10 +2,10 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { Globe, MapPin } from 'lucide-react';
+import { ArrowUpRight, Globe, ImageIcon, MapPin } from 'lucide-react';
 import { LandingFooter } from '@/components/landing/closing';
 import { API_BASE_URL, type PublicProfile } from '@/api';
-import { SIGN_UP_URL } from '@/components/landing/links';
+import { APP_URL, SIGN_UP_URL } from '@/components/landing/links';
 
 /**
  * Rendered per request.
@@ -75,6 +75,11 @@ export async function generateMetadata({
 
   const url = `${SITE}/@${profile.handle}`;
 
+  // Their work beats their face in a shared link — a photographer's first
+  // portfolio image says more in a preview card than a 112px avatar.
+  const firstWork = profile.portfolio.find((item) => item.kind === 'image');
+  const share = firstWork?.url ?? profile.avatarUrl;
+
   return {
     // `absolute` escapes the root layout's "%s · Virgo" template.
     title: { absolute: title },
@@ -89,13 +94,15 @@ export async function generateMetadata({
       siteName: 'Virgo',
       title,
       description,
-      images: profile.avatarUrl ? [{ url: profile.avatarUrl }] : undefined,
+      images: share ? [{ url: share }] : undefined,
     },
     twitter: {
-      card: 'summary',
+      // A large card when there is work to show it off, a small one when the
+      // only image is a round avatar that would be cropped to nothing.
+      card: firstWork ? 'summary_large_image' : 'summary',
       title,
       description,
-      images: profile.avatarUrl ? [profile.avatarUrl] : undefined,
+      images: share ? [share] : undefined,
     },
   };
 }
@@ -110,6 +117,17 @@ export default async function ProfilePage({
   if (!profile) notFound();
 
   const url = `${SITE}/@${profile.handle}`;
+
+  // Narrowed once here rather than at each use — the discriminated union does
+  // not survive an inline .filter() in JSX without a type predicate.
+  const images = profile.portfolio.filter(
+    (item): item is Extract<typeof item, { kind: 'image' }> =>
+      item.kind === 'image',
+  );
+  const albums = profile.portfolio.filter(
+    (item): item is Extract<typeof item, { kind: 'album' }> =>
+      item.kind === 'album' && Boolean(item.url),
+  );
 
   /**
    * Structured data, so a search result can show the person rather than a blue
@@ -242,23 +260,109 @@ export default async function ProfilePage({
             </div>
           )}
 
+          {images.length > 0 && (
+            <div className="mt-10">
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
+                Work
+              </h2>
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
+                {images.map((item) => (
+                  <figure
+                    key={item.id}
+                    className="group relative aspect-square overflow-hidden rounded-xl bg-white/[0.04]"
+                  >
+                    <Image
+                      src={item.url}
+                      alt={item.caption ?? ''}
+                      fill
+                      // Three columns at most, so a phone never downloads a
+                      // desktop-width file for a thumbnail.
+                      sizes="(max-width: 640px) 50vw, 300px"
+                      className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                    />
+                    {item.caption && (
+                      <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-3 pt-8 text-[12px] font-medium text-white/90 opacity-0 transition-opacity group-hover:opacity-100">
+                        {item.caption}
+                      </figcaption>
+                    )}
+                  </figure>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {albums.length > 0 && (
+            <div className="mt-10">
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
+                Galleries
+              </h2>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {albums.map((album) => (
+                  <a
+                    key={album.id}
+                    href={album.url ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group flex items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-3 transition-colors hover:border-[#c17745]/40 hover:bg-white/[0.05]"
+                  >
+                    {album.coverUrl ? (
+                      <Image
+                        src={album.coverUrl}
+                        alt=""
+                        width={72}
+                        height={72}
+                        className="size-[72px] shrink-0 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className="grid size-[72px] shrink-0 place-items-center rounded-lg bg-[#c17745]/12">
+                        <ImageIcon className="size-6 text-[#c17745]" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="truncate text-[14px] font-bold text-white">
+                        {album.name}
+                      </p>
+                      <p className="mt-0.5 text-[12px] text-white/40">
+                        {album.itemCount} {album.itemCount === 1 ? 'photo' : 'photos'}
+                      </p>
+                      {album.caption && (
+                        <p className="mt-1 truncate text-[12px] text-white/50">
+                          {album.caption}
+                        </p>
+                      )}
+                    </div>
+                    <ArrowUpRight className="ml-auto size-4 shrink-0 text-white/25 transition-colors group-hover:text-[#c17745]" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Contact is a Virgo account, not an email address on a public page.
-              The enquiry flow lands here next; until then this is an honest
-              invitation rather than a dead button. */}
+              The link goes to the app host: the enquiry form needs a session,
+              and the AuthGuard there already bounces a signed-out visitor
+              through sign-in and back to this exact form. */}
           <div className="mt-12 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
             <p className="text-[15px] font-bold text-white">
               Want to work with {profile.displayName.split(' ')[0]}?
             </p>
             <p className="mt-1.5 text-[13px] leading-relaxed text-white/50">
-              Join Virgo to send them a message about the job — the date, the
-              brief, what you need.
+              Send an enquiry with the date, the brief and your budget. If they
+              accept, you are connected and can talk it through in chat.
             </p>
             <a
-              href={`${SIGN_UP_URL}?next=${encodeURIComponent(`/@${profile.handle}`)}`}
+              href={`${APP_URL}/hire/${profile.handle}`}
               className="mt-4 inline-flex rounded-xl bg-[#c17745] px-6 py-3 text-[14px] font-bold text-white transition-colors hover:bg-[#cd8250]"
             >
-              Get in touch
+              Send a hire enquiry
             </a>
+            <p className="mt-3 text-[12px] text-white/30">
+              You will need a Virgo account —{' '}
+              <a href={SIGN_UP_URL} className="underline hover:text-white/50">
+                it is free to join
+              </a>
+              .
+            </p>
           </div>
         </div>
       </main>
