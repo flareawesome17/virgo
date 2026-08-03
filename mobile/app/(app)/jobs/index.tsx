@@ -61,6 +61,13 @@ export default function JobsBoardScreen() {
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="text-foreground text-lg font-bold flex-1">Jobs</Text>
+        {/* Without this the only ways to reach your own posts were a
+            notification or having just made one. */}
+        <Pressable onPress={() => router.push('/jobs/mine')} hitSlop={8}>
+          <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+            Mine
+          </Text>
+        </Pressable>
         <Pressable
           className="rounded-xl px-3 py-2 flex-row items-center gap-1.5"
           style={{ backgroundColor: '#B66A40' }}

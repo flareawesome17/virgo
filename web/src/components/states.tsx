@@ -5,7 +5,16 @@ import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 
-/** Nothing here yet, or nothing matched — with the way out, when there is one. */
+/**
+ * Nothing here yet, or nothing matched — with the way out, when there is one.
+ *
+ * The padding is deliberately modest. This started at `py-16`, which is the
+ * right size for an empty state that *is* the page; but sixteen of the
+ * twenty-three uses sit inside a `<Card>`, which contributes its own padding on
+ * top. That produced a 378px card holding 190px of content — a chasm with a
+ * sentence floating in it, which reads as something failing to load rather
+ * than as a considered "there is nothing here".
+ */
 export function EmptyState({
   icon: Icon,
   title,
@@ -22,18 +31,20 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center px-6 py-16 text-center',
+        'flex flex-col items-center justify-center px-6 py-10 text-center',
         className,
       )}
     >
-      <div className="grid size-14 place-items-center rounded-full bg-primary/10">
-        <Icon className="size-6 text-primary" />
+      <div className="grid size-12 place-items-center rounded-full bg-primary/10">
+        <Icon className="size-5 text-primary" />
       </div>
-      <h2 className="mt-4 text-base font-bold">{title}</h2>
+      <h2 className="mt-3.5 text-base font-bold">{title}</h2>
       {description && (
-        <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">{description}</p>
+        <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
+          {description}
+        </p>
       )}
-      {action && <div className="mt-6">{action}</div>}
+      {action && <div className="mt-5">{action}</div>}
     </div>
   );
 }

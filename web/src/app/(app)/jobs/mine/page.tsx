@@ -27,11 +27,13 @@ import { budgetLabel, jobUrl, type JobPost } from '@/api';
 import {
   useApplicants,
   useDeleteJob,
+  useJobs,
   useMyApplications,
   useMyJobs,
   useRespondToApplication,
   useSetJobStatus,
 } from '@/hooks/useJobs';
+import { useRoles } from '@/hooks/useRoles';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
 
@@ -266,6 +268,116 @@ function Applicants({ postId }: { postId: string }) {
   );
 }
 
+/**
+ * The open board, inside the app shell.
+ *
+ * Not a link out to virgo.ph/jobs: that is the same list, but it renders in
+ * the marketing layout, so clicking "browse" from the app dropped you out of
+ * the sidebar and into what looks like a different product. The public page
+ * exists for strangers and for search; signed-in people get it here.
+ *
+ * Cards link to the apply screen rather than the public post, because that is
+ * the app's own full view of a job — title, budget, date, the whole brief, and
+ * the form — and it does not leave the shell either.
+ */
+function BrowseJobs() {
+  const [role, setRole] = useState<string | null>(null);
+  const { roles: allRoles } = useRoles();
+  const { jobs, total, isLoading } = useJobs({ roles: role ? [role] : [] });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" onClick={() => setRole(null)}>
+          <Badge variant={role ? 'outline' : 'default'} className="cursor-pointer px-3 py-1.5">
+            All roles
+          </Badge>
+        </button>
+        {allRoles.map((r) => (
+          <button key={r} type="button" onClick={() => setRole(role === r ? null : r)}>
+            <Badge
+              variant={role === r ? 'default' : 'outline'}
+              className="cursor-pointer px-3 py-1.5"
+            >
+              {r}
+            </Badge>
+          </button>
+        ))}
+      </div>
+
+      {isLoading && jobs.length === 0 ? (
+        <ListSkeleton rows={3} />
+      ) : jobs.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={BriefcaseBusiness}
+            title={role ? `Nothing open for a ${role.toLowerCase()}` : 'No open jobs right now'}
+            description="Posts expire when the job does, so this list is always current. Check back, or post the job you need doing."
+            action={
+              <Button asChild>
+                <Link href="/jobs/new">Post a job</Link>
+              </Button>
+            }
+          />
+        </Card>
+      ) : (
+        <>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            {total} open {total === 1 ? 'job' : 'jobs'}
+          </p>
+          <div className="grid gap-3">
+            {jobs.map((job) => (
+              <Link key={job.id} href={`/jobs/${job.slug}/apply`}>
+                <Card className="transition-colors hover:border-primary/40">
+                  <CardContent className="space-y-2.5">
+                    <div className="flex items-start gap-3">
+                      <Avatar className="size-8">
+                        <AvatarImage src={job.postedBy.avatarUrl ?? undefined} alt="" />
+                        <AvatarFallback className="text-[11px]">
+                          {job.postedBy.displayName.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[15px] font-bold leading-snug">{job.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {job.postedBy.displayName}
+                          {job.applicantCount > 0
+                            ? ` · ${job.applicantCount} applied`
+                            : ''}
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="line-clamp-2 whitespace-pre-line text-sm text-muted-foreground">
+                      {job.description}
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                      {job.rolesWanted.map((r) => (
+                        <Badge key={r} variant="secondary" className="text-[11px]">
+                          {r}
+                        </Badge>
+                      ))}
+                      {job.location && (
+                        <span className="text-xs text-muted-foreground">{job.location}</span>
+                      )}
+                      {budgetLabel(job.budgetMin, job.budgetMax) && (
+                        <span className="text-xs font-semibold">
+                          {budgetLabel(job.budgetMin, job.budgetMax)}
+                        </span>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /** What the caller has applied to. */
 function MyApplications() {
   const router = useRouter();
@@ -344,7 +456,7 @@ export default function MyJobsPage() {
     <AppShell>
       <PageHeader
         title="Jobs"
-        description="What you have posted, and what you have applied to"
+        description="Find work, and manage what you have posted"
         actions={
           <Button asChild>
             <Link href="/jobs/new">
@@ -355,11 +467,24 @@ export default function MyJobsPage() {
         }
       />
 
-      <Tabs defaultValue="posted" className="mt-6">
+      {/*
+        Browse first, deliberately.
+
+        This screen is what the Jobs nav item opens, and it used to land on
+        "Posted" — which for anyone who has never posted is an empty card and
+        nothing to do. The board always has something in it, so it is the
+        honest default and it matches where the phone's Jobs entry goes.
+      */}
+      <Tabs defaultValue="browse" className="mt-6">
         <TabsList>
+          <TabsTrigger value="browse">Browse</TabsTrigger>
           <TabsTrigger value="posted">Posted ({jobs.length})</TabsTrigger>
           <TabsTrigger value="applied">My applications</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="browse" className="mt-4">
+          <BrowseJobs />
+        </TabsContent>
 
         <TabsContent value="posted" className="mt-4">
           {isLoading && jobs.length === 0 ? (
