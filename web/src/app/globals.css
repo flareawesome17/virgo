@@ -293,3 +293,26 @@
     animation: none;
   }
 }
+
+/* Anchor targets on the marketing page.
+ *
+ * The header is fixed and 4rem tall, so `#pricing` would otherwise scroll the
+ * heading underneath it — the reader lands mid-section with the title hidden.
+ * scroll-margin offsets the landing point by the header plus a little air.
+ *
+ * Scoped to the marketing layout: the app has no fixed header of its own and
+ * should not inherit either rule.
+ */
+.landing-scroll {
+  scroll-behavior: smooth;
+}
+
+.landing-scroll section[id] {
+  scroll-margin-top: 5.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-scroll {
+    scroll-behavior: auto;
+  }
+}

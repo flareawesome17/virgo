@@ -40,6 +40,15 @@ export const metadata: Metadata = {
 
 export default function MarketingLayout({ children }: { children: ReactNode }) {
   /**
+   * `landing-scroll` carries two rules the app must not inherit: smooth
+   * scrolling, and a scroll-margin on sections so an anchor does not land
+   * underneath the fixed header.
+   *
+   * It sits on the wrapper rather than <html> because the root layout is
+   * shared with the app, and scroll-margin applies to the target element, so
+   * a descendant selector reaches it fine.
+   */
+  /**
    * `dark` is forced rather than inherited.
    *
    * The app follows the reader's system theme, but this page is a single
@@ -47,5 +56,9 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
    * of it would need rebuilding to work on a light background, and a marketing
    * page that renders two ways is two pages to keep looking right.
    */
-  return <div className="dark min-h-full bg-[#161311] text-white">{children}</div>;
+  return (
+    <div className="landing-scroll dark min-h-full bg-[#161311] text-white">
+      {children}
+    </div>
+  );
 }

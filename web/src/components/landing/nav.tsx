@@ -4,14 +4,18 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { APP_URL, SIGN_IN_URL, SIGN_UP_URL } from './links';
+import { useActiveSection } from './use-active-section';
 
 const SECTIONS = [
-  { href: '#nearby', label: 'Hire' },
-  { href: '#community', label: 'Community' },
-  { href: '#delivery', label: 'Deliver' },
-  { href: '#features', label: 'Features' },
-  { href: '#pricing', label: 'Pricing' },
+  { id: 'nearby', label: 'Hire' },
+  { id: 'community', label: 'Community' },
+  { id: 'delivery', label: 'Deliver' },
+  { id: 'features', label: 'Features' },
+  { id: 'pricing', label: 'Pricing' },
 ];
+
+/** Stable identity so the observer is not torn down on every render. */
+const SECTION_IDS = SECTIONS.map((s) => s.id);
 
 /**
  * The marketing header.
@@ -22,6 +26,7 @@ const SECTIONS = [
  */
 export function LandingNav() {
   const [scrolled, setScrolled] = useState(false);
+  const active = useActiveSection(SECTION_IDS);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -55,15 +60,35 @@ export function LandingNav() {
         </a>
 
         <nav className="ml-auto hidden items-center gap-7 md:flex">
-          {SECTIONS.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className="text-[13px] font-medium text-white/60 transition-colors hover:text-white"
-            >
-              {item.label}
-            </a>
-          ))}
+          {SECTIONS.map((item) => {
+            const isActive = active === item.id;
+            return (
+              <a
+                key={item.id}
+                href={`#${item.id}`}
+                // Announces the current section to a screen reader, which
+                // otherwise gets nothing from a colour change.
+                aria-current={isActive ? 'true' : undefined}
+                className={cn(
+                  'relative py-1 text-[13px] transition-colors',
+                  isActive
+                    ? 'font-semibold text-white'
+                    : 'font-medium text-white/60 hover:text-white',
+                )}
+              >
+                {item.label}
+                {/* Absolutely positioned so appearing costs no layout — the
+                    labels do not shift as the underline moves between them. */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    'absolute -bottom-0.5 left-0 h-0.5 rounded-full bg-[#c17745] transition-all duration-300',
+                    isActive ? 'w-full opacity-100' : 'w-0 opacity-0',
+                  )}
+                />
+              </a>
+            );
+          })}
         </nav>
 
         <div className="ml-auto flex items-center gap-2 md:ml-0">
