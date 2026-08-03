@@ -33,6 +33,15 @@ export class MailConfig {
    */
   readonly appUrl: string;
 
+  /**
+   * The public marketing origin — virgo.ph.
+   *
+   * Distinct from `appUrl` again: a profile and a job post are addressed on the
+   * apex, and linking to them through the app host would 308 and, for a
+   * signed-out reader, land on a sign-in wall instead of the page.
+   */
+  readonly siteUrl: string;
+
   constructor(private readonly config: ConfigService) {
     this.host = config.get<string>('SMTP_HOST', 'mail-us.smtp2go.com');
     this.port = Number(config.get<string>('SMTP_PORT', '2525'));
@@ -50,6 +59,10 @@ export class MailConfig {
 
     this.appUrl = (
       config.get<string>('WEB_APP_URL') ?? 'https://web.virgo.ph'
+    ).replace(/\/+$/, '');
+
+    this.siteUrl = (
+      config.get<string>('PUBLIC_SITE_URL') ?? 'https://virgo.ph'
     ).replace(/\/+$/, '');
 
     if (!this.isConfigured) {

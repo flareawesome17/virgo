@@ -23,6 +23,9 @@ export type NotificationTopic =
   /** Someone wants to hire you, and said what for. */
   | 'hire-enquiry'
   | 'hire-response'
+  /** Someone applied to a job you posted, or answered your application. */
+  | 'job-application'
+  | 'job-response'
   | 'reminder'
   /** A plan started, lapsed, or failed to renew. */
   | 'billing'

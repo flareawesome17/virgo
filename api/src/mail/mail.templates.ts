@@ -271,6 +271,84 @@ export function hireEnquiry(options: {
   };
 }
 
+/**
+ * Somebody applied to a job you posted.
+ *
+ * Same reasoning as a hire enquiry: this is a lead, and a poster who misses it
+ * loses a candidate rather than a bit of context. The application text is not
+ * relayed — it gets them into the app to read it properly, and a message
+ * written by a stranger should not be forwarded verbatim into an inbox.
+ */
+export function jobApplication(options: {
+  applicantName: string;
+  jobTitle: string;
+  url: string;
+}): RenderedEmail {
+  const intro = `${options.applicantName} applied to “${options.jobTitle}” on Virgo. Open it to read what they said and reply.`;
+
+  return {
+    subject: `${options.applicantName} applied to your job post`,
+    html: layout({
+      heading: 'New application',
+      intro,
+      cta: { label: 'See the application', url: options.url },
+      fineprint: [
+        'Accepting connects you and opens a chat, so you can talk details.',
+      ],
+    }),
+    text: [
+      'New application',
+      '',
+      intro,
+      '',
+      options.url,
+      '',
+      'Accepting connects you and opens a chat, so you can talk details.',
+    ].join('\n'),
+  };
+}
+
+/**
+ * A job post has been reported.
+ *
+ * Goes to whoever answers the reply-to address, because the product has no
+ * admin queue yet. Taking a post down is setting `hidden_at` by hand — this
+ * email is the only thing that makes that possible, so it carries the link and
+ * the running count rather than just saying "something happened".
+ */
+export function jobPostReported(options: {
+  jobTitle: string;
+  reason: string;
+  note: string | null;
+  reportCount: number;
+  url: string;
+}): RenderedEmail {
+  const intro = `“${options.jobTitle}” was reported as ${options.reason}. It has ${options.reportCount} report${options.reportCount === 1 ? '' : 's'}.`;
+
+  return {
+    subject: `Reported job post: ${options.jobTitle}`,
+    html: layout({
+      heading: 'A job post was reported',
+      intro,
+      cta: { label: 'View the post', url: options.url },
+      fineprint: [
+        options.note ? `They added: ${options.note}` : 'No further detail was given.',
+        'To take it down, set hidden_at on the hiring_posts row.',
+      ],
+    }),
+    text: [
+      'A job post was reported',
+      '',
+      intro,
+      options.note ? `\nThey added: ${options.note}` : '',
+      '',
+      options.url,
+      '',
+      'To take it down, set hidden_at on the hiring_posts row.',
+    ].join('\n'),
+  };
+}
+
 export function eventInvite(options: {
   inviterName: string;
   eventTitle: string;

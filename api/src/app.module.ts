@@ -17,6 +17,7 @@ import { FriendsModule } from './friends/friends.module';
 import { HealthModule } from './health/health.module';
 import { ProfilesModule } from './profiles/profiles.module';
 import { HireModule } from './hire/hire.module';
+import { HiringModule } from './hiring/hiring.module';
 import { QuotaModule } from './quota/quota.module';
 import { MailModule } from './mail/mail.module';
 import { RealtimeModule } from './realtime/realtime.module';
@@ -55,6 +56,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     BillingModule,
     ProfilesModule,
     HireModule,
+    HiringModule,
   ],
   providers: [
     // Deny by default: every route requires a valid JWT unless it carries
