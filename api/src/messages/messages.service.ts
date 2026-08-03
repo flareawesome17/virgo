@@ -7,6 +7,7 @@ import {
 import { DatabaseService } from '../database/database.service';
 import { FriendsService } from '../friends/friends.service';
 import { PushService } from '../notifications/push.service';
+import { PresenceService } from '../realtime/presence.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 export interface ConversationSummary {
@@ -28,6 +29,13 @@ export interface ConversationSummary {
   /** Whether this member has muted it, and until when. */
   muted: boolean;
   mutedUntil: Date | null;
+  /**
+   * The other person, for a direct chat. Null on a group — "online" is not
+   * something a group is, and a group's dot would have to mean something else.
+   */
+  otherUserId: string | null;
+  otherOnline: boolean | null;
+  otherLastSeenAt: Date | null;
 }
 
 export interface MessageRow {
@@ -64,6 +72,10 @@ export interface ParticipantRow {
   id: string;
   name: string;
   avatar_url: string | null;
+  /** Whether they have a socket open right now. From the gateway, not the DB. */
+  online?: boolean;
+  /** Meaningful when `online` is false. */
+  last_seen_at: Date | null;
   /**
    * How far this person has read. Drives the read receipt on your own
    * messages: yours is read once someone else's `last_read_at` passes it.
@@ -97,6 +109,7 @@ export class MessagesService {
     private readonly friends: FriendsService,
     private readonly push: PushService,
     private readonly realtime: RealtimeGateway,
+    private readonly presence: PresenceService,
   ) {}
 
   /** Everyone in a conversation, for fan-out. */
@@ -375,6 +388,7 @@ export class MessagesService {
       is_group: boolean;
       title: string | null;
       other_name: string | null;
+      other_id: string | null;
       other_avatar: string | null;
       participant_count: string;
       last_body: string | null;
@@ -391,6 +405,12 @@ export class MessagesService {
                  join users u on u.id = p.user_id
                 where p.conversation_id = c.id and p.user_id <> $1
                 limit 1) as other_name,
+              -- Their id, so presence can be looked up and matched against
+              -- the live presence events the socket delivers.
+              (select p.user_id
+                 from conversation_participants p
+                where p.conversation_id = c.id and p.user_id <> $1
+                limit 1) as other_id,
               (select u.avatar_url
                  from conversation_participants p
                  join users u on u.id = p.user_id
@@ -478,6 +498,16 @@ export class MessagesService {
     // Listing conversations is proof their messages reached this device.
     await this.markDelivered(userId);
 
+    // Presence for the other side of each direct chat. Included here rather
+    // than left to the socket because a client that has only just opened has
+    // received no presence events yet — without this the dot would be dark
+    // until somebody happened to connect or disconnect while it watched.
+    const otherIds = rows
+      .filter((r) => !r.is_group && r.other_id)
+      .map((r) => r.other_id!);
+    const online = this.realtime.onlineAmong(otherIds);
+    const seen = await this.presence.lastSeen(otherIds);
+
     return rows.map((r) => ({
       id: r.id,
       isGroup: r.is_group,
@@ -492,6 +522,10 @@ export class MessagesService {
       matchSnippet: r.match_body && r.match_body !== r.last_body ? r.match_body : null,
       muted: !!r.muted_until && r.muted_until.getTime() > Date.now(),
       mutedUntil: r.muted_until,
+      // Null for groups: "online" is not a thing a group is.
+      otherUserId: r.is_group ? null : r.other_id,
+      otherOnline: r.is_group ? null : online.has(r.other_id ?? ''),
+      otherLastSeenAt: r.is_group ? null : (seen.get(r.other_id ?? '') ?? null),
     }));
   }
 
@@ -717,10 +751,11 @@ export class MessagesService {
    */
   async participants(userId: string, conversationId: string): Promise<ParticipantRow[]> {
     await this.assertMember(userId, conversationId);
-    return this.db.query<ParticipantRow>(
+    const rows = await this.db.query<ParticipantRow>(
       `select u.id,
               coalesce(u.display_name, split_part(u.email, '@', 1)) as name,
               u.avatar_url,
+              u.last_seen_at,
               p.last_read_at,
               p.last_delivered_at
          from conversation_participants p
@@ -729,6 +764,12 @@ export class MessagesService {
         order by name`,
       [conversationId],
     );
+
+    // Online comes from the gateway, not the database: it is a fact about
+    // sockets held in this process, and a column would be stale the moment
+    // one died without running its disconnect handler.
+    const online = this.realtime.onlineAmong(rows.map((r) => r.id));
+    return rows.map((r) => ({ ...r, online: online.has(r.id) }));
   }
 
   /**

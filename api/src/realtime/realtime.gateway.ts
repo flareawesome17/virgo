@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import type { Server, WebSocket } from 'ws';
 import type { JwtPayload } from '../auth/auth.service';
+import { PresenceService } from './presence.service';
 
 /**
  * What a notification is about.
@@ -49,6 +50,26 @@ export type ServerEvent =
       /** Whatever the tap handler needs to route; mirrors the push payload. */
       data: Record<string, unknown>;
       at: string;
+    }
+  /**
+   * Somebody came online or went offline.
+   *
+   * Sent only to people who share a conversation with them — see
+   * PresenceService. `lastSeenAt` is what to show once `online` is false.
+   */
+  | { type: 'presence'; userId: string; online: boolean; lastSeenAt: string | null }
+  /**
+   * Somebody started or stopped typing in a conversation.
+   *
+   * Carries the name so the client can render "Ana is typing" without a
+   * lookup — the typist may not be in any list the reader has loaded.
+   */
+  | {
+      type: 'typing';
+      conversationId: string;
+      userId: string;
+      name: string;
+      typing: boolean;
     };
 
 interface Session {
@@ -93,6 +114,7 @@ export class RealtimeGateway implements OnModuleDestroy {
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly presence: PresenceService,
   ) {}
 
   /**
@@ -124,7 +146,12 @@ export class RealtimeGateway implements OnModuleDestroy {
   }
 
   private onMessage(session: Session, raw: Buffer | string): void {
-    let payload: { type?: string; token?: string };
+    let payload: {
+      type?: string;
+      token?: string;
+      conversationId?: string;
+      typing?: boolean;
+    };
     try {
       payload = JSON.parse(raw.toString()) as typeof payload;
     } catch {
@@ -133,6 +160,18 @@ export class RealtimeGateway implements OnModuleDestroy {
 
     if (payload.type === 'ping') {
       this.send(session.socket, { type: 'ready', userId: session.userId });
+      return;
+    }
+
+    if (payload.type === 'typing') {
+      // Ignored before authentication: an unauthenticated socket has no
+      // identity to attribute typing to.
+      if (!session.userId || !payload.conversationId) return;
+      void this.relayTyping(
+        session.userId,
+        payload.conversationId,
+        payload.typing !== false,
+      );
       return;
     }
 
@@ -153,10 +192,79 @@ export class RealtimeGateway implements OnModuleDestroy {
     session.userId = claims.sub;
 
     const set = this.sessions.get(claims.sub) ?? new Set<Session>();
+    // Somebody with the app and the web open has two sockets. Only the first
+    // is a transition from offline — announcing on every socket would flicker
+    // them "online" repeatedly for anyone watching.
+    const wasOffline = set.size === 0;
     set.add(session);
     this.sessions.set(claims.sub, set);
 
     this.send(session.socket, { type: 'ready', userId: claims.sub });
+    if (wasOffline) void this.announcePresence(claims.sub, true);
+  }
+
+  /**
+   * Tells the people who share a conversation with this user.
+   *
+   * Fire-and-forget: presence is decoration, and a failure here must not
+   * affect the socket that triggered it.
+   */
+  private async announcePresence(userId: string, online: boolean): Promise<void> {
+    try {
+      await this.presence.touch(userId);
+      const audience = await this.presence.audienceFor(userId);
+      if (audience.length === 0) return;
+
+      this.emitToUsers(audience, {
+        type: 'presence',
+        userId,
+        online,
+        // Only meaningful when they have gone; while online the client shows
+        // "online" and ignores this.
+        lastSeenAt: online ? null : new Date().toISOString(),
+      });
+    } catch (err) {
+      this.logger.debug(`Presence announce failed: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Passes a typing signal to the rest of the conversation.
+   *
+   * Nothing is stored. A typing indicator is only true for the couple of
+   * seconds it is on screen, and a row recording that somebody was typing at
+   * 11:04 is a record nobody asked to keep.
+   */
+  private async relayTyping(
+    userId: string,
+    conversationId: string,
+    typing: boolean,
+  ): Promise<void> {
+    try {
+      const { allowed, others, name } =
+        await this.presence.othersInConversation(userId, conversationId);
+      if (!allowed || others.length === 0) return;
+
+      this.emitToUsers(others, {
+        type: 'typing',
+        conversationId,
+        userId,
+        name,
+        typing,
+      });
+    } catch (err) {
+      this.logger.debug(`Typing relay failed: ${String(err)}`);
+    }
+  }
+
+  /** Whether this account has a socket open right now. */
+  isOnline(userId: string): boolean {
+    return (this.sessions.get(userId)?.size ?? 0) > 0;
+  }
+
+  /** Of these accounts, the ones currently connected. */
+  onlineAmong(userIds: readonly string[]): Set<string> {
+    return new Set(userIds.filter((id) => this.isOnline(id)));
   }
 
   /**
@@ -202,7 +310,13 @@ export class RealtimeGateway implements OnModuleDestroy {
     const set = this.sessions.get(session.userId);
     if (!set) return;
     set.delete(session);
-    if (set.size === 0) this.sessions.delete(session.userId);
+    if (set.size > 0) return;
+
+    // Their last socket. Closing the app on the phone while the web is still
+    // open is not going offline, which is why this only fires once the set
+    // empties.
+    this.sessions.delete(session.userId);
+    if (session.userId) void this.announcePresence(session.userId, false);
   }
 
   /**

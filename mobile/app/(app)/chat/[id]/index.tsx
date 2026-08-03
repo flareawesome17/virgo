@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import {
   ArrowLeftIcon,
@@ -44,6 +44,8 @@ import {
   useThread,
   setOpenConversation,
 } from '@/src/hooks';
+import { PresenceLine, TypingIndicator } from '@/components';
+import { sendTyping } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
 import type { ConversationMessage, Participant } from '@/src/api';
 
@@ -318,6 +320,43 @@ export default function ConversationScreen() {
   // Monotonic, so two identical messages sent back to back cannot share a key.
   const nextTempId = useRef(0);
 
+  /**
+   * One frame when they start, one when they stop.
+   *
+   * A keystroke must not become a socket frame — a fast typist would send
+   * dozens a second.
+   */
+  const typingSent = useRef(false);
+  const typingIdle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const stopTyping = useCallback(() => {
+    clearTimeout(typingIdle.current);
+    if (!typingSent.current) return;
+    typingSent.current = false;
+    sendTyping(id, false);
+  }, [id]);
+
+  const noteTyping = useCallback(
+    (value: string) => {
+      // An emptied box is not typing.
+      if (!value.trim()) {
+        stopTyping();
+        return;
+      }
+      if (!typingSent.current) {
+        typingSent.current = true;
+        sendTyping(id, true);
+      }
+      // Shorter than the receiver's 6s expiry, so the stop lands first.
+      clearTimeout(typingIdle.current);
+      typingIdle.current = setTimeout(stopTyping, 3000);
+    },
+    [id, stopTyping],
+  );
+
+  // Leaving the thread must not strand the indicator on the other screen.
+  useEffect(() => stopTyping, [stopTyping]);
+
   const submit = () => {
     const body = draft.trim();
     if (!body) return;
@@ -335,6 +374,10 @@ export default function ConversationScreen() {
     };
 
     setDraft('');
+
+    // Sending is the clearest possible "stopped typing".
+
+    stopTyping();
     setReplyTo(null);
     setMentioned([]);
     setOutbox((prev) => [...prev, item]);
@@ -439,9 +482,16 @@ export default function ConversationScreen() {
                 <BellOffIcon size={12} className="text-muted-foreground" />
               )}
             </View>
-            <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-              {isGroup ? participants.map((p) => p.name).join(', ') : 'Tap for info'}
-            </Text>
+            {isGroup ? (
+              <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+                {participants.map((p) => p.name).join(', ')}
+              </Text>
+            ) : (
+              <View className="mt-0.5">
+                {/* Online / last seen, kept current by the socket. */}
+                <PresenceLine userId={others[0]?.id} />
+              </View>
+            )}
           </Pressable>
           <Pressable
             onPress={() => router.push(`/chat/${id}/info`)}
@@ -474,6 +524,12 @@ export default function ConversationScreen() {
                   : row.message.id
             }
             inverted
+            // The list is inverted, so its *header* renders at the visual
+            // bottom — which is where a typing bubble belongs, under the
+            // newest message.
+            ListHeaderComponent={
+              <TypingIndicator conversationId={id} meId={user?.id} />
+            }
             contentContainerStyle={{ padding: 16, gap: 8 }}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => {
@@ -699,7 +755,11 @@ export default function ConversationScreen() {
           <View className="flex-1 bg-card rounded-2xl px-4 py-2.5">
             <TextInput
               value={draft}
-              onChangeText={setDraft}
+              onChangeText={(value) => {
+                setDraft(value);
+                noteTyping(value);
+              }}
+              onBlur={stopTyping}
               placeholder={isGroup ? 'Message — use @ to mention' : 'Message'}
               placeholderTextColor="#A89489"
               multiline

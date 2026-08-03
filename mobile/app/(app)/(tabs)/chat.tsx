@@ -22,6 +22,47 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useConversations, useTheme } from '@/src/hooks';
+import { PresenceDot } from '@/components';
+import { typingLabel, useTypingIn } from '@/src/lib/presence-store';
+import type { Conversation } from '@/src/api';
+
+/**
+ * A row's second line: who is typing, or the last message.
+ *
+ * Its own component so a keystroke re-renders one line rather than the list.
+ *
+ * No `meId` is needed: the server relays a typing frame to the *others* in a
+ * conversation, never back to its sender, so you can never appear in your own
+ * typing list.
+ */
+function TypingOrPreview({ conversation }: { conversation: Conversation }) {
+  const names = useTypingIn(conversation.id);
+
+  if (names.length > 0) {
+    return (
+      <Text className="text-primary text-xs font-medium flex-1" numberOfLines={1}>
+        {conversation.isGroup ? typingLabel(names) : 'typing…'}
+      </Text>
+    );
+  }
+
+  return (
+    <Text
+      className={`text-xs flex-1 ${
+        conversation.unread > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'
+      }`}
+      numberOfLines={1}
+    >
+      {conversation.lastMessage
+        ? // Naming the sender only matters in a group; in a direct chat the
+          // other name is already the title.
+          conversation.isGroup && conversation.lastSender
+          ? `${conversation.lastSender}: ${conversation.lastMessage}`
+          : conversation.lastMessage
+        : 'No messages yet'}
+    </Text>
+  );
+}
 
 cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -146,13 +187,25 @@ export default function ChatScreen() {
               <View className="w-12 h-12 rounded-full items-center justify-center" style={{ backgroundColor: '#5B7B9A18' }}>
                 <UsersIcon size={20} style={{ color: '#5B7B9A' }} />
               </View>
-            ) : item.avatarUrl ? (
-              <Image source={{ uri: item.avatarUrl }} style={{ width: 48, height: 48, borderRadius: 24 }} />
             ) : (
-              <View className="w-12 h-12 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
-                <Text style={{ color: '#B66A40', fontWeight: '700', fontSize: 17 }}>
-                  {item.title.charAt(0).toUpperCase()}
-                </Text>
+              // Wrapped so the presence dot has something to anchor to.
+              <View style={{ position: 'relative' }}>
+                {item.avatarUrl ? (
+                  <Image
+                    source={{ uri: item.avatarUrl }}
+                    style={{ width: 48, height: 48, borderRadius: 24 }}
+                  />
+                ) : (
+                  <View
+                    className="w-12 h-12 rounded-full items-center justify-center"
+                    style={{ backgroundColor: '#B66A4018' }}
+                  >
+                    <Text style={{ color: '#B66A40', fontWeight: '700', fontSize: 17 }}>
+                      {item.title.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <PresenceDot userId={item.otherUserId} />
               </View>
             )}
 
@@ -172,18 +225,9 @@ export default function ChatScreen() {
                 </Text>
               </View>
               <View className="flex-row items-center gap-2 mt-0.5">
-                <Text
-                  className={`text-xs flex-1 ${item.unread > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}
-                  numberOfLines={1}
-                >
-                  {item.lastMessage
-                    ? // Naming the sender only matters in a group; in a direct
-                      // chat the other name is already the title.
-                      item.isGroup && item.lastSender
-                      ? `${item.lastSender}: ${item.lastMessage}`
-                      : item.lastMessage
-                    : 'No messages yet'}
-                </Text>
+                {/* One or the other, never both: two lines would make every
+                    row taller the moment somebody touched a key. */}
+                <TypingOrPreview conversation={item} />
                 {item.unread > 0 ? (
                   <View className="rounded-full bg-primary px-2 py-0.5 min-w-[20px] items-center">
                     <Text className="text-white text-[10px] font-bold">{item.unread}</Text>

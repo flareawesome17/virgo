@@ -12,3 +12,9 @@ export {
 } from '@/components/EventInvites'
 export { RolePicker } from '@/components/RolePicker'
 export { RolesRequiredSheet } from '@/components/RolesRequired'
+export {
+  PresenceDot,
+  PresenceLine,
+  TypingIndicator,
+  TypingPreview,
+} from '@/components/Presence'

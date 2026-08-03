@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { chatApi, type SendMessageInput, type Thread } from '@/src/api';
+import { seedPresence } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
 
 export const chatKeys = {
@@ -33,7 +34,22 @@ export function useConversations(q?: string) {
     refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   });
-  return { ...query, conversations: query.data?.data ?? [] };
+  // Seeds the presence store from the response. The socket only sends
+  // *changes*, so without this a client that just opened shows every
+  // contact as offline until one of them happens to connect.
+  const conversations = query.data?.data ?? [];
+  useEffect(() => {
+    const known = conversations
+      .filter((c) => c.otherUserId && c.otherOnline !== null)
+      .map((c) => ({
+        userId: c.otherUserId as string,
+        online: c.otherOnline as boolean,
+        lastSeenAt: c.otherLastSeenAt,
+      }));
+    if (known.length > 0) seedPresence(known);
+  }, [conversations]);
+
+  return { ...query, conversations };
 }
 
 /** Total unread, for the tab badge. */

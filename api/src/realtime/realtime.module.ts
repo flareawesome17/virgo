@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { PresenceService } from './presence.service';
 import { RealtimeGateway } from './realtime.gateway';
 
 /**
@@ -13,7 +14,7 @@ import { RealtimeGateway } from './realtime.gateway';
 @Global()
 @Module({
   imports: [JwtModule.register({})],
-  providers: [RealtimeGateway],
-  exports: [RealtimeGateway],
+  providers: [RealtimeGateway, PresenceService],
+  exports: [RealtimeGateway, PresenceService],
 })
 export class RealtimeModule {}

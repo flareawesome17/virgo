@@ -10,7 +10,49 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { EmptyState, ListSkeleton } from '@/components/states';
+import { PresenceDot } from '@/components/presence';
 import { useConversations } from '@/hooks/useChat';
+import { useAuth } from '@/hooks/useAuth';
+import { typingLabel, useTypingIn } from '@/lib/presence-store';
+import type { Conversation } from '@/api';
+
+/**
+ * The row's second line: who is typing, or the last message.
+ *
+ * One or the other, never both — showing typing *and* the preview would make
+ * the row taller the moment somebody touched a key, and every row in the list
+ * would jump as people came and went.
+ *
+ * Its own component so only this line re-renders when a keystroke arrives,
+ * rather than the whole list.
+ */
+function TypingOrPreview({ conversation }: { conversation: Conversation }) {
+  const { user } = useAuth();
+  const names = useTypingIn(conversation.id, user?.id);
+
+  if (names.length > 0) {
+    return (
+      <span className="truncate text-xs font-medium text-primary">
+        {conversation.isGroup ? typingLabel(names) : 'typing…'}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={cn(
+        'truncate text-xs',
+        conversation.unread > 0 ? 'font-medium text-foreground' : 'text-muted-foreground',
+      )}
+    >
+      {conversation.lastMessage
+        ? conversation.isGroup && conversation.lastSender
+          ? `${conversation.lastSender}: ${conversation.lastMessage}`
+          : conversation.lastMessage
+        : 'No messages yet'}
+    </span>
+  );
+}
 
 /** "now" / "14:05" / "Mon" / "3 Aug" — how recent decides the format. */
 function whenLabel(iso: string | null): string {
@@ -115,14 +157,23 @@ export function ConversationList({
                         <Users className="size-4 text-info" />
                       </div>
                     ) : (
-                      <Avatar className="size-10 shrink-0">
-                        {conversation.avatarUrl && (
-                          <AvatarImage src={conversation.avatarUrl} alt="" />
-                        )}
-                        <AvatarFallback className="bg-primary/15 text-xs font-bold text-primary">
-                          {conversation.title.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
+                      // `relative` so the presence dot can anchor to the avatar.
+                      <div className="relative shrink-0">
+                        <Avatar className="size-10">
+                          {conversation.avatarUrl && (
+                            <AvatarImage src={conversation.avatarUrl} alt="" />
+                          )}
+                          <AvatarFallback className="bg-primary/15 text-xs font-bold text-primary">
+                            {conversation.title.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <PresenceDot
+                          userId={conversation.otherUserId}
+                          // The row is tinted when active, so the ring has to
+                          // match that surface or it looks like a hole.
+                          ringClass={active ? 'ring-accent' : 'ring-background'}
+                        />
+                      </div>
                     )}
 
                     <div className="min-w-0 flex-1">
@@ -144,19 +195,12 @@ export function ConversationList({
                       </div>
 
                       <div className="mt-0.5 flex items-center gap-2">
-                        <span
-                          className={cn(
-                            'truncate text-xs',
-                            conversation.unread > 0
-                              ? 'font-medium text-foreground'
-                              : 'text-muted-foreground',
-                          )}
-                        >
-                          {conversation.lastMessage
-                            ? conversation.isGroup && conversation.lastSender
-                              ? `${conversation.lastSender}: ${conversation.lastMessage}`
-                              : conversation.lastMessage
-                            : 'No messages yet'}
+                        {/* Typing replaces the preview while it lasts — showing
+                            both would push the row's width around every time
+                            somebody started and stopped. */}
+                        <TypingOrPreview conversation={conversation} />
+                        <span className="sr-only">
+                          {conversation.lastMessage ?? 'No messages yet'}
                         </span>
                         {conversation.unread > 0 ? (
                           <Badge className="ml-auto h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px] tabular-nums">

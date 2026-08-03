@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, useCallback } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -39,6 +39,8 @@ import {
   setOpenConversation,
 } from '@/hooks/useChat';
 import { useAuth } from '@/hooks/useAuth';
+import { PresenceDot, PresenceLine, TypingIndicator } from '@/components/presence';
+import { sendTyping } from '@/lib/presence-store';
 import { buzzForMessage } from '@/lib/alerts';
 import type { ConversationMessage, Participant } from '@/api';
 
@@ -103,6 +105,47 @@ export function Thread({
   const [mentioned, setMentioned] = useState<Participant[]>([]);
   const nextTempId = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const meId = user?.id;
+
+  /**
+   * Whether we have already told the server this user is typing.
+   *
+   * A keystroke must not become a socket frame — a fast typist would send
+   * dozens a second. One frame on the first character, one when they stop,
+   * and a repeat only after the flag has been cleared.
+   */
+  const typingSent = useRef(false);
+  const typingIdle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const stopTyping = useCallback(() => {
+    clearTimeout(typingIdle.current);
+    if (!typingSent.current) return;
+    typingSent.current = false;
+    sendTyping(conversationId, false);
+  }, [conversationId]);
+
+  const noteTyping = useCallback(
+    (value: string) => {
+      // An emptied box is not typing. Without this, clearing a draft would
+      // leave the indicator running on the other side until it timed out.
+      if (!value.trim()) {
+        stopTyping();
+        return;
+      }
+      if (!typingSent.current) {
+        typingSent.current = true;
+        sendTyping(conversationId, true);
+      }
+      // Falls quiet on its own if they stop without sending or blurring —
+      // shorter than the receiver's 6s expiry, so the stop arrives first.
+      clearTimeout(typingIdle.current);
+      typingIdle.current = setTimeout(stopTyping, 3000);
+    },
+    [conversationId, stopTyping],
+  );
+
+  // Leaving the thread must not strand the indicator on everyone else's screen.
+  useEffect(() => stopTyping, [stopTyping]);
 
   // Tells the app-wide alert watcher not to fire for this thread — it is on
   // screen, and this component alerts for itself on a shorter poll.
@@ -255,6 +298,8 @@ export function Thread({
     setDraft('');
     setReplyTo(null);
     setMentioned([]);
+    // Sending is the clearest possible "stopped typing".
+    stopTyping();
     setOutbox((prev) => [...prev, item]);
     dispatch(item);
   };
@@ -298,17 +343,27 @@ export function Thread({
               <Users className="size-4 text-info" />
             </div>
           ) : (
-            <Avatar className="size-8 shrink-0">
-              {others[0]?.avatar_url && <AvatarImage src={others[0].avatar_url} alt="" />}
-              <AvatarFallback className="bg-primary/15 text-[11px] font-bold text-primary">
-                {(others[0]?.name ?? '?').slice(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            <div className="relative shrink-0">
+              <Avatar className="size-8">
+                {others[0]?.avatar_url && <AvatarImage src={others[0].avatar_url} alt="" />}
+                <AvatarFallback className="bg-primary/15 text-[11px] font-bold text-primary">
+                  {(others[0]?.name ?? '?').slice(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <PresenceDot userId={others[0]?.id} className="size-2.5" />
+            </div>
           )}
           <div className="min-w-0">
             <p className="truncate text-sm font-bold">{title}</p>
-            <p className="truncate text-xs text-muted-foreground">
-              {isGroup ? participants.map((p) => p.name).join(', ') : 'Click for info'}
+            <p className="truncate">
+              {isGroup ? (
+                <span className="text-xs text-muted-foreground">
+                  {participants.map((p) => p.name).join(', ')}
+                </span>
+              ) : (
+                // Online / last seen, kept current by the socket.
+                <PresenceLine userId={others[0]?.id} />
+              )}
             </p>
           </div>
         </button>
@@ -324,6 +379,11 @@ export function Thread({
       ) : (
         <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col-reverse gap-2 p-4">
+            {/* First child of a column-reverse list, so it sits visually at
+                the bottom — below the newest message, where a typing bubble
+                belongs. */}
+            <TypingIndicator conversationId={conversationId} meId={meId} />
+
             {rows.length === 0 && (
               <EmptyState
                 icon={Users}
@@ -541,7 +601,13 @@ export function Thread({
         <Textarea
           ref={composerRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            noteTyping(e.target.value);
+          }}
+          // Leaving the box stops the indicator immediately, rather than
+          // letting it time out on the other side.
+          onBlur={stopTyping}
           onKeyDown={onComposerKeyDown}
           placeholder={isGroup ? 'Message — @ to mention, Enter to send' : 'Message — Enter to send'}
           rows={1}

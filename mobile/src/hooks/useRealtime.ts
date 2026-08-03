@@ -11,6 +11,12 @@ import {
 } from '@/src/api';
 import { chatKeys, getOpenConversation } from '@/src/hooks/useChat';
 import { useAuth } from '@/src/hooks/useAuth';
+import {
+  registerTypingSender,
+  resetPresence,
+  setPresence,
+  setTyping,
+} from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
 
 /** Mirrors NotificationTopic on the server. */
@@ -30,6 +36,14 @@ type ServerEvent =
   | { type: 'read'; conversationId: string; userId: string; at: string }
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
   | { type: 'conversation'; conversationId: string }
+  | { type: 'presence'; userId: string; online: boolean; lastSeenAt: string | null }
+  | {
+      type: 'typing';
+      conversationId: string;
+      userId: string;
+      name: string;
+      typing: boolean;
+    }
   | {
       type: 'notification';
       topic: NotificationTopic;
@@ -141,6 +155,14 @@ export function useRealtime(enabled: boolean): void {
         case 'conversation':
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
           break;
+        case 'presence':
+          // Straight into the store, not React Query: presence is a
+          // stream of deltas about people, not a cached resource.
+          setPresence(event.userId, event.online, event.lastSeenAt);
+          break;
+        case 'typing':
+          setTyping(event.conversationId, event.userId, event.name, event.typing);
+          break;
         case 'notification':
           applyNotification(event, queryClient);
           break;
@@ -179,6 +201,14 @@ export function useRealtime(enabled: boolean): void {
         // a URL ends up in proxy logs and browser history.
         socket?.send(JSON.stringify({ type: 'auth', token }));
       };
+
+      // The composer needs a way to say "still typing". Registered here
+      // rather than exported, so it always points at the socket that is
+      // actually open — a stale reference would silently send nothing.
+      registerTypingSender((conversationId, isTyping) => {
+        if (socket?.readyState !== 1) return;
+        socket.send(JSON.stringify({ type: 'typing', conversationId, typing: isTyping }));
+      });
 
       socket.onmessage = (raw) => {
         let event: ServerEvent;
@@ -219,6 +249,8 @@ export function useRealtime(enabled: boolean): void {
 
     return () => {
       stopped.current = true;
+      registerTypingSender(null);
+      resetPresence();
       subscription.remove();
       if (retry) clearTimeout(retry);
       socket?.close();

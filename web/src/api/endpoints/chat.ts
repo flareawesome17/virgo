@@ -20,6 +20,16 @@ export interface Conversation {
   /** Whether you have muted it, and until when. */
   muted: boolean;
   mutedUntil: string | null;
+  /**
+   * The other person in a direct chat. Null on a group.
+   *
+   * Presence arrives as a stream of socket events keyed by account id, so the
+   * list needs the id to match them against — the title alone is not enough.
+   */
+  otherUserId: string | null;
+  /** Their state when this response was made; the socket keeps it current. */
+  otherOnline: boolean | null;
+  otherLastSeenAt: string | null;
 }
 
 export interface ConversationMessage {
@@ -50,6 +60,10 @@ export interface Participant {
   id: string;
   name: string;
   avatar_url: string | null;
+  /** Whether they had a socket open when this was fetched. */
+  online?: boolean;
+  /** What to show once `online` is false. */
+  last_seen_at: string | null;
   /**
    * How far this person has read. Your own message counts as read once
    * someone else's `last_read_at` is at or past the moment you sent it.
