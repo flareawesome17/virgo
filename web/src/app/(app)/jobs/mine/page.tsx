@@ -475,7 +475,8 @@ export default function MyJobsPage() {
         nothing to do. The board always has something in it, so it is the
         honest default and it matches where the phone's Jobs entry goes.
       */}
-      <Tabs defaultValue="browse" className="mt-6">
+      <div className="mx-auto w-full max-w-4xl px-6 py-6">
+        <Tabs defaultValue="browse">
         <TabsList>
           <TabsTrigger value="browse">Browse</TabsTrigger>
           <TabsTrigger value="posted">Posted ({jobs.length})</TabsTrigger>
@@ -514,7 +515,8 @@ export default function MyJobsPage() {
         <TabsContent value="applied" className="mt-4">
           <MyApplications />
         </TabsContent>
-      </Tabs>
+        </Tabs>
+      </div>
     </AppShell>
   );
 }

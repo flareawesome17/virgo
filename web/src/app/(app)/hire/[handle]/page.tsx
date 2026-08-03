@@ -89,7 +89,7 @@ export default function HirePage({
 
   return (
     <AppShell>
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="mx-auto w-full max-w-2xl px-6 py-6">
         <Button
           variant="ghost"
           size="sm"
