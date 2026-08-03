@@ -76,6 +76,13 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
       },
       {
         icon: BriefcaseIcon,
+        label: 'Jobs',
+        detail: 'Browse the board, or post what you need doing',
+        route: '/jobs',
+        color: '#B66A40',
+      },
+      {
+        icon: BriefcaseIcon,
         label: 'Hire enquiries',
         detail: 'Work people have offered you',
         route: '/friends/enquiries',

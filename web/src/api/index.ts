@@ -85,6 +85,16 @@ export {
   type SendEnquiryInput,
 } from './endpoints/hire';
 export {
+  jobsApi,
+  jobUrl,
+  budgetLabel,
+  type JobPost,
+  type JobApplication,
+  type CreateJobInput,
+  type ListJobsParams,
+  type ReportReason,
+} from './endpoints/jobs';
+export {
   billingApi,
   type BillingStatus,
   type StartedCheckout,

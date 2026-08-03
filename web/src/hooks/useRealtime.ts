@@ -29,6 +29,8 @@ type NotificationTopic =
   | 'event-response'
   | 'hire-enquiry'
   | 'hire-response'
+  | 'job-application'
+  | 'job-response'
   | 'reminder'
   | 'billing'
   | 'retention';
@@ -89,6 +91,12 @@ const TOPICS: Record<
   'hire-response': {
     keys: [queryKeys.hire.all, queryKeys.friends.all, ['chat']],
     href: '/network?tab=enquiries',
+  },
+  'job-application': { keys: [queryKeys.jobs.all], href: '/jobs/mine' },
+  // Accepting also connects the two and opens a chat.
+  'job-response': {
+    keys: [queryKeys.jobs.all, queryKeys.friends.all, ['chat']],
+    href: '/jobs/applications',
   },
   reminder: { keys: [queryKeys.reminders.all], href: '/schedule' },
   // These two exist on the server and were missing here, so their notifications

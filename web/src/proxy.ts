@@ -36,6 +36,14 @@ const SITE_ORIGIN = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
 /** `/@mika`, one segment, nothing after it. */
 const HANDLE_PATH = /^\/@([A-Za-z0-9_]{3,30})\/?$/;
 
+/**
+ * `/jobs/wedding-photographer-cebu-k3f9x2`.
+ *
+ * Deliberately excludes the app-only routes by shape: a slug always ends in a
+ * hyphen and six alphanumerics, which `new`, `mine` and `applications` do not.
+ */
+const JOB_SLUG_PATH = /^\/jobs\/[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]{6}\/?$/;
+
 export function proxy(request: NextRequest): NextResponse {
   const host = request.headers.get('host')?.split(':')[0].toLowerCase() ?? '';
   const { pathname, search } = request.nextUrl;
@@ -84,6 +92,19 @@ export function proxy(request: NextRequest): NextResponse {
 
   // /landing itself stays put — otherwise the rewrite above would bounce.
   if (pathname === '/landing') return NextResponse.next();
+
+  /**
+   * The job board is public and indexable, so it is served from the apex
+   * rather than redirected to the app.
+   *
+   * Only the reading half. `/jobs/new`, `/jobs/mine` and `/jobs/applications`
+   * need a session and live on the app host, so they fall through to the
+   * redirect below — which is why this matches the board and a post slug
+   * specifically rather than everything under /jobs.
+   */
+  if (pathname === '/jobs' || JOB_SLUG_PATH.test(pathname)) {
+    return NextResponse.next();
+  }
 
   // The internal path is reachable directly too, so a redirect here would
   // bounce the rewrite above straight back out to the app.

@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useState, type ComponentType, type ReactNode } from 'react';
 import {
+  BriefcaseBusiness,
   CalendarDays,
   FolderOpen,
   Home,
@@ -56,6 +57,7 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
       { href: '/network', label: 'Network', icon: Users },
       { href: '/chat', label: 'Chat', icon: MessageCircle, badge: 'unread' },
       { href: '/nearby', label: 'Nearby', icon: MapPin },
+      { href: '/jobs/mine', label: 'Jobs', icon: BriefcaseBusiness },
     ],
   },
 ];

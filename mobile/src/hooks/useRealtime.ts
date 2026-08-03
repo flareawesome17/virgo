@@ -29,6 +29,8 @@ type NotificationTopic =
   | 'event-response'
   | 'hire-enquiry'
   | 'hire-response'
+  | 'job-application'
+  | 'job-response'
   | 'reminder'
   | 'billing'
   | 'retention';
@@ -75,6 +77,9 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   // Accepting also creates a friendship and a conversation, so all three lists
   // are stale for the sender the moment this arrives.
   'hire-response': [queryKeys.hire.all, queryKeys.friends.all, ['chat']],
+  'job-application': [queryKeys.jobs.all],
+  // Accepting also connects the two and opens a chat.
+  'job-response': [queryKeys.jobs.all, queryKeys.friends.all, ['chat']],
   reminder: [queryKeys.reminders.all],
   // These two exist on the server and were missing here, so their notifications
   // arrived without refreshing anything.

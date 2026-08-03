@@ -146,3 +146,17 @@ export {
   usePortfolio,
   usePortfolioActions,
 } from '@/src/hooks/useProfile'
+
+export {
+  useJobs,
+  useJob,
+  useMyJobs,
+  useApplicants,
+  useMyApplications,
+  useCreateJob,
+  useSetJobStatus,
+  useDeleteJob,
+  useApplyToJob,
+  useRespondToApplication,
+  useReportJob,
+} from '@/src/hooks/useJobs'

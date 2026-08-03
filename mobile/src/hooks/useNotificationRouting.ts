@@ -56,6 +56,16 @@ export function useNotificationRouting(enabled: boolean): void {
           if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
           else router.push('/friends/enquiries');
           return;
+
+        // An application is answered from your own posts; an accepted one has
+        // a chat waiting on the other end of it.
+        case 'job_application':
+          router.push('/jobs/mine');
+          return;
+        case 'job_response':
+          if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
+          else router.push('/jobs/mine');
+          return;
       }
     };
 

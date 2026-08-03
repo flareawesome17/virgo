@@ -331,6 +331,8 @@ export interface NotificationPayload {
     | 'event_response'
     | 'hire_enquiry'
     | 'hire_response'
+    | 'job_application'
+    | 'job_response'
     | string;
   conversationId?: string;
   reminderId?: string;
