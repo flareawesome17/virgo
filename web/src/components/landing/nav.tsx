@@ -6,9 +6,10 @@ import { cn } from '@/lib/utils';
 import { APP_URL, SIGN_IN_URL, SIGN_UP_URL } from './links';
 
 const SECTIONS = [
+  { href: '#nearby', label: 'Hire' },
+  { href: '#community', label: 'Community' },
+  { href: '#delivery', label: 'Deliver' },
   { href: '#features', label: 'Features' },
-  { href: '#how', label: 'How it works' },
-  { href: '#nearby', label: 'Nearby' },
   { href: '#pricing', label: 'Pricing' },
 ];
 

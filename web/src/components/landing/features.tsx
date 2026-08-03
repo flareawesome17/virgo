@@ -8,6 +8,8 @@ import {
   MapPin,
   MessagesSquare,
   ShieldCheck,
+  Timer,
+  UserPlus,
   Users,
 } from 'lucide-react';
 import { Reveal } from './reveal';
@@ -29,6 +31,11 @@ const FEATURES = [
     icon: Link2,
     title: 'Client links that just open',
     body: 'Send a client a link and it works. No account, no app, no password — they see the album you shared and nothing else.',
+  },
+  {
+    icon: Timer,
+    title: 'Deliverables that expire',
+    body: 'Give an album a retention window and the files are deleted when it passes. Finished work stops costing you storage, and you never have to remember to clear it out.',
   },
   {
     icon: Users,
@@ -56,6 +63,11 @@ const FEATURES = [
     body: 'Looking for a second shooter or an SDE photo editor within 30km? Filter by role and see who is around. Location is opt-in and reciprocal, and only distance is ever shared.',
   },
   {
+    icon: UserPlus,
+    title: 'A network you can actually search',
+    body: 'Connect with the people you have worked with, by email or by name. Requests are accepted or declined — nobody lands in your network without agreeing to it.',
+  },
+  {
     icon: ShieldCheck,
     title: 'Yours, and private',
     body: 'Nobody sees your work unless you share it. Location sharing is off until you turn it on, and turning it off erases the position rather than hiding it.',
@@ -71,11 +83,12 @@ export function LandingFeatures() {
             What you get
           </span>
           <h2 className="mt-3 text-balance text-3xl font-extrabold tracking-tight text-white sm:text-[2.6rem] sm:leading-[1.1]">
-            The whole job, not just the photos
+            Everything around the shoot
           </h2>
           <p className="mt-4 text-pretty text-[15px] leading-relaxed text-white/55">
-            Shooting is the part you love. Virgo handles everything wrapped
-            around it — the files, the client, the crew and the calendar.
+            Shooting is the part you love. Virgo handles what is wrapped around
+            it — the files, the client, the crew, the calendar, and the tidying
+            up afterwards.
           </p>
         </Reveal>
 

@@ -285,6 +285,53 @@ export class StorageService {
     return { deleted: deletedKeys.length, failed, freedBytes: before - after };
   }
 
+  /**
+   * Deletes a specific set of the user's objects.
+   *
+   * The shared engine behind wipeAll and the retention sweep. Only keys the
+   * bucket confirms deleted are forgotten, so a partial failure leaves the
+   * rest still counted against the quota rather than handing back allowance
+   * for objects that are still sitting there.
+   */
+  async deleteKeys(
+    userId: string,
+    keys: readonly string[],
+  ): Promise<{ deleted: number; failed: number }> {
+    if (keys.length === 0) return { deleted: 0, failed: 0 };
+    const client = this.requireClient();
+
+    const deletedKeys: string[] = [];
+    let failed = 0;
+
+    // 1000 is the DeleteObjects maximum.
+    for (let i = 0; i < keys.length; i += 1000) {
+      const batch = keys.slice(i, i + 1000);
+      // Defence in depth: these came from the user's own rows, but the prefix
+      // check is what actually guarantees bucket-level scope.
+      for (const key of batch) this.assertOwned(userId, key);
+
+      try {
+        const res = await client.send(
+          new DeleteObjectsCommand({
+            Bucket: this.config.bucket,
+            Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: false },
+          }),
+        );
+        for (const d of res.Deleted ?? []) {
+          if (d.Key) deletedKeys.push(d.Key);
+        }
+        failed += (res.Errors ?? []).length;
+      } catch (err) {
+        // One bad batch must not strand the rest.
+        failed += batch.length;
+        this.logger.error(`deleteKeys batch failed for ${userId}: ${String(err)}`);
+      }
+    }
+
+    await this.quota.forgetFiles(userId, deletedKeys);
+    return { deleted: deletedKeys.length, failed };
+  }
+
   /** Points already-stored objects at one of the caller's albums. */
   async attachToAlbum(
     userId: string,

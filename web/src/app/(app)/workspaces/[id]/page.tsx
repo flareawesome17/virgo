@@ -82,17 +82,25 @@ function NewAlbumDialog({
   const create = useCreateAlbum();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  /** Days to keep the files. 'none' keeps them until deleted by hand. */
+  const [retention, setRetention] = useState('none');
 
   const submit = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
     create.mutate(
-      { name: trimmed, description: description.trim() || null, workspace_id: workspaceId },
+      {
+        name: trimmed,
+        description: description.trim() || null,
+        workspace_id: workspaceId,
+        retention_days: retention === 'none' ? null : Number(retention),
+      },
       {
         onSuccess: (album) => {
           onOpenChange(false);
           setName('');
           setDescription('');
+          setRetention('none');
           router.push(`/albums/${album.id}`);
         },
         onError: (err: Error) =>
@@ -131,6 +139,31 @@ function NewAlbumDialog({
               placeholder="Optional"
               rows={3}
             />
+          </div>
+
+          {/* Matches the mobile album form. Without it, a setting that
+              permanently deletes a client's files could only be chosen on a
+              phone — and only reversed there too. */}
+          <div className="grid gap-2">
+            <Label htmlFor="album-retention">Keep files for</Label>
+            <Select value={retention} onValueChange={setRetention}>
+              <SelectTrigger id="album-retention">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Until I delete them</SelectItem>
+                <SelectItem value="30">30 days after upload</SelectItem>
+                <SelectItem value="60">60 days after upload</SelectItem>
+                <SelectItem value="90">90 days after upload</SelectItem>
+                <SelectItem value="180">180 days after upload</SelectItem>
+                <SelectItem value="365">1 year after upload</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {retention === 'none'
+                ? 'Files stay until you remove them.'
+                : `Each file is deleted ${retention} days after it is uploaded. This cannot be undone.`}
+            </p>
           </div>
         </div>
         <DialogFooter>

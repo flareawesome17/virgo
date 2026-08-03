@@ -13,10 +13,10 @@ export const metadata: Metadata = {
   // `absolute` escapes the root layout's "%s · Virgo" template, which would
   // otherwise render "… videographers · Virgo".
   title: {
-    absolute: 'Virgo — the workspace for photographers and videographers',
+    absolute: 'Virgo — the creative community and workspace',
   },
   description:
-    'Albums your clients open without an account, a crew you can message in real time, and a calendar everyone has said yes to. Built in the Philippines for Filipino creatives.',
+    'Find and hire photographers, videographers, editors and HMUAs near you — then run the whole job in one place. Client links that open without an account, and delivered files that delete themselves. Built in the Philippines for Filipino creatives.',
   // Overrides the root layout's noindex. This page is the front door.
   robots: { index: true, follow: true },
   alternates: { canonical: 'https://virgo.ph' },
@@ -24,16 +24,16 @@ export const metadata: Metadata = {
     type: 'website',
     url: 'https://virgo.ph',
     siteName: 'Virgo',
-    title: 'Virgo — every shoot, every file, and everyone on it',
+    title: 'Virgo — where creatives find each other, and get paid',
     description:
-      'The workspace photographers and videographers actually run a business from. Free to start, 15 GB included.',
+      'A network of photographers, videographers, editors and HMUAs — and the workspace they run the job from. Free to start, 15 GB included.',
     images: [{ url: '/icon.png', width: 512, height: 512, alt: 'Virgo' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Virgo — every shoot, every file, and everyone on it',
+    title: 'Virgo — where creatives find each other, and get paid',
     description:
-      'Albums your clients open without an account, a crew you can message in real time, and a calendar everyone has said yes to.',
+      'Hire a second shooter near you, run the shoot together, and hand the client a link that cleans itself up when the job is done.',
     images: ['/icon.png'],
   },
 };

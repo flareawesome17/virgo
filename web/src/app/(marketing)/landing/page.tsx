@@ -1,8 +1,11 @@
 import { LandingNav } from '@/components/landing/nav';
 import { LandingHero } from '@/components/landing/hero';
+import { LandingPillars } from '@/components/landing/pillars';
+import { LandingNearby } from '@/components/landing/nearby';
+import { LandingCommunity } from '@/components/landing/community';
+import { LandingDelivery } from '@/components/landing/delivery';
 import { LandingFeatures } from '@/components/landing/features';
 import { LandingHow } from '@/components/landing/how';
-import { LandingNearby } from '@/components/landing/nearby';
 import { LandingPricing } from '@/components/landing/pricing';
 import { LandingClosing, LandingFooter } from '@/components/landing/closing';
 import { API_BASE_URL, type PlanInfo } from '@/api';
@@ -59,11 +62,17 @@ export default async function LandingPage() {
   return (
     <>
       <LandingNav />
+      {/* Ordered as the pitch reads: what it is, then the three things it is
+          for, then each of those in turn — hire, connect, deliver — before the
+          full feature list, the walkthrough and the price. */}
       <main>
         <LandingHero />
+        <LandingPillars />
+        <LandingNearby />
+        <LandingCommunity />
+        <LandingDelivery />
         <LandingFeatures />
         <LandingHow />
-        <LandingNearby />
         <LandingPricing plans={plans} />
         <LandingClosing />
       </main>

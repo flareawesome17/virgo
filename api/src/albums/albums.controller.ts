@@ -10,12 +10,31 @@ import {
   Query,
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { AlbumRetentionService } from './album-retention.service';
 import { AlbumsService } from './albums.service';
 import { CreateAlbumDto, ListAlbumsDto, UpdateAlbumDto } from './dto/album.dto';
 
 @Controller('albums')
 export class AlbumsController {
-  constructor(private readonly albums: AlbumsService) {}
+  constructor(
+    private readonly albums: AlbumsService,
+    private readonly retention: AlbumRetentionService,
+  ) {}
+
+  /**
+   * What the retention settings are about to remove, and when.
+   *
+   * Declared before `:id` so "retention" is not read as an album id.
+   *
+   * Worth showing rather than only echoing the setting back: automatic
+   * deletion that cannot be seen coming is unnerving, and this is the
+   * difference between a policy and something you can check.
+   */
+  @Get('retention')
+  async retentionSchedule(@CurrentUser('id') userId: string) {
+    const data = await this.retention.upcoming(userId);
+    return { data, total: data.length };
+  }
 
   @Get()
   async list(@CurrentUser('id') userId: string, @Query() query: ListAlbumsDto) {

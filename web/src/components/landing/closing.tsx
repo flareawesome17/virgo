@@ -22,11 +22,12 @@ export function LandingClosing() {
           className="mx-auto size-14 object-contain"
         />
         <h2 className="mt-7 text-balance text-3xl font-extrabold tracking-tight text-white sm:text-[2.75rem] sm:leading-[1.1]">
-          Your next shoot could run through it
+          The next booking could run through it
         </h2>
         <p className="mx-auto mt-5 max-w-xl text-pretty text-[15px] leading-relaxed text-white/55">
-          Free to start, 15&nbsp;GB included, and nothing to install for your
-          clients. Set it up before the next booking and see how it goes.
+          Free to start, 15&nbsp;GB included, and nothing for your clients to
+          install. Add your roles, see who is working near you, and take it from
+          there.
         </p>
 
         <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -34,7 +35,7 @@ export function LandingClosing() {
             href={SIGN_UP_URL}
             className="group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#c17745] px-7 py-3.5 text-[15px] font-bold text-white shadow-xl shadow-[#c17745]/30 transition-all hover:bg-[#cd8250] active:scale-[0.98] sm:w-auto"
           >
-            Create your account
+            Join the community
             <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
           </a>
           <a

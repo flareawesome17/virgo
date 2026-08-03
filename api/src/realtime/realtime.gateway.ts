@@ -21,7 +21,9 @@ export type NotificationTopic =
   | 'event-response'
   | 'reminder'
   /** A plan started, lapsed, or failed to renew. */
-  | 'billing';
+  | 'billing'
+  /** Delivered files removed by an album's retention setting. */
+  | 'retention';
 
 /** What the server pushes. Discriminated on `type`. */
 export type ServerEvent =

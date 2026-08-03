@@ -5,23 +5,23 @@ import { Reveal } from './reveal';
 const STEPS = [
   {
     n: '01',
-    title: 'Make a workspace',
-    body: 'One per studio, or one per client — however you already think about your work. Albums live inside it.',
+    title: 'Say what you do',
+    body: 'Pick your roles when you join — photographer, video editor, HMUA, more than one if you hold more than one. It is how other creatives find you.',
   },
   {
     n: '02',
-    title: 'Bring your people in',
-    body: 'Add the second shooter, the editor, the coordinator. They see the albums you shared, chat in the same threads, and answer the same calendar.',
+    title: 'Find your people',
+    body: 'Search Nearby by role and distance for a second shooter or an SDE editor. Connect with the ones you already work with, and message them here.',
   },
   {
     n: '03',
-    title: 'Shoot, upload, schedule',
-    body: 'Files go straight from the device to storage. Put the shoot on the calendar and invite whoever is on it.',
+    title: 'Run the shoot together',
+    body: 'Put it on the calendar and invite the crew — they accept or decline. Files go from the device straight into the album.',
   },
   {
     n: '04',
-    title: 'Send the client a link',
-    body: 'They open it in a browser. No account, no download, nothing to explain on the phone afterwards.',
+    title: 'Deliver, then let it expire',
+    body: 'Send the client a link they can just open. Set the retention window and the files clear themselves out once the job is long done.',
   },
 ];
 
@@ -42,11 +42,11 @@ export function LandingHow() {
             How it works
           </span>
           <h2 className="mt-3 text-balance text-3xl font-extrabold tracking-tight text-white sm:text-[2.6rem] sm:leading-[1.1]">
-            Set up once, in an afternoon
+            From finding a crew to closing the job
           </h2>
           <p className="mt-4 text-pretty text-[15px] leading-relaxed text-white/55">
-            There is no migration and no onboarding call. Make a workspace, add
-            your people, and the next shoot runs through it.
+            No migration, no onboarding call. Make an account, say what you do,
+            and the next booking can run through it end to end.
           </p>
         </Reveal>
 

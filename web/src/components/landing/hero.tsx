@@ -8,6 +8,10 @@ import { SIGN_IN_URL, SIGN_UP_URL } from './links';
 /**
  * The hero.
  *
+ * Leads with the community, not the file storage. Anyone can sell a folder in
+ * the cloud; the thing here that does not exist elsewhere is the other
+ * photographers in it.
+ *
  * Its entrance is staggered on load rather than on scroll — it is already in
  * view, so an IntersectionObserver would fire everything at once anyway.
  */
@@ -37,20 +41,20 @@ export function LandingHero() {
 
         <Reveal delay={140}>
           <h1 className="mx-auto mt-6 max-w-4xl text-balance text-4xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-6xl lg:text-[4.25rem]">
-            Every shoot, every file,
+            Where creatives find
             <br className="hidden sm:block" />{' '}
             <span className="bg-gradient-to-r from-[#e0a274] via-[#c17745] to-[#b66a40] bg-clip-text text-transparent">
-              and everyone on it.
+              each other, and get paid.
             </span>
           </h1>
         </Reveal>
 
         <Reveal delay={220}>
           <p className="mx-auto mt-6 max-w-2xl text-pretty text-base leading-relaxed text-white/60 sm:text-lg">
-            Virgo is the workspace photographers and videographers actually run
-            a business from — albums your clients can open without an account,
-            a team you can message in real time, and a calendar everyone has
-            said yes to.
+            Virgo is a network of photographers, videographers, editors and
+            HMUAs — and the workspace they run the job from. Find a second
+            shooter near you, book them, shoot it, and hand the client a link
+            that cleans itself up when the job is done.
           </p>
         </Reveal>
 
@@ -60,7 +64,7 @@ export function LandingHero() {
               href={SIGN_UP_URL}
               className="group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#c17745] px-7 py-3.5 text-[15px] font-bold text-white shadow-xl shadow-[#c17745]/30 transition-all hover:bg-[#cd8250] hover:shadow-2xl hover:shadow-[#c17745]/40 active:scale-[0.98] sm:w-auto"
             >
-              Create your account
+              Join the community
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
             </a>
             <a
@@ -79,8 +83,6 @@ export function LandingHero() {
           </p>
         </Reveal>
 
-        {/* A suggestion of the product, drawn rather than screenshotted — a
-            real screenshot would go stale the first time the UI moves. */}
         <Reveal delay={460} className="mt-16 sm:mt-20">
           <HeroPanel />
         </Reveal>
@@ -89,10 +91,16 @@ export function LandingHero() {
   );
 }
 
-const PANEL_ROWS = [
-  { name: 'Reyes Wedding — Ceremony', meta: 'Shoot · Sat, 6 Sept · 3:00 PM', tone: '#c17745', going: '4 going' },
-  { name: 'Same-day edit — Reyes', meta: 'SDE Editor Photo · Due 6 Sept', tone: '#6b8e4e', going: '2 going' },
-  { name: 'Delivery — Cruz prenup', meta: 'Client link opened 3 times', tone: '#5b7b9a', going: null },
+/**
+ * A sketch of the product, drawn rather than screenshotted.
+ *
+ * Shows the hiring flow, because that is the part people have to see to
+ * believe. A real screenshot would go stale the first time the UI moves.
+ */
+const NEARBY_ROWS = [
+  { name: 'Mika R.', meta: '2.2 km away', role: 'SDE Editor Photo', tone: '#c17745' },
+  { name: 'Jomar delos S.', meta: '5.6 km away', role: 'Photographer', tone: '#6b8e4e' },
+  { name: 'Bea T.', meta: '8.9 km away', role: 'HMUA', tone: '#5b7b9a' },
 ];
 
 function HeroPanel() {
@@ -103,17 +111,19 @@ function HeroPanel() {
         <span className="size-2.5 rounded-full bg-white/15" />
         <span className="size-2.5 rounded-full bg-white/15" />
         <span className="ml-3 text-[11px] font-medium text-white/30">
-          web.virgo.ph / schedule
+          Nearby · looking for an SDE Editor Photo within 30 km
         </span>
       </div>
 
       <div className="divide-y divide-white/6">
-        {PANEL_ROWS.map((row) => (
+        {NEARBY_ROWS.map((row) => (
           <div key={row.name} className="flex items-center gap-3 px-4 py-4 text-left sm:px-5">
             <span
-              className="size-9 shrink-0 rounded-lg"
-              style={{ background: `${row.tone}22`, border: `1px solid ${row.tone}44` }}
-            />
+              className="grid size-9 shrink-0 place-items-center rounded-full text-[11px] font-bold"
+              style={{ background: `${row.tone}22`, color: row.tone }}
+            >
+              {row.name.slice(0, 2).toUpperCase()}
+            </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold text-white/90">
                 {row.name}
@@ -122,11 +132,12 @@ function HeroPanel() {
                 {row.meta}
               </span>
             </span>
-            {row.going && (
-              <span className="hidden shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-white/50 sm:block">
-                {row.going}
-              </span>
-            )}
+            <span
+              className="hidden shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold sm:block"
+              style={{ background: `${row.tone}1f`, color: row.tone }}
+            >
+              {row.role}
+            </span>
           </div>
         ))}
       </div>
