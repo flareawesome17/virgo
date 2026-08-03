@@ -93,6 +93,11 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      # The API over the container network, for pages rendered on the server.
+      # Without it the landing page reads its own backend by going out through
+      # Cloudflare and back, which is slower and fails whenever the public
+      # hostname is having a bad day. Falls back to the public URL if unset.
+      API_INTERNAL_URL: http://api:3000
     expose:
       - '3000'
     depends_on:

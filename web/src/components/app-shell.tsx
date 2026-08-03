@@ -223,7 +223,10 @@ export function AppShell({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex h-full">
+    // data-app-shell is what globals.css keys `body { overflow: hidden }` off.
+    // The rule has to be conditional: it keeps the sidebar still while the app
+    // scrolls, and it stops the marketing page scrolling at all.
+    <div data-app-shell className="flex h-full">
       <aside className="hidden w-64 shrink-0 border-r lg:block">
         <SidebarBody />
       </aside>

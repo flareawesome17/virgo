@@ -14,6 +14,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  // Resolves the relative image paths in the marketing page's Open Graph tags.
+  // Without it Next falls back to localhost, and a shared link previews with an
+  // image nobody but the developer can load.
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph',
+  ),
   title: {
     default: 'Virgo',
     template: '%s · Virgo',

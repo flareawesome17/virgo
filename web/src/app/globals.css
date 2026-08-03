@@ -7,9 +7,13 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  /* Points at the variable next/font actually defines in layout.tsx. This
+     said `var(--font-sans)` — itself — which resolves to nothing, so every
+     `font-sans` in the app fell through to the browser default and rendered
+     serif. Headings were the obvious tell. */
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-heading: var(--font-geist-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -160,8 +164,12 @@
   }
 
   /* The app shell owns scrolling; a scrolling body would take the sidebar
-     with it. */
-  body {
+     with it.
+
+     Scoped to pages that actually mount the shell. Applied to every page, it
+     also clipped the marketing site — a normal long document — at the height
+     of the viewport, so nothing below the hero could be reached. */
+  body:has([data-app-shell]) {
     overflow: hidden;
   }
 
@@ -200,5 +208,88 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
     gap: 0.75rem;
+  }
+}
+
+/* ─── Landing page ─────────────────────────────────────────────────────────
+ *
+ * Only the marketing page uses these. Kept here rather than in a CSS module
+ * because they are driven by data attributes the Reveal component sets, and a
+ * module would mean threading generated class names through it.
+ *
+ * Everything animates transform and opacity only — both are compositor
+ * properties, so a scroll full of reveals never triggers layout.
+ */
+@layer utilities {
+  .reveal {
+    opacity: 0;
+    transition:
+      opacity 700ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+
+  .reveal[data-reveal='up'] { transform: translate3d(0, 2rem, 0); }
+  .reveal[data-reveal='down'] { transform: translate3d(0, -2rem, 0); }
+  .reveal[data-reveal='left'] { transform: translate3d(-2rem, 0, 0); }
+  .reveal[data-reveal='right'] { transform: translate3d(2rem, 0, 0); }
+  .reveal[data-reveal='none'] { transform: none; }
+
+  .reveal[data-shown] {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    /* Released once the animation is done: a permanently promoted layer costs
+       memory for motion that will never run again. */
+    will-change: auto;
+  }
+
+  /* The warm bloom behind the hero. Sits under everything and never
+     intercepts a click. */
+  .hero-glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(48rem 32rem at 50% -6rem, color-mix(in oklab, var(--primary) 26%, transparent), transparent 70%),
+      radial-gradient(32rem 24rem at 88% 12%, color-mix(in oklab, var(--brand-accent) 14%, transparent), transparent 65%);
+  }
+
+  /* A slow drift, so the hero is not perfectly static while being read. */
+  @keyframes hero-drift {
+    from { transform: translate3d(0, 0, 0) scale(1); }
+    to { transform: translate3d(0, -1.5rem, 0) scale(1.06); }
+  }
+
+  .hero-glow-animate {
+    animation: hero-drift 14s ease-in-out infinite alternate;
+  }
+
+  /* Fine grain over the hero — stops a large flat gradient from banding on
+     8-bit displays, which is where a dark hero usually falls apart. */
+  .grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* A hairline that fades out at both ends, for section seams. */
+  .rule-fade {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .hero-glow-animate {
+    animation: none;
   }
 }

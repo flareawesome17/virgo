@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Public } from '../auth/public.decorator';
 import { QuotaService } from './quota.service';
 import { PLAN_CATALOGUE, toJsonLimit } from './quota.config';
 
@@ -22,6 +23,15 @@ export class QuotaController {
  */
 @Controller('plans')
 export class PlansController {
+  /**
+   * Public. Every route is guarded by default, which is the right default —
+   * but a price list is the one thing that has to be readable by someone who
+   * has not signed up yet. The marketing site renders it server-side, and
+   * behind the guard it got a 401 and fell back to "see plans in the app".
+   *
+   * Nothing here is account-specific: it is the same catalogue for everyone.
+   */
+  @Public()
   @Get()
   list() {
     return {
