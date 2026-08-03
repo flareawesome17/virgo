@@ -89,10 +89,13 @@ function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
           </Avatar>
 
           <div className="min-w-0 flex-1">
+            {/* The space is inside the string, not left to the margin: a
+                margin positions the words but does not separate them, so
+                copied text and screen readers both got "Cruzwants". */}
             <p className="truncate text-sm font-semibold">
               {enquiry.personName}
-              <span className="ml-1.5 font-normal text-muted-foreground">
-                {isIncoming ? 'wants to hire you' : '— your enquiry'}
+              <span className="font-normal text-muted-foreground">
+                {isIncoming ? ' wants to hire you' : ' — your enquiry'}
               </span>
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
