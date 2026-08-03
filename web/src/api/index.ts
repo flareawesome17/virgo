@@ -70,6 +70,12 @@ export {
   type PlanInfo,
 } from './endpoints/usage';
 export {
+  profilesApi,
+  profileUrl,
+  type PublicProfile,
+  type ProfileSettings,
+} from './endpoints/profiles';
+export {
   billingApi,
   type BillingStatus,
   type StartedCheckout,

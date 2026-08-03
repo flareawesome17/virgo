@@ -11,6 +11,9 @@ const MARKETING_HOSTS = new Set(['virgo.ph', 'www.virgo.ph']);
 /** Where the app lives, for links out of the marketing site. */
 const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN ?? 'https://web.virgo.ph';
 
+/** The public origin, and the only place a profile is canonically addressed. */
+const SITE_ORIGIN = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
+
 /**
  * Serves one Next app on two hostnames.
  *
@@ -30,18 +33,61 @@ const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN ?? 'https://web.virgo.ph';
  * exactly one canonical host for signed-in pages and no chance of a session
  * being established against a hostname the rest of the product does not use.
  */
+/** `/@mika`, one segment, nothing after it. */
+const HANDLE_PATH = /^\/@([A-Za-z0-9_]{3,30})\/?$/;
+
 export function proxy(request: NextRequest): NextResponse {
   const host = request.headers.get('host')?.split(':')[0].toLowerCase() ?? '';
-  if (!MARKETING_HOSTS.has(host)) return NextResponse.next();
-
   const { pathname, search } = request.nextUrl;
+
+  if (!MARKETING_HOSTS.has(host)) {
+    // A profile has exactly one address, and it is on the apex. Without this
+    // the app host answers /@mika with a 404, and any link that reached it
+    // would look broken rather than redirecting somewhere useful.
+    const onAppHost = HANDLE_PATH.exec(pathname);
+    if (onAppHost) {
+      return NextResponse.redirect(
+        `${SITE_ORIGIN}/@${onAppHost[1].toLowerCase()}`,
+        308,
+      );
+    }
+    return NextResponse.next();
+  }
 
   if (pathname === '/') {
     return NextResponse.rewrite(new URL('/landing', request.url));
   }
 
+  /**
+   * Public profiles: virgo.ph/@mika.
+   *
+   * Rewritten to an internal `/p/[handle]` route rather than served from a
+   * root-level `[handle]`, which would compete with /landing and every future
+   * marketing page for the same segment.
+   *
+   * Note a folder named `@handle` would not have worked either — in the App
+   * Router that is a parallel route *slot*, and the docs are explicit that
+   * slots "do not affect the URL structure".
+   */
+  const profile = HANDLE_PATH.exec(pathname);
+  if (profile) {
+    const handle = profile[1].toLowerCase();
+
+    // One canonical URL per profile. `/@MIKA` and `/@mika/` are the same page,
+    // and serving all three would split their search ranking three ways.
+    if (pathname !== `/@${handle}`) {
+      return NextResponse.redirect(`${SITE_ORIGIN}/@${handle}${search}`, 308);
+    }
+
+    return NextResponse.rewrite(new URL(`/p/${handle}${search}`, request.url));
+  }
+
   // /landing itself stays put — otherwise the rewrite above would bounce.
   if (pathname === '/landing') return NextResponse.next();
+
+  // The internal path is reachable directly too, so a redirect here would
+  // bounce the rewrite above straight back out to the app.
+  if (pathname.startsWith('/p/')) return NextResponse.next();
 
   return NextResponse.redirect(`${APP_ORIGIN}${pathname}${search}`, 308);
 }

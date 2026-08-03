@@ -56,6 +56,12 @@ export {
 } from './endpoints/friends';
 export { servicesApi, type ChatMessage } from './endpoints/services';
 export {
+  profilesApi,
+  profileUrl,
+  type PublicProfile,
+  type ProfileSettings,
+} from './endpoints/profiles';
+export {
   billingApi,
   type BillingStatus,
   type StartedCheckout,

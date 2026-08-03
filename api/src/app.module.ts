@@ -15,6 +15,7 @@ import { validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { FriendsModule } from './friends/friends.module';
 import { HealthModule } from './health/health.module';
+import { ProfilesModule } from './profiles/profiles.module';
 import { QuotaModule } from './quota/quota.module';
 import { MailModule } from './mail/mail.module';
 import { RealtimeModule } from './realtime/realtime.module';
@@ -51,6 +52,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     DiscoverModule,
     MessagesModule,
     BillingModule,
+    ProfilesModule,
   ],
   providers: [
     // Deny by default: every route requires a valid JWT unless it carries
