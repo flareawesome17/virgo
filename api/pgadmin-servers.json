@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Virgo",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "virgo",
+      "Username": "virgo",
+      "SSLMode": "prefer",
+      "Comment": "Pre-registered so there is nothing to type but the password. Host is the compose service name, not localhost — pgAdmin connects across the Docker network, where 'localhost' would mean the pgAdmin container itself."
+    }
+  }
+}
