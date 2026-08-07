@@ -44,8 +44,6 @@ export default function CreateWorkspaceScreen() {
         name: name.trim(),
         description: description.trim() || null,
         accent_color: accentColor,
-        media_count: 0,
-        collaborator_count: 1,
       },
       {
         onSuccess: (workspace) => router.replace(`/workspaces/${workspace.id}`),

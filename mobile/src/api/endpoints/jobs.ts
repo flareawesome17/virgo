@@ -29,6 +29,13 @@ export interface JobPost {
     handle: string | null;
   };
   applicantCount: number;
+  /**
+   * Whether you posted this.
+   *
+   * The API always refused a self-application; without this the UI could not
+   * tell, so it offered Apply on your own post and only failed on submit.
+   */
+  isMine: boolean;
 }
 
 export interface JobApplication {

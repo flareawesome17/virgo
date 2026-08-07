@@ -170,7 +170,25 @@ export default function JobDetailScreen() {
             </Text>
           </View>
 
-          {isOpen && (
+          {/* Your own post never offers the form. The API refuses a
+              self-application, so showing it would only let somebody write one
+              out to be told no. */}
+          {post.isMine ? (
+            <View className="gap-2.5 border-t border-border pt-4">
+              <Text className="text-muted-foreground text-[12px] leading-5">
+                This is your post. Applications arrive under My jobs.
+              </Text>
+              <Pressable
+                className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2"
+                style={{ borderWidth: 1, borderColor: '#B66A40' }}
+                onPress={() => router.push('/jobs/mine')}
+              >
+                <Text className="text-[15px] font-bold" style={{ color: '#B66A40' }}>
+                  Manage post
+                </Text>
+              </Pressable>
+            </View>
+          ) : isOpen ? (
             <View className="gap-2 border-t border-border pt-4">
               <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
                 Why you
@@ -211,7 +229,7 @@ export default function JobDetailScreen() {
                 They see your profile and roles alongside this.
               </Text>
             </View>
-          )}
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

@@ -41,8 +41,8 @@ export function useCreateAlbum() {
     mutationFn: (input: CreateAlbumInput) => albumsApi.create(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
-      // media_count on the parent workspace is maintained by the app, so the
-      // workspace list is stale too.
+      // The workspace list carries a derived media_count, so adding an album
+      // changes it — the cached list is stale even though nothing wrote to it.
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
     },
   });

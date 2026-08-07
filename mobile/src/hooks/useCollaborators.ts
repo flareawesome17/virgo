@@ -42,7 +42,7 @@ export function useCreateCollaborator() {
       collaboratorsApi.create(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.collaborators.all });
-      // collaborator_count lives on the workspace row.
+      // The workspace list carries a derived collaborator_count.
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
     },
   });

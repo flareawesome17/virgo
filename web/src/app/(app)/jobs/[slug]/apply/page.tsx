@@ -59,6 +59,22 @@ export default function ApplyPage({
   }
 
   const post = job.data;
+
+  // Reachable by typing the URL even though nothing links here for your own
+  // post. Say so before the form rather than after the submit.
+  if (post.isMine) {
+    return (
+      <AppShell>
+        <EmptyState
+          icon={BriefcaseBusiness}
+          title="This is your own post"
+          description="You cannot apply to a job you posted. Applications you receive arrive under My jobs."
+          action={<Button onClick={() => router.push('/jobs/mine')}>My jobs</Button>}
+        />
+      </AppShell>
+    );
+  }
+
   const budget = budgetLabel(post.budgetMin, post.budgetMax);
   const tooShort = message.trim().length < 20;
 

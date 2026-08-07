@@ -117,12 +117,13 @@ export class PublicJobsController {
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get()
   list(
+    @CurrentUser('id') userId: string,
     @Query('roles') roles?: string,
     @Query('location') location?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.hiring.list({
+    return this.hiring.list(userId, {
       // Comma-separated in the query string; the service drops anything that
       // is not a known role, so a junk value narrows to nothing rather than
       // reaching SQL.
@@ -135,8 +136,8 @@ export class PublicJobsController {
 
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get(':slug')
-  bySlug(@Param('slug') slug: string) {
-    return this.hiring.bySlug(slug);
+  bySlug(@CurrentUser('id') userId: string, @Param('slug') slug: string) {
+    return this.hiring.bySlug(userId, slug);
   }
 }
 

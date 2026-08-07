@@ -42,6 +42,15 @@ export interface PublicJobPost {
     handle: string | null;
   };
   applicantCount: number;
+  /**
+   * Whether the reader posted this.
+   *
+   * The API has always refused a self-application, but the clients had no way
+   * to know, so they offered Apply on your own post and only failed once you
+   * had written the whole thing. Reads are authenticated now, so the server
+   * always knows who is asking and can just say.
+   */
+  isMine: boolean;
 }
 
 /** The owner's view, and an applicant's view of their own application. */
@@ -139,7 +148,10 @@ export class HiringService {
       as applicant_count`;
 
   /** The board. Open, visible, unexpired — nothing else. */
-  async list(params: ListJobsParams = {}): Promise<{ data: PublicJobPost[]; total: number }> {
+  async list(
+    viewerId: string,
+    params: ListJobsParams = {},
+  ): Promise<{ data: PublicJobPost[]; total: number }> {
     const roles = normalizeRoles(params.roles ?? []);
     const limit = Math.min(Math.max(params.limit ?? 30, 1), 60);
     const offset = Math.max(params.offset ?? 0, 0);
@@ -174,7 +186,7 @@ export class HiringService {
     );
 
     return {
-      data: rows.map((row) => this.present(row)),
+      data: rows.map((row) => this.present(row, viewerId)),
       total: Number(totalRow?.total ?? 0),
     };
   }
@@ -187,7 +199,7 @@ export class HiringService {
    * Hidden and expired do not: those are the two states where showing it is
    * the problem.
    */
-  async bySlug(slug: string): Promise<PublicJobPost> {
+  async bySlug(viewerId: string, slug: string): Promise<PublicJobPost> {
     const row = await this.db.queryOne<PostRow>(
       `select ${this.postSelect}
          from hiring_posts p
@@ -198,7 +210,7 @@ export class HiringService {
       [slug],
     );
     if (!row) throw new NotFoundException('That job post is no longer available');
-    return this.present(row);
+    return this.present(row, viewerId);
   }
 
   /** Posts the caller has made, including closed ones. */
@@ -212,7 +224,7 @@ export class HiringService {
         limit 100`,
       [userId],
     );
-    return rows.map((row) => this.present(row));
+    return rows.map((row) => this.present(row, userId));
   }
 
   async create(
@@ -263,7 +275,7 @@ export class HiringService {
     );
 
     this.logger.log(`job post ${row!.slug} created by ${userId}`);
-    return this.bySlug(row!.slug);
+    return this.bySlug(userId, row!.slug);
   }
 
   /**
@@ -297,7 +309,7 @@ export class HiringService {
       'update hiring_posts set status = $3 where id = $1 and user_id = $2 returning slug',
       [id, userId, status],
     );
-    return this.bySlug(row!.slug);
+    return this.bySlug(userId, row!.slug);
   }
 
   async remove(userId: string, id: string): Promise<{ deleted: boolean }> {
@@ -555,7 +567,7 @@ export class HiringService {
     return this.presentApplication(row, viewerId, conversationId);
   }
 
-  private present(row: PostRow): PublicJobPost {
+  private present(row: PostRow, viewerId: string): PublicJobPost {
     return {
       id: row.id,
       slug: row.slug,
@@ -577,6 +589,7 @@ export class HiringService {
         handle: row.poster_handle,
       },
       applicantCount: Number(row.applicant_count ?? 0),
+      isMine: row.user_id === viewerId,
     };
   }
 

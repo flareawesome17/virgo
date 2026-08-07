@@ -24,11 +24,36 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
     'name',
     'description',
     'accent_color',
-    'media_count',
-    'collaborator_count',
   ];
 
   protected readonly sortableColumns = ['created_at', 'updated_at', 'name'];
+
+  /**
+   * The two counters, computed rather than stored.
+   *
+   * They were columns until 034 and nothing ever updated them, so every
+   * workspace read "0 assets · 0 collaborators". Deriving them cannot drift:
+   * delete an album, remove a collaborator, and the next read is already
+   * right, with no write path to remember.
+   *
+   * Media is counted through albums because that is where a file's workspace
+   * actually lives — `user_files` has no workspace_id, only an album_id. A
+   * file with no album belongs to no workspace and is deliberately not
+   * counted here; the storage screen is where unfiled uploads surface.
+   *
+   * Collaborators counts accepted invitations only, matching the visibility
+   * rule below. A pending invite is not a collaborator, and showing it as one
+   * would tell the owner they have help they do not yet have.
+   */
+  private readonly withCounts = `
+    w.*,
+    (select count(*)::int
+       from user_files f
+       join albums a on a.id = f.album_id
+      where a.workspace_id = w.id) as media_count,
+    (select count(*)::int
+       from collaborators c
+      where c.workspace_id = w.id and c.status = 'accepted') as collaborator_count`;
 
   constructor(db: DatabaseService) {
     super(db);
@@ -55,13 +80,14 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
     const direction = options.direction === 'asc' ? 'ASC' : 'DESC';
 
     return this.db.query<WorkspaceRow>(
-      `select * from workspaces
-        where user_id = $1
-           or id in (
+      `select ${this.withCounts}
+         from workspaces w
+        where w.user_id = $1
+           or w.id in (
              select workspace_id from collaborators
               where collaborator_user_id = $1 and status = 'accepted'
            )
-        order by ${orderBy} ${direction}
+        order by w.${orderBy} ${direction}
         limit $2 offset $3`,
       [userId, limit, offset],
     );
@@ -69,10 +95,11 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
 
   async findOne(userId: string, id: string): Promise<WorkspaceRow | null> {
     return this.db.queryOne<WorkspaceRow>(
-      `select * from workspaces
-        where id = $2
-          and (user_id = $1
-               or id in (
+      `select ${this.withCounts}
+         from workspaces w
+        where w.id = $2
+          and (w.user_id = $1
+               or w.id in (
                  select workspace_id from collaborators
                   where collaborator_user_id = $1 and status = 'accepted'
                ))`,
@@ -87,6 +114,30 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
    * workspaces in `data` but a `total` of 0 — enough for a list header to read
    * "0 workspaces" above a populated list.
    */
+  /**
+   * Create and update, re-read so the counts come back.
+   *
+   * The base does `returning *`, which no longer includes them — they are not
+   * columns any more. A client that got a workspace back without them would
+   * hit `undefined.toLocaleString()` on the very next render, which is exactly
+   * what mobile's workspace list does with `media_count`.
+   *
+   * The extra read is one indexed lookup on a path that already writes.
+   */
+  async create(userId: string, data: Record<string, unknown>): Promise<WorkspaceRow> {
+    const created = await super.create(userId, data);
+    return (await this.findOne(userId, created.id)) ?? created;
+  }
+
+  async update(
+    userId: string,
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<WorkspaceRow | null> {
+    const updated = await super.update(userId, id, data);
+    return updated ? await this.findOne(userId, id) : null;
+  }
+
   async count(userId: string): Promise<number> {
     const row = await this.db.queryOne<{ count: string }>(
       `select count(*)::text as count from workspaces

@@ -329,7 +329,14 @@ function BrowseJobs() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[15px] font-bold leading-snug">{job.title}</p>
+                        <p className="flex items-center gap-2 text-[15px] font-bold leading-snug">
+                          {job.title}
+                          {job.isMine && (
+                            <Badge variant="outline" className="shrink-0 text-[10px]">
+                              Your post
+                            </Badge>
+                          )}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           {job.postedBy.displayName}
                           {job.applicantCount > 0

@@ -168,7 +168,8 @@ function JobCard({ job }: { job: JobPost }) {
             {job.title}
           </Text>
           <Text className="text-muted-foreground text-[11px] mt-0.5">
-            {job.postedBy.displayName} · posted {postedAgo(job.createdAt)}
+            {job.isMine ? 'Your post' : job.postedBy.displayName} · posted{' '}
+            {postedAgo(job.createdAt)}
           </Text>
         </View>
       </View>

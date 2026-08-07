@@ -233,7 +233,22 @@ export default function JobPage({
               </p>
             </div>
 
-            {isOpen && (
+            {/* Your own post offers management, not an application — the API
+                refuses a self-apply, so offering it would only let somebody
+                write out a whole application to be told no. */}
+            {post.isMine ? (
+              <div className="flex items-center justify-between gap-4 border-t pt-5">
+                <p className="text-xs text-muted-foreground">
+                  This is your post. Applications arrive under My jobs.
+                </p>
+                <Button asChild variant="outline">
+                  <Link href="/jobs/mine">
+                    <Users className="size-4" />
+                    Manage post
+                  </Link>
+                </Button>
+              </div>
+            ) : isOpen ? (
               <div className="flex items-center justify-between gap-4 border-t pt-5">
                 <p className="text-xs text-muted-foreground">
                   They see your profile and roles alongside your application.
@@ -245,7 +260,7 @@ export default function JobPage({
                   </Link>
                 </Button>
               </div>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       </div>
