@@ -88,7 +88,13 @@ export const asyncStoragePersister = createAsyncStoragePersister({
  * ₱25 — the old amount — for a day after the change. Changing the buster
  * throws the whole persisted cache away on next launch.
  */
-const CACHE_VERSION = 'v2-prices-in-centavos'
+/*
+ * Bumped to throw away caches written by the buggy predicate above. Phones
+ * that already stored a pending query would otherwise keep rehydrating it and
+ * keep hanging — the fix has to invalidate what the bug wrote, not just stop
+ * writing more.
+ */
+const CACHE_VERSION = 'v3-success-only-dehydrate'
 
 /**
  * Never written to disk, whatever their staleTime says.
@@ -108,6 +114,20 @@ function isPerishable(queryKey: readonly unknown[]): boolean {
   if (root === 'plans' || root === 'billing') return true
   // ['me', 'usage'] — the plan and its limits.
   if (root === 'me' && second === 'usage') return true
+
+  /*
+   * Filtered job searches.
+   *
+   * Every distinct filter is its own key, so typing a city produces one per
+   * debounce — persisting them fills AsyncStorage with searches nobody will
+   * repeat. The unfiltered board is the one worth keeping on disk, and it is
+   * the one that makes the screen look instant on a cold start.
+   */
+  if (root === 'jobs' && second === 'list') {
+    const params = queryKey[2] as { roles?: unknown[]; location?: string } | undefined
+    const filtered = Boolean(params?.location) || Boolean(params?.roles?.length)
+    if (filtered) return true
+  }
   return false
 }
 
@@ -119,8 +139,21 @@ export const persistOptions = {
   // Only persist successful queries
   dehydrateOptions: {
     shouldDehydrateQuery: (query: any) => {
-      // Don't persist queries with errors
-      if (query.state.status === 'error') return false
+      /*
+       * Successful queries only.
+       *
+       * This used to exclude just errors, which meant a query that was still
+       * in flight when the app went to the background was written to disk as
+       * *pending*. On the next launch React Query rehydrates that as a pending
+       * query with no fetch behind it, so it hangs until the 20s client
+       * timeout and then reports "a query that was dehydrated as pending ended
+       * up rejecting". On screen that is a spinner that turns for twenty
+       * seconds and then gives up.
+       *
+       * React Query's own default is success-only for exactly this reason;
+       * the custom predicate replaced it and lost that.
+       */
+      if (query.state.status !== 'success') return false
       if (isPerishable(query.queryKey)) return false
       return true
     },

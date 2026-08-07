@@ -39,7 +39,7 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
     return () => clearTimeout(id);
   }, [place]);
 
-  const { jobs, total, isLoading, refetch } = useJobs({
+  const { jobs, total, isLoading, isRefiltering, refetch } = useJobs({
     roles: role ? [role] : [],
     location: debouncedPlace || undefined,
   });
@@ -52,7 +52,7 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
 
   return (
     <View className="flex-1">
-      <View className="px-5 pb-2 gap-2.5">
+      <View className="px-5 pt-3 pb-2 gap-2.5">
         <View className="bg-card rounded-xl px-3.5 py-2.5 flex-row items-center gap-2">
           <SearchIcon size={15} className="text-muted-foreground" />
           <TextInput
@@ -62,6 +62,10 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
             placeholderTextColor="#9ca3af"
             className="text-foreground text-sm flex-1"
           />
+          {/* Lives in the field, not over the list. With keepPreviousData the
+              previous results stay on screen while the next ones load, so the
+              only thing that should change is this. */}
+          {isRefiltering && <ActivityIndicator size="small" color="#B66A40" />}
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -82,11 +86,16 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
         <View className="flex-1 items-center justify-center px-10 py-16">
           <BriefcaseIcon size={30} className="text-muted-foreground" />
           <Text className="text-foreground text-[15px] font-bold mt-3 text-center">
-            {role ? `Nothing open for a ${role.toLowerCase()}` : 'No open jobs right now'}
+            {debouncedPlace
+              ? `Nothing in “${debouncedPlace}”`
+              : role
+                ? `Nothing open for a ${role.toLowerCase()}`
+                : 'No open jobs right now'}
           </Text>
           <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
-            Posts expire when the job does, so this list is always current.
-            Check back, or post the job you need doing.
+            {debouncedPlace || role
+              ? 'Try a wider search, or post the job you need doing.'
+              : 'Posts expire when the job does, so this list is always current. Check back, or post the job you need doing.'}
           </Text>
           <Pressable
             className="mt-5 rounded-xl px-5 py-3"

@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {
   jobsApi,
   queryKeys,
@@ -9,17 +14,32 @@ import {
   type ReportReason,
 } from '@/api';
 
-/** The public board. Works signed out, so no `enabled` gate on a session. */
+/**
+ * The board, filtered.
+ *
+ * Every distinct filter is its own query key, so typing a location used to
+ * mean a key with no cached data — which blanks the list to a spinner on each
+ * debounce and makes a search that returns in 40ms feel broken.
+ *
+ * `keepPreviousData` holds the last result on screen while the next one loads,
+ * so the list never empties and the only signal is `isPending` going true,
+ * which the UI can show as a quiet inline hint rather than a full-screen
+ * spinner. Going back to a term searched moments ago is instant, since that
+ * key is still in cache.
+ */
 export function useJobs(params: ListJobsParams = {}) {
   const query = useQuery({
     queryKey: queryKeys.jobs.list(params),
     queryFn: () => jobsApi.list(params),
+    placeholderData: keepPreviousData,
   });
 
   return {
     ...query,
     jobs: query.data?.data ?? ([] as JobPost[]),
     total: query.data?.total ?? 0,
+    /** True while a *different* filter is loading and older results are shown. */
+    isRefiltering: query.isPlaceholderData,
   };
 }
 
