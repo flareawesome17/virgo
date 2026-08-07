@@ -134,6 +134,17 @@ export class PublicJobsController {
     });
   }
 
+  /**
+   * The badge count. Before `:slug`, or "unseen" reads as a post's slug.
+   *
+   * Polled on a short interval by both clients, so it is a single indexed
+   * count and nothing more.
+   */
+  @Get('unseen')
+  unseen(@CurrentUser('id') userId: string) {
+    return this.hiring.unseenCount(userId);
+  }
+
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get(':slug')
   bySlug(@CurrentUser('id') userId: string, @Param('slug') slug: string) {
@@ -150,6 +161,13 @@ export class MyJobsController {
   async mine(@CurrentUser('id') userId: string) {
     const data = await this.hiring.mine(userId);
     return { data, total: data.length };
+  }
+
+  /** Clears the badge. Called when the Jobs tab is opened. */
+  @HttpCode(200)
+  @Post('seen')
+  markSeen(@CurrentUser('id') userId: string) {
+    return this.hiring.markSeen(userId);
   }
 
   /** Everything the caller has applied to. */

@@ -12,6 +12,8 @@ import {
   useUsage,
   useWorkspaces,
   usePlanLimits,
+  useUnseenJobs,
+  useMarkJobsSeen,
 } from '@/src/hooks';
 import { formatBytes, toGB } from '@/src/api';
 import { useState } from 'react';
@@ -32,6 +34,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
+import { JobsFeed } from '@/components';
 import { LinearGradient } from 'expo-linear-gradient';
 
 cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -125,6 +128,10 @@ function AvatarStack({ urls, count }: { urls: string[]; count: number }) {
 }
 
 export default function HomeScreen() {
+  const [tab, setTab] = useState<'home' | 'jobs'>('home');
+  const { count: unseenJobs } = useUnseenJobs();
+  const markSeen = useMarkJobsSeen();
+
   const { guardWorkspaceCreate, guardAlbumCreate } = usePlanLimits();
   const { user, profile } = useAuth();
   const { isDark } = useTheme();
@@ -187,6 +194,34 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      {/*
+        Two tabs, not two bottom-bar entries. The bar is already at six and a
+        seventh truncates its labels on a 360pt screen — see the note in
+        (tabs)/_layout.tsx.
+      */}
+      <View className="flex-row gap-2 px-5 pt-2 pb-1">
+        <Segment
+          label="Home"
+          active={tab === 'home'}
+          onPress={() => setTab('home')}
+        />
+        <Segment
+          label="Jobs"
+          active={tab === 'jobs'}
+          badge={unseenJobs}
+          onPress={() => {
+            setTab('jobs');
+            // Opening the tab is what "seen" means. Fires once per switch, and
+            // the hook zeroes the cached count so the badge does not flash
+            // back while the request is in flight.
+            if (unseenJobs > 0) markSeen.mutate();
+          }}
+        />
+      </View>
+
+      {tab === 'jobs' ? (
+        <JobsFeed bottomPadding={120} />
+      ) : (
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
@@ -519,7 +554,44 @@ export default function HomeScreen() {
           </View>
         </View>
       </ScrollView>
+      )}
     </SafeAreaView>
+  );
+}
+
+/** One of the two home tabs, with an optional unread count. */
+function Segment({
+  label, active, badge = 0, onPress,
+}: {
+  label: string;
+  active: boolean;
+  badge?: number;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row items-center gap-1.5 rounded-full px-4 py-2"
+      style={{
+        backgroundColor: active ? '#B66A40' : 'transparent',
+        borderWidth: 1,
+        borderColor: active ? '#B66A40' : '#B66A4033',
+      }}
+    >
+      <Text className="text-[13px] font-bold" style={{ color: active ? '#fff' : '#B66A40' }}>
+        {label}
+      </Text>
+      {badge > 0 && (
+        <View
+          className="rounded-full px-1.5"
+          style={{ backgroundColor: active ? '#ffffff33' : '#B66A40', minWidth: 18 }}
+        >
+          <Text className="text-[10px] font-bold text-center text-white">
+            {badge > 99 ? '99+' : badge}
+          </Text>
+        </View>
+      )}
+    </Pressable>
   );
 }
 

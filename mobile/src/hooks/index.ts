@@ -159,4 +159,6 @@ export {
   useApplyToJob,
   useRespondToApplication,
   useReportJob,
+  useUnseenJobs,
+  useMarkJobsSeen,
 } from '@/src/hooks/useJobs'

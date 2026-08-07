@@ -9,6 +9,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { queryClient, persistOptions } from '@/src/lib/queryClient'
 import { ThemeProvider } from '@/src/providers/ThemeProvider'
+import { wireQueryFocusToAppState } from '@/src/lib/query-focus'
 
 
 /**
@@ -50,6 +51,11 @@ function RootLayoutNav() {
 const isDesigner = process.env.EXPO_PUBLIC_RAPIDNATIVE_MODE === 'designer';
 
 function QueryProvider({ children }: { children: ReactNode }) {
+  // Once, app-wide. Without it `refetchOnWindowFocus` is inert on a phone —
+  // there is no window, so React Query never hears about coming back to the
+  // app and the screen keeps whatever it had when you locked it.
+  useEffect(() => wireQueryFocusToAppState(), []);
+
   if (isDesigner) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   }

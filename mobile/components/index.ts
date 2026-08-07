@@ -19,3 +19,4 @@ export {
   TypingIndicator,
   TypingPreview,
 } from '@/components/Presence'
+export { JobsFeed } from '@/components/JobsFeed'

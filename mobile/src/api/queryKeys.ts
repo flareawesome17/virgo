@@ -58,6 +58,7 @@ export const queryKeys = {
     mine: ['jobs', 'mine'] as const,
     applicants: (postId: string) => ['jobs', 'applicants', postId] as const,
     myApplications: ['jobs', 'my-applications'] as const,
+    unseen: ['jobs', 'unseen'] as const,
   },
   portfolio: {
     all: ['portfolio'] as const,

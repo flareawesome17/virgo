@@ -143,6 +143,36 @@ export function useRespondToApplication() {
   });
 }
 
+/**
+ * The Jobs badge: open posts you have not seen yet.
+ *
+ * Polled on a slow interval as well as pushed over the socket. The push is
+ * what makes it feel instant; the poll is what makes it *right* — a socket
+ * that dropped while the phone was asleep misses every frame sent in between,
+ * and a badge that silently stops counting is worse than one that lags.
+ */
+export function useUnseenJobs() {
+  const query = useQuery({
+    queryKey: queryKeys.jobs.unseen,
+    queryFn: () => jobsApi.unseen(),
+    refetchInterval: 60_000,
+    // The count is the point; a stale one defeats it.
+    staleTime: 0,
+  });
+  return { ...query, count: query.data?.count ?? 0 };
+}
+
+/** Clears the badge, and the cached count with it so it does not flash back. */
+export function useMarkJobsSeen() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => jobsApi.markSeen(),
+    onSuccess: () => {
+      queryClient.setQueryData(queryKeys.jobs.unseen, { count: 0 });
+    },
+  });
+}
+
 export function useReportJob() {
   return useMutation({
     mutationFn: ({

@@ -42,6 +42,9 @@ type ServerEvent =
   | { type: 'read'; conversationId: string; userId: string; at: string }
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
   | { type: 'conversation'; conversationId: string }
+  // Ambient board change. Not a notification: nothing is addressed to you, so
+  // it must not toast or buzz — it only marks the list and the badge stale.
+  | { type: 'job-posted'; slug: string; at: string }
   | { type: 'presence'; userId: string; online: boolean; lastSeenAt: string | null }
   | {
       type: 'typing';
@@ -171,6 +174,12 @@ export function useRealtime(enabled: boolean): void {
           break;
         case 'conversation':
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          break;
+        case 'job-posted':
+          // Silent on purpose. Somebody else posted a job; that is not an
+          // event about you, so it marks the board and the badge stale and
+          // does nothing else — no toast, no buzz.
+          queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
           break;
         case 'presence':
           // Straight into the store, not React Query: presence is a

@@ -13,6 +13,7 @@ import { MailService } from '../mail/mail.service';
 import { jobApplication, jobPostReported } from '../mail/mail.templates';
 import { MessagesService } from '../messages/messages.service';
 import { NotifyService } from '../notifications/notify.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { normalizeRoles } from '../auth/roles';
 import { slugify } from './slug';
 
@@ -127,6 +128,7 @@ export class HiringService {
     private readonly notifier: NotifyService,
     private readonly mail: MailService,
     private readonly mailConfig: MailConfig,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   /**
@@ -213,6 +215,39 @@ export class HiringService {
     return this.present(row, viewerId);
   }
 
+  /**
+   * How many open posts have appeared since the caller last looked.
+   *
+   * Excludes their own — a badge for something you just wrote is noise — and
+   * counts everything when `jobs_seen_at` is null, which is the honest answer
+   * for an account that has never opened the board: none of it has been seen.
+   */
+  async unseenCount(userId: string): Promise<{ count: number }> {
+    const row = await this.db.queryOne<{ count: string }>(
+      `select count(*)::text as count
+         from hiring_posts p
+        where p.status = 'open'
+          and p.hidden_at is null
+          and p.expires_at > now()
+          and (p.event_date is null or p.event_date >= current_date)
+          and p.user_id <> $1
+          and p.created_at > coalesce(
+                (select jobs_seen_at from users where id = $1),
+                'epoch'::timestamptz)`,
+      [userId],
+    );
+    return { count: Number(row?.count ?? 0) };
+  }
+
+  /** Marks the board as read up to now. Called when the Jobs tab is opened. */
+  async markSeen(userId: string): Promise<{ seenAt: string }> {
+    const row = await this.db.queryOne<{ jobs_seen_at: Date }>(
+      'update users set jobs_seen_at = now() where id = $1 returning jobs_seen_at',
+      [userId],
+    );
+    return { seenAt: (row?.jobs_seen_at ?? new Date()).toISOString() };
+  }
+
   /** Posts the caller has made, including closed ones. */
   async mine(userId: string): Promise<PublicJobPost[]> {
     const rows = await this.db.query<PostRow>(
@@ -272,6 +307,13 @@ export class HiringService {
         input.budgetMax ?? null,
         expiresAt,
       ],
+    );
+
+    // Everyone connected except the poster. Ambient, not a notification: it
+    // says the board moved, so a client can bump its badge and refetch.
+    this.realtime.broadcast(
+      { type: 'job-posted', slug: row!.slug, at: new Date().toISOString() },
+      userId,
     );
 
     this.logger.log(`job post ${row!.slug} created by ${userId}`);

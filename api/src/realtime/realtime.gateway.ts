@@ -48,6 +48,15 @@ export type ServerEvent =
    * something, buzz — and a shared shape means a new notification is a new
    * `topic`, not a new branch in every client.
    */
+  /**
+   * A job was posted, to everyone connected except whoever posted it.
+   *
+   * Deliberately not a `notification`: those are addressed to a person and
+   * ring their phone. This is ambient — the board changed — so it carries no
+   * text and exists only so an open client can bump its badge and refetch
+   * without waiting for a poll.
+   */
+  | { type: 'job-posted'; slug: string; at: string }
   | {
       type: 'notification';
       topic: NotificationTopic;
@@ -284,6 +293,20 @@ export class RealtimeGateway implements OnModuleDestroy {
     for (const userId of new Set(userIds)) {
       const set = this.sessions.get(userId);
       if (!set) continue;
+      for (const session of set) this.send(session.socket, event);
+    }
+  }
+
+  /**
+   * Sends to every connected session except one.
+   *
+   * For board-level changes, where the audience is "anyone looking" rather
+   * than a named list. `except` keeps a poster from being told about their
+   * own post, which would show them a badge for something they just wrote.
+   */
+  broadcast(event: ServerEvent, except?: string): void {
+    for (const [userId, set] of this.sessions) {
+      if (userId === except) continue;
       for (const session of set) this.send(session.socket, event);
     }
   }

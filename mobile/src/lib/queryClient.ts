@@ -25,7 +25,10 @@ export const queryClient = new QueryClient({
           retry: 2,
           retryDelay: (attemptIndex) =>
             Math.min(1000 * 2 ** attemptIndex, 30000),
-          refetchOnWindowFocus: false,
+          // Now that AppState drives focusManager (src/lib/query-focus.ts),
+          // this fires when the app returns to the foreground — which is what
+          // makes every screen current without a pull-to-refresh.
+          refetchOnWindowFocus: true,
           refetchOnReconnect: true,
           networkMode: 'always',
         },
@@ -37,12 +40,16 @@ export const queryClient = new QueryClient({
     : {
         // Standalone: full caching + offline persistence
         queries: {
-          staleTime: 1000 * 60 * 5, // 5 minutes
+          // 30s, not 5 minutes. Stale data is what a focus refetch is meant
+          // to replace, and a 5-minute window swallowed most of them.
+          staleTime: 1000 * 30,
           gcTime: 1000 * 60 * 60 * 24, // 24 hours (must be >= persister maxAge)
           retry: 2,
           retryDelay: (attemptIndex) =>
             Math.min(1000 * 2 ** attemptIndex, 30000),
-          refetchOnWindowFocus: false,
+          // See the designer branch: focusManager is wired to AppState, so
+          // returning to the app refreshes what is on screen.
+          refetchOnWindowFocus: true,
           refetchOnReconnect: true,
           networkMode: 'offlineFirst',
         },

@@ -90,6 +90,16 @@ export const jobsApi = {
     });
   },
 
+  /** How many open posts have appeared since you last opened the board. */
+  unseen(): Promise<{ count: number }> {
+    return api.get('/jobs/unseen');
+  },
+
+  /** Clears the badge. Called when the Jobs tab is opened. */
+  markSeen(): Promise<{ seenAt: string }> {
+    return api.post('/me/jobs/seen');
+  },
+
   bySlug(slug: string): Promise<JobPost> {
     return api.get(`/jobs/${encodeURIComponent(slug)}`);
   },

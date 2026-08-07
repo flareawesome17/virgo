@@ -1,0 +1,198 @@
+import {
+  View, Text, ScrollView, Pressable, Image, RefreshControl,
+  ActivityIndicator, TextInput,
+} from 'react-native';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { useJobs, useRoles } from '@/src/hooks';
+import { budgetLabel, type JobPost } from '@/src/api';
+import { jobDate, postedAgo } from '@/src/lib/jobs-format';
+import {
+  BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon,
+  UsersIcon, SearchIcon,
+} from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
+import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+
+for (const Icon of [
+  BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon, UsersIcon, SearchIcon,
+]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
+
+/**
+ * The open job board.
+ *
+ * Extracted so the Home screen's Jobs tab and the standalone /jobs route are
+ * the same list rather than two that drift. Takes its own padding rather than
+ * assuming a parent, since one host is a tab panel and the other a screen.
+ */
+export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
+  const { roles: allRoles } = useRoles();
+  const [role, setRole] = useState<string | null>(null);
+  const [place, setPlace] = useState('');
+  const [debouncedPlace, setDebouncedPlace] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedPlace(place.trim()), 350);
+    return () => clearTimeout(id);
+  }, [place]);
+
+  const { jobs, total, isLoading, refetch } = useJobs({
+    roles: role ? [role] : [],
+    location: debouncedPlace || undefined,
+  });
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
+
+  return (
+    <View className="flex-1">
+      <View className="px-5 pb-2 gap-2.5">
+        <View className="bg-card rounded-xl px-3.5 py-2.5 flex-row items-center gap-2">
+          <SearchIcon size={15} className="text-muted-foreground" />
+          <TextInput
+            value={place}
+            onChangeText={setPlace}
+            placeholder="Anywhere — try Cebu, Manila, Davao"
+            placeholderTextColor="#9ca3af"
+            className="text-foreground text-sm flex-1"
+          />
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 6, paddingRight: 20 }}>
+          <Chip label="All roles" active={!role} onPress={() => setRole(null)} />
+          {allRoles.map((r) => (
+            <Chip key={r} label={r} active={role === r}
+              onPress={() => setRole(role === r ? null : r)} />
+          ))}
+        </ScrollView>
+      </View>
+
+      {isLoading && jobs.length === 0 ? (
+        <View className="flex-1 items-center justify-center py-16">
+          <ActivityIndicator color="#B66A40" />
+        </View>
+      ) : jobs.length === 0 ? (
+        <View className="flex-1 items-center justify-center px-10 py-16">
+          <BriefcaseIcon size={30} className="text-muted-foreground" />
+          <Text className="text-foreground text-[15px] font-bold mt-3 text-center">
+            {role ? `Nothing open for a ${role.toLowerCase()}` : 'No open jobs right now'}
+          </Text>
+          <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
+            Posts expire when the job does, so this list is always current.
+            Check back, or post the job you need doing.
+          </Text>
+          <Pressable
+            className="mt-5 rounded-xl px-5 py-3"
+            style={{ backgroundColor: '#B66A40' }}
+            onPress={() => router.push('/jobs/new')}
+          >
+            <Text className="text-white text-[13px] font-bold">Post a job</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: bottomPadding, gap: 10 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#B66A40" />
+          }
+        >
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
+            {total} open {total === 1 ? 'job' : 'jobs'}
+          </Text>
+          {jobs.map((job) => <JobCard key={job.id} job={job} />)}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="rounded-full px-3.5 py-2"
+      style={{
+        backgroundColor: active ? '#B66A40' : 'transparent',
+        borderWidth: 1,
+        borderColor: active ? '#B66A40' : '#B66A4040',
+      }}
+    >
+      <Text className="text-[12px] font-semibold" style={{ color: active ? '#fff' : '#B66A40' }}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function JobCard({ job }: { job: JobPost }) {
+  const budget = budgetLabel(job.budgetMin, job.budgetMax);
+  return (
+    <Pressable
+      className="bg-card rounded-2xl p-4 gap-2.5"
+      onPress={() => router.push(`/jobs/${job.slug}`)}
+    >
+      <View className="flex-row items-start gap-2.5">
+        <Image
+          source={{ uri: job.postedBy.avatarUrl ?? PLACEHOLDER_IMAGE }}
+          style={{ width: 32, height: 32, borderRadius: 16 }}
+        />
+        <View className="flex-1 min-w-0">
+          <Text className="text-foreground text-[15px] font-bold leading-snug">
+            {job.title}
+          </Text>
+          <Text className="text-muted-foreground text-[11px] mt-0.5">
+            {job.isMine ? 'Your post' : job.postedBy.displayName} · posted{' '}
+            {postedAgo(job.createdAt)}
+          </Text>
+        </View>
+      </View>
+
+      <Text className="text-muted-foreground text-[13px] leading-5" numberOfLines={3}>
+        {job.description}
+      </Text>
+
+      <View className="flex-row flex-wrap gap-1.5">
+        {job.rolesWanted.map((r) => (
+          <View key={r} className="rounded-full px-2.5 py-0.5"
+            style={{ backgroundColor: '#B66A4018' }}>
+            <Text className="text-[10px] font-bold" style={{ color: '#B66A40' }}>{r}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">
+        {job.eventDate && (
+          <View className="flex-row items-center gap-1">
+            <CalendarIcon size={11} className="text-muted-foreground" />
+            <Text className="text-muted-foreground text-[11px]">{jobDate(job.eventDate)}</Text>
+          </View>
+        )}
+        {job.location && (
+          <View className="flex-row items-center gap-1">
+            <MapPinIcon size={11} className="text-muted-foreground" />
+            <Text className="text-muted-foreground text-[11px]">{job.location}</Text>
+          </View>
+        )}
+        {budget && (
+          <View className="flex-row items-center gap-1">
+            <BanknoteIcon size={11} style={{ color: '#B66A40' }} />
+            <Text className="text-[11px] font-semibold" style={{ color: '#B66A40' }}>{budget}</Text>
+          </View>
+        )}
+        {job.applicantCount > 0 && (
+          <View className="flex-row items-center gap-1 ml-auto">
+            <UsersIcon size={11} className="text-muted-foreground" />
+            <Text className="text-muted-foreground text-[11px]">{job.applicantCount} applied</Text>
+          </View>
+        )}
+      </View>
+    </Pressable>
+  );
+}
