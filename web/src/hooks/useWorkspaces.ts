@@ -25,6 +25,8 @@ export function useWorkspaces(
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     // Screens iterate the rows directly; `data` on the raw query is the
     // { data, total } envelope, which is easy to misuse.
     workspaces: query.data?.data ?? ([] as Workspace[]),

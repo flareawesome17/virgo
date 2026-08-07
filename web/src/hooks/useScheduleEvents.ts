@@ -22,6 +22,8 @@ export function useScheduleEvents(
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     events: query.data?.data ?? ([] as ScheduleEvent[]),
     total: query.data?.total ?? 0,
   };
@@ -40,6 +42,8 @@ export function useScheduleEventRange(
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     events: query.data?.data ?? ([] as ScheduleEvent[]),
   };
 }

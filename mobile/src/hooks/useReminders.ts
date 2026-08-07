@@ -22,6 +22,8 @@ export function useReminders(
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     reminders: query.data?.data ?? ([] as Reminder[]),
     total: query.data?.total ?? 0,
   };

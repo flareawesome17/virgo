@@ -16,7 +16,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { EmptyState, GridSkeleton } from '@/components/states';
+import { EmptyState, ErrorState, GridSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -124,7 +124,12 @@ export default function AlbumPage() {
   const queryClient = useQueryClient();
 
   const { data: album, isLoading: loadingAlbum } = useAlbum(id);
-  const { files, isLoading: loadingFiles } = useAlbumFiles(id);
+  const {
+    files,
+    isLoading: loadingFiles,
+    loadFailed: filesFailed,
+    refetch: refetchFiles,
+  } = useAlbumFiles(id);
   const { data: workspace } = useWorkspace(album?.workspace_id ?? undefined);
   const removeAlbum = useDeleteAlbum();
   const upload = useUpload({ scope: 'albums', albumId: id });
@@ -256,6 +261,12 @@ export default function AlbumPage() {
           <div className="mt-5">
             {loadingFiles && files.length === 0 ? (
               <GridSkeleton />
+            ) : filesFailed && files.length === 0 ? (
+              // "Nothing uploaded yet" on a failed request reads as lost media.
+              <ErrorState
+                message="Could not load this album's media."
+                onRetry={() => refetchFiles()}
+              />
             ) : visible.length === 0 ? (
               <div className="rounded-xl border border-dashed">
                 <EmptyState

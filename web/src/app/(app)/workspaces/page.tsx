@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { FolderOpen, Images, Loader2, Plus, Search, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { EmptyState, ListSkeleton } from '@/components/states';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -112,7 +112,7 @@ function WorkspacesContent() {
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const { workspaces, isLoading } = useWorkspaces({ limit: 100 });
+  const { workspaces, isLoading, loadFailed, refetch } = useWorkspaces({ limit: 100 });
   const { albums } = useAlbums({ limit: 100 });
   const { atWorkspaceLimit, usage } = useUsage();
 
@@ -174,6 +174,10 @@ function WorkspacesContent() {
 
         {isLoading && workspaces.length === 0 ? (
           <ListSkeleton rows={3} />
+        ) : loadFailed && workspaces.length === 0 ? (
+          // Not "No workspaces yet" — that would tell someone their own work
+          // is gone when the request simply never arrived.
+          <ErrorState message="Could not load your workspaces." onRetry={() => refetch()} />
         ) : filtered.length === 0 ? (
           <Card>
             <EmptyState

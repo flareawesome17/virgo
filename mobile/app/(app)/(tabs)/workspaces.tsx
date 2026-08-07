@@ -16,6 +16,7 @@ import {
   ClockIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -94,6 +95,7 @@ export default function WorkspacesScreen() {
   const {
     workspaces,
     isLoading,
+    loadFailed,
     refetch: refetchWorkspaces,
   } = useWorkspaces(
     { orderBy: 'updated_at', direction: 'desc', limit: 50 },
@@ -234,6 +236,17 @@ export default function WorkspacesScreen() {
           </View>
         }
         ListEmptyComponent={
+          // "No workspaces yet" on a failed request tells someone their own
+          // work is gone. It is not, and saying so is the worst kind of wrong.
+          loadFailed ? (
+            <View className="pt-8">
+              <LoadFailed
+                what="your workspaces"
+                onRetry={() => refetchWorkspaces()}
+                compact
+              />
+            </View>
+          ) : (
           <View className="px-5 pt-8 items-center gap-4">
             <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
               <FolderPlusIcon size={28} className="text-muted-foreground" />
@@ -252,6 +265,7 @@ export default function WorkspacesScreen() {
               <Text className="text-white text-sm font-semibold">Create Workspace</Text>
             </Pressable>
           </View>
+          )
         }
         renderItem={({ item }) => {
           const avatars = avatarMap[item.id] || [];

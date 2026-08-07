@@ -22,6 +22,8 @@ export function useAlbums(
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     albums: query.data?.data ?? ([] as Album[]),
     total: query.data?.total ?? 0,
   };

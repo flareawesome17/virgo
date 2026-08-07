@@ -36,6 +36,7 @@ import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
 import { JobsTabs } from '@/components';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -142,13 +143,18 @@ export default function HomeScreen() {
   const {
     workspaces,
     isLoading: wsLoading,
+    loadFailed: wsFailed,
     refetch: refetchWorkspaces,
   } = useWorkspaces(
     { orderBy: 'updated_at', direction: 'desc', limit: 3 },
     enabled,
   );
 
-  const { albums, refetch: refetchAlbums } = useAlbums(
+  const {
+    albums,
+    loadFailed: albumsFailed,
+    refetch: refetchAlbums,
+  } = useAlbums(
     { orderBy: 'created_at', direction: 'desc', limit: 3 },
     enabled,
   );
@@ -156,7 +162,11 @@ export default function HomeScreen() {
   // Fetches a window rather than 4: sorted ascending, the first few rows are
   // the *oldest* events, so a small limit could return nothing but past ones
   // and leave Upcoming permanently empty once they were filtered out.
-  const { events, refetch: refetchEvents } = useScheduleEvents(
+  const {
+    events,
+    loadFailed: eventsFailed,
+    refetch: refetchEvents,
+  } = useScheduleEvents(
     { orderBy: 'event_date', direction: 'asc', limit: 50 },
     enabled,
   );
@@ -366,7 +376,11 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
-          {upcomingEvents.length === 0 ? (
+          {eventsFailed && events.length === 0 ? (
+            <View className="bg-card rounded-2xl">
+              <LoadFailed what="your schedule" onRetry={() => refetchEvents()} compact />
+            </View>
+          ) : upcomingEvents.length === 0 ? (
             <View className="bg-card rounded-2xl p-8 items-center gap-3">
               <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
                 <CalendarIcon size={22} className="text-muted-foreground" />
@@ -421,6 +435,10 @@ export default function HomeScreen() {
               {[1, 2].map((i) => (
                 <View key={i} className="bg-card rounded-2xl p-4 h-[72px]" style={{ opacity: 0.5 }} />
               ))}
+            </View>
+          ) : wsFailed && workspaces.length === 0 ? (
+            <View className="bg-card rounded-2xl">
+              <LoadFailed what="your workspaces" onRetry={() => refetchWorkspaces()} compact />
             </View>
           ) : workspaces.length === 0 ? (
             <View className="bg-card rounded-2xl p-8 items-center gap-3">
@@ -489,7 +507,11 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
-          {albums.length === 0 ? (
+          {albumsFailed && albums.length === 0 ? (
+            <View className="bg-card rounded-2xl">
+              <LoadFailed what="your albums" onRetry={() => refetchAlbums()} compact />
+            </View>
+          ) : albums.length === 0 ? (
             <View className="bg-card rounded-2xl p-8 items-center gap-3">
               <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
                 <ImageIcon size={22} className="text-muted-foreground" />

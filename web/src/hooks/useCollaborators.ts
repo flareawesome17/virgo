@@ -22,6 +22,8 @@ export function useCollaborators(
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     collaborators: query.data?.data ?? ([] as Collaborator[]),
     total: query.data?.total ?? 0,
   };

@@ -14,7 +14,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { CenteredSpinner, EmptyState } from '@/components/states';
+import { CenteredSpinner, EmptyState, ErrorState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -44,7 +44,7 @@ export default function NearbyPage() {
   const { sharing, isLoading: loadingStatus } = useLocationSharing();
   const startSharing = useShareLocation();
   const stopSharing = useStopSharingLocation();
-  const { people, isLoading } = useNearbyPeople(radiusKm, roleFilter);
+  const { people, isLoading, loadFailed, refetch } = useNearbyPeople(radiusKm, roleFilter);
   const { counts } = useNearbyRoleCounts(radiusKm);
 
   const sendRequest = useSendFriendRequest();
@@ -271,6 +271,10 @@ export default function NearbyPage() {
             </Card>
           ) : isLoading ? (
             <CenteredSpinner />
+          ) : loadFailed ? (
+            <Card>
+              <ErrorState message="Could not look up who is nearby." onRetry={() => refetch()} />
+            </Card>
           ) : people.length === 0 ? (
             <Card>
               <EmptyState

@@ -49,6 +49,8 @@ export function useAlbumFiles(
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     files,
     images: files.filter((f) => kindOf(f.contentType) === 'image'),
     videos: files.filter((f) => kindOf(f.contentType) === 'video'),

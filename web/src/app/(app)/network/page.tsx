@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Check, Loader2, MapPin, Search, UserPlus, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { EmptyState, ListSkeleton } from '@/components/states';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -182,7 +182,12 @@ function NetworkPageBody() {
     requested_by: 'them',
     limit: 50,
   });
-  const { friends, isLoading: loadingFriends } = useFriends({
+  const {
+    friends,
+    isLoading: loadingFriends,
+    loadFailed: friendsFailed,
+    refetch: refetchFriends,
+  } = useFriends({
     status: 'accepted',
     limit: 100,
   });
@@ -431,6 +436,11 @@ function NetworkPageBody() {
             <TabsContent value="friends" className="mt-4">
               {loadingFriends && friends.length === 0 ? (
                 <ListSkeleton rows={3} />
+              ) : friendsFailed && friends.length === 0 ? (
+                <ErrorState
+                  message="Could not load your network."
+                  onRetry={() => refetchFriends()}
+                />
               ) : friends.length === 0 ? (
                 <Card>
                   <EmptyState

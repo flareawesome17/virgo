@@ -79,6 +79,8 @@ export function useNearbyPeople(radiusKm = 50, roles: string[] = []) {
   });
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     people: query.data?.people ?? [],
     sharing: query.data?.sharing ?? false,
   };

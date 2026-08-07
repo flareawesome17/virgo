@@ -35,6 +35,7 @@ import {
 } from '@/src/hooks';
 import { RolePicker } from '@/components';
 import type { NearbyPerson } from '@/src/api';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -69,7 +70,7 @@ export default function NearbyScreen() {
   const startSharing = useShareLocation();
   const stopSharing = useStopSharingLocation();
 
-  const { people, isLoading, refetch } = useNearbyPeople(radiusKm, roleFilter);
+  const { people, isLoading, loadFailed, refetch } = useNearbyPeople(radiusKm, roleFilter);
   const { counts } = useNearbyRoleCounts(radiusKm);
 
   const sendRequest = useSendFriendRequest();
@@ -417,6 +418,10 @@ export default function NearbyScreen() {
         ) : isLoading ? (
           <View className="pt-14 items-center">
             <ActivityIndicator size="small" color="#B66A40" />
+          </View>
+        ) : loadFailed ? (
+          <View className="pt-14">
+            <LoadFailed what="who is nearby" onRetry={() => refetch()} compact />
           </View>
         ) : people.length === 0 ? (
           <View className="px-10 pt-14 items-center">

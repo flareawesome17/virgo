@@ -27,6 +27,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER, PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -104,7 +105,11 @@ export default function WorkspaceDetailScreen() {
     refetch: refetchWorkspace,
   } = useWorkspace(id);
 
-  const { albums, refetch: refetchAlbums } = useAlbums(
+  const {
+    albums,
+    loadFailed: albumsFailed,
+    refetch: refetchAlbums,
+  } = useAlbums(
     {
       workspace_id: id,
       orderBy: 'created_at',
@@ -392,7 +397,11 @@ export default function WorkspaceDetailScreen() {
             </Pressable>
           </View>
 
-          {albums.length === 0 ? (
+          {albumsFailed && albums.length === 0 ? (
+            <View className="bg-card rounded-2xl">
+              <LoadFailed what="these albums" onRetry={() => refetchAlbums()} compact />
+            </View>
+          ) : albums.length === 0 ? (
             <View className="bg-card rounded-2xl p-6 items-center gap-2">
               <LayersIcon size={20} className="text-muted-foreground" />
               <Text className="text-muted-foreground text-sm">No albums created yet</Text>

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useConversations, useTheme } from '@/src/hooks';
+import { LoadFailed } from '@/components/LoadFailed';
 import { PresenceDot } from '@/components';
 import { typingLabel, useTypingIn } from '@/src/lib/presence-store';
 import type { Conversation } from '@/src/api';
@@ -109,7 +110,7 @@ export default function ChatScreen() {
     return () => clearTimeout(id);
   }, [search]);
 
-  const { conversations, refetch, isFetching } = useConversations(term);
+  const { conversations, refetch, isFetching, loadFailed } = useConversations(term);
   const searching = term.length > 0;
 
   const onRefresh = useCallback(async () => {
@@ -253,7 +254,12 @@ export default function ChatScreen() {
           </Pressable>
         )}
         ListEmptyComponent={
-          searching ? (
+          // An empty inbox and an unreachable server look identical otherwise.
+          loadFailed ? (
+            <View className="mt-20">
+              <LoadFailed what="your chats" onRetry={() => refetch()} compact />
+            </View>
+          ) : searching ? (
             <View className="items-center px-10 mt-20">
               <Text className="text-foreground text-base font-bold">No matches</Text>
               <Text className="text-muted-foreground text-sm text-center mt-2">

@@ -49,7 +49,12 @@ export function useConversations(q?: string) {
     if (known.length > 0) seedPresence(known);
   }, [conversations]);
 
-  return { ...query, conversations };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    conversations,
+  };
 }
 
 /** Total unread, for the tab badge. */
@@ -105,6 +110,8 @@ export function useThread(conversationId: string | undefined) {
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     messages: query.data?.data ?? [],
     lastReadAt: dividerAt.current?.at ?? null,
   };

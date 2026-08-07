@@ -22,6 +22,8 @@ export function useFriends(
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     friends: query.data?.data ?? ([] as Friend[]),
     total: query.data?.total ?? 0,
   };

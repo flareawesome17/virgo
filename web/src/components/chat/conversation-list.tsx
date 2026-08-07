@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { EmptyState, ListSkeleton } from '@/components/states';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { PresenceDot } from '@/components/presence';
 import { useConversations } from '@/hooks/useChat';
 import { useAuth } from '@/hooks/useAuth';
@@ -84,7 +84,7 @@ export function ConversationList({
     return () => clearTimeout(id);
   }, [search]);
 
-  const { conversations, isLoading } = useConversations(term);
+  const { conversations, isLoading, loadFailed, refetch } = useConversations(term);
   const searching = term.length > 0;
 
   return (
@@ -122,6 +122,8 @@ export function ConversationList({
           <div className="p-3">
             <ListSkeleton rows={5} />
           </div>
+        ) : loadFailed && conversations.length === 0 ? (
+          <ErrorState message="Could not load your chats." onRetry={() => refetch()} />
         ) : conversations.length === 0 ? (
           <EmptyState
             icon={MessageCircle}

@@ -12,7 +12,7 @@ import {
   Users,
 } from 'lucide-react';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { EmptyState, ListSkeleton } from '@/components/states';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -35,9 +35,19 @@ function greeting(): string {
 
 export default function HomePage() {
   const { profile, user } = useAuth();
-  const { workspaces, isLoading: loadingWorkspaces } = useWorkspaces({ limit: 100 });
+  const {
+    workspaces,
+    isLoading: loadingWorkspaces,
+    loadFailed: workspacesFailed,
+    refetch: refetchWorkspaces,
+  } = useWorkspaces({ limit: 100 });
   const { albums } = useAlbums({ limit: 100 });
-  const { events, isLoading: loadingEvents } = useScheduleEvents({ limit: 100 });
+  const {
+    events,
+    isLoading: loadingEvents,
+    loadFailed: eventsFailed,
+    refetch: refetchEvents,
+  } = useScheduleEvents({ limit: 100 });
   const { collaborators } = useCollaborators({ limit: 100 });
   const { storageUsedBytes, storageLimitBytes, storageFraction, usage } = useUsage();
 
@@ -118,6 +128,10 @@ export default function HomePage() {
 
             {loadingEvents && events.length === 0 ? (
               <ListSkeleton rows={3} />
+            ) : eventsFailed && events.length === 0 ? (
+              <Card>
+                <ErrorState message="Could not load your schedule." onRetry={() => refetchEvents()} />
+              </Card>
             ) : upcoming.length === 0 ? (
               <Card>
                 <EmptyState
@@ -166,6 +180,10 @@ export default function HomePage() {
 
             {loadingWorkspaces && albums.length === 0 ? (
               <ListSkeleton rows={2} />
+            ) : workspacesFailed && albums.length === 0 ? (
+              <Card>
+                <ErrorState message="Could not load your albums." onRetry={() => refetchWorkspaces()} />
+              </Card>
             ) : recentAlbums.length === 0 ? (
               <Card>
                 <EmptyState

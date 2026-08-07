@@ -44,6 +44,8 @@ export function useUsage(options: { enabled?: boolean } = {}) {
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     usage,
     storageUsedBytes: usage?.storage.usedBytes ?? 0,
     storageLimitBytes: usage?.storage.limitBytes ?? null,

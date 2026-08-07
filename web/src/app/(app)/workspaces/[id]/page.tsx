@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { EmptyState, ListSkeleton } from '@/components/states';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -352,7 +352,12 @@ export default function WorkspacePage() {
   const router = useRouter();
 
   const { data: workspace, isLoading: loadingWorkspace } = useWorkspace(id);
-  const { albums, isLoading: loadingAlbums } = useAlbums({ workspace_id: id, limit: 100 });
+  const {
+    albums,
+    isLoading: loadingAlbums,
+    loadFailed: albumsFailed,
+    refetch: refetchAlbums,
+  } = useAlbums({ workspace_id: id, limit: 100 });
   const { collaborators } = useCollaborators({ workspace_id: id, limit: 100 });
   const removeWorkspace = useDeleteWorkspace();
   const removeCollaborator = useDeleteCollaborator();
@@ -447,6 +452,10 @@ export default function WorkspacePage() {
           <TabsContent value="albums" className="mt-5">
             {loadingAlbums && albums.length === 0 ? (
               <ListSkeleton rows={3} />
+            ) : albumsFailed && albums.length === 0 ? (
+              <Card>
+                <ErrorState message="Could not load these albums." onRetry={() => refetchAlbums()} />
+              </Card>
             ) : albums.length === 0 ? (
               <Card>
                 <EmptyState

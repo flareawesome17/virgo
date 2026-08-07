@@ -9,6 +9,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -24,7 +25,7 @@ export default function FriendsScreen() {
   const { isDark } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { friends, refetch } = useFriends(
+  const { friends, refetch, loadFailed } = useFriends(
     { orderBy: 'friend_name', direction: 'asc', limit: 100 },
     { enabled: !!user?.id },
   );
@@ -101,7 +102,11 @@ export default function FriendsScreen() {
           </View>
         }
         ListEmptyComponent={
-          confirmed.length === 0 ? (
+          loadFailed && confirmed.length === 0 ? (
+            <View className="pt-8">
+              <LoadFailed what="your friends" onRetry={() => refetch()} compact />
+            </View>
+          ) : confirmed.length === 0 ? (
             <View className="px-5 pt-8 items-center gap-4">
               <View className="w-16 h-16 rounded-full bg-muted items-center justify-center"><UsersIcon size={28} className="text-muted-foreground" /></View>
               <View className="items-center gap-1">

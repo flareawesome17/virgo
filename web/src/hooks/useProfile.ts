@@ -16,6 +16,8 @@ export function useProfileSettings() {
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     settings: query.data as ProfileSettings | undefined,
   };
 }
@@ -50,6 +52,8 @@ export function usePortfolio() {
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     items,
     images: items.filter((i) => i.kind === 'image'),
     albums: items.filter((i) => i.kind === 'album'),

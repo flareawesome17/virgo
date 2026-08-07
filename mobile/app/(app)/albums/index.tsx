@@ -21,6 +21,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -75,7 +76,7 @@ export default function AlbumsListScreen() {
 
   // The optional workspace filter is a query parameter now; undefined is
   // dropped from the query string rather than sent as an empty value.
-  const { albums, refetch: refetchAlbums } = useAlbums(
+  const { albums, refetch: refetchAlbums, loadFailed } = useAlbums(
     {
       workspace_id: workspaceId,
       orderBy: 'created_at',
@@ -213,6 +214,12 @@ export default function AlbumsListScreen() {
           </View>
         }
         ListEmptyComponent={
+          // Never claim someone has no albums because the request failed.
+          loadFailed ? (
+            <View className="pt-12">
+              <LoadFailed what="your albums" onRetry={() => refetchAlbums()} compact />
+            </View>
+          ) : (
           <View className="px-5 pt-12 items-center gap-4">
             <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
               <LayersIcon size={28} className="text-muted-foreground" />
@@ -235,6 +242,7 @@ export default function AlbumsListScreen() {
               <Text className="text-white text-sm font-semibold">Create Album</Text>
             </Pressable>
           </View>
+          )
         }
         renderItem={({ item }) => {
           const badge = STATUS_BADGES[item.status] || STATUS_BADGES.draft;
