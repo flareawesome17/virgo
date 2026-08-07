@@ -201,18 +201,6 @@ export class HiringService {
     return this.present(row);
   }
 
-  /** Slugs for the sitemap. */
-  async openSlugs(): Promise<{ slug: string; updatedAt: Date }[]> {
-    return this.db.query<{ slug: string; updatedAt: Date }>(
-      `select slug, updated_at as "updatedAt"
-         from hiring_posts
-        where status = 'open' and hidden_at is null and expires_at > now()
-        order by created_at desc
-        limit 5000`,
-      [],
-    );
-  }
-
   /** Posts the caller has made, including closed ones. */
   async mine(userId: string): Promise<PublicJobPost[]> {
     const rows = await this.db.query<PostRow>(

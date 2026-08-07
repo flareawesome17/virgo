@@ -11,9 +11,6 @@ const MARKETING_HOSTS = new Set(['virgo.ph', 'www.virgo.ph']);
 /** Where the app lives, for links out of the marketing site. */
 const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN ?? 'https://web.virgo.ph';
 
-/** The public origin, and the only place a profile is canonically addressed. */
-const SITE_ORIGIN = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
-
 /**
  * Serves one Next app on two hostnames.
  *
@@ -74,65 +71,23 @@ export function proxy(request: NextRequest): NextResponse {
   }
 
   /**
-   * Public profiles: virgo.ph/@mika.
+   * Profiles and job posts moved behind the sign-in wall.
    *
-   * Rewritten to an internal `/p/[handle]` route rather than served from a
-   * root-level `[handle]`, which would compete with /landing and every future
-   * marketing page for the same segment.
+   * They used to render here for anybody. They are now readable only with an
+   * account, so the apex has nothing to serve — it hands the address to the
+   * app, whose AuthGuard sends a signed-out visitor through sign-in and back
+   * to the page they asked for.
    *
-   * Note a folder named `@handle` would not have worked either — in the App
-   * Router that is a parallel route *slot*, and the docs are explicit that
-   * slots "do not affect the URL structure".
+   * The shared link therefore still works: `virgo.ph/@mika` in an Instagram
+   * bio lands on Mika's profile, just with a signup in the middle. What it no
+   * longer does is answer a crawler.
    */
-  const profile = HANDLE_PATH.exec(pathname);
-  if (profile) {
-    const handle = profile[1].toLowerCase();
-
-    // One canonical URL per profile. `/@MIKA` and `/@mika/` are the same page,
-    // and serving all three would split their search ranking three ways.
-    if (pathname !== `/@${handle}`) {
-      return NextResponse.redirect(`${SITE_ORIGIN}/@${handle}${search}`, 308);
-    }
-
-    return NextResponse.rewrite(new URL(`/p/${handle}${search}`, request.url));
+  if (HANDLE_PATH.test(pathname) || JOB_SLUG_PATH.test(pathname) || pathname === '/jobs') {
+    return NextResponse.redirect(`${APP_ORIGIN}${pathname}${search}`, 308);
   }
 
   // /landing itself stays put — otherwise the rewrite above would bounce.
   if (pathname === '/landing') return NextResponse.next();
-
-  /**
-   * The job board is public and indexable, so it is served from the apex
-   * rather than redirected to the app.
-   *
-   * Only the reading half. `/jobs/new`, `/jobs/mine` and `/jobs/applications`
-   * need a session and live on the app host, so they fall through to the
-   * redirect below — which is why this matches the board and a post slug
-   * specifically rather than everything under /jobs.
-   */
-  if (pathname === '/jobs') return NextResponse.next();
-
-  /**
-   * A post is `/jobs/<slug>` on both hosts.
-   *
-   * The app owns that path in the router so signed-in readers get the native
-   * screen; the public copy lives at `/j/<slug>`, and this rewrite is what
-   * lets the apex serve it under the shared address. Without the indirection
-   * the two would be the same route and Next would refuse to build.
-   */
-  const jobSlug = JOB_SLUG_PATH.exec(pathname);
-  if (jobSlug) {
-    return NextResponse.rewrite(
-      new URL(`/j/${jobSlug[1]}${search}`, request.url),
-    );
-  }
-
-  // Reachable directly too, so a redirect here would bounce the rewrite above
-  // straight back out to the app.
-  if (pathname.startsWith('/j/')) return NextResponse.next();
-
-  // The internal path is reachable directly too, so a redirect here would
-  // bounce the rewrite above straight back out to the app.
-  if (pathname.startsWith('/p/')) return NextResponse.next();
 
   return NextResponse.redirect(`${APP_ORIGIN}${pathname}${search}`, 308);
 }

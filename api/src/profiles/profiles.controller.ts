@@ -10,7 +10,6 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { IsBoolean, IsString, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Public } from '../auth/public.decorator';
 import { HANDLE_MAX, HANDLE_MIN } from './handles';
 import { ProfilesService } from './profiles.service';
 
@@ -27,38 +26,21 @@ export class PublishDto {
 }
 
 /**
- * The public profile page's data.
+ * Reading somebody else's profile.
  *
- * Its own controller, separate from the authenticated settings below, so the
- * `@Public()` blast radius is one route rather than a class. Auth is
- * deny-by-default here (JwtAuthGuard is a global APP_GUARD), and this is the
- * deliberate exception.
+ * Signed-in only. `public_profile` still means "other people may see this"
+ * rather than "nobody may" — it is the opt-in that decides whether a profile
+ * is listed at all — but "other people" now means other accounts, not the open
+ * web. A profile carries a face, a city and a portfolio, and an unauthenticated
+ * reader of that is a scraper as often as a client.
+ *
+ * Still rate-limited: it reads across accounts, so repeated calls from one
+ * account should not be free either.
  */
 @Controller('profiles')
 export class PublicProfilesController {
   constructor(private readonly profiles: ProfilesService) {}
 
-  /**
-   * Handles published in the sitemap.
-   *
-   * Before `:handle`, or "sitemap" would be read as somebody's handle — which
-   * is also why it is on the reserved list.
-   */
-  @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @Get('sitemap')
-  async sitemap() {
-    const data = await this.profiles.publishedHandles();
-    return { data, total: data.length };
-  }
-
-  /**
-   * One public profile.
-   *
-   * Rate-limited like the public album page: it reads across accounts and is
-   * reachable without a token, so repeated calls should not be free.
-   */
-  @Public()
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get(':handle')
   get(@Param('handle') handle: string) {

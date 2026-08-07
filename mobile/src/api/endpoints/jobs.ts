@@ -1,11 +1,11 @@
 import { api } from '../client';
 
 /**
- * A job post, as the public board serves it.
+ * A job post, as the board serves it.
  *
  * `postedBy` is a deliberate subset — the poster's name, face and handle and
- * nothing else. The board is unauthenticated and indexable, so anything on
- * this type is something a stranger and a crawler can read.
+ * nothing else. Reading the board needs an account now, but the subset stays:
+ * "another user may see this" is still a smaller set than the poster's row.
  */
 export interface JobPost {
   id: string;
@@ -69,10 +69,9 @@ export interface ListJobsParams {
 export type ReportReason = 'spam' | 'scam' | 'offensive' | 'not-a-job' | 'other';
 
 export const jobsApi = {
-  /** The open board. Works signed out. */
+  /** The open board. Needs an account, like every other read. */
   list(params: ListJobsParams = {}): Promise<{ data: JobPost[]; total: number }> {
     return api.get('/jobs', {
-      anonymous: true,
       query: {
         // Comma-separated, and omitted entirely when empty so the URL stays
         // clean and cacheable.
@@ -85,7 +84,7 @@ export const jobsApi = {
   },
 
   bySlug(slug: string): Promise<JobPost> {
-    return api.get(`/jobs/${encodeURIComponent(slug)}`, { anonymous: true });
+    return api.get(`/jobs/${encodeURIComponent(slug)}`);
   },
 
   /** Posts the caller has made, open or not. */

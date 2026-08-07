@@ -25,7 +25,6 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Public } from '../auth/public.decorator';
 import { HiringService } from './hiring.service';
 
 /** Ten million centavos is ₱100,000 — well past any rate on this market. */
@@ -100,25 +99,21 @@ export class ReportDto {
 }
 
 /**
- * The public job board.
+ * Reading the job board.
  *
- * Its own controller so the `@Public()` blast radius is two routes rather than
- * a class — auth is deny-by-default here and these are the exceptions.
+ * Signed-in only. The board was briefly open to anybody — good for search,
+ * and the reason the slugs and structured data exist — but every post names a
+ * real person, a date, a place and a budget, and that is a directory of who is
+ * where and worth how much. Requiring an account is the whole mitigation: it
+ * puts a verified identity and a rate limit behind every read.
+ *
+ * The `sitemap` route is gone with it. A sitemap of pages a crawler cannot
+ * fetch is worse than none — it advertises the addresses while serving 401s.
  */
 @Controller('jobs')
 export class PublicJobsController {
   constructor(private readonly hiring: HiringService) {}
 
-  /** Slugs for the sitemap. Before `:slug`, or it reads as somebody's post. */
-  @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @Get('sitemap')
-  async sitemap() {
-    const data = await this.hiring.openSlugs();
-    return { data, total: data.length };
-  }
-
-  @Public()
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get()
   list(
@@ -138,7 +133,6 @@ export class PublicJobsController {
     });
   }
 
-  @Public()
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get(':slug')
   bySlug(@Param('slug') slug: string) {

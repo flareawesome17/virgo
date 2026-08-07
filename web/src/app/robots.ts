@@ -13,11 +13,8 @@ const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
  * Reading a header makes this a request-time route rather than a file baked at
  * build, which is the only way one build can serve both answers.
  *
- * Note there is deliberately no `Disallow: /p/`. It looks like the tidy thing
- * to do — `/p/:handle` is the internal path behind `/@:handle` — but Disallow
- * does not prevent a URL being indexed if it is discovered elsewhere; it only
- * stops the crawler *reading* the page, and therefore stops it seeing the
- * canonical tag that resolves the duplicate. The canonical is the mechanism.
+ * Profiles and job posts are not listed either way: they now redirect to
+ * sign-in, so there is nothing for a crawler to index and nothing to disallow.
  */
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const host = (await headers()).get('host')?.split(':')[0].toLowerCase() ?? '';

@@ -35,7 +35,7 @@ export interface PortfolioAlbum {
 export type PortfolioItem = PortfolioImage | PortfolioAlbum;
 
 /**
- * What the public page shows.
+ * What another user sees on somebody's profile.
  *
  * Mirrors PublicProfile on the server, which is an explicit allow-list rather
  * than a user row — so this type is the whole contract, not a subset of one.
@@ -65,18 +65,20 @@ export interface ProfileSettings {
 }
 
 /**
- * Public profiles and the controls behind them.
+ * Profiles and the controls behind them.
  *
- * `publicProfile` is the only method here that works without a token — the
- * page that uses it is rendered on the server, where there is no session
- * anyway.
+ * Every method needs a session. `publicProfile` is named for *whose* profile
+ * it fetches — anybody's, subject to their opt-in — not for who may call it.
  */
 export const profilesApi = {
-  /** A published profile by handle. 404 when missing, private, or paused. */
+  /**
+   * A published profile by handle. 404 when missing, private, or paused.
+   *
+   * Authenticated: reading somebody else's profile needs an account, so the
+   * call carries the session like every other read.
+   */
   publicProfile(handle: string): Promise<PublicProfile> {
-    return api.get<PublicProfile>(`/profiles/${encodeURIComponent(handle)}`, {
-      anonymous: true,
-    });
+    return api.get<PublicProfile>(`/profiles/${encodeURIComponent(handle)}`);
   },
 
   /** The caller's own handle and publish state, for the editor. */

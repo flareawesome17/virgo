@@ -279,22 +279,4 @@ export class ProfilesService {
     };
   }
 
-  /**
-   * Published handles, for the sitemap.
-   *
-   * `updated_at` doubles as the lastmod — it moves whenever the profile is
-   * edited, which is exactly when a crawler should look again.
-   */
-  async publishedHandles(): Promise<{ handle: string; updatedAt: Date }[]> {
-    return this.db.query<{ handle: string; updatedAt: Date }>(
-      `select handle, updated_at as "updatedAt"
-         from users
-        where public_profile = true
-          and handle is not null
-          and (disabled_until is null or disabled_until <= now())
-        order by updated_at desc
-        limit 5000`,
-      [],
-    );
-  }
 }
