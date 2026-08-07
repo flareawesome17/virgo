@@ -1,7 +1,7 @@
 import { View, Text, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { JobsFeed } from '@/components';
+import { JobsTabs } from '@/components';
 import { ArrowLeftIcon, PlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -9,12 +9,12 @@ cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { c
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /**
- * The job board as its own screen.
+ * Jobs as its own screen, for Settings and deep links.
  *
- * Reachable from Settings and from a notification. The list itself is
- * JobsFeed, shared with the Home screen's Jobs tab so the two cannot drift.
+ * Same three tabs as the Home tab and as the web — one component, so there is
+ * nothing here that can fall behind.
  */
-export default function JobsBoardScreen() {
+export default function JobsScreen() {
   const insets = useSafeAreaInsets();
 
   return (
@@ -24,11 +24,6 @@ export default function JobsBoardScreen() {
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="text-foreground text-lg font-bold flex-1">Jobs</Text>
-        <Pressable onPress={() => router.push('/jobs/mine')} hitSlop={8}>
-          <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-            Mine
-          </Text>
-        </Pressable>
         <Pressable
           className="rounded-xl px-3 py-2 flex-row items-center gap-1.5"
           style={{ backgroundColor: '#B66A40' }}
@@ -39,7 +34,7 @@ export default function JobsBoardScreen() {
         </Pressable>
       </View>
 
-      <JobsFeed bottomPadding={insets.bottom + 40} />
+      <JobsTabs bottomPadding={insets.bottom + 40} />
     </SafeAreaView>
   );
 }

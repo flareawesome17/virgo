@@ -20,3 +20,4 @@ export {
   TypingPreview,
 } from '@/components/Presence'
 export { JobsFeed } from '@/components/JobsFeed'
+export { JobsTabs } from '@/components/JobsTabs'

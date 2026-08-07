@@ -34,7 +34,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
-import { JobsFeed } from '@/components';
+import { JobsTabs } from '@/components';
 import { LinearGradient } from 'expo-linear-gradient';
 
 cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -220,7 +220,7 @@ export default function HomeScreen() {
       </View>
 
       {tab === 'jobs' ? (
-        <JobsFeed bottomPadding={120} />
+        <JobsTabs bottomPadding={120} />
       ) : (
       <ScrollView
         className="flex-1"

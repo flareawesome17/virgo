@@ -4,18 +4,18 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { useJobs, useRoles } from '@/src/hooks';
+import { useAuth, useJobs, useRoles } from '@/src/hooks';
 import { budgetLabel, type JobPost } from '@/src/api';
 import { jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon,
-  UsersIcon, SearchIcon,
+  UsersIcon, SearchIcon, PlusIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 for (const Icon of [
-  BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon, UsersIcon, SearchIcon,
+  BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon, UsersIcon, SearchIcon, PlusIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -103,6 +103,7 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#B66A40" />
           }
         >
+          <Composer />
           <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
             {total} open {total === 1 ? 'job' : 'jobs'}
           </Text>
@@ -110,6 +111,51 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
         </ScrollView>
       )}
     </View>
+  );
+}
+
+/**
+ * The composer row, at the top of the feed.
+ *
+ * Facebook's arrangement, and for its reason: a feed with no way to add to it
+ * is a feed you only ever consume. Posting used to live in the header of the
+ * standalone /jobs screen and in My jobs — neither of which is where the Home
+ * tab lands you, so once the board had anything on it there was no way to post
+ * at all without knowing another route.
+ *
+ * It looks like an input and is not one. Tapping opens the real composer,
+ * because a job post needs a role, a date and a budget, and pretending
+ * otherwise would mean a half-filled post or a form that grows out of a
+ * one-line box.
+ */
+function Composer() {
+  const { profile } = useAuth();
+  const firstName = profile?.displayName?.trim().split(' ')[0];
+
+  return (
+    <Pressable
+      className="bg-card rounded-2xl p-3.5 flex-row items-center gap-3"
+      onPress={() => router.push('/jobs/new')}
+    >
+      <Image
+        source={{ uri: profile?.avatarUrl ?? PLACEHOLDER_IMAGE }}
+        style={{ width: 36, height: 36, borderRadius: 18 }}
+      />
+      <View
+        className="flex-1 rounded-full px-4 py-2.5"
+        style={{ backgroundColor: '#B66A400F' }}
+      >
+        <Text className="text-muted-foreground text-[13px]">
+          {firstName ? `${firstName}, who do you need?` : 'Who do you need?'}
+        </Text>
+      </View>
+      <View
+        className="rounded-full p-2"
+        style={{ backgroundColor: '#B66A40' }}
+      >
+        <PlusIcon size={16} style={{ color: '#fff' }} />
+      </View>
+    </Pressable>
   );
 }
 
