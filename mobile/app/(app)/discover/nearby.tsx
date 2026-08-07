@@ -215,11 +215,11 @@ export default function NearbyScreen() {
           <Pressable
             className="flex-row items-center gap-1 mt-1.5"
             hitSlop={6}
-            onPress={() => router.push(`/hire/${person.handle}`)}
+            onPress={() => router.push(`/u/${person.handle}`)}
           >
             <BriefcaseIcon size={11} style={{ color: '#B66A40' }} />
             <Text className="text-[11px] font-semibold" style={{ color: '#B66A40' }}>
-              View profile & hire
+              View profile
             </Text>
           </Pressable>
         )}

@@ -226,9 +226,17 @@ function Applicants({ postId }: { postId: string }) {
               style={{ width: 30, height: 30, borderRadius: 15 }}
             />
             <View className="flex-1 min-w-0">
-              <Text className="text-foreground text-[13px] font-semibold">
-                {app.personName}
-              </Text>
+              {app.personHandle ? (
+                <Pressable onPress={() => router.push(`/u/${app.personHandle}`)}>
+                  <Text className="text-[13px] font-semibold" style={{ color: '#B66A40' }}>
+                    {app.personName}
+                  </Text>
+                </Pressable>
+              ) : (
+                <Text className="text-foreground text-[13px] font-semibold">
+                  {app.personName}
+                </Text>
+              )}
               <Text className="text-muted-foreground text-[11px]">
                 {app.personRoles.join(', ') || 'No roles listed'}
               </Text>

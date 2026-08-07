@@ -42,21 +42,28 @@ const HANDLE_PATH = /^\/@([A-Za-z0-9_]{3,30})\/?$/;
  * Deliberately excludes the app-only routes by shape: a slug always ends in a
  * hyphen and six alphanumerics, which `new`, `mine` and `applications` do not.
  */
-const JOB_SLUG_PATH = /^\/jobs\/[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]{6}\/?$/;
+const JOB_SLUG_PATH = /^\/jobs\/([a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]{6})\/?$/;
 
 export function proxy(request: NextRequest): NextResponse {
   const host = request.headers.get('host')?.split(':')[0].toLowerCase() ?? '';
   const { pathname, search } = request.nextUrl;
 
   if (!MARKETING_HOSTS.has(host)) {
-    // A profile has exactly one address, and it is on the apex. Without this
-    // the app host answers /@mika with a 404, and any link that reached it
-    // would look broken rather than redirecting somewhere useful.
+    /**
+     * A profile has one address, `/@handle`, and it works on both hosts.
+     *
+     * Here it renders natively inside the app shell rather than bouncing to
+     * the apex. Same content, same URL — the difference is that a signed-in
+     * reader stays in the product instead of being dropped onto a marketing
+     * page. Facebook does this with public posts and it is the reason they
+     * never feel like a separate website.
+     *
+     * The lowercase rewrite keeps one canonical form, as on the apex.
+     */
     const onAppHost = HANDLE_PATH.exec(pathname);
     if (onAppHost) {
-      return NextResponse.redirect(
-        `${SITE_ORIGIN}/@${onAppHost[1].toLowerCase()}`,
-        308,
+      return NextResponse.rewrite(
+        new URL(`/u/${onAppHost[1].toLowerCase()}${search}`, request.url),
       );
     }
     return NextResponse.next();
@@ -102,9 +109,26 @@ export function proxy(request: NextRequest): NextResponse {
    * redirect below — which is why this matches the board and a post slug
    * specifically rather than everything under /jobs.
    */
-  if (pathname === '/jobs' || JOB_SLUG_PATH.test(pathname)) {
-    return NextResponse.next();
+  if (pathname === '/jobs') return NextResponse.next();
+
+  /**
+   * A post is `/jobs/<slug>` on both hosts.
+   *
+   * The app owns that path in the router so signed-in readers get the native
+   * screen; the public copy lives at `/j/<slug>`, and this rewrite is what
+   * lets the apex serve it under the shared address. Without the indirection
+   * the two would be the same route and Next would refuse to build.
+   */
+  const jobSlug = JOB_SLUG_PATH.exec(pathname);
+  if (jobSlug) {
+    return NextResponse.rewrite(
+      new URL(`/j/${jobSlug[1]}${search}`, request.url),
+    );
   }
+
+  // Reachable directly too, so a redirect here would bounce the rewrite above
+  // straight back out to the app.
+  if (pathname.startsWith('/j/')) return NextResponse.next();
 
   // The internal path is reachable directly too, so a redirect here would
   // bounce the rewrite above straight back out to the app.

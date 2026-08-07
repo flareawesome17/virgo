@@ -109,11 +109,11 @@ export default function NearbyPage() {
             who have actually published — a handle alone would 404. */}
         {person.handle && (
           <Link
-            href={`/hire/${person.handle}`}
+            href={`/u/${person.handle}`}
             className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
           >
             <BriefcaseBusiness className="size-3" />
-            View profile &amp; hire
+            View profile
           </Link>
         )}
       </div>

@@ -1,8 +1,9 @@
 'use client';
 
 import { use, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ExternalLink, Loader2, MapPin, Send, UserSearch } from 'lucide-react';
+import { ArrowLeft, Loader2, MapPin, Send, UserSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '@/components/app-shell';
@@ -14,11 +15,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { profilesApi, profileUrl } from '@/api';
+import { profilesApi } from '@/api';
 import { useSendEnquiry } from '@/hooks/useHire';
-
-/** The public origin a handle resolves on. */
-const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
 
 /**
  * The enquiry form.
@@ -121,18 +119,14 @@ export default function HirePage({
                   </p>
                 )}
               </div>
-              {/* Their actual page, so you can look at the work again before
-                  writing the brief. It lives on the marketing origin, hence
-                  the absolute URL and the new tab. */}
-              <a
-                href={profileUrl(person.handle, SITE)}
-                target="_blank"
-                rel="noopener noreferrer"
+              {/* Their profile, so you can look at the work again before
+                  writing the brief — in the app, not a new tab. */}
+              <Link
+                href={`/u/${person.handle}`}
                 className="ml-auto hidden shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline sm:flex"
               >
                 @{person.handle}
-                <ExternalLink className="size-3" />
-              </a>
+              </Link>
             </div>
 
             {person.roles.length > 0 && (

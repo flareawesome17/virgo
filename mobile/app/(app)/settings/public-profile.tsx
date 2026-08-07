@@ -1,12 +1,12 @@
 import {
   View, Text, ScrollView, Pressable, TextInput, Image, Switch,
-  ActivityIndicator, Alert, Modal, KeyboardAvoidingView, Platform,
+  ActivityIndicator, Alert, Modal, KeyboardAvoidingView, Platform, Share,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import * as Linking from 'expo-linking';
+
 import {
   usePortfolio,
   usePortfolioActions,
@@ -22,13 +22,13 @@ import {
 import { profilesApi, storageApi, profileUrl } from '@/src/api';
 import {
   ArrowLeftIcon, AlertCircleIcon, CheckIcon, ExternalLinkIcon,
-  ImagePlusIcon, LayersIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon,
+  ImagePlusIcon, LayersIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon, Share2Icon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
 for (const Icon of [
   ArrowLeftIcon, AlertCircleIcon, CheckIcon, ExternalLinkIcon,
-  ImagePlusIcon, LayersIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon,
+  ImagePlusIcon, LayersIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon, Share2Icon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -125,15 +125,32 @@ export default function PublicProfileScreen() {
           )}
 
           {settings.published && settings.handle && (
-            <Pressable
-              className="flex-row items-center gap-1.5"
-              onPress={() => Linking.openURL(profileUrl(settings.handle!, SITE))}
-            >
-              <ExternalLinkIcon size={13} style={{ color: '#B66A40' }} />
-              <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-                View your public page
-              </Text>
-            </Pressable>
+            <View className="flex-row items-center gap-5">
+              {/* Their own page, in the app — the same view a signed-in visitor
+                  gets, so there is no need to leave to check it. */}
+              <Pressable
+                className="flex-row items-center gap-1.5"
+                onPress={() => router.push(`/u/${settings.handle}`)}
+              >
+                <ExternalLinkIcon size={13} style={{ color: '#B66A40' }} />
+                <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+                  View my profile
+                </Text>
+              </Pressable>
+              {/* Sharing is the one case that genuinely wants the public URL:
+                  it is going into somebody's Instagram bio, not the app. */}
+              <Pressable
+                className="flex-row items-center gap-1.5"
+                onPress={() =>
+                  Share.share({ message: profileUrl(settings.handle!, SITE) })
+                }
+              >
+                <Share2Icon size={13} className="text-muted-foreground" />
+                <Text className="text-muted-foreground text-[12px] font-semibold">
+                  Share link
+                </Text>
+              </Pressable>
+            </View>
           )}
         </View>
 

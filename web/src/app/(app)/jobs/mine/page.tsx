@@ -7,7 +7,7 @@ import {
   BriefcaseBusiness,
   Check,
   ChevronDown,
-  ExternalLink,
+  Eye,
   Loader2,
   MessageCircle,
   Plus,
@@ -23,7 +23,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { budgetLabel, jobUrl, type JobPost } from '@/api';
+import { budgetLabel, type JobPost } from '@/api';
 import {
   useApplicants,
   useDeleteJob,
@@ -34,8 +34,6 @@ import {
   useSetJobStatus,
 } from '@/hooks/useJobs';
 import { useRoles } from '@/hooks/useRoles';
-
-const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
 
 const STATUS_LABEL: Record<JobPost['status'], string> = {
   open: 'Open',
@@ -85,15 +83,13 @@ function JobRow({ job }: { job: JobPost }) {
 
           {job.status === 'open' && (
             <>
-              <a
-                href={jobUrl(job.slug, SITE)}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href={`/jobs/${job.slug}`}
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
               >
-                <ExternalLink className="size-3.5" />
-                View public post
-              </a>
+                <Eye className="size-3.5" />
+                View post
+              </Link>
               <Button
                 size="sm"
                 variant="ghost"
@@ -187,14 +183,9 @@ function Applicants({ postId }: { postId: string }) {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold">
                 {app.personHandle ? (
-                  <a
-                    href={`${SITE}/@${app.personHandle}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:underline"
-                  >
+                  <Link href={`/u/${app.personHandle}`} className="hover:underline">
                     {app.personName}
-                  </a>
+                  </Link>
                 ) : (
                   app.personName
                 )}
@@ -327,7 +318,7 @@ function BrowseJobs() {
           </p>
           <div className="grid gap-3">
             {jobs.map((job) => (
-              <Link key={job.id} href={`/jobs/${job.slug}/apply`}>
+              <Link key={job.id} href={`/jobs/${job.slug}`}>
                 <Card className="transition-colors hover:border-primary/40">
                   <CardContent className="space-y-2.5">
                     <div className="flex items-start gap-3">
@@ -379,7 +370,7 @@ function BrowseJobs() {
 }
 
 /** What the caller has applied to. */
-function MyApplications() {
+function MyApplications({ onBrowse }: { onBrowse: () => void }) {
   const router = useRouter();
   const { applications, isLoading } = useMyApplications();
 
@@ -393,11 +384,7 @@ function MyApplications() {
           title="You have not applied to anything yet"
           description="The board is public — browse what people are hiring for and apply in a couple of lines."
           action={
-            <Button asChild>
-              <a href={`${SITE}/jobs`} target="_blank" rel="noopener noreferrer">
-                Browse jobs
-              </a>
-            </Button>
+            <Button onClick={onBrowse}>Browse jobs</Button>
           }
         />
       </Card>
@@ -411,14 +398,12 @@ function MyApplications() {
           <CardContent className="space-y-2 pt-5">
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
-                <a
-                  href={jobUrl(app.postSlug, SITE)}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <Link
+                  href={`/jobs/${app.postSlug}`}
                   className="text-[15px] font-bold leading-snug hover:underline"
                 >
                   {app.postTitle}
-                </a>
+                </Link>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Applied {new Date(app.createdAt).toLocaleDateString()}
                 </p>
@@ -451,6 +436,7 @@ function MyApplications() {
 
 export default function MyJobsPage() {
   const { jobs, isLoading } = useMyJobs();
+  const [tab, setTab] = useState('browse');
 
   return (
     <AppShell>
@@ -476,7 +462,7 @@ export default function MyJobsPage() {
         honest default and it matches where the phone's Jobs entry goes.
       */}
       <div className="mx-auto w-full max-w-4xl px-6 py-6">
-        <Tabs defaultValue="browse">
+        <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="browse">Browse</TabsTrigger>
           <TabsTrigger value="posted">Posted ({jobs.length})</TabsTrigger>
@@ -513,7 +499,7 @@ export default function MyJobsPage() {
         </TabsContent>
 
         <TabsContent value="applied" className="mt-4">
-          <MyApplications />
+          <MyApplications onBrowse={() => setTab('browse')} />
         </TabsContent>
         </Tabs>
       </div>
