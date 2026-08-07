@@ -13,6 +13,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { LoadFailed } from '@/components/LoadFailed';
 
 for (const Icon of [
   BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon, UsersIcon, SearchIcon, PlusIcon,
@@ -39,7 +40,7 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
     return () => clearTimeout(id);
   }, [place]);
 
-  const { jobs, total, isLoading, isRefiltering, refetch } = useJobs({
+  const { jobs, total, isLoading, loadFailed, isRefiltering, refetch } = useJobs({
     roles: role ? [role] : [],
     location: debouncedPlace || undefined,
   });
@@ -82,6 +83,8 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
         <View className="flex-1 items-center justify-center py-16">
           <ActivityIndicator color="#B66A40" />
         </View>
+      ) : loadFailed && jobs.length === 0 ? (
+        <LoadFailed what="the job board" onRetry={() => refetch()} />
       ) : jobs.length === 0 ? (
         <View className="flex-1 items-center justify-center px-10 py-16">
           <BriefcaseIcon size={30} className="text-muted-foreground" />

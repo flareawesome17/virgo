@@ -20,6 +20,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { LoadFailed } from '@/components/LoadFailed';
 
 for (const Icon of [
   BriefcaseIcon, CheckIcon, ChevronDownIcon,
@@ -54,7 +55,7 @@ export function JobsTabs({
   bottomPadding?: number;
 }) {
   const [tab, setTab] = useState<JobsTab>(initialTab);
-  const { jobs, isLoading, refetch } = useMyJobs();
+  const { jobs, isLoading, loadFailed, refetch } = useMyJobs();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -97,6 +98,8 @@ export function JobsTabs({
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator color="#B66A40" />
           </View>
+        ) : loadFailed && jobs.length === 0 ? (
+          <LoadFailed what="your posts" onRetry={() => refetch()} />
         ) : jobs.length === 0 ? (
           <Empty
             title="You have not posted a job yet"
@@ -204,12 +207,16 @@ function JobRow({ job }: { job: JobPost }) {
 }
 
 function Applicants({ postId }: { postId: string }) {
-  const { applications, isLoading } = useApplicants(postId);
+  const { applications, isLoading, loadFailed, refetch } = useApplicants(postId);
   const respond = useRespondToApplication();
   const [acting, setActing] = useState<string | null>(null);
 
   if (isLoading) {
     return <ActivityIndicator color="#B66A40" style={{ marginVertical: 12 }} />;
+  }
+
+  if (loadFailed) {
+    return <LoadFailed what="the applicants" onRetry={() => refetch()} compact />;
   }
 
   const answer = (id: string, status: 'shortlisted' | 'accepted' | 'declined') => {
@@ -312,7 +319,7 @@ function Applicants({ postId }: { postId: string }) {
 }
 
 function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => void }) {
-  const { applications, isLoading } = useMyApplications();
+  const { applications, isLoading, loadFailed, refetch } = useMyApplications();
 
   if (isLoading && applications.length === 0) {
     return (
@@ -320,6 +327,10 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
         <ActivityIndicator color="#B66A40" />
       </View>
     );
+  }
+
+  if (loadFailed && applications.length === 0) {
+    return <LoadFailed what="your applications" onRetry={() => refetch()} />;
   }
 
   if (applications.length === 0) {

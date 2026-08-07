@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { EmptyState, ListSkeleton } from '@/components/states';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -134,11 +134,14 @@ function JobRow({ job }: { job: JobPost }) {
 
 function Applicants({ postId }: { postId: string }) {
   const router = useRouter();
-  const { applications, isLoading } = useApplicants(postId);
+  const { applications, isLoading, loadFailed, refetch } = useApplicants(postId);
   const respond = useRespondToApplication();
   const [acting, setActing] = useState<string | null>(null);
 
   if (isLoading) return <ListSkeleton rows={2} />;
+  if (loadFailed) {
+    return <ErrorState message="Could not load the applicants." onRetry={() => refetch()} />;
+  }
 
   const answer = (
     id: string,
@@ -274,7 +277,7 @@ function Applicants({ postId }: { postId: string }) {
 function BrowseJobs() {
   const [role, setRole] = useState<string | null>(null);
   const { roles: allRoles } = useRoles();
-  const { jobs, total, isLoading } = useJobs({ roles: role ? [role] : [] });
+  const { jobs, total, isLoading, loadFailed, refetch } = useJobs({ roles: role ? [role] : [] });
 
   return (
     <div className="space-y-4">
@@ -298,6 +301,10 @@ function BrowseJobs() {
 
       {isLoading && jobs.length === 0 ? (
         <ListSkeleton rows={3} />
+      ) : loadFailed && jobs.length === 0 ? (
+        // An error is not an empty board. Saying "no open jobs" here would be
+        // a confident claim about the world made from a failed request.
+        <ErrorState message="Could not load the job board." onRetry={() => refetch()} />
       ) : jobs.length === 0 ? (
         <Card>
           <EmptyState
@@ -379,9 +386,13 @@ function BrowseJobs() {
 /** What the caller has applied to. */
 function MyApplications({ onBrowse }: { onBrowse: () => void }) {
   const router = useRouter();
-  const { applications, isLoading } = useMyApplications();
+  const { applications, isLoading, loadFailed, refetch } = useMyApplications();
 
   if (isLoading && applications.length === 0) return <ListSkeleton rows={2} />;
+
+  if (loadFailed && applications.length === 0) {
+    return <ErrorState message="Could not load your applications." onRetry={() => refetch()} />;
+  }
 
   if (applications.length === 0) {
     return (
@@ -442,7 +453,7 @@ function MyApplications({ onBrowse }: { onBrowse: () => void }) {
 }
 
 export default function MyJobsPage() {
-  const { jobs, isLoading } = useMyJobs();
+  const { jobs, isLoading, loadFailed, refetch } = useMyJobs();
   const [tab, setTab] = useState('browse');
 
   return (
@@ -483,6 +494,8 @@ export default function MyJobsPage() {
         <TabsContent value="posted" className="mt-4">
           {isLoading && jobs.length === 0 ? (
             <ListSkeleton rows={2} />
+          ) : loadFailed && jobs.length === 0 ? (
+            <ErrorState message="Could not load your posts." onRetry={() => refetch()} />
           ) : jobs.length === 0 ? (
             <Card>
               <EmptyState

@@ -23,6 +23,8 @@ export function useHireEnquiries() {
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     enquiries: all,
     received: all.filter((e) => e.direction === 'received'),
     sent: all.filter((e) => e.direction === 'sent'),

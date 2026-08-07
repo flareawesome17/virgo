@@ -40,6 +40,19 @@ export function useJobs(params: ListJobsParams = {}) {
     total: query.data?.total ?? 0,
     /** True while a *different* filter is loading and older results are shown. */
     isRefiltering: query.isPlaceholderData,
+    /**
+     * Whether this list failed to arrive — `isError` alone is not enough.
+     *
+     * React Query pauses a retry instead of failing it whenever it believes
+     * the tab is unfocused or the device is offline (`fetchStatus: 'paused'`,
+     * status still `pending`, `error` still null). An offline phone therefore
+     * parks every list in a state that is neither loading nor errored, and a
+     * screen switching on `isError` falls through to "No open jobs right now"
+     * — a confident claim about the world, made from a request that never
+     * completed. `isPaused` is what catches it, and "check your connection" is
+     * exactly the right thing to say about it.
+     */
+    loadFailed: query.isError || query.isPaused,
   };
 }
 
@@ -62,6 +75,8 @@ export function useMyJobs() {
   const jobs = query.data?.data ?? ([] as JobPost[]);
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     jobs,
     open: jobs.filter((job) => job.status === 'open'),
   };
@@ -78,6 +93,8 @@ export function useApplicants(postId: string | undefined) {
   const applications = query.data?.data ?? ([] as JobApplication[]);
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     applications,
     /** What the badge counts: applications nobody has answered yet. */
     unanswered: applications.filter((a) => a.status === 'new'),
@@ -93,6 +110,8 @@ export function useMyApplications() {
 
   return {
     ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
     applications: query.data?.data ?? ([] as JobApplication[]),
   };
 }

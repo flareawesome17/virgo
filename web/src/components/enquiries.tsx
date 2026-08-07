@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { EmptyState, ListSkeleton } from '@/components/states';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { useAnswerEnquiry, useHireEnquiries } from '@/hooks/useHire';
 import type { HireEnquiry } from '@/api';
 
@@ -181,10 +181,14 @@ function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
 
 /** Both inboxes: what was sent to you, then what you sent. */
 export function EnquiriesTab() {
-  const { received, sent, isLoading } = useHireEnquiries();
+  const { received, sent, isLoading, loadFailed, refetch } = useHireEnquiries();
 
   if (isLoading && received.length === 0 && sent.length === 0) {
     return <ListSkeleton rows={2} />;
+  }
+
+  if (loadFailed && received.length === 0 && sent.length === 0) {
+    return <ErrorState message="Could not load your enquiries." onRetry={() => refetch()} />;
   }
 
   if (received.length === 0 && sent.length === 0) {

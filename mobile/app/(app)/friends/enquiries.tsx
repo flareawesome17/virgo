@@ -12,6 +12,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { LoadFailed } from '@/components/LoadFailed';
 
 for (const Icon of [
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, CheckIcon,
@@ -39,7 +40,7 @@ function readableDate(value: string): string {
  */
 export default function EnquiriesScreen() {
   const insets = useSafeAreaInsets();
-  const { received, sent, isLoading, refetch } = useHireEnquiries();
+  const { received, sent, isLoading, loadFailed, refetch } = useHireEnquiries();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -61,6 +62,8 @@ export default function EnquiriesScreen() {
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#B66A40" />
         </View>
+      ) : loadFailed && received.length === 0 && sent.length === 0 ? (
+        <LoadFailed what="your enquiries" onRetry={() => refetch()} />
       ) : received.length === 0 && sent.length === 0 ? (
         <View className="flex-1 items-center justify-center px-10">
           <BriefcaseIcon size={30} className="text-muted-foreground" />
