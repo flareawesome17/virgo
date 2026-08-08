@@ -53,12 +53,28 @@ export function InvitePeople({
   disabledIds?: string[];
   emptyHint?: string;
 }) {
-  const { friends, isLoading } = useFriends({ status: 'accepted', limit: 100 });
+  const { friends, isLoading, loadFailed, refetch } = useFriends({
+    status: 'accepted',
+    limit: 100,
+  });
   const invitable = friends.filter((f) => f.friend_user_id);
 
   if (isLoading) {
     return (
       <p className="text-xs text-muted-foreground">Loading your collaborators…</p>
+    );
+  }
+
+  if (loadFailed) {
+    // `emptyHint` says "add collaborators first" — wrong advice when the
+    // request simply failed, and it sends someone off to fix nothing.
+    return (
+      <p className="text-xs text-muted-foreground">
+        Could not load your collaborators.{' '}
+        <button type="button" className="underline" onClick={() => refetch()}>
+          Try again
+        </button>
+      </p>
     );
   }
 
@@ -147,7 +163,12 @@ export function ManageAttendeesDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { attendees, isLoading } = useEventAttendees(open ? eventId : undefined);
+  const {
+    attendees,
+    isLoading,
+    loadFailed,
+    refetch,
+  } = useEventAttendees(open ? eventId : undefined);
   const invite = useInviteToEvent();
   const uninvite = useUninviteFromEvent();
   const [picked, setPicked] = useState<string[]>([]);
@@ -182,6 +203,13 @@ export function ManageAttendeesDialog({
         <div className="grid gap-4 py-1">
           {isLoading ? (
             <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : loadFailed ? (
+            <p className="text-xs text-muted-foreground">
+        Could not load who is invited.{' '}
+        <button type="button" className="underline" onClick={() => refetch()}>
+          Try again
+        </button>
+      </p>
           ) : attendees.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               Nobody invited yet.

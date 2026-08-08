@@ -25,6 +25,7 @@ import {
   ImagePlusIcon, LayersIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon, Share2Icon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { LoadFailed } from '@/components/LoadFailed';
 
 for (const Icon of [
   ArrowLeftIcon, AlertCircleIcon, CheckIcon, ExternalLinkIcon,
@@ -49,7 +50,7 @@ export default function PublicProfileScreen() {
   const { isDark } = useTheme();
   const { settings, isLoading } = useProfileSettings();
   const setPublished = useSetPublished();
-  const { items, images, albums } = usePortfolio();
+  const { items, images, albums, loadFailed, refetch } = usePortfolio();
   const { remove, reorder } = usePortfolioActions();
 
   const [picking, setPicking] = useState<'images' | 'albums' | null>(null);
@@ -186,7 +187,11 @@ export default function PublicProfileScreen() {
             </View>
           </View>
 
-          {items.length === 0 ? (
+          {loadFailed && items.length === 0 ? (
+            <View className="rounded-2xl border border-dashed border-border">
+              <LoadFailed what="your portfolio" onRetry={() => refetch()} compact />
+            </View>
+          ) : items.length === 0 ? (
             <View className="rounded-2xl border border-dashed border-border py-8 px-5">
               <Text className="text-muted-foreground text-[12px] text-center leading-5">
                 Nothing here yet. Add a few of your best photographs — this is

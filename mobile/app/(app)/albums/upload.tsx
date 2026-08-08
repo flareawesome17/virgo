@@ -22,6 +22,7 @@ import { cssInterop } from 'nativewind';
 import { contentTypeForAsset, formatBytes, storageApi } from '@/src/api';
 import { albumFilesQueryKey, useAlbum, useAlbums, useUsage, useTheme } from '@/src/hooks';
 import { useQueryClient } from '@tanstack/react-query';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UploadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -104,7 +105,7 @@ export default function UploadScreen() {
   const { data: album } = useAlbum(albumId);
   // Only needed for the picker, so it is not fetched when an album is already
   // fixed by the route.
-  const { albums } = useAlbums(
+  const { albums, loadFailed: albumsFailed, refetch: refetchAlbums } = useAlbums(
     { orderBy: 'created_at', direction: 'desc', limit: 100 },
     { enabled: !routeAlbumId },
   );
@@ -325,7 +326,11 @@ export default function UploadScreen() {
 
             {showAlbumPicker && (
               <View className="mt-2 bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-                {albums.length === 0 ? (
+                {albumsFailed && albums.length === 0 ? (
+                  // Offering "Create your first album" to someone who has ten
+                  // of them, because the list failed, is how duplicates happen.
+                  <LoadFailed what="your albums" onRetry={() => refetchAlbums()} compact />
+                ) : albums.length === 0 ? (
                   <Pressable
                     onPress={() => { setShowAlbumPicker(false); router.push('/albums/create'); }}
                     className="px-4 py-3.5 active:bg-muted/30 flex-row items-center gap-2"

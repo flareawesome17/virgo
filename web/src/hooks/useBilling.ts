@@ -12,7 +12,12 @@ export function useBilling() {
     queryKey: billingKeys.status,
     queryFn: () => billingApi.status(),
   });
-  return { ...query, billing: query.data ?? null };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    billing: query.data ?? null,
+  };
 }
 
 /**

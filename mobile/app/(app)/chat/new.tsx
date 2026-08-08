@@ -20,6 +20,7 @@ import {
   useOpenDirectChat,
   useTheme,
 } from '@/src/hooks';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -41,7 +42,7 @@ export default function NewChatScreen() {
   const [selected, setSelected] = useState<string[]>([]);
   const [title, setTitle] = useState('');
 
-  const { friends } = useFriends({ status: 'accepted', limit: 100 });
+  const { friends, loadFailed, refetch } = useFriends({ status: 'accepted', limit: 100 });
   const openDirect = useOpenDirectChat();
   const createGroup = useCreateGroupChat();
 
@@ -164,7 +165,9 @@ export default function NewChatScreen() {
               {mode === 'direct' ? 'Choose a friend' : `People (${selected.length})`}
             </Text>
 
-            {chattable.length === 0 ? (
+            {loadFailed && chattable.length === 0 ? (
+              <LoadFailed what="your friends" onRetry={() => refetch()} compact />
+            ) : chattable.length === 0 ? (
               <Pressable
                 onPress={() => router.push('/(app)/(tabs)/network')}
                 className="bg-card rounded-2xl px-4 py-6 items-center active:scale-[0.98]"

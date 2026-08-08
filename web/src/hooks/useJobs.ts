@@ -198,7 +198,12 @@ export function useUnseenJobs() {
     // The count is the point; a stale one defeats it.
     staleTime: 0,
   });
-  return { ...query, count: query.data?.count ?? 0 };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    count: query.data?.count ?? 0,
+  };
 }
 
 /** Clears the badge, and the cached count with it so it does not flash back. */

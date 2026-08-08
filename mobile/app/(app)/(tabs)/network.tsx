@@ -28,6 +28,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -85,7 +86,11 @@ export default function NetworkScreen() {
     respond.mutate({ id: match.id, accept: true });
   };
 
-  const { friends: acceptedFriends, refetch: refetchFriends } = useFriends({
+  const {
+    friends: acceptedFriends,
+    refetch: refetchFriends,
+    loadFailed: friendsFailed,
+  } = useFriends({
     status: 'accepted',
     limit: 100,
   });
@@ -164,11 +169,20 @@ export default function NetworkScreen() {
 
   // The same box filters collaborators and finds people to add — searching
   // for someone is how you reach them, which is what this screen is for.
-  const { people, isFetching: isSearching } = usePeopleSearch(search);
+  const {
+    people,
+    isFetching: isSearching,
+    loadFailed: peopleFailed,
+    refetch: refetchPeople,
+  } = usePeopleSearch(search);
 
   const enabled = { enabled: !!user?.id };
 
-  const { collaborators, refetch: refetchCollaborators } = useCollaborators(
+  const {
+    collaborators,
+    refetch: refetchCollaborators,
+    loadFailed: collabFailed,
+  } = useCollaborators(
     { orderBy: 'created_at', direction: 'desc', limit: 100 },
     enabled,
   );
@@ -280,6 +294,8 @@ export default function NetworkScreen() {
                 <View className="px-4 py-5 items-center">
                   <ActivityIndicator size="small" color="#B66A40" />
                 </View>
+              ) : peopleFailed ? (
+                <LoadFailed what="the search results" onRetry={() => refetchPeople()} compact />
               ) : people.length === 0 ? (
                 <Text className="text-muted-foreground text-sm text-center py-5 px-4">
                   Nobody found. Search a name, or type their full email address.
@@ -454,7 +470,9 @@ export default function NetworkScreen() {
               className="bg-card rounded-2xl overflow-hidden"
               style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
             >
-              {acceptedFriends.length === 0 ? (
+              {friendsFailed && acceptedFriends.length === 0 ? (
+                <LoadFailed what="your friends" onRetry={() => refetchFriends()} compact />
+              ) : acceptedFriends.length === 0 ? (
                 <Text className="text-muted-foreground text-sm text-center py-5 px-4">
                   No friends yet. Search for someone above to connect.
                 </Text>
@@ -498,7 +516,15 @@ export default function NetworkScreen() {
         )}
 
         {/* Collaborator list grouped by workspace */}
-        {groupKeys.length === 0 ? (
+        {collabFailed && groupKeys.length === 0 ? (
+          <View className="pt-8">
+            <LoadFailed
+              what="your collaborators"
+              onRetry={() => refetchCollaborators()}
+              compact
+            />
+          </View>
+        ) : groupKeys.length === 0 ? (
           <View className="px-5 pt-8 items-center gap-4">
             <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
               <UsersIcon size={28} className="text-muted-foreground" />

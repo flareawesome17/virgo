@@ -406,7 +406,7 @@ function PortfolioRow({
 export function PublicProfileCard() {
   const { settings, isLoading } = useProfileSettings();
   const setPublished = useSetPublished();
-  const { items, images, albums } = usePortfolio();
+  const { items, images, albums, loadFailed, refetch } = usePortfolio();
   const { remove, reorder } = usePortfolioActions();
 
   const [pickingImages, setPickingImages] = useState(false);
@@ -533,7 +533,14 @@ export function PublicProfileCard() {
             </div>
           </div>
 
-          {items.length === 0 ? (
+          {loadFailed && items.length === 0 ? (
+            <p className="rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground">
+              Could not load your portfolio.{' '}
+              <button type="button" className="underline" onClick={() => refetch()}>
+                Try again
+              </button>
+            </p>
+          ) : items.length === 0 ? (
             <p className="rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground">
               Nothing here yet. Add a few of your best photographs — this is what
               someone judges before they get in touch.

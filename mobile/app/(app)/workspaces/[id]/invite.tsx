@@ -16,6 +16,7 @@ import {
   CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SendIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -44,7 +45,7 @@ export default function InviteCollaboratorsScreen() {
   const { data: workspace } = useWorkspace(id);
 
   // Only accepted friends are eligible; the API rejects anyone else.
-  const { friends } = useFriends({ status: 'accepted', limit: 100 });
+  const { friends, loadFailed, refetch } = useFriends({ status: 'accepted', limit: 100 });
 
   const { albums } = useAlbums({ workspace_id: id, limit: 100 }, { enabled: !!id });
 
@@ -153,7 +154,9 @@ export default function InviteCollaboratorsScreen() {
             Only people you are friends with can join a workspace.
           </Text>
 
-          {friends.length === 0 ? (
+          {loadFailed && friends.length === 0 ? (
+            <LoadFailed what="your friends" onRetry={() => refetch()} compact />
+          ) : friends.length === 0 ? (
             <Pressable
               onPress={() => router.push('/(app)/(tabs)/network')}
               className="bg-card rounded-2xl px-4 py-5 items-center active:scale-[0.98]"

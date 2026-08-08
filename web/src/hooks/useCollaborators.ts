@@ -87,7 +87,12 @@ export function useCollaboratorInvitations() {
     queryKey: ['collaborators', 'invitations'],
     queryFn: () => collaboratorsApi.invitations(),
   });
-  return { ...query, invitations: query.data?.data ?? [] };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    invitations: query.data?.data ?? [],
+  };
 }
 
 export function useRespondToInvitation() {
@@ -129,5 +134,10 @@ export function useCollaboratorAlbums(collaboratorId: string | null) {
     queryFn: () => collaboratorsApi.albumsFor(collaboratorId!),
     enabled: !!collaboratorId,
   });
-  return { ...query, albums: query.data?.data ?? [] };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    albums: query.data?.data ?? [],
+  };
 }

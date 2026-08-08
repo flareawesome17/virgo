@@ -123,7 +123,12 @@ export function useParticipants(conversationId: string | undefined) {
     queryFn: () => chatApi.participants(conversationId!),
     enabled: !!conversationId,
   });
-  return { ...query, participants: query.data?.data ?? [] };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    participants: query.data?.data ?? [],
+  };
 }
 
 export function useSendMessage(conversationId: string) {

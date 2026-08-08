@@ -17,5 +17,10 @@ export function useRoles() {
     queryFn: () => authApi.listRoles(),
     staleTime: Infinity,
   });
-  return { ...query, roles: query.data?.data ?? [] };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    roles: query.data?.data ?? [],
+  };
 }

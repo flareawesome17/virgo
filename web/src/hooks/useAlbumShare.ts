@@ -9,7 +9,12 @@ export function useAlbumShare(albumId: string | undefined) {
     queryFn: () => albumShareApi.get(albumId!),
     enabled: !!albumId,
   });
-  return { ...query, link: query.data ?? null };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    link: query.data ?? null,
+  };
 }
 
 /**

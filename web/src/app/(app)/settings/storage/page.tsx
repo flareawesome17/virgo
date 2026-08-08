@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { CenteredSpinner, EmptyState } from '@/components/states';
+import { CenteredSpinner, EmptyState, ErrorState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -68,7 +68,7 @@ const TYPE_META: Record<
  * gets filed.
  */
 function UnassignedFiles() {
-  const { files, isLoading } = useUnassignedFiles();
+  const { files, isLoading, loadFailed, refetch } = useUnassignedFiles();
   const { albums } = useAlbums({ limit: 100 });
   const attach = useAttachToAlbum();
 
@@ -77,6 +77,9 @@ function UnassignedFiles() {
   const [assigning, setAssigning] = useState(false);
 
   if (isLoading) return <CenteredSpinner />;
+  if (loadFailed) {
+    return <ErrorState message="Could not load your unfiled media." onRetry={() => refetch()} />;
+  }
   if (files.length === 0) {
     return (
       <p className="px-5 py-6 text-center text-sm text-muted-foreground">
@@ -191,7 +194,7 @@ function UnassignedFiles() {
 
 export default function StorageSettingsPage() {
   const { usage, storageUsedBytes, storageLimitBytes, storageFraction } = useUsage();
-  const { breakdown, isLoading } = useStorageBreakdown();
+  const { breakdown, isLoading, loadFailed, refetch } = useStorageBreakdown();
 
   const byType = breakdown?.byType ?? [];
   const byAlbum = breakdown?.byAlbum ?? [];
@@ -272,6 +275,8 @@ export default function StorageSettingsPage() {
           <CardContent className="p-0">
             {isLoading && byType.length === 0 ? (
               <CenteredSpinner />
+            ) : loadFailed && byType.length === 0 ? (
+              <ErrorState message="Could not load your storage." onRetry={() => refetch()} />
             ) : byType.length === 0 ? (
               <p className="px-5 py-6 text-center text-sm text-muted-foreground">
                 Nothing uploaded yet.
@@ -313,7 +318,9 @@ export default function StorageSettingsPage() {
         </h2>
         <Card className="py-0">
           <CardContent className="p-0">
-            {byAlbum.length === 0 ? (
+            {loadFailed && byAlbum.length === 0 ? (
+              <ErrorState message="Could not load your storage." onRetry={() => refetch()} />
+            ) : byAlbum.length === 0 ? (
               <EmptyState
                 icon={Images}
                 title="No media yet"

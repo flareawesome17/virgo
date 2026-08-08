@@ -20,7 +20,12 @@ export function useStorageBreakdown(options: { enabled?: boolean } = {}) {
     enabled: options.enabled ?? true,
   });
 
-  return { ...query, breakdown: query.data ?? EMPTY };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    breakdown: query.data ?? EMPTY,
+  };
 }
 
 /** Files uploaded before an album was chosen, so they can still be filed. */
@@ -31,7 +36,12 @@ export function useUnassignedFiles(options: { enabled?: boolean } = {}) {
     enabled: options.enabled ?? true,
   });
 
-  return { ...query, files: query.data?.data ?? [], total: query.data?.total ?? 0 };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    files: query.data?.data ?? [], total: query.data?.total ?? 0,
+  };
 }
 
 /** Points already-uploaded files at an album. */

@@ -117,5 +117,10 @@ export function usePeopleSearch(query: string) {
     queryFn: () => friendsApi.searchPeople(q),
     enabled: q.length >= 2,
   });
-  return { ...result, people: result.data?.data ?? [] };
+  return {
+    ...result,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: result.isError || result.isPaused,
+    people: result.data?.data ?? [],
+  };
 }

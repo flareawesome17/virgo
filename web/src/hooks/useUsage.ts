@@ -23,7 +23,12 @@ export function usePlans() {
     staleTime: 60_000,
     refetchOnMount: 'always',
   });
-  return { ...query, plans: query.data?.data ?? [] };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    plans: query.data?.data ?? [],
+  };
 }
 
 /**

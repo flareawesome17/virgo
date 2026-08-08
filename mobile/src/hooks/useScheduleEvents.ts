@@ -103,7 +103,12 @@ export function useEventInvitations() {
     queryKey: queryKeys.scheduleEvents.invitations,
     queryFn: () => scheduleEventsApi.invitations(),
   });
-  return { ...query, invitations: query.data?.data ?? [] };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    invitations: query.data?.data ?? [],
+  };
 }
 
 /** Who is coming to one event. */
@@ -113,7 +118,12 @@ export function useEventAttendees(eventId: string | undefined) {
     queryFn: () => scheduleEventsApi.attendees(eventId as string),
     enabled: !!eventId,
   });
-  return { ...query, attendees: query.data?.data ?? [] };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    attendees: query.data?.data ?? [],
+  };
 }
 
 export function useInviteToEvent() {

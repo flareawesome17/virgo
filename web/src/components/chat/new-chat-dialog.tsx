@@ -41,7 +41,7 @@ export function NewChatDialog({
   const [selected, setSelected] = useState<string[]>([]);
   const [title, setTitle] = useState('');
 
-  const { friends } = useFriends({ status: 'accepted', limit: 100 });
+  const { friends, loadFailed, refetch } = useFriends({ status: 'accepted', limit: 100 });
   const openDirect = useOpenDirectChat();
   const createGroup = useCreateGroupChat();
 
@@ -140,7 +140,14 @@ export function NewChatDialog({
           </div>
         )}
 
-        {chattable.length === 0 ? (
+        {loadFailed && chattable.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Could not load your friends.{' '}
+            <button type="button" className="underline" onClick={() => refetch()}>
+              Try again
+            </button>
+          </p>
+        ) : chattable.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             No friends yet. Find people on the Network page first.
           </p>

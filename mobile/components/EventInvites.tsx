@@ -26,6 +26,7 @@ import {
 } from '@/src/hooks';
 import { formatTime, labelForDateKey } from '@/src/lib/calendar';
 import type { AttendeeStatus } from '@/src/api';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -119,11 +120,20 @@ export function InvitePeoplePicker({
   onChange: (ids: string[]) => void;
   disabledIds?: string[];
 }) {
-  const { friends, isLoading } = useFriends({ status: 'accepted', limit: 100 });
+  const { friends, isLoading, loadFailed, refetch } = useFriends({
+    status: 'accepted',
+    limit: 100,
+  });
   const invitable = friends.filter((f) => f.friend_user_id);
 
   if (isLoading) {
     return <Text className="text-muted-foreground text-sm">Loading…</Text>;
+  }
+
+  if (loadFailed) {
+    // The empty branch tells you to go add friends. Wrong advice when the
+    // request failed — it sends someone off to fix a problem they don't have.
+    return <LoadFailed what="your collaborators" onRetry={() => refetch()} compact />;
   }
 
   if (invitable.length === 0) {

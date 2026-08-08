@@ -15,7 +15,12 @@ export function useLocationSharing() {
     queryKey: nearbyKeys.status,
     queryFn: () => discoverApi.locationStatus(),
   });
-  return { ...query, sharing: query.data?.sharing ?? false };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    sharing: query.data?.sharing ?? false,
+  };
 }
 
 /**
@@ -127,5 +132,10 @@ export function useNearbyRoleCounts(radiusKm = 50) {
     queryKey: nearbyKeys.roleCounts(radiusKm),
     queryFn: () => discoverApi.nearbyRoleCounts(radiusKm),
   });
-  return { ...query, counts: query.data ?? {} };
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    counts: query.data ?? {},
+  };
 }
