@@ -8,10 +8,6 @@ export default function AlbumMediaLayout() {
       <Stack.Screen name="viewer" />
       <Stack.Screen name="videos" />
       <Stack.Screen name="audio" />
-      <Stack.Screen name="invite/index" />
-      <Stack.Screen name="invite/list" />
-      <Stack.Screen name="invite/select" />
-      <Stack.Screen name="invite/send" />
     </Stack>
   );
 }

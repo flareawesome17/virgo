@@ -8,8 +8,52 @@ import {
   useTheme,
 } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
+import type { MediaAccess } from '@/src/api';
 
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+
+/** The access levels, in the order they escalate. */
+export const MEDIA_ACCESS_OPTIONS: { value: MediaAccess; label: string }[] = [
+  { value: 'view', label: 'Can view' },
+  { value: 'download', label: 'Can download' },
+  { value: 'upload', label: 'Can add media' },
+  { value: 'manage', label: 'Can add & delete' },
+];
+
+/**
+ * A tap cycles to the next level, wrapping at the end.
+ *
+ * A dropdown is a poor fit on a phone for four short options — it costs a
+ * modal and two taps to change one word. Cycling in place shows the current
+ * state and changes it in one touch, and the list is short enough that
+ * overshooting costs three more.
+ */
+export function AccessChip({
+  value,
+  onChange,
+}: {
+  value: MediaAccess;
+  onChange: (next: MediaAccess) => void;
+}) {
+  const label =
+    MEDIA_ACCESS_OPTIONS.find((o) => o.value === value)?.label ?? value;
+
+  return (
+    <Pressable
+      hitSlop={6}
+      onPress={() => {
+        const i = MEDIA_ACCESS_OPTIONS.findIndex((o) => o.value === value);
+        onChange(MEDIA_ACCESS_OPTIONS[(i + 1) % MEDIA_ACCESS_OPTIONS.length].value);
+      }}
+      className="rounded-full px-2.5 py-1 active:scale-[0.94]"
+      style={{ backgroundColor: '#B66A4018' }}
+    >
+      <Text className="text-[10px] font-bold" style={{ color: '#B66A40' }}>
+        {label.toUpperCase()}
+      </Text>
+    </Pressable>
+  );
+}
 
 export const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner',

@@ -10,6 +10,21 @@ import {
   useCollaboratorInvitations,
   useRespondToInvitation,
 } from '@/hooks/useCollaborators';
+import type { MediaAccess } from '@/api';
+
+/**
+ * The access levels, in the order they escalate.
+ *
+ * Labelled by what the person can do rather than by the stored value: "Can
+ * download" is a sentence somebody can check against their intention, where
+ * "download" on its own reads like a button.
+ */
+export const MEDIA_ACCESS_OPTIONS: { value: MediaAccess; label: string }[] = [
+  { value: 'view', label: 'Can view' },
+  { value: 'download', label: 'Can download' },
+  { value: 'upload', label: 'Can add media' },
+  { value: 'manage', label: 'Can add and delete' },
+];
 
 export const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner',

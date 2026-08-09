@@ -19,6 +19,26 @@ export interface UsageSummary {
   albums: { used: number; limit: number | null };
 }
 
+/** What a collaborator may do with the media in an album they were granted. */
+export type MediaAccess = 'view' | 'download' | 'upload' | 'manage';
+
+/** Ordered, so a check is "at least this much" rather than an exact match. */
+export const MEDIA_ACCESS_RANK: Record<MediaAccess, number> = {
+  view: 0,
+  download: 1,
+  upload: 2,
+  manage: 3,
+};
+
+/** 'owner' outranks every grant: it is the person whose album it is. */
+export type ResolvedAccess = MediaAccess | 'owner' | null;
+
+export function accessAllows(access: ResolvedAccess, required: MediaAccess): boolean {
+  if (access === 'owner') return true;
+  if (!access) return false;
+  return MEDIA_ACCESS_RANK[access] >= MEDIA_ACCESS_RANK[required];
+}
+
 /**
  * Plan limit accounting and enforcement.
  *
@@ -28,6 +48,77 @@ export interface UsageSummary {
 @Injectable()
 export class QuotaService {
   constructor(private readonly db: DatabaseService) {}
+
+  /**
+   * What this user may do with one album's media.
+   *
+   * Their own album is 'owner'. Otherwise it is the grant from an accepted
+   * invitation, or null. Both halves matter: a grant without an accepted
+   * invitation is somebody who never agreed to be there, and an accepted
+   * invitation without a grant is a workspace member who was not given this
+   * particular album.
+   */
+  async accessForAlbum(userId: string, albumId: string): Promise<ResolvedAccess> {
+    const row = await this.db.queryOne<{
+      owner: boolean;
+      media_access: MediaAccess | null;
+    }>(
+      `select (a.user_id = $1) as owner, ca.media_access
+         from albums a
+         left join collaborators c
+           on c.workspace_id = a.workspace_id
+          and c.collaborator_user_id = $1
+          and c.status = 'accepted'
+         left join collaborator_albums ca
+           on ca.collaborator_id = c.id
+          and ca.album_id = a.id
+        where a.id = $2
+        limit 1`,
+      [userId, albumId],
+    );
+    if (!row) return null;
+    if (row.owner) return 'owner';
+    return row.media_access ?? null;
+  }
+
+  /**
+   * What this user may do with one stored object.
+   *
+   * Resolved through the file's album rather than its key prefix. The prefix
+   * says who uploaded it, which stopped being the same question as who may
+   * read it the moment albums could be shared. Files with no album — avatars,
+   * anything not yet filed — fall back to the uploader.
+   */
+  async accessForKey(userId: string, key: string): Promise<ResolvedAccess> {
+    const row = await this.db.queryOne<{
+      user_id: string;
+      album_id: string | null;
+    }>('select user_id, album_id from user_files where key = $1', [key]);
+
+    // Unknown key: nothing to authorise against, so fall back to the prefix.
+    // An upload in flight has no row yet, and its key was minted for this
+    // caller, so this is the only case where the prefix is the whole answer.
+    if (!row) return key.startsWith(`users/${userId}/`) ? 'owner' : null;
+
+    if (row.user_id === userId) return 'owner';
+    if (!row.album_id) return null;
+    return this.accessForAlbum(userId, row.album_id);
+  }
+
+  /**
+   * Who the storage for an album is billed to, and whose library it joins.
+   *
+   * A collaborator uploading into someone else's album must not spend their
+   * own plan's storage on it, and the album owner must be able to see what
+   * landed in their album. Both follow from attributing the row to the owner.
+   */
+  async albumOwner(albumId: string): Promise<string | null> {
+    const row = await this.db.queryOne<{ user_id: string }>(
+      'select user_id from albums where id = $1',
+      [albumId],
+    );
+    return row?.user_id ?? null;
+  }
 
   private async planFor(userId: string): Promise<string> {
     const row = await this.db.queryOne<{ plan: string }>(
@@ -177,43 +268,34 @@ export class QuotaService {
   }
 
   /**
-   * Files owned by this user, optionally narrowed to one album.
+   * Files owned by this user, or — when an album is named — everything in
+   * that album.
    *
-   * Always filtered by user_id — the album id alone is not an authorisation
-   * check, since album ids are guessable strings.
+   * **Callers must resolve access to `filter.albumId` first.** Album ids are
+   * guessable strings, so this method is not self-authorising;
+   * `StorageService.listFiles` calls `accessForAlbum` before it gets here.
+   *
+   * Within an album the uploader is deliberately not part of the filter. A
+   * shared album is one pile of media: scoping to `user_id` hid a
+   * collaborator's upload from the album's own owner, because that row is not
+   * theirs.
    */
   async listFiles(
     userId: string,
     filter: { albumId?: string; limit?: number } = {},
   ): Promise<StoredFile[]> {
-    const params: unknown[] = [userId];
-    let where = 'user_id = $1';
+    // Built as one or the other, never both: an album query must not also
+    // carry `userId`, or $1 goes unreferenced and Postgres refuses the
+    // statement outright with "could not determine data type of parameter $1".
+    const params: unknown[] = [];
+    let where: string;
 
     if (filter.albumId) {
       params.push(filter.albumId);
-      where += ` and album_id = $${params.length}`;
-
-      // A collaborator's files are owned by the album owner, so scoping to
-      // `user_id` alone left a shared album looking empty to the person
-      // invited into it. Widened to the album's own owner, but only when this
-      // caller genuinely has access to that album.
-      // Access is now a grant that must exist rather than an exclusion that
-      // must not, so this joins `collaborator_albums` instead of checking for
-      // the absence of a row. Both conditions still have to hold: the invite
-      // accepted, and this specific album shared.
-      where =
-        `album_id = $${params.length} and (user_id = $1 or exists (
-           select 1 from albums a
-            join collaborators c
-              on c.workspace_id = a.workspace_id
-             and c.collaborator_user_id = $1
-             and c.status = 'accepted'
-            join collaborator_albums ca
-              on ca.collaborator_id = c.id
-             and ca.album_id = a.id
-            where a.id = $${params.length}
-              and a.user_id = user_files.user_id
-         ))`;
+      where = `album_id = $${params.length}`;
+    } else {
+      params.push(userId);
+      where = `user_id = $${params.length}`;
     }
 
     params.push(Math.min(Math.max(filter.limit ?? 200, 1), 500));

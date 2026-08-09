@@ -27,6 +27,8 @@ import {
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
+import { AccessChip } from '@/components/WorkspaceInvitations';
+import type { MediaAccess } from '@/src/api';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -99,7 +101,7 @@ export default function NetworkScreen() {
 
   // Which collaborator's access is being edited, if any.
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
-  const [pickedAlbumIds, setPickedAlbumIds] = useState<string[]>([]);
+  const [pickedAlbums, setPickedAlbums] = useState<Record<string, MediaAccess>>({});
   const { albums: accessAlbums, isFetching: loadingAccess } = useCollaboratorAlbums(
     editing?.id ?? null,
   );
@@ -111,12 +113,18 @@ export default function NetworkScreen() {
     if (!editing || accessAlbums.length === 0) return;
     if (seededFor.current === editing.id) return;
     seededFor.current = editing.id;
-    setPickedAlbumIds(accessAlbums.filter((a) => a.shared).map((a) => a.id));
+    setPickedAlbums(
+      Object.fromEntries(
+        accessAlbums
+          .filter((a) => a.shared)
+          .map((a) => [a.id, a.media_access ?? 'view']),
+      ),
+    );
   }, [editing, accessAlbums]);
 
   const openAccessEditor = (id: string, name: string) => {
     seededFor.current = null;
-    setPickedAlbumIds([]);
+    setPickedAlbums({});
     setEditing({ id, name });
   };
 
@@ -600,16 +608,18 @@ export default function NetworkScreen() {
           ) : (
             <ScrollView style={{ maxHeight: 340 }} className="mt-4">
               {accessAlbums.map((a, i) => {
-                const on = pickedAlbumIds.includes(a.id);
+                const level = pickedAlbums[a.id];
+                const on = level !== undefined;
                 return (
                   <Pressable
                     key={a.id}
                     onPress={() =>
-                      setPickedAlbumIds((prev) =>
-                        prev.includes(a.id)
-                          ? prev.filter((x) => x !== a.id)
-                          : [...prev, a.id],
-                      )
+                      setPickedAlbums((prev) => {
+                        const base = { ...prev };
+                        if (base[a.id] === undefined) base[a.id] = 'view';
+                        else delete base[a.id];
+                        return base;
+                      })
                     }
                     className="py-3 flex-row items-center gap-3 active:opacity-70"
                     style={i < accessAlbums.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
@@ -629,7 +639,18 @@ export default function NetworkScreen() {
                     <Text className="text-foreground text-sm flex-1" numberOfLines={1}>
                       {a.name}
                     </Text>
-                    <Text className="text-muted-foreground text-xs">{a.item_count}</Text>
+                    {/* Only once it is actually shared: an access level on an
+                        album nobody can open says nothing. */}
+                    {on ? (
+                      <AccessChip
+                        value={level}
+                        onChange={(next) =>
+                          setPickedAlbums((prev) => ({ ...prev, [a.id]: next }))
+                        }
+                      />
+                    ) : (
+                      <Text className="text-muted-foreground text-xs">{a.item_count}</Text>
+                    )}
                   </Pressable>
                 );
               })}
@@ -647,7 +668,13 @@ export default function NetworkScreen() {
               onPress={() => {
                 if (!editing) return;
                 saveAccess.mutate(
-                  { id: editing.id, albumIds: pickedAlbumIds },
+                  {
+                    id: editing.id,
+                    albums: Object.entries(pickedAlbums).map(([album_id, media_access]) => ({
+                      album_id,
+                      media_access,
+                    })),
+                  },
                   {
                     onSuccess: () => setEditing(null),
                     onError: (err: any) =>

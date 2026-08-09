@@ -15,6 +15,7 @@ import {
 import { toast } from 'sonner';
 import { AppShell, PageHeader } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
+import { MEDIA_ACCESS_OPTIONS } from '@/components/workspace-invitations';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -65,7 +66,7 @@ import {
 } from '@/hooks/useCollaborators';
 import { useFriends } from '@/hooks/useFriends';
 import { useUsage } from '@/hooks/useUsage';
-import type { CollaboratorRole } from '@/api';
+import type { CollaboratorRole, MediaAccess } from '@/api';
 
 const ROLES: CollaboratorRole[] = ['photographer', 'editor', 'reviewer', 'client'];
 
@@ -203,8 +204,10 @@ function InviteDialog({
 
   const [friendId, setFriendId] = useState('');
   const [role, setRole] = useState<CollaboratorRole>('photographer');
-  // Null means "everything", which is also what the server does by default.
-  const [albumIds, setAlbumIds] = useState<string[] | null>(null);
+  // Null means "the workspace as it stands", which is what the server does
+  // when no selection is sent. A map once they start choosing, because each
+  // album carries its own access level.
+  const [albumAccess, setAlbumAccess] = useState<Record<string, MediaAccess> | null>(null);
 
   // Someone already on this workspace cannot be added again.
   const invitable = useMemo(() => {
@@ -226,13 +229,20 @@ function InviteDialog({
         name: friend?.friend_name ?? 'Collaborator',
         avatar_url: friend?.friend_avatar_url ?? null,
         role,
-        ...(albumIds ? { album_ids: albumIds } : {}),
+        ...(albumAccess
+          ? {
+              albums: Object.entries(albumAccess).map(([album_id, media_access]) => ({
+                album_id,
+                media_access,
+              })),
+            }
+          : {}),
       },
       {
         onSuccess: () => {
           onOpenChange(false);
           setFriendId('');
-          setAlbumIds(null);
+          setAlbumAccess(null);
           toast.success('Invitation sent', {
             description: 'They will see it in their network and can accept it there.',
           });
@@ -299,35 +309,66 @@ function InviteDialog({
                 <Label>Albums</Label>
                 <label className="flex cursor-pointer items-center gap-3 rounded-lg px-1 py-1.5 hover:bg-accent/50">
                   <Checkbox
-                    checked={albumIds === null}
-                    onCheckedChange={(checked) => setAlbumIds(checked ? null : [])}
+                    checked={albumAccess === null}
+                    onCheckedChange={(checked) => setAlbumAccess(checked ? null : {})}
                   />
                   <span className="text-sm font-medium">
-                    Every album, including new ones
+                    Every album in this workspace
                   </span>
                 </label>
-                {albumIds !== null && (
-                  <div className="max-h-40 overflow-y-auto rounded-lg border p-1">
-                    {albums.map((album) => (
-                      <label
-                        key={album.id}
-                        className="flex cursor-pointer items-center gap-3 rounded px-2 py-1.5 hover:bg-accent/50"
-                      >
-                        <Checkbox
-                          checked={albumIds.includes(album.id)}
-                          onCheckedChange={(checked) =>
-                            setAlbumIds((prev) =>
-                              checked
-                                ? [...(prev ?? []), album.id]
-                                : (prev ?? []).filter((x) => x !== album.id),
-                            )
-                          }
-                        />
-                        <span className="flex-1 truncate text-sm">{album.name}</span>
-                      </label>
-                    ))}
+                {albumAccess !== null && (
+                  <div className="max-h-52 overflow-y-auto rounded-lg border p-1">
+                    {albums.map((album) => {
+                      const level = albumAccess[album.id];
+                      return (
+                        <div
+                          key={album.id}
+                          className="flex items-center gap-3 rounded px-2 py-1.5 hover:bg-accent/50"
+                        >
+                          <Checkbox
+                            id={`invite-album-${album.id}`}
+                            checked={level !== undefined}
+                            onCheckedChange={(checked) =>
+                              setAlbumAccess((prev) => {
+                                const base = { ...(prev ?? {}) };
+                                if (checked) base[album.id] = 'view';
+                                else delete base[album.id];
+                                return base;
+                              })
+                            }
+                          />
+                          <label
+                            htmlFor={`invite-album-${album.id}`}
+                            className="min-w-0 flex-1 cursor-pointer truncate text-sm"
+                          >
+                            {album.name}
+                          </label>
+                          {level !== undefined && (
+                            <select
+                              value={level}
+                              onChange={(e) =>
+                                setAlbumAccess((prev) => ({
+                                  ...(prev ?? {}),
+                                  [album.id]: e.target.value as MediaAccess,
+                                }))
+                              }
+                              className="rounded-md border bg-background px-2 py-1 text-xs"
+                            >
+                              {MEDIA_ACCESS_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
+                <p className="text-xs text-muted-foreground">
+                  Albums you create later stay private until you share them.
+                </p>
               </div>
             )}
           </div>

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   collaboratorsApi,
   queryKeys,
+  type AlbumGrant,
   type Collaborator,
   type CreateCollaboratorInput,
   type ListCollaboratorsParams,
@@ -113,8 +114,8 @@ export function useRespondToInvitation() {
 export function useSetCollaboratorAlbums() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, albumIds }: { id: string; albumIds: string[] }) =>
-      collaboratorsApi.setAlbums(id, albumIds),
+    mutationFn: ({ id, albums }: { id: string; albums: AlbumGrant[] }) =>
+      collaboratorsApi.setAlbums(id, albums),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['collaborators'] });
       queryClient.invalidateQueries({ queryKey: ['albums'] });

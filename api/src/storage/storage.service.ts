@@ -17,7 +17,11 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { QuotaService } from '../quota/quota.service';
+import {
+  accessAllows,
+  QuotaService,
+  type MediaAccess,
+} from '../quota/quota.service';
 import {
   ALLOWED_CONTENT_TYPES,
   DOWNLOAD_URL_TTL_SECONDS,
@@ -119,14 +123,12 @@ export class StorageService {
   }
 
   /**
-   * Rejects any key that is not inside the caller's own prefix.
+   * Rejects a key that is malformed before it is used for anything.
    *
-   * Called on every read and delete. Without it, `key` is just a string from
-   * the request body and one user could delete another's objects.
+   * Traversal and absolute forms are refused first, so `users/<me>/../<them>/x.jpg`
+   * cannot slip past a prefix comparison further down.
    */
-  private assertOwned(userId: string, key: string): void {
-    // Reject traversal and absolute forms before the prefix check, so a key
-    // like `users/<me>/../<them>/x.jpg` cannot slip past it.
+  private assertSafeKey(key: string): void {
     if (
       !key ||
       key.includes('..') ||
@@ -136,8 +138,40 @@ export class StorageService {
     ) {
       throw new BadRequestException('Invalid object key');
     }
+  }
 
+  /**
+   * Rejects any key that is not inside the caller's own prefix.
+   *
+   * Still the right check for operations that only ever touch the caller's own
+   * rows — wiping their library, retention sweeps, filing their own uploads.
+   * Anything reachable through a *shared* album must use `assertCanAccess`
+   * instead, because there the prefix answers the wrong question: it says who
+   * uploaded the object, not who is allowed to read it.
+   */
+  private assertOwned(userId: string, key: string): void {
+    this.assertSafeKey(key);
     if (!key.startsWith(`users/${userId}/`)) {
+      throw new ForbiddenException('You do not have access to that object');
+    }
+  }
+
+  /**
+   * Rejects a caller who lacks at least `required` access to an object.
+   *
+   * The owner always passes. Everyone else needs a grant on the album the file
+   * sits in, from an invitation they accepted, at or above the level asked
+   * for — so a client given `view` can browse a gallery and still not pull the
+   * originals down.
+   */
+  private async assertCanAccess(
+    userId: string,
+    key: string,
+    required: MediaAccess,
+  ): Promise<void> {
+    this.assertSafeKey(key);
+    const access = await this.quota.accessForKey(userId, key);
+    if (!accessAllows(access, required)) {
       throw new ForbiddenException('You do not have access to that object');
     }
   }
@@ -205,7 +239,9 @@ export class StorageService {
   /** Time-limited read URL, for buckets that are not publicly served. */
   async createDownloadUrl(userId: string, key: string): Promise<string> {
     const client = this.requireClient();
-    this.assertOwned(userId, key);
+    // 'download' rather than 'view': this hands over the original file, which
+    // is exactly the line a client-role collaborator should not cross.
+    await this.assertCanAccess(userId, key, 'download');
 
     return getSignedUrl(
       client,
@@ -216,7 +252,8 @@ export class StorageService {
 
   async deleteObject(userId: string, key: string): Promise<void> {
     const client = this.requireClient();
-    this.assertOwned(userId, key);
+    // Destroying someone else's media is the highest bar there is.
+    await this.assertCanAccess(userId, key, 'manage');
 
     await client.send(
       new DeleteObjectCommand({ Bucket: this.config.bucket, Key: key }),
@@ -376,6 +413,17 @@ export class StorageService {
     userId: string,
     filter: { albumId?: string; limit?: number } = {},
   ) {
+    // `QuotaService.listFiles` returns an album's contents without checking
+    // who is asking, because within an album the uploader is not the question.
+    // That makes this the place the question has to be asked — album ids are
+    // guessable, so an unauthorised caller must be stopped here or not at all.
+    if (filter.albumId) {
+      const access = await this.quota.accessForAlbum(userId, filter.albumId);
+      if (!accessAllows(access, 'view')) {
+        throw new ForbiddenException('You do not have access to that album');
+      }
+    }
+
     const rows = await this.quota.listFiles(userId, filter);
     return rows.map((row) => ({
       key: row.key,
@@ -393,7 +441,25 @@ export class StorageService {
     albumId?: string,
   ): Promise<{ exists: boolean; size: number; contentType?: string }> {
     const client = this.requireClient();
+    // The key was minted for this caller, so the prefix is the right check for
+    // the object itself. Whether they may put it in `albumId` is a separate
+    // question, answered next.
     this.assertOwned(userId, key);
+
+    // Filing an upload into somebody else's album needs 'upload' on it, and
+    // the resulting row belongs to that album's owner — otherwise the
+    // collaborator pays for storage in a library they do not control, and the
+    // owner cannot see what landed in their own album.
+    let attributeTo = userId;
+    if (albumId) {
+      const access = await this.quota.accessForAlbum(userId, albumId);
+      if (!accessAllows(access, 'upload')) {
+        throw new ForbiddenException('You cannot add media to that album');
+      }
+      if (access !== 'owner') {
+        attributeTo = (await this.quota.albumOwner(albumId)) ?? userId;
+      }
+    }
 
     try {
       const head = await client.send(
@@ -403,7 +469,7 @@ export class StorageService {
 
       // Record against the storage quota using the size B2 actually reports,
       // not a number the client supplied. Idempotent on the key.
-      await this.quota.recordFile(userId, {
+      await this.quota.recordFile(attributeTo, {
         key,
         sizeBytes: size,
         contentType: head.ContentType,

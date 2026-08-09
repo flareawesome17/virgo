@@ -38,7 +38,11 @@ import {
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useHireEnquiries } from '@/hooks/useHire';
 import { EnquiriesTab } from '@/components/enquiries';
-import { ROLE_LABELS } from '@/components/workspace-invitations';
+import type { MediaAccess } from '@/api';
+import {
+  MEDIA_ACCESS_OPTIONS,
+  ROLE_LABELS,
+} from '@/components/workspace-invitations';
 
 function PersonAvatar({ name, url }: { name: string; url?: string | null }) {
   return (
@@ -61,7 +65,7 @@ function AccessDialog({
 }) {
   const { albums, isFetching } = useCollaboratorAlbums(collaborator?.id ?? null);
   const save = useSetCollaboratorAlbums();
-  const [picked, setPicked] = useState<string[] | null>(null);
+  const [picked, setPicked] = useState<Record<string, MediaAccess> | null>(null);
 
   // Seed from what they can see today, once per open.
   useEffect(() => {
@@ -70,11 +74,15 @@ function AccessDialog({
       return;
     }
     if (picked === null && albums.length > 0) {
-      setPicked(albums.filter((a) => a.shared).map((a) => a.id));
+      const seed: Record<string, MediaAccess> = {};
+      for (const a of albums) {
+        if (a.shared) seed[a.id] = a.media_access ?? 'view';
+      }
+      setPicked(seed);
     }
   }, [collaborator, albums, picked]);
 
-  const selection = picked ?? [];
+  const selection = picked ?? {};
 
   return (
     <Dialog open={!!collaborator} onOpenChange={onOpenChange}>
@@ -82,8 +90,9 @@ function AccessDialog({
         <DialogHeader>
           <DialogTitle>{collaborator?.name}&rsquo;s access</DialogTitle>
           <DialogDescription>
-            Albums they can open in this workspace. New albums are shared
-            automatically unless you untick them here.
+            Tick the albums they can open, and choose what they may do with the
+            media in each. Albums you create later stay private until you share
+            them here.
           </DialogDescription>
         </DialogHeader>
 
@@ -97,25 +106,57 @@ function AccessDialog({
           </p>
         ) : (
           <ul className="max-h-72 overflow-y-auto">
-            {albums.map((album) => (
-              <li key={album.id}>
-                <label className="flex cursor-pointer items-center gap-3 border-b py-3 last:border-0">
-                  <Checkbox
-                    checked={selection.includes(album.id)}
-                    onCheckedChange={(checked) =>
-                      setPicked((prev) => {
-                        const base = prev ?? [];
-                        return checked
-                          ? [...base, album.id]
-                          : base.filter((x) => x !== album.id);
-                      })
-                    }
-                  />
-                  <span className="flex-1 truncate text-sm">{album.name}</span>
-                  <span className="text-xs text-muted-foreground">{album.item_count}</span>
-                </label>
-              </li>
-            ))}
+            {albums.map((album) => {
+              const level = selection[album.id];
+              return (
+                <li key={album.id}>
+                  <div className="flex items-center gap-3 border-b py-3 last:border-0">
+                    <Checkbox
+                      id={`album-${album.id}`}
+                      checked={level !== undefined}
+                      onCheckedChange={(checked) =>
+                        setPicked((prev) => {
+                          const base = { ...(prev ?? {}) };
+                          if (checked) base[album.id] = 'view';
+                          else delete base[album.id];
+                          return base;
+                        })
+                      }
+                    />
+                    <label
+                      htmlFor={`album-${album.id}`}
+                      className="min-w-0 flex-1 cursor-pointer truncate text-sm"
+                    >
+                      {album.name}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {album.item_count}
+                      </span>
+                    </label>
+
+                    {/* Only meaningful once the album is actually shared, so it
+                        appears with the tick rather than sitting there greyed. */}
+                    {level !== undefined && (
+                      <select
+                        value={level}
+                        onChange={(e) =>
+                          setPicked((prev) => ({
+                            ...(prev ?? {}),
+                            [album.id]: e.target.value as MediaAccess,
+                          }))
+                        }
+                        className="rounded-md border bg-background px-2 py-1 text-xs"
+                      >
+                        {MEDIA_ACCESS_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -127,7 +168,13 @@ function AccessDialog({
             disabled={save.isPending || !collaborator}
             onClick={() =>
               save.mutate(
-                { id: collaborator!.id, albumIds: selection },
+                {
+                  id: collaborator!.id,
+                  albums: Object.entries(selection).map(([album_id, media_access]) => ({
+                    album_id,
+                    media_access,
+                  })),
+                },
                 {
                   onSuccess: () => onOpenChange(false),
                   onError: (err: Error) =>

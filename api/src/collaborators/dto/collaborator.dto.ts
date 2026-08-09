@@ -7,8 +7,23 @@ import {
   MinLength,
   IsArray,
   ArrayMaxSize,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ListQueryDto } from '../../common/dto/list-query.dto';
+
+const MEDIA_ACCESS = ['view', 'download', 'upload', 'manage'] as const;
+
+/** One album, and what the collaborator may do with the media inside it. */
+export class AlbumGrantDto {
+  @IsString()
+  @MaxLength(64)
+  album_id!: string;
+
+  @IsOptional()
+  @IsIn(MEDIA_ACCESS)
+  media_access?: (typeof MEDIA_ACCESS)[number];
+}
 
 const ROLES = [
   'owner',
@@ -20,8 +35,22 @@ const ROLES = [
 
 export class CreateCollaboratorDto {
   /**
-   * Albums to share. Omitted means every album in the workspace, including
-   * ones created later.
+   * Albums to share, with the access level for each.
+   *
+   * Omitted means the workspace's albums as they stand — which is what
+   * inviting someone to a workspace has always meant. Albums created later
+   * are private until granted.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => AlbumGrantDto)
+  albums?: AlbumGrantDto[];
+
+  /**
+   * The older shape, ids only, defaulting to 'view'. Kept because bundles
+   * already installed on people's phones still send it.
    */
   @IsOptional()
   @IsArray()
@@ -88,8 +117,18 @@ export class ListCollaboratorsDto extends ListQueryDto {
 
 /** Replaces which albums an existing collaborator can see. */
 export class UpdateCollaboratorAlbumsDto {
+  /** The new selection, with an access level per album. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => AlbumGrantDto)
+  albums?: AlbumGrantDto[];
+
+  /** The older ids-only shape, still sent by installed bundles. */
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(200)
   @IsString({ each: true })
-  album_ids!: string[];
+  album_ids?: string[];
 }

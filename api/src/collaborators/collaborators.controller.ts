@@ -80,7 +80,12 @@ export class CollaboratorsController {
     @Param('id') id: string,
     @Body() dto: UpdateCollaboratorAlbumsDto,
   ) {
-    return this.collaborators.updateSharedAlbums(userId, id, dto.album_ids);
+    // Either shape is accepted; the newer one carries an access level per
+    // album, the older one is ids only and defaults by role.
+    const grants = dto.albums
+      ? dto.albums.map((a) => ({ albumId: a.album_id, mediaAccess: a.media_access }))
+      : (dto.album_ids ?? []).map((albumId) => ({ albumId }));
+    return this.collaborators.updateSharedAlbums(userId, id, grants);
   }
 
   /** Removes someone from this album only; their workspace access remains. */

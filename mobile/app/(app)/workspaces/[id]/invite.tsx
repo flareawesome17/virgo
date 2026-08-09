@@ -17,6 +17,8 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
+import { AccessChip } from '@/components/WorkspaceInvitations';
+import type { MediaAccess } from '@/src/api';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SendIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -49,7 +51,7 @@ export default function InviteCollaboratorsScreen() {
 
   const { albums } = useAlbums({ workspace_id: id, limit: 100 }, { enabled: !!id });
 
-  const [sharedAlbumIds, setSharedAlbumIds] = useState<string[]>([]);
+  const [sharedAlbums, setSharedAlbums] = useState<Record<string, MediaAccess>>({});
 
   // Default to sharing everything, matching the inheritance rule. Only seeded
   // once the albums arrive, and never again, so a deliberate deselection is
@@ -58,7 +60,7 @@ export default function InviteCollaboratorsScreen() {
   useEffect(() => {
     if (seeded.current || albums.length === 0) return;
     seeded.current = true;
-    setSharedAlbumIds(albums.map((a) => a.id));
+    setSharedAlbums(Object.fromEntries(albums.map((a) => [a.id, 'view' as MediaAccess])));
   }, [albums]);
 
   /** Sends one invitation straight away. */
@@ -83,7 +85,10 @@ export default function InviteCollaboratorsScreen() {
         collaborator_user_id: friend.friend_user_id,
         name: friend.friend_name,
         role: role as CollaboratorRole,
-        album_ids: sharedAlbumIds,
+        albums: Object.entries(sharedAlbums).map(([album_id, media_access]) => ({
+          album_id,
+          media_access,
+        })),
       });
       setSelectedFriendId(null);
       setRole('photographer');
@@ -258,14 +263,18 @@ export default function InviteCollaboratorsScreen() {
                 </Text>
                 <Pressable
                   onPress={() =>
-                    setSharedAlbumIds(
-                      sharedAlbumIds.length === albums.length ? [] : albums.map((a) => a.id),
+                    setSharedAlbums(
+                      Object.keys(sharedAlbums).length === albums.length
+                        ? {}
+                        : Object.fromEntries(
+                            albums.map((a) => [a.id, 'view' as MediaAccess]),
+                          ),
                     )
                   }
                   className="active:opacity-60"
                 >
                   <Text className="text-primary text-xs font-bold">
-                    {sharedAlbumIds.length === albums.length ? 'Clear all' : 'Select all'}
+                    {Object.keys(sharedAlbums).length === albums.length ? 'Clear all' : 'Select all'}
                   </Text>
                 </Pressable>
               </View>
@@ -275,14 +284,18 @@ export default function InviteCollaboratorsScreen() {
                 style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
               >
                 {albums.map((a, i) => {
-                  const on = sharedAlbumIds.includes(a.id);
+                  const level = sharedAlbums[a.id];
+                  const on = level !== undefined;
                   return (
                     <Pressable
                       key={a.id}
                       onPress={() =>
-                        setSharedAlbumIds((prev) =>
-                          prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id],
-                        )
+                        setSharedAlbums((prev) => {
+                          const base = { ...prev };
+                          if (base[a.id] === undefined) base[a.id] = 'view';
+                          else delete base[a.id];
+                          return base;
+                        })
                       }
                       className="px-4 py-3 flex-row items-center gap-3 active:bg-muted/30"
                       style={i < albums.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
@@ -302,19 +315,28 @@ export default function InviteCollaboratorsScreen() {
                       <Text className="text-foreground text-sm flex-1" numberOfLines={1}>
                         {a.name}
                       </Text>
-                      <Text className="text-muted-foreground text-xs">
-                        {a.item_count ?? 0}
-                      </Text>
+                      {on ? (
+                        <AccessChip
+                          value={level}
+                          onChange={(next) =>
+                            setSharedAlbums((prev) => ({ ...prev, [a.id]: next }))
+                          }
+                        />
+                      ) : (
+                        <Text className="text-muted-foreground text-xs">
+                          {a.item_count ?? 0}
+                        </Text>
+                      )}
                     </Pressable>
                   );
                 })}
               </View>
 
-              {sharedAlbumIds.length === 0 && (
-                <Text className="text-muted-foreground text-xs mt-2 ml-1">
-                  They will join the workspace but see no albums yet.
-                </Text>
-              )}
+              <Text className="text-muted-foreground text-xs mt-2 ml-1">
+                {Object.keys(sharedAlbums).length === 0
+                  ? 'They will join the workspace but see no albums yet.'
+                  : 'Tap a level to change what they can do. Albums you create later stay private until you share them.'}
+              </Text>
             </View>
           )}
 

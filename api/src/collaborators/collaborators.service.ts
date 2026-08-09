@@ -10,10 +10,67 @@ import { MailConfig } from '../mail/mail.config';
 import { collaboratorInvite } from '../mail/mail.templates';
 import { NotifyService } from '../notifications/notify.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { type MediaAccess } from '../quota/quota.service';
 import {
   CollaboratorRow,
   CollaboratorsRepository,
 } from './collaborators.repository';
+
+/** One album a collaborator is being given, and how much of it. */
+export interface AlbumGrant {
+  albumId: string;
+  mediaAccess?: MediaAccess;
+}
+
+/**
+ * The level a role implies when the caller did not name one.
+ *
+ * A reviewer and a photographer plainly do not want the same thing, and making
+ * every unspecified grant 'view' would leave editors unable to do the job they
+ * were invited for.
+ */
+function defaultAccessFor(role: unknown): MediaAccess {
+  switch (role) {
+    case 'owner':
+      return 'manage';
+    case 'photographer':
+    case 'editor':
+      return 'upload';
+    case 'reviewer':
+      return 'download';
+    default:
+      return 'view';
+  }
+}
+
+/**
+ * Reads the album selection from a request body.
+ *
+ * Two shapes are accepted: `albums: [{ album_id, media_access }]`, and the
+ * older `album_ids: string[]` that bundles already on people's phones still
+ * send. Returns null when neither is present, which means "not specified" —
+ * distinct from an empty array, which means "share nothing".
+ */
+function readAlbumGrants(
+  data: Record<string, unknown>,
+  role: unknown,
+): AlbumGrant[] | null {
+  if (Array.isArray(data.albums)) {
+    return (data.albums as { album_id?: string; media_access?: MediaAccess }[])
+      .filter((a) => typeof a?.album_id === 'string')
+      .map((a) => ({
+        albumId: a.album_id as string,
+        mediaAccess: a.media_access ?? defaultAccessFor(role),
+      }));
+  }
+  if (Array.isArray(data.album_ids)) {
+    return (data.album_ids as string[]).map((id) => ({
+      albumId: id,
+      mediaAccess: defaultAccessFor(role),
+    }));
+  }
+  return null;
+}
 
 @Injectable()
 export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> {
@@ -79,10 +136,8 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
 
     // `album_ids` is not a column; it selects which albums to share and is
     // applied as grants below.
-    const albumIds = Array.isArray(data.album_ids)
-      ? (data.album_ids as string[])
-      : null;
-    const { album_ids: _ignored, ...columns } = data;
+    const requested = readAlbumGrants(data, data.role);
+    const { album_ids: _ids, albums: _albums, ...columns } = data;
 
     // An invitation, not a fait accompli: the other person has to accept before
     // the workspace appears in their app. `status` is not passed here and is
@@ -96,13 +151,13 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
       // *after* this point need granting, so the invitee does not land in an
       // empty workspace while the picker is still being built.
       const grants =
-        albumIds ??
+        requested ??
         (
           await this.db.query<{ id: string }>(
             'select id from albums where workspace_id = $1 and user_id = $2',
             [workspaceId, userId],
           )
-        ).map((a) => a.id);
+        ).map((a) => ({ albumId: a.id, mediaAccess: defaultAccessFor(data.role) }));
       await this.setSharedAlbums(userId, row.id, workspaceId, grants);
     }
 
@@ -126,7 +181,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     userId: string,
     collaboratorId: string,
     workspaceId: string,
-    albumIds: string[],
+    grants: AlbumGrant[],
   ): Promise<{ shared: number; excluded: number }> {
     // Only albums the caller actually owns in this workspace, so a forged id
     // cannot grant access to somebody else's album.
@@ -136,26 +191,31 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     );
 
     const owned = new Set(albums.map((a) => a.id));
-    const grant = albumIds.filter((id) => owned.has(id));
+    const wanted = grants.filter((g) => owned.has(g.albumId));
 
     await this.db.transaction(async (client) => {
       await client.query(
         'delete from collaborator_albums where collaborator_id = $1',
         [collaboratorId],
       );
-      if (grant.length > 0) {
+      if (wanted.length > 0) {
         await client.query(
-          `insert into collaborator_albums (collaborator_id, album_id)
-           select $1, unnest($2::text[])
-           on conflict (collaborator_id, album_id) do nothing`,
-          [collaboratorId, grant],
+          `insert into collaborator_albums (collaborator_id, album_id, media_access)
+           select $1, unnest($2::text[]), unnest($3::text[])
+           on conflict (collaborator_id, album_id)
+             do update set media_access = excluded.media_access`,
+          [
+            collaboratorId,
+            wanted.map((g) => g.albumId),
+            wanted.map((g) => g.mediaAccess ?? 'view'),
+          ],
         );
       }
     });
 
     // `excluded` is kept in the response shape because both clients read it.
     // Under an allow-list it means "in this workspace but not granted".
-    return { shared: grant.length, excluded: albums.length - grant.length };
+    return { shared: wanted.length, excluded: albums.length - wanted.length };
   }
 
   /**
@@ -165,7 +225,15 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
   async albumsFor(
     userId: string,
     collaboratorId: string,
-  ): Promise<{ id: string; name: string; item_count: number; shared: boolean }[]> {
+  ): Promise<
+    {
+      id: string;
+      name: string;
+      item_count: number;
+      shared: boolean;
+      media_access: MediaAccess | null;
+    }[]
+  > {
     const row = await this.db.queryOne<{ workspace_id: string }>(
       'select workspace_id from collaborators where id = $1 and user_id = $2',
       [collaboratorId, userId],
@@ -173,7 +241,8 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     if (!row) throw new NotFoundException('Collaborator not found');
 
     return this.db.query(
-      `select a.id, a.name, a.item_count, (ca.album_id is not null) as shared
+      `select a.id, a.name, a.item_count, (ca.album_id is not null) as shared,
+              ca.media_access
          from albums a
          left join collaborator_albums ca
            on ca.album_id = a.id and ca.collaborator_id = $2
@@ -187,14 +256,14 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
   async updateSharedAlbums(
     userId: string,
     collaboratorId: string,
-    albumIds: string[],
+    grants: AlbumGrant[],
   ): Promise<{ shared: number; excluded: number }> {
     const row = await this.db.queryOne<{ workspace_id: string }>(
       'select workspace_id from collaborators where id = $1 and user_id = $2',
       [collaboratorId, userId],
     );
     if (!row) throw new NotFoundException('Collaborator not found');
-    return this.setSharedAlbums(userId, collaboratorId, row.workspace_id, albumIds);
+    return this.setSharedAlbums(userId, collaboratorId, row.workspace_id, grants);
   }
 
   /** Tells the invitee. Best-effort: a failure must not undo the invite. */

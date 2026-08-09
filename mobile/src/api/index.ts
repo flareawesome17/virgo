@@ -38,7 +38,10 @@ export {
 } from './endpoints/scheduleEvents';
 export {
   collaboratorsApi,
+  type AlbumGrant,
+  type CollaboratorInvitation,
   type CreateCollaboratorInput,
+  type MediaAccess,
   type ListCollaboratorsParams,
   type UpdateCollaboratorInput,
 } from './endpoints/collaborators';
