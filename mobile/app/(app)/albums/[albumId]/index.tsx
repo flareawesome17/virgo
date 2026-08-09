@@ -24,7 +24,6 @@ import {
   ShieldIcon,
   LayersIcon,
   UploadIcon,
-  UserPlusIcon,
   MoreHorizontalIcon,
   CheckIcon,
 } from 'lucide-react-native';
@@ -40,7 +39,6 @@ cssInterop(MusicIcon, { className: { target: 'style', nativeStyleToProp: { color
 cssInterop(ShieldIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UploadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MoreHorizontalIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -283,17 +281,11 @@ export default function AlbumDetailScreen() {
       { text: 'Revoke client link', onPress: revokeClientLink },
       { text: 'Change cover', onPress: pickAndUploadCover },
       { text: 'Set status', onPress: chooseStatus },
-      {
-        // Collaborators belong to the workspace, not to one album. Inviting
-        // from here used to create a workspace-wide collaborator anyway — it
-        // just did not say so, which is how "share this album" quietly shared
-        // every album in the workspace.
-        text: 'Manage collaborators',
-        onPress: () =>
-          album?.workspace_id
-            ? router.push(`/workspaces/${album.workspace_id}/invite`)
-            : undefined,
-      },
+      // No collaborator entry here. People are added to the *workspace* and
+      // then granted albums from that one screen; offering it from a single
+      // album was how "share this album" quietly shared every album in the
+      // workspace, and a second door to the same thing is what made that
+      // possible. Sharing an album with a client is the client link above.
       { text: 'Delete album', style: 'destructive', onPress: confirmDelete },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -474,20 +466,6 @@ export default function AlbumDetailScreen() {
             >
               <UploadIcon size={15} className="text-white" />
               <Text className="text-white text-sm font-bold">Upload</Text>
-            </Pressable>
-            {/* Goes to the workspace's collaborator screen: access is granted
-                per album there, but the person is added to the workspace. A
-                person-plus rather than the share glyph, because lucide's
-                ShareIcon is near-identical to the UploadIcon beside it. */}
-            <Pressable
-              onPress={() =>
-                album?.workspace_id
-                  ? router.push(`/workspaces/${album.workspace_id}/invite`)
-                  : undefined
-              }
-              className="w-10 h-10 rounded-xl bg-muted items-center justify-center active:scale-[0.92]"
-            >
-              <UserPlusIcon size={16} className="text-muted-foreground" />
             </Pressable>
           </View>
         </View>
