@@ -128,6 +128,19 @@ function AvatarStack({ urls, count }: { urls: string[]; count: number }) {
   );
 }
 
+/**
+ * How the Home/Jobs switch sits in the header.
+ *
+ *   'ends'     — a pill at each end, the row holding them apart.
+ *   'centered' — the same pair, tighter and borderless, inside one track in
+ *                the middle of the row.
+ *
+ * A constant rather than a setting: this is a decision to make once and keep,
+ * and flipping it here hot-reloads instantly, which is what makes comparing
+ * them on a real device cheap.
+ */
+const HEADER_LAYOUT: 'ends' | 'centered' = 'centered';
+
 export default function HomeScreen() {
   const [tab, setTab] = useState<'home' | 'jobs'>('home');
   const { count: unseenJobs } = useUnseenJobs();
@@ -209,28 +222,40 @@ export default function HomeScreen() {
         seventh truncates its labels on a 360pt screen — see the note in
         (tabs)/_layout.tsx.
 
-        One track spanning the full width rather than two pills hugging their
-        text. Left-aligned pills read as buttons someone put in the corner —
-        the empty half of the row said nothing was there, when in fact half the
-        screen's content lives behind the second one. Filling the width says
-        these two *are* the screen, and gives each an equal, thumb-sized target
-        instead of one sized to the word "Jobs".
-
-        Filled rather than underlined on purpose: the Jobs panel below has its
-        own underlined Browse/Posted/Applications row, and two underline bars
-        stacked read as one confused control instead of a hierarchy.
+        Two arrangements, switched by HEADER_LAYOUT at the top of this file.
+        Both keep the same pill; only the row around them changes. A
+        full-width version was tried and dropped — the Jobs panel below has its
+        own underlined Browse/Posted/Applications row, and a heavy filled
+        control directly above a lighter one made the header top-heavy and the
+        two levels hard to tell apart.
       */}
-      <View className="px-5 pt-2 pb-2">
-        <View className="flex-row bg-muted rounded-full p-1">
+      <View
+        className={
+          HEADER_LAYOUT === 'ends'
+            ? 'flex-row items-center justify-between px-5 pt-2 pb-1'
+            : 'flex-row items-center justify-center px-5 pt-2 pb-1'
+        }
+      >
+        {/* The centred arrangement wraps the pair in a track so they read as
+            one control rather than two loose buttons floating mid-row. */}
+        <View
+          className={
+            HEADER_LAYOUT === 'centered'
+              ? 'flex-row items-center gap-1 bg-muted rounded-full p-1'
+              : 'flex-row items-center justify-between flex-1'
+          }
+        >
           <Segment
             label="Home"
             active={tab === 'home'}
+            compact={HEADER_LAYOUT === 'centered'}
             onPress={() => setTab('home')}
           />
           <Segment
             label="Jobs"
             active={tab === 'jobs'}
             badge={unseenJobs}
+            compact={HEADER_LAYOUT === 'centered'}
             onPress={() => {
               setTab('jobs');
               // Opening the tab is what "seen" means. Fires once per switch,
@@ -596,19 +621,22 @@ export default function HomeScreen() {
 
 /** One of the two home tabs, with an optional unread count. */
 /**
- * One half of the Home/Jobs switch.
+ * One end of the Home/Jobs switch.
  *
- * `flex-1` is the whole point: the two split the track evenly, so the target
- * is half the screen rather than however wide the word happens to be, and
- * neither moves when the badge appears or the count goes from 9 to 10. A
- * control that reflows as its contents change is one people mis-tap.
+ * Sized to its own label rather than stretched: a pill is a pill, and the two
+ * are held apart by the row rather than by their own width.
+ *
+ * `compact` drops the border and tightens the padding, for the centred
+ * arrangement where the surrounding track already draws the boundary and a
+ * second outline on each pill would be one line too many.
  */
 function Segment({
-  label, active, badge = 0, onPress,
+  label, active, badge = 0, compact = false, onPress,
 }: {
   label: string;
   active: boolean;
   badge?: number;
+  compact?: boolean;
   onPress: () => void;
 }) {
   return (
@@ -617,25 +645,21 @@ function Segment({
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
       accessibilityLabel={badge > 0 ? `${label}, ${badge} new` : label}
-      className="flex-1 flex-row items-center justify-center gap-1.5 rounded-full py-2.5 active:opacity-80"
+      // Generous hit area without a bigger pill: the tappable region reaches
+      // past the border, which matters most for the one sitting on the edge.
+      hitSlop={{ top: 8, bottom: 8, left: 10, right: 10 }}
+      className={`flex-row items-center gap-1.5 rounded-full active:opacity-80 ${
+        compact ? 'px-4 py-1.5' : 'px-4 py-2'
+      }`}
       style={{
         backgroundColor: active ? '#B66A40' : 'transparent',
-        // The raised segment, so the active half reads as sitting on top of
-        // the track rather than being a differently-coloured piece of it.
-        ...(active
-          ? {
-              shadowColor: '#000',
-              shadowOpacity: 0.12,
-              shadowRadius: 5,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 2,
-            }
-          : null),
+        borderWidth: compact ? 0 : 1,
+        borderColor: active ? '#B66A40' : '#B66A4033',
       }}
     >
       <Text
-        className="text-[13px] font-bold"
-        style={{ color: active ? '#fff' : '#9ca3af' }}
+        className={`font-bold ${compact ? 'text-[12px]' : 'text-[13px]'}`}
+        style={{ color: active ? '#fff' : compact ? '#9ca3af' : '#B66A40' }}
       >
         {label}
       </Text>
