@@ -7,7 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service';
-import { StorageConfig } from '../../storage/storage.config';
+import { PUBLISHED_URL_TTL_SECONDS } from '../../storage/storage.config';
+import { StorageService } from '../../storage/storage.service';
 
 export interface ShareLinkRow {
   id: string;
@@ -53,7 +54,7 @@ export interface PublicAlbumView {
 export class AlbumShareService {
   constructor(
     private readonly db: DatabaseService,
-    private readonly storage: StorageConfig,
+    private readonly storage: StorageService,
     private readonly config: ConfigService,
   ) {}
 
@@ -82,21 +83,21 @@ export class AlbumShareService {
    * Content-Security-Policy for the public gallery page.
    *
    * Helmet's global default is `img-src 'self' data:` with no `media-src`, so
-   * every photo, video and audio file — all served from the CDN, a different
-   * origin — was blocked. The page rendered but the media was blank; opening a
-   * file directly still worked, because a top-level navigation is not an
-   * embed and is not subject to these directives.
+   * every photo, video and audio file — served from another origin — was
+   * blocked. The page rendered but the media was blank; opening a file
+   * directly still worked, because a top-level navigation is not an embed and
+   * is not subject to these directives.
    *
    * Scoped to this one route rather than loosening the global policy, and
-   * still strict: no scripts at all, and only the CDN is added.
+   * still strict: no scripts at all, and only the storage origin is added.
    */
   contentSecurityPolicy(): string {
-    const media = this.storage.cdnOrigin();
-    const sources = ["'self'", 'data:', media].filter(Boolean).join(' ');
+    const media = this.storage.mediaOrigins();
+    const sources = ["'self'", 'data:', ...media].filter(Boolean).join(' ');
     return [
       "default-src 'self'",
       `img-src ${sources}`,
-      `media-src ${["'self'", media].filter(Boolean).join(' ')}`,
+      `media-src ${["'self'", ...media].filter(Boolean).join(' ')}`,
       // The page is pure HTML with one inline <style> block and no JavaScript.
       "style-src 'self' 'unsafe-inline'",
       "script-src 'none'",
@@ -286,11 +287,19 @@ export class AlbumShareService {
       [link.user_id, link.album_id, link.media_kinds],
     );
 
+    // The share token is the authorisation, so the URLs handed back are
+    // signed on the strength of it. The longer TTL is because a client opens a
+    // gallery and then looks at it for a while, sometimes leaving the tab up.
+    const urls = await this.storage.mediaUrls(
+      files.map((f) => f.key),
+      PUBLISHED_URL_TTL_SECONDS,
+    );
+
     return {
       album: { name: link.name, description: link.description },
       kinds: link.media_kinds,
-      files: files.map((f) => ({
-        url: this.storage.publicUrl(f.key),
+      files: files.map((f, i) => ({
+        url: urls[i],
         contentType: f.content_type,
         sizeBytes: Number(f.size_bytes),
       })),

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OwnedRepository, type ListOptions } from '../common/owned.repository';
 import { DatabaseService } from '../database/database.service';
-import { StorageConfig } from '../storage/storage.config';
+import { StorageService } from '../storage/storage.service';
 
 export type AlbumStatus = 'draft' | 'review' | 'delivered';
 
@@ -37,7 +37,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
   protected readonly filterableColumns = ['workspace_id', 'status'];
   protected readonly sortableColumns = ['created_at', 'updated_at', 'name'];
 
-  constructor(db: DatabaseService, private readonly storage: StorageConfig) {
+  constructor(db: DatabaseService, private readonly storage: StorageService) {
     super(db);
   }
 
@@ -82,15 +82,18 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     const countById = new Map(counts.map((c) => [c.album_id, Number(c.count)]));
     const coverById = new Map(covers.map((c) => [c.album_id, c.key]));
 
-    return rows.map((row) => {
-      const key = coverById.get(row.id);
-      return {
-        ...row,
-        item_count: countById.get(row.id) ?? 0,
-        // An explicitly chosen cover always wins over the derived one.
-        cover_url: row.cover_url ?? (key ? this.storage.publicUrl(key) : null),
-      };
-    });
+    // Signed rather than public: the bucket is not world-readable, so a cover
+    // is a time-limited URL like every other object.
+    const coverUrls = await this.storage.mediaUrls(
+      rows.map((row) => coverById.get(row.id) ?? null),
+    );
+
+    return rows.map((row, i) => ({
+      ...row,
+      item_count: countById.get(row.id) ?? 0,
+      // An explicitly chosen cover always wins over the derived one.
+      cover_url: row.cover_url ?? coverUrls[i],
+    }));
   }
 
   /**

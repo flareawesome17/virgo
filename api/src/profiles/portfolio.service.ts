@@ -4,7 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { StorageConfig } from '../storage/storage.config';
+import { PUBLISHED_URL_TTL_SECONDS } from '../storage/storage.config';
+import { StorageService } from '../storage/storage.service';
 import { AlbumShareService } from '../albums/share/album-share.service';
 
 /**
@@ -65,7 +66,7 @@ interface ItemRow {
 export class PortfolioService {
   constructor(
     private readonly db: DatabaseService,
-    private readonly storage: StorageConfig,
+    private readonly storage: StorageService,
     private readonly shares: AlbumShareService,
   ) {}
 
@@ -116,15 +117,26 @@ export class PortfolioService {
       [userId],
     );
 
-    return rows.map((row) => this.present(row, forOwner));
+    return Promise.all(rows.map((row) => this.present(row, forOwner)));
   }
 
-  private present(row: ItemRow, forOwner: boolean): PortfolioItem {
+  /**
+   * A published profile is open to the web, so these URLs are signed on the
+   * strength of the profile being published rather than of who is asking.
+   *
+   * The long TTL matters more here than anywhere else: this page is meant to
+   * be indexed, and a crawler that cached the HTML will keep serving whatever
+   * URL was in it. A short expiry turns into a broken photograph in somebody's
+   * search results, on the one page whose whole job is to look good.
+   */
+  private async present(row: ItemRow, forOwner: boolean): Promise<PortfolioItem> {
     if (row.kind === 'image') {
       return {
         id: row.id,
         kind: 'image',
-        url: this.storage.publicUrl(row.file_key!) ?? '',
+        url:
+          (await this.storage.mediaUrl(row.file_key!, PUBLISHED_URL_TTL_SECONDS)) ??
+          '',
         caption: row.caption,
         ...(forOwner ? { fileKey: row.file_key! } : {}),
       };
@@ -137,9 +149,10 @@ export class PortfolioService {
       caption: row.caption,
       coverUrl:
         row.album_cover_url ??
-        (row.derived_cover_key
-          ? this.storage.publicUrl(row.derived_cover_key)
-          : null),
+        (await this.storage.mediaUrl(
+          row.derived_cover_key,
+          PUBLISHED_URL_TTL_SECONDS,
+        )),
       itemCount: row.album_item_count ?? 0,
       url: row.share_token ? this.shares.urlFor(row.share_token) : null,
       ...(forOwner ? { albumId: row.album_id! } : {}),

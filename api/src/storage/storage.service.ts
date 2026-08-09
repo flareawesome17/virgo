@@ -27,6 +27,7 @@ import {
   DOWNLOAD_URL_TTL_SECONDS,
   EXTENSION_BY_CONTENT_TYPE,
   MAX_UPLOAD_BYTES,
+  MEDIA_URL_WINDOW_SECONDS,
   StorageConfig,
   UPLOAD_URL_TTL_SECONDS,
   type UploadScope,
@@ -225,6 +226,10 @@ export class StorageService {
     return {
       key,
       uploadUrl,
+      // Deliberately the durable CDN form, not a signed one. Callers *store*
+      // this — `avatarUrl` is written straight from it — and a signed URL put
+      // in a database is a URL that stops working in an hour. Album media does
+      // not use this field; it is re-read from the file list, which signs.
       publicUrl: this.config.publicUrl(key),
       requiredHeaders: {
         'Content-Type': input.contentType,
@@ -234,6 +239,54 @@ export class StorageService {
         Date.now() + UPLOAD_URL_TTL_SECONDS * 1000,
       ).toISOString(),
     };
+  }
+
+  /**
+   * A URL that renders this object, for a bucket that is not world-readable.
+   *
+   * Every media URL the API hands out goes through here. The bucket used to be
+   * public behind a CDN, which meant the URL *was* the permission: anyone who
+   * came by a link — a forwarded client gallery, a cached page, a log — could
+   * fetch the original indefinitely, and none of the access levels enforced on
+   * the API applied to it.
+   *
+   * **The signature is pinned to a window rather than to `now`.** Presigning
+   * afresh on every render would return a different URL each time, so nothing
+   * would ever be served from cache and a gallery of a few hundred photographs
+   * would re-download in full on each visit. Rounding the signing time down to
+   * a window makes the URL byte-identical for every request inside it, which
+   * is what lets a browser reuse the image it already has. The cost is that
+   * real validity is somewhere between `ttl - window` and `ttl`.
+   */
+  async mediaUrl(
+    key: string | null | undefined,
+    ttlSeconds: number = DOWNLOAD_URL_TTL_SECONDS,
+  ): Promise<string | null> {
+    if (!key || !this.client) return null;
+
+    const windowMs = MEDIA_URL_WINDOW_SECONDS * 1000;
+    const signingDate = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+
+    return getSignedUrl(
+      this.client,
+      new GetObjectCommand({ Bucket: this.config.bucket, Key: key }),
+      { expiresIn: ttlSeconds, signingDate },
+    );
+  }
+
+  /** Origins media is served from, for a Content-Security-Policy. */
+  mediaOrigins(): string[] {
+    return this.config.mediaOrigins();
+  }
+
+  /** `mediaUrl` for a batch, preserving order. */
+  async mediaUrls(
+    keys: (string | null | undefined)[],
+    ttlSeconds: number = DOWNLOAD_URL_TTL_SECONDS,
+  ): Promise<(string | null)[]> {
+    // Signing is an HMAC, not a network call, so a few hundred at once is
+    // cheap — this is concurrency for tidiness, not for throughput.
+    return Promise.all(keys.map((k) => this.mediaUrl(k, ttlSeconds)));
   }
 
   /** Time-limited read URL, for buckets that are not publicly served. */
@@ -388,13 +441,14 @@ export class StorageService {
   /** Files not yet filed into an album. */
   async listUnassigned(userId: string, limit?: number) {
     const rows = await this.quota.listUnassigned(userId, limit);
-    return rows.map((row) => ({
+    const urls = await this.mediaUrls(rows.map((r) => r.key));
+    return rows.map((row, i) => ({
       key: row.key,
       sizeBytes: Number(row.size_bytes),
       contentType: row.content_type,
       albumId: row.album_id,
       createdAt: row.created_at,
-      url: this.config.publicUrl(row.key),
+      url: urls[i],
     }));
   }
 
@@ -425,13 +479,14 @@ export class StorageService {
     }
 
     const rows = await this.quota.listFiles(userId, filter);
-    return rows.map((row) => ({
+    const urls = await this.mediaUrls(rows.map((r) => r.key));
+    return rows.map((row, i) => ({
       key: row.key,
       sizeBytes: Number(row.size_bytes),
       contentType: row.content_type,
       albumId: row.album_id,
       createdAt: row.created_at,
-      url: this.config.publicUrl(row.key),
+      url: urls[i],
     }));
   }
 
