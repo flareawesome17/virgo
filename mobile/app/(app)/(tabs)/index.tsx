@@ -208,25 +208,38 @@ export default function HomeScreen() {
         Two tabs, not two bottom-bar entries. The bar is already at six and a
         seventh truncates its labels on a 360pt screen — see the note in
         (tabs)/_layout.tsx.
+
+        One track spanning the full width rather than two pills hugging their
+        text. Left-aligned pills read as buttons someone put in the corner —
+        the empty half of the row said nothing was there, when in fact half the
+        screen's content lives behind the second one. Filling the width says
+        these two *are* the screen, and gives each an equal, thumb-sized target
+        instead of one sized to the word "Jobs".
+
+        Filled rather than underlined on purpose: the Jobs panel below has its
+        own underlined Browse/Posted/Applications row, and two underline bars
+        stacked read as one confused control instead of a hierarchy.
       */}
-      <View className="flex-row gap-2 px-5 pt-2 pb-1">
-        <Segment
-          label="Home"
-          active={tab === 'home'}
-          onPress={() => setTab('home')}
-        />
-        <Segment
-          label="Jobs"
-          active={tab === 'jobs'}
-          badge={unseenJobs}
-          onPress={() => {
-            setTab('jobs');
-            // Opening the tab is what "seen" means. Fires once per switch, and
-            // the hook zeroes the cached count so the badge does not flash
-            // back while the request is in flight.
-            if (unseenJobs > 0) markSeen.mutate();
-          }}
-        />
+      <View className="px-5 pt-2 pb-2">
+        <View className="flex-row bg-muted rounded-full p-1">
+          <Segment
+            label="Home"
+            active={tab === 'home'}
+            onPress={() => setTab('home')}
+          />
+          <Segment
+            label="Jobs"
+            active={tab === 'jobs'}
+            badge={unseenJobs}
+            onPress={() => {
+              setTab('jobs');
+              // Opening the tab is what "seen" means. Fires once per switch,
+              // and the hook zeroes the cached count so the badge does not
+              // flash back while the request is in flight.
+              if (unseenJobs > 0) markSeen.mutate();
+            }}
+          />
+        </View>
       </View>
 
       {tab === 'jobs' ? (
@@ -582,6 +595,14 @@ export default function HomeScreen() {
 }
 
 /** One of the two home tabs, with an optional unread count. */
+/**
+ * One half of the Home/Jobs switch.
+ *
+ * `flex-1` is the whole point: the two split the track evenly, so the target
+ * is half the screen rather than however wide the word happens to be, and
+ * neither moves when the badge appears or the count goes from 9 to 10. A
+ * control that reflows as its contents change is one people mis-tap.
+ */
 function Segment({
   label, active, badge = 0, onPress,
 }: {
@@ -593,20 +614,38 @@ function Segment({
   return (
     <Pressable
       onPress={onPress}
-      className="flex-row items-center gap-1.5 rounded-full px-4 py-2"
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={badge > 0 ? `${label}, ${badge} new` : label}
+      className="flex-1 flex-row items-center justify-center gap-1.5 rounded-full py-2.5 active:opacity-80"
       style={{
         backgroundColor: active ? '#B66A40' : 'transparent',
-        borderWidth: 1,
-        borderColor: active ? '#B66A40' : '#B66A4033',
+        // The raised segment, so the active half reads as sitting on top of
+        // the track rather than being a differently-coloured piece of it.
+        ...(active
+          ? {
+              shadowColor: '#000',
+              shadowOpacity: 0.12,
+              shadowRadius: 5,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 2,
+            }
+          : null),
       }}
     >
-      <Text className="text-[13px] font-bold" style={{ color: active ? '#fff' : '#B66A40' }}>
+      <Text
+        className="text-[13px] font-bold"
+        style={{ color: active ? '#fff' : '#9ca3af' }}
+      >
         {label}
       </Text>
       {badge > 0 && (
         <View
           className="rounded-full px-1.5"
-          style={{ backgroundColor: active ? '#ffffff33' : '#B66A40', minWidth: 18 }}
+          style={{
+            backgroundColor: active ? '#ffffff33' : '#B66A40',
+            minWidth: 18,
+          }}
         >
           <Text className="text-[10px] font-bold text-center text-white">
             {badge > 99 ? '99+' : badge}
