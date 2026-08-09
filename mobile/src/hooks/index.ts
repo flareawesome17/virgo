@@ -65,6 +65,7 @@ export {
 
 export {
   useFriends,
+  useIncomingFriendRequests,
   useFriend,
   useCreateFriend,
   useUpdateFriend,

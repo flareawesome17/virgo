@@ -29,6 +29,25 @@ export function useFriends(
   };
 }
 
+/**
+ * How many friend requests are waiting on this user to answer.
+ *
+ * For the Network badge. `requested_by: 'them'` is the recipient's side —
+ * without it this would also count requests the user sent themselves, and a
+ * badge that lights up because *you* did something is noise.
+ *
+ * No polling: `friend-request` and `friend-accepted` already invalidate
+ * `queryKeys.friends.all` from the socket, so the count moves the moment the
+ * request lands rather than on the next screen visit.
+ */
+export function useIncomingFriendRequests(options: QueryOptions = {}) {
+  const { friends, loadFailed } = useFriends(
+    { status: 'pending', requested_by: 'them', limit: 100 },
+    options,
+  );
+  return { requests: friends, count: friends.length, loadFailed };
+}
+
 export function useFriend(id: string | undefined) {
   return useQuery({
     queryKey: queryKeys.friends.detail(id ?? ''),

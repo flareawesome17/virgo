@@ -33,6 +33,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useUnreadCount } from '@/hooks/useChat';
 import { useCollaboratorInvitations } from '@/hooks/useCollaborators';
+import { useIncomingFriendRequests } from '@/hooks/useFriends';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
 
@@ -41,7 +42,7 @@ interface NavItem {
   label: string;
   icon: ComponentType<{ className?: string }>;
   /** Which live count fills this item's badge slot, if any. */
-  badge?: 'unread' | 'invitations';
+  badge?: 'unread' | 'invitations' | 'friendRequests';
 }
 
 const NAV: { heading?: string; items: NavItem[] }[] = [
@@ -55,7 +56,7 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
   {
     heading: 'People',
     items: [
-      { href: '/network', label: 'Network', icon: Users },
+      { href: '/network', label: 'Network', icon: Users, badge: 'friendRequests' },
       { href: '/chat', label: 'Chat', icon: MessageCircle, badge: 'unread' },
       { href: '/nearby', label: 'Nearby', icon: MapPin },
       { href: '/jobs/mine', label: 'Jobs', icon: BriefcaseBusiness },
@@ -76,6 +77,9 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   // An invitation is invisible until answered — the workspace does not
   // appear anywhere else — so the count has to live on the nav itself.
   const { invitations } = useCollaboratorInvitations();
+  // Friend requests waiting on an answer. Kept out of the page so the
+  // count is visible from anywhere, which is the point of a badge.
+  const { count: friendRequests } = useIncomingFriendRequests();
 
   return (
     <nav className="flex flex-col gap-6 px-3 py-2">
@@ -114,6 +118,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 {item.badge === 'unread' && unread > 0 && (
                   <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
                     {unread > 99 ? '99+' : unread}
+                  </Badge>
+                )}
+                {item.badge === 'friendRequests' && friendRequests > 0 && (
+                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
+                    {friendRequests > 99 ? '99+' : friendRequests}
                   </Badge>
                 )}
                 {item.badge === 'invitations' && invitations.length > 0 && (
