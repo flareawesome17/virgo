@@ -91,7 +91,10 @@ export class StorageConfig {
   private readonly logger = new Logger(StorageConfig.name);
 
   readonly provider: string;
+  /** The original bucket. Public, and now holds nothing but avatars. */
   readonly bucket: string;
+  /** Private. Everything that is somebody's work rather than their face. */
+  readonly mediaBucket: string;
   readonly endpoint: string;
   readonly region: string;
   readonly keyId: string;
@@ -102,6 +105,11 @@ export class StorageConfig {
   constructor(config: ConfigService) {
     this.provider = config.get<string>('STORAGE_PROVIDER', 'b2');
     this.bucket = config.get<string>('B2_BUCKET_NAME', '');
+    // Falls back to the public bucket when unset, so a deployment that has not
+    // been given the new name keeps working exactly as before rather than
+    // failing every upload with a missing-bucket error.
+    this.mediaBucket =
+      config.get<string>('B2_MEDIA_BUCKET_NAME', '') || this.bucket;
     // Backblaze shows the endpoint as a bare host (`s3.us-west-004.backblazeb2.com`),
     // but the AWS SDK needs an absolute URL and throws "Invalid URL" without a
     // scheme. Accept either form rather than making the value format load-bearing.
@@ -120,6 +128,46 @@ export class StorageConfig {
         'Storage is not fully configured — upload endpoints will return 503.',
       );
     }
+  }
+
+  /**
+   * Which bucket an object lives in, decided by its key.
+   *
+   * Avatars stay in the public bucket because they are stored as whole URLs —
+   * `users.avatar_url`, and denormalised copies in `friends` and
+   * `collaborators` — and a URL in a database has to keep resolving. Nothing
+   * else is referenced that way, so everything else lives in the private
+   * bucket and is reached through a signed URL.
+   *
+   * Keyed off the path rather than a column so it gives the same answer for an
+   * object whose row was never written, of which there are more than you would
+   * hope: the bucket had 30 objects with no `user_files` row at all.
+   */
+  bucketForKey(key: string): string {
+    return /^users\/[^/]+\/avatars\//.test(key) ? this.bucket : this.mediaBucket;
+  }
+
+  /**
+   * The object key a stored public URL points at, or null if it is not ours.
+   *
+   * `avatar_url` holds a whole URL rather than a key, so removing the previous
+   * avatar means working backwards from the string that was saved.
+   */
+  keyFromPublicUrl(url: string | null | undefined): string | null {
+    if (!url || !this.cdnBaseUrl || !url.startsWith(`${this.cdnBaseUrl}/`)) {
+      return null;
+    }
+    try {
+      const path = decodeURIComponent(new URL(url).pathname).replace(/^\/+/, '');
+      return path || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Which bucket a new upload of this scope should be written to. */
+  bucketForScope(scope: string): string {
+    return scope === 'avatars' ? this.bucket : this.mediaBucket;
   }
 
   private static normalizeEndpoint(raw: string): string {

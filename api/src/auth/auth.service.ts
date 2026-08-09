@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -14,6 +15,7 @@ import {
   UsersRepository,
   UserRow,
 } from './users.repository';
+import { StorageService } from '../storage/storage.service';
 import { normalizeRoles } from './roles';
 
 export interface AuthTokens {
@@ -33,10 +35,13 @@ export interface JwtPayload {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly users: UsersRepository,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly storage: StorageService,
   ) {}
 
   private normalizeEmail(email: string): string {
@@ -277,6 +282,15 @@ export class AuthService {
       roles?: string[];
     },
   ): Promise<PublicUser> {
+    // Read the old avatar before the write, so the object it points at can be
+    // removed afterwards. Every replaced picture used to stay in the bucket
+    // forever: paid for, unreachable, and impossible to tell apart from a real
+    // one — a third of the objects in there had no database row at all.
+    const previousAvatar =
+      input.avatarUrl !== undefined
+        ? (await this.users.findById(userId))?.avatar_url ?? null
+        : null;
+
     const user = await this.users.updateProfile(userId, {
       display_name: input.displayName,
       avatar_url: input.avatarUrl,
@@ -289,6 +303,33 @@ export class AuthService {
       roles: input.roles ? normalizeRoles(input.roles) : undefined,
     });
     if (!user) throw new UnauthorizedException();
+
+    if (previousAvatar && previousAvatar !== user.avatar_url) {
+      await this.discardAvatar(userId, previousAvatar);
+    }
+
     return toPublicUser(user);
+  }
+
+  /**
+   * Deletes the object a replaced avatar pointed at.
+   *
+   * Best-effort on purpose: the profile has already been saved, and failing
+   * the whole request because a tidy-up did not land would be the wrong trade.
+   *
+   * The key is checked against the caller's own avatar prefix before anything
+   * is deleted. `avatar_url` is client-supplied, so without that check a
+   * crafted value would turn this into "delete any object you can name".
+   */
+  private async discardAvatar(userId: string, url: string): Promise<void> {
+    try {
+      const key = this.storage.keyFromPublicUrl(url);
+      if (!key || !key.startsWith(`users/${userId}/avatars/`)) return;
+      await this.storage.deleteObject(userId, key);
+    } catch (err) {
+      this.logger.warn(
+        `Could not remove the previous avatar for ${userId}: ${String(err)}`,
+      );
+    }
   }
 }

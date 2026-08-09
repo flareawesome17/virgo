@@ -213,7 +213,7 @@ export class StorageService {
     // signature simply will not match. This is the only real size enforcement
     // available for a presigned PUT.
     const command = new PutObjectCommand({
-      Bucket: this.config.bucket,
+      Bucket: this.config.bucketForScope(input.scope),
       Key: key,
       ContentType: input.contentType,
       ContentLength: input.contentLength,
@@ -269,9 +269,14 @@ export class StorageService {
 
     return getSignedUrl(
       this.client,
-      new GetObjectCommand({ Bucket: this.config.bucket, Key: key }),
+      new GetObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
       { expiresIn: ttlSeconds, signingDate },
     );
+  }
+
+  /** The object key a stored public URL points at, or null if it is not ours. */
+  keyFromPublicUrl(url: string | null | undefined): string | null {
+    return this.config.keyFromPublicUrl(url);
   }
 
   /** Origins media is served from, for a Content-Security-Policy. */
@@ -298,7 +303,7 @@ export class StorageService {
 
     return getSignedUrl(
       client,
-      new GetObjectCommand({ Bucket: this.config.bucket, Key: key }),
+      new GetObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
       { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
     );
   }
@@ -309,7 +314,7 @@ export class StorageService {
     await this.assertCanAccess(userId, key, 'manage');
 
     await client.send(
-      new DeleteObjectCommand({ Bucket: this.config.bucket, Key: key }),
+      new DeleteObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
     );
     // Free the space against the quota. Done after the delete succeeds so a
     // failed delete does not silently hand back allowance.
@@ -346,12 +351,31 @@ export class StorageService {
       for (const key of batch) this.assertOwned(userId, key);
 
       try {
-        const res = await client.send(
-          new DeleteObjectsCommand({
-            Bucket: this.config.bucket,
-            Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: false },
-          }),
+        // A batch can straddle both buckets — avatars live in the public one,
+        // everything else in the private one — and DeleteObjects takes exactly
+        // one bucket, so the batch is split by where each key actually is.
+        const byBucket = new Map<string, string[]>();
+        for (const key of batch) {
+          const b = this.config.bucketForKey(key);
+          const list = byBucket.get(b) ?? [];
+          list.push(key);
+          byBucket.set(b, list);
+        }
+
+        const results = await Promise.all(
+          [...byBucket].map(([Bucket, keys]) =>
+            client.send(
+              new DeleteObjectsCommand({
+                Bucket,
+                Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
+              }),
+            ),
+          ),
         );
+        const res = {
+          Deleted: results.flatMap((r) => r.Deleted ?? []),
+          Errors: results.flatMap((r) => r.Errors ?? []),
+        };
         for (const d of res.Deleted ?? []) {
           if (d.Key) deletedKeys.push(d.Key);
         }
@@ -401,12 +425,31 @@ export class StorageService {
       for (const key of batch) this.assertOwned(userId, key);
 
       try {
-        const res = await client.send(
-          new DeleteObjectsCommand({
-            Bucket: this.config.bucket,
-            Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: false },
-          }),
+        // A batch can straddle both buckets — avatars live in the public one,
+        // everything else in the private one — and DeleteObjects takes exactly
+        // one bucket, so the batch is split by where each key actually is.
+        const byBucket = new Map<string, string[]>();
+        for (const key of batch) {
+          const b = this.config.bucketForKey(key);
+          const list = byBucket.get(b) ?? [];
+          list.push(key);
+          byBucket.set(b, list);
+        }
+
+        const results = await Promise.all(
+          [...byBucket].map(([Bucket, keys]) =>
+            client.send(
+              new DeleteObjectsCommand({
+                Bucket,
+                Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
+              }),
+            ),
+          ),
         );
+        const res = {
+          Deleted: results.flatMap((r) => r.Deleted ?? []),
+          Errors: results.flatMap((r) => r.Errors ?? []),
+        };
         for (const d of res.Deleted ?? []) {
           if (d.Key) deletedKeys.push(d.Key);
         }
@@ -518,7 +561,7 @@ export class StorageService {
 
     try {
       const head = await client.send(
-        new HeadObjectCommand({ Bucket: this.config.bucket, Key: key }),
+        new HeadObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
       );
       const size = head.ContentLength ?? 0;
 
