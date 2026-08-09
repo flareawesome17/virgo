@@ -3,5 +3,8 @@ node_modules/
 .tinbase/
 dist/
 
-# local env — keep real keys out of git
-.env
+# local env — keep real keys out of git.
+# Globbed, not just `.env`: a `.env.backup-…` written during an incident is
+# exactly as sensitive and matched none of the old rule.
+.env*
+!.env.example
