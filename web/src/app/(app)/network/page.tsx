@@ -31,23 +31,14 @@ import {
 } from '@/hooks/useFriends';
 import {
   useCollaboratorAlbums,
-  useCollaboratorInvitations,
   useCollaborators,
   useDeleteCollaborator,
-  useRespondToInvitation,
   useSetCollaboratorAlbums,
 } from '@/hooks/useCollaborators';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useHireEnquiries } from '@/hooks/useHire';
 import { EnquiriesTab } from '@/components/enquiries';
-
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Owner',
-  photographer: 'Photographer',
-  editor: 'Editor',
-  reviewer: 'Reviewer',
-  client: 'Client',
-};
+import { ROLE_LABELS } from '@/components/workspace-invitations';
 
 function PersonAvatar({ name, url }: { name: string; url?: string | null }) {
   return (
@@ -191,8 +182,6 @@ function NetworkPageBody() {
     status: 'accepted',
     limit: 100,
   });
-  const { invitations } = useCollaboratorInvitations();
-  const respondToInvite = useRespondToInvitation();
   const { collaborators } = useCollaborators({ limit: 100 });
   const { workspaces } = useWorkspaces({ limit: 100 });
 
@@ -315,8 +304,9 @@ function NetworkPageBody() {
           </section>
         )}
 
-        {/* Pending, always surfaced above the tabs — these need an answer. */}
-        {(incoming.length > 0 || invitations.length > 0) && !showingSearch && (
+        {/* Friend requests need an answer here. Workspace invitations moved
+            to the Workspaces page, next to the list they join. */}
+        {incoming.length > 0 && !showingSearch && (
           <section className="mb-8 flex flex-col gap-4">
             {incoming.length > 0 && (
               <div>
@@ -364,55 +354,6 @@ function NetworkPageBody() {
               </div>
             )}
 
-            {invitations.length > 0 && (
-              <div>
-                <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                  Workspace invitations
-                </h2>
-                <Card>
-                  <CardContent className="p-0">
-                    <ul>
-                      {invitations.map((invitation) => (
-                        <li
-                          key={invitation.id}
-                          className="flex items-center gap-3 border-b px-4 py-3 last:border-0"
-                        >
-                          <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10">
-                            <Users className="size-4 text-primary" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold">
-                              {invitation.workspace_name ?? 'A workspace'}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {invitation.inviter_name ?? 'Someone'} invited you as{' '}
-                              {ROLE_LABELS[invitation.role] ?? invitation.role}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              respondToInvite.mutate({ id: invitation.id, accept: false })
-                            }
-                          >
-                            Decline
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() =>
-                              respondToInvite.mutate({ id: invitation.id, accept: true })
-                            }
-                          >
-                            Accept
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
           </section>
         )}
 

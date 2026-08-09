@@ -78,21 +78,32 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     }
 
     // `album_ids` is not a column; it selects which albums to share and is
-    // applied as exclusions below.
+    // applied as grants below.
     const albumIds = Array.isArray(data.album_ids)
       ? (data.album_ids as string[])
       : null;
     const { album_ids: _ignored, ...columns } = data;
 
-    const row = await super.create(userId, {
-      ...columns,
-      // An invitation, not a fait accompli: the other person has to accept
-      // before the workspace appears in their app.
-      status: 'pending',
-    });
+    // An invitation, not a fait accompli: the other person has to accept before
+    // the workspace appears in their app. `status` is not passed here and is
+    // not writable — the column defaults to 'pending', and only
+    // `respondToInvitation` moves it, so neither side can skip the asking.
+    const row = await super.create(userId, columns);
 
-    if (albumIds && workspaceId) {
-      await this.setSharedAlbums(userId, row.id, workspaceId, albumIds);
+    if (workspaceId) {
+      // No selection means "the workspace as it stands today", which is what
+      // inviting someone to a workspace has always meant. Only albums made
+      // *after* this point need granting, so the invitee does not land in an
+      // empty workspace while the picker is still being built.
+      const grants =
+        albumIds ??
+        (
+          await this.db.query<{ id: string }>(
+            'select id from albums where workspace_id = $1 and user_id = $2',
+            [workspaceId, userId],
+          )
+        ).map((a) => a.id);
+      await this.setSharedAlbums(userId, row.id, workspaceId, grants);
     }
 
     await this.notifyInvitee(userId, collaboratorUserId, workspaceId);
@@ -102,9 +113,14 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
   /**
    * Sets exactly which albums a collaborator can see.
    *
-   * Stored as exclusions for everything *not* chosen, so albums created later
-   * are shared by default — the alternative, listing what they can see, would
-   * silently withhold every new album until someone remembered to add it.
+   * Stored as grants for what *is* chosen. The albums not listed simply have
+   * no row, which is also what a newly created album has — so a new album
+   * starts private to its owner and is shared on purpose rather than by
+   * default. That is the whole point of the change: a workspace holds more
+   * than one client's work.
+   *
+   * The whole set is replaced rather than diffed, because the caller sends the
+   * complete selection and a partial update would leave stale grants behind.
    */
   async setSharedAlbums(
     userId: string,
@@ -112,30 +128,34 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     workspaceId: string,
     albumIds: string[],
   ): Promise<{ shared: number; excluded: number }> {
+    // Only albums the caller actually owns in this workspace, so a forged id
+    // cannot grant access to somebody else's album.
     const albums = await this.db.query<{ id: string }>(
       'select id from albums where workspace_id = $1 and user_id = $2',
       [workspaceId, userId],
     );
 
-    const keep = new Set(albumIds);
-    const exclude = albums.filter((a) => !keep.has(a.id)).map((a) => a.id);
+    const owned = new Set(albums.map((a) => a.id));
+    const grant = albumIds.filter((id) => owned.has(id));
 
     await this.db.transaction(async (client) => {
       await client.query(
-        'delete from album_collaborator_exclusions where collaborator_id = $1',
+        'delete from collaborator_albums where collaborator_id = $1',
         [collaboratorId],
       );
-      if (exclude.length > 0) {
+      if (grant.length > 0) {
         await client.query(
-          `insert into album_collaborator_exclusions (album_id, collaborator_id, user_id)
-           select unnest($1::text[]), $2, $3
-           on conflict (album_id, collaborator_id) do nothing`,
-          [exclude, collaboratorId, userId],
+          `insert into collaborator_albums (collaborator_id, album_id)
+           select $1, unnest($2::text[])
+           on conflict (collaborator_id, album_id) do nothing`,
+          [collaboratorId, grant],
         );
       }
     });
 
-    return { shared: albums.length - exclude.length, excluded: exclude.length };
+    // `excluded` is kept in the response shape because both clients read it.
+    // Under an allow-list it means "in this workspace but not granted".
+    return { shared: grant.length, excluded: albums.length - grant.length };
   }
 
   /**
@@ -153,10 +173,10 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     if (!row) throw new NotFoundException('Collaborator not found');
 
     return this.db.query(
-      `select a.id, a.name, a.item_count, (x.id is null) as shared
+      `select a.id, a.name, a.item_count, (ca.album_id is not null) as shared
          from albums a
-         left join album_collaborator_exclusions x
-           on x.album_id = a.id and x.collaborator_id = $2
+         left join collaborator_albums ca
+           on ca.album_id = a.id and ca.collaborator_id = $2
         where a.workspace_id = $3 and a.user_id = $1
         order by a.created_at desc`,
       [userId, collaboratorId, row.workspace_id],
@@ -301,10 +321,14 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
   /**
    * Who can see one album.
    *
-   * Its workspace's collaborators, minus anyone excluded from this album
-   * specifically. Inheritance is computed rather than stored, so adding a
-   * collaborator to a workspace gives them every album — including ones
-   * created later — without a backfill.
+   * Its workspace's collaborators, each flagged with whether this particular
+   * album has been granted to them. Everyone in the workspace is still
+   * returned, not only those with access, so the screen can offer to add
+   * someone rather than making them disappear.
+   *
+   * `excluded` is kept as the field name because both clients read it. It now
+   * means "no grant for this album" rather than "an exclusion row exists" —
+   * the same question, answered from the other side.
    */
   async forAlbum(
     userId: string,
@@ -316,13 +340,11 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     );
     if (!album) throw new NotFoundException('Album not found');
 
-    // Excluded rows are returned too, flagged, so the screen can offer to put
-    // someone back rather than making removal look permanent.
     return this.db.query<CollaboratorRow & { excluded: boolean }>(
-      `select c.*, (x.id is not null) as excluded
+      `select c.*, (ca.album_id is null) as excluded
          from collaborators c
-         left join album_collaborator_exclusions x
-           on x.collaborator_id = c.id and x.album_id = $2
+         left join collaborator_albums ca
+           on ca.collaborator_id = c.id and ca.album_id = $2
         where c.user_id = $1 and c.workspace_id = $3
         order by c.created_at desc`,
       [userId, albumId, album.workspace_id],
@@ -346,7 +368,12 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     }
   }
 
-  /** Removes a collaborator from one album, leaving the workspace intact. */
+  /**
+   * Removes a collaborator from one album, leaving the workspace intact.
+   *
+   * Now a deleted grant rather than an added exclusion. The route and its
+   * response are unchanged so bundles already on people's phones keep working.
+   */
   async excludeFromAlbum(
     userId: string,
     albumId: string,
@@ -354,10 +381,8 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
   ): Promise<{ excluded: boolean }> {
     await this.assertAlbumAndCollaborator(userId, albumId, collaboratorId);
     await this.db.query(
-      `insert into album_collaborator_exclusions (album_id, collaborator_id, user_id)
-       values ($1, $2, $3)
-       on conflict (album_id, collaborator_id) do nothing`,
-      [albumId, collaboratorId, userId],
+      'delete from collaborator_albums where album_id = $1 and collaborator_id = $2',
+      [albumId, collaboratorId],
     );
     return { excluded: true };
   }
@@ -370,9 +395,10 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
   ): Promise<{ excluded: boolean }> {
     await this.assertAlbumAndCollaborator(userId, albumId, collaboratorId);
     await this.db.query(
-      `delete from album_collaborator_exclusions
-        where album_id = $1 and collaborator_id = $2 and user_id = $3`,
-      [albumId, collaboratorId, userId],
+      `insert into collaborator_albums (collaborator_id, album_id)
+       values ($1, $2)
+       on conflict (collaborator_id, album_id) do nothing`,
+      [collaboratorId, albumId],
     );
     return { excluded: false };
   }

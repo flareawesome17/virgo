@@ -94,27 +94,28 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
   }
 
   /**
-   * Albums visible to the user: their own, plus those in workspaces they have
-   * accepted an invitation to and have not been excluded from.
+   * Albums visible to the user: their own, plus the ones they have been
+   * granted through an accepted workspace invitation.
    *
-   * The exclusion check is what makes per-album removal real rather than
-   * cosmetic — an excluded album must not appear in the collaborator's list at
-   * all, not merely be hidden by the owner's screen.
+   * Access is a row that must be present, not one that must be absent. It used
+   * to be the other way round — every album in the workspace, minus
+   * exclusions — which meant creating an album silently handed it to everyone
+   * already in that workspace. A workspace holds more than one client's work,
+   * so that was a decision being made by default rather than by the owner.
+   *
+   * Both halves are still required. The grant says which albums; the accepted
+   * status says the person agreed to be there at all. Checking only the grant
+   * would show a workspace to someone who never answered the invitation.
    */
   private sharedClause(paramIndex: number): string {
     return `(
       user_id = $${paramIndex}
-      or (
-        workspace_id in (
-          select workspace_id from collaborators
-           where collaborator_user_id = $${paramIndex} and status = 'accepted'
-        )
-        and id not in (
-          select x.album_id
-            from album_collaborator_exclusions x
-            join collaborators c on c.id = x.collaborator_id
-           where c.collaborator_user_id = $${paramIndex}
-        )
+      or id in (
+        select ca.album_id
+          from collaborator_albums ca
+          join collaborators c on c.id = ca.collaborator_id
+         where c.collaborator_user_id = $${paramIndex}
+           and c.status = 'accepted'
       )
     )`;
   }

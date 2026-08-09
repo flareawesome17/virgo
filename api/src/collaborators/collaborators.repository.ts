@@ -28,6 +28,19 @@ export interface CollaboratorRow {
 export class CollaboratorsRepository extends OwnedRepository<CollaboratorRow> {
   protected readonly table = 'collaborators';
 
+  /**
+   * `status` is deliberately absent.
+   *
+   * It is a state transition owned by `respondToInvitation`, not a field a
+   * client edits. While it was writable, the generic `PATCH /collaborators/:id`
+   * path could set it — and that row is scoped to the *inviter*, so the person
+   * sending the invitation could mark it accepted on the invitee's behalf. That
+   * is the same hole that was closed in friends, and only `UpdateCollaboratorDto`
+   * omitting the field was stopping it here.
+   *
+   * The column defaults to 'pending', so create still produces an invitation
+   * rather than a fait accompli without passing it through.
+   */
   protected readonly writableColumns = [
     'id',
     'workspace_id',
@@ -35,7 +48,6 @@ export class CollaboratorsRepository extends OwnedRepository<CollaboratorRow> {
     'name',
     'avatar_url',
     'role',
-    'status',
   ];
 
   protected readonly filterableColumns = ['status', 'workspace_id', 'role'];

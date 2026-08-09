@@ -3,8 +3,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useAuth,
   useCollaborators,
-  useCollaboratorInvitations,
-  useRespondToInvitation,
   useCollaboratorAlbums,
   useDeleteCollaborator,
   useSetCollaboratorAlbums,
@@ -95,8 +93,6 @@ export default function NetworkScreen() {
     limit: 100,
   });
 
-  const { invitations, refetch: refetchInvites } = useCollaboratorInvitations();
-  const respondToInvite = useRespondToInvitation();
 
   const removeFriend = useDeleteFriend();
   const removeCollaborator = useDeleteCollaborator();
@@ -207,7 +203,7 @@ export default function NetworkScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetchCollaborators(), refetchWorkspaces(), refetchIncoming(), refetchFriends(), refetchInvites()]);
+    await Promise.all([refetchCollaborators(), refetchWorkspaces(), refetchIncoming(), refetchFriends()]);
     setRefreshing(false);
   };
 
@@ -395,54 +391,6 @@ export default function NetworkScreen() {
                   </Pressable>
                   <Pressable
                     onPress={() => respond.mutate({ id: req.id, accept: true })}
-                    className="px-3 py-2 rounded-xl bg-primary active:scale-[0.94]"
-                  >
-                    <Text className="text-white text-xs font-bold">Accept</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* Workspace invitations addressed to me. Until the invitee had a row
-            of their own, being invited was invisible — nothing to see, nothing
-            to accept. */}
-        {invitations.length > 0 && search.trim().length < 2 && (
-          <View className="px-5 pb-4">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-              Workspace invitations
-            </Text>
-            <View
-              className="bg-card rounded-2xl overflow-hidden"
-              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-            >
-              {invitations.map((inv, i) => (
-                <View
-                  key={inv.id}
-                  className="px-4 py-3 flex-row items-center gap-3"
-                  style={i < invitations.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
-                >
-                  <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
-                    <UsersIcon size={17} style={{ color: '#B66A40' }} />
-                  </View>
-                  <View className="flex-1 min-w-0">
-                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                      {inv.workspace_name ?? 'A workspace'}
-                    </Text>
-                    <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-                      {inv.inviter_name ?? 'Someone'} invited you as{' '}
-                      {ROLE_LABELS[inv.role] ?? inv.role}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => respondToInvite.mutate({ id: inv.id, accept: false })}
-                    className="px-3 py-2 rounded-xl bg-muted active:scale-[0.94]"
-                  >
-                    <Text className="text-muted-foreground text-xs font-bold">Decline</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => respondToInvite.mutate({ id: inv.id, accept: true })}
                     className="px-3 py-2 rounded-xl bg-primary active:scale-[0.94]"
                   >
                     <Text className="text-white text-xs font-bold">Accept</Text>

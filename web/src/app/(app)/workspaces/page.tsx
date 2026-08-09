@@ -7,6 +7,7 @@ import { FolderOpen, Images, Loader2, Plus, Search, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell, PageHeader } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
+import { WorkspaceInvitations } from '@/components/workspace-invitations';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -162,6 +163,10 @@ function WorkspacesContent() {
       />
 
       <div className="mx-auto w-full max-w-6xl px-6 py-6">
+        {/* Above the search and the grid on purpose: an invitation is the one
+            thing here that expires on someone else's patience. */}
+        <WorkspaceInvitations />
+
         <div className="relative mb-5 max-w-sm">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input

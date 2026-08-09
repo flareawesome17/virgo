@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/useAuth';
 import { useUnreadCount } from '@/hooks/useChat';
+import { useCollaboratorInvitations } from '@/hooks/useCollaborators';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
 
@@ -39,15 +40,15 @@ interface NavItem {
   href: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
-  /** Marks the badge slot; only chat uses it today. */
-  badge?: 'unread';
+  /** Which live count fills this item's badge slot, if any. */
+  badge?: 'unread' | 'invitations';
 }
 
 const NAV: { heading?: string; items: NavItem[] }[] = [
   {
     items: [
       { href: '/', label: 'Home', icon: Home },
-      { href: '/workspaces', label: 'Workspaces', icon: FolderOpen },
+      { href: '/workspaces', label: 'Workspaces', icon: FolderOpen, badge: 'invitations' },
       { href: '/schedule', label: 'Schedule', icon: CalendarDays },
     ],
   },
@@ -72,6 +73,9 @@ function initials(name: string | null | undefined, email: string | undefined): s
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const unread = useUnreadCount();
+  // An invitation is invisible until answered — the workspace does not
+  // appear anywhere else — so the count has to live on the nav itself.
+  const { invitations } = useCollaboratorInvitations();
 
   return (
     <nav className="flex flex-col gap-6 px-3 py-2">
@@ -110,6 +114,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 {item.badge === 'unread' && unread > 0 && (
                   <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
                     {unread > 99 ? '99+' : unread}
+                  </Badge>
+                )}
+                {item.badge === 'invitations' && invitations.length > 0 && (
+                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
+                    {invitations.length > 99 ? '99+' : invitations.length}
                   </Badge>
                 )}
               </Link>

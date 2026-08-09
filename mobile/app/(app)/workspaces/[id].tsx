@@ -366,9 +366,31 @@ export default function WorkspaceDetailScreen() {
                     <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
                       {collab.name}
                     </Text>
-                    <Text className="text-muted-foreground text-xs">
-                      {ROLE_LABELS[collab.role] || collab.role}
-                    </Text>
+                    <View className="flex-row items-center gap-1.5">
+                      <Text className="text-muted-foreground text-xs">
+                        {ROLE_LABELS[collab.role] || collab.role}
+                      </Text>
+                      {/* Web has said this since invitations shipped; the phone
+                          did not, so an invitation nobody had answered looked
+                          exactly like a collaborator who had joined. */}
+                      {collab.status === 'pending' && (
+                        <View
+                          className="rounded-full px-1.5 py-0.5"
+                          style={{ backgroundColor: '#B66A4018' }}
+                        >
+                          <Text className="text-[9px] font-bold" style={{ color: '#B66A40' }}>
+                            INVITED
+                          </Text>
+                        </View>
+                      )}
+                      {collab.status === 'declined' && (
+                        <View className="rounded-full px-1.5 py-0.5 bg-muted">
+                          <Text className="text-muted-foreground text-[9px] font-bold">
+                            DECLINED
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                   <View className="flex-row gap-1.5">
                     <Pressable className="w-8 h-8 rounded-full bg-muted items-center justify-center active:scale-[0.92]">

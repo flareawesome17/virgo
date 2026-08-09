@@ -9,7 +9,7 @@ import {
   MessageCircleIcon,
 } from 'lucide-react-native';
 import { cssInterop, useColorScheme } from 'nativewind';
-import { useUnreadCount } from '@/src/hooks';
+import { useCollaboratorInvitations, useUnreadCount } from '@/src/hooks';
 
 cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -27,6 +27,9 @@ export default function TabsLayout() {
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   const unread = useUnreadCount();
+  // An invitation is invisible until answered — the workspace does not
+  // show up anywhere else — so the count has to live on the tab itself.
+  const { invitations } = useCollaboratorInvitations();
 
   // The bar was a fixed height:88 / paddingBottom:28. On an iPhone with a home
   // indicator the bottom inset is 34pt, so 28 put the labels *underneath* it;
@@ -82,6 +85,20 @@ export default function TabsLayout() {
               strokeWidth={focused ? 2.5 : 2}
             />
           ),
+          tabBarBadge:
+            invitations.length > 0
+              ? invitations.length > 99
+                ? '99+'
+                : invitations.length
+              : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#B66A40',
+            fontSize: 10,
+            fontWeight: '700',
+            minWidth: 17,
+            height: 17,
+            lineHeight: 13,
+          },
         }}
       />
       <Tabs.Screen

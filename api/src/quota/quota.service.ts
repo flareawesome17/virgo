@@ -197,6 +197,10 @@ export class QuotaService {
       // `user_id` alone left a shared album looking empty to the person
       // invited into it. Widened to the album's own owner, but only when this
       // caller genuinely has access to that album.
+      // Access is now a grant that must exist rather than an exclusion that
+      // must not, so this joins `collaborator_albums` instead of checking for
+      // the absence of a row. Both conditions still have to hold: the invite
+      // accepted, and this specific album shared.
       where =
         `album_id = $${params.length} and (user_id = $1 or exists (
            select 1 from albums a
@@ -204,12 +208,11 @@ export class QuotaService {
               on c.workspace_id = a.workspace_id
              and c.collaborator_user_id = $1
              and c.status = 'accepted'
+            join collaborator_albums ca
+              on ca.collaborator_id = c.id
+             and ca.album_id = a.id
             where a.id = $${params.length}
               and a.user_id = user_files.user_id
-              and not exists (
-                select 1 from album_collaborator_exclusions x
-                 where x.album_id = a.id and x.collaborator_id = c.id
-              )
          ))`;
     }
 

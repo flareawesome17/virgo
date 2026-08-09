@@ -17,6 +17,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
+import { WorkspaceInvitations } from '@/components/WorkspaceInvitations';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -168,6 +169,10 @@ export default function WorkspacesScreen() {
                 <PlusIcon size={20} className="text-white" />
               </Pressable>
             </View>
+
+            {/* Under the title, above the list it will join: an invitation is
+                the one thing on this screen waiting on somebody else. */}
+            <WorkspaceInvitations />
 
             {/* Search + Filter */}
             <View className="px-5 pt-3 pb-2 flex-row items-center gap-3">

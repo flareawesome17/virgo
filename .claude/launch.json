@@ -16,6 +16,14 @@
       "cwd": "mobile",
       "port": 8099,
       "autoPort": false
+    },
+    {
+      "name": "virgo-mobile",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start", "--clear", "--port", "8081"],
+      "cwd": "mobile",
+      "port": 8081,
+      "autoPort": false
     }
   ]
 }
