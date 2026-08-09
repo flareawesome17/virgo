@@ -11,8 +11,10 @@ import {
 import { cssInterop, useColorScheme } from 'nativewind';
 import {
   useCollaboratorInvitations,
+  useEventInvitations,
   useIncomingFriendRequests,
   useUnreadCount,
+  useUnseenJobs,
 } from '@/src/hooks';
 
 cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -37,6 +39,12 @@ export default function TabsLayout() {
   // Friend requests waiting on an answer, so the tab says so without
   // being opened — the socket keeps it current.
   const { count: friendRequests } = useIncomingFriendRequests();
+  // Invitations to somebody else's shoot, waiting on an answer.
+  const { invitations: eventInvites } = useEventInvitations();
+  // Open postings not yet looked at. The Jobs board lives inside the Home
+  // screen rather than having a tab of its own, so this is the only place a
+  // new posting can announce itself without the screen being open.
+  const { count: newJobs } = useUnseenJobs();
 
   // The bar was a fixed height:88 / paddingBottom:28. On an iPhone with a home
   // indicator the bottom inset is 34pt, so 28 put the labels *underneath* it;
@@ -72,6 +80,16 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Home',
+          tabBarBadge:
+            newJobs > 0 ? (newJobs > 99 ? '99+' : newJobs) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#B66A40',
+            fontSize: 10,
+            fontWeight: '700',
+            minWidth: 17,
+            height: 17,
+            lineHeight: 13,
+          },
           tabBarIcon: ({ focused }) => (
             <HomeIcon
               className={focused ? 'text-[#B66A40]' : 'text-[#A89489]'}
@@ -139,6 +157,20 @@ export default function TabsLayout() {
         name="schedule"
         options={{
           title: 'Schedule',
+          tabBarBadge:
+            eventInvites.length > 0
+              ? eventInvites.length > 99
+                ? '99+'
+                : eventInvites.length
+              : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#B66A40',
+            fontSize: 10,
+            fontWeight: '700',
+            minWidth: 17,
+            height: 17,
+            lineHeight: 13,
+          },
           tabBarIcon: ({ focused }) => (
             <CalendarIcon
               className={focused ? 'text-[#B66A40]' : 'text-[#A89489]'}

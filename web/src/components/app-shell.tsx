@@ -34,6 +34,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUnreadCount } from '@/hooks/useChat';
 import { useCollaboratorInvitations } from '@/hooks/useCollaborators';
 import { useIncomingFriendRequests } from '@/hooks/useFriends';
+import { useEventInvitations } from '@/hooks/useScheduleEvents';
+import { useUnseenJobs } from '@/hooks/useJobs';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
 
@@ -42,7 +44,7 @@ interface NavItem {
   label: string;
   icon: ComponentType<{ className?: string }>;
   /** Which live count fills this item's badge slot, if any. */
-  badge?: 'unread' | 'invitations' | 'friendRequests';
+  badge?: 'unread' | 'invitations' | 'friendRequests' | 'eventInvites' | 'newJobs';
 }
 
 const NAV: { heading?: string; items: NavItem[] }[] = [
@@ -50,7 +52,7 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
     items: [
       { href: '/', label: 'Home', icon: Home },
       { href: '/workspaces', label: 'Workspaces', icon: FolderOpen, badge: 'invitations' },
-      { href: '/schedule', label: 'Schedule', icon: CalendarDays },
+      { href: '/schedule', label: 'Schedule', icon: CalendarDays, badge: 'eventInvites' },
     ],
   },
   {
@@ -59,7 +61,7 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
       { href: '/network', label: 'Network', icon: Users, badge: 'friendRequests' },
       { href: '/chat', label: 'Chat', icon: MessageCircle, badge: 'unread' },
       { href: '/nearby', label: 'Nearby', icon: MapPin },
-      { href: '/jobs/mine', label: 'Jobs', icon: BriefcaseBusiness },
+      { href: '/jobs/mine', label: 'Jobs', icon: BriefcaseBusiness, badge: 'newJobs' },
     ],
   },
 ];
@@ -80,6 +82,10 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   // Friend requests waiting on an answer. Kept out of the page so the
   // count is visible from anywhere, which is the point of a badge.
   const { count: friendRequests } = useIncomingFriendRequests();
+  // Invitations to somebody else's shoot, waiting on an answer.
+  const { invitations: eventInvites } = useEventInvitations();
+  // Open postings this user has not looked at yet.
+  const { count: newJobs } = useUnseenJobs();
 
   return (
     <nav className="flex flex-col gap-6 px-3 py-2">
@@ -118,6 +124,16 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 {item.badge === 'unread' && unread > 0 && (
                   <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
                     {unread > 99 ? '99+' : unread}
+                  </Badge>
+                )}
+                {item.badge === 'eventInvites' && eventInvites.length > 0 && (
+                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
+                    {eventInvites.length > 99 ? '99+' : eventInvites.length}
+                  </Badge>
+                )}
+                {item.badge === 'newJobs' && newJobs > 0 && (
+                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
+                    {newJobs > 99 ? '99+' : newJobs}
                   </Badge>
                 )}
                 {item.badge === 'friendRequests' && friendRequests > 0 && (
