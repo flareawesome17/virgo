@@ -16,6 +16,7 @@ import { NotifyService } from '../notifications/notify.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { normalizeRoles } from '../auth/roles';
 import { slugify } from './slug';
+import { canonicalLocation, locationKey } from './locations';
 
 /** How far ahead a post stays live without being touched. */
 const DEFAULT_LIFETIME_DAYS = 30;
@@ -157,7 +158,11 @@ export class HiringService {
     const roles = normalizeRoles(params.roles ?? []);
     const limit = Math.min(Math.max(params.limit ?? 30, 1), 60);
     const offset = Math.max(params.offset ?? 0, 0);
-    const location = params.location?.trim() || null;
+    // Folded, so the search is accent- and punctuation-blind: "Ozamis",
+    // "ozamiz city" and "Ozamiz City" all become the same key. Canonicalised
+    // first so an alias like "CDO" searches for Cagayan de Oro.
+    const typed = params.location?.trim() || '';
+    const locationKeyQuery = typed ? locationKey(canonicalLocation(typed)) : null;
 
     const where = `
         where p.status = 'open'
@@ -167,7 +172,14 @@ export class HiringService {
           -- sweep has got round to marking.
           and (p.event_date is null or p.event_date >= current_date)
           and ($1::text[] = '{}' or p.roles_wanted && $1::text[])
-          and ($2::text is null or p.location ilike '%' || $2 || '%')`;
+          -- Prefix, not '%…%': "cebu" still finds "Cebu City", and a prefix
+          -- is the only shape the text_pattern_ops index can serve. The
+          -- fallback covers rows written before location_key existed.
+          and (
+            $2::text is null
+            or p.location_key like $2 || '%'
+            or (p.location_key is null and p.location ilike '%' || $2 || '%')
+          )`;
 
     const rows = await this.db.query<PostRow>(
       `select ${this.postSelect}
@@ -176,7 +188,7 @@ export class HiringService {
         ${where}
         order by p.created_at desc
         limit $3 offset $4`,
-      [roles, location, limit, offset],
+      [roles, locationKeyQuery, limit, offset],
     );
 
     const totalRow = await this.db.queryOne<{ total: string }>(
@@ -184,7 +196,7 @@ export class HiringService {
          from hiring_posts p
          join users u on u.id = p.user_id
         ${where}`,
-      [roles, location],
+      [roles, locationKeyQuery],
     );
 
     return {
@@ -292,8 +304,8 @@ export class HiringService {
     const row = await this.db.queryOne<{ slug: string }>(
       `insert into hiring_posts
          (user_id, slug, title, description, roles_wanted, event_date,
-          location, budget_min, budget_max, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          location, location_key, budget_min, budget_max, expires_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        returning slug`,
       [
         userId,
@@ -302,7 +314,11 @@ export class HiringService {
         input.description.trim(),
         roles,
         input.eventDate || null,
-        input.location?.trim() || null,
+        // Canonical on the way in, so the board groups the same place under
+        // one spelling however it was typed. Server-side because a request
+        // does not have to come from our own form.
+        canonicalLocation(input.location ?? '') || null,
+        locationKey(canonicalLocation(input.location ?? '')) || null,
         input.budgetMin ?? null,
         input.budgetMax ?? null,
         expiresAt,

@@ -12,6 +12,17 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useCreateJob } from '@/hooks/useJobs';
+import { JOB_TITLE_MIN, jobPostBlockers, joinBlockers } from '@/lib/job-form';
+import { DatePickerField } from '@/components/date-picker-field';
+import { LocationField } from '@/components/location-field';
+
+/** Local, not UTC — toISOString would rule out today west of Greenwich. */
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`;
+}
 import { useRoles } from '@/hooks/useRoles';
 
 /** Pesos in the form, centavos on the wire. */
@@ -38,11 +49,13 @@ export default function NewJobPage() {
   const max = toCentavos(budgetMax);
   const budgetBackwards = min != null && max != null && min > max;
 
-  const ready =
-    title.trim().length >= 8 &&
-    description.trim().length >= 30 &&
-    rolesWanted.length > 0 &&
-    !budgetBackwards;
+  const blockers = jobPostBlockers({
+    title,
+    description,
+    rolesWanted,
+    budgetBackwards,
+  });
+  const ready = blockers.length === 0;
 
   const submit = () => {
     create.mutate(
@@ -85,8 +98,12 @@ export default function NewJobPage() {
             <div>
               <h1 className="text-lg font-bold">Post a job</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                This goes on the public board at virgo.ph/jobs, so anyone
-                looking for this kind of work can find it.
+                {/* Said "the public board at virgo.ph/jobs" while the board
+                    answers 401 without a session — promising the open web
+                    something only members can see. */}
+                Everyone on Virgo sees this on the job board, so anyone looking
+                for this kind of work can find it. It is not visible outside
+                the app.
               </p>
             </div>
 
@@ -100,8 +117,11 @@ export default function NewJobPage() {
                 maxLength={120}
               />
               <p className="text-xs text-muted-foreground">
-                This is the line people scan on the board. Say the role, the
-                place and roughly when.
+                {title.trim().length > 0 && title.trim().length < JOB_TITLE_MIN
+                  ? `A little longer — ${JOB_TITLE_MIN - title.trim().length} more character${
+                      JOB_TITLE_MIN - title.trim().length === 1 ? '' : 's'
+                    }. Say the role, the place and roughly when.`
+                  : 'This is the line people scan on the board. Say the role, the place and roughly when.'}
               </p>
             </div>
 
@@ -141,11 +161,12 @@ export default function NewJobPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="eventDate">Date of the job</Label>
-                <Input
+                <DatePickerField
                   id="eventDate"
-                  type="date"
                   value={eventDate}
-                  onChange={(e) => setEventDate(e.target.value)}
+                  onChange={setEventDate}
+                  placeholder="Pick a date (optional)"
+                  fromDate={todayIso()}
                 />
                 <p className="text-xs text-muted-foreground">
                   The post closes itself the day after.
@@ -153,12 +174,10 @@ export default function NewJobPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="location">Where</Label>
-                <Input
+                <LocationField
                   id="location"
-                  placeholder="Cebu City"
                   value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  maxLength={120}
+                  onChange={setLocation}
                 />
               </div>
             </div>
@@ -215,7 +234,9 @@ export default function NewJobPage() {
 
             <div className="flex items-center justify-between gap-4 border-t pt-4">
               <p className="text-xs text-muted-foreground">
-                Posts run for 30 days, or until the job date passes.
+                {ready
+                  ? 'Posts run for 30 days, or until the job date passes.'
+                  : `Still needs ${joinBlockers(blockers)}.`}
               </p>
               <Button onClick={submit} disabled={!ready || create.isPending}>
                 {create.isPending ? (

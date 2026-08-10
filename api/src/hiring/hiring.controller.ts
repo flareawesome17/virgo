@@ -32,7 +32,9 @@ const MAX_BUDGET = 100_000_00;
 
 export class CreateJobDto {
   @IsString()
-  @MinLength(8, { message: 'Give the job a title people can scan' })
+  // Short on purpose: the brief carries the detail, so the title only has to
+  // be a recognisable label. Mirrored by JOB_TITLE_MIN on both clients.
+  @MinLength(3, { message: 'Give the job a title people can scan' })
   @MaxLength(120)
   title!: string;
 

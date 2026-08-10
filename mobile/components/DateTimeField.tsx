@@ -3,19 +3,29 @@ import { useState } from 'react';
 import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
-import { CalendarDaysIcon, ClockIcon } from 'lucide-react-native';
+import { CalendarDaysIcon, ClockIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useTheme } from '@/src/hooks';
 
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(XIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 interface Props {
   label: string;
   mode: 'date' | 'time';
-  value: Date;
-  onChange: (next: Date) => void;
+  /**
+   * `null` means "not set". Supported so an optional date — a job post runs
+   * for 30 days whether or not it names one — can use the same field instead
+   * of falling back to a hand-typed box.
+   */
+  value: Date | null;
+  onChange: (next: Date | null) => void;
   minimumDate?: Date;
+  /** Shown in place of a date when `value` is null. */
+  emptyLabel?: string;
+  /** Offers an X to go back to unset. Only meaningful when optional. */
+  clearable?: boolean;
 }
 
 /**
@@ -32,8 +42,19 @@ interface Props {
  *   iOS     — the picker is an inline view, so it needs a container and an
  *             explicit Done affordance.
  */
-export function DateTimeField({ label, mode, value, onChange, minimumDate }: Props) {
+export function DateTimeField({
+  label,
+  mode,
+  value,
+  onChange,
+  minimumDate,
+  emptyLabel = 'Choose…',
+  clearable = false,
+}: Props) {
   const [open, setOpen] = useState(false);
+  // The picker itself always needs a concrete date to sit on, even when the
+  // field is empty. Today is the sensible place to open on.
+  const shown = value ?? minimumDate ?? new Date();
   // The sheet behind the picker is `bg-card`, which follows the app theme. The
   // picker must follow the same source of truth: pinned to "light" it rendered
   // near-black text on the dark card, which is unreadable in dark mode.
@@ -41,7 +62,9 @@ export function DateTimeField({ label, mode, value, onChange, minimumDate }: Pro
   const Icon = mode === 'date' ? CalendarDaysIcon : ClockIcon;
 
   const display =
-    mode === 'date'
+    value === null
+      ? emptyLabel
+      : mode === 'date'
       ? value.toLocaleDateString('en-US', {
           weekday: 'short',
           month: 'short',
@@ -75,13 +98,27 @@ export function DateTimeField({ label, mode, value, onChange, minimumDate }: Pro
         style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
       >
         <Icon size={15} className="text-muted-foreground" />
-        <Text className="text-foreground text-sm flex-1">{display}</Text>
+        <Text
+          className="text-sm flex-1"
+          style={{ color: value === null ? '#9ca3af' : undefined }}
+        >
+          {display}
+        </Text>
+        {clearable && value !== null && (
+          <Pressable
+            onPress={() => onChange(null)}
+            hitSlop={10}
+            accessibilityLabel={`Clear ${label.toLowerCase()}`}
+          >
+            <XIcon size={15} className="text-muted-foreground" />
+          </Pressable>
+        )}
       </Pressable>
 
       {/* Android renders its own dialog, so it only needs to exist while open. */}
       {open && Platform.OS === 'android' && (
         <DateTimePicker
-          value={value}
+          value={shown}
           mode={mode}
           display="default"
           minimumDate={minimumDate}
@@ -101,7 +138,7 @@ export function DateTimeField({ label, mode, value, onChange, minimumDate }: Pro
               </Pressable>
             </View>
             <DateTimePicker
-              value={value}
+              value={shown}
               mode={mode}
               display="spinner"
               minimumDate={minimumDate}

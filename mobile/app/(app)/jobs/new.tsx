@@ -8,6 +8,20 @@ import { useState } from 'react';
 import { useCreateJob, useRoles } from '@/src/hooks';
 import { ArrowLeftIcon, SendIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import {
+  JOB_TITLE_MIN,
+  jobPostBlockers,
+  joinBlockers,
+} from '@/src/lib/job-form';
+import { DateTimeField } from '@/components/DateTimeField';
+import { LocationField } from '@/components/LocationField';
+
+/** Local parts — toISOString would shift the day west of Greenwich. */
+function toIsoDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`;
+}
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SendIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -35,14 +49,17 @@ export default function NewJobScreen() {
   const min = toCentavos(budgetMin);
   const max = toCentavos(budgetMax);
   const budgetBackwards = min != null && max != null && min > max;
-  const dateLooksRight = eventDate === '' || /^\d{4}-\d{2}-\d{2}$/.test(eventDate);
+  // Always well-formed now: the value only ever comes from the picker.
+  const dateLooksRight = true;
 
-  const ready =
-    title.trim().length >= 8 &&
-    description.trim().length >= 30 &&
-    rolesWanted.length > 0 &&
-    !budgetBackwards &&
-    dateLooksRight;
+  const blockers = jobPostBlockers({
+    title,
+    description,
+    rolesWanted,
+    budgetBackwards,
+    dateLooksRight,
+  });
+  const ready = blockers.length === 0;
 
   const submit = () => {
     create.mutate(
@@ -84,8 +101,10 @@ export default function NewJobScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Text className="text-muted-foreground text-[12px] leading-5 -mb-2">
-            This goes on the public board at virgo.ph/jobs, so anyone looking
-            for this kind of work can find it.
+            {/* Said "the public board at virgo.ph/jobs" while the board
+                answers 401 without a session. */}
+            Everyone on Virgo sees this on the job board, so anyone looking for
+            this kind of work can find it. It is not visible outside the app.
           </Text>
 
           <Field label="What do you need?">
@@ -98,8 +117,11 @@ export default function NewJobScreen() {
               className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
             />
             <Hint>
-              This is the line people scan on the board. Say the role, the place
-              and roughly when.
+              {title.trim().length > 0 && title.trim().length < JOB_TITLE_MIN
+                ? `A little longer — ${JOB_TITLE_MIN - title.trim().length} more character${
+                    JOB_TITLE_MIN - title.trim().length === 1 ? '' : 's'
+                  }. Say the role, the place and roughly when.`
+                : 'This is the line people scan on the board. Say the role, the place and roughly when.'}
             </Hint>
           </Field>
 
@@ -136,34 +158,21 @@ export default function NewJobScreen() {
             </Hint>
           </Field>
 
-          <View className="flex-row gap-3">
-            <Field label="Date" className="flex-1">
-              <TextInput
-                value={eventDate}
-                onChangeText={setEventDate}
-                placeholder="2026-12-19"
-                placeholderTextColor="#9ca3af"
-                autoCapitalize="none"
-                maxLength={10}
-                className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
-              />
-            </Field>
-            <Field label="Where" className="flex-1">
-              <TextInput
-                value={location}
-                onChangeText={setLocation}
-                placeholder="Cebu City"
-                placeholderTextColor="#9ca3af"
-                maxLength={120}
-                className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
-              />
-            </Field>
-          </View>
-          {!dateLooksRight && (
-            <Text className="text-[11px] -mt-4" style={{ color: '#ef4444' }}>
-              Use a date like 2026-12-19.
-            </Text>
-          )}
+          {/* The native picker, not a typed string. The date is optional —
+              a post runs 30 days without one — so the field can be cleared. */}
+          <DateTimeField
+            label="Date of the job"
+            mode="date"
+            value={eventDate ? new Date(`${eventDate}T12:00:00`) : null}
+            minimumDate={new Date()}
+            emptyLabel="Pick a date (optional)"
+            clearable
+            onChange={(next) => setEventDate(next ? toIsoDay(next) : '')}
+          />
+
+          <Field label="Where">
+            <LocationField value={location} onChange={setLocation} />
+          </Field>
 
           <View className="flex-row gap-3">
             <Field label="Budget from (₱)" className="flex-1">
@@ -226,7 +235,9 @@ export default function NewJobScreen() {
           </Pressable>
 
           <Text className="text-muted-foreground text-[11px] text-center">
-            Posts run for 30 days, or until the job date passes.
+            {ready
+              ? 'Posts run for 30 days, or until the job date passes.'
+              : `Still needs ${joinBlockers(blockers)}.`}
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
