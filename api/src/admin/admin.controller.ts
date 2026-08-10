@@ -24,7 +24,7 @@ import {
 } from 'class-validator';
 import type { Request } from 'express';
 import { Public } from '../auth/public.decorator';
-import { AdminAuthService } from './admin-auth.service';
+import { AdminAuthService, RESET_TTL_MINUTES } from './admin-auth.service';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminService } from './admin.service';
 import { AuditService } from './audit.service';
@@ -139,8 +139,11 @@ export class AdminAuthController {
     );
     return {
       ok: true,
+      // The duration is stated here, from the constant, so the page does not
+      // keep its own copy to go stale the next time it changes.
       message:
-        'If that address has a console account, a reset link is on its way.',
+        'If that address has a console account, a reset link is on its way. ' +
+        `It expires in ${RESET_TTL_MINUTES} minutes.`,
     };
   }
 

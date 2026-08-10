@@ -6,8 +6,10 @@
 -- a second admin.
 --
 -- The token is never stored, only its digest — a leaked backup of this table
--- must not hand over the ability to take over an account. Thirty minutes,
--- single use, and every existing session is ended when one is redeemed.
+-- must not hand over the ability to take over an account. Single use, every
+-- existing session ended when one is redeemed, and short-lived: the window is
+-- RESET_TTL_MINUTES in admin-auth.service.ts, deliberately not repeated here
+-- where it would go stale the first time it changed.
 create table if not exists admin_password_resets (
   id         uuid primary key default gen_random_uuid(),
   admin_id   uuid not null references admin_users(id) on delete cascade,

@@ -19,6 +19,9 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Rendered from the server's own wording, including how long the link
+  // lasts. A copy here would be wrong the first time that changes.
+  const [message, setMessage] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,11 +30,14 @@ export default function ForgotPasswordPage() {
     // same to the person asking, and the server has already logged the real
     // outcome. Showing a network error would only tell somebody probing
     // addresses that they hit a live one.
-    await fetch(`${API_BASE_URL}/admin/auth/forgot-password`, {
+    const body = await fetch(`${API_BASE_URL}/admin/auth/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim() }),
-    }).catch(() => {});
+    })
+      .then((r) => r.json() as Promise<{ message?: string }>)
+      .catch(() => null);
+    setMessage(body?.message ?? null);
     setSent(true);
     setBusy(false);
   }
@@ -53,8 +59,8 @@ export default function ForgotPasswordPage() {
           <div className="rounded-lg border p-5 text-center">
             <p className="text-sm font-medium">Check your email</p>
             <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              If that address has a console account, a reset link is on its
-              way. It expires in 30 minutes.
+              {message ??
+                'If that address has a console account, a reset link is on its way.'}
             </p>
             <Link
               href="/sign-in"

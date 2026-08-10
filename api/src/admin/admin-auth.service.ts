@@ -18,8 +18,17 @@ import { permissionsFor, type AdminPermission, type AdminRole } from './rbac';
 const ACCESS_TTL = '30m';
 const REFRESH_TTL_DAYS = 7;
 
-/** Short. A console reset link sitting in an inbox is a standing key. */
-const RESET_TTL_MINUTES = 30;
+/**
+ * Short. A console reset link sitting in an inbox is a standing key.
+ *
+ * Five minutes is deliberately tight — it assumes whoever asked for the link
+ * is waiting for it. The cost is that a slow mail hop eats into the window,
+ * and the recovery is simply to ask again, which is one click.
+ *
+ * Every place that states this duration reads it from here: the email body,
+ * and the page that sends it.
+ */
+export const RESET_TTL_MINUTES = 5;
 
 /**
  * The audience claim.
