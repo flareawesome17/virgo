@@ -3,6 +3,19 @@
 import { MapPin, Search } from 'lucide-react';
 import { Reveal } from './reveal';
 
+/**
+ * "Kenn Francis" → "KF".
+ *
+ * The first two letters of the string gave "KE" and "JU", which reads as a
+ * truncation bug rather than an avatar. Falls back to the first two letters
+ * only for a single-word name.
+ */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 /** The nine roles the product actually knows about. See api/src/auth/roles.ts. */
 const ROLES = [
   'Photographer',
@@ -77,13 +90,14 @@ export function LandingNearby() {
 
             <ul className="divide-y divide-white/6">
               {[
-                { name: 'Mika R.', km: '2.2 km', roles: ['SDE Editor Photo'] },
-                { name: 'Jomar delos S.', km: '5.6 km', roles: ['Photographer', 'SDE Editor Photo'] },
-                { name: 'Bea T.', km: '8.9 km', roles: ['SDE Editor Photo', 'Photo Editor'] },
+                // Deliberately not the three in the hero — see the note there.
+                { name: 'Ernie Saavedra', km: '1.8 km', roles: ['Videographer', 'SDE Editor Video'] },
+                { name: 'Juvanry Borata', km: '4.3 km', roles: ['Photo Editor'] },
+                { name: 'Rellon Mark Allen', km: '7.1 km', roles: ['Coordinator', 'Photographer'] },
               ].map((person) => (
                 <li key={person.name} className="flex items-center gap-3 px-4 py-3.5">
                   <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#c17745]/15 text-[11px] font-bold text-[#c17745]">
-                    {person.name.slice(0, 2).toUpperCase()}
+                    {initials(person.name)}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-semibold text-white/90">

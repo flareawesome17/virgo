@@ -6,6 +6,19 @@ import { Reveal } from './reveal';
 import { SIGN_IN_URL, SIGN_UP_URL } from './links';
 
 /**
+ * "Kenn Francis" → "KF".
+ *
+ * The first two letters of the string gave "KE" and "JU", which reads as a
+ * truncation bug rather than an avatar. Falls back to the first two letters
+ * only for a single-word name.
+ */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
  * The hero.
  *
  * Leads with the community, not the file storage. Anyone can sell a folder in
@@ -97,10 +110,17 @@ export function LandingHero() {
  * Shows the hiring flow, because that is the part people have to see to
  * believe. A real screenshot would go stale the first time the UI moves.
  */
+/**
+ * Three of the six, and the Nearby section further down shows the other
+ * three. The same trio used to appear in both places, which is a tell: a
+ * reader who scrolls sees the identical list twice and concludes the whole
+ * thing is placeholder — on the one page whose job is to answer "is anyone
+ * actually on this".
+ */
 const NEARBY_ROWS = [
-  { name: 'Mika R.', meta: '2.2 km away', role: 'SDE Editor Photo', tone: '#c17745' },
-  { name: 'Jomar delos S.', meta: '5.6 km away', role: 'Photographer', tone: '#6b8e4e' },
-  { name: 'Bea T.', meta: '8.9 km away', role: 'HMUA', tone: '#5b7b9a' },
+  { name: 'Kenn Francis', meta: '2.2 km away', role: 'Photographer', tone: '#c17745' },
+  { name: 'Julanie Bation', meta: '5.6 km away', role: 'SDE Editor Photo', tone: '#6b8e4e' },
+  { name: 'Shairo Baguio', meta: '8.9 km away', role: 'HMUA', tone: '#5b7b9a' },
 ];
 
 function HeroPanel() {
@@ -122,7 +142,7 @@ function HeroPanel() {
               className="grid size-9 shrink-0 place-items-center rounded-full text-[11px] font-bold"
               style={{ background: `${row.tone}22`, color: row.tone }}
             >
-              {row.name.slice(0, 2).toUpperCase()}
+              {initials(row.name)}
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold text-white/90">
