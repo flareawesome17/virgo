@@ -31,12 +31,21 @@ import { cn } from '@/lib/utils';
  */
 const NAV = [
   { href: '/', label: 'Overview', icon: LayoutDashboard, permission: 'overview.read' },
-  { href: '/users', label: 'Users', icon: Users, permission: 'users.read' },
+  /*
+   * Two populations, never one list.
+   *
+   * "Users" is who can sign in *here* — console accounts, with their own
+   * credentials and roles. "Virgo users" is the people using the product.
+   * They live in different tables and share no authentication, and the labels
+   * say so: a console that calls both of them "users" is a console where
+   * somebody eventually disables the wrong one.
+   */
+  { href: '/users', label: 'Users', icon: ShieldCheck, permission: 'admins.read' },
+  { href: '/virgo-users', label: 'Virgo users', icon: Users, permission: 'users.read' },
   { href: '/content', label: 'Content', icon: FolderOpen, permission: 'content.read' },
   { href: '/billing', label: 'Billing', icon: CreditCard, permission: 'billing.read' },
   { href: '/support', label: 'Support', icon: LifeBuoy, permission: 'support.read' },
   { href: '/system', label: 'System', icon: Activity, permission: 'system.read' },
-  { href: '/accounts', label: 'Console accounts', icon: ShieldCheck, permission: 'admins.read' },
   { href: '/audit', label: 'Audit log', icon: ScrollText, permission: 'audit.read' },
 ];
 

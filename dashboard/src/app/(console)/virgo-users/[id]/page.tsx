@@ -56,7 +56,7 @@ interface UserDetail {
   tickets: { id: string; subject: string; status: string; created_at: string }[];
 }
 
-export default function UserDetailPage() {
+export default function VirgoUserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { can } = useMe();
   const { data, isLoading, isError, refetch } = useUser(id);
@@ -71,11 +71,11 @@ export default function UserDetailPage() {
   return (
     <>
       <Link
-        href="/users"
+        href="/virgo-users"
         className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
-        Users
+        Virgo users
       </Link>
 
       <DataState
