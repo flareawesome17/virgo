@@ -44,7 +44,7 @@ import {
   useThread,
   setOpenConversation,
 } from '@/src/hooks';
-import { PresenceLine, TypingIndicator } from '@/components';
+import { JobAcceptedCard, PresenceLine, TypingIndicator } from '@/components';
 import { sendTyping } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
 import type { ConversationMessage, Participant } from '@/src/api';
@@ -604,6 +604,18 @@ export default function ConversationScreen() {
               const message = item.message;
               const mine = message.sender_id === user?.id;
               const deleted = !!message.deleted_at;
+
+              /*
+               * Not a bubble, and not anyone's side of the conversation.
+               *
+               * The app wrote this one, so it sits full width rather than left
+               * or right — attaching it to the poster would read as something
+               * they typed, and the applicant would have no more reason to act
+               * on it than on any other line they sent.
+               */
+              if (message.kind === 'job-accepted' && message.context) {
+                return <JobAcceptedCard context={message.context} />;
+              }
 
               if (deleted) {
                 return (

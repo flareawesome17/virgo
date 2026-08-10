@@ -42,6 +42,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { PresenceDot, PresenceLine, TypingIndicator } from '@/components/presence';
 import { sendTyping } from '@/lib/presence-store';
 import { buzzForMessage } from '@/lib/alerts';
+import { JobAcceptedCard } from '@/components/chat/job-accepted-card';
 import type { ConversationMessage, Participant } from '@/api';
 
 type Delivery = 'sending' | 'failed' | 'sent' | 'delivered' | 'read';
@@ -453,6 +454,20 @@ export function Thread({
               const message = row.message;
               const mine = message.sender_id === user?.id;
               const deleted = !!message.deleted_at;
+
+              /*
+               * Not a bubble, and not anyone's side of the conversation.
+               *
+               * The app wrote this one, so it sits centred rather than left or
+               * right — attaching it to the poster would read as something
+               * they typed, and the applicant would have no more reason to act
+               * on it than on any other line they sent.
+               */
+              if (message.kind === 'job-accepted' && message.context) {
+                return (
+                  <JobAcceptedCard key={message.id} context={message.context} />
+                );
+              }
 
               if (deleted) {
                 return (

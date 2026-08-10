@@ -20,6 +20,7 @@ export {
   TypingPreview,
 } from '@/components/Presence'
 export { JobsFeed } from '@/components/JobsFeed'
+export { JobAcceptedCard } from '@/components/JobAcceptedCard'
 export { JobsTabs } from '@/components/JobsTabs'
 export { LoadFailed } from '@/components/LoadFailed'
 export { NotificationBell } from '@/components/NotificationBell'

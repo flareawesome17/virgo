@@ -143,6 +143,7 @@ export {
   type Conversation,
   // Not 'ChatMessage' — the AI proxy in services.ts already owns that name.
   type ConversationMessage,
+  type JobAcceptedContext,
   type Participant,
   type Thread,
   type SendMessageInput,

@@ -48,6 +48,33 @@ export interface ConversationMessage {
   reply_to_body?: string | null;
   reply_to_sender?: string | null;
   reply_to_deleted?: boolean;
+  /**
+   * What sort of message this is.
+   *
+   * 'text' is somebody typing, and is the default for everything written
+   * before this existed. 'job-accepted' is the app itself marking the moment
+   * an application was accepted, rendered as a card rather than a bubble.
+   */
+  kind?: 'text' | 'job-accepted';
+  /** What the card needs. Null on a typed message. */
+  context?: JobAcceptedContext | null;
+}
+
+/**
+ * The acceptance card.
+ *
+ * Ids rather than a snapshot of the terms: the booking is editable by both
+ * sides, and a card frozen with the rate it opened at would be worse than no
+ * card at all — it would show two different agreements on one screen.
+ */
+export interface JobAcceptedContext {
+  applicationId: string;
+  postId: string;
+  postSlug: string;
+  postTitle: string;
+  /** Which of the post's roles. Null on posts that only ever wanted one. */
+  role: string | null;
+  bookingId: string;
 }
 
 export interface SendMessageInput {

@@ -54,6 +54,16 @@ export interface MessageRow {
   reply_to_body?: string | null;
   reply_to_sender?: string | null;
   reply_to_deleted?: boolean;
+  /**
+   * What sort of message this is.
+   *
+   * 'text' is somebody typing. 'job-accepted' is the app itself, marking the
+   * moment an application was accepted — rendered as a card with the job, the
+   * role and the booking rather than as a bubble.
+   */
+  kind?: 'text' | 'job-accepted';
+  /** Whatever the card needs to render. Null on a typed message. */
+  context?: Record<string, unknown> | null;
 }
 
 export interface Thread {
@@ -539,7 +549,7 @@ export class MessagesService {
     const [messages, me] = await Promise.all([
       this.db.query<MessageRow>(
         `select m.id, m.conversation_id, m.sender_id, m.created_at,
-                m.deleted_at, m.mentions, m.reply_to_id,
+                m.deleted_at, m.mentions, m.reply_to_id, m.kind, m.context,
                 -- A tombstone carries no text. Cleared on delete, so this is
                 -- belt and braces rather than the only thing hiding it.
                 case when m.deleted_at is null then m.body else '' end as body,
@@ -699,6 +709,47 @@ export class MessagesService {
     });
 
     await this.notify(userId, conversationId, text, mentions);
+    return row!;
+  }
+
+  /**
+   * Writes a message the app itself is saying.
+   *
+   * Deliberately not `send()` with an extra flag. It skips the notification
+   * entirely, and that is the whole difference: a system message marks
+   * something that has *already* been announced through its own channel —
+   * accepting an applicant notifies them, emails them and rings their phone —
+   * so notifying again for the same moment is the same event twice.
+   *
+   * It still emits the live frame, because an open thread should show the card
+   * the instant it exists rather than on the next refetch.
+   *
+   * No `assertMember`: the caller is the service that just created the
+   * conversation, not a request. Nothing routes here from a controller.
+   */
+  async system(
+    conversationId: string,
+    senderId: string,
+    kind: 'job-accepted',
+    body: string,
+    context: Record<string, unknown>,
+  ): Promise<MessageRow> {
+    const row = await this.db.queryOne<MessageRow>(
+      `insert into messages (conversation_id, sender_id, body, kind, context)
+       values ($1, $2, $3, $4, $5::jsonb) returning *`,
+      [conversationId, senderId, body.trim(), kind, JSON.stringify(context)],
+    );
+
+    await this.db.query('update conversations set updated_at = now() where id = $1', [
+      conversationId,
+    ]);
+
+    this.realtime.emitToUsers(await this.participantIds(conversationId), {
+      type: 'message',
+      conversationId,
+      message: row,
+    });
+
     return row!;
   }
 

@@ -1119,7 +1119,7 @@ export class HiringService {
       return this.applicationById(applicationId, userId);
     }
 
-    await this.db.transaction(async (client) => {
+    const accepted = await this.db.transaction(async (client) => {
       await client.query(
         `update hiring_applications set status = 'accepted', responded_at = now()
           where id = $1`,
@@ -1163,7 +1163,7 @@ export class HiringService {
 
       const forRole = role ? post.rows[0]?.role_budgets?.[role] : undefined;
 
-      await this.bookings.createForAcceptance(client, {
+      const bookingId = await this.bookings.createForAcceptance(client, {
         applicationId,
         postId: row.post_id,
         posterId: userId,
@@ -1176,12 +1176,56 @@ export class HiringService {
         // for posts written before budgets were per-role.
         rateMinor: forRole?.max ?? forRole?.min ?? post.rows[0]?.budget_max ?? null,
       });
+
+      return { bookingId, role };
     });
 
     // Outside the transaction: openDirect runs its own and is idempotent.
     const conversation = await this.messages.openDirect(userId, row.user_id);
 
     const me = await this.account(userId);
+
+    /*
+     * The first thing in the thread.
+     *
+     * Acceptance opened this conversation and left it empty — both people
+     * arrived at a blank screen and had to remember which job it was, which
+     * of three roles was accepted, and what had been agreed, while the
+     * booking that answers all three sat on a different screen.
+     *
+     * A message rather than a pinned header: it belongs at the point in the
+     * conversation where it happened, and it should scroll away as the two of
+     * them talk. Hire a second person from the same post later and there is a
+     * second card in its own place, which a header could not do.
+     *
+     * Failing to write it must not fail the acceptance — that is already
+     * committed, the applicant has been connected, and a missing card is a
+     * far smaller problem than a 500 on a job someone has just been given.
+     */
+    try {
+      await this.messages.system(
+        conversation.id,
+        userId,
+        'job-accepted',
+        // Read by anything that shows a thread preview or a notification, so
+        // it has to stand on its own without the card.
+        accepted.role
+          ? `Accepted for ${accepted.role} — “${row.post_title}”`
+          : `Accepted for “${row.post_title}”`,
+        {
+          applicationId,
+          postId: row.post_id,
+          postSlug: row.post_slug,
+          postTitle: row.post_title,
+          role: accepted.role,
+          bookingId: accepted.bookingId,
+        },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `could not write the acceptance card for ${applicationId}: ${String(err)}`,
+      );
+    }
     await this.notifier.notify([row.user_id], {
       topic: 'job-response',
       title: 'Application accepted',

@@ -189,15 +189,16 @@ export class BookingsService {
       location: string | null;
       rateMinor: number | null;
     },
-  ): Promise<void> {
-    await client.query(
+  ): Promise<string> {
+    const { rows } = await client.query<{ id: string }>(
       `insert into job_bookings
          (application_id, post_id, poster_id, creative_id,
           role, event_date, location, rate_minor)
        values ($1, $2, $3, $4, $5, $6, $7, $8)
        -- Re-accepting an application that already has one must not fail the
        -- whole transaction.
-       on conflict (application_id) do nothing`,
+       on conflict (application_id) do nothing
+       returning id`,
       [
         input.applicationId,
         input.postId,
@@ -209,6 +210,17 @@ export class BookingsService {
         input.rateMinor,
       ],
     );
+    if (rows[0]) return rows[0].id;
+
+    // The conflict path. Deliberately a second read rather than an upsert that
+    // touches the row to force a return: this booking may already have terms
+    // both people confirmed, and a no-op update would still fire the
+    // updated_at trigger and make an agreement look freshly changed.
+    const existing = await client.query<{ id: string }>(
+      'select id from job_bookings where application_id = $1',
+      [input.applicationId],
+    );
+    return existing.rows[0].id;
   }
 
   /** Every booking the caller is on, either side. */
