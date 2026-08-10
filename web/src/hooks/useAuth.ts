@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { track } from '@/lib/analytics';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ApiError,
@@ -137,6 +138,7 @@ export function useAuth() {
     },
     onSuccess: (result) => {
       queryClient.setQueryData(queryKeys.auth.session, result.user);
+      track('signed_in');
     },
   });
 
@@ -155,6 +157,8 @@ export function useAuth() {
     },
     onSuccess: (result) => {
       queryClient.setQueryData(queryKeys.auth.session, result.user);
+      // The number that matters most for a pre-release: did anybody finish.
+      track('signed_up', { roles: result.user.roles?.length ?? 0 });
     },
   });
 

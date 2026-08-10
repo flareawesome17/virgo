@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { BriefcaseBusiness, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { track } from '@/lib/analytics';
 import { Button } from '@/components/ui/button';
 import { bookingState } from '@/components/jobs/booking-card';
 import { useBooking, useConfirmBooking } from '@/hooks/useBookings';
@@ -82,7 +83,10 @@ export function JobAcceptedCard({ context }: { context: JobAcceptedContext }) {
                   disabled={confirm.isPending}
                   onClick={() =>
                     confirm.mutate(undefined, {
-                      onSuccess: () => toast.success('Agreed'),
+                      onSuccess: () => {
+                        track('booking_confirmed', { from: 'chat_card' });
+                        toast.success('Agreed');
+                      },
                       onError: (e: Error) => toast.error(e.message),
                     })
                   }

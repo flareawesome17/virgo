@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
+import { track } from '@/lib/analytics';
 import { AppShell } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -99,6 +100,12 @@ export default function NewJobPage() {
       },
       {
         onSuccess: () => {
+          track('job_posted', {
+            roles: rolesWanted.length,
+            withBudget: Object.keys(budgets).length > 0,
+            withDate: !!eventDate,
+            withLocation: !!location.trim(),
+          });
           toast.success('Your job is live', {
             description: 'People who do this work can find it now.',
           });

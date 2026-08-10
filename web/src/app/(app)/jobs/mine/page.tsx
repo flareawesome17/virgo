@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { track } from '@/lib/analytics';
 import { ApplicationBadge } from '@/components/jobs/application-state';
 import { BookingCard } from '@/components/jobs/booking-card';
 import { useBookings } from '@/hooks/useBookings';
@@ -303,6 +304,7 @@ function Applicants({ postId }: { postId: string }) {
       { id, status },
       {
         onSuccess: (result) => {
+          track('application_answered', { status });
           if (status === 'accepted') {
             toast.success(`Connected with ${result.personName}`, {
               description: 'Open the chat to talk about the job.',

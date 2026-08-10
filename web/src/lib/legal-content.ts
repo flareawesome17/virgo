@@ -105,7 +105,7 @@ export const PRIVACY: Clause[] = [
     heading: 'What we do not collect',
     body: [
       'We do not collect your contacts, your photo library beyond the files you pick, your browsing outside the app, or advertising identifiers.',
-      'There is no third-party analytics or advertising SDK in the app.',
+      'There are no advertising SDKs and no advertising partners. We do not sell your data.',
     ],
   },
   {
@@ -126,10 +126,20 @@ export const PRIVACY: Clause[] = [
     ],
   },
   {
+    heading: 'Product analytics',
+    body: [
+      'We use PostHog to count how the product is used — which screens are opened, and whether things like posting a job or confirming a booking actually get finished. It is how we find out what is broken during the pre-release.',
+      'It records the page you are on, a small set of named actions, and your account id. It does not record your name, your email, your messages, your files, or anything you type.',
+      'Session recording and automatic click capture are both switched off. Those features would capture the contents of your screen — client galleries, chat, rates — and that is not something we are willing to send anywhere.',
+      'If your browser sends a Do Not Track signal, we do not record anything at all.',
+    ],
+  },
+  {
     heading: 'Who else touches your data',
     body: [
       'Backblaze B2 stores your uploaded files, served through a Cloudflare content network.',
       'Expo delivers push notifications. The notification title and a preview of the message pass through their service.',
+      'PostHog receives the usage events described above. See Product analytics.',
       'These providers process data on our instructions. We do not sell your data to anyone, and there are no advertising partners.',
     ],
   },

@@ -4,6 +4,7 @@ import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Banknote, BriefcaseBusiness, CalendarDays, Loader2, MapPin, Send } from 'lucide-react';
 import { toast } from 'sonner';
+import { track } from '@/lib/analytics';
 import { AppShell } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
@@ -109,6 +110,7 @@ export default function ApplyPage({
       { slug, role: choosing ? role : (left[0] ?? null) },
       {
         onSuccess: () => {
+          track('job_applied', { rolesOnPost: post.rolesWanted.length, chose: choosing });
           toast.success('Application sent', {
             description: `${post.postedBy.displayName} will see it and can reply in chat.`,
           });

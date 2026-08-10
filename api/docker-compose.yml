@@ -89,6 +89,12 @@ services:
       context: ../web
       args:
         NEXT_PUBLIC_API_URL: ${WEB_API_URL:-https://api.virgo.ph}
+        # Analytics. Inlined at build time like every NEXT_PUBLIC_ value, so a
+        # key added to .env after the image was built does nothing until the
+        # image is rebuilt. Absent, the app runs with analytics switched off
+        # rather than failing — see web/src/lib/analytics.ts.
+        NEXT_PUBLIC_POSTHOG_KEY: ${POSTHOG_KEY:-}
+        NEXT_PUBLIC_POSTHOG_HOST: ${POSTHOG_HOST:-https://eu.i.posthog.com}
     container_name: virgo-web
     restart: unless-stopped
     environment:

@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import { useMessageAlerts } from '@/hooks/useChat';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useAuth } from '@/hooks/useAuth';
+import { AnalyticsBridge } from '@/components/analytics-bridge';
 
 /**
  * Everything the client tree needs.
@@ -36,6 +37,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider delayDuration={300}>
           <RealtimeBridge />
+          <AnalyticsBridge />
           {children}
           <Toaster position="bottom-right" richColors closeButton />
         </TooltipProvider>

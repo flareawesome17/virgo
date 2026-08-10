@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { use, useState } from 'react';
 import { ArrowLeft, Check, MessageCircle, Pencil, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { track } from '@/lib/analytics';
 import { rateLabel, type Booking } from '@/api';
 import { AppShell } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
@@ -182,7 +183,10 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
               disabled={confirm.isPending}
               onClick={() =>
                 confirm.mutate(undefined, {
-                  onSuccess: () => toast.success('Agreed'),
+                  onSuccess: () => {
+                    track('booking_confirmed', { from: 'booking_page' });
+                    toast.success('Agreed');
+                  },
                   onError: (e: Error) => toast.error(e.message),
                 })
               }
@@ -321,6 +325,7 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
               },
               {
                 onSuccess: () => {
+                  track('booking_terms_changed');
                   toast.success('Terms updated', {
                     description: 'They have been asked to confirm them again.',
                   });
