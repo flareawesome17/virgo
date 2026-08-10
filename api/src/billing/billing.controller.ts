@@ -2,15 +2,16 @@ import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { PURCHASABLE_PLANS } from '../quota/quota.config';
+import { PURCHASABLE_PLANS, PURCHASE_REFUSAL } from '../quota/quota.config';
 import { BillingService } from './billing.service';
 
 const PURCHASABLE = PURCHASABLE_PLANS.map((plan) => plan.name);
 
 export class SubscribeDto {
-  @IsIn(PURCHASABLE, {
-    message: `Choose one of: ${PURCHASABLE.join(', ')}`,
-  })
+  // Empty during the pre-release, so this rejects every value — which is
+  // correct, nothing is for sale. The message has to say that rather than
+  // trailing off after "one of:".
+  @IsIn(PURCHASABLE, { message: PURCHASE_REFUSAL })
   plan!: string;
 
   /**

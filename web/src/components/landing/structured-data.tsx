@@ -18,7 +18,7 @@ const SITE = 'https://virgo.ph';
 export const FAQS: { q: string; a: string }[] = [
   {
     q: 'Is Virgo free?',
-    a: 'Yes. The free plan includes 15 GB of storage, one workspace and two albums, with no card required. Paid plans add storage, workspaces and albums.',
+    a: 'Yes. Virgo is free for everyone during the pre-release — 15 GB of storage, a workspace and two albums, with no card required. Paid tiers arrive later; nothing is charged today.',
   },
   {
     q: 'Do my clients need an account to see their photos?',
@@ -63,22 +63,18 @@ export function StructuredData() {
     url: SITE,
     description:
       'Find and hire creatives near you, run the shoot together, and deliver to clients with links that need no account.',
-    offers: [
-      {
-        '@type': 'Offer',
-        name: 'Free',
-        price: '0',
-        priceCurrency: 'PHP',
-        description: '15 GB storage, one workspace, two albums.',
-      },
-      {
-        '@type': 'Offer',
-        name: 'Freelance',
-        price: '1400',
-        priceCurrency: 'PHP',
-        description: 'For working professionals. Billed monthly.',
-      },
-    ],
+    // Only what can actually be had today. A structured Offer is a claim to
+    // a price engine, and the paid tiers are unreleased and unpriced-in-anger
+    // — advertising ₱1,400 here outlived the decision to drop it, and a
+    // rich result quoting a price nothing will charge is worse than none.
+    offers: {
+      '@type': 'Offer',
+      name: 'Free',
+      price: '0',
+      priceCurrency: 'PHP',
+      description:
+        'Free during the pre-release: 15 GB storage, one workspace, two albums.',
+    },
   };
 
   const faq = {

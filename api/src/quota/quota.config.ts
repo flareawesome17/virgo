@@ -4,7 +4,7 @@
  * `pro` is kept as an alias of `freelance` so accounts already carrying it do
  * not silently drop to free limits when the tiers were renamed.
  */
-export type PlanName = 'free' | 'freelance' | 'studio' | 'pro';
+export type PlanName = 'free' | 'freelance' | 'studio' | 'business' | 'pro';
 
 export interface PlanLimits {
   /** Total bytes of stored media. */
@@ -41,10 +41,12 @@ export interface PlanInfo extends PlanLimits {
 
 const GB = 1024 ** 3;
 
+const TB = 1024 ** 4;
+
 const FREELANCE: PlanLimits = {
   storageBytes: 100 * GB,
-  workspaces: 2,
-  albumsPerWorkspace: 5,
+  workspaces: 3,
+  albumsPerWorkspace: 10,
 };
 
 /**
@@ -63,13 +65,33 @@ export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
   // An alias, not a separate tier — same limits.
   pro: FREELANCE,
   studio: {
-    storageBytes: 1024 * GB,
+    storageBytes: 500 * GB,
+    workspaces: 10,
+    albumsPerWorkspace: Infinity,
+  },
+  business: {
+    storageBytes: 2 * TB,
     workspaces: Infinity,
     albumsPerWorkspace: Infinity,
   },
 };
 
-/** What the plans screen renders, in display order. */
+/**
+ * What the plans screen renders, in display order.
+ *
+ * Everything paid is `comingSoon` for the pre-release. Free is the only tier
+ * anyone can be on, deliberately: the point of the pre-release is to find out
+ * what working photographers actually need before a number is committed to,
+ * and ₱1,400 was set before there was any evidence for it.
+ *
+ * The ladder is still listed, priced, so visitors can see where this is going
+ * and say if ₱399 is wrong while that is still cheap to change.
+ *
+ * The `name` keys are deliberately unchanged even though the labels moved
+ * ("Freelance" is now "Freelancer"). `users.plan` stores these strings, and
+ * renaming a key would silently drop every account holding the old one to
+ * free limits.
+ */
 export const PLAN_CATALOGUE: PlanInfo[] = [
   {
     name: 'free',
@@ -82,16 +104,16 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
   },
   {
     name: 'freelance',
-    label: 'Freelance',
-    // ₱1,400 a month.
-    priceMinor: 140_000,
+    label: 'Freelancer',
+    // ₱399 a month.
+    priceMinor: 39_900,
     currency: 'PHP',
-    comingSoon: false,
+    comingSoon: true,
     ...FREELANCE,
     features: [
       '100 GB cloud storage',
-      '2 workspaces',
-      '5 albums per workspace',
+      '3 workspaces',
+      '10 albums per workspace',
       'Client share links',
       'Collaborators and chat',
     ],
@@ -99,22 +121,52 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
   {
     name: 'studio',
     label: 'Studio',
-    priceMinor: 0,
+    // ₱999 a month.
+    priceMinor: 99_900,
     currency: 'PHP',
     comingSoon: true,
     ...PLAN_LIMITS.studio,
     features: [
-      'Unlimited workspaces and albums',
-      '1 TB cloud storage',
+      '500 GB cloud storage',
+      '10 workspaces',
+      // Not bare "unlimited": an album holds media, so storage stays the real
+      // constraint and the copy should not promise otherwise.
+      'Unlimited albums within your storage',
       'Team roles and permissions',
+    ],
+  },
+  {
+    name: 'business',
+    label: 'Business',
+    // ₱2,499 a month.
+    priceMinor: 249_900,
+    currency: 'PHP',
+    comingSoon: true,
+    ...PLAN_LIMITS.business,
+    features: [
+      '2 TB cloud storage',
+      'Unlimited workspaces',
+      'Unlimited albums within your storage',
+      'Advanced permissions and activity history',
+      'Priority support',
     ],
   },
 ];
 
-/** The tiers that can actually be bought. */
+/**
+ * The tiers that can actually be bought — empty during the pre-release.
+ *
+ * Callers must handle that: an "one of: <list>" message built from this reads
+ * as a broken sentence when the list is empty, so use PURCHASE_REFUSAL.
+ */
 export const PURCHASABLE_PLANS = PLAN_CATALOGUE.filter(
   (plan) => !plan.comingSoon && plan.priceMinor > 0,
 );
+
+/** Why a purchase was refused, phrased for whichever case is true today. */
+export const PURCHASE_REFUSAL = PURCHASABLE_PLANS.length
+  ? `Choose one of: ${PURCHASABLE_PLANS.map((p) => p.name).join(', ')}`
+  : 'Paid plans are not available yet — Virgo is free during the pre-release.';
 
 export function planInfo(name: string): PlanInfo | undefined {
   return PLAN_CATALOGUE.find((plan) => plan.name === name);

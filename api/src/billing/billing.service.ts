@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { MailConfig } from '../mail/mail.config';
 import { NotifyService } from '../notifications/notify.service';
-import { planInfo, PURCHASABLE_PLANS, type PlanInfo } from '../quota/quota.config';
+import { planInfo, PURCHASE_REFUSAL, type PlanInfo } from '../quota/quota.config';
 import { PayMongoClient, PayMongoError } from './paymongo.client';
 
 /** PayMongo's own vocabulary, stored verbatim. */
@@ -296,9 +296,7 @@ export class BillingService {
 
     const plan = planInfo(planName);
     if (!plan || plan.comingSoon || plan.priceMinor <= 0) {
-      throw new BadRequestException(
-        `Choose one of: ${PURCHASABLE_PLANS.map((p) => p.name).join(', ')}`,
-      );
+      throw new BadRequestException(PURCHASE_REFUSAL);
     }
 
     const live = await this.liveSubscription(userId);
