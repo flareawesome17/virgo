@@ -8,6 +8,8 @@ import { LandingFeatures } from '@/components/landing/features';
 import { LandingHow } from '@/components/landing/how';
 import { LandingPricing } from '@/components/landing/pricing';
 import { LandingClosing, LandingFooter } from '@/components/landing/closing';
+import { LandingFaq } from '@/components/landing/faq';
+import { StructuredData } from '@/components/landing/structured-data';
 import { API_BASE_URL, type PlanInfo } from '@/api';
 
 /** How long a fetched price list stays good for. */
@@ -61,6 +63,7 @@ export default async function LandingPage() {
 
   return (
     <>
+      <StructuredData />
       <LandingNav />
       {/* Ordered as the pitch reads: what it is, then the three things it is
           for, then each of those in turn — hire, connect, deliver — before the
@@ -74,6 +77,8 @@ export default async function LandingPage() {
         <LandingFeatures />
         <LandingHow />
         <LandingPricing plans={plans} />
+        {/* After the price: the last objections before the ask. */}
+        <LandingFaq />
         <LandingClosing />
       </main>
       <LandingFooter />

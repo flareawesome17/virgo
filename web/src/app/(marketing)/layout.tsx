@@ -12,11 +12,18 @@ import type { ReactNode } from 'react';
 export const metadata: Metadata = {
   // `absolute` escapes the root layout's "%s · Virgo" template, which would
   // otherwise render "… videographers · Virgo".
+  // One wording, used everywhere below. The title and the og:title used to
+  // disagree — "the creative community and workspace" against "where creatives
+  // find each other, and get paid" — so a share and a search result advertised
+  // two different products, and neither line contained a phrase anyone types
+  // into a search box.
   title: {
-    absolute: 'Virgo — the creative community and workspace',
+    absolute: 'Virgo — Hire Photographers, Editors & HMUAs in the Philippines',
   },
+  // Kept under ~155 characters. The old one ran to 240 and was cut mid-sentence,
+  // losing the part that actually distinguishes the product.
   description:
-    'Find and hire photographers, videographers, editors and HMUAs near you — then run the whole job in one place. Client links that open without an account, and delivered files that delete themselves. Built in the Philippines for Filipino creatives.',
+    'Find and hire photographers, videographers, editors and HMUAs near you, then run the whole job in one place. Client links that open without an account.',
   // Overrides the root layout's noindex. This page is the front door.
   robots: { index: true, follow: true },
   alternates: { canonical: 'https://virgo.ph' },
@@ -24,17 +31,18 @@ export const metadata: Metadata = {
     type: 'website',
     url: 'https://virgo.ph',
     siteName: 'Virgo',
-    title: 'Virgo — where creatives find each other, and get paid',
+    title: 'Virgo — Hire Photographers, Editors & HMUAs in the Philippines',
     description:
       'A network of photographers, videographers, editors and HMUAs — and the workspace they run the job from. Free to start, 15 GB included.',
-    images: [{ url: '/icon.png', width: 512, height: 512, alt: 'Virgo' }],
+    // `images` is deliberately absent: opengraph-image.tsx in this folder
+    // generates a real 1200×630 card, and naming a file here would override it
+    // with the 512×512 app icon all over again.
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Virgo — where creatives find each other, and get paid',
+    title: 'Virgo — Hire Photographers, Editors & HMUAs in the Philippines',
     description:
       'Hire a second shooter near you, run the shoot together, and hand the client a link that cleans itself up when the job is done.',
-    images: ['/icon.png'],
   },
 };
 

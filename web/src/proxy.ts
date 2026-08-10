@@ -57,6 +57,24 @@ export function proxy(request: NextRequest): NextResponse {
      *
      * The lowercase rewrite keeps one canonical form, as on the apex.
      */
+    /**
+     * The app used to serve auth under `/auth/…` and now serves it at the
+     * root. Google still has the old addresses indexed from before this host
+     * was noindexed — a brand search currently surfaces
+     * `web.virgo.ph/auth/sign-in`, which answers 404.
+     *
+     * A permanent redirect rather than the 410 that would drop them faster:
+     * these are real pages that merely moved, and somebody arriving from a
+     * stale result should land on the sign-in form rather than an error.
+     */
+    const legacyAuth = /^\/auth\/([a-z-]+)\/?$/.exec(pathname);
+    if (legacyAuth) {
+      return NextResponse.redirect(
+        new URL(`/${legacyAuth[1]}${search}`, request.url),
+        308,
+      );
+    }
+
     const onAppHost = HANDLE_PATH.exec(pathname);
     if (onAppHost) {
       return NextResponse.rewrite(
@@ -86,8 +104,29 @@ export function proxy(request: NextRequest): NextResponse {
     return NextResponse.redirect(`${APP_ORIGIN}${pathname}${search}`, 308);
   }
 
-  // /landing itself stays put — otherwise the rewrite above would bounce.
-  if (pathname === '/landing') return NextResponse.next();
+  /**
+   * Served by the apex, not handed to the app.
+   *
+   * Terms and Privacy are the documents a payment processor, an app store
+   * review and a cautious customer all look for, and they were redirecting to
+   * a 404 on a subdomain that tells crawlers to stay out.
+   *
+   * The generated OG card has to be here too. It has no file extension, so the
+   * matcher below does not skip it, and the catch-all redirect sent every
+   * share preview to the app host — a 308 where Messenger expects a PNG, which
+   * is the whole card broken.
+   *
+   * /landing stays put or the rewrite at the top would bounce in a loop.
+   */
+  if (
+    pathname === '/terms' ||
+    pathname === '/privacy' ||
+    pathname === '/landing' ||
+    pathname.startsWith('/opengraph-image') ||
+    pathname.startsWith('/twitter-image')
+  ) {
+    return NextResponse.next();
+  }
 
   return NextResponse.redirect(`${APP_ORIGIN}${pathname}${search}`, 308);
 }

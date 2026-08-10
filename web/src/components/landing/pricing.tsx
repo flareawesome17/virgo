@@ -22,6 +22,16 @@ function storageLabel(bytes: number): string {
  * refuses to charge.
  */
 export function LandingPricing({ plans }: { plans: PlanInfo[] }) {
+  /**
+   * Only what someone can actually buy today.
+   *
+   * A "Soon — price —, Not available yet" column sat at the point of highest
+   * intent doing nothing but adding a third thing to weigh up. The fact that
+   * more is coming is worth one line under the grid, not a third of it.
+   */
+  const sellable = plans.filter((plan) => !plan.comingSoon);
+  const upcoming = plans.filter((plan) => plan.comingSoon);
+
   return (
     <section id="pricing" className="relative py-24 sm:py-32">
       <div className="rule-fade mx-auto mb-24 w-full max-w-6xl" />
@@ -40,7 +50,7 @@ export function LandingPricing({ plans }: { plans: PlanInfo[] }) {
           </p>
         </Reveal>
 
-        {plans.length === 0 ? (
+        {sellable.length === 0 ? (
           // The API was unreachable at build time. Better to send people to
           // sign-up than to invent numbers on a pricing page.
           <Reveal className="mt-14 text-center">
@@ -52,8 +62,13 @@ export function LandingPricing({ plans }: { plans: PlanInfo[] }) {
             </a>
           </Reveal>
         ) : (
-          <div className="mx-auto mt-14 grid max-w-4xl gap-5 md:grid-cols-3">
-            {plans.map((plan, i) => {
+          <div
+            className={cn(
+              'mx-auto mt-14 grid max-w-4xl gap-5',
+              sellable.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3',
+            )}
+          >
+            {sellable.map((plan, i) => {
               const minor = planPrice(plan);
               const featured = plan.name === 'freelance';
 
@@ -133,6 +148,14 @@ export function LandingPricing({ plans }: { plans: PlanInfo[] }) {
               );
             })}
           </div>
+        )}
+
+        {/* What used to be a dead third column, as one line. */}
+        {upcoming.length > 0 && (
+          <p className="mt-8 text-center text-[13px] text-white/40">
+            {upcoming.map((plan) => plan.label).join(' and ')} for teams{' '}
+            {upcoming.length === 1 ? 'is' : 'are'} in the works.
+          </p>
         )}
       </div>
     </section>

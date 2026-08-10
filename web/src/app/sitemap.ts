@@ -16,5 +16,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // The app host has nothing to offer a crawler; its robots.txt already says so.
   if (host !== 'virgo.ph' && host !== 'www.virgo.ph') return [];
 
-  return [{ url: SITE, changeFrequency: 'monthly', priority: 1 }];
+  return [
+    { url: SITE, changeFrequency: 'monthly', priority: 1 },
+    // Not filler. These are the two pages a payment processor, an app store
+    // review and a cautious customer all go looking for, and until now they
+    // existed only behind the app's noindex.
+    { url: `${SITE}/terms`, changeFrequency: 'yearly', priority: 0.3 },
+    { url: `${SITE}/privacy`, changeFrequency: 'yearly', priority: 0.3 },
+  ];
 }
