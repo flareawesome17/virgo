@@ -109,6 +109,7 @@ export {
   type ListJobsParams,
   type ReportReason,
   type JobApplicationStatus,
+  distanceLabel,
 } from './endpoints/jobs';
 export {
   billingApi,

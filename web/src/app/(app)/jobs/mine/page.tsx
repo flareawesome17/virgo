@@ -34,7 +34,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { budgetLabel, type JobPost } from '@/api';
+import { budgetLabel, distanceLabel, type JobPost } from '@/api';
 import {
   useApplicants,
   useDeleteJob,
@@ -442,6 +442,13 @@ function BrowseJobs() {
                               ? ` · ${job.applicantCount} applied`
                               : ''}
                           </span>
+                          {/* What makes a job feel takeable. Only when we
+                              actually know — no filler when we do not. */}
+                          {distanceLabel(job.distanceKm, job.location) && (
+                            <span className="text-primary">
+                              {distanceLabel(job.distanceKm, job.location)}
+                            </span>
+                          )}
                           {/* So a job you already applied to is obvious from
                               the list, not two taps away. */}
                           {job.myApplication && (

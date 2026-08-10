@@ -17,7 +17,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { BookingsService } from '../bookings/bookings.service';
 import { normalizeRoles } from '../auth/roles';
 import { slugify } from './slug';
-import { canonicalLocation, locationKey } from './locations';
+import { canonicalLocation, coordsFor, locationKey } from './locations';
 
 /** How far ahead a post stays live without being touched. */
 const DEFAULT_LIFETIME_DAYS = 30;
@@ -73,6 +73,15 @@ export interface PublicJobPost {
     status: JobApplication['status'];
     createdAt: string;
   } | null;
+  /**
+   * Roughly how far away, in kilometres, or null.
+   *
+   * Null whenever it cannot be known: the reader has not shared a position,
+   * or the post's location is not a place we hold coordinates for. Measured
+   * from city centre to city centre, so it answers "is this reachable" and
+   * must not be read as an address.
+   */
+  distanceKm: number | null;
   applicantCount: number;
   /**
    * Of those, how many are still sitting at `new`.
@@ -140,6 +149,8 @@ interface PostRow {
   my_application_id: string | null;
   my_application_status: JobApplication['status'] | null;
   my_application_at: Date | null;
+  /** Only selected by the board query, and only when the reader has a position. */
+  distance_km?: string | number | null;
 }
 
 interface ApplicationRow {
@@ -239,6 +250,26 @@ export class HiringService {
     const typed = params.location?.trim() || '';
     const locationKeyQuery = typed ? locationKey(canonicalLocation(typed)) : null;
 
+    /*
+     * Where the reader is, on exactly the terms Nearby already uses.
+     *
+     * Only when they share their location and it is recent — somebody who
+     * shared a position months ago is not "near" anything in a useful sense,
+     * and ranking on it would be worse than not ranking at all.
+     */
+    const me = await this.db.queryOne<{ lat: number | null; lon: number | null }>(
+      `select case when shares_location
+                    and location_updated_at > now() - interval '30 days'
+                   then latitude end as lat,
+              case when shares_location
+                    and location_updated_at > now() - interval '30 days'
+                   then longitude end as lon
+         from users where id = $1`,
+      [viewerId],
+    );
+    const lat = me?.lat ?? null;
+    const lon = me?.lon ?? null;
+
     const where = `
         where p.status = 'open'
           and p.hidden_at is null
@@ -256,14 +287,39 @@ export class HiringService {
             or (p.location_key is null and p.location ilike '%' || $2 || '%')
           )`;
 
+    /*
+     * Nearest first, when we know where the reader is.
+     *
+     * A job two hours away is a different proposition from one across the
+     * city, and recency cannot express that — the board was showing whatever
+     * was posted most recently regardless of whether anyone could get to it.
+     *
+     * Same haversine as DiscoverService, different table. `$6`/`$7` are null
+     * for a reader with no position or who has not shared it, and the whole
+     * ordering collapses back to `created_at desc` — which is what it was.
+     *
+     * Posts with no coordinate sort last rather than being hidden: a shoot at
+     * a named venue is a real job, it just cannot be measured.
+     */
+    const distance = `
+      case when $6::double precision is null or p.location_lat is null then null
+      else 6371 * acos(
+        least(1, greatest(-1,
+          cos(radians($6)) * cos(radians(p.location_lat))
+            * cos(radians(p.location_lon) - radians($7))
+          + sin(radians($6)) * sin(radians(p.location_lat))
+        ))
+      ) end`;
+
     const rows = await this.db.query<PostRow>(
-      `select ${this.postSelect('$5')}
+      `select ${this.postSelect('$5')},
+              round(${distance}::numeric, 1) as distance_km
          from hiring_posts p
          join users u on u.id = p.user_id
         ${where}
-        order by p.created_at desc
+        order by (${distance}) asc nulls last, p.created_at desc
         limit $3 offset $4`,
-      [roles, locationKeyQuery, limit, offset, viewerId],
+      [roles, locationKeyQuery, limit, offset, viewerId, lat, lon],
     );
 
     const totalRow = await this.db.queryOne<{ total: string }>(
@@ -389,12 +445,14 @@ export class HiringService {
     }
 
     const expiresAt = this.expiryFor(input.eventDate);
+    const coords = coordsFor(input.location);
 
     const row = await this.db.queryOne<{ slug: string }>(
       `insert into hiring_posts
          (user_id, slug, title, description, roles_wanted, event_date,
-          location, location_key, budget_min, budget_max, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+          location, location_key, budget_min, budget_max, expires_at,
+          location_lat, location_lon)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        returning slug`,
       [
         userId,
@@ -411,6 +469,11 @@ export class HiringService {
         input.budgetMin ?? null,
         input.budgetMax ?? null,
         expiresAt,
+        // Roughly where it is, so the board can put the nearest first. Null
+        // for a named venue we do not recognise, which is a normal answer —
+        // those posts appear, they just sort after the measurable ones.
+        coords?.lat ?? null,
+        coords?.lon ?? null,
       ],
     );
 
@@ -577,6 +640,9 @@ export class HiringService {
               event_date   = case when $6::boolean then $7::date else event_date end,
               location     = case when $8::boolean then $9::text else location end,
               location_key = case when $8::boolean then $10::text else location_key end,
+              -- Changing the location moves the post on the board too.
+              location_lat = case when $8::boolean then $15::double precision else location_lat end,
+              location_lon = case when $8::boolean then $16::double precision else location_lon end,
               budget_min   = case when $11::boolean then $12::int else budget_min end,
               budget_max   = case when $13::boolean then $14::int else budget_max end,
               updated_at   = now()
@@ -597,6 +663,8 @@ export class HiringService {
         input.budgetMin ?? null,
         input.budgetMax !== undefined,
         input.budgetMax ?? null,
+        location ? (coordsFor(location)?.lat ?? null) : null,
+        location ? (coordsFor(location)?.lon ?? null) : null,
       ],
     );
     return this.bySlug(userId, row!.slug);
@@ -968,6 +1036,7 @@ export class HiringService {
         avatarUrl: row.poster_avatar_url,
         handle: row.poster_handle,
       },
+      distanceKm: row.distance_km == null ? null : Number(row.distance_km),
       myApplication: row.my_application_id
         ? {
             id: row.my_application_id,

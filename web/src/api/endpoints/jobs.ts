@@ -34,6 +34,15 @@ export interface JobPost {
     /** Only set when they have published a profile, so a link cannot 404. */
     handle: string | null;
   };
+  /**
+   * Roughly how far away, in kilometres, or null.
+   *
+   * Null whenever it cannot be known — you have not shared a position, or the
+   * post's location is not a place we hold coordinates for. Measured city
+   * centre to city centre, so it answers "is this reachable" and must not be
+   * shown as though it were an address.
+   */
+  distanceKm: number | null;
   applicantCount: number;
   /** Of those, how many are still unanswered. Drives the "needs you" dot. */
   newApplicantCount: number;
@@ -229,4 +238,21 @@ export function budgetLabel(min: number | null, max: number | null): string | nu
     return min === max ? peso(min) : `${peso(min)} – ${peso(max)}`;
   }
   return min != null ? `From ${peso(min)}` : `Up to ${peso(max as number)}`;
+}
+
+/**
+ * "12 km away", or "near Cebu City" when it is far enough that the exact
+ * number stops meaning anything.
+ *
+ * Deliberately vague past 50 km: the coordinate is a city centre, not a
+ * venue, and "387.9 km" implies a precision that is not there.
+ */
+export function distanceLabel(
+  km: number | null | undefined,
+  location?: string | null,
+): string | null {
+  if (km == null) return null;
+  if (km < 1) return 'Nearby';
+  if (km <= 50) return `${Math.round(km)} km away`;
+  return location ? `near ${location}` : `${Math.round(km)} km away`;
 }

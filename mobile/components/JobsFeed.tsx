@@ -5,7 +5,7 @@ import {
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useAuth, useJobs, useRoles } from '@/src/hooks';
-import { budgetLabel, type JobPost } from '@/src/api';
+import { budgetLabel, distanceLabel, type JobPost } from '@/src/api';
 import { jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon,
@@ -251,6 +251,12 @@ function JobCard({ job }: { job: JobPost }) {
             <BanknoteIcon size={11} style={{ color: '#B66A40' }} />
             <Text className="text-[11px] font-semibold" style={{ color: '#B66A40' }}>{budget}</Text>
           </View>
+        )}
+        {/* What makes a job feel takeable. Only when we actually know. */}
+        {distanceLabel(job.distanceKm, job.location) && (
+          <Text className="text-[11px] font-semibold" style={{ color: '#B66A40' }}>
+            {distanceLabel(job.distanceKm, job.location)}
+          </Text>
         )}
         {job.applicantCount > 0 && (
           <View className="flex-row items-center gap-1 ml-auto">
