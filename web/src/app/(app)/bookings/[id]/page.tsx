@@ -79,7 +79,10 @@ export default function BookingPage({
           Bookings
         </Link>
 
-        {editing ? (
+        {/* `editing` is only ever set by a button the creative does not get,
+            but the check is here too — a form that 403s on save is a worse
+            way to learn this than not being offered it. */}
+        {editing && booking.yourSide === 'poster' ? (
           <EditForm booking={booking} onDone={() => setEditing(false)} />
         ) : (
           <View booking={booking} onEdit={() => setEditing(true)} />
@@ -95,6 +98,17 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
   const cancel = useCancelBooking(booking.id);
   const rate = rateLabel(booking.rateMinor, booking.currency);
   const done = !!booking.cancelledAt;
+  /*
+   * Only the poster sets the terms.
+   *
+   * They are hiring and paying, so the booking is their offer; the creative's
+   * answer is to confirm it or not. Negotiating by editing a form at each
+   * other is a worse way to argue about a rate than the chat next to it.
+   *
+   * The server refuses either way — this only decides whether to offer a
+   * button that would be rejected.
+   */
+  const canEdit = booking.yourSide === 'poster';
 
   return (
     <>
@@ -144,10 +158,17 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
         </CardContent>
       </Card>
 
+      {/*
+        Two different sentences, because the two sides can do different things.
+        Telling somebody who has no Edit button that changing things clears the
+        confirmations describes a control they cannot see.
+      */}
       <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
         {state.detail}{' '}
         {!done &&
-          'Changing anything here clears both confirmations, so neither of you can alter agreed terms on your own.'}
+          (canEdit
+            ? 'Changing anything here clears both confirmations, so you cannot alter agreed terms on your own.'
+            : `Only ${booking.otherParty.displayName} can change these terms — they posted the job. If something is not right, say so in the chat.`)}
       </p>
 
       {!done && (
@@ -172,10 +193,12 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
             </Button>
           )}
 
-          <Button variant="outline" onClick={onEdit}>
-            <Pencil className="size-4" />
-            {booking.lockedAt ? 'Propose a change' : 'Edit'}
-          </Button>
+          {canEdit && (
+            <Button variant="outline" onClick={onEdit}>
+              <Pencil className="size-4" />
+              {booking.lockedAt ? 'Change the terms' : 'Edit'}
+            </Button>
+          )}
 
           {booking.conversationId && (
             <Button asChild variant="outline">
@@ -277,7 +300,7 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
           {booking.lockedAt
             ? 'This booking is agreed. Changing it clears both confirmations and asks them to agree again.'
-            : 'Both of you can edit until you have each confirmed.'}
+            : 'Yours to set — they confirm it. Any change clears both confirmations.'}
         </p>
 
         <form

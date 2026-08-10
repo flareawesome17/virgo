@@ -265,13 +265,27 @@ export class BookingsService {
   /**
    * Changes the terms, and un-agrees them.
    *
-   * Clearing both confirmations is the entire mechanism. It is why this is
-   * worth having: neither person can alter the rate or the date on something
-   * already agreed without the other being asked again. A locked booking is
-   * editable for the same reason — plans change — but editing unlocks it.
+   * Only the poster. They are the one hiring and paying, and the terms are
+   * their offer; the creative's answer is to confirm it or not. Letting both
+   * sides edit turned the booking into a negotiation carried out by editing a
+   * form at each other, which is a worse way to argue about a rate than the
+   * chat sitting next to it — and it made "who changed this" a question the
+   * record could not answer.
+   *
+   * Clearing both confirmations is still the entire mechanism, and it is what
+   * stops this being one-sided: the poster can move the rate, but doing so
+   * takes the creative's agreement away with it, so nothing is ever agreed
+   * that both people have not confirmed as it stands now. A locked booking
+   * stays editable for the same reason — plans change — but editing unlocks it.
    */
   async update(userId: string, id: string, patch: BookingPatch): Promise<Booking> {
     const row = await this.requireOpen(userId, id);
+
+    if (row.poster_id !== userId) {
+      throw new ForbiddenException(
+        'Only the person who posted the job can change the terms. Ask them in the chat.',
+      );
+    }
 
     const touches = (Object.keys(patch) as (keyof BookingPatch)[]).filter(
       (k) => patch[k] !== undefined,
@@ -294,7 +308,7 @@ export class BookingsService {
               poster_confirmed_at   = null,
               creative_confirmed_at = null,
               locked_at             = null
-        where id = $1 and (poster_id = $2 or creative_id = $2)`,
+        where id = $1 and poster_id = $2`,
       [
         id,
         userId,
@@ -311,8 +325,8 @@ export class BookingsService {
       ],
     );
 
-    const other = row.poster_id === userId ? row.creative_id : row.poster_id;
-    await this.notifier.notify([other], {
+    // Always the creative: the guard above is what makes that true.
+    await this.notifier.notify([row.creative_id], {
       topic: 'booking',
       title: row.locked_at ? 'Booking terms changed' : 'Booking updated',
       body: row.locked_at

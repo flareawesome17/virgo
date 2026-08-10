@@ -107,16 +107,20 @@ export function JobAcceptedCard({ context }: { context: JobAcceptedContext }) {
             onPress={() => router.push(`/bookings/${booking.id}`)}
           >
             <Text className="text-foreground text-[13px] font-bold">
-              {booking.cancelledAt || booking.lockedAt
-                ? 'View booking'
-                : 'Change the terms'}
+              {/* Only the poster gets an offer to change them. The creative is
+                  looking at somebody else's terms, and this chat is where they
+                  say what they think of them. */}
+              {booking.yourSide === 'poster' && !booking.cancelledAt
+                ? 'Change the terms'
+                : 'View booking'}
             </Text>
           </Pressable>
 
           <Text className="text-muted-foreground text-[10px] leading-4">
-            A record of what you agreed, not a legal contract. Changing anything
-            clears both confirmations, so neither of you can alter agreed terms
-            on your own.
+            A record of what you agreed, not a legal contract.{' '}
+            {booking.yourSide === 'poster'
+              ? 'Changing anything clears both confirmations, so you cannot alter agreed terms on your own.'
+              : 'Only they can change these terms — if something is not right, say so here.'}
           </Text>
         </>
       )}

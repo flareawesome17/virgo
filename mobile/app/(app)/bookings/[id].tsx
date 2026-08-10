@@ -46,7 +46,10 @@ export default function BookingScreen() {
           <Text className="text-muted-foreground mt-10 text-center text-[13px]">
             That booking is not available.
           </Text>
-        ) : editing ? (
+        ) : editing && booking.yourSide === 'poster' ? (
+          /* `editing` is only ever set by a button the creative does not get,
+             but the check is here too — a form that 403s on save is a worse
+             way to learn this than not being offered it. */
           <EditForm booking={booking} onDone={() => setEditing(false)} />
         ) : (
           <Details booking={booking} onEdit={() => setEditing(true)} />
@@ -81,6 +84,17 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
   const cancel = useCancelBooking(booking.id);
   const rate = rateLabel(booking.rateMinor, booking.currency);
   const done = !!booking.cancelledAt;
+  /*
+   * Only the poster sets the terms.
+   *
+   * They are hiring and paying, so the booking is their offer; the creative's
+   * answer is to confirm it or not. Negotiating by editing a form at each
+   * other is a worse way to argue about a rate than the chat next to it.
+   *
+   * The server refuses either way — this only decides whether to offer a
+   * button that would be rejected.
+   */
+  const canEdit = booking.yourSide === 'poster';
 
   return (
     <ScrollView contentContainerClassName="p-5 pb-14 gap-4">
@@ -120,10 +134,17 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
         </View>
       </View>
 
+      {/*
+        Two different sentences, because the two sides can do different things.
+        Telling somebody who has no Edit button that changing things clears the
+        confirmations describes a control they cannot see.
+      */}
       <Text className="text-muted-foreground text-[12px] leading-5">
         {state.detail}
         {!done &&
-          ' Changing anything here clears both confirmations, so neither of you can alter agreed terms on your own.'}
+          (canEdit
+            ? ' Changing anything here clears both confirmations, so you cannot alter agreed terms on your own.'
+            : ` Only ${booking.otherParty.displayName} can change these terms — they posted the job. If something is not right, say so in the chat.`)}
       </Text>
 
       {!done && (
@@ -145,15 +166,17 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
             </Pressable>
           )}
 
-          <Pressable
-            className="items-center rounded-2xl py-3.5"
-            style={{ borderWidth: 1, borderColor: '#B66A40' }}
-            onPress={onEdit}
-          >
-            <Text className="text-[15px] font-bold" style={{ color: '#B66A40' }}>
-              {booking.lockedAt ? 'Propose a change' : 'Edit terms'}
-            </Text>
-          </Pressable>
+          {canEdit && (
+            <Pressable
+              className="items-center rounded-2xl py-3.5"
+              style={{ borderWidth: 1, borderColor: '#B66A40' }}
+              onPress={onEdit}
+            >
+              <Text className="text-[15px] font-bold" style={{ color: '#B66A40' }}>
+                {booking.lockedAt ? 'Change the terms' : 'Edit terms'}
+              </Text>
+            </Pressable>
+          )}
 
           {booking.conversationId && (
             <Pressable
@@ -275,7 +298,7 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
         <Text className="text-muted-foreground mt-1 text-[12px] leading-5">
           {booking.lockedAt
             ? 'This booking is agreed. Changing it clears both confirmations and asks them to agree again.'
-            : 'Both of you can edit until you have each confirmed.'}
+            : 'Yours to set — they confirm it. Any change clears both confirmations.'}
         </Text>
       </View>
 
