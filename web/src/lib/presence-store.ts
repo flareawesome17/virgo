@@ -167,6 +167,32 @@ const NOBODY: string[] = [];
  */
 let typingCache = new Map<string, string[]>();
 
+/**
+ * Which of these accounts are online, as a stable key.
+ *
+ * `usePresence` is per person, which is what a web list wants because CSS
+ * `order` can sort without anyone knowing the whole picture. React Native has
+ * no `order`, so a native list has to sort in JavaScript and therefore has to
+ * see everyone at once.
+ *
+ * Returns a joined string rather than a Set on purpose: `useSyncExternalStore`
+ * compares snapshots by identity, and a fresh Set every call is a new
+ * reference every render — an infinite loop. Callers turn it back into a Set
+ * with `useMemo` keyed on this string.
+ */
+export function useOnlineKeyAmong(userIds: readonly string[]): string {
+  const key = userIds.join('|');
+  return useSyncExternalStore(
+    subscribe,
+    () =>
+      key
+        .split('|')
+        .filter((id) => id && presence.get(id)?.online)
+        .join('|'),
+    () => '',
+  );
+}
+
 export function useTypingIn(
   conversationId: string | null | undefined,
   exceptUserId?: string | null,

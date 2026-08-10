@@ -35,6 +35,7 @@ import {
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
 import { JobsTabs } from '@/components';
+import { FriendsPresence } from '@/components/FriendsPresence';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LoadFailed } from '@/components/LoadFailed';
 
@@ -350,6 +351,16 @@ export default function HomeScreen() {
               </Text>
             </View>
           </View>
+        </View>
+
+        {/*
+          Who is around, the same list the web sidebar carries. Here rather
+          than on Network because Network's list is for *managing* friends —
+          it has a Remove on every row — and this one is for reaching them.
+          Renders nothing until there are friends with accounts.
+        */}
+        <View className="-mx-5">
+          <FriendsPresence />
         </View>
 
         {/* ── Quick Actions ── */}
