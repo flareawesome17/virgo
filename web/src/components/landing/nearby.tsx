@@ -16,6 +16,17 @@ function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/**
+ * What this mock is searching for.
+ *
+ * A set rather than one string, because the real filter is multi-select
+ * (`roleFilter: string[]` in the Nearby page) and its empty-state literally
+ * reads "Anyone who does X or Y". Every person listed below matches one of
+ * these — a filter that returns people who do not match it is the detail
+ * that tells a visitor the screenshot is invented.
+ */
+const LOOKING_FOR = new Set(['Photographer', 'SDE Editor Video']);
+
 /** The nine roles the product actually knows about. See api/src/auth/roles.ts. */
 const ROLES = [
   'Photographer',
@@ -72,7 +83,7 @@ export function LandingNearby() {
 
             <div className="flex flex-wrap gap-2 border-b border-white/8 p-4">
               {ROLES.map((role) => {
-                const on = role === 'SDE Editor Photo';
+                const on = LOOKING_FOR.has(role);
                 return (
                   <span
                     key={role}
@@ -91,9 +102,16 @@ export function LandingNearby() {
             <ul className="divide-y divide-white/6">
               {[
                 // Deliberately not the three in the hero — see the note there.
-                { name: 'Ernie Saavedra', km: '1.8 km', roles: ['Videographer', 'SDE Editor Video'] },
-                { name: 'Juvanry Borata', km: '4.3 km', roles: ['Photo Editor'] },
-                { name: 'Rellon Mark Allen', km: '7.1 km', roles: ['Coordinator', 'Photographer'] },
+                // Kenn carries both SDE roles, which is what makes the body
+                // copy's "turns up under either search" visible rather than
+                // just asserted.
+                {
+                  name: 'Kenn Francis',
+                  km: '1.8 km',
+                  roles: ['SDE Editor Photo', 'SDE Editor Video'],
+                },
+                { name: 'Julanie Bation', km: '4.3 km', roles: ['Photographer'] },
+                { name: 'Shairo Baguio', km: '7.1 km', roles: ['Photographer'] },
               ].map((person) => (
                 <li key={person.name} className="flex items-center gap-3 px-4 py-3.5">
                   <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#c17745]/15 text-[11px] font-bold text-[#c17745]">
@@ -112,8 +130,11 @@ export function LandingNearby() {
                     {person.roles.map((r) => (
                       <span
                         key={r}
+                        // Matches the app, where the role you searched for is
+                        // highlighted so a person with five roles still shows
+                        // why they are in this list.
                         className={
-                          r === 'SDE Editor Photo'
+                          LOOKING_FOR.has(r)
                             ? 'rounded bg-[#c17745] px-1.5 py-0.5 text-[9px] font-bold text-white'
                             : 'rounded bg-[#c17745]/12 px-1.5 py-0.5 text-[9px] font-bold text-[#c17745]'
                         }
@@ -126,6 +147,14 @@ export function LandingNearby() {
               ))}
             </ul>
           </div>
+
+          {/* Says out loud what the panel is, in the same place and voice as
+              the showcase's note. The names are of real creatives; the
+              distances and the search are not a live query. */}
+          <p className="mt-4 text-center text-[12px] leading-relaxed text-white/25">
+            Interface shown as rendered by the app. People and distances are
+            illustrative.
+          </p>
         </Reveal>
       </div>
     </section>

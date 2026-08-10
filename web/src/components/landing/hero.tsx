@@ -105,23 +105,29 @@ export function LandingHero() {
 }
 
 /**
+ * Three of the six; the Nearby section further down shows the other three.
+ * The same trio used to appear in both places, which is a tell: a reader who
+ * scrolls meets the identical list twice and concludes the whole thing is
+ * placeholder — on the one page whose job is to answer "is anyone actually
+ * on this".
+ *
+ * Everyone here is a videographer because the panel's chrome says it is
+ * filtering for one. It previously advertised a search for an SDE editor and
+ * then returned an HMUA, which is the kind of detail that gives a mock away
+ * to precisely the audience being pitched.
+ */
+const NEARBY_ROWS = [
+  { name: 'Ernie Saavedra', meta: '2.2 km away', role: 'Videographer', tone: '#c17745' },
+  { name: 'Juvanry Borata', meta: '5.6 km away', role: 'Videographer', tone: '#6b8e4e' },
+  { name: 'Rellon Mark Allen', meta: '8.9 km away', role: 'Videographer', tone: '#5b7b9a' },
+];
+
+/**
  * A sketch of the product, drawn rather than screenshotted.
  *
  * Shows the hiring flow, because that is the part people have to see to
  * believe. A real screenshot would go stale the first time the UI moves.
  */
-/**
- * Three of the six, and the Nearby section further down shows the other
- * three. The same trio used to appear in both places, which is a tell: a
- * reader who scrolls sees the identical list twice and concludes the whole
- * thing is placeholder — on the one page whose job is to answer "is anyone
- * actually on this".
- */
-const NEARBY_ROWS = [
-  { name: 'Kenn Francis', meta: '2.2 km away', role: 'Photographer', tone: '#c17745' },
-  { name: 'Julanie Bation', meta: '5.6 km away', role: 'SDE Editor Photo', tone: '#6b8e4e' },
-  { name: 'Shairo Baguio', meta: '8.9 km away', role: 'HMUA', tone: '#5b7b9a' },
-];
 
 function HeroPanel() {
   return (
@@ -131,7 +137,7 @@ function HeroPanel() {
         <span className="size-2.5 rounded-full bg-white/15" />
         <span className="size-2.5 rounded-full bg-white/15" />
         <span className="ml-3 text-[11px] font-medium text-white/30">
-          Nearby · looking for an SDE Editor Photo within 30 km
+          Nearby · looking for a Videographer within 30 km
         </span>
       </div>
 
