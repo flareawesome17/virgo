@@ -1,6 +1,7 @@
 import { LandingNav } from '@/components/landing/nav';
 import { LandingHero } from '@/components/landing/hero';
 import { LandingPillars } from '@/components/landing/pillars';
+import { LandingShowcase } from '@/components/landing/showcase';
 import { LandingNearby } from '@/components/landing/nearby';
 import { LandingCommunity } from '@/components/landing/community';
 import { LandingDelivery } from '@/components/landing/delivery';
@@ -70,6 +71,7 @@ export default async function LandingPage() {
           full feature list, the walkthrough and the price. */}
       <main>
         <LandingHero />
+        <LandingShowcase />
         <LandingPillars />
         <LandingNearby />
         <LandingCommunity />

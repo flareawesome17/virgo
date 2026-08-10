@@ -58,11 +58,22 @@ export function useConversations(q?: string) {
 }
 
 /** Total unread, for the tab badge. */
-export function useUnreadCount() {
+/**
+ * Total unread, for the tab badge.
+ *
+ * `enabled` is not optional decoration. Hooks cannot be called conditionally,
+ * so `useMessageAlerts` gated its *effects* on the session while still calling
+ * this — which meant a signed-out visitor on the public landing page fired an
+ * authenticated request, and then repeated it every sixty seconds. From the
+ * apex it is not even same-origin, so it failed CORS and put a red error in
+ * the console of the one page most people ever see.
+ */
+export function useUnreadCount(enabled = true) {
   const query = useQuery({
     queryKey: chatKeys.unread,
     queryFn: () => chatApi.unread(),
     refetchInterval: 60_000,
+    enabled,
   });
   return query.data?.count ?? 0;
 }
@@ -289,7 +300,7 @@ export function useDeleteConversation() {
  * messages already waiting does not buzz.
  */
 export function useMessageAlerts(enabled: boolean): void {
-  const unread = useUnreadCount();
+  const unread = useUnreadCount(enabled);
   const previous = useRef<number | null>(null);
 
   useEffect(() => {
