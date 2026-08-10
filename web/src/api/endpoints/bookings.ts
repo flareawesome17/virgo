@@ -30,13 +30,18 @@ export interface Booking {
   rateMinor: number | null;
   currency: string;
   notes: string | null;
-  posterConfirmedAt: string | null;
-  creativeConfirmedAt: string | null;
-  /** Whether *you* have confirmed the terms as they currently stand. */
-  youConfirmed: boolean;
-  theyConfirmed: boolean;
-  /** Set once both agree. Any edit clears it. */
-  lockedAt: string | null;
+  /**
+   * Whether the creative has agreed to the terms as they currently stand.
+   *
+   * One flag, not a pair. The poster writes the terms — that is their part —
+   * and the creative agrees or does not, which is what hiring somebody is.
+   * Read it with `yourSide`: for a poster it means "they said yes", for a
+   * creative it means "you said yes".
+   *
+   * Any edit clears it, so it is always about the terms on screen now.
+   */
+  confirmed: boolean;
+  confirmedAt: string | null;
   cancelledAt: string | null;
   cancelReason: string | null;
   conversationId: string | null;

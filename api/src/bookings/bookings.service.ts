@@ -34,14 +34,18 @@ export interface Booking {
   rateMinor: number | null;
   currency: string;
   notes: string | null;
-  posterConfirmedAt: string | null;
-  creativeConfirmedAt: string | null;
-  /** Whether *you* have confirmed the terms as they currently stand. */
-  youConfirmed: boolean;
-  /** Whether the other side has. */
-  theyConfirmed: boolean;
-  /** Set once both agree. Any edit clears it. */
-  lockedAt: string | null;
+  /**
+   * Whether the creative has agreed to the terms as they currently stand.
+   *
+   * One flag, not a pair. The poster writes the terms — that is their part —
+   * and the creative agrees or does not, which is what hiring somebody is.
+   * Asking the poster to also confirm their own offer was a step with no
+   * decision in it.
+   *
+   * Any edit clears it, so this is always about the terms on screen now.
+   */
+  confirmed: boolean;
+  confirmedAt: string | null;
   cancelledAt: string | null;
   cancelReason: string | null;
   conversationId: string | null;
@@ -130,10 +134,6 @@ export class BookingsService {
   private present(row: BookingRow, viewerId: string): Booking {
     const yourSide: BookingSide =
       row.poster_id === viewerId ? 'poster' : 'creative';
-    const youConfirmed =
-      yourSide === 'poster' ? !!row.poster_confirmed_at : !!row.creative_confirmed_at;
-    const theyConfirmed =
-      yourSide === 'poster' ? !!row.creative_confirmed_at : !!row.poster_confirmed_at;
 
     return {
       id: row.id,
@@ -154,11 +154,8 @@ export class BookingsService {
       rateMinor: row.rate_minor,
       currency: row.currency,
       notes: row.notes,
-      posterConfirmedAt: row.poster_confirmed_at?.toISOString() ?? null,
-      creativeConfirmedAt: row.creative_confirmed_at?.toISOString() ?? null,
-      youConfirmed,
-      theyConfirmed,
-      lockedAt: row.locked_at?.toISOString() ?? null,
+      confirmed: !!row.creative_confirmed_at,
+      confirmedAt: row.creative_confirmed_at?.toISOString() ?? null,
       cancelledAt: row.cancelled_at?.toISOString() ?? null,
       cancelReason: row.cancel_reason,
       conversationId: row.conversation_id,
@@ -341,44 +338,44 @@ export class BookingsService {
   /**
    * Agree to the terms as they currently stand.
    *
-   * The second confirmation locks it. Confirming twice is a no-op rather than
-   * an error — a double tap should not be a failure.
+   * Only the creative. The poster wrote the terms — that is their part of it,
+   * and clicking "I agree" underneath your own offer is a step with no
+   * decision in it. It also let a poster sit on a booking they had authored
+   * and not confirmed, which reads to the other person as hesitation about
+   * their own terms.
+   *
+   * Confirming twice is a no-op rather than an error — a double tap should
+   * not be a failure.
    */
   async confirm(userId: string, id: string): Promise<Booking> {
     const row = await this.requireOpen(userId, id);
-    const side: BookingSide = row.poster_id === userId ? 'poster' : 'creative';
-    const column =
-      side === 'poster' ? 'poster_confirmed_at' : 'creative_confirmed_at';
-    const already =
-      side === 'poster' ? row.poster_confirmed_at : row.creative_confirmed_at;
-    if (already) return this.byId(userId, id);
 
-    const updated = await this.db.queryOne<{ locked_at: Date | null }>(
+    if (row.creative_id !== userId) {
+      throw new ForbiddenException(
+        'These are your terms — the person you hired is the one who confirms them.',
+      );
+    }
+    if (row.creative_confirmed_at) return this.byId(userId, id);
+
+    await this.db.query(
       `update job_bookings
-          set ${column} = now(),
-              -- Locked exactly when the other side is already in. Computed
-              -- here rather than in a second statement so two simultaneous
-              -- confirmations cannot both see the other as unconfirmed.
-              locked_at = case
-                when ${side === 'poster' ? 'creative_confirmed_at' : 'poster_confirmed_at'} is not null
-                then now() else locked_at end
-        where id = $1 and (poster_id = $2 or creative_id = $2)
-        returning locked_at`,
+          -- The same moment under two names: creative_confirmed_at is what
+          -- happened, locked_at is what it means. They moved apart only while
+          -- agreement needed two people.
+          set creative_confirmed_at = now(),
+              locked_at             = now()
+        where id = $1 and creative_id = $2`,
       [id, userId],
     );
 
-    const other = row.poster_id === userId ? row.creative_id : row.poster_id;
-    const locked = !!updated?.locked_at;
-    await this.notifier.notify([other], {
+    await this.notifier.notify([row.poster_id], {
       topic: 'booking',
-      title: locked ? 'Booking agreed' : 'Booking confirmed',
-      body: locked
-        ? `You and ${row.other_name?.trim() || 'they'} both confirmed “${row.post_title}”.`
-        : `They confirmed the booking for “${row.post_title}”. Your turn.`,
+      title: 'Booking agreed',
+      body: `${row.other_name?.trim() || 'They'} confirmed the terms for “${row.post_title}”.`,
       data: { type: 'booking', bookingId: id },
     });
 
-    if (locked) this.logger.log(`booking ${id} agreed by both sides`);
+    this.logger.log(`booking ${id} agreed`);
     return this.byId(userId, id);
   }
 

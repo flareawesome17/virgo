@@ -163,9 +163,9 @@ function BookingLink({ applicationId }: { applicationId: string }) {
       <Text className="text-[12px] font-bold" style={{ color: '#B66A40' }}>
         Booking · {booking.cancelledAt
           ? 'cancelled'
-          : booking.lockedAt
+          : booking.confirmed
             ? 'agreed'
-            : booking.youConfirmed
+            : booking.yourSide === 'poster'
               ? 'waiting on them'
               : 'needs you'}
       </Text>

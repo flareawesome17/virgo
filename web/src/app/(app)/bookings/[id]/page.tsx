@@ -145,14 +145,16 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
             <Row label="Notes" value={booking.notes} />
           </dl>
 
-          <div className="mt-5 space-y-2 border-t pt-4 text-sm">
+          {/* One line, not two. The poster wrote these terms, so there was
+              never anything to say about whether they agreed with them. */}
+          <div className="mt-5 border-t pt-4 text-sm">
             <Confirmation
-              who={booking.yourSide === 'poster' ? 'You' : booking.otherParty.displayName}
-              at={booking.posterConfirmedAt}
-            />
-            <Confirmation
-              who={booking.yourSide === 'creative' ? 'You' : booking.otherParty.displayName}
-              at={booking.creativeConfirmedAt}
+              who={
+                booking.yourSide === 'creative'
+                  ? 'You'
+                  : booking.otherParty.displayName
+              }
+              at={booking.confirmedAt}
             />
           </div>
         </CardContent>
@@ -167,23 +169,20 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
         {state.detail}{' '}
         {!done &&
           (canEdit
-            ? 'Changing anything here clears both confirmations, so you cannot alter agreed terms on your own.'
+            ? 'Changing anything here clears their confirmation, so you cannot alter agreed terms on your own.'
             : `Only ${booking.otherParty.displayName} can change these terms — they posted the job. If something is not right, say so in the chat.`)}
       </p>
 
       {!done && (
         <div className="mt-5 flex flex-wrap gap-2">
-          {!booking.youConfirmed && (
+          {/* Only the person hired. The poster wrote the offer; agreeing with
+              your own offer is a step with no decision in it. */}
+          {!canEdit && !booking.confirmed && (
             <Button
               disabled={confirm.isPending}
               onClick={() =>
                 confirm.mutate(undefined, {
-                  onSuccess: (b) =>
-                    toast.success(
-                      (b as Booking).lockedAt
-                        ? 'Agreed by both of you'
-                        : 'Confirmed. Waiting for them.',
-                    ),
+                  onSuccess: () => toast.success('Agreed'),
                   onError: (e: Error) => toast.error(e.message),
                 })
               }
@@ -196,7 +195,7 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
           {canEdit && (
             <Button variant="outline" onClick={onEdit}>
               <Pencil className="size-4" />
-              {booking.lockedAt ? 'Change the terms' : 'Edit'}
+              {booking.confirmed ? 'Change the terms' : 'Edit'}
             </Button>
           )}
 
@@ -298,9 +297,9 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
       <CardContent className="p-5">
         <h1 className="text-lg font-bold tracking-tight">Edit the terms</h1>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {booking.lockedAt
-            ? 'This booking is agreed. Changing it clears both confirmations and asks them to agree again.'
-            : 'Yours to set — they confirm it. Any change clears both confirmations.'}
+          {booking.confirmed
+            ? 'They have agreed to these. Changing anything asks them to agree again.'
+            : 'Yours to set — they confirm it.'}
         </p>
 
         <form
@@ -323,7 +322,7 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
               {
                 onSuccess: () => {
                   toast.success('Terms updated', {
-                    description: 'Both confirmations were cleared.',
+                    description: 'They have been asked to confirm them again.',
                   });
                   onDone();
                 },

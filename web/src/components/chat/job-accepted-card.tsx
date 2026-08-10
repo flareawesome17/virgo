@@ -72,25 +72,29 @@ export function JobAcceptedCard({ context }: { context: JobAcceptedContext }) {
           </p>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            {!booking.cancelledAt && !booking.youConfirmed && (
-              <Button
-                size="sm"
-                disabled={confirm.isPending}
-                onClick={() =>
-                  confirm.mutate(undefined, {
-                    onSuccess: () => toast.success('Confirmed'),
-                    onError: (e: Error) => toast.error(e.message),
-                  })
-                }
-              >
-                {confirm.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Check className="size-4" />
-                )}
-                Confirm these terms
-              </Button>
-            )}
+            {/* Only the person hired. The poster wrote the offer; agreeing
+                with your own offer is a step with no decision in it. */}
+            {!booking.cancelledAt &&
+              !booking.confirmed &&
+              booking.yourSide === 'creative' && (
+                <Button
+                  size="sm"
+                  disabled={confirm.isPending}
+                  onClick={() =>
+                    confirm.mutate(undefined, {
+                      onSuccess: () => toast.success('Agreed'),
+                      onError: (e: Error) => toast.error(e.message),
+                    })
+                  }
+                >
+                  {confirm.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Check className="size-4" />
+                  )}
+                  Confirm these terms
+                </Button>
+              )}
             <Button asChild size="sm" variant="outline">
               <Link href={`/bookings/${booking.id}`}>
                 {/* Only the poster gets an offer to change them. The creative
@@ -106,7 +110,7 @@ export function JobAcceptedCard({ context }: { context: JobAcceptedContext }) {
           <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
             A record of what you agreed, not a legal contract.{' '}
             {booking.yourSide === 'poster'
-              ? 'Changing anything clears both confirmations, so you cannot alter agreed terms on your own.'
+              ? 'Changing anything clears their confirmation, so you cannot alter agreed terms on your own.'
               : 'Only they can change these terms — if something is not right, say so here.'}
           </p>
         </>

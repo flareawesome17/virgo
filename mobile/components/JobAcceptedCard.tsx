@@ -14,13 +14,14 @@ function stateOf(booking: Booking): string {
   if (booking.cancelledAt) {
     return booking.cancelReason ?? 'This booking was cancelled.';
   }
-  if (booking.lockedAt) return 'Both of you confirmed these terms.';
-  if (!booking.youConfirmed) {
-    return booking.theyConfirmed
-      ? 'They have confirmed. Your turn.'
-      : 'Neither of you has confirmed yet.';
+  if (booking.confirmed) {
+    return booking.yourSide === 'poster'
+      ? 'They confirmed these terms.'
+      : 'You confirmed these terms.';
   }
-  return 'You confirmed. Waiting for them to agree.';
+  return booking.yourSide === 'poster'
+    ? 'They have not confirmed these terms yet.'
+    : 'They set these terms. Confirm them, or say so in the chat.';
 }
 
 /**
@@ -85,7 +86,9 @@ export function JobAcceptedCard({ context }: { context: JobAcceptedContext }) {
             {stateOf(booking)}
           </Text>
 
-          {!booking.cancelledAt && !booking.youConfirmed && (
+          {/* Only the person hired. The poster wrote the offer; agreeing
+              with your own offer is a step with no decision in it. */}
+          {!booking.cancelledAt && !booking.confirmed && booking.yourSide === 'creative' && (
             <Pressable
               className="items-center rounded-xl py-3"
               style={{ backgroundColor: '#B66A40', opacity: confirm.isPending ? 0.5 : 1 }}
@@ -119,7 +122,7 @@ export function JobAcceptedCard({ context }: { context: JobAcceptedContext }) {
           <Text className="text-muted-foreground text-[10px] leading-4">
             A record of what you agreed, not a legal contract.{' '}
             {booking.yourSide === 'poster'
-              ? 'Changing anything clears both confirmations, so you cannot alter agreed terms on your own.'
+              ? 'Changing anything clears their confirmation, so you cannot alter agreed terms on your own.'
               : 'Only they can change these terms — if something is not right, say so here.'}
           </Text>
         </>

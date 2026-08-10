@@ -59,23 +59,31 @@ export default function BookingScreen() {
   );
 }
 
-/** Four states worth telling apart — see the web component for why. */
+/** Matches web's bookingState so both clients say the same words. */
 function stateOf(booking: Booking) {
   if (booking.cancelledAt) {
     return { label: 'Cancelled', detail: booking.cancelReason ?? 'This booking was cancelled.' };
   }
-  if (booking.lockedAt) {
-    return { label: 'Agreed', detail: 'Both of you confirmed these terms.' };
-  }
-  if (!booking.youConfirmed) {
+  if (booking.confirmed) {
     return {
-      label: 'Needs you',
-      detail: booking.theyConfirmed
-        ? 'They have confirmed. Your turn.'
-        : 'Neither of you has confirmed yet.',
+      label: 'Agreed',
+      detail:
+        booking.yourSide === 'poster'
+          ? 'They confirmed these terms.'
+          : 'You confirmed these terms.',
     };
   }
-  return { label: 'Waiting on them', detail: 'You confirmed. Waiting for them to agree.' };
+  // Unconfirmed says different things to the two sides now: the poster is
+  // waiting on somebody, the creative is the somebody.
+  return booking.yourSide === 'poster'
+    ? {
+        label: 'Waiting on them',
+        detail: 'They have not confirmed these terms yet.',
+      }
+    : {
+        label: 'Needs you',
+        detail: 'They set these terms. Confirm them, or say so in the chat.',
+      };
 }
 
 function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
@@ -122,14 +130,12 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
         <Row label="Rate" value={rate} strong />
         <Row label="Notes" value={booking.notes} />
 
-        <View className="border-border mt-1 gap-2 border-t pt-3">
-          <Confirmed
-            who={booking.yourSide === 'poster' ? 'You' : booking.otherParty.displayName}
-            at={booking.posterConfirmedAt}
-          />
+        {/* One line, not two. The poster wrote these terms, so there was
+            never anything to say about whether they agreed with them. */}
+        <View className="border-border mt-1 border-t pt-3">
           <Confirmed
             who={booking.yourSide === 'creative' ? 'You' : booking.otherParty.displayName}
-            at={booking.creativeConfirmedAt}
+            at={booking.confirmedAt}
           />
         </View>
       </View>
@@ -143,13 +149,15 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
         {state.detail}
         {!done &&
           (canEdit
-            ? ' Changing anything here clears both confirmations, so you cannot alter agreed terms on your own.'
+            ? ' Changing anything here clears their confirmation, so you cannot alter agreed terms on your own.'
             : ` Only ${booking.otherParty.displayName} can change these terms — they posted the job. If something is not right, say so in the chat.`)}
       </Text>
 
       {!done && (
         <View className="gap-2">
-          {!booking.youConfirmed && (
+          {/* Only the person hired. The poster wrote the offer; agreeing
+              with your own offer is a step with no decision in it. */}
+          {!canEdit && !booking.confirmed && (
             <Pressable
               className="items-center rounded-2xl py-3.5"
               style={{ backgroundColor: '#B66A40', opacity: confirm.isPending ? 0.5 : 1 }}
@@ -173,7 +181,7 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
               onPress={onEdit}
             >
               <Text className="text-[15px] font-bold" style={{ color: '#B66A40' }}>
-                {booking.lockedAt ? 'Change the terms' : 'Edit terms'}
+                {booking.confirmed ? 'Change the terms' : 'Edit terms'}
               </Text>
             </Pressable>
           )}
@@ -296,9 +304,9 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
       <View>
         <Text className="text-foreground text-[17px] font-bold">Edit the terms</Text>
         <Text className="text-muted-foreground mt-1 text-[12px] leading-5">
-          {booking.lockedAt
-            ? 'This booking is agreed. Changing it clears both confirmations and asks them to agree again.'
-            : 'Yours to set — they confirm it. Any change clears both confirmations.'}
+          {booking.confirmed
+            ? 'They have agreed to these. Changing anything asks them to agree again.'
+            : 'Yours to set — they confirm it.'}
         </Text>
       </View>
 

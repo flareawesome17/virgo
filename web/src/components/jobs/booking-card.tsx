@@ -25,27 +25,29 @@ export function bookingState(booking: Booking): {
       tone: 'gone',
     };
   }
-  if (booking.lockedAt) {
+  if (booking.confirmed) {
     return {
       label: 'Agreed',
-      detail: 'Both of you confirmed these terms.',
+      detail:
+        booking.yourSide === 'poster'
+          ? 'They confirmed these terms.'
+          : 'You confirmed these terms.',
       tone: 'good',
     };
   }
-  if (!booking.youConfirmed) {
-    return {
-      label: 'Needs you',
-      detail: booking.theyConfirmed
-        ? 'They have confirmed. Your turn.'
-        : 'Neither of you has confirmed yet.',
-      tone: 'todo',
-    };
-  }
-  return {
-    label: 'Waiting on them',
-    detail: 'You confirmed. Waiting for them to agree.',
-    tone: 'waiting',
-  };
+  // Unconfirmed says different things to the two sides now: the poster is
+  // waiting on somebody, the creative is the somebody.
+  return booking.yourSide === 'poster'
+    ? {
+        label: 'Waiting on them',
+        detail: 'They have not confirmed these terms yet.',
+        tone: 'waiting',
+      }
+    : {
+        label: 'Needs you',
+        detail: 'They set these terms. Confirm them, or say so in the chat.',
+        tone: 'todo',
+      };
 }
 
 const TONE: Record<ReturnType<typeof bookingState>['tone'], string> = {
