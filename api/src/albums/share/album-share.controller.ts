@@ -1,3 +1,4 @@
+import { ZipArchive } from 'archiver';
 import {
   Body,
   Controller,
@@ -5,6 +6,7 @@ import {
   Get,
   Header,
   HttpCode,
+  Logger,
   Param,
   Post,
   Res,
@@ -18,7 +20,9 @@ import {
   ALL_MEDIA_KINDS,
   AlbumShareService,
   type MediaKind,
+  safeFileStem,
 } from './album-share.service';
+import { contentDisposition } from '../../storage/storage.service';
 import {
   renderClientGallery,
   renderLinkUnavailable,
@@ -71,6 +75,8 @@ export class AlbumShareController {
  */
 @Controller('s')
 export class PublicAlbumController {
+  private readonly logger = new Logger(PublicAlbumController.name);
+
   constructor(private readonly share: AlbumShareService) {}
 
   @Public()
@@ -103,7 +109,78 @@ export class PublicAlbumController {
       return;
     }
 
-    res.send(renderClientGallery(view));
+    res.send(renderClientGallery(view, token));
+  }
+
+  /**
+   * Every file the link covers, as one streamed zip.
+   *
+   * Streamed, never assembled. A wedding delivery is routinely several
+   * gigabytes; building that in memory or on disk first would hold the whole
+   * album in the container for the length of the download and fall over on
+   * the second client who clicked at the same time. Objects are pulled from
+   * B2 one at a time and piped straight out, so memory stays flat regardless
+   * of album size.
+   *
+   * Stored, not deflated. JPEG, H.264 and AAC are already compressed —
+   * deflate would spend real CPU per byte to save approximately none.
+   *
+   * No Content-Length is possible for a stream like this, so the browser
+   * shows an indeterminate progress bar. That is the accepted cost of not
+   * buffering; the alternative is making the client wait with no feedback at
+   * all while the server assembles gigabytes.
+   */
+  @Public()
+  // Far tighter than the page: this one moves the whole album per call.
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  @Get(':token/download.zip')
+  async downloadAll(@Param('token') token: string, @Res() res: Response) {
+    const { albumName, files } = await this.share.filesForDownload(token);
+
+    if (files.length === 0) {
+      res.status(404).json({ message: 'Nothing to download' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader(
+      'Content-Disposition',
+      contentDisposition(`${safeFileStem(albumName)}.zip`),
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+
+    // archiver v8 dropped the callable default in favour of the classes.
+    // `store` skips deflate: JPEG, H.264 and AAC are already compressed, so
+    // it would burn CPU per byte to save approximately none.
+    const archive = new ZipArchive({ store: true });
+
+    // A failure mid-stream cannot become a 500: headers are long gone and the
+    // client is already receiving zip bytes. Destroying the socket is what
+    // makes their download fail visibly as a truncated file rather than
+    // completing as a silently incomplete one.
+    archive.on('error', (err: Error) => {
+      this.logger.error(`Zip failed for album "${albumName}": ${err.message}`);
+      res.destroy(err);
+    });
+    // A client who cancels mid-download leaves us pulling the rest of the
+    // album from B2 for nobody.
+    res.on('close', () => {
+      if (!res.writableEnded) archive.abort();
+    });
+
+    archive.pipe(res);
+
+    for (const file of files) {
+      try {
+        archive.append(await this.share.streamFor(file.key), { name: file.name });
+      } catch (err) {
+        // One unreadable object should not cost the client the other 199.
+        this.logger.warn(`Skipped ${file.key} in zip: ${String(err)}`);
+      }
+    }
+
+    await archive.finalize();
   }
 
   /** JSON form of the same view, for anything that wants to render its own UI. */

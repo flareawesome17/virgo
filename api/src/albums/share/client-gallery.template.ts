@@ -84,7 +84,20 @@ ${PAGE_STYLE}
  * wifi and cannot leak the viewer to a third party. Media is served from the
  * CDN, which is the only outbound request the page makes.
  */
-export function renderClientGallery(view: PublicAlbumView): string {
+/** "1.4 GB", for the download button to be honest about what it will cost. */
+function bytesLabel(bytes: number): string {
+  if (bytes <= 0) return '0 MB';
+  const mb = bytes / 1024 ** 2;
+  if (mb < 1) return '<1 MB';
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+
+/** An inline download glyph. No icon font, no request. */
+const DL_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+  '<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>';
+
+export function renderClientGallery(view: PublicAlbumView, token: string): string {
   // `view.files` is already filtered to the link's scope by the query, so a
   // section can only be non-empty if the link included that kind. Checking
   // `kinds` as well keeps an in-scope but empty section from disappearing
@@ -100,12 +113,33 @@ export function renderClientGallery(view: PublicAlbumView): string {
     ? view.files.filter((f) => f.contentType?.startsWith('audio/'))
     : [];
 
+  /**
+   * A tile renders from the thumbnail and links to the original.
+   *
+   * The grid used to draw straight from the originals — 160px squares backed
+   * by 5 MB photographs, so a 200-image delivery pulled about a gigabyte
+   * before the client had looked at anything. `thumbUrl` is null for images
+   * uploaded before thumbnails existed, or ones sharp could not decode, so
+   * the original stays the fallback rather than the default.
+   *
+   * No width/height attributes: thumbnails keep their aspect ratio, so any
+   * fixed pair would be a lie for every photograph that is not square. The
+   * tile's own `aspect-ratio:1` is what reserves the space, so there is no
+   * layout shift to prevent.
+   */
   const tiles = images
     .filter((f) => f.url)
     .map(
       (f) =>
-        `<a class="tile" href="${esc(f.url!)}" target="_blank" rel="noopener noreferrer">` +
-        `<img src="${esc(f.url!)}" alt="" loading="lazy"></a>`,
+        `<figure class="tile">` +
+        `<a href="${esc(f.url!)}" target="_blank" rel="noopener noreferrer">` +
+        `<img src="${esc(f.thumbUrl ?? f.url!)}" alt="" loading="lazy" ` +
+        `decoding="async"></a>` +
+        (f.downloadUrl
+          ? `<a class="tiledl" href="${esc(f.downloadUrl)}" ` +
+            `aria-label="Download ${esc(f.downloadName)}">${DL_ICON}</a>`
+          : '') +
+        `</figure>`,
     )
     .join('');
 
@@ -123,7 +157,11 @@ export function renderClientGallery(view: PublicAlbumView): string {
    * the element also carries a download link as its final fallback — a client
    * can always get the file even when nothing can play it inline.
    */
-  const videoBlock = (f: { url: string | null; contentType: string | null }) => {
+  const videoBlock = (f: {
+    url: string | null;
+    downloadUrl: string | null;
+    contentType: string | null;
+  }) => {
     const url = esc(f.url!);
     const declared = f.contentType ?? 'video/mp4';
     const alternates =
@@ -137,8 +175,11 @@ export function renderClientGallery(view: PublicAlbumView): string {
       `<video class="video" controls playsinline preload="metadata">${sources}` +
       `<p class="fallback">This video cannot be played in this browser.</p>` +
       `</video>` +
-      `<a class="dl" href="${url}" target="_blank" rel="noopener noreferrer" download>` +
-      `Download video</a>` +
+      // The signed URL, not the display one. `download` alone does nothing
+      // across origins; the disposition is baked into this signature.
+      (f.downloadUrl
+        ? `<a class="dl" href="${esc(f.downloadUrl)}">${DL_ICON}Download video</a>`
+        : '') +
       `</div>`
     );
   };
@@ -148,7 +189,13 @@ export function renderClientGallery(view: PublicAlbumView): string {
   const audioBlocks = audio
     .filter((f) => f.url)
     .map(
-      (f) => `<audio class="audio" controls preload="none" src="${esc(f.url!)}"></audio>`,
+      (f) =>
+        `<div class="audiowrap">` +
+        `<audio class="audio" controls preload="none" src="${esc(f.url!)}"></audio>` +
+        (f.downloadUrl
+          ? `<a class="dl" href="${esc(f.downloadUrl)}">${DL_ICON}Download audio</a>`
+          : '') +
+        `</div>`,
     )
     .join('');
 
@@ -183,14 +230,35 @@ ${PAGE_STYLE}
   main { max-width:1100px; margin:0 auto; padding:0 20px 64px; }
   h2 { font-size:12px; text-transform:uppercase; letter-spacing:2px; color:var(--muted); margin:32px 0 12px; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:6px; }
-  .tile { display:block; aspect-ratio:1; overflow:hidden; border-radius:6px; background:var(--line); }
+  .tile { position:relative; margin:0; aspect-ratio:1; overflow:hidden; border-radius:6px; background:var(--line); }
   .tile img { width:100%; height:100%; object-fit:cover; display:block; }
+  /* The per-photo download. Always visible on touch, where there is no hover
+     to reveal it — a control a phone user cannot discover is not a control. */
+  .tiledl { position:absolute; right:6px; bottom:6px; width:34px; height:34px;
+            display:flex; align-items:center; justify-content:center;
+            border-radius:8px; background:rgba(0,0,0,.55); backdrop-filter:blur(4px);
+            opacity:0; transition:opacity .15s; }
+  .tiledl svg { width:17px; height:17px; stroke:#fff; fill:none; stroke-width:2;
+                stroke-linecap:round; stroke-linejoin:round; }
+  .tile:hover .tiledl, .tiledl:focus-visible { opacity:1; }
+  @media (hover:none) { .tiledl { opacity:1; } }
   .video, .audio { width:100%; border-radius:8px; background:#000; display:block; }
   .audio { background:var(--card); margin-bottom:10px; }
   .videowrap { margin-bottom:18px; }
   .fallback { color:#fff; text-align:center; padding:28px 16px; margin:0; font-size:14px; }
-  .dl { display:inline-block; margin-top:8px; font-size:13px; color:var(--accent);
-        text-decoration:none; border-bottom:1px solid currentColor; }
+  .dl { display:inline-flex; align-items:center; gap:6px; margin-top:8px; min-height:44px;
+        font-size:13px; color:var(--accent); text-decoration:none; }
+  .dl svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:2;
+            stroke-linecap:round; stroke-linejoin:round; }
+  .audiowrap { margin-bottom:18px; }
+  /* Download all. The one control a client is looking for, so it sits in the
+     header rather than at the bottom of a gallery they have to scroll past. */
+  .grab { display:inline-flex; align-items:center; gap:8px; margin-top:16px;
+          min-height:44px; padding:0 18px; border-radius:10px; background:var(--accent);
+          color:#fff; font-size:14px; font-weight:600; text-decoration:none; }
+  .grab svg { width:17px; height:17px; stroke:currentColor; fill:none; stroke-width:2;
+              stroke-linecap:round; stroke-linejoin:round; }
+  .grabnote { color:var(--muted); font-size:12px; margin:8px 0 0; }
   .empty { color:var(--muted); text-align:center; padding:64px 20px; }
   footer { text-align:center; color:var(--muted); font-size:12px; padding:0 20px 40px; }
 </style>
@@ -202,6 +270,14 @@ ${PAGE_STYLE}
     scoped ? ` &middot; ${esc(scopeNote)} only` : ''
   }</div>
   ${view.album.description ? `<p class="desc">${esc(view.album.description)}</p>` : ''}
+  ${
+    isEmpty
+      ? ''
+      : `<a class="grab" href="/s/${esc(token)}/download.zip">${DL_ICON}` +
+        `Download all &middot; ${bytesLabel(view.totalBytes)}</a>` +
+        `<p class="grabnote">One zip file. Large albums take a while to ` +
+        `start — leave the tab open.</p>`
+  }
 </header>
 <main>
   ${isEmpty ? '<div class="empty">Nothing has been shared here yet.</div>' : ''}

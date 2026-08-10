@@ -28,6 +28,10 @@ COPY --from=build /app/dist ./dist
 # The migration runner resolves `process.cwd()/migrations`, and WORKDIR is
 # /app — so these must land at /app/migrations.
 COPY migrations ./migrations
+# Operational one-offs — the thumbnail backfill, the bucket audits. They need
+# the container's storage credentials and database URL to run at all, so
+# leaving them out of the image meant copying a file in before every use.
+COPY scripts ./scripts
 
 # Drop root. The node image ships this user; copied files stay world-readable.
 USER node

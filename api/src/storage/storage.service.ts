@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
+import type { Readable } from 'node:stream';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import {
   BadRequestException,
@@ -40,6 +41,21 @@ export interface UploadTicket {
   /** The client MUST send exactly these headers or the signature will not match. */
   requiredHeaders: Record<string, string>;
   expiresAt: string;
+}
+
+/**
+ * `Content-Disposition` for a download, safe for any filename.
+ *
+ * Two forms on purpose: a stripped ASCII `filename` that every client can
+ * read, and RFC 5987 `filename*` carrying the real one. Album names are
+ * user-supplied and Filipino ones routinely contain accents — sending those
+ * raw produces a header a browser either mangles or rejects outright.
+ */
+export function contentDisposition(name: string): string {
+  // Printable ASCII only for the plain form, and neither of the two
+  // characters that would end the quoted string early.
+  const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 /**
@@ -261,6 +277,21 @@ export class StorageService {
   async mediaUrl(
     key: string | null | undefined,
     ttlSeconds: number = DOWNLOAD_URL_TTL_SECONDS,
+    /**
+     * Filename to save as, which also turns the response into a download.
+     *
+     * This is the only way to make a share-page download actually save. The
+     * HTML `download` attribute is ignored for cross-origin URLs, and media
+     * is served from B2, so `<a download>` on a signed URL just opens the
+     * photo in a tab and leaves the client to long-press it. Signing
+     * `response-content-disposition` moves the decision to the response
+     * itself, and costs no bytes through this server.
+     *
+     * Note it changes the URL, so a download link and a display link for the
+     * same object are different strings and cache separately. That is why it
+     * is opt-in rather than always on.
+     */
+    downloadAs?: string,
   ): Promise<string | null> {
     if (!key || !this.client) return null;
 
@@ -269,8 +300,54 @@ export class StorageService {
 
     return getSignedUrl(
       this.client,
-      new GetObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
+      new GetObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        ...(downloadAs
+          ? { ResponseContentDisposition: contentDisposition(downloadAs) }
+          : {}),
+      }),
       { expiresIn: ttlSeconds, signingDate },
+    );
+  }
+
+  /**
+   * The object's bytes, for the server to read.
+   *
+   * Deliberately takes no userId: the only caller is the share-link zip, where
+   * the token has already been resolved to this album's files. Adding a user
+   * check here would mean inventing a user for an anonymous client.
+   */
+  async readStream(key: string): Promise<Readable> {
+    const client = this.requireClient();
+    this.assertSafeKey(key);
+    const res = await client.send(
+      new GetObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
+    );
+    return res.Body as Readable;
+  }
+
+  /**
+   * Writes a derived object — today only thumbnails.
+   *
+   * Goes to the same bucket as its source so it inherits the same lifecycle:
+   * deleting an album's media by prefix takes the thumbnails with it, rather
+   * than orphaning them somewhere the retention sweep never looks.
+   */
+  async putDerived(
+    key: string,
+    body: Buffer,
+    contentType: string,
+  ): Promise<void> {
+    const client = this.requireClient();
+    this.assertSafeKey(key);
+    await client.send(
+      new PutObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+      }),
     );
   }
 
@@ -288,10 +365,14 @@ export class StorageService {
   async mediaUrls(
     keys: (string | null | undefined)[],
     ttlSeconds: number = DOWNLOAD_URL_TTL_SECONDS,
+    /** Per-key save-as names, positional. Omit for plain display URLs. */
+    downloadAs?: (string | undefined)[],
   ): Promise<(string | null)[]> {
     // Signing is an HMAC, not a network call, so a few hundred at once is
     // cheap — this is concurrency for tidiness, not for throughput.
-    return Promise.all(keys.map((k) => this.mediaUrl(k, ttlSeconds)));
+    return Promise.all(
+      keys.map((k, i) => this.mediaUrl(k, ttlSeconds, downloadAs?.[i])),
+    );
   }
 
   /** Time-limited read URL, for buckets that are not publicly served. */

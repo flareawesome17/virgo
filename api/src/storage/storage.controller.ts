@@ -10,6 +10,7 @@ import {
   WipeStorageDto,
 } from './dto/storage.dto';
 import { StorageService } from './storage.service';
+import { ThumbnailsService } from './thumbnails.service';
 
 /**
  * Object storage (Backblaze B2).
@@ -23,7 +24,10 @@ import { StorageService } from './storage.service';
  */
 @Controller('storage')
 export class StorageController {
-  constructor(private readonly storage: StorageService) {}
+  constructor(
+    private readonly storage: StorageService,
+    private readonly thumbs: ThumbnailsService,
+  ) {}
 
   // Issuing signed URLs is cheap but not free, and each one is a write
   // capability against the bucket. Tighter than the global limit.
@@ -51,11 +55,28 @@ export class StorageController {
     return { url };
   }
 
-  /** Verifies an upload actually landed before a row is pointed at it. */
+  /**
+   * Verifies an upload actually landed before a row is pointed at it, and
+   * makes the thumbnail the client gallery renders from.
+   *
+   * Awaited rather than fired and forgotten. It does cost the uploader the
+   * round trip, but "confirm returned" then means the thumbnail exists or was
+   * declined for a reason — where a background job leaves a gallery whose
+   * tiles silently fall back to full-size originals, and loses the work
+   * entirely if the container restarts mid-flight. `generate` never throws, so
+   * a failure here still returns a successful confirm.
+   */
   @HttpCode(200)
   @Post('confirm')
-  confirm(@CurrentUser('id') userId: string, @Body() dto: ConfirmUploadDto) {
-    return this.storage.statObject(userId, dto.key, dto.albumId);
+  async confirm(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ConfirmUploadDto,
+  ) {
+    const result = await this.storage.statObject(userId, dto.key, dto.albumId);
+    if (result.exists) {
+      await this.thumbs.generate(dto.key, result.contentType ?? null, result.size);
+    }
+    return result;
   }
 
   /** Objects this user has stored, optionally narrowed to one album. */

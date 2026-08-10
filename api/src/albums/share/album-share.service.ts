@@ -38,9 +38,61 @@ export const ALL_MEDIA_KINDS: MediaKind[] = ['image', 'video', 'audio'];
 
 export interface PublicAlbumView {
   album: { name: string; description: string | null };
-  files: { url: string | null; contentType: string | null; sizeBytes: number }[];
+  files: {
+    /** Full-size, for viewing and playback. */
+    url: string | null;
+    /**
+     * Small WebP for the grid, or null when one was never made.
+     *
+     * Null is a normal state, not an error — see ThumbnailsService. The page
+     * falls back to `url`, which is what it always used to render.
+     */
+    thumbUrl: string | null;
+    /** Same object, signed to save rather than open. */
+    downloadUrl: string | null;
+    /** What it saves as: "Album Name - 004.jpg". */
+    downloadName: string;
+    contentType: string | null;
+    sizeBytes: number;
+  }[];
   /** Sections the link is scoped to, so the page renders only those. */
   kinds: MediaKind[];
+  /** Every byte the link covers, for the "Download all" button to declare. */
+  totalBytes: number;
+}
+
+/**
+ * Strips what a filesystem will not take, so a download never lands as
+ * "Reyes/Santos — Wedding.zip" and silently becomes a folder.
+ */
+export function safeFileStem(name: string): string {
+  return (
+    name
+      // Includes the backslash: a Windows client unzipping "A\B - 001.jpg"
+      // gets a folder called A, not a file.
+      .replace(/[/\\?%*:|"<>]/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80) || 'Album'
+  );
+}
+
+/**
+ * Sequential names for delivered files: "Reyes Wedding - 007.jpg".
+ *
+ * `user_files` stores no original filename — only a UUID key — so there is
+ * nothing to preserve. Sequential numbering is what a delivery gallery wants
+ * anyway: a client who downloads 200 photos gets them in the order they were
+ * shown, rather than a pile of IMG_4821.JPG, and the album name is on every
+ * file once it leaves the zip.
+ */
+export function deliveryName(
+  albumName: string,
+  index: number,
+  key: string,
+): string {
+  const ext = /\.([a-z0-9]{1,5})$/i.exec(key)?.[1]?.toLowerCase() ?? 'bin';
+  return `${safeFileStem(albumName)} - ${String(index + 1).padStart(3, '0')}.${ext}`;
 }
 
 /**
@@ -249,7 +301,20 @@ export class AlbumShareService {
    * description and file URLs. Deliberately no owner identity, no album id,
    * no other album, and no write path.
    */
-  async resolve(token: string): Promise<PublicAlbumView> {
+  /**
+   * A live link, or the one refusal.
+   *
+   * Shared by the page and the zip so a revoked token cannot still be
+   * downloadable through the other route — two copies of this query is two
+   * chances for the expiry rule to drift.
+   */
+  private async linkFor(token: string): Promise<{
+    album_id: string;
+    user_id: string;
+    name: string;
+    description: string | null;
+    media_kinds: MediaKind[];
+  }> {
     const link = await this.db.queryOne<{
       album_id: string;
       user_id: string;
@@ -269,15 +334,21 @@ export class AlbumShareService {
     // Same error whether the token never existed, was revoked or expired —
     // distinguishing them would confirm which tokens are real.
     if (!link) throw new ForbiddenException('This link is no longer available');
+    return link;
+  }
+
+  async resolve(token: string): Promise<PublicAlbumView> {
+    const link = await this.linkFor(token);
 
     // Filtered in SQL, not after fetching: a photos-only link must not put
     // video URLs on the wire at all, or the scope would be cosmetic.
     const files = await this.db.query<{
       key: string;
+      thumb_key: string | null;
       content_type: string | null;
       size_bytes: string;
     }>(
-      `select key, content_type, size_bytes
+      `select key, thumb_key, content_type, size_bytes
          from user_files
         where user_id = $1
           and album_id = $2
@@ -290,18 +361,77 @@ export class AlbumShareService {
     // The share token is the authorisation, so the URLs handed back are
     // signed on the strength of it. The longer TTL is because a client opens a
     // gallery and then looks at it for a while, sometimes leaving the tab up.
-    const urls = await this.storage.mediaUrls(
-      files.map((f) => f.key),
-      PUBLISHED_URL_TTL_SECONDS,
-    );
+    //
+    // Three signatures per file rather than one. Display and download differ
+    // because the download carries a signed Content-Disposition — the only
+    // way to make a cross-origin link actually save instead of opening — and
+    // that is part of what is signed, so it cannot be bolted on afterwards.
+    const names = files.map((f, i) => deliveryName(link.name, i, f.key));
+    const [urls, thumbUrls, downloadUrls] = await Promise.all([
+      this.storage.mediaUrls(
+        files.map((f) => f.key),
+        PUBLISHED_URL_TTL_SECONDS,
+      ),
+      this.storage.mediaUrls(
+        files.map((f) => f.thumb_key),
+        PUBLISHED_URL_TTL_SECONDS,
+      ),
+      this.storage.mediaUrls(
+        files.map((f) => f.key),
+        PUBLISHED_URL_TTL_SECONDS,
+        names,
+      ),
+    ]);
 
     return {
       album: { name: link.name, description: link.description },
       kinds: link.media_kinds,
+      totalBytes: files.reduce((n, f) => n + Number(f.size_bytes), 0),
       files: files.map((f, i) => ({
         url: urls[i],
+        thumbUrl: thumbUrls[i],
+        downloadUrl: downloadUrls[i],
+        downloadName: names[i],
         contentType: f.content_type,
         sizeBytes: Number(f.size_bytes),
+      })),
+    };
+  }
+
+  /** Raw bytes of one object, for the zip to append. */
+  streamFor(key: string) {
+    return this.storage.readStream(key);
+  }
+
+  /**
+   * The same files a share page shows, as keys — for the zip.
+   *
+   * Separate from `resolve` because the zip needs object keys to stream and
+   * has no use for three signed URLs per file; signing a few hundred of those
+   * to then throw them away is wasted work on the request that is already the
+   * expensive one.
+   */
+  async filesForDownload(token: string): Promise<{
+    albumName: string;
+    files: { key: string; name: string }[];
+  }> {
+    const link = await this.linkFor(token);
+    const files = await this.db.query<{ key: string }>(
+      `select key
+         from user_files
+        where user_id = $1
+          and album_id = $2
+          and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
+        order by created_at desc
+        limit 500`,
+      [link.user_id, link.album_id, link.media_kinds],
+    );
+
+    return {
+      albumName: link.name,
+      files: files.map((f, i) => ({
+        key: f.key,
+        name: deliveryName(link.name, i, f.key),
       })),
     };
   }
