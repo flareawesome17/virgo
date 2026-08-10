@@ -32,7 +32,9 @@ export type NotificationTopic =
   /** Delivered files removed by an album's retention setting. */
   | 'retention'
   /** Support answered a ticket this account opened. */
-  | 'support';
+  | 'support'
+  /** A booking was created, changed, agreed or cancelled. */
+  | 'booking';
 
 /** What the server pushes. Discriminated on `type`. */
 export type ServerEvent =

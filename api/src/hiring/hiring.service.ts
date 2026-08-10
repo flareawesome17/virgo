@@ -14,6 +14,7 @@ import { jobApplication, jobPostReported } from '../mail/mail.templates';
 import { MessagesService } from '../messages/messages.service';
 import { NotifyService } from '../notifications/notify.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { BookingsService } from '../bookings/bookings.service';
 import { normalizeRoles } from '../auth/roles';
 import { slugify } from './slug';
 import { canonicalLocation, locationKey } from './locations';
@@ -180,6 +181,7 @@ export class HiringService {
     private readonly mail: MailService,
     private readonly mailConfig: MailConfig,
     private readonly realtime: RealtimeGateway,
+    private readonly bookings: BookingsService,
   ) {}
 
   /**
@@ -788,6 +790,42 @@ export class HiringService {
         [applicationId],
       );
       await this.friends.connect(userId, row.user_id, client);
+
+      /*
+       * The booking, in the same transaction.
+       *
+       * An accepted application with no booking is exactly the state this
+       * feature exists to remove, so the two land together or neither does.
+       *
+       * Pre-filled from the post, because what was advertised is the obvious
+       * opening position — and from the application's own roles where they
+       * overlap, so a photographer who applied to a post wanting three roles
+       * is booked as a photographer rather than as all three.
+       */
+      const post = await client.query<{
+        roles_wanted: string[] | null;
+        event_date: string | null;
+        location: string | null;
+        budget_max: number | null;
+      }>(
+        'select roles_wanted, event_date, location, budget_max from hiring_posts where id = $1',
+        [row.post_id],
+      );
+      const wanted = post.rows[0]?.roles_wanted ?? [];
+      const theirs = row.person_roles ?? [];
+      const overlap = wanted.filter((r) => theirs.includes(r));
+
+      await this.bookings.createForAcceptance(client, {
+        applicationId,
+        postId: row.post_id,
+        posterId: userId,
+        creativeId: row.user_id,
+        // One clear role, or none rather than a guess.
+        role: overlap.length === 1 ? overlap[0] : null,
+        eventDate: post.rows[0]?.event_date ?? null,
+        location: post.rows[0]?.location ?? null,
+        rateMinor: post.rows[0]?.budget_max ?? null,
+      });
     });
 
     // Outside the transaction: openDirect runs its own and is idempotent.

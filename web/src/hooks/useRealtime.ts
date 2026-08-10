@@ -31,6 +31,7 @@ type NotificationTopic =
   | 'hire-response'
   | 'job-application'
   | 'support'
+  | 'booking'
   | 'job-response'
   | 'reminder'
   | 'billing'
@@ -113,6 +114,13 @@ const TOPICS: Record<
     href: '/jobs/mine?tab=posted',
   },
   support: { keys: [queryKeys.support.all], href: '/support' },
+  booking: {
+    keys: [queryKeys.bookings.all],
+    href: (data) =>
+      typeof data?.bookingId === 'string'
+        ? `/bookings/${data.bookingId}`
+        : '/bookings',
+  },
   // Accepting also connects the two and opens a chat.
   //
   // A function, because the destination depends on the outcome: an acceptance

@@ -20,6 +20,13 @@ import {
   APPLICATION_STATE,
   ApplicationBadge,
 } from '@/components/jobs/application-state';
+import { BookingCard } from '@/components/jobs/booking-card';
+import { useBookings } from '@/hooks/useBookings';
+import type { Booking } from '@/api';
+
+/** The booking for one application, or undefined if there is none yet. */
+const bookingFor = (bookings: Booking[], applicationId: string) =>
+  bookings.find((b) => b.applicationId === applicationId);
 import { AppShell, PageHeader } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
@@ -208,6 +215,8 @@ ${waiting} ${waiting === 1 ? 'person is' : 'people are'} still waiting to hear b
 
 function Applicants({ postId }: { postId: string }) {
   const router = useRouter();
+  // Same query key in both places, so this is one request, not two.
+  const { bookings } = useBookings();
   const { applications, isLoading, loadFailed, refetch } = useApplicants(postId);
   const respond = useRespondToApplication();
   const [acting, setActing] = useState<string | null>(null);
@@ -319,16 +328,24 @@ function Applicants({ postId }: { postId: string }) {
             </div>
           )}
 
-          {app.status === 'accepted' && app.conversationId && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-2.5"
-              onClick={() => router.push(`/chat/${app.conversationId}`)}
-            >
-              <MessageCircle className="size-4" />
-              Open chat
-            </Button>
+          {app.status === 'accepted' && (
+            <div className="mt-2.5 space-y-2.5">
+              {/* The agreement. Without it "accepted" is a status and nothing
+                  else — no role, no date, no rate either side can point at. */}
+              {bookingFor(bookings, app.id) && (
+                <BookingCard booking={bookingFor(bookings, app.id)!} />
+              )}
+              {app.conversationId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push(`/chat/${app.conversationId}`)}
+                >
+                  <MessageCircle className="size-4" />
+                  Open chat
+                </Button>
+              )}
+            </div>
           )}
         </div>
       ))}
@@ -466,6 +483,7 @@ function BrowseJobs() {
 
 /** What the caller has applied to. */
 function MyApplications({ onBrowse }: { onBrowse: () => void }) {
+  const { bookings } = useBookings();
   const router = useRouter();
   const { applications, isLoading, loadFailed, refetch } = useMyApplications();
 
@@ -516,15 +534,22 @@ function MyApplications({ onBrowse }: { onBrowse: () => void }) {
               {app.message}
             </p>
 
-            {app.status === 'accepted' && app.conversationId && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => router.push(`/chat/${app.conversationId}`)}
-              >
-                <MessageCircle className="size-4" />
-                Open chat
-              </Button>
+            {app.status === 'accepted' && (
+              <div className="space-y-2.5">
+                {bookingFor(bookings, app.id) && (
+                  <BookingCard booking={bookingFor(bookings, app.id)!} />
+                )}
+                {app.conversationId && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => router.push(`/chat/${app.conversationId}`)}
+                  >
+                    <MessageCircle className="size-4" />
+                    Open chat
+                  </Button>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

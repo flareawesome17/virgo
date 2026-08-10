@@ -66,6 +66,11 @@ export const queryKeys = {
     list: ['support', 'list'] as const,
     thread: (id: string) => ['support', 'thread', id] as const,
   },
+  bookings: {
+    all: ['bookings'] as const,
+    list: ['bookings', 'list'] as const,
+    detail: (id: string) => ['bookings', 'detail', id] as const,
+  },
   portfolio: {
     all: ['portfolio'] as const,
   },

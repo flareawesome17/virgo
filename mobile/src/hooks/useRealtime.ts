@@ -31,6 +31,7 @@ type NotificationTopic =
   | 'hire-response'
   | 'job-application'
   | 'support'
+  | 'booking'
   | 'job-response'
   | 'reminder'
   | 'billing'
@@ -83,6 +84,7 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   'hire-response': [queryKeys.hire.all, queryKeys.friends.all, ['chat']],
   'job-application': [queryKeys.jobs.all],
   support: [queryKeys.support.all],
+  booking: [queryKeys.bookings.all],
   // Accepting also connects the two and opens a chat.
   'job-response': [queryKeys.jobs.all, queryKeys.friends.all, ['chat']],
   reminder: [queryKeys.reminders.all],

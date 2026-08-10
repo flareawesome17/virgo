@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useState, type ComponentType, type ReactNode } from 'react';
 import {
   BriefcaseBusiness,
+  FileText,
   LifeBuoy,
   CalendarDays,
   FolderOpen,
@@ -64,6 +65,8 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
       { href: '/chat', label: 'Chat', icon: MessageCircle, badge: 'unread' },
       { href: '/nearby', label: 'Nearby', icon: MapPin },
       { href: '/jobs/mine', label: 'Jobs', icon: BriefcaseBusiness, badge: 'newJobs' },
+      // Beside Jobs, because a booking is where a job ends up.
+      { href: '/bookings', label: 'Bookings', icon: FileText },
     ],
   },
   {

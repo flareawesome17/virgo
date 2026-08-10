@@ -30,9 +30,11 @@ import { MessagesModule } from './messages/messages.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 import { AdminModule } from './admin/admin.module';
 import { VisitsModule } from './visits/visits.module';
+import { BookingsModule } from './bookings/bookings.module';
 
 @Module({
   imports: [
+    BookingsModule,
     AdminModule,
     VisitsModule,
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),

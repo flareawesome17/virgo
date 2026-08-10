@@ -20,6 +20,13 @@ export { queryKeys } from './queryKeys';
 
 export { authApi, type Credentials } from './endpoints/auth';
 export {
+  bookingsApi,
+  rateLabel,
+  type Booking,
+  type BookingPatch,
+  type BookingSide,
+} from './endpoints/bookings';
+export {
   supportApi,
   type SupportTicket,
   type SupportMessage,

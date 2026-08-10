@@ -173,3 +173,11 @@ export {
   useOpenTicket,
   useReplyToTicket,
 } from './useSupport';
+
+export {
+  useBookings,
+  useBooking,
+  useUpdateBooking,
+  useConfirmBooking,
+  useCancelBooking,
+} from './useBookings';

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import {
   useApplicants,
   useDeleteJob,
+  useBookings,
   useMyApplications,
   useMyJobs,
   useRespondToApplication,
@@ -145,6 +146,36 @@ export function JobsTabs({
         <MyApplications bottom={bottomPadding} onBrowse={() => setTab('browse')} />
       )}
     </View>
+  );
+}
+
+/**
+ * Where an accepted application actually leads.
+ *
+ * Without it "accepted" is a status and nothing else — no role, no date, no
+ * rate either side can point at.
+ */
+function BookingLink({ applicationId }: { applicationId: string }) {
+  const { bookings } = useBookings();
+  const booking = bookings.find((b) => b.applicationId === applicationId);
+  if (!booking) return null;
+
+  return (
+    <Pressable
+      className="rounded-xl px-3 py-2.5"
+      style={{ borderWidth: 1, borderColor: '#B66A40' }}
+      onPress={() => router.push(`/bookings/${booking.id}`)}
+    >
+      <Text className="text-[12px] font-bold" style={{ color: '#B66A40' }}>
+        Booking · {booking.cancelledAt
+          ? 'cancelled'
+          : booking.lockedAt
+            ? 'agreed'
+            : booking.youConfirmed
+              ? 'waiting on them'
+              : 'needs you'}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -387,6 +418,7 @@ function Applicants({ postId }: { postId: string }) {
             </View>
           )}
 
+          {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
           {app.status === 'accepted' && app.conversationId && (
             <Pressable
               className="flex-row items-center gap-1.5"
@@ -463,12 +495,13 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
             </Pressable>
             <Text className="text-[10px] font-bold uppercase"
               style={{ color: app.status === 'accepted' ? '#10b981' : '#9ca3af' }}>
-              {app.status === 'new' ? 'Waiting' : app.status}
+              {APPLICATION_LABEL[app.status]}
             </Text>
           </View>
 
           <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
 
+          {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
           {app.status === 'accepted' && app.conversationId && (
             <Pressable
               className="flex-row items-center gap-1.5"
