@@ -322,6 +322,13 @@ function Applicants({ postId }: { postId: string }) {
                 {app.personRoles.join(', ') || 'No roles listed'}
               </p>
             </div>
+            {/* What they applied for, which on a post wanting three roles is
+                the first thing you need and used to be nowhere. */}
+            {app.role && (
+              <Badge variant="outline" className="shrink-0">
+                {app.role}
+              </Badge>
+            )}
             {app.status !== 'new' && (
               <Badge variant={app.status === 'accepted' ? 'default' : 'secondary'}>
                 {app.status}
@@ -329,9 +336,29 @@ function Applicants({ postId }: { postId: string }) {
             )}
           </div>
 
-          <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-            {app.message}
-          </p>
+          {/*
+            Applications no longer carry a message. Older ones do, and those
+            are still worth reading — so it renders when present and the
+            portfolio link stands in its place when it is not. The work is
+            better evidence than the paragraph was.
+          */}
+          {app.message ? (
+            <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+              {app.message}
+            </p>
+          ) : app.personHandle ? (
+            <Link
+              href={`/u/${app.personHandle}`}
+              className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+            >
+              <Eye className="size-3.5" />
+              See their work
+            </Link>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              They have not published a profile yet.
+            </p>
+          )}
 
           {app.status !== 'accepted' && app.status !== 'declined' && (
             <div className="mt-2.5 flex items-center gap-1.5">
@@ -571,7 +598,14 @@ function MyApplications({ onBrowse }: { onBrowse: () => void }) {
                   {app.postTitle}
                 </Link>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Applied {new Date(app.createdAt).toLocaleDateString()}
+                  {/* Which role, since applying to a post that wanted three
+                      of them was otherwise unrecorded on your own side. */}
+                  {[
+                    app.role,
+                    `Applied ${new Date(app.createdAt).toLocaleDateString()}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </p>
               </div>
               <Badge variant={app.status === 'accepted' ? 'default' : 'secondary'}>
@@ -579,9 +613,11 @@ function MyApplications({ onBrowse }: { onBrowse: () => void }) {
               </Badge>
             </div>
 
-            <p className="whitespace-pre-line rounded-lg bg-muted/40 p-3 text-sm leading-relaxed">
-              {app.message}
-            </p>
+            {app.message && (
+              <p className="whitespace-pre-line rounded-lg bg-muted/40 p-3 text-sm leading-relaxed">
+                {app.message}
+              </p>
+            )}
 
             {app.status === 'accepted' && (
               <div className="space-y-2.5">

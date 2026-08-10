@@ -14,22 +14,29 @@ import {
   ArrayMaxSize,
   IsArray,
   IsIn,
-  IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
   ValidateIf,
-  Max,
   MaxLength,
-  Min,
   MinLength,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { HiringService } from './hiring.service';
 
-/** Ten million centavos is ₱100,000 — well past any rate on this market. */
-const MAX_BUDGET = 100_000_00;
+/*
+ * `roleBudgets` is validated in HiringService, not here.
+ *
+ * Its keys are role names, which makes it a map rather than a fixed shape — and
+ * a nested DTO cannot describe that: class-validator's `each` iterates arrays,
+ * and the global whitelist then rejects every real role name as an unknown
+ * property. The service is also the only place that can do the check that
+ * actually matters, since only it knows which roles the post wants.
+ *
+ * So the DTO asserts "an object" and `normaliseBudgets` asserts everything
+ * else — shape, integers, bounds, and floor-below-ceiling.
+ */
 
 /**
  * Editing a live post.
@@ -68,17 +75,16 @@ export class UpdateJobDto {
   @MaxLength(120)
   location?: string | null;
 
+  /**
+   * What each role pays, keyed by role name.
+   *
+   * Replaces the post-level budget entirely. Sent whole rather than patched
+   * key by key — it is one form on both clients, and a key left out means the
+   * poster cleared it.
+   */
   @IsOptional()
-  @ValidateIf((_, value) => value !== null)
-  @IsInt()
-  @Min(0)
-  budgetMin?: number | null;
-
-  @IsOptional()
-  @ValidateIf((_, value) => value !== null)
-  @IsInt()
-  @Min(0)
-  budgetMax?: number | null;
+  @IsObject()
+  roleBudgets?: Record<string, { min?: number | null; max?: number | null }>;
 }
 
 export class CreateJobDto {
@@ -109,19 +115,10 @@ export class CreateJobDto {
   @MaxLength(120)
   location?: string;
 
+  /** What each role pays, keyed by role name. See UpdateJobDto. */
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(MAX_BUDGET)
-  budgetMin?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(MAX_BUDGET)
-  budgetMax?: number;
+  @IsObject()
+  roleBudgets?: Record<string, { min?: number | null; max?: number | null }>;
 }
 
 export class SetJobStatusDto {
@@ -129,11 +126,29 @@ export class SetJobStatusDto {
   status!: 'open' | 'filled' | 'closed';
 }
 
+/**
+ * Applying.
+ *
+ * Both fields optional now. The message used to be required at 20 characters
+ * — a paragraph written to somebody who cannot reply until they have already
+ * accepted you. The portfolio answers "can they do this" better than prose
+ * does, and the two of them can talk once there is a reason to. Still accepted
+ * if sent, so an older client is not broken by the field going away.
+ *
+ * The role is required by the *service* when the post wants more than one,
+ * which is a rule about the post rather than about the request — the DTO
+ * cannot see which post this is for.
+ */
 export class ApplyDto {
+  @IsOptional()
   @IsString()
-  @MinLength(20, { message: 'Tell them why you are right for this' })
+  @MaxLength(120)
+  role?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(2000)
-  message!: string;
+  message?: string;
 }
 
 export class RespondDto {
@@ -321,7 +336,10 @@ export class JobActionsController {
     @Param('slug') slug: string,
     @Body() dto: ApplyDto,
   ) {
-    return this.hiring.apply(userId, slug, dto.message);
+    return this.hiring.apply(userId, slug, {
+      role: dto.role,
+      message: dto.message,
+    });
   }
 
   @HttpCode(200)

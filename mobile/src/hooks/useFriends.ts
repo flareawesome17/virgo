@@ -10,7 +10,7 @@ import {
 } from '@/src/api';
 
 import { seedPresence } from '@/src/lib/presence-store';
-import type { QueryOptions } from './useWorkspaces';
+import type { QueryOptions } from '@/src/hooks/useWorkspaces';
 
 export function useFriends(
   params: ListFriendsParams = {},
@@ -155,7 +155,7 @@ export function usePeopleSearch(query: string) {
  * rather than re-sorting the whole list on every heartbeat.
  */
 export function useFriendPresence(options: QueryOptions = {}) {
-  const { friends, loadFailed } = useFriends(
+  const { friends, loadFailed, refetch } = useFriends(
     { status: 'accepted', limit: 100 },
     options,
   );
@@ -174,5 +174,8 @@ export function useFriendPresence(options: QueryOptions = {}) {
     if (rows?.length) seedPresence(rows);
   }, [snapshot.data]);
 
-  return { friends, loadFailed };
+  // `refetch` passes through for pull-to-refresh: this is the friend list a
+  // screen shows, not a separate one, so a screen using it should not have to
+  // call useFriends a second time just to be able to reload.
+  return { friends, loadFailed, refetch };
 }

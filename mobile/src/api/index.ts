@@ -94,12 +94,14 @@ export {
   jobsApi,
   jobUrl,
   budgetLabel,
+  roleBudgetLabel,
   type JobPost,
   type JobApplication,
   type CreateJobInput,
   type ListJobsParams,
   type ReportReason,
   type JobApplicationStatus,
+  type RoleBudget,
   distanceLabel,
 } from './endpoints/jobs';
 export {

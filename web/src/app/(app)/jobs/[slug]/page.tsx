@@ -27,7 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { budgetLabel, jobUrl, type ReportReason } from '@/api';
+import { budgetLabel, jobUrl, roleBudgetLabel, type ReportReason } from '@/api';
 import { useJob, useMyApplications, useReportJob } from '@/hooks/useJobs';
 import { ApplicationState } from '@/components/jobs/application-state';
 
@@ -227,12 +227,27 @@ export default function JobPage({
               </Detail>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
-              {post.rolesWanted.map((role) => (
-                <Badge key={role} variant="secondary" className="text-[12px]">
-                  {role}
-                </Badge>
-              ))}
+            {/*
+              Each role with what it pays, rather than a row of bare chips
+              above one range for the whole post. A photographer reading
+              "₱2,000 – ₱15,000" on a post that also wants a videographer
+              learns nothing about what *they* would be paid.
+            */}
+            <div className="space-y-1.5">
+              {post.rolesWanted.map((role) => {
+                const rate = roleBudgetLabel(post.roleBudgets, role);
+                return (
+                  <div
+                    key={role}
+                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                  >
+                    <span className="text-sm font-medium">{role}</span>
+                    <span className="shrink-0 text-sm text-muted-foreground">
+                      {rate ?? 'Rate not stated'}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
 
             <div>

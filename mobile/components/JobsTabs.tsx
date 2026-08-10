@@ -406,6 +406,18 @@ function Applicants({ postId }: { postId: string }) {
                 {app.personRoles.join(', ') || 'No roles listed'}
               </Text>
             </View>
+            {/* What they applied for, which on a post wanting three roles is
+                the first thing you need and used to be nowhere. */}
+            {app.role && (
+              <View
+                className="rounded-full px-2 py-0.5"
+                style={{ borderWidth: 1, borderColor: '#8884' }}
+              >
+                <Text className="text-muted-foreground text-[10px] font-bold">
+                  {app.role}
+                </Text>
+              </View>
+            )}
             {app.status !== 'new' && (
               <Text className="text-[10px] font-bold uppercase"
                 style={{ color: app.status === 'accepted' ? '#10b981' : '#9ca3af' }}>
@@ -414,7 +426,25 @@ function Applicants({ postId }: { postId: string }) {
             )}
           </View>
 
-          <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
+          {/*
+            Applications no longer carry a message. Older ones do, and those
+            are worth reading — so it renders when present, and the portfolio
+            stands in its place when it is not. The work is better evidence
+            than the paragraph was.
+          */}
+          {app.message ? (
+            <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
+          ) : app.personHandle ? (
+            <Pressable onPress={() => router.push(`/u/${app.personHandle}`)}>
+              <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+                See their work
+              </Text>
+            </Pressable>
+          ) : (
+            <Text className="text-muted-foreground text-[12px] leading-5">
+              They have not published a profile yet.
+            </Text>
+          )}
 
           {app.status !== 'accepted' && app.status !== 'declined' && (
             <View className="flex-row items-center gap-2">
@@ -522,7 +552,11 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
                 {app.postTitle}
               </Text>
               <Text className="text-muted-foreground text-[11px] mt-0.5">
-                Applied {new Date(app.createdAt).toLocaleDateString()}
+                {/* Which role, since applying to a post that wanted three of
+                    them was otherwise unrecorded on your own side. */}
+                {[app.role, `Applied ${new Date(app.createdAt).toLocaleDateString()}`]
+                  .filter(Boolean)
+                  .join(' · ')}
               </Text>
             </Pressable>
             <Text className="text-[10px] font-bold uppercase"
@@ -531,7 +565,9 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
             </Text>
           </View>
 
-          <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
+          {app.message && (
+            <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
+          )}
 
           {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
           {app.status === 'accepted' && app.conversationId && (

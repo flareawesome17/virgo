@@ -8,10 +8,9 @@ import { AppShell } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { budgetLabel } from '@/api';
+import { budgetLabel, roleBudgetLabel } from '@/api';
+import { cn } from '@/lib/utils';
 import { useApplyToJob, useJob } from '@/hooks/useJobs';
 
 /** "Sat 19 Dec". */
@@ -41,7 +40,7 @@ export default function ApplyPage({
   const router = useRouter();
   const job = useJob(slug);
   const apply = useApplyToJob();
-  const [message, setMessage] = useState('');
+  const [role, setRole] = useState<string | null>(null);
 
   if (job.isLoading) return <AppShell><CenteredSpinner /></AppShell>;
 
@@ -76,11 +75,14 @@ export default function ApplyPage({
   }
 
   const budget = budgetLabel(post.budgetMin, post.budgetMax);
-  const tooShort = message.trim().length < 20;
+  // One role is not a choice, so it is not offered as one — the server fills
+  // it in. More than one and it has to be answered before applying.
+  const choosing = post.rolesWanted.length > 1;
+  const ready = !choosing || !!role;
 
   const submit = () => {
     apply.mutate(
-      { slug, message: message.trim() },
+      { slug, role },
       {
         onSuccess: () => {
           toast.success('Application sent', {
@@ -136,40 +138,70 @@ export default function ApplyPage({
               )}
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
-              {post.rolesWanted.map((role) => (
-                <Badge key={role} variant="outline" className="text-[12px]">
-                  {role}
-                </Badge>
-              ))}
-            </div>
-
             <p className="whitespace-pre-line rounded-lg bg-muted/40 p-4 text-sm leading-relaxed">
               {post.description}
             </p>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="message">Why you</Label>
-              <Textarea
-                id="message"
-                rows={6}
-                maxLength={2000}
-                placeholder="What you have shot that is like this, whether you are free on the day, and anything they should see. Keep it short — they are reading several of these."
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                {tooShort
-                  ? 'A couple of lines at least — a one-word application does not get read.'
-                  : `${message.length} / 2000`}
-              </p>
+            {/*
+              Which role, and what it pays.
+
+              A post wanting three roles used to produce one undifferentiated
+              pile of applicants — the poster could not tell who had applied
+              for what, and the booking made on acceptance had to guess by
+              intersecting the post's roles with the applicant's own, which
+              gives no answer at all for somebody who does two of the three.
+
+              The rate sits on the option because it is the thing being chosen
+              between: applying as an HMUA on a post that pays a videographer
+              three times more is a decision, not a formality.
+            */}
+            <div className="space-y-2">
+              <Label>{choosing ? 'Which role are you applying for?' : 'The role'}</Label>
+              <div className="space-y-2">
+                {post.rolesWanted.map((r) => {
+                  const rate = roleBudgetLabel(post.roleBudgets, r);
+                  const selected = choosing ? role === r : true;
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      disabled={!choosing}
+                      onClick={() => setRole(r)}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors',
+                        selected
+                          ? 'border-primary bg-primary/5'
+                          : 'hover:bg-accent/60',
+                        !choosing && 'cursor-default',
+                      )}
+                    >
+                      <span className="text-sm font-medium">{r}</span>
+                      <span className="shrink-0 text-sm text-muted-foreground">
+                        {rate ?? 'Rate not stated'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {choosing && !role && (
+                <p className="text-xs text-muted-foreground">
+                  Pick the one you are applying for. You can apply again for a
+                  different role only if they reopen the post, so choose the
+                  one you want.
+                </p>
+              )}
             </div>
 
             <div className="flex items-center justify-between gap-4 border-t pt-4">
+              {/*
+                No "why you" box any more. It asked for a paragraph addressed
+                to somebody who cannot reply until they have already accepted
+                you — and the work says more than the paragraph did.
+              */}
               <p className="text-xs text-muted-foreground">
-                They see your profile and roles alongside this.
+                They see your profile, your roles and your portfolio.
               </p>
-              <Button onClick={submit} disabled={tooShort || apply.isPending}>
+              <Button onClick={submit} disabled={!ready || apply.isPending}>
                 {apply.isPending ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (

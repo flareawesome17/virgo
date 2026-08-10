@@ -22,6 +22,15 @@ import { canonicalLocation, coordsFor, locationKey } from './locations';
 /** How far ahead a post stays live without being touched. */
 const DEFAULT_LIFETIME_DAYS = 30;
 
+/**
+ * Ten million centavos is ₱100,000 — well past any rate on this market.
+ *
+ * The same ceiling the controller used to apply to the post-level budget.
+ * Enforced here now, because the shape it guards is a map keyed by role name
+ * and a DTO cannot describe one.
+ */
+const MAX_BUDGET = 100_000_00;
+
 /** What a stranger sees on the board. Deliberately not a `users` row. */
 /**
  * What the Jobs badge is made of.
@@ -40,15 +49,38 @@ export interface UnseenJobs {
   applications: number;
 }
 
+/** What one role on a post pays, in minor units. Either end may be unstated. */
+export interface RoleBudget {
+  min?: number | null;
+  max?: number | null;
+}
+
 export interface PublicJobPost {
   id: string;
   slug: string;
   title: string;
   description: string;
   rolesWanted: string[];
+  /**
+   * What each role pays, keyed by role name.
+   *
+   * A wedding wanting a photographer, a videographer and an HMUA pays three
+   * different rates, and one range across all three tells nobody anything.
+   * Keys are always a subset of `rolesWanted`; a role absent here has no
+   * stated budget, which is normal and is how every post written before this
+   * existed looks.
+   */
+  roleBudgets: Record<string, RoleBudget>;
   /** `YYYY-MM-DD`, the day of the job. */
   eventDate: string | null;
   location: string | null;
+  /**
+   * The range across every role, which is what a board card shows.
+   *
+   * Derived from `roleBudgets` on write rather than stored independently —
+   * the board renders one line per post and must not open a jsonb document
+   * per row to do it.
+   */
   budgetMin: number | null;
   budgetMax: number | null;
   status: 'open' | 'filled' | 'closed' | 'expired';
@@ -111,7 +143,22 @@ export interface JobApplication {
   personAvatarUrl: string | null;
   personHandle: string | null;
   personRoles: string[];
-  message: string;
+  /**
+   * Which role they applied for.
+   *
+   * Null only for applications written before the field existed, and for
+   * posts whose role list has since changed out from under them. The service
+   * fills it in without asking when a post wants exactly one role.
+   */
+  role: string | null;
+  /**
+   * Why they are right for the job — no longer asked for.
+   *
+   * Null on anything applied for since; kept because applications already
+   * carry messages people wrote, and deleting those to tidy up a column would
+   * be throwing away the only words some of them contain.
+   */
+  message: string | null;
   status: 'new' | 'shortlisted' | 'accepted' | 'declined';
   /**
    * What happened to the post itself.
@@ -133,6 +180,7 @@ interface PostRow {
   title: string;
   description: string;
   roles_wanted: string[] | null;
+  role_budgets: Record<string, RoleBudget> | null;
   event_date: string | null;
   location: string | null;
   budget_min: number | null;
@@ -157,7 +205,8 @@ interface ApplicationRow {
   id: string;
   post_id: string;
   user_id: string;
-  message: string;
+  role: string | null;
+  message: string | null;
   status: JobApplication['status'];
   created_at: Date;
   responded_at: Date | null;
@@ -205,6 +254,7 @@ export class HiringService {
   private postSelect(viewer: string): string {
     return `
     p.id, p.user_id, p.slug, p.title, p.description, p.roles_wanted,
+    p.role_budgets,
     p.event_date, p.location, p.budget_min, p.budget_max, p.status,
     p.created_at, p.expires_at,
     u.display_name as poster_name,
@@ -430,16 +480,98 @@ export class HiringService {
     return rows.map((row) => this.present(row, userId));
   }
 
+  /**
+   * Cleans a role→budget map and rolls it up into one range.
+   *
+   * Two jobs, because they are the same decision made once. Keys not in
+   * `roles` are dropped rather than rejected: the clients edit roles and
+   * budgets in one form, and a role removed from the list leaving its budget
+   * behind is a stale key, not a request the poster meant to make.
+   *
+   * The rolled-up `min`/`max` are what the board card and any range filter
+   * read, so they are always whatever the roles actually say — there is no
+   * way to set them independently and have the two disagree.
+   */
+  private normaliseBudgets(
+    roles: readonly string[],
+    input: Record<string, RoleBudget> | undefined,
+  ): { budgets: Record<string, RoleBudget>; min: number | null; max: number | null } {
+    const budgets: Record<string, RoleBudget> = {};
+    const lows: number[] = [];
+    const highs: number[] = [];
+
+    /*
+     * Validated here rather than in the DTO.
+     *
+     * The keys are role names, so this is a map and not a fixed shape — a
+     * nested DTO cannot describe one, and the global whitelist rejects every
+     * real role name as an unknown property when you try. This is also the
+     * only place that can make the check that matters, since it is the only
+     * place that knows which roles the post wants.
+     *
+     * A jsonb column will take anything at all, and this is the column that
+     * says what somebody gets paid.
+     */
+    const figure = (value: unknown, role: string, end: string): number | null => {
+      if (value == null) return null;
+      if (typeof value !== 'number' || !Number.isInteger(value)) {
+        throw new BadRequestException(`${role}: ${end} must be a whole number`);
+      }
+      if (value < 0) throw new BadRequestException(`${role}: ${end} cannot be negative`);
+      if (value > MAX_BUDGET) {
+        throw new BadRequestException(`${role}: ${end} is higher than we allow`);
+      }
+      return value;
+    };
+
+    for (const role of roles) {
+      const raw = input?.[role];
+      if (raw == null) continue;
+      if (typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new BadRequestException(`${role}: expected a budget with a min or a max`);
+      }
+
+      const low = figure(raw.min, role, 'the lowest budget');
+      const high = figure(raw.max, role, 'the highest budget');
+      if (low != null && high != null && low > high) {
+        throw new BadRequestException(
+          `${role}: the lowest budget cannot exceed the highest`,
+        );
+      }
+      if (low == null && high == null) continue;
+
+      const entry: RoleBudget = {};
+      if (low != null) {
+        entry.min = low;
+        lows.push(low);
+      }
+      if (high != null) {
+        entry.max = high;
+        highs.push(high);
+      }
+      budgets[role] = entry;
+      // A role with only one end stated still bounds the post at that end:
+      // "from ₱2,000" with no ceiling should not read as a post with no floor.
+      if (low != null && high == null) highs.push(low);
+      if (high != null && low == null) lows.push(high);
+    }
+
+    return {
+      budgets,
+      min: lows.length ? Math.min(...lows) : null,
+      max: highs.length ? Math.max(...highs) : null,
+    };
+  }
+
   async create(
     userId: string,
     input: {
       title: string;
       description: string;
       rolesWanted: string[];
+      roleBudgets?: Record<string, RoleBudget>;
       eventDate?: string;
       location?: string;
-      budgetMin?: number;
-      budgetMax?: number;
     },
   ): Promise<PublicJobPost> {
     const roles = normalizeRoles(input.rolesWanted ?? []);
@@ -448,6 +580,8 @@ export class HiringService {
         'Say which role you are hiring for — it is how the right people find this.',
       );
     }
+
+    const budgets = this.normaliseBudgets(roles, input.roleBudgets);
 
     // An event already in the past is a typo, and publishing it wastes
     // everybody's time including the poster's.
@@ -462,8 +596,8 @@ export class HiringService {
       `insert into hiring_posts
          (user_id, slug, title, description, roles_wanted, event_date,
           location, location_key, budget_min, budget_max, expires_at,
-          location_lat, location_lon)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          location_lat, location_lon, role_budgets)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        returning slug`,
       [
         userId,
@@ -477,14 +611,17 @@ export class HiringService {
         // does not have to come from our own form.
         canonicalLocation(input.location ?? '') || null,
         locationKey(canonicalLocation(input.location ?? '')) || null,
-        input.budgetMin ?? null,
-        input.budgetMax ?? null,
+        // Derived from the roles, never taken from the request: the two must
+        // not be able to disagree about what this post pays.
+        budgets.min,
+        budgets.max,
         expiresAt,
         // Roughly where it is, so the board can put the nearest first. Null
         // for a named venue we do not recognise, which is a normal answer —
         // those posts appear, they just sort after the measurable ones.
         coords?.lat ?? null,
         coords?.lon ?? null,
+        JSON.stringify(budgets.budgets),
       ],
     );
 
@@ -637,13 +774,12 @@ export class HiringService {
       title: string;
       description: string;
       rolesWanted: string[];
+      roleBudgets: Record<string, RoleBudget>;
       eventDate: string | null;
       location: string | null;
-      budgetMin: number | null;
-      budgetMax: number | null;
     }>,
   ): Promise<PublicJobPost> {
-    await this.ownedPost(userId, id);
+    const existing = await this.ownedPost(userId, id);
 
     const roles = input.rolesWanted
       ? normalizeRoles(input.rolesWanted)
@@ -651,13 +787,27 @@ export class HiringService {
     if (roles && roles.length === 0) {
       throw new BadRequestException('Choose at least one role');
     }
-    if (
-      input.budgetMin != null &&
-      input.budgetMax != null &&
-      input.budgetMin > input.budgetMax
-    ) {
-      throw new BadRequestException('The lowest budget cannot exceed the highest');
-    }
+
+    /*
+     * Budgets are re-derived whenever either side of the pair moves.
+     *
+     * They cannot be edited independently: removing a role has to drop its
+     * budget, and changing a budget has to move the post's range. Left to
+     * separate patches, a post could advertise "from ₱2,000" on the board with
+     * no role that pays it.
+     *
+     * The map is replaced wholesale rather than merged. It is edited as one
+     * form on both clients, so a key missing from the patch means the poster
+     * cleared it — merging would make a removed budget unremovable.
+     */
+    const touchesBudgets =
+      input.roleBudgets !== undefined || input.rolesWanted !== undefined;
+    const budgets = touchesBudgets
+      ? this.normaliseBudgets(
+          roles ?? existing.roles_wanted ?? [],
+          input.roleBudgets ?? existing.role_budgets ?? {},
+        )
+      : null;
     // The same rule create() applies. Editing was the way round it: a live
     // post could be moved to a date that had already been and gone, which
     // create() refuses outright.
@@ -693,8 +843,11 @@ export class HiringService {
               -- Changing the location moves the post on the board too.
               location_lat = case when $8::boolean then $15::double precision else location_lat end,
               location_lon = case when $8::boolean then $16::double precision else location_lon end,
-              budget_min   = case when $11::boolean then $12::int else budget_min end,
-              budget_max   = case when $13::boolean then $14::int else budget_max end,
+              -- All three move together or none of them do. The range is the
+              -- roll-up of the map, never something a caller can set.
+              role_budgets = case when $11::boolean then $12::jsonb else role_budgets end,
+              budget_min   = case when $11::boolean then $13::int  else budget_min end,
+              budget_max   = case when $11::boolean then $14::int  else budget_max end,
               updated_at   = now()
         where id = $1 and user_id = $2
         returning slug`,
@@ -709,10 +862,10 @@ export class HiringService {
         input.location !== undefined,
         location ?? null,
         location ? locationKey(location) : null,
-        input.budgetMin !== undefined,
-        input.budgetMin ?? null,
-        input.budgetMax !== undefined,
-        input.budgetMax ?? null,
+        budgets !== null,
+        JSON.stringify(budgets?.budgets ?? {}),
+        budgets?.min ?? null,
+        budgets?.max ?? null,
         location ? (coordsFor(location)?.lat ?? null) : null,
         location ? (coordsFor(location)?.lon ?? null) : null,
       ],
@@ -754,18 +907,21 @@ export class HiringService {
    * and lists one, or who is branching out, is exactly the person a rule like
    * that would wrongly exclude — the poster can see their roles and decide.
    */
-  async apply(userId: string, slug: string, message: string): Promise<JobApplication> {
-    const text = message?.trim();
-    if (!text) throw new BadRequestException('Say why you are right for this job');
-
+  async apply(
+    userId: string,
+    slug: string,
+    input: { role?: string | null; message?: string | null } = {},
+  ): Promise<JobApplication> {
     const post = await this.db.queryOne<{
       id: string;
       user_id: string;
       title: string;
       status: string;
       event_date: string | null;
+      roles_wanted: string[] | null;
     }>(
-      `select id, user_id, title, status, event_date from hiring_posts
+      `select id, user_id, title, status, event_date, roles_wanted
+         from hiring_posts
         where slug = $1 and hidden_at is null and expires_at > now()`,
       [slug],
     );
@@ -785,12 +941,41 @@ export class HiringService {
       throw new BadRequestException('That job has already happened');
     }
 
+    /*
+     * Which role they are applying for.
+     *
+     * A post wanting a photographer, a videographer and an HMUA got one
+     * undifferentiated pile of applicants, and the booking made on acceptance
+     * had to guess the role by intersecting the post's list with the
+     * applicant's own — which gives no answer at all for someone who does two
+     * of the three.
+     *
+     * Not asked when there is only one role: a question with one possible
+     * answer is a step, not a choice. Validated against the post either way,
+     * because a request does not have to come from our own form.
+     */
+    const wanted = post.roles_wanted ?? [];
+    const asked = input.role?.trim() || null;
+    let role: string | null;
+
+    if (wanted.length <= 1) {
+      role = wanted[0] ?? null;
+    } else if (!asked) {
+      throw new BadRequestException('Choose which role you are applying for');
+    } else if (!wanted.includes(asked)) {
+      throw new BadRequestException(`This job is not hiring for ${asked}`);
+    } else {
+      role = asked;
+    }
+
     let row: { id: string } | null;
     try {
       row = await this.db.queryOne<{ id: string }>(
-        `insert into hiring_applications (post_id, user_id, message)
-         values ($1, $2, $3) returning id`,
-        [post.id, userId, text],
+        `insert into hiring_applications (post_id, user_id, role, message)
+         values ($1, $2, $3, $4) returning id`,
+        // The message is no longer asked for and is accepted if sent, so an
+        // older client is not broken by the field going away.
+        [post.id, userId, role, input.message?.trim() || null],
       );
     } catch (err) {
       if ((err as { code?: string }).code === '23505') {
@@ -805,8 +990,17 @@ export class HiringService {
     await this.notifier.notify([post.user_id], {
       topic: 'job-application',
       title: 'New application',
-      body: `${name} applied to “${post.title}”`,
-      data: { type: 'job_application', postId: post.id, applicationId: row!.id },
+      // The role, when the post wants more than one — "someone applied" to a
+      // post hiring three different people does not say who to look at.
+      body: role && wanted.length > 1
+        ? `${name} applied as ${role} for “${post.title}”`
+        : `${name} applied to “${post.title}”`,
+      data: {
+        type: 'job_application',
+        postId: post.id,
+        applicationId: row!.id,
+        role,
+      },
       email: jobApplication({
         applicantName: name,
         jobTitle: post.title,
@@ -940,33 +1134,47 @@ export class HiringService {
        * feature exists to remove, so the two land together or neither does.
        *
        * Pre-filled from the post, because what was advertised is the obvious
-       * opening position — and from the application's own roles where they
-       * overlap, so a photographer who applied to a post wanting three roles
-       * is booked as a photographer rather than as all three.
+       * opening position — and from the role they applied for, which they now
+       * state outright. It used to be inferred by intersecting the post's
+       * roles with the applicant's own, which gave no answer for anybody who
+       * does two of the three things a wedding needs.
+       *
+       * The rate follows from the role for the same reason. It was the post's
+       * `budget_max`, so an HMUA accepted onto a post that also wanted a
+       * videographer opened at the videographer's ceiling.
        */
       const post = await client.query<{
         roles_wanted: string[] | null;
+        role_budgets: Record<string, RoleBudget> | null;
         event_date: string | null;
         location: string | null;
         budget_max: number | null;
       }>(
-        'select roles_wanted, event_date, location, budget_max from hiring_posts where id = $1',
+        `select roles_wanted, role_budgets, event_date, location, budget_max
+           from hiring_posts where id = $1`,
         [row.post_id],
       );
       const wanted = post.rows[0]?.roles_wanted ?? [];
       const theirs = row.person_roles ?? [];
       const overlap = wanted.filter((r) => theirs.includes(r));
+      // Stated, or — for an application written before the field existed —
+      // inferred the old way, which is still right when it is unambiguous.
+      const role = row.role ?? (overlap.length === 1 ? overlap[0] : null);
+
+      const forRole = role ? post.rows[0]?.role_budgets?.[role] : undefined;
 
       await this.bookings.createForAcceptance(client, {
         applicationId,
         postId: row.post_id,
         posterId: userId,
         creativeId: row.user_id,
-        // One clear role, or none rather than a guess.
-        role: overlap.length === 1 ? overlap[0] : null,
+        role,
         eventDate: post.rows[0]?.event_date ?? null,
         location: post.rows[0]?.location ?? null,
-        rateMinor: post.rows[0]?.budget_max ?? null,
+        // The top of what that role was advertised at, since it is a starting
+        // position both sides can move. Falls back to the post's range only
+        // for posts written before budgets were per-role.
+        rateMinor: forRole?.max ?? forRole?.min ?? post.rows[0]?.budget_max ?? null,
       });
     });
 
@@ -1058,15 +1266,25 @@ export class HiringService {
   private async ownedPost(
     userId: string,
     id: string,
-  ): Promise<{ expires_at: Date; title: string; status: PublicJobPost['status'] }> {
+  ): Promise<{
+    expires_at: Date;
+    title: string;
+    status: PublicJobPost['status'];
+    roles_wanted: string[] | null;
+    role_budgets: Record<string, RoleBudget> | null;
+  }> {
     const row = await this.db.queryOne<{
       expires_at: Date;
       title: string;
       status: PublicJobPost['status'];
+      roles_wanted: string[] | null;
+      role_budgets: Record<string, RoleBudget> | null;
     }>(
       // The title comes back so a notification about this post can name it
-      // without a second query.
-      'select expires_at, title, status from hiring_posts where id = $1 and user_id = $2',
+      // without a second query; the roles and their budgets so an edit that
+      // touches one of the pair can re-derive the other from what is stored.
+      `select expires_at, title, status, roles_wanted, role_budgets
+         from hiring_posts where id = $1 and user_id = $2`,
       [id, userId],
     );
     if (!row) throw new NotFoundException('Post not found');
@@ -1096,6 +1314,7 @@ export class HiringService {
       title: row.title,
       description: row.description,
       rolesWanted: row.roles_wanted ?? [],
+      roleBudgets: row.role_budgets ?? {},
       // `date` columns come back as raw strings by design (database.service),
       // so a day never picks up a timezone on the way out.
       eventDate: row.event_date,
@@ -1145,6 +1364,7 @@ export class HiringService {
       personAvatarUrl: row.person_avatar_url,
       personHandle: row.person_handle,
       personRoles: row.person_roles ?? [],
+      role: row.role,
       message: row.message,
       status: row.status,
       postStatus: row.post_status,

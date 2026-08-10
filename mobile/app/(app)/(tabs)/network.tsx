@@ -8,6 +8,7 @@ import {
   useSetCollaboratorAlbums,
   useDeleteFriend,
   useFriends,
+  useFriendPresence,
   useRespondToFriendRequest,
   useSendFriendRequest,
   usePeopleSearch,
@@ -28,7 +29,8 @@ import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
 import { AccessChip } from '@/components/WorkspaceInvitations';
-import type { MediaAccess } from '@/src/api';
+import { lastSeenLabel, usePresence } from '@/src/lib/presence-store';
+import type { Friend, MediaAccess } from '@/src/api';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -86,14 +88,20 @@ export default function NetworkScreen() {
     respond.mutate({ id: match.id, accept: true });
   };
 
+  /*
+   * useFriendPresence, not useFriends: it seeds the presence store from the
+   * snapshot, which is what puts a live dot on each row.
+   *
+   * This was the home screen's job, through a second copy of the friend list
+   * that sat above Quick Actions. Two lists of the same people, one to reach
+   * them and one to manage them, and only the one you could not act on knew
+   * who was around. There is one list now, and it is the one with the names.
+   */
   const {
     friends: acceptedFriends,
     refetch: refetchFriends,
     loadFailed: friendsFailed,
-  } = useFriends({
-    status: 'accepted',
-    limit: 100,
-  });
+  } = useFriendPresence();
 
 
   const removeFriend = useDeleteFriend();
@@ -434,37 +442,13 @@ export default function NetworkScreen() {
                 </Text>
               ) : (
                 acceptedFriends.map((f, i) => (
-                  <View
+                  <FriendRow
                     key={f.id}
-                    className="px-4 py-3 flex-row items-center gap-3"
-                    style={i < acceptedFriends.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
-                  >
-                    {f.friend_avatar_url ? (
-                      <Image source={{ uri: f.friend_avatar_url }} style={{ width: 40, height: 40, borderRadius: 20 }} />
-                    ) : (
-                      <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: '#6B8E4E18' }}>
-                        <Text style={{ color: '#6B8E4E', fontWeight: '700' }}>
-                          {f.friend_name.charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <View className="flex-1 min-w-0">
-                      <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                        {f.friend_name}
-                      </Text>
-                      {f.friend_email ? (
-                        <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-                          {f.friend_email}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <Pressable
-                      onPress={() => confirmRemoveFriend(f.id, f.friend_name)}
-                      className="px-3 py-2 rounded-xl bg-muted active:scale-[0.94]"
-                    >
-                      <Text className="text-muted-foreground text-xs font-bold">Remove</Text>
-                    </Pressable>
-                  </View>
+                    friend={f}
+                    isDark={isDark}
+                    last={i === acceptedFriends.length - 1}
+                    onRemove={() => confirmRemoveFriend(f.id, f.friend_name)}
+                  />
                 ))
               )}
             </View>
@@ -694,5 +678,98 @@ export default function NetworkScreen() {
         </View>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+/**
+ * One friend, with whether they are around.
+ *
+ * Its own component because `usePresence` is a hook keyed on one person: this
+ * way a friend coming online re-renders their row and nothing else, rather
+ * than the whole list on every heartbeat.
+ */
+function FriendRow({
+  friend,
+  isDark,
+  last,
+  onRemove,
+}: {
+  friend: Friend;
+  isDark: boolean;
+  last: boolean;
+  onRemove: () => void;
+}) {
+  const { online, lastSeenAt } = usePresence(friend.friend_user_id);
+  // A friend added by name, with no account behind them yet, can never be
+  // online — so they get no dot at all rather than a grey one implying they
+  // are simply away.
+  const hasAccount = !!friend.friend_user_id;
+
+  return (
+    <View
+      className="px-4 py-3 flex-row items-center gap-3"
+      style={
+        last
+          ? undefined
+          : { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
+      }
+    >
+      <View>
+        {friend.friend_avatar_url ? (
+          <Image
+            source={{ uri: friend.friend_avatar_url }}
+            style={{ width: 40, height: 40, borderRadius: 20 }}
+          />
+        ) : (
+          <View
+            className="w-10 h-10 rounded-full items-center justify-center"
+            style={{ backgroundColor: '#6B8E4E18' }}
+          >
+            <Text style={{ color: '#6B8E4E', fontWeight: '700' }}>
+              {friend.friend_name.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
+        {hasAccount && (
+          // Ringed in the card colour so it reads as cut into the avatar
+          // rather than stuck on top of it.
+          <View
+            style={{
+              position: 'absolute',
+              right: -1,
+              bottom: -1,
+              width: 12,
+              height: 12,
+              borderRadius: 6,
+              backgroundColor: online ? '#10b981' : '#9ca3af',
+              borderWidth: 2,
+              borderColor: isDark ? '#1C1917' : '#FFFFFF',
+            }}
+          />
+        )}
+      </View>
+
+      <View className="flex-1 min-w-0">
+        <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+          {friend.friend_name}
+        </Text>
+        <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+          {/* When they were last around, falling back to the address for
+              somebody with no account to be around in. */}
+          {hasAccount
+            ? online
+              ? 'Active now'
+              : lastSeenLabel(lastSeenAt)
+            : (friend.friend_email ?? '')}
+        </Text>
+      </View>
+
+      <Pressable
+        onPress={onRemove}
+        className="px-3 py-2 rounded-xl bg-muted active:scale-[0.94]"
+      >
+        <Text className="text-muted-foreground text-xs font-bold">Remove</Text>
+      </Pressable>
+    </View>
   );
 }

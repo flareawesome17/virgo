@@ -6,7 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { useApplyToJob, useJob, useReportJob } from '@/src/hooks';
-import { budgetLabel } from '@/src/api';
+import { budgetLabel, roleBudgetLabel } from '@/src/api';
 import { jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, MapPinIcon,
@@ -37,7 +37,7 @@ export default function JobDetailScreen() {
   const job = useJob(slug);
   const apply = useApplyToJob();
   const report = useReportJob();
-  const [message, setMessage] = useState('');
+  const [role, setRole] = useState<string | null>(null);
 
   if (job.isLoading) {
     return (
@@ -65,11 +65,14 @@ export default function JobDetailScreen() {
   const post = job.data;
   const budget = budgetLabel(post.budgetMin, post.budgetMax);
   const isOpen = post.status === 'open';
-  const tooShort = message.trim().length < 20;
+  // One role is not a choice, so it is not offered as one — the server fills
+  // it in. More than one and it has to be answered before applying.
+  const choosing = post.rolesWanted.length > 1;
+  const ready = !choosing || !!role;
 
   const submit = () => {
     apply.mutate(
-      { slug: slug as string, message: message.trim() },
+      { slug: slug as string, role },
       {
         onSuccess: () => {
           Alert.alert('Application sent',
@@ -160,11 +163,22 @@ export default function JobDetailScreen() {
             <Row icon={BanknoteIcon} label="Budget">{budget ?? 'Open to offers'}</Row>
           </View>
 
-          <View className="flex-row flex-wrap gap-1.5">
+          {/*
+            Each role with what it pays, rather than bare chips above one
+            range for the whole post. A photographer reading "₱2,000 –
+            ₱15,000" on a post that also wants a videographer learns nothing
+            about what they would be paid.
+          */}
+          <View className="gap-1.5">
             {post.rolesWanted.map((r) => (
-              <View key={r} className="rounded-full px-3 py-1"
-                style={{ backgroundColor: '#B66A4018' }}>
-                <Text className="text-[11px] font-bold" style={{ color: '#B66A40' }}>{r}</Text>
+              <View
+                key={r}
+                className="border-border flex-row items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5"
+              >
+                <Text className="text-foreground text-[13px] font-medium">{r}</Text>
+                <Text className="text-muted-foreground text-[13px]">
+                  {roleBudgetLabel(post.roleBudgets, r) ?? 'Rate not stated'}
+                </Text>
               </View>
             ))}
           </View>
@@ -198,43 +212,59 @@ export default function JobDetailScreen() {
             </View>
           ) : isOpen ? (
             <View className="gap-2 border-t border-border pt-4">
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
-                Why you
-              </Text>
-              <TextInput
-                value={message}
-                onChangeText={setMessage}
-                placeholder="What you have shot that is like this, whether you are free on the day, and anything they should see. Keep it short — they are reading several of these."
-                placeholderTextColor="#9ca3af"
-                multiline
-                maxLength={2000}
-                textAlignVertical="top"
-                className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
-                style={{ minHeight: 130 }}
-              />
-              <Text className="text-muted-foreground text-[11px]">
-                {tooShort
-                  ? 'A couple of lines at least — a one-word application does not get read.'
-                  : `${message.length} / 2000`}
-              </Text>
+              {/*
+                Which role, when there is a choice to make.
+
+                No "why you" box any more: it asked for a paragraph addressed
+                to somebody who cannot reply until they have already accepted
+                you, and the portfolio says more than the paragraph did.
+              */}
+              {choosing && (
+                <>
+                  <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
+                    Applying as
+                  </Text>
+                  <View className="gap-2">
+                    {post.rolesWanted.map((r) => (
+                      <Pressable
+                        key={r}
+                        onPress={() => setRole(r)}
+                        className="flex-row items-center justify-between gap-3 rounded-xl px-3.5 py-3"
+                        style={{
+                          borderWidth: 1,
+                          borderColor: role === r ? '#B66A40' : '#8883',
+                          backgroundColor: role === r ? '#B66A400D' : undefined,
+                        }}
+                      >
+                        <Text className="text-foreground text-[13px] font-medium">{r}</Text>
+                        <Text className="text-muted-foreground text-[13px]">
+                          {roleBudgetLabel(post.roleBudgets, r) ?? 'Rate not stated'}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </>
+              )}
 
               <Pressable
                 className="rounded-2xl py-4 flex-row items-center justify-center gap-2 mt-1"
                 style={{
                   backgroundColor: '#B66A40',
-                  opacity: tooShort || apply.isPending ? 0.4 : 1,
+                  opacity: !ready || apply.isPending ? 0.4 : 1,
                 }}
-                disabled={tooShort || apply.isPending}
+                disabled={!ready || apply.isPending}
                 onPress={submit}
               >
                 {apply.isPending
                   ? <ActivityIndicator size="small" color="#fff" />
                   : <SendIcon size={16} style={{ color: '#fff' }} />}
-                <Text className="text-white text-[15px] font-bold">Apply</Text>
+                <Text className="text-white text-[15px] font-bold">
+                  {choosing && !role ? 'Pick a role to apply' : 'Apply'}
+                </Text>
               </Pressable>
 
               <Text className="text-muted-foreground text-[11px] text-center">
-                They see your profile and roles alongside this.
+                They see your profile, your roles and your portfolio.
               </Text>
             </View>
           ) : null}

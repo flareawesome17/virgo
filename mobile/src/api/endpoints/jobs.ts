@@ -13,16 +13,36 @@ export type JobApplicationStatus =
   | 'accepted'
   | 'declined';
 
+/** What one role on a post pays, in centavos. Either end may be unstated. */
+export interface RoleBudget {
+  min?: number | null;
+  max?: number | null;
+}
+
 export interface JobPost {
   id: string;
   slug: string;
   title: string;
   description: string;
   rolesWanted: string[];
+  /**
+   * What each role pays, keyed by role name.
+   *
+   * A wedding wanting a photographer, a videographer and an HMUA pays three
+   * different rates, and one range across all three tells nobody anything. A
+   * role absent from this map has no stated budget, which is normal — every
+   * post written before this existed looks that way.
+   */
+  roleBudgets: Record<string, RoleBudget>;
   /** `YYYY-MM-DD`, the day of the job. */
   eventDate: string | null;
   location: string | null;
-  /** Centavos, like the billing plans. */
+  /**
+   * The range across every role, in centavos — what a board card shows.
+   *
+   * Derived by the server from `roleBudgets`. Never sent when writing: the
+   * two must not be able to disagree about what a post pays.
+   */
   budgetMin: number | null;
   budgetMax: number | null;
   status: 'open' | 'filled' | 'closed' | 'expired';
@@ -78,7 +98,20 @@ export interface JobApplication {
   personAvatarUrl: string | null;
   personHandle: string | null;
   personRoles: string[];
-  message: string;
+  /**
+   * Which role they applied for.
+   *
+   * Null only on applications written before this field existed. Filled in
+   * without asking when a post wants exactly one role.
+   */
+  role: string | null;
+  /**
+   * Why they are right for the job — no longer asked for.
+   *
+   * Null on anything applied for since. Rendered when present, because
+   * applications already carry messages people wrote.
+   */
+  message: string | null;
   status: JobApplicationStatus;
   /**
    * What became of the post itself.
@@ -96,10 +129,13 @@ export interface CreateJobInput {
   title: string;
   description: string;
   rolesWanted: string[];
+  /**
+   * What each role pays. Keys not in `rolesWanted` are dropped by the server,
+   * and the post's own range is derived from this — never sent directly.
+   */
+  roleBudgets?: Record<string, RoleBudget>;
   eventDate?: string;
   location?: string;
-  budgetMin?: number;
-  budgetMax?: number;
 }
 
 export interface ListJobsParams {
@@ -165,10 +201,14 @@ export const jobsApi = {
       title: string;
       description: string;
       rolesWanted: string[];
+      /**
+       * Sent whole, not merged: a key left out means the poster cleared it.
+       * Sending either this or `rolesWanted` re-derives the post's range from
+       * both, so the two can never drift apart.
+       */
+      roleBudgets: Record<string, RoleBudget>;
       eventDate: string | null;
       location: string | null;
-      budgetMin: number | null;
-      budgetMax: number | null;
     }>,
   ): Promise<JobPost> {
     return api.patch(`/me/jobs/${postId}`, { body: input });
@@ -210,8 +250,17 @@ export const jobsApi = {
     return api.get('/me/jobs/applications');
   },
 
-  apply(slug: string, message: string): Promise<JobApplication> {
-    return api.post(`/jobs/${encodeURIComponent(slug)}/apply`, { body: { message } });
+  /**
+   * Applies for one role on a post.
+   *
+   * `role` is required by the server when the post wants more than one, and
+   * ignored when it wants exactly one — being asked to pick from a list of one
+   * is a step with no decision in it.
+   */
+  apply(slug: string, role?: string | null): Promise<JobApplication> {
+    return api.post(`/jobs/${encodeURIComponent(slug)}/apply`, {
+      body: role ? { role } : {},
+    });
   },
 
   respond(
@@ -246,6 +295,21 @@ export function budgetLabel(min: number | null, max: number | null): string | nu
     return min === max ? peso(min) : `${peso(min)} – ${peso(max)}`;
   }
   return min != null ? `From ${peso(min)}` : `Up to ${peso(max as number)}`;
+}
+
+/**
+ * What one role pays, or null if the post did not say.
+ *
+ * Same words as `budgetLabel` — "From ₱2,000", "₱5,000 – ₱8,000" — because a
+ * rate reads the same whether it belongs to a post or to a role on one.
+ */
+export function roleBudgetLabel(
+  budgets: Record<string, RoleBudget> | undefined,
+  role: string,
+): string | null {
+  const b = budgets?.[role];
+  if (!b) return null;
+  return budgetLabel(b.min ?? null, b.max ?? null);
 }
 
 /**

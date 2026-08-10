@@ -43,12 +43,32 @@ export default function NewJobScreen() {
   const [rolesWanted, setRolesWanted] = useState<string[]>([]);
   const [eventDate, setEventDate] = useState('');
   const [location, setLocation] = useState('');
-  const [budgetMin, setBudgetMin] = useState('');
-  const [budgetMax, setBudgetMax] = useState('');
+  /*
+   * A budget per role, kept as typed text and converted on submit.
+   *
+   * Keyed by role rather than held as a list, so deselecting a role and
+   * picking it again does not lose what was already typed — and a role left
+   * deselected is never read, since only `rolesWanted` is iterated.
+   */
+  const [roleBudgets, setRoleBudgets] = useState<
+    Record<string, { min: string; max: string }>
+  >({});
 
-  const min = toCentavos(budgetMin);
-  const max = toCentavos(budgetMax);
-  const budgetBackwards = min != null && max != null && min > max;
+  const setRoleBudget = (role: string, end: 'min' | 'max', value: string) =>
+    setRoleBudgets((current) => ({
+      ...current,
+      [role]: { ...(current[role] ?? { min: '', max: '' }), [end]: value },
+    }));
+
+  const pair = (role: string) => ({
+    min: toCentavos(roleBudgets[role]?.min ?? ''),
+    max: toCentavos(roleBudgets[role]?.max ?? ''),
+  });
+
+  const budgetBackwards = rolesWanted.some((role) => {
+    const { min, max } = pair(role);
+    return min != null && max != null && min > max;
+  });
   // Always well-formed now: the value only ever comes from the picker.
   const dateLooksRight = true;
 
@@ -62,15 +82,23 @@ export default function NewJobScreen() {
   const ready = blockers.length === 0;
 
   const submit = () => {
+    const budgets: Record<string, { min?: number; max?: number }> = {};
+    for (const role of rolesWanted) {
+      const { min, max } = pair(role);
+      if (min == null && max == null) continue;
+      budgets[role] = {};
+      if (min != null) budgets[role].min = min;
+      if (max != null) budgets[role].max = max;
+    }
+
     create.mutate(
       {
         title: title.trim(),
         description: description.trim(),
         rolesWanted,
+        roleBudgets: budgets,
         eventDate: eventDate || undefined,
         location: location.trim() || undefined,
-        budgetMin: min,
-        budgetMax: max,
       },
       {
         onSuccess: () => {
@@ -174,34 +202,53 @@ export default function NewJobScreen() {
             <LocationField value={location} onChange={setLocation} />
           </Field>
 
-          <View className="flex-row gap-3">
-            <Field label="Budget from (₱)" className="flex-1">
-              <TextInput
-                value={budgetMin}
-                onChangeText={setBudgetMin}
-                placeholder="30,000"
-                placeholderTextColor="#9ca3af"
-                keyboardType="numeric"
-                className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
-              />
-            </Field>
-            <Field label="up to (₱)" className="flex-1">
-              <TextInput
-                value={budgetMax}
-                onChangeText={setBudgetMax}
-                placeholder="45,000"
-                placeholderTextColor="#9ca3af"
-                keyboardType="numeric"
-                className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
-              />
-            </Field>
-          </View>
-          <Text className="text-[11px] -mt-4"
-            style={{ color: budgetBackwards ? '#ef4444' : '#9ca3af' }}>
-            {budgetBackwards
-              ? 'The lower figure needs to be the smaller one.'
-              : 'Optional, but a post with a number gets far better applications.'}
-          </Text>
+          {/*
+            A budget per role, not one for the post.
+
+            A wedding wanting a photographer, a videographer and an HMUA pays
+            three different rates, and a single range across all three tells
+            each of them nothing. It also decided what an accepted applicant's
+            booking opened at, so an HMUA was booked at the videographer's
+            ceiling.
+          */}
+          {rolesWanted.length > 0 && (
+            <View className="gap-2">
+              <Text className="text-muted-foreground text-[12px] font-semibold">
+                What each role pays (₱)
+              </Text>
+              {rolesWanted.map((role) => (
+                <View key={role} className="gap-1.5">
+                  <Text className="text-foreground text-[13px] font-medium">{role}</Text>
+                  <View className="flex-row gap-3">
+                    <TextInput
+                      value={roleBudgets[role]?.min ?? ''}
+                      onChangeText={(v) => setRoleBudget(role, 'min', v)}
+                      placeholder="from 30,000"
+                      placeholderTextColor="#9ca3af"
+                      keyboardType="numeric"
+                      className="bg-card flex-1 rounded-xl px-3.5 py-3 text-foreground text-sm"
+                    />
+                    <TextInput
+                      value={roleBudgets[role]?.max ?? ''}
+                      onChangeText={(v) => setRoleBudget(role, 'max', v)}
+                      placeholder="up to 45,000"
+                      placeholderTextColor="#9ca3af"
+                      keyboardType="numeric"
+                      className="bg-card flex-1 rounded-xl px-3.5 py-3 text-foreground text-sm"
+                    />
+                  </View>
+                </View>
+              ))}
+              <Text
+                className="text-[11px]"
+                style={{ color: budgetBackwards ? '#ef4444' : '#9ca3af' }}
+              >
+                {budgetBackwards
+                  ? 'The lower figure needs to be the smaller one.'
+                  : 'Optional, but a role with a number gets far better applications.'}
+              </Text>
+            </View>
+          )}
 
           <Field label="The brief">
             <TextInput

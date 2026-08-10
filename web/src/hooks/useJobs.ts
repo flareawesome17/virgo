@@ -176,8 +176,8 @@ export function useDeleteJob() {
 export function useApplyToJob() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ slug, message }: { slug: string; message: string }) =>
-      jobsApi.apply(slug, message),
+    mutationFn: ({ slug, role }: { slug: string; role?: string | null }) =>
+      jobsApi.apply(slug, role),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
     },

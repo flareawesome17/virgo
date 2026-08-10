@@ -42,12 +42,33 @@ export default function NewJobPage() {
   const [rolesWanted, setRolesWanted] = useState<string[]>([]);
   const [eventDate, setEventDate] = useState('');
   const [location, setLocation] = useState('');
-  const [budgetMin, setBudgetMin] = useState('');
-  const [budgetMax, setBudgetMax] = useState('');
+  /*
+   * Kept as typed text per role, converted on submit.
+   *
+   * Keyed by role rather than held as a list, so deselecting a role and
+   * picking it again does not lose what was already typed — and a role that
+   * stays deselected is simply never read, since only `rolesWanted` is
+   * iterated.
+   */
+  const [roleBudgets, setRoleBudgets] = useState<
+    Record<string, { min: string; max: string }>
+  >({});
 
-  const min = toCentavos(budgetMin);
-  const max = toCentavos(budgetMax);
-  const budgetBackwards = min != null && max != null && min > max;
+  const setRoleBudget = (role: string, end: 'min' | 'max', value: string) =>
+    setRoleBudgets((current) => ({
+      ...current,
+      [role]: { ...(current[role] ?? { min: '', max: '' }), [end]: value },
+    }));
+
+  const pair = (role: string) => ({
+    min: toCentavos(roleBudgets[role]?.min ?? ''),
+    max: toCentavos(roleBudgets[role]?.max ?? ''),
+  });
+
+  const budgetBackwards = rolesWanted.some((role) => {
+    const { min, max } = pair(role);
+    return min != null && max != null && min > max;
+  });
 
   const blockers = jobPostBlockers({
     title,
@@ -58,15 +79,23 @@ export default function NewJobPage() {
   const ready = blockers.length === 0;
 
   const submit = () => {
+    const budgets: Record<string, { min?: number; max?: number }> = {};
+    for (const role of rolesWanted) {
+      const { min, max } = pair(role);
+      if (min == null && max == null) continue;
+      budgets[role] = {};
+      if (min != null) budgets[role].min = min;
+      if (max != null) budgets[role].max = max;
+    }
+
     create.mutate(
       {
         title: title.trim(),
         description: description.trim(),
         rolesWanted,
+        roleBudgets: budgets,
         eventDate: eventDate || undefined,
         location: location.trim() || undefined,
-        budgetMin: min,
-        budgetMax: max,
       },
       {
         onSuccess: (job) => {
@@ -182,37 +211,56 @@ export default function NewJobPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="budgetMin">Budget from (₱)</Label>
-                <Input
-                  id="budgetMin"
-                  inputMode="numeric"
-                  placeholder="30,000"
-                  value={budgetMin}
-                  onChange={(e) => setBudgetMin(e.target.value)}
-                />
+            {/*
+              A budget per role, not one for the post.
+
+              A wedding wanting a photographer, a videographer and an HMUA pays
+              three different rates, and a single "₱2,000 – ₱15,000" across all
+              three tells a photographer nothing and an HMUA nothing. It also
+              decided what an accepted applicant's booking opened at, so an
+              HMUA was booked at the videographer's ceiling.
+
+              Only the roles actually selected get a row, so the section grows
+              with the post rather than asking for numbers nobody needs.
+            */}
+            {rolesWanted.length > 0 && (
+              <div className="space-y-2">
+                <Label>What each role pays (₱)</Label>
+                <div className="space-y-2">
+                  {rolesWanted.map((role) => (
+                    <div
+                      key={role}
+                      className="grid items-center gap-2 sm:grid-cols-[10rem_1fr_1fr]"
+                    >
+                      <span className="truncate text-sm font-medium">{role}</span>
+                      <Input
+                        inputMode="numeric"
+                        placeholder="from 30,000"
+                        aria-label={`${role} budget from`}
+                        value={roleBudgets[role]?.min ?? ''}
+                        onChange={(e) => setRoleBudget(role, 'min', e.target.value)}
+                      />
+                      <Input
+                        inputMode="numeric"
+                        placeholder="up to 45,000"
+                        aria-label={`${role} budget up to`}
+                        value={roleBudgets[role]?.max ?? ''}
+                        onChange={(e) => setRoleBudget(role, 'max', e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+                {budgetBackwards ? (
+                  <p className="text-xs text-destructive">
+                    The lower figure needs to be the smaller one.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Optional, but a role with a number gets far better
+                    applications than one without.
+                  </p>
+                )}
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="budgetMax">up to (₱)</Label>
-                <Input
-                  id="budgetMax"
-                  inputMode="numeric"
-                  placeholder="45,000"
-                  value={budgetMax}
-                  onChange={(e) => setBudgetMax(e.target.value)}
-                />
-              </div>
-            </div>
-            {budgetBackwards ? (
-              <p className="-mt-3 text-xs text-destructive">
-                The lower figure needs to be the smaller one.
-              </p>
-            ) : (
-              <p className="-mt-3 text-xs text-muted-foreground">
-                Optional, but a post with a number gets far better applications
-                than one without.
-              </p>
             )}
 
             <div className="space-y-1.5">
