@@ -137,6 +137,34 @@ export function useSetJobStatus() {
   });
 }
 
+/**
+ * How many people ending this post would answer.
+ *
+ * Fetched lazily — a poster who never opens the confirmation should not pay
+ * for the count on every render of the list.
+ */
+export function usePendingApplicants() {
+  return useMutation({
+    mutationFn: (postId: string) => jobsApi.pendingApplicants(postId),
+  });
+}
+
+export function useUpdateJob() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...input
+    }: { id: string } & Parameters<typeof jobsApi.update>[1]) =>
+      jobsApi.update(id, input),
+    onSuccess: () => {
+      // The board, the poster's own list and the post page can all show a
+      // stale title otherwise.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+    },
+  });
+}
+
 export function useDeleteJob() {
   const queryClient = useQueryClient();
   return useMutation({

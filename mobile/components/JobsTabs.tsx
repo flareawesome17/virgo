@@ -10,6 +10,7 @@ import {
   useMyApplications,
   useMyJobs,
   useRespondToApplication,
+  usePendingApplicants,
   useSetJobStatus,
 } from '@/src/hooks';
 import { budgetLabel, type JobPost } from '@/src/api';
@@ -151,6 +152,38 @@ function JobRow({ job }: { job: JobPost }) {
   const [open, setOpen] = useState(false);
   const setStatus = useSetJobStatus();
   const remove = useDeleteJob();
+  const pending = usePendingApplicants();
+
+  /**
+   * Ending a post ends other people's applications.
+   *
+   * The confirmation names how many, fetched at the moment of asking — "are
+   * you sure" does not tell somebody they are about to decline four people.
+   */
+  const end = async (status: 'filled' | 'closed') => {
+    let waiting = 0;
+    try {
+      waiting = (await pending.mutateAsync(job.id)).count;
+    } catch {
+      // Ask anyway, just without the number.
+    }
+    Alert.alert(
+      status === 'filled' ? 'Mark this filled?' : 'Close this post?',
+      waiting
+        ? `${waiting} ${waiting === 1 ? 'person is' : 'people are'} still waiting to hear back. They will be told the role is taken.`
+        : 'It will stop taking applications.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: status === 'filled' ? 'Mark filled' : 'Close',
+          onPress: () =>
+            setStatus.mutate({ id: job.id, status }, {
+              onError: (e: Error) => Alert.alert('Could not update', e.message),
+            }),
+        },
+      ],
+    );
+  };
   const budget = budgetLabel(job.budgetMin, job.budgetMax);
 
   return (
@@ -204,19 +237,36 @@ function JobRow({ job }: { job: JobPost }) {
           )}
         </Pressable>
 
-        {job.status === 'open' && (
+        {job.status === 'open' ? (
+          <View className="ml-auto flex-row items-center gap-4">
+            <Pressable disabled={setStatus.isPending} onPress={() => end('filled')}>
+              <Text className="text-muted-foreground text-[12px] font-semibold">
+                Mark filled
+              </Text>
+            </Pressable>
+            <Pressable disabled={setStatus.isPending} onPress={() => end('closed')}>
+              <Text className="text-muted-foreground text-[12px] font-semibold">
+                Close
+              </Text>
+            </Pressable>
+          </View>
+        ) : job.status !== 'expired' ? (
+          /* Reopening was never offered, so a misclicked "Mark filled" was
+             irreversible from the UI even though the API allows it. */
           <Pressable
             className="ml-auto"
             disabled={setStatus.isPending}
             onPress={() =>
-              setStatus.mutate({ id: job.id, status: 'filled' }, {
+              setStatus.mutate({ id: job.id, status: 'open' }, {
                 onError: (e: Error) => Alert.alert('Could not update', e.message),
               })
             }
           >
-            <Text className="text-muted-foreground text-[12px] font-semibold">Mark filled</Text>
+            <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+              Reopen
+            </Text>
           </Pressable>
-        )}
+        ) : null}
 
         <Pressable
           hitSlop={8}

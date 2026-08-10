@@ -18,6 +18,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  ValidateIf,
   Max,
   MaxLength,
   Min,
@@ -29,6 +30,56 @@ import { HiringService } from './hiring.service';
 
 /** Ten million centavos is ₱100,000 — well past any rate on this market. */
 const MAX_BUDGET = 100_000_00;
+
+/**
+ * Editing a live post.
+ *
+ * Every field optional, and `undefined` means "leave it alone" — distinct from
+ * `null`, which clears an optional column. Without that distinction a client
+ * sending a partial patch would wipe the date and budget it did not mention.
+ */
+export class UpdateJobDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(3, { message: 'Give the job a title people can scan' })
+  @MaxLength(120)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(30, { message: 'Say what the job actually involves' })
+  @MaxLength(4000)
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(9)
+  @IsString({ each: true })
+  rolesWanted?: string[];
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use a date like 2026-11-14' })
+  eventDate?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(120)
+  location?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsInt()
+  @Min(0)
+  budgetMin?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsInt()
+  @Min(0)
+  budgetMax?: number | null;
+}
 
 export class CreateJobDto {
   @IsString()
@@ -198,6 +249,23 @@ export class MyJobsController {
     return this.hiring.create(userId, dto);
   }
 
+  /**
+   * How many people filling or closing this would answer.
+   *
+   * The clients ask before doing it, so the confirmation can name the number
+   * rather than a bare "are you sure" — ending a post ends other people's
+   * applications, and that should be stated.
+   */
+  @Get(':id/pending-applicants')
+  pendingApplicants(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.hiring
+      .pendingApplicantCount(userId, id)
+      .then((count) => ({ count }));
+  }
+
   @HttpCode(200)
   @Patch(':id/status')
   setStatus(
@@ -206,6 +274,23 @@ export class MyJobsController {
     @Body() dto: SetJobStatusDto,
   ) {
     return this.hiring.setStatus(userId, id, dto.status);
+  }
+
+  /**
+   * Edit a post that is already up.
+   *
+   * Declared before `:id/status` would be wrong — Nest matches in declaration
+   * order and a bare `:id` PATCH does not collide with `:id/status`, but
+   * keeping it after leaves the more specific route first regardless.
+   */
+  @HttpCode(200)
+  @Patch(':id')
+  update(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateJobDto,
+  ) {
+    return this.hiring.update(userId, id, dto);
   }
 
   @HttpCode(200)

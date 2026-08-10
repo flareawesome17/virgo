@@ -35,6 +35,7 @@ import {
   useMyApplications,
   useMyJobs,
   useRespondToApplication,
+  usePendingApplicants,
   useSetJobStatus,
 } from '@/hooks/useJobs';
 import { useRoles } from '@/hooks/useRoles';
@@ -51,7 +52,46 @@ function JobRow({ job }: { job: JobPost }) {
   const [open, setOpen] = useState(false);
   const setStatus = useSetJobStatus();
   const remove = useDeleteJob();
+  const pending = usePendingApplicants();
   const budget = budgetLabel(job.budgetMin, job.budgetMax);
+
+  /**
+   * Ending a post ends other people's applications.
+   *
+   * So the confirmation names how many, fetched at the moment of asking
+   * rather than carried on every row. "Are you sure" does not tell somebody
+   * they are about to decline four people.
+   */
+  const end = async (status: 'filled' | 'closed') => {
+    let waiting = 0;
+    try {
+      waiting = (await pending.mutateAsync(job.id)).count;
+    } catch {
+      // If the count cannot be fetched, still ask — just without the number.
+    }
+
+    const verb = status === 'filled' ? 'Mark this filled' : 'Close this post';
+    const consequence = waiting
+      ? `
+
+${waiting} ${waiting === 1 ? 'person is' : 'people are'} still waiting to hear back. They will be told the role is taken.`
+      : '';
+    if (!confirm(`${verb}?${consequence}`)) return;
+
+    setStatus.mutate(
+      { id: job.id, status },
+      {
+        onSuccess: () =>
+          toast.success(
+            status === 'filled' ? 'Marked as filled' : 'Post closed',
+            waiting
+              ? { description: `${waiting} pending ${waiting === 1 ? 'applicant was' : 'applicants were'} told.` }
+              : undefined,
+          ),
+        onError: (e: Error) => toast.error(e.message),
+      },
+    );
+  };
 
   return (
     <Card>
@@ -93,33 +133,55 @@ function JobRow({ job }: { job: JobPost }) {
             )}
           </Button>
 
-          {job.status === 'open' && (
+          <Link
+            href={`/jobs/${job.slug}`}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+          >
+            <Eye className="size-3.5" />
+            View post
+          </Link>
+
+          {job.status === 'open' ? (
             <>
-              <Link
-                href={`/jobs/${job.slug}`}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-              >
-                <Eye className="size-3.5" />
-                View post
-              </Link>
               <Button
                 size="sm"
                 variant="ghost"
                 className="ml-auto"
                 disabled={setStatus.isPending}
-                onClick={() =>
-                  setStatus.mutate(
-                    { id: job.id, status: 'filled' },
-                    {
-                      onSuccess: () => toast.success('Marked as filled'),
-                      onError: (e: Error) => toast.error(e.message),
-                    },
-                  )
-                }
+                onClick={() => end('filled')}
               >
                 Mark filled
               </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground"
+                disabled={setStatus.isPending}
+                onClick={() => end('closed')}
+              >
+                Close
+              </Button>
             </>
+          ) : (
+            /* Reopening was never offered, so a misclicked "Mark filled" was
+               irreversible from the UI even though the API allows it. */
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto"
+              disabled={setStatus.isPending || job.status === 'expired'}
+              onClick={() =>
+                setStatus.mutate(
+                  { id: job.id, status: 'open' },
+                  {
+                    onSuccess: () => toast.success('Reopened'),
+                    onError: (e: Error) => toast.error(e.message),
+                  },
+                )
+              }
+            >
+              Reopen
+            </Button>
           )}
 
           <Button

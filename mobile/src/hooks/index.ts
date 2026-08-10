@@ -156,6 +156,8 @@ export {
   useApplicants,
   useMyApplications,
   useCreateJob,
+  usePendingApplicants,
+  useUpdateJob,
   useSetJobStatus,
   useDeleteJob,
   useApplyToJob,

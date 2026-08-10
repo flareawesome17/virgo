@@ -325,6 +325,10 @@ export class HiringService {
             join hiring_posts p on p.id = a.post_id
            where p.user_id = $1
              and p.hidden_at is null
+             -- Only posts still taking applications. A filled or closed post
+             -- has already answered everyone, and counting its history kept
+             -- the Jobs badge lit permanently on a job finished weeks ago.
+             and p.status = 'open'
              and a.status = 'new')::text as applications`,
       [userId],
     );
@@ -434,7 +438,35 @@ export class HiringService {
     return dayAfter < standard ? dayAfter : standard;
   }
 
-  /** Close, fill, or reopen a post the caller owns. */
+  /**
+   * How many people are still waiting on an answer.
+   *
+   * The clients ask before filling or closing, so the confirmation can name a
+   * number rather than "are you sure" — the whole point is that the poster
+   * knows they are ending it for other people too.
+   */
+  async pendingApplicantCount(userId: string, id: string): Promise<number> {
+    await this.ownedPost(userId, id);
+    const row = await this.db.queryOne<{ count: string }>(
+      `select count(*)::text as count from hiring_applications
+        where post_id = $1 and status in ('new', 'shortlisted')`,
+      [id],
+    );
+    return Number(row?.count ?? 0);
+  }
+
+  /**
+   * Close, fill, or reopen a post the caller owns.
+   *
+   * Ending a post ends the applications on it. Accepting somebody deliberately
+   * does *not* — a post can want a photographer and a videographer and an
+   * HMUA, so hiring one person is not the end of anything. Filling or closing
+   * is the poster saying it is over, and everybody still waiting is answered
+   * then, in the same transaction.
+   *
+   * Without this they sat at `new` forever: no answer, and the poster's Jobs
+   * badge lit permanently by applications on a job that was finished weeks ago.
+   */
   async setStatus(
     userId: string,
     id: string,
@@ -446,9 +478,124 @@ export class HiringService {
       throw new BadRequestException('This post has expired — create a new one.');
     }
 
+    const ending = status === 'filled' || status === 'closed';
+
+    const { slug, declined } = await this.db.transaction(async (client) => {
+      const updated = await client.query<{ slug: string }>(
+        'update hiring_posts set status = $3 where id = $1 and user_id = $2 returning slug',
+        [id, userId, status],
+      );
+
+      if (!ending) return { slug: updated.rows[0].slug, declined: [] };
+
+      // Returns the rows so each person can be told, which a bare UPDATE
+      // could not do — and the notification is the entire point.
+      const rest = await client.query<{ user_id: string }>(
+        `update hiring_applications
+            set status = 'declined', responded_at = now()
+          where post_id = $1 and status in ('new', 'shortlisted')
+          returning user_id`,
+        [id],
+      );
+      return { slug: updated.rows[0].slug, declined: rest.rows.map((r) => r.user_id) };
+    });
+
+    if (declined.length > 0) {
+      const me = await this.account(userId);
+      const who = me ? this.nameFor(me) : 'The poster';
+      // Outside the transaction: a notification that fails must not roll back
+      // a status change the poster has already been told succeeded.
+      await this.notifier.notify(declined, {
+        topic: 'job-response',
+        title: status === 'filled' ? 'Role filled' : 'Job closed',
+        body:
+          status === 'filled'
+            ? `${who} filled “${post.title}”`
+            : `${who} closed “${post.title}”`,
+        data: { type: 'job_response', postId: id, status: 'declined' },
+      });
+      this.logger.log(
+        `post ${id} ${status}; ${declined.length} pending application(s) declined`,
+      );
+    }
+
+    return this.bySlug(userId, slug);
+  }
+
+  /**
+   * Edit a post after it is up.
+   *
+   * There was no route for this at all, so a wrong date meant deleting and
+   * reposting — which cascades and destroys every application already made.
+   *
+   * The slug is deliberately not regenerated on a title change: it is in
+   * links people have already been sent.
+   */
+  async update(
+    userId: string,
+    id: string,
+    input: Partial<{
+      title: string;
+      description: string;
+      rolesWanted: string[];
+      eventDate: string | null;
+      location: string | null;
+      budgetMin: number | null;
+      budgetMax: number | null;
+    }>,
+  ): Promise<PublicJobPost> {
+    await this.ownedPost(userId, id);
+
+    const roles = input.rolesWanted
+      ? normalizeRoles(input.rolesWanted)
+      : undefined;
+    if (roles && roles.length === 0) {
+      throw new BadRequestException('Choose at least one role');
+    }
+    if (
+      input.budgetMin != null &&
+      input.budgetMax != null &&
+      input.budgetMin > input.budgetMax
+    ) {
+      throw new BadRequestException('The lowest budget cannot exceed the highest');
+    }
+
+    const location =
+      input.location === undefined
+        ? undefined
+        : input.location
+          ? canonicalLocation(input.location)
+          : null;
+
     const row = await this.db.queryOne<{ slug: string }>(
-      'update hiring_posts set status = $3 where id = $1 and user_id = $2 returning slug',
-      [id, userId, status],
+      `update hiring_posts
+          set title        = coalesce($3, title),
+              description  = coalesce($4, description),
+              roles_wanted = coalesce($5::text[], roles_wanted),
+              event_date   = case when $6::boolean then $7::date else event_date end,
+              location     = case when $8::boolean then $9::text else location end,
+              location_key = case when $8::boolean then $10::text else location_key end,
+              budget_min   = case when $11::boolean then $12::int else budget_min end,
+              budget_max   = case when $13::boolean then $14::int else budget_max end,
+              updated_at   = now()
+        where id = $1 and user_id = $2
+        returning slug`,
+      [
+        id,
+        userId,
+        input.title ?? null,
+        input.description ?? null,
+        roles ?? null,
+        input.eventDate !== undefined,
+        input.eventDate ?? null,
+        input.location !== undefined,
+        location ?? null,
+        location ? locationKey(location) : null,
+        input.budgetMin !== undefined,
+        input.budgetMin ?? null,
+        input.budgetMax !== undefined,
+        input.budgetMax ?? null,
+      ],
     );
     return this.bySlug(userId, row!.slug);
   }
@@ -728,9 +875,18 @@ export class HiringService {
 
   // ----------------------------------------------------------------- helpers
 
-  private async ownedPost(userId: string, id: string): Promise<{ expires_at: Date }> {
-    const row = await this.db.queryOne<{ expires_at: Date }>(
-      'select expires_at from hiring_posts where id = $1 and user_id = $2',
+  private async ownedPost(
+    userId: string,
+    id: string,
+  ): Promise<{ expires_at: Date; title: string; status: PublicJobPost['status'] }> {
+    const row = await this.db.queryOne<{
+      expires_at: Date;
+      title: string;
+      status: PublicJobPost['status'];
+    }>(
+      // The title comes back so a notification about this post can name it
+      // without a second query.
+      'select expires_at, title, status from hiring_posts where id = $1 and user_id = $2',
       [id, userId],
     );
     if (!row) throw new NotFoundException('Post not found');

@@ -130,6 +130,33 @@ export const jobsApi = {
     return api.get('/jobs/unseen');
   },
 
+  /**
+   * How many people filling or closing this post would answer.
+   *
+   * Asked before doing it, so the confirmation can name a number — ending a
+   * post ends other people's applications, and "are you sure" does not say
+   * that.
+   */
+  pendingApplicants(postId: string): Promise<{ count: number }> {
+    return api.get(`/me/jobs/${postId}/pending-applicants`);
+  },
+
+  /** Edit a post that is already up. Omitted fields are left alone. */
+  update(
+    postId: string,
+    input: Partial<{
+      title: string;
+      description: string;
+      rolesWanted: string[];
+      eventDate: string | null;
+      location: string | null;
+      budgetMin: number | null;
+      budgetMax: number | null;
+    }>,
+  ): Promise<JobPost> {
+    return api.patch(`/me/jobs/${postId}`, { body: input });
+  },
+
   /** Clears the badge. Called when the Jobs tab is opened. */
   markSeen(): Promise<{ seenAt: string }> {
     return api.post('/me/jobs/seen');
