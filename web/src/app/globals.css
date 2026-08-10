@@ -235,6 +235,27 @@
   .reveal[data-reveal='right'] { transform: translate3d(2rem, 0, 0); }
   .reveal[data-reveal='none'] { transform: none; }
 
+  /*
+   * On a phone a sideways reveal is what makes the whole page scroll
+   * sideways.
+   *
+   * The section content is already the full width of the viewport minus its
+   * padding, so translating it 2rem puts its edge ~13px past the right of the
+   * screen, and the document grows to fit — you get a page that drifts when
+   * you swipe, on every section using `from="left"` or `from="right"`.
+   *
+   * Turning them into the vertical reveal removes the cause rather than
+   * clipping it: `overflow-x: hidden` on a wrapper would hide this one and
+   * every real overflow after it. The horizontal travel is barely legible at
+   * this width anyway, and vertical matches what the rest of the page does.
+   */
+  @media (max-width: 639px) {
+    .reveal[data-reveal='left'],
+    .reveal[data-reveal='right'] {
+      transform: translate3d(0, 2rem, 0);
+    }
+  }
+
   .reveal[data-shown] {
     opacity: 1;
     transform: translate3d(0, 0, 0);

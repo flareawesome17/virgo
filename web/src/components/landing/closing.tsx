@@ -62,22 +62,25 @@ export function LandingFooter() {
           </span>
         </div>
 
-        <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+        {/* py-2 gives these real height. At 18px they were legible but only
+            just tappable, and they are the links somebody reaches for when
+            they want the terms before signing up. */}
+        <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1">
           <a
             href={`${SIGN_IN_URL.replace('/sign-in', '')}/legal`}
-            className="text-[12px] text-white/40 transition-colors hover:text-white/70"
+            className="inline-flex min-h-11 items-center text-[12px] text-white/40 transition-colors hover:text-white/70"
           >
             Terms
           </a>
           <a
             href={`${SIGN_IN_URL.replace('/sign-in', '')}/legal?tab=privacy`}
-            className="text-[12px] text-white/40 transition-colors hover:text-white/70"
+            className="inline-flex min-h-11 items-center text-[12px] text-white/40 transition-colors hover:text-white/70"
           >
             Privacy
           </a>
           <a
             href="mailto:support@virgo.ph"
-            className="text-[12px] text-white/40 transition-colors hover:text-white/70"
+            className="inline-flex min-h-11 items-center text-[12px] text-white/40 transition-colors hover:text-white/70"
           >
             support@virgo.ph
           </a>

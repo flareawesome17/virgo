@@ -32,7 +32,10 @@ export function LandingFaq() {
       <div className="mt-10 divide-y rounded-2xl border">
         {FAQS.map(({ q, a }) => (
           <details key={q} className="group px-5 py-4 [&_summary]:list-none">
-            <summary className="flex cursor-pointer items-center justify-between gap-4 text-left font-medium">
+            {/* min-h-11 (44px): the row was 24px tall, which on a phone is a
+                target you have to aim at. The padding lives on the <details>,
+                so height had to come from the summary itself. */}
+            <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-4 text-left font-medium">
               {q}
               <span
                 aria-hidden
