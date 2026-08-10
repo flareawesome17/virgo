@@ -79,6 +79,16 @@ export function startAnalytics(): void {
     // app. We do not use them, and an analytics library should not be able to
     // render UI in a product it is only supposed to be counting.
     disable_surveys: true,
+    /*
+     * Unhandled errors and rejected promises.
+     *
+     * The other half of flying blind: without this, somebody hits a crash and
+     * leaves, and the only trace is that they stopped appearing. It sends the
+     * message, the stack and the URL — not the page's contents, which is the
+     * line that matters given what autocapture and recording were turned off
+     * for.
+     */
+    capture_exceptions: true,
   });
 }
 
@@ -134,6 +144,25 @@ export function track(
 export function identify(userId: string): void {
   if (!started) return;
   posthog.identify(userId);
+}
+
+/**
+ * Reports an error the app caught itself.
+ *
+ * The automatic capture above only sees what reaches `window` — React
+ * swallows render errors into the nearest boundary, and those are exactly the
+ * ones that blank somebody's screen. Boundaries call this so a crash that the
+ * app handled gracefully is still a crash somebody should hear about.
+ *
+ * `where` is a fixed label like 'route' or 'root-layout', never a message or
+ * anything a user typed.
+ */
+export function captureError(error: unknown, where: string): void {
+  if (!started) return;
+  posthog.captureException(
+    error instanceof Error ? error : new Error(String(error)),
+    { where },
+  );
 }
 
 /** Signing out ends the identity, so the next person on this browser is not them. */
