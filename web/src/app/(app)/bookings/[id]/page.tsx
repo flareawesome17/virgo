@@ -49,28 +49,42 @@ export default function BookingPage({
   if (loadFailed || !booking) {
     return (
       <AppShell>
-        <p className="py-16 text-center text-sm text-muted-foreground">
-          That booking is not available.
-        </p>
+        <div className="mx-auto w-full max-w-3xl px-6 py-6">
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            That booking is not available.
+          </p>
+        </div>
       </AppShell>
     );
   }
 
   return (
     <AppShell>
-      <Link
-        href="/bookings"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" />
-        Bookings
-      </Link>
+      {/*
+        The same container every other page in the app has, and this one did
+        not: it rendered straight into the shell, so the back link sat against
+        the sidebar and the card stretched to the far edge of the window. On a
+        wide screen that put "Role" and "Photographer" nearly 1500px apart —
+        a row you have to track across the whole monitor to read.
 
-      {editing ? (
-        <EditForm booking={booking} onDone={() => setEditing(false)} />
-      ) : (
-        <View booking={booking} onEdit={() => setEditing(true)} />
-      )}
+        max-w-3xl to match the other detail pages (a job post, settings,
+        nearby) rather than the wider list pages.
+      */}
+      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+        <Link
+          href="/bookings"
+          className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+          Bookings
+        </Link>
+
+        {editing ? (
+          <EditForm booking={booking} onDone={() => setEditing(false)} />
+        ) : (
+          <View booking={booking} onEdit={() => setEditing(true)} />
+        )}
+      </div>
     </AppShell>
   );
 }
@@ -201,6 +215,15 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
   );
 }
 
+/*
+ * Two columns, not a label and a value pushed to opposite ends.
+ *
+ * `justify-between` is fine in something narrow — it is what the chat card
+ * uses — but this card is the width of the page, and it put "Role" and
+ * "Photographer" a screen apart with nothing in between. Five facts read as a
+ * spec sheet, so they get one: a fixed label column and values that all start
+ * on the same line, which the eye can run straight down.
+ */
 function Row({
   label,
   value,
@@ -211,17 +234,9 @@ function Row({
   strong?: boolean;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-4">
-      <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd
-        className={
-          value
-            ? strong
-              ? 'text-right font-semibold'
-              : 'text-right'
-            : 'text-right text-muted-foreground'
-        }
-      >
+    <div className="grid grid-cols-[7rem_1fr] items-baseline gap-x-4 sm:grid-cols-[9rem_1fr]">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className={value ? (strong ? 'font-semibold' : '') : 'text-muted-foreground'}>
         {value || 'Not set'}
       </dd>
     </div>
@@ -230,7 +245,7 @@ function Row({
 
 function Confirmation({ who, at }: { who: string; at: string | null }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="grid grid-cols-[7rem_1fr] items-center gap-x-4 sm:grid-cols-[9rem_1fr]">
       <span className="text-muted-foreground">{who}</span>
       {at ? (
         <span className="inline-flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
