@@ -14,7 +14,7 @@ import {
   usePendingApplicants,
   useSetJobStatus,
 } from '@/src/hooks';
-import { budgetLabel, type JobPost } from '@/src/api';
+import { budgetLabel, isRoleFilled, type JobPost } from '@/src/api';
 import { APPLICATION_LABEL } from '@/src/lib/jobs-format';
 import { JobsFeed } from '@/components/JobsFeed';
 import {
@@ -262,6 +262,31 @@ function JobRow({ job }: { job: JobPost }) {
           <Text className="text-muted-foreground text-[11px] mt-0.5">
             {[job.location, budget, `${job.applicantCount} applied`].filter(Boolean).join(' · ')}
           </Text>
+          {/* Which roles are still going, on the poster's own row. Accepting
+              somebody closes their role, and without this the only way to
+              know how much of your own post is live is to open the applicants
+              and work it out. */}
+          {job.rolesWanted.length > 0 && (
+            <View className="mt-1.5 flex-row flex-wrap gap-1.5">
+              {job.rolesWanted.map((r) => {
+                const filled = isRoleFilled(job, r);
+                return (
+                  <View
+                    key={r}
+                    className="rounded-full px-2 py-0.5"
+                    style={{ borderWidth: 1, borderColor: filled ? '#8883' : '#B66A4060' }}
+                  >
+                    <Text
+                      className="text-[10px] font-bold"
+                      style={{ color: filled ? '#9ca3af' : '#B66A40' }}
+                    >
+                      {r} · {filled ? 'filled' : 'open'}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
         <View className="rounded-full px-2.5 py-1"
           style={{ backgroundColor: job.status === 'open' ? '#B66A4020' : '#9ca3af20' }}>

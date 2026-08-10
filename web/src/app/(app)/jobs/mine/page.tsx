@@ -38,8 +38,10 @@ import {
   budgetLabel,
   distanceLabel,
   headlineApplication,
+  isRoleFilled,
   type JobPost,
 } from '@/api';
+import { cn } from '@/lib/utils';
 import {
   useApplicants,
   useDeleteJob,
@@ -162,6 +164,28 @@ This cannot be undone.`;
                 .filter(Boolean)
                 .join(' · ')}
             </p>
+            {/*
+              Which roles are still going, on the poster's own row.
+              Accepting somebody closes their role, and without this the only
+              way to know how much of your own post is still live is to open
+              the applicants and work it out.
+            */}
+            {job.rolesWanted.length > 0 && (
+              <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                {job.rolesWanted.map((role) => {
+                  const filled = isRoleFilled(job, role);
+                  return (
+                    <Badge
+                      key={role}
+                      variant={filled ? 'secondary' : 'outline'}
+                      className={cn('text-[11px] font-normal', filled && 'opacity-60')}
+                    >
+                      {role} · {filled ? 'filled' : 'open'}
+                    </Badge>
+                  );
+                })}
+              </p>
+            )}
           </div>
           <Badge variant={job.status === 'open' ? 'default' : 'secondary'}>
             {STATUS_LABEL[job.status]}
@@ -542,11 +566,26 @@ function BrowseJobs() {
                     </p>
 
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                      {job.rolesWanted.map((r) => (
-                        <Badge key={r} variant="secondary" className="text-[11px]">
-                          {r}
-                        </Badge>
-                      ))}
+                      {/* A filled role reads as struck through rather than
+                          disappearing: a post that wanted three people and
+                          has two left is a different thing from a post that
+                          only ever wanted one, and the card should not make
+                          those look identical. */}
+                      {job.rolesWanted.map((r) => {
+                        const filled = isRoleFilled(job, r);
+                        return (
+                          <Badge
+                            key={r}
+                            variant="secondary"
+                            className={cn(
+                              'text-[11px]',
+                              filled && 'opacity-50 line-through decoration-1',
+                            )}
+                          >
+                            {r}
+                          </Badge>
+                        );
+                      })}
                       {job.location && (
                         <span className="text-xs text-muted-foreground">{job.location}</span>
                       )}

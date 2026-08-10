@@ -5,7 +5,7 @@ import {
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useAuth, useJobs, useRoles } from '@/src/hooks';
-import { budgetLabel, distanceLabel, type JobPost } from '@/src/api';
+import { budgetLabel, distanceLabel, isRoleFilled, type JobPost } from '@/src/api';
 import { jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon,
@@ -224,13 +224,31 @@ function JobCard({ job }: { job: JobPost }) {
         {job.description}
       </Text>
 
+      {/* A filled role stays on the card, struck through, rather than
+          disappearing: a post that wanted three people and has two left is a
+          different thing from one that only ever wanted one, and the card
+          should not make those look identical. */}
       <View className="flex-row flex-wrap gap-1.5">
-        {job.rolesWanted.map((r) => (
-          <View key={r} className="rounded-full px-2.5 py-0.5"
-            style={{ backgroundColor: '#B66A4018' }}>
-            <Text className="text-[10px] font-bold" style={{ color: '#B66A40' }}>{r}</Text>
-          </View>
-        ))}
+        {job.rolesWanted.map((r) => {
+          const filled = isRoleFilled(job, r);
+          return (
+            <View
+              key={r}
+              className="rounded-full px-2.5 py-0.5"
+              style={{ backgroundColor: filled ? '#8881' : '#B66A4018' }}
+            >
+              <Text
+                className="text-[10px] font-bold"
+                style={{
+                  color: filled ? '#9ca3af' : '#B66A40',
+                  textDecorationLine: filled ? 'line-through' : 'none',
+                }}
+              >
+                {r}
+              </Text>
+            </View>
+          );
+        })}
       </View>
 
       <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">

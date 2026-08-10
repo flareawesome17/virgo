@@ -97,6 +97,8 @@ export {
   roleBudgetLabel,
   applicationFor,
   rolesLeftFor,
+  openRolesOf,
+  isRoleFilled,
   headlineApplication,
   type JobPost,
   type JobApplication,

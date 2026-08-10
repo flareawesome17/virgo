@@ -71,6 +71,15 @@ export interface PublicJobPost {
    * existed looks.
    */
   roleBudgets: Record<string, RoleBudget>;
+  /**
+   * Roles somebody has already been accepted for.
+   *
+   * Derived from the applications rather than stored, so it cannot disagree
+   * with them: a role is filled exactly when there is an accepted application
+   * for it. A filled role stops taking applications, and a post with every
+   * role filled stops taking them altogether and leaves the board.
+   */
+  filledRoles: string[];
   /** `YYYY-MM-DD`, the day of the job. */
   eventDate: string | null;
   location: string | null;
@@ -186,6 +195,7 @@ interface PostRow {
   description: string;
   roles_wanted: string[] | null;
   role_budgets: Record<string, RoleBudget> | null;
+  filled_roles: string[] | null;
   event_date: string | null;
   location: string | null;
   budget_min: number | null;
@@ -258,6 +268,18 @@ export class HiringService {
     return `
     p.id, p.user_id, p.slug, p.title, p.description, p.roles_wanted,
     p.role_budgets,
+    /*
+     * Which roles are taken.
+     *
+     * Derived, never stored: a role is filled exactly when somebody has been
+     * accepted for it, and a second copy of that fact in a column is a second
+     * thing that can be wrong.
+     */
+    (select coalesce(array_agg(distinct a.role), '{}')
+       from hiring_applications a
+      where a.post_id = p.id
+        and a.status = 'accepted'
+        and a.role is not null) as filled_roles,
     p.event_date, p.location, p.budget_min, p.budget_max, p.status,
     p.created_at, p.expires_at,
     u.display_name as poster_name,
@@ -341,6 +363,24 @@ export class HiringService {
           -- A post whose date has passed is not a job any more, whatever the
           -- sweep has got round to marking.
           and (p.event_date is null or p.event_date >= current_date)
+          -- At least one role still going. A post whose every role has been
+          -- filled has nothing to offer anybody reading the board, and
+          -- leaving it there is how a board stops being worth opening. It
+          -- stays reachable by link, and stays in the poster's own list.
+          --
+          -- The unnest column is named rather than left as the default. An
+          -- unqualified role inside the inner query resolves to the
+          -- applications table's own column, so the comparison is against
+          -- itself and every post with a single acceptance vanishes.
+          and exists (
+            select 1 from unnest(p.roles_wanted) as wanted(role_name)
+             where not exists (
+               select 1 from hiring_applications a
+                where a.post_id = p.id
+                  and a.status = 'accepted'
+                  and a.role = wanted.role_name
+             )
+          )
           and ($1::text[] = '{}' or p.roles_wanted && $1::text[])
           -- Prefix, not '%…%': "cebu" still finds "Cebu City", and a prefix
           -- is the only shape the text_pattern_ops index can serve. The
@@ -933,8 +973,14 @@ export class HiringService {
       status: string;
       event_date: string | null;
       roles_wanted: string[] | null;
+      filled_roles: string[] | null;
     }>(
-      `select id, user_id, title, status, event_date, roles_wanted
+      `select id, user_id, title, status, event_date, roles_wanted,
+              (select coalesce(array_agg(distinct a.role), '{}')
+                 from hiring_applications a
+                where a.post_id = hiring_posts.id
+                  and a.status = 'accepted'
+                  and a.role is not null) as filled_roles
          from hiring_posts
         where slug = $1 and hidden_at is null and expires_at > now()`,
       [slug],
@@ -969,15 +1015,30 @@ export class HiringService {
      * because a request does not have to come from our own form.
      */
     const wanted = post.roles_wanted ?? [];
+    const filled = post.filled_roles ?? [];
+    // Roles somebody has already been hired for are not on offer. Checked
+    // before anything else so the message is about the role rather than about
+    // the post — "this job is no longer taking applications" is wrong when
+    // two of its three roles are still going.
+    const open = wanted.filter((r) => !filled.includes(r));
+
+    if (wanted.length > 0 && open.length === 0) {
+      throw new BadRequestException(
+        'Every role on this job has been filled',
+      );
+    }
+
     const asked = input.role?.trim() || null;
     let role: string | null;
 
-    if (wanted.length <= 1) {
-      role = wanted[0] ?? null;
+    if (open.length <= 1 && !asked) {
+      role = open[0] ?? wanted[0] ?? null;
     } else if (!asked) {
       throw new BadRequestException('Choose which role you are applying for');
     } else if (!wanted.includes(asked)) {
       throw new BadRequestException(`This job is not hiring for ${asked}`);
+    } else if (filled.includes(asked)) {
+      throw new BadRequestException(`${asked} has already been filled`);
     } else {
       role = asked;
     }
@@ -1258,6 +1319,46 @@ export class HiringService {
       },
     });
 
+    /*
+     * If that was the last role, say so.
+     *
+     * The post stops taking applications and leaves the board on its own, but
+     * anyone who applied before it filled is still sitting there waiting. The
+     * poster is the only one who can answer them, and marking the post filled
+     * is what does it — deliberately their action, since it declines real
+     * people, so this prompts rather than does it for them.
+     */
+    const remaining = await this.db.queryOne<{ open: string; waiting: string }>(
+      `select
+         -- Named column, not the default one: see the board query. An
+         -- unqualified role in here binds to hiring_applications.role and the
+         -- comparison becomes a tautology.
+         (select count(*) from unnest(p.roles_wanted) as wanted(role_name)
+           where not exists (
+             select 1 from hiring_applications a
+              where a.post_id = p.id
+                and a.status = 'accepted'
+                and a.role = wanted.role_name
+           ))::text as open,
+         (select count(*) from hiring_applications a
+           where a.post_id = p.id and a.status in ('new', 'shortlisted'))::text as waiting
+         from hiring_posts p where p.id = $1`,
+      [row.post_id],
+    );
+
+    if (Number(remaining?.open ?? 1) === 0) {
+      const waiting = Number(remaining?.waiting ?? 0);
+      await this.notifier.notify([userId], {
+        topic: 'job-application',
+        title: 'Every role is filled',
+        body: waiting
+          ? `“${row.post_title}” is fully staffed. ${waiting} ${waiting === 1 ? 'person is' : 'people are'} still waiting to hear back — mark it filled to answer them.`
+          : `“${row.post_title}” is fully staffed and has left the board.`,
+        data: { type: 'job_application', postId: row.post_id },
+      });
+      this.logger.log(`post ${row.post_id} has every role filled`);
+    }
+
     this.logger.log(`application ${applicationId} accepted by ${userId}`);
     return this.applicationById(applicationId, userId, conversation.id);
   }
@@ -1380,6 +1481,7 @@ export class HiringService {
       description: row.description,
       rolesWanted: row.roles_wanted ?? [],
       roleBudgets: row.role_budgets ?? {},
+      filledRoles: row.filled_roles ?? [],
       // `date` columns come back as raw strings by design (database.service),
       // so a day never picks up a timezone on the way out.
       eventDate: row.event_date,

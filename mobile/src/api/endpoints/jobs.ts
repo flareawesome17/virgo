@@ -43,6 +43,14 @@ export interface JobPost {
    * post written before this existed looks that way.
    */
   roleBudgets: Record<string, RoleBudget>;
+  /**
+   * Roles somebody has already been hired for.
+   *
+   * A filled role stops taking applications; a post with every role filled
+   * stops taking them altogether and leaves the board. Derived server-side
+   * from the applications, so it cannot disagree with them.
+   */
+  filledRoles: string[];
   /** `YYYY-MM-DD`, the day of the job. */
   eventDate: string | null;
   location: string | null;
@@ -321,16 +329,32 @@ export function applicationFor(
   );
 }
 
+/** Whether somebody has already been hired for this role. */
+export function isRoleFilled(
+  post: Pick<JobPost, 'filledRoles'>,
+  role: string,
+): boolean {
+  return post.filledRoles.includes(role);
+}
+
+/** Roles nobody has been hired for yet — what the post is still offering. */
+export function openRolesOf(
+  post: Pick<JobPost, 'rolesWanted' | 'filledRoles'>,
+): string[] {
+  return post.rolesWanted.filter((role) => !isRoleFilled(post, role));
+}
+
 /**
- * The roles on this post you have not applied for yet.
+ * The roles on this post you could still apply for.
  *
- * Empty means there is nothing left to apply for, which is the only state in
- * which a post with an open status should stop offering Apply.
+ * Two ways to be out: somebody has been hired for it, or you already applied
+ * for it. Empty means there is nothing here for you, which is the only state
+ * in which an open post should stop offering Apply.
  */
 export function rolesLeftFor(
-  post: Pick<JobPost, 'myApplications' | 'rolesWanted'>,
+  post: Pick<JobPost, 'myApplications' | 'rolesWanted' | 'filledRoles'>,
 ): string[] {
-  return post.rolesWanted.filter((role) => !applicationFor(post, role));
+  return openRolesOf(post).filter((role) => !applicationFor(post, role));
 }
 
 /**

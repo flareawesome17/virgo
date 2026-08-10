@@ -30,11 +30,14 @@ import {
 import {
   applicationFor,
   budgetLabel,
+  isRoleFilled,
   jobUrl,
+  openRolesOf,
   roleBudgetLabel,
   rolesLeftFor,
   type ReportReason,
 } from '@/api';
+import { cn } from '@/lib/utils';
 import { useJob, useMyApplications, useReportJob } from '@/hooks/useJobs';
 import {
   ApplicationBadge,
@@ -118,6 +121,7 @@ export default function JobPage({
   const budget = budgetLabel(post.budgetMin, post.budgetMax);
   const isOpen = post.status === 'open';
   const rolesLeft = rolesLeftFor(post);
+  const openRoles = openRolesOf(post);
 
   const share = async () => {
     const url = jobUrl(post.slug, SITE);
@@ -253,16 +257,27 @@ export default function JobPage({
             <div className="space-y-1.5">
               {post.rolesWanted.map((role) => {
                 const rate = roleBudgetLabel(post.roleBudgets, role);
-                // Which roles you have already taken, and which are still
-                // open to you — the two questions a post with three roles has
-                // to answer before you can decide anything.
+                // Three things a post with several roles has to answer before
+                // anyone can decide anything: what each pays, which are gone,
+                // and which of them you have already taken a shot at.
                 const mine = applicationFor(post, role);
+                const filled = isRoleFilled(post, role);
                 return (
                   <div
                     key={role}
-                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                    className={cn(
+                      'flex items-center justify-between gap-3 rounded-lg border px-3 py-2',
+                      filled && 'opacity-60',
+                    )}
                   >
-                    <span className="text-sm font-medium">{role}</span>
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      {role}
+                      {filled && (
+                        <Badge variant="secondary" className="text-[11px] font-normal">
+                          Filled
+                        </Badge>
+                      )}
+                    </span>
                     <span className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
                       {mine && <ApplicationBadge status={mine.status} />}
                       {rate ?? 'Rate not stated'}
@@ -271,6 +286,15 @@ export default function JobPage({
                 );
               })}
             </div>
+
+            {/* The headline, when there is nothing left. Said once, above the
+                per-role rows, because "every one of these is gone" is not a
+                thing anybody should have to work out by reading five badges. */}
+            {post.rolesWanted.length > 0 && openRoles.length === 0 && (
+              <p className="rounded-lg bg-muted/60 px-3 py-2.5 text-sm">
+                All roles on this job are now closed.
+              </p>
+            )}
 
             <div>
               <h2 className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">

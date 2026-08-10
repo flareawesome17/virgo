@@ -6,7 +6,14 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { useApplyToJob, useJob, useReportJob } from '@/src/hooks';
-import { applicationFor, budgetLabel, roleBudgetLabel, rolesLeftFor } from '@/src/api';
+import {
+  applicationFor,
+  budgetLabel,
+  isRoleFilled,
+  openRolesOf,
+  roleBudgetLabel,
+  rolesLeftFor,
+} from '@/src/api';
 import { APPLICATION_LABEL, jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, MapPinIcon,
@@ -60,6 +67,7 @@ export default function JobDetailScreen() {
   // The roles still open to this reader. Applying as HMUA used to close the
   // videographer slot on the same post for good; now it closes only that one.
   const left = rolesLeftFor(post);
+  const openRoles = openRolesOf(post);
   // One role left is not a choice, so it is not offered as one — the server
   // fills it in. More than one and it has to be answered before applying.
   const choosing = left.length > 1;
@@ -166,16 +174,25 @@ export default function JobDetailScreen() {
           */}
           <View className="gap-1.5">
             {post.rolesWanted.map((r) => {
-              // Which roles you have already taken, and which are still open
-              // to you — the two questions a post with three roles has to
-              // answer before you can decide anything.
+              // Three things a post with several roles has to answer before
+              // anyone can decide anything: what each pays, which are gone,
+              // and which of them you have already taken a shot at.
               const mine = applicationFor(post, r);
+              const filled = isRoleFilled(post, r);
               return (
                 <View
                   key={r}
                   className="border-border flex-row items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5"
+                  style={{ opacity: filled ? 0.6 : 1 }}
                 >
-                  <Text className="text-foreground text-[13px] font-medium">{r}</Text>
+                  <View className="flex-row items-center gap-2">
+                    <Text className="text-foreground text-[13px] font-medium">{r}</Text>
+                    {filled && (
+                      <Text className="text-muted-foreground text-[10px] font-bold uppercase">
+                        Filled
+                      </Text>
+                    )}
+                  </View>
                   <View className="flex-row items-center gap-2">
                     {mine && (
                       <Text
@@ -193,6 +210,16 @@ export default function JobDetailScreen() {
               );
             })}
           </View>
+
+          {/* Said once, above the per-role rows: "every one of these is gone"
+              is not a thing anybody should work out by reading five badges. */}
+          {post.rolesWanted.length > 0 && openRoles.length === 0 && (
+            <View className="rounded-xl px-3.5 py-3" style={{ backgroundColor: '#8881' }}>
+              <Text className="text-foreground text-[13px]">
+                All roles on this job are now closed.
+              </Text>
+            </View>
+          )}
 
           <View>
             <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
