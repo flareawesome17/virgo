@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from 'next-themes';
 import { useState } from 'react';
 import { Toaster } from '@/components/ui/sonner';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(
@@ -27,8 +28,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={client}>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        {children}
-        <Toaster position="top-right" richColors />
+        {/* The sidebar's collapsed state shows each item's label as a
+            tooltip, which needs a provider above it. */}
+        <TooltipProvider delayDuration={0}>
+          {children}
+          <Toaster position="top-right" richColors />
+        </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

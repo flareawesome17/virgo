@@ -1,60 +1,39 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import {
-  Activity,
-  CreditCard,
-  FolderOpen,
-  LayoutDashboard,
-  LifeBuoy,
-  LogOut,
-  ScrollText,
-  ShieldCheck,
-  Users,
-} from 'lucide-react';
-import { signOut, tokens } from '@/api/client';
-import { useMe } from '@/hooks/useConsole';
+import { tokens } from '@/api/client';
+import { AppSidebar } from '@/components/console/app-sidebar';
 import { ForcePasswordChange } from '@/components/console/force-password-change';
-import { Button } from '@/components/ui/button';
+import { useMe, useOverview } from '@/hooks/useConsole';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from '@/components/ui/sidebar';
+import { Separator } from '@/components/ui/separator';
 
 /**
- * Every nav entry names the permission it needs.
+ * The console shell.
  *
- * The same string the server checks, so a viewer is not shown a Console
- * Accounts tab that would 403 the moment they clicked it. This is presentation
- * only — AdminGuard is what actually enforces it, and a hand-typed URL is
- * refused there regardless of what this array says.
+ * Uses shadcn's Sidebar rather than a hand-rolled `<aside>`, which is what
+ * this was. The difference is not cosmetic: collapse-to-icon with tooltips,
+ * the off-canvas sheet on mobile, cmd/ctrl+B, and a persisted open state all
+ * come with it — every one of which had to be reinvented otherwise, and three
+ * of which simply were not there.
  */
-const NAV = [
-  { href: '/', label: 'Overview', icon: LayoutDashboard, permission: 'overview.read' },
-  /*
-   * Two populations, never one list.
-   *
-   * "Users" is who can sign in *here* — console accounts, with their own
-   * credentials and roles. "Virgo users" is the people using the product.
-   * They live in different tables and share no authentication, and the labels
-   * say so: a console that calls both of them "users" is a console where
-   * somebody eventually disables the wrong one.
-   */
-  { href: '/users', label: 'Users', icon: ShieldCheck, permission: 'admins.read' },
-  { href: '/virgo-users', label: 'Virgo users', icon: Users, permission: 'users.read' },
-  { href: '/content', label: 'Content', icon: FolderOpen, permission: 'content.read' },
-  { href: '/billing', label: 'Billing', icon: CreditCard, permission: 'billing.read' },
-  { href: '/support', label: 'Support', icon: LifeBuoy, permission: 'support.read' },
-  { href: '/system', label: 'System', icon: Activity, permission: 'system.read' },
-  { href: '/audit', label: 'Audit log', icon: ScrollText, permission: 'audit.read' },
-];
-
 export default function ConsoleLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const router = useRouter();
-  const pathname = usePathname();
-  const { me, can, isLoading, isError } = useMe();
+  const { me, isLoading, isError } = useMe();
+
+  // The nav's counts come from the overview, which the Overview page is
+  // fetching anyway — same query key, so this is a cache read rather than a
+  // second request. Skipped entirely for a role that cannot see it.
+  const canSeeOverview = me?.permissions.includes('overview.read') ?? false;
+  const { data: overview } = useOverview(30, canSeeOverview);
 
   // Bounce before rendering anything if there is no token at all — otherwise
   // the shell flashes into view and then disappears.
@@ -69,11 +48,11 @@ export default function ConsoleLayout({
   if (isLoading || !me) {
     return (
       <div className="flex min-h-dvh">
-        <div className="hidden w-60 border-r p-4 lg:block">
-          <Skeleton className="h-8 w-32" />
+        <div className="hidden w-64 border-r p-4 lg:block">
+          <Skeleton className="h-10 w-full" />
           <div className="mt-6 space-y-2">
-            {NAV.map((n) => (
-              <Skeleton key={n.href} className="h-9 w-full" />
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full" />
             ))}
           </div>
         </div>
@@ -91,84 +70,32 @@ export default function ConsoleLayout({
     return <ForcePasswordChange email={me.email} />;
   }
 
-  const visible = NAV.filter((item) => can(item.permission));
-
   return (
-    <div className="flex min-h-dvh">
-      <aside className="hidden w-60 shrink-0 flex-col border-r lg:flex">
-        <div className="flex items-center gap-2.5 px-4 py-4">
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <ShieldCheck className="size-4" />
+    <SidebarProvider>
+      <AppSidebar
+        me={me}
+        counts={
+          overview
+            ? {
+                openTickets: overview.totals.openTickets,
+                reports: overview.totals.reports,
+              }
+            : undefined
+        }
+      />
+      <SidebarInset>
+        {/* Sticky, so the collapse control stays reachable down a long table. */}
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-1 h-4" />
+          <span className="text-sm font-medium text-muted-foreground">
+            Virgo Console
           </span>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-bold leading-tight">Virgo Console</p>
-            <p className="truncate text-[11px] text-muted-foreground">
-              {me.roleLabel}
-            </p>
-          </div>
-        </div>
-
-        <nav className="flex flex-1 flex-col gap-0.5 px-2 py-2">
-          {visible.map((item) => {
-            const active =
-              item.href === '/'
-                ? pathname === '/'
-                : pathname.startsWith(item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
-                  active
-                    ? 'bg-accent font-medium text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-                )}
-              >
-                <Icon className="size-4 shrink-0" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="border-t px-3 py-3">
-          <p className="truncate text-xs font-medium">{me.name}</p>
-          <p className="truncate text-[11px] text-muted-foreground">{me.email}</p>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-2 h-8 w-full justify-start px-2 text-muted-foreground"
-            onClick={async () => {
-              await signOut();
-              router.replace('/sign-in');
-            }}
-          >
-            <LogOut className="size-3.5" />
-            Sign out
-          </Button>
-        </div>
-      </aside>
-
-      <div className="min-w-0 flex-1">
-        {/* The nav collapses to a scrolling strip rather than a hamburger:
-            a console is used on a laptop, and a drawer would be more
-            machinery than the narrow case deserves. */}
-        <div className="flex gap-1 overflow-x-auto border-b px-3 py-2 lg:hidden">
-          {visible.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </div>
-        <main className="mx-auto w-full max-w-6xl px-5 py-7 sm:px-8">{children}</main>
-      </div>
-    </div>
+        </header>
+        <main className="mx-auto w-full max-w-6xl px-5 py-7 sm:px-8">
+          {children}
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

@@ -35,8 +35,14 @@ export function useMe() {
   };
 }
 
-export function useOverview(days = 30) {
-  return useQuery({ queryKey: keys.overview(days), queryFn: () => console_.overview(days) });
+export function useOverview(days = 30, enabled = true) {
+  return useQuery({
+    queryKey: keys.overview(days),
+    queryFn: () => console_.overview(days),
+    // The sidebar reads this for its badge counts and must not fire it for a
+    // role that cannot see the overview — it would 403 on every page load.
+    enabled,
+  });
 }
 
 export function useUsers(p: { q?: string; plan?: string; limit?: number; offset?: number }) {

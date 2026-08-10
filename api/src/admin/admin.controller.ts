@@ -11,6 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import {
   IsBoolean,
@@ -37,6 +38,13 @@ class LoginDto {
 }
 class TokenDto {
   @IsString() refreshToken!: string;
+}
+class ForgotPasswordDto {
+  @IsEmail() email!: string;
+}
+class ResetPasswordDto {
+  @IsString() @MinLength(1) token!: string;
+  @IsString() @MinLength(12) newPassword!: string;
 }
 class CreateAdminDto {
   @IsEmail() email!: string;
@@ -75,7 +83,10 @@ class HiddenDto {
 @Public()
 @Controller('admin/auth')
 export class AdminAuthController {
-  constructor(private readonly auth: AdminAuthService) {}
+  constructor(
+    private readonly auth: AdminAuthService,
+    private readonly config: ConfigService,
+  ) {}
 
   // Tight: this is the front door to everyone's data, and the one endpoint
   // worth making expensive to guess against.
@@ -98,6 +109,66 @@ export class AdminAuthController {
   async logout(@Body() dto: TokenDto) {
     await this.auth.logout(dto.refreshToken);
     return { ok: true };
+  }
+
+  /**
+   * Starts a reset, and admits nothing.
+   *
+   * Always 200 with the same body whether or not the address has an account.
+   * Anything else turns this endpoint into a list of who holds console access,
+   * which is worth more to an attacker than most passwords.
+   *
+   * Throttled harder than login: there is no password to get wrong here, so
+   * the only thing to rate-limit is somebody using it to probe addresses or to
+   * bury a real reset under a flood of emails.
+   */
+  @Throttle({ default: { limit: 4, ttl: 900_000 } })
+  @HttpCode(200)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    // The link has to point at the console, not the API. Taken from the
+    // request's own Origin when it is one we allow, so this works in
+    // development without another environment variable — and falls back to
+    // configuration rather than trusting an arbitrary header, which is how a
+    // reset link gets sent pointing at somebody else's site.
+    const origin = this.consoleOrigin(req.headers.origin);
+    await this.auth.requestPasswordReset(
+      dto.email,
+      origin,
+      (req.headers['cf-connecting-ip'] as string) || req.ip,
+    );
+    return {
+      ok: true,
+      message:
+        'If that address has a console account, a reset link is on its way.',
+    };
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 900_000 } })
+  @HttpCode(200)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.auth.resetPassword(dto.token, dto.newPassword);
+    return { ok: true };
+  }
+
+  /**
+   * Where a reset link should point.
+   *
+   * An `Origin` header is attacker-controlled, so it is only used when it is
+   * already an allowed CORS origin — otherwise a forged request would email a
+   * real user a link to a site that harvests the token.
+   */
+  private consoleOrigin(origin: string | undefined): string {
+    const configured =
+      this.config.get<string>('CONSOLE_URL') ?? 'https://console.virgo.ph';
+    if (!origin) return configured;
+
+    const allowed = (this.config.get<string>('CORS_ORIGINS') ?? '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
+    return allowed.includes(origin) ? origin : configured;
   }
 }
 

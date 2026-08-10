@@ -457,3 +457,44 @@ export function friendRequest(options: {
     text: ['New friend request', '', intro, '', options.url].join('\n'),
   };
 }
+
+/**
+ * A reset link for a management console account.
+ *
+ * Says plainly what the account is. Console credentials are not Virgo
+ * credentials, and somebody who holds both needs to know which one this
+ * changes before they click.
+ */
+export function adminPasswordReset(options: {
+  name: string;
+  url: string;
+  minutes: number;
+}): RenderedEmail {
+  return {
+    subject: 'Reset your Virgo Console password',
+    html: layout({
+      heading: 'Reset your console password',
+      intro:
+        `Someone asked to reset the password for your Virgo Console account. ` +
+        `This is the management console — not your Virgo app account.`,
+      cta: { label: 'Choose a new password', url: options.url },
+      outro:
+        `The link works once and expires in ${options.minutes} minutes. ` +
+        `If this was not you, ignore this email — nothing has changed, and ` +
+        `your current password still works.`,
+    }),
+    // A plain-text part as well. Some clients render it instead, and a reset
+    // email that arrives as an empty message is a support ticket.
+    text: [
+      'Reset your console password',
+      '',
+      'Someone asked to reset the password for your Virgo Console account.',
+      'This is the management console — not your Virgo app account.',
+      '',
+      options.url,
+      '',
+      `The link works once and expires in ${options.minutes} minutes.`,
+      'If this was not you, ignore this email. Nothing has changed.',
+    ].join('\n'),
+  };
+}

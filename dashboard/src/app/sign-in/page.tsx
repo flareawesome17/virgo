@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
@@ -91,6 +92,13 @@ export default function SignInPage() {
           <Button type="submit" className="w-full" disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </Button>
+
+          <Link
+            href="/forgot-password"
+            className="block text-center text-sm text-muted-foreground hover:text-foreground"
+          >
+            Forgot your password?
+          </Link>
         </form>
 
         <p className="mt-8 text-center text-xs text-muted-foreground">
