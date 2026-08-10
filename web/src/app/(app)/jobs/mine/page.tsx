@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -39,11 +39,13 @@ import {
   useApplicants,
   useDeleteJob,
   useJobs,
+  useMarkJobsSeen,
   useMyApplications,
   useMyJobs,
   useRespondToApplication,
   usePendingApplicants,
   useSetJobStatus,
+  useUnseenJobs,
 } from '@/hooks/useJobs';
 import { useRoles } from '@/hooks/useRoles';
 
@@ -600,6 +602,26 @@ function MyJobs() {
     // replace, not push: flipping tabs should not fill the back button with
     // the same screen four times.
     router.replace(next === 'browse' ? '/jobs/mine' : `/jobs/mine?tab=${next}`);
+
+  /*
+   * Looking at the board is what "seen" means.
+   *
+   * The phone has always done this; web never did, so the nav badge counted
+   * up and stayed there — you could read every post on the board and still be
+   * told there were nine you had not seen, which teaches people to ignore the
+   * badge entirely.
+   *
+   * Tied to the browse tab rather than the page, because ?tab=posted is a real
+   * way to arrive here and it does not show anybody the board. `mutate` is
+   * stable, and the hook zeroes the cached count on success, so this settles
+   * after one request and fires again only if new posts actually land while
+   * the board is open — which is the correct moment to clear it again.
+   */
+  const { count: unseen } = useUnseenJobs();
+  const { mutate: markJobsSeen } = useMarkJobsSeen();
+  useEffect(() => {
+    if (tab === 'browse' && unseen > 0) markJobsSeen();
+  }, [tab, unseen, markJobsSeen]);
 
   return (
     <AppShell>

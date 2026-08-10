@@ -72,13 +72,11 @@ export function useMyJobs() {
     queryFn: () => jobsApi.mine(),
   });
 
-  const jobs = query.data?.data ?? ([] as JobPost[]);
   return {
     ...query,
     /** Failed *or* paused — an offline device never reaches `isError`. */
     loadFailed: query.isError || query.isPaused,
-    jobs,
-    open: jobs.filter((job) => job.status === 'open'),
+    jobs: query.data?.data ?? ([] as JobPost[]),
   };
 }
 
@@ -90,14 +88,14 @@ export function useApplicants(postId: string | undefined) {
     enabled: !!postId,
   });
 
-  const applications = query.data?.data ?? ([] as JobApplication[]);
   return {
     ...query,
     /** Failed *or* paused — an offline device never reaches `isError`. */
     loadFailed: query.isError || query.isPaused,
-    applications,
-    /** What the badge counts: applications nobody has answered yet. */
-    unanswered: applications.filter((a) => a.status === 'new'),
+    applications: query.data?.data ?? ([] as JobApplication[]),
+    // No `unanswered` here on purpose. The badge both clients show comes from
+    // `newApplicantCount` on the post, which the server counts across every
+    // application rather than the page of them this hook happens to hold.
   };
 }
 

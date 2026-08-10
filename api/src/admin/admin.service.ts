@@ -309,7 +309,7 @@ export class AdminService {
               u.email as reporter_email
          from hiring_post_reports r
          join hiring_posts p on p.id = r.post_id
-         left join users u on u.id = r.user_id
+         left join users u on u.id = r.reporter_user_id
         order by r.created_at desc limit $1 offset $2`,
       [limit, offset],
     );

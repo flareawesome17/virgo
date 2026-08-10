@@ -351,7 +351,18 @@ export class HiringService {
          join users u on u.id = p.user_id
         where p.slug = $1
           and p.hidden_at is null
-          and p.expires_at > now()`,
+          and p.expires_at > now()
+          -- The same rule the board applies. Without it a post whose date has
+          -- passed is missing from the board and still reachable by link, so
+          -- it goes on quietly taking applications for a job that is over.
+          --
+          -- The owner is exempt: correcting the date is exactly how you repair
+          -- one of these, and both create() and update() return through here.
+          and (
+            p.event_date is null
+            or p.event_date >= current_date
+            or p.user_id = $2
+          )`,
       [slug, viewerId],
     );
     if (!row) throw new NotFoundException('That job post is no longer available');
@@ -624,6 +635,12 @@ export class HiringService {
     ) {
       throw new BadRequestException('The lowest budget cannot exceed the highest');
     }
+    // The same rule create() applies. Editing was the way round it: a live
+    // post could be moved to a date that had already been and gone, which
+    // create() refuses outright.
+    if (input.eventDate && input.eventDate < new Date().toISOString().slice(0, 10)) {
+      throw new BadRequestException('That date has already passed');
+    }
 
     const location =
       input.location === undefined
@@ -638,6 +655,16 @@ export class HiringService {
               description  = coalesce($4, description),
               roles_wanted = coalesce($5::text[], roles_wanted),
               event_date   = case when $6::boolean then $7::date else event_date end,
+              -- Kept in step with the date, not left where create() put it.
+              -- A post moved from "no date" to next week kept its 30-day
+              -- clock and outlived its own shoot; one moved later died before
+              -- it. Both inputs are fixed — when it was written, when the job
+              -- is — so this gives the same answer whichever way the date
+              -- moves, and can never revive a post that has already expired.
+              expires_at   = case when $6::boolean then least(
+                               created_at + interval '${DEFAULT_LIFETIME_DAYS} days',
+                               coalesce($7::date + 1, 'infinity'::timestamptz)
+                             ) else expires_at end,
               location     = case when $8::boolean then $9::text else location end,
               location_key = case when $8::boolean then $10::text else location_key end,
               -- Changing the location moves the post on the board too.
@@ -697,8 +724,9 @@ export class HiringService {
       user_id: string;
       title: string;
       status: string;
+      event_date: string | null;
     }>(
-      `select id, user_id, title, status from hiring_posts
+      `select id, user_id, title, status, event_date from hiring_posts
         where slug = $1 and hidden_at is null and expires_at > now()`,
       [slug],
     );
@@ -709,6 +737,13 @@ export class HiringService {
     }
     if (post.status !== 'open') {
       throw new BadRequestException('This job is no longer taking applications');
+    }
+    // Checked here and not only in the query above, because hiding the post is
+    // not the same as closing it: this is the door, and it has to be the one
+    // that refuses. A distinct message too — "no longer available" would read
+    // as a deleted post rather than a date that has been and gone.
+    if (post.event_date && post.event_date < new Date().toISOString().slice(0, 10)) {
+      throw new BadRequestException('That job has already happened');
     }
 
     let row: { id: string } | null;

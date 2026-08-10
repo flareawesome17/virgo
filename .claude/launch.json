@@ -6,6 +6,15 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "dashboard"],
       "port": 3002
+    },
+    {
+      // 3002, not 3000: another project holds 3000 on this machine, and 3002
+      // is the one dev port the API already allows through CORS. The
+      // dashboard container uses 3002 internally but does not publish it.
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "web", "--", "--port", "3002"],
+      "port": 3002
     }
   ]
 }
