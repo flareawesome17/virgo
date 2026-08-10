@@ -34,6 +34,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUnreadCount } from '@/hooks/useChat';
 import { useCollaboratorInvitations } from '@/hooks/useCollaborators';
 import { useIncomingFriendRequests } from '@/hooks/useFriends';
+import { SidebarFriends } from '@/components/sidebar-friends';
 import { useEventInvitations } from '@/hooks/useScheduleEvents';
 import { useUnseenJobs } from '@/hooks/useJobs';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -151,6 +152,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
           })}
         </div>
       ))}
+
+      {/* Below the destinations, not among them: these are people, and a row
+          that changes colour when somebody signs in does not belong in a list
+          of places. Renders nothing until there are friends with accounts. */}
+      <SidebarFriends />
     </nav>
   );
 }

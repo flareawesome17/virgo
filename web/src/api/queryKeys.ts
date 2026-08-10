@@ -46,6 +46,7 @@ export const queryKeys = {
     all: ['friends'] as const,
     list: (params?: unknown) => ['friends', 'list', params ?? {}] as const,
     detail: (id: string) => ['friends', 'detail', id] as const,
+    presence: ['friends', 'presence'] as const,
   },
   hire: {
     all: ['hire'] as const,

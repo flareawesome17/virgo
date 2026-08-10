@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   friendsApi,
@@ -8,6 +9,7 @@ import {
   type UpdateFriendInput,
 } from '@/src/api';
 
+import { seedPresence } from '@/src/lib/presence-store';
 import type { QueryOptions } from './useWorkspaces';
 
 export function useFriends(
@@ -142,4 +144,35 @@ export function usePeopleSearch(query: string) {
     loadFailed: result.isError || result.isPaused,
     people: result.data?.data ?? [],
   };
+}
+
+/**
+ * Accepted friends, ordered for a presence list: connected first, then by
+ * name, so the people you can actually reach right now are at the top.
+ *
+ * Seeds the presence store from the snapshot on load. After that the socket
+ * owns it — `usePresence(id)` re-renders only the row whose friend changed,
+ * rather than re-sorting the whole list on every heartbeat.
+ */
+export function useFriendPresence(options: QueryOptions = {}) {
+  const { friends, loadFailed } = useFriends(
+    { status: 'accepted', limit: 100 },
+    options,
+  );
+
+  const snapshot = useQuery({
+    queryKey: queryKeys.friends.presence,
+    queryFn: () => friendsApi.presence(),
+    enabled: options.enabled ?? true,
+    // A safety net only: a missed socket event would otherwise leave a dot
+    // wrong until the next reload.
+    refetchInterval: 120_000,
+  });
+
+  useEffect(() => {
+    const rows = snapshot.data?.data;
+    if (rows?.length) seedPresence(rows);
+  }, [snapshot.data]);
+
+  return { friends, loadFailed };
 }

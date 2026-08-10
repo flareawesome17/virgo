@@ -50,16 +50,30 @@ export class PresenceService {
    */
   async audienceFor(userId: string): Promise<string[]> {
     try {
+      // Chat partners *and* accepted friends. Partners alone was right while
+      // presence only decorated the chat list; a friends list in the sidebar
+      // needs it for people you have never messaged, who would otherwise sit
+      // there permanently grey.
       const rows = await this.db.query<{ user_id: string }>(
         `select distinct other.user_id
            from conversation_participants mine
            join conversation_participants other
              on other.conversation_id = mine.conversation_id
           where mine.user_id = $1
-            and other.user_id <> $1`,
+            and other.user_id <> $1
+          union
+         select distinct case
+                  when f.user_id = $1 then f.friend_user_id
+                  else f.user_id
+                end as user_id
+           from friends f
+          where f.status = 'accepted'
+            and f.friend_user_id is not null
+            and (f.user_id = $1 or f.friend_user_id = $1)`,
         [userId],
       );
-      return rows.map((r) => r.user_id);
+      // The union can yield a null when a legacy row has no account attached.
+      return rows.map((r) => r.user_id).filter((id): id is string => !!id);
     } catch (err) {
       this.logger.debug(`Could not resolve presence audience: ${String(err)}`);
       return [];

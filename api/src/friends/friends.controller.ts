@@ -36,6 +36,14 @@ export class FriendsController {
     return { data, total };
   }
 
+  /** Declared before `:id` so "presence" is not swallowed as an id. */
+  @Get('presence')
+  presence(@CurrentUser('id') userId: string) {
+    return this.friends
+      .presenceOfFriends(userId)
+      .then((data) => ({ data, total: data.length }));
+  }
+
   @Get(':id')
   get(@CurrentUser('id') userId: string, @Param('id') id: string) {
     return this.friends.get(userId, id);

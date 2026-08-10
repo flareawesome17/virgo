@@ -9,6 +9,7 @@ import { DatabaseService } from '../database/database.service';
 import { MailConfig } from '../mail/mail.config';
 import { friendRequest } from '../mail/mail.templates';
 import { NotifyService } from '../notifications/notify.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { generateId } from '../common/id';
 import { FriendRow, FriendsRepository } from './friends.repository';
 
@@ -37,8 +38,41 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
     private readonly db: DatabaseService,
     private readonly notifier: NotifyService,
     private readonly mailConfig: MailConfig,
+    private readonly realtime: RealtimeGateway,
   ) {
     super(friends, 'Friend');
+  }
+
+  /**
+   * Who among this user's accepted friends is connected right now.
+   *
+   * The socket only pushes *changes*, so without a starting picture the
+   * sidebar would show everyone offline until they happened to reconnect.
+   * Read from the gateway's live sessions rather than `last_seen_at`: the
+   * column is a timestamp of the last connect or disconnect, which says
+   * nothing about whether a socket is open at this instant.
+   */
+  async presenceOfFriends(userId: string): Promise<
+    { userId: string; online: boolean; lastSeenAt: string | null }[]
+  > {
+    const rows = await this.db.query<{ id: string; last_seen_at: Date | null }>(
+      `select distinct u.id, u.last_seen_at
+         from friends f
+         join users u
+           on u.id = case when f.user_id = $1 then f.friend_user_id else f.user_id end
+        where f.status = 'accepted'
+          and f.friend_user_id is not null
+          and (f.user_id = $1 or f.friend_user_id = $1)
+          and u.id <> $1`,
+      [userId],
+    );
+
+    const online = this.realtime.onlineAmong(rows.map((r) => r.id));
+    return rows.map((r) => ({
+      userId: r.id,
+      online: online.has(r.id),
+      lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
+    }));
   }
 
   private async findAccountByEmail(email: string): Promise<AccountRow | null> {

@@ -47,6 +47,19 @@ export interface SendRequestResult {
 }
 
 export const friendsApi = {
+
+  /**
+   * Who among your accepted friends is connected right now.
+   *
+   * The socket only pushes changes, so this is the starting picture the
+   * presence store is seeded from.
+   */
+  presence(): Promise<{
+    data: { userId: string; online: boolean; lastSeenAt: string | null }[];
+    total: number;
+  }> {
+    return api.get('/friends/presence');
+  },
   /** People matching a name prefix or an exact email address. */
   searchPeople(q: string): Promise<{ data: PersonResult[]; total: number }> {
     return api.get('/friends/search/people', { query: { q } });
