@@ -66,14 +66,22 @@ export function LandingFooter() {
             just tappable, and they are the links somebody reaches for when
             they want the terms before signing up. */}
         <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1">
+          {/* The public pages, not the in-app ones.
+              /terms and /privacy exist on this site, are indexable, and are
+              in the sitemap — but every link here pointed at web.virgo.ph
+              instead, which is behind a noindex. So the two documents a
+              payment processor, an app store and a cautious customer all go
+              looking for were submitted to Google with nothing linking to
+              them, and a reader who clicked Terms was dropped into the app
+              shell. Relative, so they stay on whichever host served this. */}
           <a
-            href={`${SIGN_IN_URL.replace('/sign-in', '')}/legal`}
+            href="/terms"
             className="inline-flex min-h-11 items-center text-[12px] text-white/40 transition-colors hover:text-white/70"
           >
             Terms
           </a>
           <a
-            href={`${SIGN_IN_URL.replace('/sign-in', '')}/legal?tab=privacy`}
+            href="/privacy"
             className="inline-flex min-h-11 items-center text-[12px] text-white/40 transition-colors hover:text-white/70"
           >
             Privacy
