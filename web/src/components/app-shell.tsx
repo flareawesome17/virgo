@@ -39,6 +39,7 @@ import { useIncomingFriendRequests } from '@/hooks/useFriends';
 import { SidebarFriends } from '@/components/sidebar-friends';
 import { useEventInvitations } from '@/hooks/useScheduleEvents';
 import { useUnseenJobs } from '@/hooks/useJobs';
+import { NotificationBell } from '@/components/notification-bell';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
 
@@ -302,6 +303,7 @@ export function AppShell({
           <span className="flex-1 truncate text-sm font-semibold">
             {title ?? 'Virgo'}
           </span>
+          <NotificationBell />
           <ThemeToggle />
           {actions}
         </header>
@@ -318,9 +320,14 @@ export function AppShell({
 /**
  * The header inside a page's scroll area.
  *
- * Separate from the shell's mobile bar so a page's title and actions scroll
- * with its content on desktop, where there is no persistent top bar to pin
- * them to.
+ * Separate from the shell's mobile bar, which is outside the scroll area and
+ * pinned by the layout itself.
+ *
+ * Sticky, because of what lives in it. The bell is here — it is the only way
+ * into the notification list — and so are a page's actions, and both were
+ * scrolling out of reach on any list long enough to be worth scrolling. A
+ * solid background rather than a blur: content passes directly underneath
+ * this, and translucency over a dense list is noise, not depth.
  */
 export function PageHeader({
   title,
@@ -336,7 +343,7 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        'flex flex-wrap items-start justify-between gap-4 border-b px-6 py-5',
+        'sticky top-0 z-30 flex flex-wrap items-start justify-between gap-4 border-b bg-background px-6 py-5',
         className,
       )}
     >
@@ -347,7 +354,10 @@ export function PageHeader({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {/* Under `lg` this sits in the shell's own bar instead, which is
+            already pinned — two bells on one screen is one too many. */}
         <span className="hidden lg:inline-flex">
+          <NotificationBell />
           <ThemeToggle />
         </span>
         {actions}

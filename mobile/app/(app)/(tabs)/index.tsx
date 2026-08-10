@@ -34,7 +34,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
-import { JobsTabs } from '@/components';
+import { JobsTabs, NotificationBell } from '@/components';
 import { FriendsPresence } from '@/components/FriendsPresence';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LoadFailed } from '@/components/LoadFailed';
@@ -228,6 +228,13 @@ export default function HomeScreen() {
           active={tab === 'home'}
           onPress={() => setTab('home')}
         />
+        {/*
+          The bell goes in the gap the two tabs already hold open, rather than
+          beside one of them. It is not a third tab — it opens a screen and
+          comes back — and putting it at either end would read as one, next to
+          whichever label it sat against.
+        */}
+        <NotificationBell />
         <Segment
           label="Jobs"
           active={tab === 'jobs'}

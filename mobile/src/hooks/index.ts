@@ -168,6 +168,12 @@ export {
 } from '@/src/hooks/useJobs'
 
 export {
+  useNotifications,
+  useUnreadNotifications,
+  useMarkNotificationsRead,
+} from './useNotifications';
+
+export {
   useSupportTickets,
   useSupportThread,
   useOpenTicket,

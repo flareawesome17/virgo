@@ -61,6 +61,11 @@ export const queryKeys = {
     myApplications: ['jobs', 'my-applications'] as const,
     unseen: ['jobs', 'unseen'] as const,
   },
+  notifications: {
+    all: ['notifications'] as const,
+    list: (limit?: number) => ['notifications', 'list', limit ?? 30] as const,
+    unread: ['notifications', 'unread'] as const,
+  },
   support: {
     all: ['support'] as const,
     list: ['support', 'list'] as const,

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { MailService } from '../mail/mail.service';
@@ -59,7 +60,14 @@ function channelFor(topic: NotificationTopic): Notification['channelId'] {
  * invitation sat unseen until something happened to refetch. Anything that
  * notifies now goes through here and is live by construction.
  *
- * The socket goes first and the push second, deliberately: the socket is
+ * The row is written first, then the socket, then the push. Storing it first
+ * costs a local round trip and buys two things: the socket frame can carry the
+ * id of the row it corresponds to, and a notification is never delivered
+ * without also being recorded. Every channel before this one was ephemeral —
+ * miss the frame and the only trace was an email — so the durable copy is the
+ * one that must not be the thing that gets skipped.
+ *
+ * After that the socket comes before the push, deliberately: the socket is
  * in-process and instant, while Expo is an HTTP round trip to another company's
  * server. Ordering it this way is the difference between a notification that
  * lands immediately for anyone with the app open and one that waits on a
@@ -109,18 +117,30 @@ export class NotifyService {
 
     const at = new Date().toISOString();
 
-    // Live first. Synchronous and non-throwing, so this is done before the
+    // Stored first, so the live frame can name the row it belongs to and a
+    // client can mark it read from the toast. Non-fatal: a notification that
+    // fails to store is still worth delivering, and the alternative — throwing
+    // — would take down the thing that caused it.
+    let ids: string[] = [];
+    try {
+      ids = await this.store(deliveries);
+    } catch (err) {
+      this.logger.warn(`Could not store notifications: ${String(err)}`);
+    }
+
+    // Live next. Synchronous and non-throwing, so this is done before the
     // first byte of the push request goes out.
-    for (const d of deliveries) {
+    deliveries.forEach((d, i) => {
       this.realtime.emitToUsers([d.userId], {
         type: 'notification',
+        id: ids[i],
         topic: d.topic,
         title: d.title,
         body: d.body,
         data: d.data ?? {},
         at,
       });
-    }
+    });
 
     try {
       const tokensByUser = new Map<string, string[]>();
@@ -153,6 +173,34 @@ export class NotifyService {
       this.logger.warn(`Notification delivery failed: ${String(err)}`);
       return { sent: 0, failed: deliveries.length };
     }
+  }
+
+  /**
+   * Writes the durable copy, and returns the ids in delivery order.
+   *
+   * One statement for the whole batch rather than one per delivery — the
+   * reminder sweep hands this hundreds at a time. The ids are generated here
+   * rather than by the column default so the caller can line each one up with
+   * the delivery it came from without depending on the order `returning`
+   * happens to produce.
+   */
+  private async store(deliveries: readonly Delivery[]): Promise<string[]> {
+    const ids = deliveries.map(() => randomUUID());
+    await this.db.query(
+      `insert into notifications (id, user_id, topic, title, body, data)
+       select * from unnest(
+         $1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::text[], $6::jsonb[]
+       )`,
+      [
+        ids,
+        deliveries.map((d) => d.userId),
+        deliveries.map((d) => d.topic),
+        deliveries.map((d) => d.title),
+        deliveries.map((d) => d.body),
+        deliveries.map((d) => JSON.stringify(d.data ?? {})),
+      ],
+    );
+    return ids;
   }
 
   /**

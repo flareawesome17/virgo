@@ -63,6 +63,14 @@ export type ServerEvent =
   | { type: 'job-posted'; slug: string; at: string }
   | {
       type: 'notification';
+      /**
+       * The stored row this frame corresponds to, so a client can mark it read
+       * straight from the toast rather than refetching the list to find it.
+       *
+       * Optional because storing is non-fatal: if the insert failed the
+       * notification is still worth delivering, it just cannot be pointed at.
+       */
+      id?: string;
       topic: NotificationTopic;
       title: string;
       body: string;

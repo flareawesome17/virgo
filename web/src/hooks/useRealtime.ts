@@ -160,6 +160,12 @@ function applyNotification(
     queryClient.invalidateQueries({ queryKey: key });
   }
 
+  // Every topic, not one of them: the notification list holds all of these, so
+  // it is stale by definition the moment any frame arrives. Outside the table
+  // above because it is not a per-topic decision — putting it in each row is
+  // how the next topic added would quietly leave the list behind.
+  queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
+
   const href =
     typeof topic?.href === 'function' ? topic.href(event.data) : topic?.href;
 

@@ -1,6 +1,24 @@
-import { Body, Controller, Delete, HttpCode, Post } from '@nestjs/common';
-import { IsIn, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Post,
+  Query,
+} from '@nestjs/common';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { NotificationFeedService } from './notification-feed.service';
 import { PushService } from './push.service';
 import { ReminderDispatcherService } from './reminder-dispatcher.service';
 
@@ -27,12 +45,56 @@ export class UnregisterPushTokenDto {
   token!: string;
 }
 
+export class MarkReadDto {
+  /**
+   * Which ones. Left out, every unread notification is marked — that is the
+   * "mark all read" button, rather than a second endpoint that would differ
+   * only in taking no body.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsUUID('4', { each: true })
+  ids?: string[];
+}
+
 @Controller('notifications')
 export class NotificationsController {
   constructor(
     private readonly push: PushService,
     private readonly dispatcher: ReminderDispatcherService,
+    private readonly feed: NotificationFeedService,
   ) {}
+
+  /**
+   * The notification list, newest first.
+   *
+   * Returns the unread count alongside the page, so opening the list and
+   * showing the badge is one request rather than two that can disagree.
+   */
+  @Get()
+  list(
+    @CurrentUser('id') userId: string,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+  ) {
+    return this.feed.list(userId, {
+      limit: limit ? Number(limit) : undefined,
+      before,
+    });
+  }
+
+  /** Just the badge, for the poll. */
+  @Get('unread-count')
+  async unreadCount(@CurrentUser('id') userId: string) {
+    return { count: await this.feed.unreadCount(userId) };
+  }
+
+  @HttpCode(200)
+  @Post('read')
+  async markRead(@CurrentUser('id') userId: string, @Body() dto: MarkReadDto) {
+    return { updated: await this.feed.markRead(userId, dto.ids) };
+  }
 
   /** Called by the app once it has permission and a token. */
   @HttpCode(204)

@@ -31,6 +31,11 @@ export {
   type BookingSide,
 } from './endpoints/bookings';
 export {
+  notificationsApi,
+  type AppNotification,
+  type NotificationTopic,
+} from './endpoints/notifications';
+export {
   supportApi,
   type SupportTicket,
   type SupportMessage,

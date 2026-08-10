@@ -22,3 +22,4 @@ export {
 export { JobsFeed } from '@/components/JobsFeed'
 export { JobsTabs } from '@/components/JobsTabs'
 export { LoadFailed } from '@/components/LoadFailed'
+export { NotificationBell } from '@/components/NotificationBell'
