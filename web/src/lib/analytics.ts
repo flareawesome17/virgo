@@ -23,7 +23,7 @@ import posthog from 'posthog-js';
  */
 
 const KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://eu.i.posthog.com';
+const HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com';
 
 let started = false;
 
@@ -39,6 +39,26 @@ export const analyticsEnabled = !!KEY;
  */
 export function startAnalytics(): void {
   if (started || !KEY || typeof window === 'undefined') return;
+
+  /*
+   * Refuse anything that is not a public project key.
+   *
+   * PostHog's project API key (`phc_`) is meant to be public; its project
+   * *secret* key (`phs_`) has scoped read access to the project's data. They
+   * differ by one letter and sit two clicks apart in the same settings menu,
+   * and this variable is inlined into a bundle every visitor downloads — so
+   * the cost of confusing them is publishing a credential, and the check is
+   * three lines.
+   */
+  if (!KEY.startsWith('phc_')) {
+    console.error(
+      '[analytics] NEXT_PUBLIC_POSTHOG_KEY does not look like a public project key ' +
+        '(expected phc_…). Not starting. If this is a project *secret* key, ' +
+        'remove it — this value ships to every browser.',
+    );
+    return;
+  }
+
   started = true;
 
   posthog.init(KEY, {
