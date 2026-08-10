@@ -35,7 +35,7 @@ export abstract class OwnedResourceService<Row extends QueryResultRow> {
   }
 
   async create(userId: string, data: Record<string, unknown>): Promise<Row> {
-    // The mobile app generates ids client-side today (the Supabase contract was
+    // The mobile app generates ids client-side today (the original contract was
     // "include id on insert"), so an explicit id is honoured when supplied and
     // generated otherwise. Keeping this lets the client swap happen without
     // rewriting id handling in all 26 screens.

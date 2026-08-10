@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { signOut, tokens } from '@/api/client';
 import { useMe } from '@/hooks/useConsole';
+import { ForcePasswordChange } from '@/components/console/force-password-change';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -73,6 +74,12 @@ export default function ConsoleLayout({
         </div>
       </div>
     );
+  }
+
+  // Before the shell, not inside it. A seeded password is single-use by
+  // design, and a banner someone can scroll past would not enforce that.
+  if (me.mustChangePassword) {
+    return <ForcePasswordChange email={me.email} />;
   }
 
   const visible = NAV.filter((item) => can(item.permission));

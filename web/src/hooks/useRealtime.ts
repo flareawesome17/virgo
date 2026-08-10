@@ -30,6 +30,7 @@ type NotificationTopic =
   | 'hire-enquiry'
   | 'hire-response'
   | 'job-application'
+  | 'support'
   | 'job-response'
   | 'reminder'
   | 'billing'
@@ -96,6 +97,7 @@ const TOPICS: Record<
     href: '/network?tab=enquiries',
   },
   'job-application': { keys: [queryKeys.jobs.all], href: '/jobs/mine' },
+  support: { keys: [queryKeys.support.all], href: '/support' },
   // Accepting also connects the two and opens a chat.
   'job-response': {
     keys: [queryKeys.jobs.all, queryKeys.friends.all, ['chat']],

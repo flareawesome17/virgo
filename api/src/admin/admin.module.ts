@@ -5,14 +5,15 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { StorageModule } from '../storage/storage.module';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminAuthService } from './admin-auth.service';
+import { AdminSeedService } from './admin-seed.service';
 import { AdminAuthController, AdminController } from './admin.controller';
 import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
 import { AuditService } from './audit.service';
 import { AdminSupportController, SupportController } from './support.controller';
 import { SupportService } from './support.service';
-import { VisitsController } from './visits.controller';
-import { VisitsService } from './visits.service';
+import { VisitsModule } from '../visits/visits.module';
+import { VisitsService } from '../visits/visits.service';
 
 /**
  * The management console's API.
@@ -27,22 +28,27 @@ import { VisitsService } from './visits.service';
  * different key from the app's.
  */
 @Module({
-  imports: [JwtModule.register({}), StorageModule, MailModule, NotificationsModule],
+  imports: [
+    JwtModule.register({}),
+    StorageModule,
+    MailModule,
+    NotificationsModule,
+    VisitsModule,
+  ],
   controllers: [
     AdminAuthController,
     AdminController,
     AdminSupportController,
     SupportController,
-    VisitsController,
   ],
   providers: [
     AdminAuthService,
+    AdminSeedService,
     AdminAccountsService,
     AdminService,
     AdminGuard,
     AuditService,
     SupportService,
-    VisitsService,
   ],
 })
 export class AdminModule {}

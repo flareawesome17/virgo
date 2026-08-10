@@ -151,10 +151,15 @@ export default function OverviewPage() {
                     data.visits.topPaths.slice(0, 6).map((p) => (
                       <div
                         key={`${p.host}${p.path}`}
-                        className="flex items-center justify-between gap-3"
+                        className="flex items-baseline justify-between gap-3"
                       >
-                        <span className="truncate font-mono text-xs">
-                          {p.path}
+                        {/* The host is shown, not just the path. Rows are
+                            grouped by host *and* path, so virgo.ph/s and
+                            client.virgo.ph/s are two different things that
+                            rendered as one line repeated. */}
+                        <span className="min-w-0 truncate font-mono text-xs">
+                          <span className="text-muted-foreground">{p.host}</span>
+                          {p.path === '/' ? '' : p.path}
                         </span>
                         <span className="shrink-0 tabular-nums text-muted-foreground">
                           {p.views}

@@ -24,7 +24,7 @@ export interface ListOptions {
 /**
  * Base repository for user-owned rows.
  *
- * REPLACES ROW LEVEL SECURITY. Under Supabase, `auth.uid() = user_id` policies
+ * REPLACES ROW LEVEL SECURITY. The previous backend used `auth.uid() = user_id` policies
  * were the last line of defence — every query was filtered by the database no
  * matter what the caller did. On vanilla Postgres that guarantee is gone, so it
  * is reconstructed here: every method takes `userId` as its first argument and

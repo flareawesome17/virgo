@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 /**
- * Ids for the domain tables are `text`, matching the original Supabase schema
+ * Ids for the domain tables are `text`, matching the original schema
  * where the client generated them. A UUID string satisfies that column and
  * removes any chance of collision between clients.
  */

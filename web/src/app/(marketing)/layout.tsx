@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { VisitBeacon } from '@/components/visit-beacon';
 
 /**
  * The public site.
@@ -66,6 +67,7 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
    */
   return (
     <div className="landing-scroll dark min-h-full bg-[#161311] text-white">
+      <VisitBeacon />
       {children}
     </div>
   );

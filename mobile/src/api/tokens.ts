@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * AsyncStorage rather than SecureStore because the app already depends on it
  * and the web build has no SecureStore equivalent. Note this is unencrypted —
  * on a rooted or jailbroken device the refresh token is readable. That is the
- * same exposure the Supabase client had, so this migration does not make it
+ * same exposure the previous backend client had, so this migration does not make it
  * worse, but expo-secure-store on native is the upgrade path if it matters.
  */
 const ACCESS_KEY = 'virgo.auth.accessToken';

@@ -23,12 +23,12 @@ npm run dev        # migrations run automatically outside production
 | --- | --- | --- |
 | Schema | `migrations/*.sql` | Plain SQL, applied in filename order, tracked in `schema_migrations` |
 | DB access | `src/database/database.service.ts` | `pg` pool. No ORM — SQL is the source of truth |
-| Owner scoping | `src/common/owned.repository.ts` | Replaces Supabase RLS. See below |
+| Owner scoping | `src/common/owned.repository.ts` | Replaces database-level RLS. See below |
 | Auth | `src/auth/` | JWT access token + rotating hashed refresh token |
 
 ### Owner scoping replaces Row Level Security
 
-Under Supabase, `auth.uid() = user_id` policies were enforced by the database:
+The previous backend enforced `auth.uid() = user_id` policies in the database:
 every query was filtered regardless of what the caller did. Vanilla Postgres has
 no such guarantee here, so `OwnedRepository` reconstructs it — every method takes
 `userId` first and every generated statement carries `where user_id = $n`.

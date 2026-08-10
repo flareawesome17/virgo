@@ -8,10 +8,11 @@ import {
   HttpCode,
   Logger,
   Param,
+  Req,
   Post,
   Res,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { Public } from '../../auth/public.decorator';
@@ -23,6 +24,7 @@ import {
   safeFileStem,
 } from './album-share.service';
 import { contentDisposition } from '../../storage/storage.service';
+import { VisitsService } from '../../visits/visits.service';
 import {
   renderClientGallery,
   renderLinkUnavailable,
@@ -77,7 +79,10 @@ export class AlbumShareController {
 export class PublicAlbumController {
   private readonly logger = new Logger(PublicAlbumController.name);
 
-  constructor(private readonly share: AlbumShareService) {}
+  constructor(
+    private readonly share: AlbumShareService,
+    private readonly visits: VisitsService,
+  ) {}
 
   @Public()
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
@@ -87,7 +92,11 @@ export class PublicAlbumController {
   // results and caches matters more than the bandwidth saved.
   @Header('X-Robots-Tag', 'noindex, nofollow')
   @Header('Cache-Control', 'no-store')
-  async page(@Param('token') token: string, @Res() res: Response) {
+  async page(
+    @Param('token') token: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     // Overrides helmet's global policy, which allows images only from 'self'
     // and has no media-src — that blocked every CDN-hosted photo, video and
     // audio file on this page.
@@ -108,6 +117,31 @@ export class PublicAlbumController {
       res.status(403).send(renderLinkUnavailable());
       return;
     }
+
+    // Counted here rather than by a beacon in the page. This route's CSP is
+    // `script-src 'none'` — the gallery runs no JavaScript at all — and
+    // loosening that so the page could report on itself would be trading a
+    // real security property for a number. The server already knows the
+    // request happened.
+    //
+    // `/s` is what lands in the table; VisitsService strips the token, which
+    // is the credential to this gallery and must never be stored.
+    void this.visits
+      .record({
+        host: req.headers.host ?? 'client.virgo.ph',
+        path: '/s',
+        referrer: req.headers.referer,
+        ip:
+          (req.headers['cf-connecting-ip'] as string) ||
+          (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+          req.ip ||
+          'unknown',
+        userAgent: req.headers['user-agent'] ?? '',
+      })
+      // A counter must never cost somebody their delivery.
+      .catch((err: unknown) =>
+        this.logger.warn(`Visit not recorded: ${String(err)}`),
+      );
 
     res.send(renderClientGallery(view, token));
   }

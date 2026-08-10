@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useState, type ComponentType, type ReactNode } from 'react';
 import {
   BriefcaseBusiness,
+  LifeBuoy,
   CalendarDays,
   FolderOpen,
   Home,
@@ -64,6 +65,12 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
       { href: '/nearby', label: 'Nearby', icon: MapPin },
       { href: '/jobs/mine', label: 'Jobs', icon: BriefcaseBusiness, badge: 'newJobs' },
     ],
+  },
+  {
+    // Its own group at the bottom rather than buried in settings. During a
+    // pre-release the most valuable thing a user can do is tell you what
+    // broke, and a support link nobody finds collects nothing.
+    items: [{ href: '/support', label: 'Support', icon: LifeBuoy }],
   },
 ];
 

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
+  BadRequestException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -30,6 +31,14 @@ export interface AdminIdentity {
   name: string;
   role: AdminRole;
   permissions: readonly AdminPermission[];
+  /**
+   * True while the account still has the password the server generated for it.
+   *
+   * Carried on the identity rather than only in the login response so it
+   * survives a refresh — otherwise reloading the console would step straight
+   * past the change screen.
+   */
+  mustChangePassword: boolean;
 }
 
 interface AdminRow {
@@ -39,6 +48,8 @@ interface AdminRow {
   password_hash: string;
   role: AdminRole;
   disabled_at: Date | null;
+  must_change_password: boolean;
+  sessions_valid_from: Date | null;
 }
 
 @Injectable()
@@ -85,6 +96,7 @@ export class AdminAuthService {
       name: row.name,
       role: row.role,
       permissions: permissionsFor(row.role),
+      mustChangePassword: row.must_change_password,
     };
   }
 
@@ -98,12 +110,14 @@ export class AdminAuthService {
    */
   async verify(token: string): Promise<AdminIdentity> {
     let sub: string;
+    let issuedAt: number | undefined;
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(token, {
-        secret: this.secret(),
-        audience: ADMIN_AUDIENCE,
-      });
+      const payload = await this.jwt.verifyAsync<{ sub: string; iat?: number }>(
+        token,
+        { secret: this.secret(), audience: ADMIN_AUDIENCE },
+      );
       sub = payload.sub;
+      issuedAt = payload.iat;
     } catch {
       throw new UnauthorizedException('Session expired');
     }
@@ -113,6 +127,26 @@ export class AdminAuthService {
       [sub],
     );
     if (!row || row.disabled_at) throw new UnauthorizedException('Session expired');
+
+    /*
+     * Refuse a token minted before the account's sessions were invalidated.
+     *
+     * Revoking refresh tokens alone left the previous holder with a working
+     * access token for the rest of its 30 minutes — the exact window that
+     * matters when the password was changed because somebody else saw it.
+     *
+     * `iat` is in seconds and floors, so a token issued in the same second as
+     * the change can read as older than it. One second of slack, which is
+     * shorter than any real attack and long enough to avoid logging out the
+     * person who just typed the new password.
+     */
+    if (row.sessions_valid_from && issuedAt !== undefined) {
+      const cutoff = Math.floor(row.sessions_valid_from.getTime() / 1000);
+      if (issuedAt < cutoff - 1) {
+        throw new UnauthorizedException('Session expired');
+      }
+    }
+
     return this.identity(row);
   }
 
@@ -190,11 +224,67 @@ export class AdminAuthService {
     );
   }
 
-  /** Ends every session for one admin — used when disabling or demoting them. */
+  /**
+   * Changes the caller's own password and clears the forced-change flag.
+   *
+   * The current password is required even though the caller already holds a
+   * valid token: a token left behind on a shared machine should not be enough
+   * to lock the real owner out of their own console.
+   *
+   * Every other session is ended. Somebody changing their password after
+   * suspecting it was seen expects exactly that.
+   */
+  async changeOwnPassword(
+    adminId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    if (newPassword.length < 12) {
+      throw new BadRequestException(
+        'Console passwords must be at least 12 characters',
+      );
+    }
+
+    const row = await this.db.queryOne<AdminRow>(
+      'select * from admin_users where id = $1',
+      [adminId],
+    );
+    if (!row) throw new UnauthorizedException('Session expired');
+
+    if (!(await bcrypt.compare(currentPassword, row.password_hash))) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+    if (await bcrypt.compare(newPassword, row.password_hash)) {
+      throw new BadRequestException('That is the password you already have');
+    }
+
+    await this.db.query(
+      `update admin_users
+          set password_hash = $2,
+              must_change_password = false,
+              sessions_valid_from = now(),
+              updated_at = now()
+        where id = $1`,
+      [adminId, await this.hashPassword(newPassword)],
+    );
+    await this.revokeAllFor(adminId);
+  }
+
+  /**
+   * Ends every session for one admin — used when disabling or demoting them.
+   *
+   * Both halves: the stored refresh tokens, and the stateless access tokens,
+   * which are cut off by moving `sessions_valid_from` forward. Revoking only
+   * the first leaves a usable token behind for up to ACCESS_TTL.
+   */
   async revokeAllFor(adminId: string): Promise<void> {
     await this.db.query(
       `update admin_refresh_tokens set revoked_at = now()
         where admin_id = $1 and revoked_at is null`,
+      [adminId],
+    );
+    await this.db.query(
+      'update admin_users set sessions_valid_from = now() where id = $1',
       [adminId],
     );
   }

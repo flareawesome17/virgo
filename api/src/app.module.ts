@@ -23,17 +23,18 @@ import { MailModule } from './mail/mail.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { ScheduleEventsModule } from './schedule-events/schedule-events.module';
-import { ServicesModule } from './services/services.module';
 import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DiscoverModule } from './discover/discover.module';
 import { MessagesModule } from './messages/messages.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 import { AdminModule } from './admin/admin.module';
+import { VisitsModule } from './visits/visits.module';
 
 @Module({
   imports: [
     AdminModule,
+    VisitsModule,
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     // Drives the due-reminder sweep in NotificationsModule.
@@ -50,7 +51,6 @@ import { AdminModule } from './admin/admin.module';
     CollaboratorsModule,
     RemindersModule,
     FriendsModule,
-    ServicesModule,
     StorageModule,
     NotificationsModule,
     DiscoverModule,

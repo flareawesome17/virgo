@@ -7,9 +7,10 @@ import { AlbumsRepository } from './albums.repository';
 import { AlbumsService } from './albums.service';
 import { AlbumShareController, PublicAlbumController } from './share/album-share.controller';
 import { AlbumShareService } from './share/album-share.service';
+import { VisitsModule } from '../visits/visits.module';
 
 @Module({
-  imports: [WorkspacesModule, StorageModule],
+  imports: [WorkspacesModule, StorageModule, VisitsModule],
   controllers: [AlbumsController, AlbumShareController, PublicAlbumController],
   providers: [
     AlbumsService,

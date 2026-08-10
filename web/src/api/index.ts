@@ -24,6 +24,12 @@ export { queryKeys } from './queryKeys';
 
 export { authApi, type Credentials } from './endpoints/auth';
 export {
+  supportApi,
+  type SupportTicket,
+  type SupportMessage,
+  type TicketStatus,
+} from './endpoints/support';
+export {
   workspacesApi,
   type CreateWorkspaceInput,
   type UpdateWorkspaceInput,
@@ -61,7 +67,6 @@ export {
   type ListFriendsParams,
   type UpdateFriendInput,
 } from './endpoints/friends';
-export { servicesApi, type ChatMessage } from './endpoints/services';
 export {
   usageApi,
   formatBytes,

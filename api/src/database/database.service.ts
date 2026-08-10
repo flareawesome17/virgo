@@ -24,7 +24,7 @@ pgTypes.setTypeParser(PG_DATE_OID, (value: string) => value);
  *
  * Deliberately not an ORM: the schema lives in migrations/*.sql and queries are
  * written as SQL. This keeps one source of truth for the schema, the same way
- * the Supabase setup did.
+ * the previous hosted setup did.
  */
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {

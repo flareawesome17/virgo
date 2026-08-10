@@ -2,7 +2,7 @@
  * useAuth Hook
  *
  * Authentication against the NestJS REST API. The public shape is unchanged
- * from the Supabase version — `user`, `session`, `isAuthenticated`,
+ * from the previous backend — `user`, `session`, `isAuthenticated`,
  * `isLoading`, and the `signIn` / `signUp` / `signOut` mutations — so screens
  * consuming it did not need to change.
  */
@@ -234,7 +234,7 @@ export function useAuth() {
 
   return {
     user,
-    /** Kept for shape compatibility; there is no Supabase session object now. */
+    /** Kept for shape compatibility; there is no session object now. */
     session: authUser ? { user: authUser } : null,
     isAuthenticated: !!authUser,
     isLoading: sessionQuery.isLoading,

@@ -3,7 +3,8 @@ const { withNativeWind } = require('nativewind/metro');
 
 const config = getDefaultConfig(__dirname);
 
-// Enable package.json exports resolution (needed by @supabase/supabase-js subpaths)
+// Enable package.json exports resolution. Several dependencies ship their
+// entry points only through the `exports` map, and Metro ignores it otherwise.
 config.resolver.unstable_enablePackageExports = true;
 
 module.exports = withNativeWind(config, { input: './global.css' });

@@ -2,7 +2,7 @@
  * Row shapes returned by the API.
  *
  * Snake_case is deliberate: it mirrors the Postgres columns exactly, so screens
- * carried over from Supabase keep referring to `accent_color`, `workspace_id`
+ * carried over from the previous backend keep referring to `accent_color`, `workspace_id`
  * and friends without a rename pass.
  */
 

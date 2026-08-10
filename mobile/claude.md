@@ -1,105 +1,78 @@
-# Expo App
+# Virgo — mobile
 
-## Tech Stack
+Expo 54 / React Native 0.81 / Expo Router 6 / TanStack Query 5 / NativeWind 4 /
+TypeScript strict / lucide-react-native.
 
-Expo 54, React Native 0.81, Expo Router 6, TanStack Query 5, NativeWind 4, Supabase (tinbase), TypeScript strict, lucide-react-native
+## There is no Supabase here
 
-## Quick Reference
+This app talks to **Virgo's own NestJS API over HTTP**. It has no database
+client, no RLS, no `auth.uid()`, and no generated schema types. If you find a
+reference to Supabase anywhere, it is a leftover and should go.
 
-### File Locations
+Authorisation is the API's job. A screen never scopes its own data — it calls
+an endpoint, and the server decides what that account may see.
 
-All paths relative to project root:
+## Where things live
 
-| Type                | Location                        | Export                        |
-| ------------------- | ------------------------------- | ----------------------------- |
-| Screens (protected) | `app/(app)/*.tsx`               | default                       |
-| Screens (public)    | `app/(auth)/*.tsx`              | default                       |
-| Components          | `components/*.tsx`              | named → `components/index.ts` |
-| Hooks               | `src/hooks/*.ts`                | named → `src/hooks/index.ts`  |
-| Providers           | `src/providers/*.tsx`           | named                         |
-| Supabase client     | `src/db/client.ts`              | `supabase`                    |
-| App context         | `src/providers/AppProvider.tsx` | `useApp` (provides `client`)  |
-| Generated types     | `src/db/types.ts`               | `Database` (GENERATED)        |
-| Migrations          | `../supabase/migrations/*.sql`  | SQL — repo root, not mobile/  |
-| Seed data           | `../supabase/seed.sql`          | SQL                           |
+| Type | Location | Export |
+| --- | --- | --- |
+| Screens (protected) | `app/(app)/*.tsx` | default |
+| Screens (public) | `app/(auth)/*.tsx` | default |
+| Components | `components/*.tsx` | named → `components/index.ts` |
+| Hooks | `src/hooks/*.ts` | named → `src/hooks/index.ts` |
+| API endpoints | `src/api/endpoints/*.ts` | named → `src/api/index.ts` |
+| Query keys | `src/api/queryKeys.ts` | `queryKeys` |
+| HTTP client | `src/api/client.ts` | `api` |
+| Migrations | `../api/migrations/*.sql` | SQL — **in `api/`, not here** |
 
-### Client Architecture
+Import alias is `@/*` → the package root, so hooks are `@/src/hooks`, not
+`@/hooks`.
 
-A single Supabase client, reached through React context:
+## Shared with web
 
-- `src/db/client.ts` — `supabase` created from `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY`
-- `src/providers/AppProvider.tsx` — `useApp()` returns `{ client }`
-- **In screens/hooks:** `const { client } = useApp()` then `client.from('table').select('*')`
-- **For auth:** use `useAuth()` hook (wraps `client.auth` in React Query mutations)
-- **Editor preview is pre-authenticated:** the editor's in-sandbox database provisions a demo user (`demo@rapidnative.com`) at boot and the db client signs it in automatically — build auth-gated screens normally; the preview lands on the signed-in UI with a real email, `auth.uid()`/RLS work, and real sign-in/up flows still work for other accounts
-- There is no mock adapter and no adapter switching. The database is real in every environment, so
-  what you see in the preview is what ships.
+`src/api/**` and `src/hooks/**` are duplicated byte-for-byte in `web/`.
+`node scripts/check-client-sync.mjs` enforces it from the repo root and fails
+the moment the two drift.
 
-### UI Components
+**Change both, or change neither.** A fix applied to one client only is the
+most common defect this project has had.
 
-Use React Native primitives with NativeWind styling:
+## Data
 
-| Category   | Components                                                   |
-| ---------- | ------------------------------------------------------------ |
-| Layout     | `View`, `SafeAreaView` (from react-native-safe-area-context) |
-| Typography | `Text`                                                       |
-| Forms      | `TextInput`, `Pressable`, `TouchableOpacity`                 |
-| Lists      | `FlatList`, `ScrollView`, `SectionList`                      |
-| Feedback   | `ActivityIndicator`                                          |
-| Images     | `Image`, `ImageBackground`                                   |
-| Icons      | Import from `lucide-react-native`                            |
+- Server state is TanStack Query. There is no other store.
+- Query keys come from `queryKeys`, never hand-written arrays.
+- Every list hook returns `loadFailed`, not just `isError` — React Query pauses
+  rather than errors when the device is offline, so `isError` stays false and a
+  failed fetch renders as an empty list. Distinguishing "failed" from "empty" is
+  not optional; getting it wrong tells someone their albums are gone.
 
-### Rules
+## Rules
 
-**Do:**
+**Do**
 
-- Access the client via `useApp().client`
-- Use `useAuth()` for sign in/up/out — it handles React Query cache invalidation
-- Use React Native components with NativeWind `className` for all styling
-- Use semantic color classes (`bg-background`, `text-foreground`, etc.)
-- Check `{ error }` from all db operations
-- Use query keys: `['resource', userId]`
-- Include `id` on insert; let `created_at` default. Do not set `updated_at` by hand — a trigger maintains it
-- Export from index.ts
-- Use `useCallback` for FlatList handlers
-- Use `.limit(50)` for lists
-- **MANDATORY: database changes are SQL migrations — nothing else.** Call `db_migration_new` with the SQL.
-  Never hand-write TypeScript schema or seed files: `src/db/types.ts` is generated from the applied
-  migrations, and seed rows live in `supabase/seed.sql`.
-  - New table → ONE migration containing `create table`, `alter table ... enable row level security`,
-    and at least one `create policy`. RLS with no policy makes every query return zero rows, so the
-    app looks broken with no error anywhere.
-  - Owner-scoped data → `user_id uuid default auth.uid() references auth.users(id) on delete cascade`
-    with policies like `using (auth.uid() = user_id)`. Add an index on every foreign key — Postgres
-    does not create one, so the lookups seq-scan.
-  - `updated_at` needs a before-update trigger, or it keeps its insert value forever.
-  - Read the schema with `db_tables` / `db_describe` / `db_sql` before changing it; never guess what exists.
+- Use React Native primitives with NativeWind `className`
+- Use semantic colour classes (`bg-background`, `text-foreground`)
+- Register every icon in the file's `cssInterop` array as well as importing it —
+  one left out renders without its colour and nobody traces it back
+- Use `useCallback` for `FlatList` handlers
+- Add new endpoints to `src/api/endpoints/` and re-export from `src/api/index.ts`
 
-**Don't:**
+**Don't**
 
-- Import the client directly in screens — use `useApp().client`
-- Call `client.auth.*` directly in screens — use `useAuth()` hook
-- Use `StyleSheet.create()`
-- Hardcode colors
-- Write unitless arbitrary classNames — `h-[20]` is invalid and silently does nothing; always include the unit (`h-[20px]`) or use a scale class (`h-5`)
-- Auto-redirect signed-in users off auth screens (`if (user) router.replace('/')`). The editor preview is always signed in, so the redirect makes login/signup screens impossible to open. If needed, gate it: `process.env.EXPO_PUBLIC_RAPIDNATIVE_MODE !== 'designer'`
-- Use `any` types
-- Expose raw errors to users
+- Use `StyleSheet.create()` or hardcode colours
+- Write unitless arbitrary classNames — `h-[20]` silently does nothing; use
+  `h-[20px]` or `h-5`
+- Use `any`
+- Show a raw error message to a user
+- Auto-redirect signed-in users off auth screens
 
-### Banned (will crash the app or break the web preview)
+**Will break the app**
 
-- **ORMs and schema-as-code** — no Prisma, no Drizzle, no `defineTable`. The schema is SQL in `supabase/migrations/`, applied to a real Postgres. If an ORM-shaped solution feels natural, write the SQL instead.
-- **Native-only packages** — `react-native-webrtc`, `react-native-incall-manager`, `@react-native-firebase/*` and similar break the web preview the moment they're imported. Either use a web-supported alternative (browser `RTCPeerConnection`, `firebase` web SDK) or gate native code behind `Platform.OS` with a real web fallback.
-- **Rewriting read-only files** — `src/db/client.ts`, `src/db/types.ts` (generated), `src/providers/AppProvider.tsx`, `src/providers/ThemeProvider.tsx`, `src/hooks/useAuth.ts`, the root `app/_layout.tsx`, and `package.json` ship complete from the scaffold. Add new code around them, never regenerate them. Never pass `value={...}` to `<ThemeProvider>` — it takes no props. Exception for `package.json`: ADDING a dependency is allowed (add-only, never remove or change existing entries) — the package must work on Expo Web (prefer `expo-*` modules) and be pinned to its Expo SDK 54-compatible version, never `latest`.
-- **Hooks at module top level** — `const queryClient = useQueryClient();` outside a component crashes with "Invalid hook call". Hooks belong inside the component or another hook.
-- **Hallucinated icon names** — only emit icons that actually exist in `lucide-react-native`. `MessageIcon` and `RecordIcon` do NOT exist (use `MessageCircleIcon` / `DiscIcon`). When unsure, pick the closest icon that is on the approved list.
-- **Provider/consumer asymmetry** — every method called on a context (`useWebSocket().sendMessage(...)`) must be declared on the context type, included in the provider `value`, AND stubbed in the no-op fallback. Adding the consumer side alone is a runtime crash.
-- **Template artifacts in source files** — never let chat-frame fragments like ` `<CodeProject> ``or stray` ```tsx ` markers end up inside `.ts` / `.tsx` files. The last line of every file must be valid syntax.
-
-## Behavior
-
-- Use TodoWrite for multi-step tasks
-- Conventional commits: `type(scope): description`
-- Read files before editing
-- Prefer editing over creating new files
-- Reference `.claude/skills/` for domain-specific patterns
+- **Hallucinated icon names.** Only emit icons that exist in
+  `lucide-react-native`. `MessageIcon` and `RecordIcon` do not
+  (use `MessageCircleIcon` / `DiscIcon`).
+- **Hooks at module top level.** `const qc = useQueryClient()` outside a
+  component is "Invalid hook call".
+- **Native-only packages** that break the web preview on import.
+- **Provider/consumer asymmetry.** A method called on a context must be on the
+  context type, in the provider `value`, *and* in the no-op fallback.

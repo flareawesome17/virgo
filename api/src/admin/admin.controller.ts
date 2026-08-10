@@ -54,6 +54,10 @@ class DisabledDto {
 class PasswordDto {
   @IsString() @MinLength(12) password!: string;
 }
+class ChangePasswordDto {
+  @IsString() @MinLength(1) currentPassword!: string;
+  @IsString() @MinLength(12) newPassword!: string;
+}
 class PlanDto {
   @IsString() plan!: string;
 }
@@ -105,6 +109,7 @@ export class AdminController {
     private readonly admin: AdminService,
     private readonly accounts: AdminAccountsService,
     private readonly audit: AuditService,
+    private readonly auth: AdminAuthService,
   ) {}
 
   /** Who am I and what may I do — the console renders its nav from this. */
@@ -120,6 +125,37 @@ export class AdminController {
         description: ROLE_DESCRIPTION[role],
       })),
     };
+  }
+
+  /**
+   * Changes your own password.
+   *
+   * Guarded by AdminGuard like everything else, but gated on `overview.read`
+   * — the one permission every role has — because a viewer forced to change a
+   * seeded password must be able to, and requiring anything higher would lock
+   * them out of the console entirely.
+   */
+  @RequirePermission('overview.read')
+  @HttpCode(200)
+  @Post('me/password')
+  async changeOwnPassword(
+    @Body() dto: ChangePasswordDto,
+    @CurrentAdmin() admin: AdminIdentity,
+  ) {
+    await this.auth.changeOwnPassword(
+      admin.id,
+      dto.currentPassword,
+      dto.newPassword,
+    );
+    await this.audit.record(admin, {
+      action: 'admin.changeOwnPassword',
+      targetType: 'admin',
+      targetId: admin.id,
+      detail: {},
+    });
+    // Every session was just revoked, this one included — the console signs
+    // back in with the new password rather than carrying a dead token.
+    return { ok: true, reauthenticate: true };
   }
 
   @RequirePermission('overview.read')

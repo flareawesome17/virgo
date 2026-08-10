@@ -5,16 +5,19 @@ import Constants from 'expo-constants';
 import { useTheme } from '@/src/hooks';
 import {
   ArrowLeftIcon, ChevronRightIcon, BellIcon, LockIcon, ShieldIcon,
-  PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon,
+  PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, LifeBuoyIcon,
   InfoIcon, FileTextIcon, StarIcon,
   GlobeIcon,
   BriefcaseIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
+// Every icon used below has to appear here too. One left out renders without
+// its colour rather than failing, so the omission shows up as a grey icon
+// nobody traces back to this list.
 for (const Icon of [
   ArrowLeftIcon, ChevronRightIcon, BellIcon, LockIcon, ShieldIcon,
-  PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, InfoIcon,
+  PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, LifeBuoyIcon, InfoIcon,
   FileTextIcon, StarIcon, GlobeIcon, BriefcaseIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -129,9 +132,16 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
     title: 'Support',
     rows: [
       {
+        icon: LifeBuoyIcon,
+        label: 'Contact support',
+        detail: 'Ask us anything — we answer in the app',
+        route: '/support',
+        color: '#B66A40',
+      },
+      {
         icon: HelpCircleIcon,
         label: 'Help Center',
-        detail: 'Answers, and how to reach us',
+        detail: 'Answers to common questions',
         route: '/settings/help',
         color: '#B66A40',
       },

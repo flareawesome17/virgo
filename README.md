@@ -1,53 +1,79 @@
-# Fullstack Supabase
+# Virgo
 
-Base template for RapidNative fullstack projects — a monorepo with an Expo app, a SQL database, and companion API/web workspaces.
+A network and workspace for photographers, videographers, editors, HMUAs and
+coordinators in the Philippines. Find people near you, run the shoot together,
+and deliver to clients with links that open without an account.
 
 ```
-├── mobile/            # Expo 54 + React Native 0.81 (primary workspace)
-├── supabase/          # SQL migrations + seed — the schema's source of truth
-├── api/               # Express.js API server
-├── web/               # Static HTML web app
-└── rapidnative.json   # Workspace manifest for the RapidNative editor
+├── api/         NestJS + raw Postgres. The only thing that talks to the database.
+├── web/         Next.js 16. virgo.ph (public) and web.virgo.ph (the app).
+├── mobile/      Expo 54. iOS and Android.
+├── dashboard/   Next.js 16. console.virgo.ph — the management console.
+└── scripts/     Repo-wide checks. `check-client-sync.mjs` is the important one.
 ```
 
-## Workspaces
+## The stack
 
-- **mobile/** — Primary workspace. Expo Router 6 for navigation, NativeWind 4 for styling, TanStack Query 5 for data fetching, and `@supabase/supabase-js` for data and auth. See `mobile/README.md`.
-- **supabase/** — The database. `migrations/*.sql` define the schema (Supabase CLI conventions, timestamped filenames); `seed.sql` inserts demo rows. At the repo root, not inside mobile/, because the database belongs to the project — all workspaces reach it and the Supabase CLI expects it here.
-- **api/** — Minimal Express server with a health check endpoint. Add custom API routes here.
-- **web/** — Static HTML placeholder for companion web pages.
+**Postgres, reached only through `api/`.** No ORM, no schema-as-code, no
+row-level security: authorisation is enforced in the service layer, and
+`api/src/common/owned.repository.ts` is where that happens. The schema is plain
+SQL in `api/migrations/*.sql`, numbered, applied in order on boot by
+`api/src/database/migrator.ts`. That directory is the single source of truth —
+there is no generated types file and nothing to keep in sync with it by hand.
 
-## The database
+**Media lives in Backblaze B2**, in two buckets: avatars are public, everything
+else is private and served through presigned URLs. Uploads go straight from the
+device to the bucket; file bytes never pass through the API.
 
-The database is Supabase — the app talks plain `@supabase/supabase-js`, and the schema has exactly one source of truth: `supabase/migrations/*.sql`. `mobile/src/db/types.ts` is generated from the applied migrations — never edited by hand.
+**Payments are PayMongo**, in pesos. Nothing is purchasable during the
+pre-release.
 
-**In the RapidNative editor** the Supabase API is served by tinbase, a Supabase-compatible engine running inside your browser session. Two instances per project:
+## Hostnames
 
-- **Designer** — rebuilt on every session start: all migrations, then `seed.sql`. Always reflects the current schema with fresh demo data.
-- **Production** — persistent across sessions, migrations only. `seed.sql` never runs here.
+| Host | Serves | Notes |
+| --- | --- | --- |
+| `virgo.ph` | `web/` marketing | The only indexed surface |
+| `web.virgo.ph` | `web/` app | Behind sign-in, `noindex` |
+| `client.virgo.ph` | `api/` `/s/:token` | Client delivery. **The token is the credential** |
+| `console.virgo.ph` | `dashboard/` | Management console, separate credentials |
+| `api.virgo.ph` | `api/` | |
 
-Both are browsable from the editor's Database panel (Tinbase Studio). Connection env (`EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY`) is wired automatically at preview boot.
+Routing is Cloudflare Tunnel, configured in the Cloudflare dashboard — **not in
+this repo**. A new hostname needs a dashboard change *and* a `CORS_ORIGINS`
+entry.
 
-**Running locally** (after downloading the project):
+## Two clients, one contract
+
+`src/api/**` and `src/hooks/**` are duplicated byte-for-byte between `web/` and
+`mobile/`. This is deliberate — the packages are independent and neither is a
+workspace of the other.
 
 ```bash
-# 1 — install app dependencies
-cd mobile
-bun install
-
-# 2 — start the database (repo root; applies migrations + seed, serves on :54321)
-cd ..
-npx tinbase@0.11.1 start
-
-# 3 — start the app (second terminal)
-cd mobile
-npx expo start
+node scripts/check-client-sync.mjs
 ```
 
-Downloads ship `mobile/.env` pre-filled with `EXPO_PUBLIC_SUPABASE_URL=http://localhost:54321` and a working anon key, so this works out of the box.
+It fails the moment the two drift. **Change both, or change neither.** Shipping
+a fix to one client only is the most common defect this project has had.
 
-**Using real Supabase instead:** the migrations are plain Postgres SQL. Create a Supabase project (or `supabase start` locally), apply `supabase/migrations` with the Supabase CLI, and point `mobile/.env` at your project's URL and anon key (Project Settings → API).
+## Running it
 
-## `rapidnative.json`
+Everything is containerised from `api/docker-compose.yml`:
 
-Workspace manifest consumed by the RapidNative editor: entry points, path aliases, per-workspace runners, and the `workspaces.database` entry that tells the editor where migrations live.
+```bash
+docker compose -f api/docker-compose.yml up -d
+```
+
+Web edits are invisible until the image is rebuilt — `docker compose build web`
+then `up -d web`. The same goes for `dashboard` and `api`.
+
+For the mobile app, `npm --prefix mobile start`.
+
+## The console
+
+`dashboard/` has its own accounts, its own signing key (`ADMIN_JWT_SECRET`, with
+no fallback to the app's) and its own JWT audience. A Virgo account cannot sign
+in to it and a console token is refused by the app. Roles and permissions are in
+`api/src/admin/rbac.ts`.
+
+The first owner is seeded from `ADMIN_EMAIL_SEED` on boot with a generated
+password printed once to the API log, and must be changed on first sign-in.

@@ -47,7 +47,7 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     'event_date',
   ];
 
-  // No updated_at on this table, matching the original Supabase schema.
+  // No updated_at on this table, matching the original schema.
   protected readonly sortableColumns = ['event_date', 'created_at', 'title'];
   protected readonly defaultOrderBy = 'event_date';
   protected readonly defaultDirection = 'asc' as const;

@@ -164,3 +164,10 @@ export {
   useUnseenJobs,
   useMarkJobsSeen,
 } from '@/src/hooks/useJobs'
+
+export {
+  useSupportTickets,
+  useSupportThread,
+  useOpenTicket,
+  useReplyToTicket,
+} from './useSupport';

@@ -3,7 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { StorageService } from '../storage/storage.service';
 import { MailService } from '../mail/mail.service';
 import { PLAN_CATALOGUE, limitsFor, toJsonLimit } from '../quota/quota.config';
-import { VisitsService } from './visits.service';
+import { VisitsService } from '../visits/visits.service';
 
 /**
  * Everything the console reads and writes about the platform.

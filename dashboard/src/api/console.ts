@@ -10,6 +10,8 @@ export interface AdminMe {
   role: AdminRole;
   roleLabel: string;
   permissions: string[];
+  /** True while the account still holds the password the server generated. */
+  mustChangePassword: boolean;
   roles: { name: AdminRole; label: string; description: string }[];
 }
 

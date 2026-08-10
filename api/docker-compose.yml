@@ -103,6 +103,31 @@ services:
     depends_on:
       - api
 
+  # The management console, for console.virgo.ph.
+  #
+  # SECURITY: this is the platform's admin panel on a public hostname. It has
+  # its own credentials, its own signing key and role-based permissions, and
+  # none of that helps if someone finds an unpatched hole — put Cloudflare
+  # Access in front of console.virgo.ph as well, the same way db.virgo.ph
+  # should have it. Defence in depth costs nothing here; it is free on the plan
+  # the tunnel already uses.
+  dashboard:
+    build:
+      context: ../dashboard
+      args:
+        NEXT_PUBLIC_API_URL: ${WEB_API_URL:-https://api.virgo.ph}
+    container_name: virgo-dashboard
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    # 3002, not 3000: the tunnel route for console.virgo.ph points at
+    # `dashboard:3002`, matching the dev script so there is one port to
+    # remember rather than two.
+    expose:
+      - '3002'
+    depends_on:
+      - api
+
   # Database admin console, for db.virgo.ph.
   #
   # SECURITY: this is a full read/write console on the production database, and
