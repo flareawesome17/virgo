@@ -16,10 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  APPLICATION_STATE,
-  ApplicationBadge,
-} from '@/components/jobs/application-state';
+import { ApplicationBadge } from '@/components/jobs/application-state';
 import { BookingCard } from '@/components/jobs/booking-card';
 import { useBookings } from '@/hooks/useBookings';
 import type { Booking } from '@/api';

@@ -98,7 +98,7 @@ export default function NewJobPage() {
         location: location.trim() || undefined,
       },
       {
-        onSuccess: (job) => {
+        onSuccess: () => {
           toast.success('Your job is live', {
             description: 'People who do this work can find it now.',
           });
