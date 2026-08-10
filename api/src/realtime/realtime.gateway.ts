@@ -30,7 +30,9 @@ export type NotificationTopic =
   /** A plan started, lapsed, or failed to renew. */
   | 'billing'
   /** Delivered files removed by an album's retention setting. */
-  | 'retention';
+  | 'retention'
+  /** Support answered a ticket this account opened. */
+  | 'support';
 
 /** What the server pushes. Discriminated on `type`. */
 export type ServerEvent =

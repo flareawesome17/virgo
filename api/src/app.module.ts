@@ -29,9 +29,11 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { DiscoverModule } from './discover/discover.module';
 import { MessagesModule } from './messages/messages.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
+    AdminModule,
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     // Drives the due-reminder sweep in NotificationsModule.

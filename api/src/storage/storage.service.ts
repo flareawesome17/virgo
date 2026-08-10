@@ -14,6 +14,7 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -354,6 +355,33 @@ export class StorageService {
   /** The object key a stored public URL points at, or null if it is not ours. */
   keyFromPublicUrl(url: string | null | undefined): string | null {
     return this.config.keyFromPublicUrl(url);
+  }
+
+  /**
+   * Whether the buckets are actually reachable right now.
+   *
+   * ListObjectsV2 with MaxKeys:1, not HeadBucket. HeadBucket is refused to a
+   * bucket-restricted application key even when every object operation on that
+   * bucket works, so it reported the storage as broken while uploads were
+   * running perfectly — the probe has to be an operation the real credentials
+   * are actually granted.
+   */
+  async healthCheck(): Promise<{ ok: boolean; detail: string }> {
+    if (!this.client) return { ok: false, detail: 'not configured' };
+    const started = Date.now();
+    try {
+      for (const bucket of this.config.buckets()) {
+        await this.client.send(
+          new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 }),
+        );
+      }
+      return { ok: true, detail: `reachable in ${Date.now() - started}ms` };
+    } catch (err) {
+      return {
+        ok: false,
+        detail: err instanceof Error ? err.message.slice(0, 160) : String(err),
+      };
+    }
   }
 
   /** Origins media is served from, for a Content-Security-Policy. */

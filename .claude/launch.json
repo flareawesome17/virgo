@@ -2,28 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "virgo-web",
+      "name": "dashboard",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "3005"],
-      "cwd": "web",
-      "port": 3005,
-      "autoPort": false
-    },
-    {
-      "name": "virgo-mobile-web",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web", "--port", "8099"],
-      "cwd": "mobile",
-      "port": 8099,
-      "autoPort": false
-    },
-    {
-      "name": "virgo-mobile",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--clear", "--port", "8081"],
-      "cwd": "mobile",
-      "port": 8081,
-      "autoPort": false
+      "runtimeArgs": ["run", "dev", "--prefix", "dashboard"],
+      "port": 3002
     }
   ]
 }

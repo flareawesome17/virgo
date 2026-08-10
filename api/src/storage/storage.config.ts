@@ -166,6 +166,17 @@ export class StorageConfig {
   }
 
   /** Which bucket a new upload of this scope should be written to. */
+  /**
+   * Every distinct bucket in play, de-duplicated.
+   *
+   * De-duplicated because `mediaBucket` falls back to `bucket` when the split
+   * is not configured — a health probe would otherwise check the same bucket
+   * twice and report two results for one thing.
+   */
+  buckets(): string[] {
+    return [...new Set([this.bucket, this.mediaBucket].filter(Boolean))];
+  }
+
   bucketForScope(scope: string): string {
     return scope === 'avatars' ? this.bucket : this.mediaBucket;
   }
