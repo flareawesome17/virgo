@@ -261,9 +261,7 @@ export class MyJobsController {
     @CurrentUser('id') userId: string,
     @Param('id') id: string,
   ) {
-    return this.hiring
-      .pendingApplicantCount(userId, id)
-      .then((count) => ({ count }));
+    return this.hiring.endingCost(userId, id);
   }
 
   @HttpCode(200)

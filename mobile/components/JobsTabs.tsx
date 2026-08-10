@@ -215,6 +215,47 @@ function JobRow({ job }: { job: JobPost }) {
       ],
     );
   };
+  /**
+   * Deleting is worse than ending, and asked less.
+   *
+   * Filling declines the people waiting; deleting erases them — every
+   * application at any status, and every booking made from one, by cascade.
+   * "Applicants will lose it too" was true and far too quiet for that: it does
+   * not say an accepted applicant and the agreement with them go as well.
+   */
+  const destroy = async () => {
+    let cost = { applications: 0, bookings: 0 };
+    try {
+      cost = await pending.mutateAsync(job.id);
+    } catch {
+      // Ask anyway, just without the numbers.
+    }
+
+    const losses = [
+      cost.applications &&
+        `${cost.applications} application${cost.applications === 1 ? '' : 's'}`,
+      cost.bookings && `${cost.bookings} booking${cost.bookings === 1 ? '' : 's'}`,
+    ].filter(Boolean) as string[];
+
+    Alert.alert(
+      `Delete “${job.title}”?`,
+      losses.length
+        ? `This also deletes ${losses.join(' and ')}, for good. The people involved lose their copy as well.`
+        : 'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () =>
+            remove.mutate(job.id, {
+              onError: (e: Error) => Alert.alert('Could not delete', e.message),
+            }),
+        },
+      ],
+    );
+  };
+
   const budget = budgetLabel(job.budgetMin, job.budgetMax);
 
   return (
@@ -301,18 +342,9 @@ function JobRow({ job }: { job: JobPost }) {
 
         <Pressable
           hitSlop={8}
+          accessibilityLabel="Delete this post"
           className={job.status === 'open' ? '' : 'ml-auto'}
-          onPress={() =>
-            Alert.alert('Delete this post?', 'Applicants will lose it too.', [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Delete', style: 'destructive',
-                onPress: () => remove.mutate(job.id, {
-                  onError: (e: Error) => Alert.alert('Could not delete', e.message),
-                }),
-              },
-            ])
-          }
+          onPress={destroy}
         >
           <TrashIcon size={15} style={{ color: '#ef4444' }} />
         </Pressable>

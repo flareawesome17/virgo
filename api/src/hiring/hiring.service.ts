@@ -515,20 +515,43 @@ export class HiringService {
   }
 
   /**
-   * How many people are still waiting on an answer.
+   * What ending or deleting this post would cost other people.
    *
-   * The clients ask before filling or closing, so the confirmation can name a
-   * number rather than "are you sure" — the whole point is that the poster
-   * knows they are ending it for other people too.
+   * The clients ask before doing either, so the confirmation can name numbers
+   * rather than "are you sure" — the whole point is that the poster knows they
+   * are ending it for somebody else too.
+   *
+   * Three numbers because the two actions cost different things. Filling or
+   * closing answers the people still waiting, so it needs `pending`. Deleting
+   * takes the *whole* post with it — every application at any status and every
+   * booking made from one, by cascade — so it needs the totals. A poster who
+   * hired somebody a week ago and tidies up their board should be told they
+   * are about to erase the agreement, not discover it afterwards.
    */
-  async pendingApplicantCount(userId: string, id: string): Promise<number> {
+  async endingCost(
+    userId: string,
+    id: string,
+  ): Promise<{ count: number; applications: number; bookings: number }> {
     await this.ownedPost(userId, id);
-    const row = await this.db.queryOne<{ count: string }>(
-      `select count(*)::text as count from hiring_applications
-        where post_id = $1 and status in ('new', 'shortlisted')`,
+    const row = await this.db.queryOne<{
+      pending: string;
+      applications: string;
+      bookings: string;
+    }>(
+      `select
+         (select count(*) from hiring_applications
+           where post_id = $1 and status in ('new', 'shortlisted'))::text as pending,
+         (select count(*) from hiring_applications
+           where post_id = $1)::text as applications,
+         (select count(*) from job_bookings
+           where post_id = $1 and cancelled_at is null)::text as bookings`,
       [id],
     );
-    return Number(row?.count ?? 0);
+    return {
+      count: Number(row?.pending ?? 0),
+      applications: Number(row?.applications ?? 0),
+      bookings: Number(row?.bookings ?? 0),
+    };
   }
 
   /**
@@ -697,12 +720,28 @@ export class HiringService {
     return this.bySlug(userId, row!.slug);
   }
 
+  /**
+   * Deletes a post, and everything hanging off it.
+   *
+   * Applications and bookings cascade — so this erases other people's records
+   * of what was agreed, not just the poster's listing. Logged with the counts
+   * for exactly that reason: a post that vanishes with an accepted applicant
+   * and a booking on it is otherwise indistinguishable from one that was never
+   * there, and there is no way after the fact to find out what happened.
+   *
+   * The clients confirm first and name what will go. This is the record.
+   */
   async remove(userId: string, id: string): Promise<{ deleted: boolean }> {
     await this.ownedPost(userId, id);
+    const cost = await this.endingCost(userId, id);
     await this.db.query('delete from hiring_posts where id = $1 and user_id = $2', [
       id,
       userId,
     ]);
+    this.logger.warn(
+      `job post ${id} deleted by ${userId} ` +
+        `(${cost.applications} application(s), ${cost.bookings} booking(s) went with it)`,
+    );
     return { deleted: true };
   }
 

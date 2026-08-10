@@ -140,13 +140,21 @@ export const jobsApi = {
   },
 
   /**
-   * How many people filling or closing this post would answer.
+   * What ending or deleting this post would cost other people.
    *
-   * Asked before doing it, so the confirmation can name a number — ending a
-   * post ends other people's applications, and "are you sure" does not say
-   * that.
+   * Asked before doing either, so the confirmation can name numbers — "are you
+   * sure" does not say that somebody else loses something.
+   *
+   * `count` is who filling or closing would answer. `applications` and
+   * `bookings` are what deleting destroys outright: the post cascades, so
+   * every application at any status and every agreement made from one goes
+   * with it.
    */
-  pendingApplicants(postId: string): Promise<{ count: number }> {
+  pendingApplicants(postId: string): Promise<{
+    count: number;
+    applications: number;
+    bookings: number;
+  }> {
     return api.get(`/me/jobs/${postId}/pending-applicants`);
   },
 

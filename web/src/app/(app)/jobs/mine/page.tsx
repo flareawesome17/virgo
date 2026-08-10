@@ -102,6 +102,50 @@ ${waiting} ${waiting === 1 ? 'person is' : 'people are'} still waiting to hear b
     );
   };
 
+  /**
+   * Deleting is worse than ending, and used to ask less.
+   *
+   * Filling a post declines the people waiting; deleting it erases them —
+   * every application at any status, and every booking made from one, by
+   * cascade. That was a single click on an unlabelled bin sitting next to
+   * "Mark filled", with no confirmation at all, and it took an accepted
+   * applicant and the agreement with them out of the database.
+   *
+   * So it names what goes, and says the part that matters: the other person
+   * loses their copy too. A post with nothing on it still asks — but briefly,
+   * because there is nothing to weigh.
+   */
+  const destroy = async () => {
+    let cost = { applications: 0, bookings: 0 };
+    try {
+      cost = await pending.mutateAsync(job.id);
+    } catch {
+      // If the counts cannot be fetched, still ask — just without them.
+    }
+
+    const losses = [
+      cost.applications &&
+        `${cost.applications} application${cost.applications === 1 ? '' : 's'}`,
+      cost.bookings &&
+        `${cost.bookings} booking${cost.bookings === 1 ? '' : 's'}`,
+    ].filter(Boolean) as string[];
+
+    const consequence = losses.length
+      ? `
+
+This also deletes ${losses.join(' and ')}, for good. The people involved lose their copy as well.`
+      : `
+
+This cannot be undone.`;
+
+    if (!confirm(`Delete “${job.title}”?${consequence}`)) return;
+
+    remove.mutate(job.id, {
+      onSuccess: () => toast.success('Post deleted'),
+      onError: (e: Error) => toast.error(e.message),
+    });
+  };
+
   return (
     <Card>
       <CardContent className="space-y-3 pt-5">
@@ -196,14 +240,10 @@ ${waiting} ${waiting === 1 ? 'person is' : 'people are'} still waiting to hear b
           <Button
             size="sm"
             variant="ghost"
+            aria-label="Delete this post"
             className="text-muted-foreground hover:text-destructive"
             disabled={remove.isPending}
-            onClick={() =>
-              remove.mutate(job.id, {
-                onSuccess: () => toast.success('Post deleted'),
-                onError: (e: Error) => toast.error(e.message),
-              })
-            }
+            onClick={destroy}
           >
             <Trash2 className="size-4" />
           </Button>
