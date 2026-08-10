@@ -9,7 +9,8 @@ import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { budgetLabel, roleBudgetLabel } from '@/api';
+import { applicationFor, budgetLabel, roleBudgetLabel, rolesLeftFor } from '@/api';
+import { ApplicationBadge } from '@/components/jobs/application-state';
 import { cn } from '@/lib/utils';
 import { useApplyToJob, useJob } from '@/hooks/useJobs';
 
@@ -74,15 +75,38 @@ export default function ApplyPage({
     );
   }
 
+  const left = rolesLeftFor(post);
+
+  // Nothing left to apply for. Reachable by typing the URL, or by coming back
+  // to a page that was open when the last role went — say so rather than
+  // offering a form whose only outcome is a 409.
+  if (left.length === 0) {
+    return (
+      <AppShell>
+        <EmptyState
+          icon={BriefcaseBusiness}
+          title="You have applied for every role on this job"
+          description="There is nothing left to apply for here. You will hear from them on each one separately."
+          action={
+            <Button onClick={() => router.push(`/jobs/${slug}`)}>
+              Back to the post
+            </Button>
+          }
+        />
+      </AppShell>
+    );
+  }
+
   const budget = budgetLabel(post.budgetMin, post.budgetMax);
-  // One role is not a choice, so it is not offered as one — the server fills
-  // it in. More than one and it has to be answered before applying.
-  const choosing = post.rolesWanted.length > 1;
+  // One role left is not a choice, so it is not offered as one — the server
+  // fills it in. More than one and it has to be answered before applying.
+  const choosing = left.length > 1;
   const ready = !choosing || !!role;
 
   const submit = () => {
     apply.mutate(
-      { slug, role },
+      // With one role left the picker is not shown, so send that one.
+      { slug, role: choosing ? role : (left[0] ?? null) },
       {
         onSuccess: () => {
           toast.success('Application sent', {
@@ -160,23 +184,29 @@ export default function ApplyPage({
               <div className="space-y-2">
                 {post.rolesWanted.map((r) => {
                   const rate = roleBudgetLabel(post.roleBudgets, r);
-                  const selected = choosing ? role === r : true;
+                  // Roles you already applied for stay on the list, showing
+                  // what happened to them — dropping them would leave you
+                  // wondering whether the post changed or you misremembered.
+                  const mine = applicationFor(post, r);
+                  const selectable = !mine && choosing;
+                  const selected = !mine && (choosing ? role === r : true);
                   return (
                     <button
                       key={r}
                       type="button"
-                      disabled={!choosing}
+                      disabled={!selectable}
                       onClick={() => setRole(r)}
                       className={cn(
                         'flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors',
-                        selected
-                          ? 'border-primary bg-primary/5'
-                          : 'hover:bg-accent/60',
-                        !choosing && 'cursor-default',
+                        selected && 'border-primary bg-primary/5',
+                        selectable && !selected && 'hover:bg-accent/60',
+                        mine && 'opacity-60',
+                        !selectable && 'cursor-default',
                       )}
                     >
                       <span className="text-sm font-medium">{r}</span>
-                      <span className="shrink-0 text-sm text-muted-foreground">
+                      <span className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+                        {mine && <ApplicationBadge status={mine.status} />}
                         {rate ?? 'Rate not stated'}
                       </span>
                     </button>
@@ -185,9 +215,8 @@ export default function ApplyPage({
               </div>
               {choosing && !role && (
                 <p className="text-xs text-muted-foreground">
-                  Pick the one you are applying for. You can apply again for a
-                  different role only if they reopen the post, so choose the
-                  one you want.
+                  Pick the one you are applying for. You can come back and
+                  apply for another of these roles separately.
                 </p>
               )}
             </div>

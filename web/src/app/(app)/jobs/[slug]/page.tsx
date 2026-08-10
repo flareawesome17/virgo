@@ -27,9 +27,25 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { budgetLabel, jobUrl, roleBudgetLabel, type ReportReason } from '@/api';
+import {
+  applicationFor,
+  budgetLabel,
+  jobUrl,
+  roleBudgetLabel,
+  rolesLeftFor,
+  type ReportReason,
+} from '@/api';
 import { useJob, useMyApplications, useReportJob } from '@/hooks/useJobs';
-import { ApplicationState } from '@/components/jobs/application-state';
+import {
+  ApplicationBadge,
+  ApplicationState,
+} from '@/components/jobs/application-state';
+
+/** "Photographer and HMUA", "a, b and c" — a list a sentence can contain. */
+function listOf(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
 
 const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
 
@@ -101,6 +117,7 @@ export default function JobPage({
   const post = job.data;
   const budget = budgetLabel(post.budgetMin, post.budgetMax);
   const isOpen = post.status === 'open';
+  const rolesLeft = rolesLeftFor(post);
 
   const share = async () => {
     const url = jobUrl(post.slug, SITE);
@@ -236,13 +253,18 @@ export default function JobPage({
             <div className="space-y-1.5">
               {post.rolesWanted.map((role) => {
                 const rate = roleBudgetLabel(post.roleBudgets, role);
+                // Which roles you have already taken, and which are still
+                // open to you — the two questions a post with three roles has
+                // to answer before you can decide anything.
+                const mine = applicationFor(post, role);
                 return (
                   <div
                     key={role}
                     className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
                   >
                     <span className="text-sm font-medium">{role}</span>
-                    <span className="shrink-0 text-sm text-muted-foreground">
+                    <span className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+                      {mine && <ApplicationBadge status={mine.status} />}
                       {rate ?? 'Rate not stated'}
                     </span>
                   </div>
@@ -274,24 +296,35 @@ export default function JobPage({
                   </Link>
                 </Button>
               </div>
-            ) : post.myApplication ? (
-              /* You have applied. The API refuses a second one, so offering
-                 Apply again would take somebody through the whole form to be
-                 told 409 — which is exactly what used to happen. */
-              <ApplicationState post={post} conversationId={conversationId} />
-            ) : isOpen ? (
-              <div className="flex items-center justify-between gap-4 border-t pt-5">
-                <p className="text-xs text-muted-foreground">
-                  They see your profile and roles alongside your application.
-                </p>
-                <Button asChild>
-                  <Link href={`/jobs/${post.slug}/apply`}>
-                    <Send className="size-4" />
-                    Apply
-                  </Link>
-                </Button>
-              </div>
-            ) : null}
+            ) : (
+              <>
+                {/* What happened to the ones you already made. */}
+                {post.myApplications.length > 0 && (
+                  <ApplicationState post={post} conversationId={conversationId} />
+                )}
+
+                {/*
+                  Apply is still offered while any role is left, which is the
+                  change: applying as HMUA used to close the videographer slot
+                  on the same post for good.
+                */}
+                {isOpen && rolesLeft.length > 0 && (
+                  <div className="flex items-center justify-between gap-4 border-t pt-5">
+                    <p className="text-xs text-muted-foreground">
+                      {post.myApplications.length > 0
+                        ? `You can still apply for ${listOf(rolesLeft)}.`
+                        : 'They see your profile and roles alongside your application.'}
+                    </p>
+                    <Button asChild>
+                      <Link href={`/jobs/${post.slug}/apply`}>
+                        <Send className="size-4" />
+                        {post.myApplications.length > 0 ? 'Apply for another' : 'Apply'}
+                      </Link>
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -94,17 +94,22 @@ export interface PublicJobPost {
     handle: string | null;
   };
   /**
-   * The reader's own application on this post, if they have one.
+   * The reader's own applications on this post — one per role they applied for.
    *
-   * Null means "you have not applied", which is the only state in which an
-   * Apply control should be offered. Every other value is a state the clients
-   * render instead of the button.
+   * A list rather than a single application, because a post wanting a
+   * videographer and an HMUA is two jobs and somebody who does both may take
+   * both. Empty means they have applied for nothing, and a role missing from
+   * it is a role still open to them.
+   *
+   * Oldest first, so the order does not move as statuses change.
    */
-  myApplication: {
+  myApplications: {
     id: string;
+    /** Null only on applications written before roles were recorded. */
+    role: string | null;
     status: JobApplication['status'];
     createdAt: string;
-  } | null;
+  }[];
   /**
    * Roughly how far away, in kilometres, or null.
    *
@@ -194,9 +199,7 @@ interface PostRow {
   poster_handle: string | null;
   applicant_count: string;
   new_applicant_count: string;
-  my_application_id: string | null;
-  my_application_status: JobApplication['status'] | null;
-  my_application_at: Date | null;
+  my_applications: PublicJobPost['myApplications'] | null;
   /** Only selected by the board query, and only when the reader has a position. */
   distance_km?: string | number | null;
 }
@@ -267,7 +270,7 @@ export class HiringService {
       where a.post_id = p.id and a.status = 'new')
       as new_applicant_count,
     /*
-     * The viewer's own application, if they have one.
+     * The viewer's own applications, one per role they applied for.
      *
      * Without this a client cannot tell an unapplied job from one it already
      * applied to, which is why both of them offered a live Apply button on a
@@ -275,15 +278,26 @@ export class HiringService {
      * whole message. The board needs the answer as much as the detail page
      * does, so it lives in the shared select rather than in one query.
      *
+     * Aggregated rather than returned as three scalar columns, because a post
+     * wanting three roles can now hold three applications from one person and
+     * "have you applied" is no longer a yes or no — it is a question about a
+     * role.
+     *
      * \${viewer} is a placeholder position this class controls, never caller
      * input.
      */
-    (select a.id from hiring_applications a
-      where a.post_id = p.id and a.user_id = ${viewer}) as my_application_id,
-    (select a.status from hiring_applications a
-      where a.post_id = p.id and a.user_id = ${viewer}) as my_application_status,
-    (select a.created_at from hiring_applications a
-      where a.post_id = p.id and a.user_id = ${viewer}) as my_application_at`;
+    (select coalesce(
+              json_agg(
+                json_build_object(
+                  'id', a.id,
+                  'role', a.role,
+                  'status', a.status,
+                  'createdAt', a.created_at
+                ) order by a.created_at
+              ),
+              '[]'::json)
+       from hiring_applications a
+      where a.post_id = p.id and a.user_id = ${viewer}) as my_applications`;
   }
 
   /** The board. Open, visible, unexpired — nothing else. */
@@ -979,7 +993,14 @@ export class HiringService {
       );
     } catch (err) {
       if ((err as { code?: string }).code === '23505') {
-        throw new ConflictException('You have already applied to this job');
+        // Per role now, so the message has to say which — "you have already
+        // applied to this job" reads as a closed door on a post that may
+        // still have two other roles open to them.
+        throw new ConflictException(
+          role
+            ? `You have already applied for ${role} on this job`
+            : 'You have already applied to this job',
+        );
       }
       throw err;
     }
@@ -1374,13 +1395,7 @@ export class HiringService {
         handle: row.poster_handle,
       },
       distanceKm: row.distance_km == null ? null : Number(row.distance_km),
-      myApplication: row.my_application_id
-        ? {
-            id: row.my_application_id,
-            status: row.my_application_status ?? 'new',
-            createdAt: (row.my_application_at ?? new Date()).toISOString(),
-          }
-        : null,
+      myApplications: row.my_applications ?? [],
       applicantCount: Number(row.applicant_count ?? 0),
       newApplicantCount: Number(row.new_applicant_count ?? 0),
       isMine: row.user_id === viewerId,

@@ -28,3 +28,17 @@ export function postedAgo(iso: string): string {
   const weeks = Math.floor(days / 7);
   return weeks === 1 ? 'a week ago' : `${weeks} weeks ago`;
 }
+
+/**
+ * How an application status reads, in words.
+ *
+ * Matches web's APPLICATION_STATE so both clients say the same thing, and
+ * lives here rather than in a screen because three of them show it now: the
+ * post page per role, the applicants list, and your own applications.
+ */
+export const APPLICATION_LABEL: Record<string, string> = {
+  new: 'Applied',
+  shortlisted: 'Shortlisted',
+  accepted: 'Accepted',
+  declined: 'Not selected',
+};

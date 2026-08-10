@@ -19,6 +19,15 @@ export interface RoleBudget {
   max?: number | null;
 }
 
+/** One of your own applications on a post, as the post carries it. */
+export interface MyApplication {
+  id: string;
+  /** Null only on applications written before roles were recorded. */
+  role: string | null;
+  status: JobApplicationStatus;
+  createdAt: string;
+}
+
 export interface JobPost {
   id: string;
   slug: string;
@@ -67,18 +76,16 @@ export interface JobPost {
   /** Of those, how many are still unanswered. Drives the "needs you" dot. */
   newApplicantCount: number;
   /**
-   * Your own application on this post, or null if you have not applied.
+   * Your own applications on this post — one per role you applied for.
    *
-   * The only state in which an Apply control belongs on screen is null. Every
-   * other value is something to render instead of the button — without this
-   * both clients offered Apply on a post the API answers with 409, after the
-   * person had already written the whole message.
+   * A list, because a post wanting a videographer and an HMUA is two jobs and
+   * somebody who does both may take both. Empty means you have applied for
+   * nothing; a role missing from it is a role still open to you.
+   *
+   * Without this both clients offered Apply on a post the API answers with
+   * 409, after the person had already filled the form in.
    */
-  myApplication: {
-    id: string;
-    status: JobApplicationStatus;
-    createdAt: string;
-  } | null;
+  myApplications: MyApplication[];
   /**
    * Whether you posted this.
    *
@@ -295,6 +302,57 @@ export function budgetLabel(min: number | null, max: number | null): string | nu
     return min === max ? peso(min) : `${peso(min)} – ${peso(max)}`;
   }
   return min != null ? `From ${peso(min)}` : `Up to ${peso(max as number)}`;
+}
+
+/**
+ * Your application for one role, if you made one.
+ *
+ * A post that only ever wanted one role has applications with a null role on
+ * it — written before the field existed — so a post with a single role falls
+ * back to "your application, whatever it was recorded against". Anywhere else
+ * a null-role application belongs to no role in particular and is left out.
+ */
+export function applicationFor(
+  post: Pick<JobPost, 'myApplications' | 'rolesWanted'>,
+  role: string,
+): MyApplication | undefined {
+  return post.myApplications.find(
+    (a) => a.role === role || (a.role === null && post.rolesWanted.length === 1),
+  );
+}
+
+/**
+ * The roles on this post you have not applied for yet.
+ *
+ * Empty means there is nothing left to apply for, which is the only state in
+ * which a post with an open status should stop offering Apply.
+ */
+export function rolesLeftFor(
+  post: Pick<JobPost, 'myApplications' | 'rolesWanted'>,
+): string[] {
+  return post.rolesWanted.filter((role) => !applicationFor(post, role));
+}
+
+/**
+ * The one application worth showing on a board card, or undefined.
+ *
+ * A card has room for one badge and a post can now hold three applications
+ * from the same person. Shows the furthest one got: being accepted for the
+ * HMUA slot is the thing you want to see, even if the videographer one was
+ * declined.
+ */
+export function headlineApplication(
+  post: Pick<JobPost, 'myApplications'>,
+): MyApplication | undefined {
+  const rank: Record<JobApplicationStatus, number> = {
+    accepted: 0,
+    shortlisted: 1,
+    new: 2,
+    declined: 3,
+  };
+  return [...post.myApplications].sort(
+    (a, b) => rank[a.status] - rank[b.status],
+  )[0];
 }
 
 /**

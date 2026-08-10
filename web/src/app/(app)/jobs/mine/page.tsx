@@ -34,7 +34,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { budgetLabel, distanceLabel, type JobPost } from '@/api';
+import {
+  budgetLabel,
+  distanceLabel,
+  headlineApplication,
+  type JobPost,
+} from '@/api';
 import {
   useApplicants,
   useDeleteJob,
@@ -520,8 +525,13 @@ function BrowseJobs() {
                           )}
                           {/* So a job you already applied to is obvious from
                               the list, not two taps away. */}
-                          {job.myApplication && (
-                            <ApplicationBadge status={job.myApplication.status} />
+                          {/* One badge, showing the furthest any of them got:
+                              accepted for the HMUA slot is what you want to
+                              see even if the videographer one was declined. */}
+                          {headlineApplication(job) && (
+                            <ApplicationBadge
+                              status={headlineApplication(job)!.status}
+                            />
                           )}
                         </p>
                       </div>

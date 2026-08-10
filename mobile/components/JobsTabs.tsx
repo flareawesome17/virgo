@@ -15,6 +15,7 @@ import {
   useSetJobStatus,
 } from '@/src/hooks';
 import { budgetLabel, type JobPost } from '@/src/api';
+import { APPLICATION_LABEL } from '@/src/lib/jobs-format';
 import { JobsFeed } from '@/components/JobsFeed';
 import {
   BriefcaseIcon, CheckIcon, ChevronDownIcon,
@@ -49,13 +50,6 @@ export type JobsTab = 'browse' | 'posted' | 'applied';
  * tab panel inside another screen and the others are screens in their own
  * right.
  */
-/** Matches web's APPLICATION_STATE so both clients say the same words. */
-const APPLICATION_LABEL: Record<string, string> = {
-  new: 'Applied',
-  shortlisted: 'Shortlisted',
-  accepted: 'Accepted',
-  declined: 'Not selected',
-};
 
 export function JobsTabs({
   initialTab = 'browse',

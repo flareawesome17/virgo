@@ -58,47 +58,61 @@ export function ApplicationState({
   /** From the applications list; the post itself does not carry it. */
   conversationId?: string | null;
 }) {
-  const application = post.myApplication;
-  if (!application) return null;
+  if (post.myApplications.length === 0) return null;
 
-  const state = APPLICATION_STATE[application.status];
-  const Icon = state.icon;
-
+  // One row each. A post wanting three roles can hold three applications from
+  // the same person, at three different statuses — being accepted as HMUA and
+  // declined as videographer is one outcome, and collapsing it to a single
+  // line would have to throw one of them away.
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-5">
-      <div className="flex items-center gap-2.5">
-        <span
-          className={`grid size-8 shrink-0 place-items-center rounded-full ${TONE_CLASS[state.tone]}`}
-        >
-          <Icon className="size-4" />
-        </span>
-        <div>
-          <p className="text-sm font-medium">{state.label}</p>
-          <p className="text-xs text-muted-foreground">
-            {application.status === 'new' &&
-              'They have your application. You will hear when they answer.'}
-            {application.status === 'shortlisted' &&
-              'They are considering you. Nothing to do yet.'}
-            {application.status === 'accepted' && 'You got the job.'}
-            {application.status === 'declined' &&
-              'They went with someone else this time.'}
-          </p>
-        </div>
-      </div>
+    <div className="space-y-3 border-t pt-5">
+      {post.myApplications.map((application) => {
+        const state = APPLICATION_STATE[application.status];
+        const Icon = state.icon;
+        return (
+          <div
+            key={application.id}
+            className="flex flex-wrap items-center justify-between gap-3"
+          >
+            <div className="flex items-center gap-2.5">
+              <span
+                className={`grid size-8 shrink-0 place-items-center rounded-full ${TONE_CLASS[state.tone]}`}
+              >
+                <Icon className="size-4" />
+              </span>
+              <div>
+                <p className="text-sm font-medium">
+                  {application.role
+                    ? `${state.label} · ${application.role}`
+                    : state.label}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {application.status === 'new' &&
+                    'They have your application. You will hear when they answer.'}
+                  {application.status === 'shortlisted' &&
+                    'They are considering you. Nothing to do yet.'}
+                  {application.status === 'accepted' && 'You got the job.'}
+                  {application.status === 'declined' &&
+                    'They went with someone else this time.'}
+                </p>
+              </div>
+            </div>
 
-      {application.status === 'accepted' && conversationId && (
-        <Button asChild variant="outline">
-          <Link href={`/chat/${conversationId}`}>
-            <MessageCircle className="size-4" />
-            Open chat
-          </Link>
-        </Button>
-      )}
-      {application.status !== 'accepted' && (
-        <Badge variant="outline" className="text-[11px]">
-          Applied {new Date(application.createdAt).toLocaleDateString()}
-        </Badge>
-      )}
+            {application.status === 'accepted' && conversationId ? (
+              <Button asChild variant="outline">
+                <Link href={`/chat/${conversationId}`}>
+                  <MessageCircle className="size-4" />
+                  Open chat
+                </Link>
+              </Button>
+            ) : (
+              <Badge variant="outline" className="text-[11px]">
+                Applied {new Date(application.createdAt).toLocaleDateString()}
+              </Badge>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

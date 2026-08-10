@@ -6,8 +6,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { useApplyToJob, useJob, useReportJob } from '@/src/hooks';
-import { budgetLabel, roleBudgetLabel } from '@/src/api';
-import { jobDate, postedAgo } from '@/src/lib/jobs-format';
+import { applicationFor, budgetLabel, roleBudgetLabel, rolesLeftFor } from '@/src/api';
+import { APPLICATION_LABEL, jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, MapPinIcon,
   BanknoteIcon, SendIcon, FlagIcon,
@@ -23,14 +23,6 @@ for (const Icon of [
 }
 
 /** One job, and the form to apply to it. */
-/** Matches web's APPLICATION_STATE so the two clients say the same words. */
-const APPLICATION_LABEL: Record<string, string> = {
-  new: 'Applied',
-  shortlisted: 'Shortlisted',
-  accepted: 'Accepted',
-  declined: 'Not selected',
-};
-
 export default function JobDetailScreen() {
   const insets = useSafeAreaInsets();
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -65,14 +57,17 @@ export default function JobDetailScreen() {
   const post = job.data;
   const budget = budgetLabel(post.budgetMin, post.budgetMax);
   const isOpen = post.status === 'open';
-  // One role is not a choice, so it is not offered as one — the server fills
-  // it in. More than one and it has to be answered before applying.
-  const choosing = post.rolesWanted.length > 1;
+  // The roles still open to this reader. Applying as HMUA used to close the
+  // videographer slot on the same post for good; now it closes only that one.
+  const left = rolesLeftFor(post);
+  // One role left is not a choice, so it is not offered as one — the server
+  // fills it in. More than one and it has to be answered before applying.
+  const choosing = left.length > 1;
   const ready = !choosing || !!role;
 
   const submit = () => {
     apply.mutate(
-      { slug: slug as string, role },
+      { slug: slug as string, role: choosing ? role : (left[0] ?? null) },
       {
         onSuccess: () => {
           Alert.alert('Application sent',
@@ -170,17 +165,33 @@ export default function JobDetailScreen() {
             about what they would be paid.
           */}
           <View className="gap-1.5">
-            {post.rolesWanted.map((r) => (
-              <View
-                key={r}
-                className="border-border flex-row items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5"
-              >
-                <Text className="text-foreground text-[13px] font-medium">{r}</Text>
-                <Text className="text-muted-foreground text-[13px]">
-                  {roleBudgetLabel(post.roleBudgets, r) ?? 'Rate not stated'}
-                </Text>
-              </View>
-            ))}
+            {post.rolesWanted.map((r) => {
+              // Which roles you have already taken, and which are still open
+              // to you — the two questions a post with three roles has to
+              // answer before you can decide anything.
+              const mine = applicationFor(post, r);
+              return (
+                <View
+                  key={r}
+                  className="border-border flex-row items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5"
+                >
+                  <Text className="text-foreground text-[13px] font-medium">{r}</Text>
+                  <View className="flex-row items-center gap-2">
+                    {mine && (
+                      <Text
+                        className="text-[10px] font-bold uppercase"
+                        style={{ color: mine.status === 'accepted' ? '#10b981' : '#9ca3af' }}
+                      >
+                        {APPLICATION_LABEL[mine.status]}
+                      </Text>
+                    )}
+                    <Text className="text-muted-foreground text-[13px]">
+                      {roleBudgetLabel(post.roleBudgets, r) ?? 'Rate not stated'}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
           </View>
 
           <View>
@@ -210,7 +221,7 @@ export default function JobDetailScreen() {
                 </Text>
               </Pressable>
             </View>
-          ) : isOpen ? (
+          ) : isOpen && left.length > 0 ? (
             <View className="gap-2 border-t border-border pt-4">
               {/*
                 Which role, when there is a choice to make.
@@ -225,7 +236,7 @@ export default function JobDetailScreen() {
                     Applying as
                   </Text>
                   <View className="gap-2">
-                    {post.rolesWanted.map((r) => (
+                    {left.map((r) => (
                       <Pressable
                         key={r}
                         onPress={() => setRole(r)}
