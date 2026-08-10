@@ -58,6 +58,13 @@ export function JobsTabs({
   const { jobs, isLoading, loadFailed, refetch } = useMyJobs();
   const [refreshing, setRefreshing] = useState(false);
 
+  // Summed from posts already loaded, so this costs no extra request.
+  //
+  // Without it the trail breaks: the tab-bar badge counts applications, this
+  // view opens on Browse, and Browse has nothing to show for them — you would
+  // be told a number and given nowhere to go and find it.
+  const waiting = jobs.reduce((n, job) => n + job.newApplicantCount, 0);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await refetch();
@@ -68,10 +75,10 @@ export function JobsTabs({
     <View className="flex-1">
       <View className="flex-row gap-5 px-5 border-b border-border">
         {([
-          ['browse', 'Browse'],
-          ['posted', `Posted (${jobs.length})`],
-          ['applied', 'Applications'],
-        ] as const).map(([key, label]) => (
+          ['browse', 'Browse', false],
+          ['posted', `Posted (${jobs.length})`, waiting > 0],
+          ['applied', 'Applications', false],
+        ] as const).map(([key, label, dot]) => (
           <Pressable
             key={key}
             onPress={() => setTab(key)}
@@ -81,12 +88,20 @@ export function JobsTabs({
               paddingVertical: 10,
             }}
           >
-            <Text
-              className="text-[12px] font-bold uppercase tracking-[1.5px]"
-              style={{ color: tab === key ? '#B66A40' : '#9ca3af' }}
-            >
-              {label}
-            </Text>
+            <View className="flex-row items-center gap-1.5">
+              <Text
+                className="text-[12px] font-bold uppercase tracking-[1.5px]"
+                style={{ color: tab === key ? '#B66A40' : '#9ca3af' }}
+              >
+                {label}
+              </Text>
+              {dot && (
+                <View
+                  className="rounded-full"
+                  style={{ width: 6, height: 6, backgroundColor: '#B66A40' }}
+                />
+              )}
+            </View>
           </Pressable>
         ))}
       </View>
