@@ -79,6 +79,14 @@ function JobRow({ job }: { job: JobPost }) {
             {job.applicantCount === 0
               ? 'No applicants yet'
               : `${job.applicantCount} applicant${job.applicantCount === 1 ? '' : 's'}`}
+            {/* The count alone cannot say whether any of them need you: nine
+                applicants you have already answered look identical to nine
+                you have not. */}
+            {job.newApplicantCount > 0 && (
+              <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground">
+                {job.newApplicantCount} new
+              </span>
+            )}
           </Button>
 
           {job.status === 'open' && (

@@ -166,6 +166,19 @@ function JobRow({ job }: { job: JobPost }) {
               ? 'No applicants yet'
               : `${job.applicantCount} applicant${job.applicantCount === 1 ? '' : 's'}`}
           </Text>
+          {/* The count alone cannot say whether any of them need you: nine
+              applicants you have already answered look identical to nine you
+              have not. */}
+          {job.newApplicantCount > 0 && (
+            <View
+              className="rounded-full px-1.5 py-0.5"
+              style={{ backgroundColor: '#B66A40' }}
+            >
+              <Text className="text-[10px] font-bold text-white">
+                {job.newApplicantCount} new
+              </Text>
+            </View>
+          )}
         </Pressable>
 
         {job.status === 'open' && (

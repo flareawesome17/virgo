@@ -22,6 +22,23 @@ import { canonicalLocation, locationKey } from './locations';
 const DEFAULT_LIFETIME_DAYS = 30;
 
 /** What a stranger sees on the board. Deliberately not a `users` row. */
+/**
+ * What the Jobs badge is made of.
+ *
+ * Two numbers rather than one, because they mean different things and clear
+ * differently: `count` is other people's new postings and is wiped by opening
+ * the board, while `applications` is people waiting on an answer from you and
+ * only falls when you actually answer one. Summing them for the badge is the
+ * client's business; conflating them here would make "mark seen" silently
+ * discard somebody's application.
+ */
+export interface UnseenJobs {
+  /** Open postings by other people, newer than this account's `jobs_seen_at`. */
+  count: number;
+  /** Applications still at `new` across every post this account owns. */
+  applications: number;
+}
+
 export interface PublicJobPost {
   id: string;
   slug: string;
@@ -44,6 +61,13 @@ export interface PublicJobPost {
     handle: string | null;
   };
   applicantCount: number;
+  /**
+   * Of those, how many are still sitting at `new`.
+   *
+   * The total alone cannot answer "is there anything for me to do here" —
+   * a post with nine applicants you have already replied to needs nothing.
+   */
+  newApplicantCount: number;
   /**
    * Whether the reader posted this.
    *
@@ -91,6 +115,7 @@ interface PostRow {
   poster_avatar_url: string | null;
   poster_handle: string | null;
   applicant_count: string;
+  new_applicant_count: string;
 }
 
 interface ApplicationRow {
@@ -148,7 +173,10 @@ export class HiringService {
     u.avatar_url   as poster_avatar_url,
     case when u.public_profile then u.handle end as poster_handle,
     (select count(*)::text from hiring_applications a where a.post_id = p.id)
-      as applicant_count`;
+      as applicant_count,
+    (select count(*)::text from hiring_applications a
+      where a.post_id = p.id and a.status = 'new')
+      as new_applicant_count`;
 
   /** The board. Open, visible, unexpired — nothing else. */
   async list(
@@ -234,21 +262,31 @@ export class HiringService {
    * counts everything when `jobs_seen_at` is null, which is the honest answer
    * for an account that has never opened the board: none of it has been seen.
    */
-  async unseenCount(userId: string): Promise<{ count: number }> {
-    const row = await this.db.queryOne<{ count: string }>(
-      `select count(*)::text as count
-         from hiring_posts p
-        where p.status = 'open'
-          and p.hidden_at is null
-          and p.expires_at > now()
-          and (p.event_date is null or p.event_date >= current_date)
-          and p.user_id <> $1
-          and p.created_at > coalesce(
-                (select jobs_seen_at from users where id = $1),
-                'epoch'::timestamptz)`,
+  async unseenCount(userId: string): Promise<UnseenJobs> {
+    const row = await this.db.queryOne<{ count: string; applications: string }>(
+      `select
+         (select count(*)
+            from hiring_posts p
+           where p.status = 'open'
+             and p.hidden_at is null
+             and p.expires_at > now()
+             and (p.event_date is null or p.event_date >= current_date)
+             and p.user_id <> $1
+             and p.created_at > coalesce(
+                   (select jobs_seen_at from users where id = $1),
+                   'epoch'::timestamptz))::text as count,
+         (select count(*)
+            from hiring_applications a
+            join hiring_posts p on p.id = a.post_id
+           where p.user_id = $1
+             and p.hidden_at is null
+             and a.status = 'new')::text as applications`,
       [userId],
     );
-    return { count: Number(row?.count ?? 0) };
+    return {
+      count: Number(row?.count ?? 0),
+      applications: Number(row?.applications ?? 0),
+    };
   }
 
   /** Marks the board as read up to now. Called when the Jobs tab is opened. */
@@ -647,6 +685,7 @@ export class HiringService {
         handle: row.poster_handle,
       },
       applicantCount: Number(row.applicant_count ?? 0),
+      newApplicantCount: Number(row.new_applicant_count ?? 0),
       isMine: row.user_id === viewerId,
     };
   }

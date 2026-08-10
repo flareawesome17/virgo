@@ -183,7 +183,15 @@ export function useRespondToApplication() {
 }
 
 /**
- * The Jobs badge: open posts you have not seen yet.
+ * The Jobs badge: postings you have not seen, plus applications waiting on you.
+ *
+ * `total` is what the nav shows. It has to include both, because an
+ * application used to arrive as a socket frame and an email and nothing else
+ * — if the app was shut when it landed, the only record of it was in your
+ * inbox, and the device that posted the job showed no sign at all.
+ *
+ * They stay separate underneath: opening the board clears `count`, and
+ * `applications` survives until you actually answer the person.
  *
  * Polled on a slow interval as well as pushed over the socket. The push is
  * what makes it feel instant; the poll is what makes it *right* — a socket
@@ -202,17 +210,35 @@ export function useUnseenJobs() {
     ...query,
     /** Failed *or* paused — an offline device never reaches `isError`. */
     loadFailed: query.isError || query.isPaused,
+    /** New postings by other people. */
     count: query.data?.count ?? 0,
+    /** Applications on your posts that nobody has answered. */
+    applications: query.data?.applications ?? 0,
+    /** What the nav badge shows. */
+    total: (query.data?.count ?? 0) + (query.data?.applications ?? 0),
   };
 }
 
-/** Clears the badge, and the cached count with it so it does not flash back. */
+/**
+ * Clears the board half of the badge, and the cached count with it so it does
+ * not flash back.
+ *
+ * Deliberately leaves `applications` alone — glancing at the board is not
+ * answering anybody, and zeroing it here would drop a real request on the
+ * floor until the next poll disagreed.
+ */
 export function useMarkJobsSeen() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => jobsApi.markSeen(),
     onSuccess: () => {
-      queryClient.setQueryData(queryKeys.jobs.unseen, { count: 0 });
+      queryClient.setQueryData(
+        queryKeys.jobs.unseen,
+        (prev: { count: number; applications: number } | undefined) => ({
+          count: 0,
+          applications: prev?.applications ?? 0,
+        }),
+      );
     },
   });
 }

@@ -41,10 +41,11 @@ export default function TabsLayout() {
   const { count: friendRequests } = useIncomingFriendRequests();
   // Invitations to somebody else's shoot, waiting on an answer.
   const { invitations: eventInvites } = useEventInvitations();
-  // Open postings not yet looked at. The Jobs board lives inside the Home
-  // screen rather than having a tab of its own, so this is the only place a
-  // new posting can announce itself without the screen being open.
-  const { count: newJobs } = useUnseenJobs();
+  // Open postings not yet looked at, plus applications waiting on an answer.
+  // The Jobs board lives inside the Home screen rather than having a tab of
+  // its own, so this is the only place either can announce itself without the
+  // screen being open.
+  const { total: newJobs } = useUnseenJobs();
 
   // The bar was a fixed height:88 / paddingBottom:28. On an iPhone with a home
   // indicator the bottom inset is 34pt, so 28 put the labels *underneath* it;

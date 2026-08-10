@@ -85,8 +85,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const { count: friendRequests } = useIncomingFriendRequests();
   // Invitations to somebody else's shoot, waiting on an answer.
   const { invitations: eventInvites } = useEventInvitations();
-  // Open postings this user has not looked at yet.
-  const { count: newJobs } = useUnseenJobs();
+  // Open postings this user has not looked at, plus applications on their own
+  // posts that nobody has answered. The nav is the only place the second one
+  // surfaces — an application otherwise announced itself over the socket and
+  // by email and left no trace in the app at all.
+  const { total: newJobs } = useUnseenJobs();
 
   return (
     <nav className="flex flex-col gap-6 px-3 py-2">

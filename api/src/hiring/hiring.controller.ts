@@ -137,10 +137,15 @@ export class PublicJobsController {
   }
 
   /**
-   * The badge count. Before `:slug`, or "unseen" reads as a post's slug.
+   * The badge counts. Before `:slug`, or "unseen" reads as a post's slug.
    *
-   * Polled on a short interval by both clients, so it is a single indexed
-   * count and nothing more.
+   * Two numbers: postings you have not seen, and applications waiting on an
+   * answer from you. The second used to be missing entirely, so somebody
+   * applying to your job produced a socket frame and an email and nothing
+   * else — if the app was closed when it arrived, there was no trace of it
+   * anywhere in the UI.
+   *
+   * Polled on a short interval by both clients, so it stays one round trip.
    */
   @Get('unseen')
   unseen(@CurrentUser('id') userId: string) {

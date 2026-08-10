@@ -29,6 +29,8 @@ export interface JobPost {
     handle: string | null;
   };
   applicantCount: number;
+  /** Of those, how many are still unanswered. Drives the "needs you" dot. */
+  newApplicantCount: number;
   /**
    * Whether you posted this.
    *
@@ -90,8 +92,15 @@ export const jobsApi = {
     });
   },
 
-  /** How many open posts have appeared since you last opened the board. */
-  unseen(): Promise<{ count: number }> {
+  /**
+   * The two halves of the Jobs badge.
+   *
+   * `count` is other people's new postings, cleared by opening the board.
+   * `applications` is people waiting on an answer from you, and only falls
+   * when you answer one — so marking the board seen cannot bury somebody's
+   * application, which is what would happen if these were one number.
+   */
+  unseen(): Promise<{ count: number; applications: number }> {
     return api.get('/jobs/unseen');
   },
 
