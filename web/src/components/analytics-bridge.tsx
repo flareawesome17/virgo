@@ -13,13 +13,34 @@ import {
 /**
  * Keeps analytics in step with the session and the router.
  *
- * A component rather than hooks in Providers, for the same reason
- * RealtimeBridge is one: it needs the session, which only exists inside
- * QueryClientProvider.
+ * Split in two, and the split is the point. `useSearchParams` has to sit
+ * inside a Suspense boundary or it opts every static page in the app into
+ * dynamic rendering — but a boundary that does not resolve takes everything
+ * inside it with it, and the first version had starting PostHog inside one.
+ * The result was a correctly configured, fully downloaded integration that
+ * never ran: no init, no identify, no events, and no error either.
+ *
+ * So the parts that must always happen do not depend on the query string.
  */
-function Bridge() {
+export function AnalyticsBridge() {
+  return (
+    <>
+      <Session />
+      <Suspense fallback={null}>
+        <Pageviews />
+      </Suspense>
+    </>
+  );
+}
+
+/**
+ * Starting up, and who is signed in.
+ *
+ * No Suspense, no `useSearchParams`, nothing that can defer it. `usePathname`
+ * alone does not force dynamic rendering, so this costs nothing.
+ */
+function Session() {
   const pathname = usePathname();
-  const search = useSearchParams();
   const { user, isAuthenticated } = useAuth();
   const identified = useRef<string | null>(null);
 
@@ -28,27 +49,11 @@ function Bridge() {
   }, []);
 
   /*
-   * A pageview per route change.
-   *
-   * The app router does not reload the document, so PostHog's automatic
-   * pageview fires once on the first paint and never again — every route
-   * after that would be invisible.
-   *
-   * The query string is included because it is part of where somebody is:
-   * /jobs/mine and /jobs/mine?tab=applications are two different screens.
-   */
-  useEffect(() => {
-    if (!pathname) return;
-    const query = search?.toString();
-    trackPageview(`${window.location.origin}${pathname}${query ? `?${query}` : ''}`);
-  }, [pathname, search]);
-
-  /*
    * Attach events to the account, and let go on sign-out.
    *
-   * Guarded on the id rather than run on every render of `user`, so a
-   * refetch that returns an equal object does not re-identify. Signing out
-   * resets, so the next person to use this browser is not counted as them.
+   * Guarded on the id rather than run on every render of `user`, so a refetch
+   * returning an equal object does not re-identify. Signing out resets, so the
+   * next person to use this browser is not counted as them.
    */
   useEffect(() => {
     if (isAuthenticated && user?.id) {
@@ -62,18 +67,39 @@ function Bridge() {
     }
   }, [isAuthenticated, user?.id]);
 
+  /*
+   * A pageview per route change, read straight off `window.location`.
+   *
+   * This one does not need the hook: by the time an effect runs, the address
+   * bar already holds the query string. `Pageviews` below exists only to
+   * catch a change to the query *alone*, which leaves `pathname` untouched.
+   */
+  useEffect(() => {
+    if (!pathname) return;
+    trackPageview(window.location.href);
+  }, [pathname]);
+
   return null;
 }
 
 /**
- * `useSearchParams` opts a route into dynamic rendering unless it sits behind
- * a Suspense boundary — and this one is mounted at the root, so without it
- * every static page in the app would become server-rendered on demand.
+ * The case `Session` cannot see: `?tab=posted` becoming `?tab=applications`,
+ * where the path never changes. Worth a boundary of its own — those are two
+ * different screens and counting them as one visit hides half the jobs page.
  */
-export function AnalyticsBridge() {
-  return (
-    <Suspense fallback={null}>
-      <Bridge />
-    </Suspense>
-  );
+function Pageviews() {
+  const search = useSearchParams();
+  const first = useRef(true);
+
+  useEffect(() => {
+    // Session already sent the pageview for this path; this fires only on the
+    // query changes that follow it.
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    trackPageview(window.location.href);
+  }, [search]);
+
+  return null;
 }

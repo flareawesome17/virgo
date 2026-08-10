@@ -75,6 +75,10 @@ export function startAnalytics(): void {
     person_profiles: 'identified_only',
     // Somebody who has asked not to be tracked has asked us too.
     respect_dnt: true,
+    // Surveys pull a second script from PostHog and can put a dialog over the
+    // app. We do not use them, and an analytics library should not be able to
+    // render UI in a product it is only supposed to be counting.
+    disable_surveys: true,
   });
 }
 

@@ -15,8 +15,17 @@ COPY . .
 
 # NEXT_PUBLIC_* values are inlined at build time, not read at runtime, so the
 # API URL has to be known here. It is a public URL, not a secret.
+# Every NEXT_PUBLIC_ value is inlined into the client bundle at build time, so
+# each one needs an ARG here as well as an entry in docker-compose. Compose
+# will happily pass a build arg the Dockerfile never declares: it is dropped
+# without a warning, and the result is a build that looks fine and ships an
+# app with the value undefined.
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_POSTHOG_KEY
+ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
+ARG NEXT_PUBLIC_POSTHOG_HOST
+ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
 
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
