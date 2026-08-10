@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   BriefcaseBusiness,
   Check,
@@ -16,6 +16,10 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  APPLICATION_STATE,
+  ApplicationBadge,
+} from '@/components/jobs/application-state';
 import { AppShell, PageHeader } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
@@ -352,11 +356,18 @@ function BrowseJobs() {
                             </Badge>
                           )}
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          {job.postedBy.displayName}
-                          {job.applicantCount > 0
-                            ? ` · ${job.applicantCount} applied`
-                            : ''}
+                        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                          <span>
+                            {job.postedBy.displayName}
+                            {job.applicantCount > 0
+                              ? ` · ${job.applicantCount} applied`
+                              : ''}
+                          </span>
+                          {/* So a job you already applied to is obvious from
+                              the list, not two taps away. */}
+                          {job.myApplication && (
+                            <ApplicationBadge status={job.myApplication.status} />
+                          )}
                         </p>
                       </div>
                     </div>
@@ -460,9 +471,41 @@ function MyApplications({ onBrowse }: { onBrowse: () => void }) {
   );
 }
 
+/**
+ * `useSearchParams` needs a Suspense boundary in the app router, or the whole
+ * route opts into dynamic rendering.
+ */
 export default function MyJobsPage() {
+  return (
+    <Suspense fallback={null}>
+      <MyJobs />
+    </Suspense>
+  );
+}
+
+const TABS = ['browse', 'posted', 'applications'] as const;
+
+function MyJobs() {
   const { jobs, isLoading, loadFailed, refetch } = useMyJobs();
-  const [tab, setTab] = useState('browse');
+  const router = useRouter();
+  const params = useSearchParams();
+
+  /*
+   * The tab lives in the URL.
+   *
+   * It was local state, which meant nothing could link to it: a "new
+   * application" notification could only reach /jobs/mine, which opens on
+   * Browse, so the poster landed on a list of other people's jobs. Same for
+   * the applicant after being answered.
+   */
+  const requested = params.get('tab');
+  const tab = TABS.includes(requested as (typeof TABS)[number])
+    ? (requested as (typeof TABS)[number])
+    : 'browse';
+  const setTab = (next: string) =>
+    // replace, not push: flipping tabs should not fill the back button with
+    // the same screen four times.
+    router.replace(next === 'browse' ? '/jobs/mine' : `/jobs/mine?tab=${next}`);
 
   return (
     <AppShell>

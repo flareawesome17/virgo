@@ -189,6 +189,14 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
   );
 }
 
+/** Matches web's APPLICATION_STATE so both clients say the same words. */
+const APPLICATION_LABEL: Record<string, string> = {
+  new: 'Applied',
+  shortlisted: 'Shortlisted',
+  accepted: 'Accepted',
+  declined: 'Not selected',
+};
+
 function JobCard({ job }: { job: JobPost }) {
   const budget = budgetLabel(job.budgetMin, job.budgetMax);
   return (

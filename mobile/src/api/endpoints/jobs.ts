@@ -7,6 +7,12 @@ import { api } from '../client';
  * nothing else. Reading the board needs an account now, but the subset stays:
  * "another user may see this" is still a smaller set than the poster's row.
  */
+export type JobApplicationStatus =
+  | 'new'
+  | 'shortlisted'
+  | 'accepted'
+  | 'declined';
+
 export interface JobPost {
   id: string;
   slug: string;
@@ -32,6 +38,19 @@ export interface JobPost {
   /** Of those, how many are still unanswered. Drives the "needs you" dot. */
   newApplicantCount: number;
   /**
+   * Your own application on this post, or null if you have not applied.
+   *
+   * The only state in which an Apply control belongs on screen is null. Every
+   * other value is something to render instead of the button — without this
+   * both clients offered Apply on a post the API answers with 409, after the
+   * person had already written the whole message.
+   */
+  myApplication: {
+    id: string;
+    status: JobApplicationStatus;
+    createdAt: string;
+  } | null;
+  /**
    * Whether you posted this.
    *
    * The API always refused a self-application; without this the UI could not
@@ -51,7 +70,14 @@ export interface JobApplication {
   personHandle: string | null;
   personRoles: string[];
   message: string;
-  status: 'new' | 'shortlisted' | 'accepted' | 'declined';
+  status: JobApplicationStatus;
+  /**
+   * What became of the post itself.
+   *
+   * An applicant could not previously tell that the job was filled or closed
+   * — their row sat at "Waiting" with nothing to explain it.
+   */
+  postStatus: 'open' | 'filled' | 'closed' | 'expired';
   createdAt: string;
   respondedAt: string | null;
   conversationId: string | null;

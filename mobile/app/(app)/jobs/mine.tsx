@@ -1,7 +1,8 @@
 import { View, Text, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { JobsTabs } from '@/components';
+import type { JobsTab } from '@/components/JobsTabs';
 import { ArrowLeftIcon, PlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -9,13 +10,30 @@ cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { c
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /**
+ * Accepts web's spelling as well as this screen's own.
+ *
+ * The tab is `applied` here and `applications` on web; a link built for one
+ * should not miss on the other, and neither name is worth a rename across
+ * three files to unify.
+ */
+const TAB_ALIASES: Record<string, JobsTab> = {
+  browse: 'browse',
+  posted: 'posted',
+  applied: 'applied',
+  applications: 'applied',
+};
+
+/**
  * My jobs.
  *
- * Opens on Posted rather than Browse: it is where a job-application
- * notification lands, and the applications it is about are on that tab.
+ * Defaults to Posted — where a job-application notification lands, and where
+ * the applications it is about live. `?tab=` overrides it, so an accepted
+ * applicant can be sent to Applications instead of to their own postings.
  */
 export default function MyJobsScreen() {
   const insets = useSafeAreaInsets();
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
+  const initialTab: JobsTab = TAB_ALIASES[tab ?? ''] ?? 'posted';
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
@@ -34,7 +52,9 @@ export default function MyJobsScreen() {
         </Pressable>
       </View>
 
-      <JobsTabs initialTab="posted" bottomPadding={insets.bottom + 40} />
+      {/* ?tab= so a notification can land on the right one — an accepted
+          applicant belongs on Applications, not on their own postings. */}
+      <JobsTabs initialTab={initialTab} bottomPadding={insets.bottom + 40} />
     </SafeAreaView>
   );
 }

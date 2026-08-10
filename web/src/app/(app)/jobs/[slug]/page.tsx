@@ -28,7 +28,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { budgetLabel, jobUrl, type ReportReason } from '@/api';
-import { useJob, useReportJob } from '@/hooks/useJobs';
+import { useJob, useMyApplications, useReportJob } from '@/hooks/useJobs';
+import { ApplicationState } from '@/components/jobs/application-state';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
 
@@ -71,6 +72,16 @@ export default function JobPage({
   const job = useJob(slug);
   const report = useReportJob();
   const [reported, setReported] = useState(false);
+  /*
+   * The conversation, if acceptance already opened one.
+   *
+   * The post itself does not carry it — only an application does — so this
+   * joins the two by postId. Cheap: the applications list is already in the
+   * cache from the Jobs screen, and it is a short list by definition.
+   */
+  const { applications } = useMyApplications();
+  const conversationId =
+    applications.find((a) => a.postSlug === slug)?.conversationId ?? null;
 
   if (job.isLoading) return <AppShell><CenteredSpinner /></AppShell>;
 
@@ -248,6 +259,11 @@ export default function JobPage({
                   </Link>
                 </Button>
               </div>
+            ) : post.myApplication ? (
+              /* You have applied. The API refuses a second one, so offering
+                 Apply again would take somebody through the whole form to be
+                 told 409 — which is exactly what used to happen. */
+              <ApplicationState post={post} conversationId={conversationId} />
             ) : isOpen ? (
               <div className="flex items-center justify-between gap-4 border-t pt-5">
                 <p className="text-xs text-muted-foreground">

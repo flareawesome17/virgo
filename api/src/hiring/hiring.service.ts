@@ -60,6 +60,18 @@ export interface PublicJobPost {
     /** Only when they have published a profile, so the link cannot 404. */
     handle: string | null;
   };
+  /**
+   * The reader's own application on this post, if they have one.
+   *
+   * Null means "you have not applied", which is the only state in which an
+   * Apply control should be offered. Every other value is a state the clients
+   * render instead of the button.
+   */
+  myApplication: {
+    id: string;
+    status: JobApplication['status'];
+    createdAt: string;
+  } | null;
   applicantCount: number;
   /**
    * Of those, how many are still sitting at `new`.
@@ -91,6 +103,14 @@ export interface JobApplication {
   personRoles: string[];
   message: string;
   status: 'new' | 'shortlisted' | 'accepted' | 'declined';
+  /**
+   * What happened to the post itself.
+   *
+   * An applicant could not previously tell that the job they were waiting on
+   * had been filled or closed — their application just sat at "Waiting"
+   * forever with nothing to explain it.
+   */
+  postStatus: PublicJobPost['status'];
   createdAt: string;
   respondedAt: string | null;
   conversationId: string | null;
@@ -116,6 +136,9 @@ interface PostRow {
   poster_handle: string | null;
   applicant_count: string;
   new_applicant_count: string;
+  my_application_id: string | null;
+  my_application_status: JobApplication['status'] | null;
+  my_application_at: Date | null;
 }
 
 interface ApplicationRow {
@@ -133,6 +156,8 @@ interface ApplicationRow {
   person_email: string;
   person_avatar_url: string | null;
   person_handle: string | null;
+  post_status: PublicJobPost['status'];
+  conversation_id: string | null;
   person_roles: string[] | null;
 }
 
@@ -164,7 +189,8 @@ export class HiringService {
    * here is silent and public: a query that forgets `hidden_at is null` serves
    * a post somebody already reported.
    */
-  private readonly postSelect = `
+  private postSelect(viewer: string): string {
+    return `
     p.id, p.user_id, p.slug, p.title, p.description, p.roles_wanted,
     p.event_date, p.location, p.budget_min, p.budget_max, p.status,
     p.created_at, p.expires_at,
@@ -176,7 +202,26 @@ export class HiringService {
       as applicant_count,
     (select count(*)::text from hiring_applications a
       where a.post_id = p.id and a.status = 'new')
-      as new_applicant_count`;
+      as new_applicant_count,
+    /*
+     * The viewer's own application, if they have one.
+     *
+     * Without this a client cannot tell an unapplied job from one it already
+     * applied to, which is why both of them offered a live Apply button on a
+     * post the API would answer with 409 — after the person had written the
+     * whole message. The board needs the answer as much as the detail page
+     * does, so it lives in the shared select rather than in one query.
+     *
+     * \${viewer} is a placeholder position this class controls, never caller
+     * input.
+     */
+    (select a.id from hiring_applications a
+      where a.post_id = p.id and a.user_id = ${viewer}) as my_application_id,
+    (select a.status from hiring_applications a
+      where a.post_id = p.id and a.user_id = ${viewer}) as my_application_status,
+    (select a.created_at from hiring_applications a
+      where a.post_id = p.id and a.user_id = ${viewer}) as my_application_at`;
+  }
 
   /** The board. Open, visible, unexpired — nothing else. */
   async list(
@@ -210,13 +255,13 @@ export class HiringService {
           )`;
 
     const rows = await this.db.query<PostRow>(
-      `select ${this.postSelect}
+      `select ${this.postSelect('$5')}
          from hiring_posts p
          join users u on u.id = p.user_id
         ${where}
         order by p.created_at desc
         limit $3 offset $4`,
-      [roles, locationKeyQuery, limit, offset],
+      [roles, locationKeyQuery, limit, offset, viewerId],
     );
 
     const totalRow = await this.db.queryOne<{ total: string }>(
@@ -243,13 +288,13 @@ export class HiringService {
    */
   async bySlug(viewerId: string, slug: string): Promise<PublicJobPost> {
     const row = await this.db.queryOne<PostRow>(
-      `select ${this.postSelect}
+      `select ${this.postSelect('$2')}
          from hiring_posts p
          join users u on u.id = p.user_id
         where p.slug = $1
           and p.hidden_at is null
           and p.expires_at > now()`,
-      [slug],
+      [slug, viewerId],
     );
     if (!row) throw new NotFoundException('That job post is no longer available');
     return this.present(row, viewerId);
@@ -301,7 +346,7 @@ export class HiringService {
   /** Posts the caller has made, including closed ones. */
   async mine(userId: string): Promise<PublicJobPost[]> {
     const rows = await this.db.query<PostRow>(
-      `select ${this.postSelect}
+      `select ${this.postSelect('$1')}
          from hiring_posts p
          join users u on u.id = p.user_id
         where p.user_id = $1
@@ -489,7 +534,7 @@ export class HiringService {
       `${this.applicationSelect} where a.post_id = $1 order by a.created_at desc`,
       [postId],
     );
-    return rows.map((row) => this.presentApplication(row, userId, null));
+    return rows.map((row) => this.presentApplication(row, userId));
   }
 
   /** Everything the caller has applied to. */
@@ -498,17 +543,39 @@ export class HiringService {
       `${this.applicationSelect} where a.user_id = $1 order by a.created_at desc limit 100`,
       [userId],
     );
-    return rows.map((row) => this.presentApplication(row, userId, null));
+    return rows.map((row) => this.presentApplication(row, userId));
   }
 
   private readonly applicationSelect = `
     select a.*, p.title as post_title, p.slug as post_slug,
            p.user_id as post_owner_id,
+           p.status  as post_status,
            u.display_name as person_name,
            u.email        as person_email,
            u.avatar_url   as person_avatar_url,
            u.roles        as person_roles,
-           case when u.public_profile then u.handle end as person_handle
+           case when u.public_profile then u.handle end as person_handle,
+           /*
+            * The conversation acceptance opened, resolved on every read.
+            *
+            * It used to be returned by respond() alone and hard-coded null
+            * everywhere else, so the id existed for exactly one response and
+            * was then unreachable — four "Open chat" buttons across the two
+            * clients were guarded on a field that could never arrive. An
+            * accepted applicant had no path from their application to the
+            * chat at all.
+            *
+            * Same subquery HireService.list uses, which is why enquiries kept
+            * their chat link across refreshes and applications did not.
+            */
+           (select c.id
+              from conversations c
+              join conversation_participants cp1
+                on cp1.conversation_id = c.id and cp1.user_id = a.user_id
+              join conversation_participants cp2
+                on cp2.conversation_id = c.id and cp2.user_id = p.user_id
+             where c.is_group = false
+             limit 1) as conversation_id
       from hiring_applications a
       join hiring_posts p on p.id = a.post_id
       join users u on u.id = a.user_id`;
@@ -541,6 +608,29 @@ export class HiringService {
         `update hiring_applications set status = $2, responded_at = now() where id = $1`,
         [applicationId, status],
       );
+
+      /*
+       * Tell them either way.
+       *
+       * Shortlisting and declining used to return here silently, so an
+       * applicant learned nothing — no push, no realtime frame, and nothing
+       * on the client polls application status. A decline that is never
+       * delivered reads exactly like a poster who never looked, and the
+       * applicant goes on waiting for a job that is gone.
+       */
+      const me = await this.account(userId);
+      const who = me ? this.nameFor(me) : 'The poster';
+      await this.notifier.notify([row.user_id], {
+        topic: 'job-response',
+        title:
+          status === 'shortlisted' ? 'You were shortlisted' : 'Application closed',
+        body:
+          status === 'shortlisted'
+            ? `${who} shortlisted you for “${row.post_title}”`
+            : `${who} went with someone else for “${row.post_title}”`,
+        data: { type: 'job_response', applicationId, status },
+      });
+
       return this.applicationById(applicationId, userId);
     }
 
@@ -684,6 +774,13 @@ export class HiringService {
         avatarUrl: row.poster_avatar_url,
         handle: row.poster_handle,
       },
+      myApplication: row.my_application_id
+        ? {
+            id: row.my_application_id,
+            status: row.my_application_status ?? 'new',
+            createdAt: (row.my_application_at ?? new Date()).toISOString(),
+          }
+        : null,
       applicantCount: Number(row.applicant_count ?? 0),
       newApplicantCount: Number(row.new_applicant_count ?? 0),
       isMine: row.user_id === viewerId,
@@ -693,7 +790,12 @@ export class HiringService {
   private presentApplication(
     row: ApplicationRow,
     viewerId: string,
-    conversationId: string | null,
+    /**
+     * Only passed by `respond()`, which has just created the conversation and
+     * knows its id before the next read could see it. Everything else lets the
+     * select resolve it.
+     */
+    conversationId?: string | null,
   ): JobApplication {
     return {
       id: row.id,
@@ -708,9 +810,10 @@ export class HiringService {
       personRoles: row.person_roles ?? [],
       message: row.message,
       status: row.status,
+      postStatus: row.post_status,
       createdAt: row.created_at.toISOString(),
       respondedAt: row.responded_at?.toISOString() ?? null,
-      conversationId,
+      conversationId: conversationId ?? row.conversation_id ?? null,
     };
   }
 

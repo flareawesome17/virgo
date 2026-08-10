@@ -86,7 +86,7 @@ export default function ApplyPage({
           toast.success('Application sent', {
             description: `${post.postedBy.displayName} will see it and can reply in chat.`,
           });
-          router.push('/jobs/applications');
+          router.push('/jobs/mine?tab=applications');
         },
         onError: (error: Error) => toast.error(error.message),
       },

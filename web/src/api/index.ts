@@ -101,6 +101,7 @@ export {
   type CreateJobInput,
   type ListJobsParams,
   type ReportReason,
+  type JobApplicationStatus,
 } from './endpoints/jobs';
 export {
   billingApi,

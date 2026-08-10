@@ -47,6 +47,14 @@ export type JobsTab = 'browse' | 'posted' | 'applied';
  * tab panel inside another screen and the others are screens in their own
  * right.
  */
+/** Matches web's APPLICATION_STATE so both clients say the same words. */
+const APPLICATION_LABEL: Record<string, string> = {
+  new: 'Applied',
+  shortlisted: 'Shortlisted',
+  accepted: 'Accepted',
+  declined: 'Not selected',
+};
+
 export function JobsTabs({
   initialTab = 'browse',
   bottomPadding = 40,
@@ -348,6 +356,15 @@ function Applicants({ postId }: { postId: string }) {
 
 function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => void }) {
   const { applications, isLoading, loadFailed, refetch } = useMyApplications();
+  // Every other tab pulls to refresh; this one did not, which reads as broken
+  // on the screen most likely to be checked repeatedly for an answer.
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
 
   if (isLoading && applications.length === 0) {
     return (
@@ -373,7 +390,16 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: bottom, gap: 10 }}>
+    <ScrollView
+      contentContainerStyle={{ padding: 20, paddingBottom: bottom, gap: 10 }}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#B66A40"
+        />
+      }
+    >
       {applications.map((app) => (
         <View key={app.id} className="bg-card rounded-2xl p-4 gap-2">
           <View className="flex-row items-start gap-3">

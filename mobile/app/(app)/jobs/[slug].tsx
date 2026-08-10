@@ -23,6 +23,14 @@ for (const Icon of [
 }
 
 /** One job, and the form to apply to it. */
+/** Matches web's APPLICATION_STATE so the two clients say the same words. */
+const APPLICATION_LABEL: Record<string, string> = {
+  new: 'Applied',
+  shortlisted: 'Shortlisted',
+  accepted: 'Accepted',
+  declined: 'Not selected',
+};
+
 export default function JobDetailScreen() {
   const insets = useSafeAreaInsets();
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -66,7 +74,7 @@ export default function JobDetailScreen() {
         onSuccess: () => {
           Alert.alert('Application sent',
             `${post.postedBy.displayName} will see it and can reply in chat.`);
-          router.replace('/jobs/mine');
+          router.replace('/jobs/mine?tab=applications');
         },
         onError: (error: Error) => Alert.alert('Could not apply', error.message),
       },

@@ -64,7 +64,9 @@ export function useNotificationRouting(enabled: boolean): void {
           return;
         case 'job_response':
           if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
-          else router.push('/jobs/mine');
+          // Their applications, not their own postings — this is the
+          // applicant's side of the workflow, and /jobs/mine opens on Posted.
+          else router.push('/jobs/mine?tab=applications');
           return;
       }
     };

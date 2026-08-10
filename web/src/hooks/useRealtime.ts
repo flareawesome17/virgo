@@ -72,7 +72,17 @@ type ServerEvent =
  */
 const TOPICS: Record<
   NotificationTopic,
-  { keys: readonly (readonly unknown[])[]; href?: string }
+  {
+    keys: readonly (readonly unknown[])[];
+    /**
+     * Where "View" goes.
+     *
+     * A function when the destination depends on what happened — an accepted
+     * application carries the conversation it opened, and sending somebody to
+     * a list instead is throwing away the one thing they want.
+     */
+    href?: string | ((data: Record<string, unknown> | undefined) => string);
+  }
 > = {
   'friend-request': { keys: [queryKeys.friends.all], href: '/network' },
   'friend-accepted': { keys: [queryKeys.friends.all], href: '/network' },
@@ -96,12 +106,28 @@ const TOPICS: Record<
     keys: [queryKeys.hire.all, queryKeys.friends.all, ['chat']],
     href: '/network?tab=enquiries',
   },
-  'job-application': { keys: [queryKeys.jobs.all], href: '/jobs/mine' },
+  // Applications arrive on your own posts, so land on that tab rather than
+  // the board — which is where a bare /jobs/mine opens.
+  'job-application': {
+    keys: [queryKeys.jobs.all],
+    href: '/jobs/mine?tab=posted',
+  },
   support: { keys: [queryKeys.support.all], href: '/support' },
   // Accepting also connects the two and opens a chat.
+  //
+  // A function, because the destination depends on the outcome: an acceptance
+  // carries the conversation it just opened and should go straight there,
+  // while a shortlist or decline has nowhere better than the applicant's own
+  // list. This used to be a constant pointing at /jobs/applications, which
+  // redirects to the board — so somebody was told they got the job and then
+  // shown a list of other jobs, with the conversation id sitting unread in
+  // the payload.
   'job-response': {
     keys: [queryKeys.jobs.all, queryKeys.friends.all, ['chat']],
-    href: '/jobs/applications',
+    href: (data) =>
+      typeof data?.conversationId === 'string'
+        ? `/chat/${data.conversationId}`
+        : '/jobs/mine?tab=applications',
   },
   reminder: { keys: [queryKeys.reminders.all], href: '/schedule' },
   // These two exist on the server and were missing here, so their notifications
@@ -126,10 +152,13 @@ function applyNotification(
     queryClient.invalidateQueries({ queryKey: key });
   }
 
+  const href =
+    typeof topic?.href === 'function' ? topic.href(event.data) : topic?.href;
+
   toast(event.title, {
     description: event.body,
-    action: topic?.href
-      ? { label: 'View', onClick: () => (window.location.href = topic.href!) }
+    action: href
+      ? { label: 'View', onClick: () => (window.location.href = href) }
       : undefined,
   });
 
@@ -141,7 +170,7 @@ function applyNotification(
     // stacking seven notifications the user has to dismiss one at a time.
     tag: event.topic,
     onClick: () => {
-      if (topic?.href) window.location.href = topic.href;
+      if (href) window.location.href = href;
     },
   });
 }
