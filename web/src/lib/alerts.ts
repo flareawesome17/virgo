@@ -7,56 +7,28 @@
  * are best-effort and none of them are load-bearing.
  */
 
-/*
- * The tab title, which two things want to write at once: the page you are on,
- * and how many messages are waiting.
- *
- * Both are held here and composed by one function, because the alternative was
- * tried and broke. Reading the existing title to find the "base" captured
- * whatever happened to be there the first time a count arrived — the sign-in
- * page — and every screen after that read "(3) Sign in · Virgo" no matter
- * where you actually were.
- *
- * Matches the template in the root layout's metadata, so a client-rendered
- * title is indistinguishable from a server-rendered one.
- */
-const SUFFIX = 'Virgo';
-
-let pageTitle: string | null = null;
-let unreadCount = 0;
-
-function renderTitle(): void {
-  if (typeof document === 'undefined') return;
-  const base = pageTitle ? `${pageTitle} · ${SUFFIX}` : SUFFIX;
-  document.title =
-    unreadCount > 0
-      ? `(${unreadCount > 99 ? '99+' : unreadCount}) ${base}`
-      : base;
-}
-
-/**
- * Names the page you are on.
- *
- * Called by the app shell from the title it already shows in the mobile
- * header, so a route names itself once and both places agree. Signed-in pages
- * are client components, and Next's `metadata` export is Server Components
- * only, so this is the way a title follows the route without restructuring
- * every page around a server wrapper.
- */
-export function setPageTitle(title: string | null): void {
-  pageTitle = title?.trim() || null;
-  renderTitle();
-}
-
 /**
  * Puts an unread count in front of the page title.
  *
  * The one attention signal that always works: it needs no permission, and it
  * is visible from a tab the user is not looking at, which is the whole point.
+ *
+ * Reads the live title on every call rather than caching a "base" once. The
+ * cached version took whatever happened to be in the tab the first time a
+ * count arrived — the sign-in page — and every screen after that read
+ * "(3) Sign in · Virgo" regardless of where you were.
+ *
+ * Reading fresh is safe here only because this runs when the count changes,
+ * never during a navigation: Next re-asserts the route's title from its
+ * metadata a few milliseconds after each client navigation, so anything
+ * written at that moment loses. That is also why the *page name* is not set
+ * here — see the note in app-shell.tsx.
  */
 export function setUnreadTitle(count: number): void {
-  unreadCount = Math.max(0, count);
-  renderTitle();
+  if (typeof document === 'undefined') return;
+  const base = document.title.replace(/^\(\d+\+?\)\s*/, '');
+  const n = Math.max(0, count);
+  document.title = n > 0 ? `(${n > 99 ? '99+' : n}) ${base}` : base;
 }
 
 /** True once the user has allowed OS notifications for this origin. */

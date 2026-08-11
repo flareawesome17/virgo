@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import { useState, type ComponentType, type ReactNode } from 'react';
 import {
   BriefcaseBusiness,
   FileText,
@@ -42,7 +42,6 @@ import { useUnseenJobs } from '@/hooks/useJobs';
 import { NotificationBell } from '@/components/notification-bell';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
-import { setPageTitle } from '@/lib/alerts';
 
 interface NavItem {
   href: string;
@@ -293,11 +292,21 @@ export function AppShell({
 }) {
   const [open, setOpen] = useState(false);
 
-  // Not cleared on unmount: navigating replaces one shell with another, and
-  // resetting on the way out flashes a bare "Virgo" between the two.
-  useEffect(() => {
-    setPageTitle(title ?? null);
-  }, [title]);
+  /*
+   * `title` names the mobile header only. It does NOT set the browser tab.
+   *
+   * Two ways were tried and neither holds. Assigning document.title from an
+   * effect is overwritten about 7ms later, when Next re-asserts the route's
+   * title from its metadata after client navigation. Rendering a <title> and
+   * letting React 19 hoist it does better but still races: measured on the
+   * deployed build it won on four routes and lost on four, leaving two <title>
+   * elements in the head and the outcome depending on document order.
+   *
+   * Doing this properly means what the Next docs prescribe — `metadata` is
+   * Server Components only, so each page.tsx becomes a thin server component
+   * exporting it, with the client half beside it. That is the right fix and it
+   * is twenty files; it is not something to graft on from here.
+   */
 
   return (
     // data-app-shell is what globals.css keys `body { overflow: hidden }` off.

@@ -1,6 +1,28 @@
+# Applied to every service below via `<<: *hardening`.
+#
+# no-new-privileges stops a process inside a container gaining rights through a
+# setuid binary, which is the cheap half of container hardening and costs
+# nothing to switch on.
+#
+# The log limits are not cosmetic: Docker's default json-file driver grows
+# without bound, and this stack runs on one always-on machine. A chatty loop
+# in any service fills the disk, and a full disk takes Postgres down with it.
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: '10m'
+      max-file: '5'
+
 services:
   postgres:
-    image: postgres:17-alpine
+    <<: *hardening
+    # Pinned by digest. `postgres:17-alpine` is a moving tag: it would carry a
+    # new patch on any `docker compose pull`, and the database is the one
+    # service where an unreviewed image change is least welcome.
+    image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     container_name: virgo-postgres
     restart: unless-stopped
     environment:
@@ -8,10 +30,17 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-virgo_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-virgo}
     ports:
+      # Bound to loopback, not 0.0.0.0. It was reachable from anything on the
+      # same network, and the password in this file is a default that anyone
+      # with the repo can read — two facts that are survivable apart and not
+      # together. Nothing legitimate needed the LAN: the API reaches Postgres
+      # over the compose network by service name, and psql on this machine
+      # still connects through localhost.
+      #
       # Standard 5432. Override POSTGRES_PORT if another Postgres ever claims
       # it — and remember to update DATABASE_URL in .env to match, since that
       # is the host-side connection string.
-      - '${POSTGRES_PORT:-5432}:5432'
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - virgo_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,6 +50,7 @@ services:
       retries: 10
 
   api:
+    <<: *hardening
     build:
       context: .
       dockerfile: Dockerfile
@@ -44,7 +74,7 @@ services:
       # Published to the host for local testing. Do NOT forward this port on
       # your router — the tunnel is the only ingress that should exist, and
       # CF-Connecting-IP is only trustworthy while that holds.
-      - '${API_PORT:-3000}:3000'
+      - '127.0.0.1:${API_PORT:-3000}:3000'
     depends_on:
       postgres:
         # Wait for real readiness, not just "container started" — otherwise
@@ -85,6 +115,7 @@ services:
   # And add https://web.virgo.ph to CORS_ORIGINS in api/.env, or the browser
   # blocks every API call before it leaves the page.
   web:
+    <<: *hardening
     build:
       context: ../web
       args:
@@ -118,6 +149,7 @@ services:
   # should have it. Defence in depth costs nothing here; it is free on the plan
   # the tunnel already uses.
   dashboard:
+    <<: *hardening
     build:
       context: ../dashboard
       args:
@@ -146,7 +178,28 @@ services:
   # without your identity provider saying so first, rather than relying on one
   # form that anybody on earth can submit to.
   pgadmin:
-    image: dpage/pgadmin4:latest
+    # Logging only — deliberately NOT the shared *hardening anchor.
+    #
+    # no-new-privileges breaks this image. Its entrypoint uses sudo to bind
+    # port 80, and with the flag set that fails; rather than exit, it silently
+    # falls back to listening on 8080. Nothing errors, the container reports
+    # healthy, and both the host mapping and the tunnel route point at a port
+    # nothing is on — db.virgo.ph returned 502 with a container that looked
+    # fine. Found by restarting the stack and checking, not by reading.
+    #
+    # To harden it properly: set PGADMIN_LISTEN_PORT=8080, map 5050:8080, add
+    # the flag back, and repoint the db.virgo.ph tunnel route at
+    # http://pgadmin:8080 in the Cloudflare dashboard. All four, or it breaks
+    # again — the route is the part this file cannot change.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+    # Pinned by digest. `:latest` on a database console reachable from a
+    # public hostname means a restart can silently swap in an unreviewed
+    # major version; bump this deliberately after reading the release notes.
+    image: dpage/pgadmin4@sha256:2f4ce946ddf8360680d7eff4eaba1d91859eb6b4003e6623bad5c63a322c2f4d
     container_name: virgo-pgadmin
     restart: unless-stopped
     environment:
@@ -165,7 +218,7 @@ services:
       PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: 'True'
     ports:
       # Host-side access for when the tunnel is down or you are at the machine.
-      - '${PGADMIN_PORT:-5050}:80'
+      - '127.0.0.1:${PGADMIN_PORT:-5050}:80'
     volumes:
       # pgAdmin's own settings and query history. Without it every restart
       # forgets the server registration and any saved queries.
@@ -178,7 +231,10 @@ services:
         condition: service_healthy
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    <<: *hardening
+    # Pinned by digest — this process is the ingress for every hostname, so
+    # it should change when you decide it does, not when a restart happens.
+    image: cloudflare/cloudflared@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf
     container_name: virgo-cloudflared
     restart: unless-stopped
     command: tunnel --no-autoupdate run
