@@ -81,7 +81,7 @@ export default function FriendsScreen() {
                 className="mx-5 mb-4 bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
                 style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
                 <View className="w-11 h-11 rounded-xl bg-[#C1774520] items-center justify-center">
-                  <ClockIcon size={20} style={{ color: '#C17745' }} />
+                  <ClockIcon size={20} color="#C17745" />
                 </View>
                 <View className="flex-1">
                   <Text className="text-foreground text-sm font-bold">{pending.length} Pending Request{pending.length > 1 ? 's' : ''}</Text>

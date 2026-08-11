@@ -331,7 +331,7 @@ export default function HelpScreen() {
               style={{ borderBottomWidth: 1, borderBottomColor: border }}
             >
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#B66A4014', alignItems: 'center', justifyContent: 'center' }}>
-                <MailIcon size={15} style={{ color: '#B66A40' }} />
+                <MailIcon size={15} color="#B66A40" />
               </View>
               <View className="flex-1">
                 <Text className="text-foreground text-sm font-semibold">Email support</Text>
@@ -350,7 +350,7 @@ export default function HelpScreen() {
               className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
             >
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#5B7B9A14', alignItems: 'center', justifyContent: 'center' }}>
-                <CopyIcon size={15} style={{ color: '#5B7B9A' }} />
+                <CopyIcon size={15} color="#5B7B9A" />
               </View>
               <View className="flex-1">
                 <Text className="text-foreground text-sm font-semibold">

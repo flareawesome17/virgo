@@ -29,7 +29,7 @@ export default function JobsScreen() {
           style={{ backgroundColor: '#B66A40' }}
           onPress={() => router.push('/jobs/new')}
         >
-          <PlusIcon size={14} style={{ color: '#fff' }} />
+          <PlusIcon size={14} color="#fff" />
           <Text className="text-white text-[12px] font-bold">Post</Text>
         </Pressable>
       </View>

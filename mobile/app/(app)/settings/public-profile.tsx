@@ -111,7 +111,7 @@ export default function PublicProfileScreen() {
 
           {!settings.canPublish && settings.blockers.length > 0 && (
             <View className="flex-row gap-2.5 rounded-xl bg-amber-500/10 p-3">
-              <AlertCircleIcon size={15} style={{ color: '#f59e0b', marginTop: 1 }} />
+              <AlertCircleIcon size={15} color="#f59e0b" style={{ marginTop: 1 }} />
               <View className="flex-1">
                 <Text className="text-[12px] font-bold" style={{ color: '#f59e0b' }}>
                   Before you can publish
@@ -133,7 +133,7 @@ export default function PublicProfileScreen() {
                 className="flex-row items-center gap-1.5"
                 onPress={() => router.push(`/u/${settings.handle}`)}
               >
-                <ExternalLinkIcon size={13} style={{ color: '#B66A40' }} />
+                <ExternalLinkIcon size={13} color="#B66A40" />
                 <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
                   View my profile
                 </Text>
@@ -172,7 +172,7 @@ export default function PublicProfileScreen() {
                 style={{ opacity: images.length >= MAX_IMAGES ? 0.4 : 1 }}
                 onPress={() => setPicking('images')}
               >
-                <ImagePlusIcon size={14} style={{ color: '#B66A40' }} />
+                <ImagePlusIcon size={14} color="#B66A40" />
                 <Text className="text-foreground text-[12px] font-semibold">Photos</Text>
               </Pressable>
               <Pressable
@@ -181,7 +181,7 @@ export default function PublicProfileScreen() {
                 style={{ opacity: albums.length >= MAX_ALBUMS ? 0.4 : 1 }}
                 onPress={() => setPicking('albums')}
               >
-                <LayersIcon size={14} style={{ color: '#B66A40' }} />
+                <LayersIcon size={14} color="#B66A40" />
                 <Text className="text-foreground text-[12px] font-semibold">Gallery</Text>
               </Pressable>
             </View>
@@ -220,7 +220,7 @@ export default function PublicProfileScreen() {
                         alignItems: 'center', justifyContent: 'center',
                       }}
                     >
-                      <LayersIcon size={16} style={{ color: '#B66A40' }} />
+                      <LayersIcon size={16} color="#B66A40" />
                     </View>
                   )}
 
@@ -252,7 +252,7 @@ export default function PublicProfileScreen() {
                       })
                     }
                   >
-                    <TrashIcon size={16} style={{ color: '#ef4444' }} />
+                    <TrashIcon size={16} color="#ef4444" />
                   </Pressable>
                 </View>
               ))}
@@ -482,7 +482,7 @@ function PickerModal({
                           alignItems: 'center', justifyContent: 'center',
                         }}
                       >
-                        <CheckIcon size={12} style={{ color: '#fff' }} />
+                        <CheckIcon size={12} color="#fff" />
                       </View>
                     )}
                   </Pressable>
@@ -516,7 +516,7 @@ function PickerModal({
                     )
                   }
                 >
-                  <LayersIcon size={16} style={{ color: '#B66A40' }} />
+                  <LayersIcon size={16} color="#B66A40" />
                   <View className="flex-1">
                     <Text className="text-foreground text-[14px] font-semibold" numberOfLines={1}>
                       {album.name}

@@ -136,9 +136,9 @@ export default function OfflineSyncScreen() {
                 style={{ backgroundColor: isOffline ? '#C76B4A18' : '#6B8E4E18' }}
               >
                 {isOffline ? (
-                  <WifiOffIcon size={19} style={{ color: '#C76B4A' }} />
+                  <WifiOffIcon size={19} color="#C76B4A" />
                 ) : (
-                  <WifiIcon size={19} style={{ color: '#6B8E4E' }} />
+                  <WifiIcon size={19} color="#6B8E4E" />
                 )}
               </View>
               <View className="flex-1">
@@ -163,7 +163,7 @@ export default function OfflineSyncScreen() {
               ) : (
                 <RefreshCwIcon
                   size={15}
-                  style={{ color: isOffline ? '#A89489' : '#FFFFFF' }}
+                  color={isOffline ? '#A89489' : '#FFFFFF'}
                 />
               )}
               <Text
@@ -192,9 +192,9 @@ export default function OfflineSyncScreen() {
                   style={{ backgroundColor: c.works ? '#6B8E4E18' : '#C76B4A18' }}
                 >
                   {c.works ? (
-                    <CheckIcon size={12} style={{ color: '#6B8E4E' }} />
+                    <CheckIcon size={12} color="#6B8E4E" />
                   ) : (
-                    <XIcon size={12} style={{ color: '#C76B4A' }} />
+                    <XIcon size={12} color="#C76B4A" />
                   )}
                 </View>
                 <View className="flex-1">
@@ -215,7 +215,7 @@ export default function OfflineSyncScreen() {
             style={cardShadow}
           >
             <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#8B5E3C14', alignItems: 'center', justifyContent: 'center' }}>
-              <HardDriveIcon size={15} style={{ color: '#8B5E3C' }} />
+              <HardDriveIcon size={15} color="#8B5E3C" />
             </View>
             <View className="flex-1">
               <Text className="text-foreground text-sm font-semibold">Sync &amp; Storage</Text>

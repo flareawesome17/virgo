@@ -169,7 +169,7 @@ export default function ProfileScreen() {
                   )
                 }
               >
-                <GlobeIcon size={12} style={{ color: '#B66A40' }} />
+                <GlobeIcon size={12} color="#B66A40" />
                 <Text className="text-[12px]" style={{ color: '#B66A40' }}>
                   {person.website.replace(/^https?:\/\//i, '')}
                 </Text>
@@ -188,7 +188,7 @@ export default function ProfileScreen() {
             style={{ backgroundColor: '#B66A40' }}
             onPress={() => router.push(`/hire/${person.handle}`)}
           >
-            <BriefcaseIcon size={16} style={{ color: '#fff' }} />
+            <BriefcaseIcon size={16} color="#fff" />
             <Text className="text-white text-[15px] font-bold">
               Hire {person.displayName.split(' ')[0]}
             </Text>
@@ -228,7 +228,7 @@ export default function ProfileScreen() {
                 ) : (
                   <View style={{ height: 140, backgroundColor: '#B66A4014' }}
                     className="items-center justify-center">
-                    <LayersIcon size={26} style={{ color: '#B66A40' }} />
+                    <LayersIcon size={26} color="#B66A40" />
                   </View>
                 )}
                 <View className="p-3.5">

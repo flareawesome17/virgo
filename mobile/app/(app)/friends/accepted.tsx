@@ -18,7 +18,7 @@ export default function FriendRequestAcceptedScreen() {
         {/* Status icon */}
         <View className="w-24 h-24 rounded-full bg-[#6B8E4E18] items-center justify-center mb-6"
           style={{ shadowColor: '#6B8E4E', shadowOpacity: 0.15, shadowRadius: 20, shadowOffset: { width: 0, height: 4 }, elevation: 6 }}>
-          <UserCheckIcon size={40} style={{ color: '#6B8E4E' }} />
+          <UserCheckIcon size={40} color="#6B8E4E" />
         </View>
 
         <Text className="text-foreground text-[26px] font-extrabold tracking-tight">Now Connected!</Text>

@@ -218,7 +218,7 @@ export default function NearbyScreen() {
             hitSlop={6}
             onPress={() => router.push(`/u/${person.handle}`)}
           >
-            <BriefcaseIcon size={11} style={{ color: '#B66A40' }} />
+            <BriefcaseIcon size={11} color="#B66A40" />
             <Text className="text-[11px] font-semibold" style={{ color: '#B66A40' }}>
               View profile
             </Text>
@@ -308,7 +308,7 @@ export default function NearbyScreen() {
               >
                 <MapPinIcon
                   size={18}
-                  style={{ color: sharing ? '#6B8E4E' : '#8B7355' }}
+                  color={sharing ? '#6B8E4E' : '#8B7355'}
                 />
               </View>
               <View className="flex-1 min-w-0">

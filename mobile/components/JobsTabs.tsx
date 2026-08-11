@@ -304,10 +304,11 @@ function JobRow({ job }: { job: JobPost }) {
           style={{ opacity: job.applicantCount === 0 ? 0.4 : 1 }}
           onPress={() => setOpen((v) => !v)}
         >
-          <ChevronDownIcon size={14} style={{
-            color: '#B66A40',
-            transform: [{ rotate: open ? '180deg' : '0deg' }],
-          }} />
+          <ChevronDownIcon
+            size={14}
+            color="#B66A40"
+            style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
+          />
           <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
             {job.applicantCount === 0
               ? 'No applicants yet'
@@ -365,7 +366,7 @@ function JobRow({ job }: { job: JobPost }) {
           className={job.status === 'open' ? '' : 'ml-auto'}
           onPress={destroy}
         >
-          <TrashIcon size={15} style={{ color: '#ef4444' }} />
+          <TrashIcon size={15} color="#ef4444" />
         </Pressable>
       </View>
 
@@ -475,7 +476,7 @@ function Applicants({ postId }: { postId: string }) {
               >
                 {acting === app.id
                   ? <ActivityIndicator size="small" color="#fff" />
-                  : <CheckIcon size={13} style={{ color: '#fff' }} />}
+                  : <CheckIcon size={13} color="#fff" />}
                 <Text className="text-white text-[12px] font-bold">Accept</Text>
               </Pressable>
               {app.status !== 'shortlisted' && (
@@ -505,7 +506,7 @@ function Applicants({ postId }: { postId: string }) {
               className="flex-row items-center gap-1.5"
               onPress={() => router.push(`/chat/${app.conversationId}`)}
             >
-              <MessageCircleIcon size={13} style={{ color: '#B66A40' }} />
+              <MessageCircleIcon size={13} color="#B66A40" />
               <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
                 Open chat
               </Text>
@@ -594,7 +595,7 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
               className="flex-row items-center gap-1.5"
               onPress={() => router.push(`/chat/${app.conversationId}`)}
             >
-              <MessageCircleIcon size={13} style={{ color: '#B66A40' }} />
+              <MessageCircleIcon size={13} color="#B66A40" />
               <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
                 Open chat
               </Text>

@@ -9,6 +9,7 @@ import {
   InfoIcon, FileTextIcon, StarIcon,
   GlobeIcon,
   BriefcaseIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -24,7 +25,7 @@ for (const Icon of [
 }
 
 interface SettingsRow {
-  icon: React.ComponentType<any>;
+  icon: LucideIcon;
   label: string;
   /** One line saying what the screen behind the row is for. */
   detail?: string;
@@ -243,7 +244,7 @@ export default function SettingsHomeScreen() {
                           alignItems: 'center', justifyContent: 'center',
                         }}
                       >
-                        <IconComp size={15} style={{ color: row.color }} />
+                        <IconComp size={15} color={row.color} />
                       </View>
                       <View className="flex-1 min-w-0">
                         <Text className="text-foreground text-sm font-semibold">

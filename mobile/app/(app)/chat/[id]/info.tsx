@@ -208,7 +208,7 @@ export default function ConversationInfoScreen() {
               className="w-20 h-20 rounded-full items-center justify-center"
               style={{ backgroundColor: '#5B7B9A18' }}
             >
-              <UsersIcon size={32} style={{ color: '#5B7B9A' }} />
+              <UsersIcon size={32} color="#5B7B9A" />
             </View>
           ) : others[0]?.avatar_url ? (
             <Image
@@ -299,9 +299,9 @@ export default function ConversationInfoScreen() {
                 }}
               >
                 {muted ? (
-                  <BellOffIcon size={15} style={{ color: '#8B7355' }} />
+                  <BellOffIcon size={15} color="#8B7355" />
                 ) : (
-                  <BellIcon size={15} style={{ color: '#B66A40' }} />
+                  <BellIcon size={15} color="#B66A40" />
                 )}
               </View>
               <View className="flex-1">
@@ -384,7 +384,7 @@ export default function ConversationInfoScreen() {
                 style={{ borderBottomWidth: 1, borderBottomColor: border }}
               >
                 <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#6B8E4E14', alignItems: 'center', justifyContent: 'center' }}>
-                  <MailIcon size={15} style={{ color: '#6B8E4E' }} />
+                  <MailIcon size={15} color="#6B8E4E" />
                 </View>
                 <Text className="text-foreground text-sm font-semibold flex-1">
                   Manage in Network
@@ -395,7 +395,7 @@ export default function ConversationInfoScreen() {
                 className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
               >
                 <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#5B7B9A14', alignItems: 'center', justifyContent: 'center' }}>
-                  <MapPinIcon size={15} style={{ color: '#5B7B9A' }} />
+                  <MapPinIcon size={15} color="#5B7B9A" />
                 </View>
                 <Text className="text-foreground text-sm font-semibold flex-1">
                   See who is nearby
@@ -415,7 +415,7 @@ export default function ConversationInfoScreen() {
                 style={{ borderBottomWidth: 1, borderBottomColor: border }}
               >
                 <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#A8948920', alignItems: 'center', justifyContent: 'center' }}>
-                  <LogOutIcon size={15} style={{ color: '#8B7355' }} />
+                  <LogOutIcon size={15} color="#8B7355" />
                 </View>
                 <View className="flex-1">
                   <Text className="text-foreground text-sm font-semibold">Leave group</Text>
@@ -430,7 +430,7 @@ export default function ConversationInfoScreen() {
               className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
             >
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#C76B4A14', alignItems: 'center', justifyContent: 'center' }}>
-                <Trash2Icon size={15} style={{ color: '#C76B4A' }} />
+                <Trash2Icon size={15} color="#C76B4A" />
               </View>
               <View className="flex-1">
                 <Text className="text-destructive text-sm font-semibold">

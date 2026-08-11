@@ -190,9 +190,9 @@ export default function ProfileScreen() {
               className="flex-row items-center gap-1 bg-muted rounded-full px-3 py-1.5 active:scale-[0.96]"
             >
               {isOffline ? (
-                <WifiOffIcon size={12} style={{ color: '#C76B4A' }} />
+                <WifiOffIcon size={12} color="#C76B4A" />
               ) : (
-                <WifiIcon size={12} style={{ color: '#6B8E4E' }} />
+                <WifiIcon size={12} color="#6B8E4E" />
               )}
               <Text
                 className="text-[11px] font-semibold"
@@ -248,7 +248,7 @@ export default function ProfileScreen() {
                       alignItems: 'center', justifyContent: 'center',
                     }}
                   >
-                    <Icon size={15} style={{ color: row.color }} />
+                    <Icon size={15} color={row.color} />
                   </View>
                   <View className="flex-1">
                     <Text className="text-foreground text-sm font-semibold">{row.label}</Text>

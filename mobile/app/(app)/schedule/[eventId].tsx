@@ -15,6 +15,7 @@ import {
   ArrowLeftIcon, ClockIcon, CalendarDaysIcon, BellIcon, BellOffIcon,
   CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
   CheckCircleIcon, CircleIcon, PlusIcon, Trash2Icon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -33,7 +34,7 @@ cssInterop(CircleIcon, { className: { target: 'style', nativeStyleToProp: { colo
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(Trash2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const EVENT_ICONS: Record<string, React.ComponentType<any>> = {
+const EVENT_ICONS: Record<string, LucideIcon> = {
   shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
   delivery: PackageIcon, meeting: PresentationIcon,
 };
@@ -100,11 +101,11 @@ export default function EventDetailScreen() {
         <View style={{ backgroundColor: `${color}14`, paddingTop: 4, paddingBottom: 24, paddingHorizontal: 20 }}>
           <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-white items-center justify-center mb-4 active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <ArrowLeftIcon size={18} style={{ color: '#1E1B18' }} />
+            <ArrowLeftIcon size={18} color="#1E1B18" />
           </Pressable>
           <View className="flex-row items-center gap-4">
             <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: `${color}22`, alignItems: 'center', justifyContent: 'center' }}>
-              <IconComp size={26} style={{ color }} />
+              <IconComp size={26} color={color} />
             </View>
             <View className="flex-1">
               <Text className="text-foreground text-[20px] font-bold tracking-tight">{event.title}</Text>
@@ -130,7 +131,7 @@ export default function EventDetailScreen() {
         {/* Details card */}
         <View className="mx-5 -mt-3 bg-card rounded-2xl p-4 flex-row items-center gap-4" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
           <View className="flex-row items-center gap-2 flex-1">
-            <CalendarDaysIcon size={14} style={{ color }} />
+            <CalendarDaysIcon size={14} color={color} />
             <View>
               <Text className="text-muted-foreground text-[10px] font-semibold uppercase">Date</Text>
               <Text className="text-foreground text-sm font-bold">{formatDateFull(event.event_date)}</Text>
@@ -138,7 +139,7 @@ export default function EventDetailScreen() {
           </View>
           {event.event_time && (
             <View className="flex-row items-center gap-2">
-              <ClockIcon size={14} style={{ color }} />
+              <ClockIcon size={14} color={color} />
               <View>
                 <Text className="text-muted-foreground text-[10px] font-semibold uppercase">Time</Text>
                 <Text className="text-foreground text-sm font-bold">{formatTime(event.event_time)}</Text>

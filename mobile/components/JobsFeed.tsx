@@ -165,7 +165,7 @@ function Composer() {
         className="rounded-full p-2"
         style={{ backgroundColor: '#B66A40' }}
       >
-        <PlusIcon size={16} style={{ color: '#fff' }} />
+        <PlusIcon size={16} color="#fff" />
       </View>
     </Pressable>
   );
@@ -266,7 +266,7 @@ function JobCard({ job }: { job: JobPost }) {
         )}
         {budget && (
           <View className="flex-row items-center gap-1">
-            <BanknoteIcon size={11} style={{ color: '#B66A40' }} />
+            <BanknoteIcon size={11} color="#B66A40" />
             <Text className="text-[11px] font-semibold" style={{ color: '#B66A40' }}>{budget}</Text>
           </View>
         )}

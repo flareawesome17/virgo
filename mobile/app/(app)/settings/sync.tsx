@@ -148,7 +148,7 @@ export default function SyncStorageScreen() {
           >
             <View className="flex-row items-center gap-3">
               <View className="w-11 h-11 rounded-2xl items-center justify-center" style={{ backgroundColor: '#8B5E3C18' }}>
-                <CloudIcon size={20} style={{ color: '#8B5E3C' }} />
+                <CloudIcon size={20} color="#8B5E3C" />
               </View>
               <View className="flex-1">
                 <Text className="text-foreground text-base font-bold">Cloud storage</Text>
@@ -216,7 +216,7 @@ export default function SyncStorageScreen() {
                     style={i < breakdown.byType.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
                   >
                     <View className="w-8 h-8 rounded-xl items-center justify-center" style={{ backgroundColor: `${meta.color}14` }}>
-                      <Icon size={15} style={{ color: meta.color }} />
+                      <Icon size={15} color={meta.color} />
                     </View>
                     <View className="flex-1">
                       <Text className="text-foreground text-sm font-semibold">{meta.label}</Text>
@@ -259,7 +259,7 @@ export default function SyncStorageScreen() {
                   style={i < breakdown.byAlbum.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
                 >
                   <View className="w-8 h-8 rounded-xl items-center justify-center" style={{ backgroundColor: '#B66A4014' }}>
-                    <HardDriveIcon size={15} style={{ color: '#B66A40' }} />
+                    <HardDriveIcon size={15} color="#B66A40" />
                   </View>
                   <View className="flex-1">
                     {/* A null album name means the file was uploaded before an
@@ -290,7 +290,7 @@ export default function SyncStorageScreen() {
             style={{ backgroundColor: '#C76B4A10', borderWidth: 1, borderColor: '#C76B4A33' }}
           >
             <View className="flex-row items-center gap-2">
-              <AlertTriangleIcon size={16} style={{ color: '#C76B4A' }} />
+              <AlertTriangleIcon size={16} color="#C76B4A" />
               <Text className="text-[#C76B4A] text-sm font-bold">Wipe all cloud data</Text>
             </View>
             <Text className="text-[#C76B4A] text-xs mt-2 leading-[18px]">
@@ -306,7 +306,7 @@ export default function SyncStorageScreen() {
                 className="mt-3 rounded-xl py-3 items-center flex-row justify-center gap-2 active:scale-[0.97]"
                 style={{ backgroundColor: hasFiles ? '#C76B4A' : '#C76B4A55' }}
               >
-                <Trash2Icon size={15} style={{ color: '#FFFFFF' }} />
+                <Trash2Icon size={15} color="#FFFFFF" />
                 <Text className="text-white text-sm font-bold">
                   {hasFiles
                     ? `Wipe ${fileCount} file${fileCount === 1 ? '' : 's'} (${formatBytes(storageUsedBytes)})`

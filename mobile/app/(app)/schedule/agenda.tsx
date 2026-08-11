@@ -5,6 +5,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import {
   ArrowLeftIcon, PlusIcon, CalendarDaysIcon, ClockIcon, BellIcon,
   CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -19,7 +20,7 @@ cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: 
 cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const EVENT_ICONS: Record<string, React.ComponentType<any>> = {
+const EVENT_ICONS: Record<string, LucideIcon> = {
   shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
   delivery: PackageIcon, meeting: PresentationIcon,
 };

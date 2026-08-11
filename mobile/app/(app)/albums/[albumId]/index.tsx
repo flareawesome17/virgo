@@ -436,7 +436,7 @@ export default function AlbumDetailScreen() {
           {/* Stats + Retention */}
           <View className="flex-row items-center gap-4 mt-4">
             <View className="flex-row items-center gap-1.5">
-              <LayersIcon size={12} style={{ color: wsAccent }} />
+              <LayersIcon size={12} color={wsAccent} />
               <Text className="text-foreground text-sm font-bold">{album.item_count}</Text>
               <Text className="text-muted-foreground text-xs">items</Text>
             </View>
@@ -451,7 +451,7 @@ export default function AlbumDetailScreen() {
                 backgroundColor: retention.bg,
               }}
             >
-              <ShieldIcon size={11} style={{ color: retention.color }} />
+              <ShieldIcon size={11} color={retention.color} />
               <Text style={{ color: retention.color, fontSize: 10, fontWeight: '600' }}>
                 {retentionLabel(album.retention_days)}
               </Text>

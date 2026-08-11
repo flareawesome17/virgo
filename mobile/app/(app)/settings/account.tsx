@@ -91,7 +91,7 @@ export default function AccountSettingsScreen() {
                       alignItems: 'center', justifyContent: 'center',
                     }}
                   >
-                    <Icon size={15} style={{ color: row.color }} />
+                    <Icon size={15} color={row.color} />
                   </View>
                   <Text className="text-foreground text-sm font-semibold flex-1">{row.label}</Text>
                   <Text className="text-muted-foreground text-xs" numberOfLines={1}>

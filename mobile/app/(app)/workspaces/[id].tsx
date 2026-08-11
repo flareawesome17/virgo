@@ -205,7 +205,7 @@ export default function WorkspaceDetailScreen() {
                 elevation: 2,
               }}
             >
-              <ArrowLeftIcon size={18} style={{ color: '#1E1B18' }} />
+              <ArrowLeftIcon size={18} color="#1E1B18" />
             </Pressable>
 
             {/* Icon + title */}
@@ -239,19 +239,19 @@ export default function WorkspaceDetailScreen() {
             {/* Stats row */}
             <View className="flex-row items-center gap-5 mt-5">
               <View className="flex-row items-center gap-1.5">
-                <ImageIcon size={13} style={{ color: accent }} />
+                <ImageIcon size={13} color={accent} />
                 <Text className="text-foreground text-sm font-bold">
                   {totalItems.toLocaleString()}
                 </Text>
                 <Text className="text-muted-foreground text-xs">items</Text>
               </View>
               <View className="flex-row items-center gap-1.5">
-                <LayersIcon size={13} style={{ color: accent }} />
+                <LayersIcon size={13} color={accent} />
                 <Text className="text-foreground text-sm font-bold">{albumCount}</Text>
                 <Text className="text-muted-foreground text-xs">albums</Text>
               </View>
               <View className="flex-row items-center gap-1.5">
-                <UsersIcon size={13} style={{ color: accent }} />
+                <UsersIcon size={13} color={accent} />
                 <Text className="text-foreground text-sm font-bold">
                   {workspace.collaborator_count}
                 </Text>
@@ -306,7 +306,7 @@ export default function WorkspaceDetailScreen() {
                       justifyContent: 'center',
                     }}
                   >
-                    <Icon size={15} style={{ color: accent }} />
+                    <Icon size={15} color={accent} />
                   </View>
                   <Text className="text-foreground text-sm font-semibold">{action.label}</Text>
                 </Pressable>

@@ -277,7 +277,7 @@ export default function NewJobScreen() {
           >
             {create.isPending
               ? <ActivityIndicator size="small" color="#fff" />
-              : <SendIcon size={16} style={{ color: '#fff' }} />}
+              : <SendIcon size={16} color="#fff" />}
             <Text className="text-white text-[15px] font-bold">Post it</Text>
           </Pressable>
 

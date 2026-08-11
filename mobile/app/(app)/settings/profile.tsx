@@ -9,6 +9,7 @@ import {
   ArrowLeftIcon, CameraIcon, UserIcon, MailIcon, BriefcaseIcon, PhoneIcon,
   GlobeIcon, MapPinIcon, ChevronRightIcon, CheckIcon, LockIcon, HashIcon,
   Building2Icon, AtSignIcon, HomeIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -236,7 +237,7 @@ export default function ProfileSettingsScreen() {
           <View>
             <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Email</Text>
             <View className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-              <MailIcon size={15} style={{ color: '#8B5E3C' }} />
+              <MailIcon size={15} color="#8B5E3C" />
               <Text className="text-muted-foreground text-base flex-1">{user?.email ?? ''}</Text>
             </View>
           </View>
@@ -359,7 +360,7 @@ export default function ProfileSettingsScreen() {
 function FieldRow({
   icon: IconComp, label, value, onChange, color, keyboardType, maxLength,
 }: {
-  icon: React.ComponentType<any>; label: string; value: string;
+  icon: LucideIcon; label: string; value: string;
   onChange: (v: string) => void; color: string; keyboardType?: string;
   maxLength?: number;
 }) {
@@ -373,7 +374,7 @@ function FieldRow({
         style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
       >
         <View style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: `${color}18`, alignItems: 'center', justifyContent: 'center' }}>
-          <IconComp size={13} style={{ color }} />
+          <IconComp size={13} color={color} />
         </View>
         <TextInput
           value={value}

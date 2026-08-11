@@ -93,7 +93,7 @@ function Preview({ palette }: { palette: Palette }) {
             alignItems: 'center', justifyContent: 'center',
           }}
         >
-          <FolderIcon size={16} style={{ color: palette.primary }} />
+          <FolderIcon size={16} color={palette.primary} />
         </View>
         <View style={{ flex: 1, gap: 5 }}>
           <View style={{ height: 7, width: '62%', borderRadius: 4, backgroundColor: palette.foreground, opacity: 0.75 }} />
@@ -118,7 +118,7 @@ function Preview({ palette }: { palette: Palette }) {
           gap: 8,
         }}
       >
-        <CalendarIcon size={12} style={{ color: palette.mutedForeground }} />
+        <CalendarIcon size={12} color={palette.mutedForeground} />
         <View style={{ height: 5, flex: 1, borderRadius: 3, backgroundColor: palette.mutedForeground, opacity: 0.4 }} />
       </View>
 
@@ -134,9 +134,9 @@ function Preview({ palette }: { palette: Palette }) {
           borderTopColor: palette.border,
         }}
       >
-        <FolderIcon size={14} style={{ color: palette.primary }} />
-        <CalendarIcon size={14} style={{ color: palette.mutedForeground }} />
-        <MessageCircleIcon size={14} style={{ color: palette.mutedForeground }} />
+        <FolderIcon size={14} color={palette.primary} />
+        <CalendarIcon size={14} color={palette.mutedForeground} />
+        <MessageCircleIcon size={14} color={palette.mutedForeground} />
       </View>
     </View>
   );

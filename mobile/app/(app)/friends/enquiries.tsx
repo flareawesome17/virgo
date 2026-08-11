@@ -201,7 +201,7 @@ function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
           >
             {acting === 'accept'
               ? <ActivityIndicator size="small" color="#fff" />
-              : <CheckIcon size={14} style={{ color: '#fff' }} />}
+              : <CheckIcon size={14} color="#fff" />}
             <Text className="text-white text-[13px] font-bold">Accept</Text>
           </Pressable>
           <Pressable
@@ -222,7 +222,7 @@ function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
           className="flex-row items-center gap-1.5"
           onPress={() => router.push(`/chat/${enquiry.conversationId}`)}
         >
-          <MessageCircleIcon size={13} style={{ color: '#B66A40' }} />
+          <MessageCircleIcon size={13} color="#B66A40" />
           <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
             Open chat
           </Text>

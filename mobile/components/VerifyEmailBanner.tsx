@@ -52,7 +52,7 @@ export function VerifyEmailBanner({ children }: { children: ReactNode }) {
       className="flex-row items-center gap-2.5 px-4 pb-2.5"
       style={{ paddingTop: insets.top + 8, backgroundColor: '#f59e0b1a' }}
     >
-      <MailWarningIcon size={16} style={{ color: '#f59e0b' }} />
+      <MailWarningIcon size={16} color="#f59e0b" />
       <View className="flex-1 min-w-0">
         <Text className="text-foreground text-[12px] font-bold">
           Confirm your email to finish setting up

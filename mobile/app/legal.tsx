@@ -271,7 +271,7 @@ export default function LegalScreen() {
             style={cardShadow}
           >
             <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#B66A4014', alignItems: 'center', justifyContent: 'center' }}>
-              <MailIcon size={15} style={{ color: '#B66A40' }} />
+              <MailIcon size={15} color="#B66A40" />
             </View>
             <View className="flex-1">
               <Text className="text-foreground text-sm font-semibold">

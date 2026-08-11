@@ -110,7 +110,7 @@ export default function ResetPasswordScreen() {
             className="w-20 h-20 rounded-full items-center justify-center mb-6"
             style={{ backgroundColor: '#6B8E4E18' }}
           >
-            <CheckCircleIcon size={36} style={{ color: '#6B8E4E' }} />
+            <CheckCircleIcon size={36} color="#6B8E4E" />
           </View>
           <Text className="text-foreground text-xl font-extrabold">Password changed</Text>
           <Text className="text-muted-foreground text-sm text-center mt-3 leading-relaxed">

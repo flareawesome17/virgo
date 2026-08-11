@@ -186,7 +186,7 @@ export default function ChatScreen() {
           >
             {item.isGroup ? (
               <View className="w-12 h-12 rounded-full items-center justify-center" style={{ backgroundColor: '#5B7B9A18' }}>
-                <UsersIcon size={20} style={{ color: '#5B7B9A' }} />
+                <UsersIcon size={20} color="#5B7B9A" />
               </View>
             ) : (
               // Wrapped so the presence dot has something to anchor to.

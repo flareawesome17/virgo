@@ -130,7 +130,7 @@ export function WorkspaceInvitations() {
               className="w-10 h-10 rounded-xl items-center justify-center"
               style={{ backgroundColor: '#B66A4018' }}
             >
-              <UsersIcon size={17} style={{ color: '#B66A40' }} />
+              <UsersIcon size={17} color="#B66A40" />
             </View>
 
             <View className="flex-1 min-w-0">

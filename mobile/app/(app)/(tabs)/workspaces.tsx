@@ -389,7 +389,7 @@ export default function WorkspacesScreen() {
                         gap: 3,
                       }}
                     >
-                      <WifiIcon size={9} style={{ color: '#6B8E4E' }} />
+                      <WifiIcon size={9} color="#6B8E4E" />
                       <Text style={{ color: '#6B8E4E', fontSize: 9, fontWeight: '600' }}>
                         Synced
                       </Text>

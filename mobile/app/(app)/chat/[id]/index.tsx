@@ -431,20 +431,20 @@ export default function ConversationScreen() {
   /** The tick, clock or warning next to your own message. */
   const DeliveryMark = ({ state }: { state: Delivery }) => {
     if (state === 'failed') {
-      return <AlertCircleIcon size={12} style={{ color: '#FFD4C4' }} />;
+      return <AlertCircleIcon size={12} color="#FFD4C4" />;
     }
     if (state === 'sending') {
-      return <ClockIcon size={11} style={{ color: '#FFFFFF88' }} />;
+      return <ClockIcon size={11} color="#FFFFFF88" />;
     }
     if (state === 'sent') {
-      return <CheckIcon size={12} style={{ color: '#FFFFFF88' }} />;
+      return <CheckIcon size={12} color="#FFFFFF88" />;
     }
     // Delivered and read differ by weight, not by shape — two ticks that go
     // solid, which is the convention people already read without a legend.
     return (
       <CheckCheckIcon
         size={12}
-        style={{ color: state === 'read' ? '#FFFFFF' : '#FFFFFF88' }}
+        color={state === 'read' ? '#FFFFFF' : '#FFFFFF88'}
       />
     );
   };

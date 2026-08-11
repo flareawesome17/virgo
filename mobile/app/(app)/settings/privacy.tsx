@@ -27,6 +27,7 @@ import {
   UserXIcon,
   EyeIcon,
   EyeOffIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -212,7 +213,7 @@ export default function PrivacyScreen() {
     onChange,
     last,
   }: {
-    icon: React.ComponentType<any>;
+    icon: LucideIcon;
     tint: string;
     title: string;
     detail: string;
@@ -232,7 +233,7 @@ export default function PrivacyScreen() {
           alignItems: 'center', justifyContent: 'center',
         }}
       >
-        <Icon size={15} style={{ color: tint }} />
+        <Icon size={15} color={tint} />
       </View>
       <View className="flex-1 min-w-0">
         <Text className="text-foreground text-sm font-semibold">{title}</Text>
@@ -354,7 +355,7 @@ export default function PrivacyScreen() {
               style={{ borderBottomWidth: 1, borderBottomColor: border }}
             >
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#C76B4A14', alignItems: 'center', justifyContent: 'center' }}>
-                <Trash2Icon size={15} style={{ color: '#C76B4A' }} />
+                <Trash2Icon size={15} color="#C76B4A" />
               </View>
               <View className="flex-1">
                 <Text className="text-foreground text-sm font-semibold">
@@ -372,7 +373,7 @@ export default function PrivacyScreen() {
               className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
             >
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#54433C14', alignItems: 'center', justifyContent: 'center' }}>
-                <FileTextIcon size={15} style={{ color: '#54433C' }} />
+                <FileTextIcon size={15} color="#54433C" />
               </View>
               <View className="flex-1">
                 <Text className="text-foreground text-sm font-semibold">

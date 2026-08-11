@@ -176,7 +176,7 @@ export default function ReminderDetailScreen() {
             className="flex-row items-center justify-between px-4 py-3.5 active:bg-muted/30">
             <View className="flex-row items-center gap-3">
               <View style={{ width: 30, height: 30, borderRadius: 10, backgroundColor: '#5B7B9A18', alignItems: 'center', justifyContent: 'center' }}>
-                <BellIcon size={14} style={{ color: '#5B7B9A' }} />
+                <BellIcon size={14} color="#5B7B9A" />
               </View>
               <View>
                 <Text className="text-foreground text-sm font-semibold">Push Notification</Text>

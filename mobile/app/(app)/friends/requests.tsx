@@ -90,7 +90,7 @@ export default function FriendRequestsScreen() {
                       {f.friend_email ? <Text className="text-muted-foreground text-xs mt-0.5">{f.friend_email}</Text> : null}
                     </View>
                     <Pressable onPress={() => acceptRequest(f.id, f.friend_name, f.friend_avatar_url)} className="w-10 h-10 rounded-full bg-[#6B8E4E18] items-center justify-center active:scale-[0.92]">
-                      <CheckIcon size={18} style={{ color: '#6B8E4E' }} />
+                      <CheckIcon size={18} color="#6B8E4E" />
                     </Pressable>
                     <Pressable onPress={() => declineRequest(f.id)} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
                       <XIcon size={16} className="text-muted-foreground" />
@@ -113,7 +113,7 @@ export default function FriendRequestsScreen() {
                       {f.friend_email ? <Text className="text-muted-foreground text-xs mt-0.5">{f.friend_email}</Text> : null}
                     </View>
                     <View className="bg-[#C1774520] rounded-lg px-3 py-1.5 flex-row items-center gap-1.5">
-                      <ClockIcon size={10} style={{ color: '#C17745' }} />
+                      <ClockIcon size={10} color="#C17745" />
                       <Text className="text-[#C17745] text-[11px] font-semibold">Pending</Text>
                     </View>
                   </View>

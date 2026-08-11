@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import {
   ArrowLeftIcon, PlusIcon, CalendarDaysIcon,
   CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { DAYS, formatTime, getMonthWeeks, todayKey } from '@/src/lib/calendar';
@@ -19,7 +20,7 @@ cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: 
 cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const EVENT_ICONS: Record<string, React.ComponentType<any>> = {
+const EVENT_ICONS: Record<string, LucideIcon> = {
   shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
   delivery: PackageIcon, meeting: PresentationIcon,
 };
@@ -166,7 +167,7 @@ export default function CalendarScreen() {
                     className="bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
                     style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
                     <View style={{ width: 40, height: 40, borderRadius: 14, backgroundColor: `${color}18`, alignItems: 'center', justifyContent: 'center' }}>
-                      <IconComp size={18} style={{ color }} />
+                      <IconComp size={18} color={color} />
                     </View>
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{ev.title}</Text>

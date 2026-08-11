@@ -43,7 +43,7 @@ export function LoadFailed({
         style={{ borderWidth: 1, borderColor: '#B66A40' }}
         onPress={onRetry}
       >
-        <RotateCwIcon size={14} style={{ color: '#B66A40' }} />
+        <RotateCwIcon size={14} color="#B66A40" />
         <Text className="text-[13px] font-bold" style={{ color: '#B66A40' }}>
           Try again
         </Text>

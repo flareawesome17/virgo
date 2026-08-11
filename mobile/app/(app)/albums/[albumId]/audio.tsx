@@ -313,7 +313,7 @@ export default function AudioScreen() {
                     className="w-12 h-12 rounded-xl items-center justify-center"
                     style={{ backgroundColor: '#C1774522' }}
                   >
-                    <MusicIcon size={20} style={{ color: '#C17745' }} />
+                    <MusicIcon size={20} color="#C17745" />
                   </View>
 
                   <View className="flex-1 min-w-0">

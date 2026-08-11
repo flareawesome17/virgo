@@ -18,6 +18,7 @@ import { APPLICATION_LABEL, jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, MapPinIcon,
   BanknoteIcon, SendIcon, FlagIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
@@ -295,7 +296,7 @@ export default function JobDetailScreen() {
               >
                 {apply.isPending
                   ? <ActivityIndicator size="small" color="#fff" />
-                  : <SendIcon size={16} style={{ color: '#fff' }} />}
+                  : <SendIcon size={16} color="#fff" />}
                 <Text className="text-white text-[15px] font-bold">
                   {choosing && !role ? 'Pick a role to apply' : 'Apply'}
                 </Text>
@@ -315,13 +316,13 @@ export default function JobDetailScreen() {
 function Row({
   icon: Icon, label, children,
 }: {
-  icon: React.ComponentType<any>;
+  icon: LucideIcon;
   label: string;
   children: React.ReactNode;
 }) {
   return (
     <View className="flex-row items-center gap-2.5">
-      <Icon size={14} style={{ color: '#B66A40' }} />
+      <Icon size={14} color="#B66A40" />
       <Text className="text-muted-foreground text-[12px] w-16">{label}</Text>
       <Text className="text-foreground text-[13px] font-semibold flex-1">{children}</Text>
     </View>

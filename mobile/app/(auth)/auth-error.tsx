@@ -20,7 +20,7 @@ export default function AuthErrorScreen() {
         {/* Error icon */}
         <View className="w-24 h-24 rounded-full bg-destructive/10 items-center justify-center mb-6"
           style={{ shadowColor: '#C76B4A', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: 3 }, elevation: 5 }}>
-          <AlertTriangleIcon size={40} style={{ color: '#B44A32' }} />
+          <AlertTriangleIcon size={40} color="#B44A32" />
         </View>
 
         <Text className="text-foreground text-[26px] font-extrabold tracking-tight text-center">

@@ -17,6 +17,7 @@ import {
   BellOffIcon,
   CheckCircleIcon,
   CircleIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { AttendeeSummary, EventInvitationsCard } from '@/components';
@@ -42,7 +43,7 @@ cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { col
 cssInterop(CheckCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const EVENT_ICONS: Record<string, React.ComponentType<any>> = {
+const EVENT_ICONS: Record<string, LucideIcon> = {
   shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
   delivery: PackageIcon, meeting: PresentationIcon,
 };
@@ -231,7 +232,7 @@ export default function ScheduleScreen() {
                     className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
                     style={i < selectedEvents.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
                     <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: `${color}18`, alignItems: 'center', justifyContent: 'center' }}>
-                      <IconComp size={16} style={{ color }} />
+                      <IconComp size={16} color={color} />
                     </View>
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{ev.title}</Text>

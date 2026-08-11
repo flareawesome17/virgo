@@ -115,7 +115,7 @@ export default function StorageOverviewScreen() {
                     <View className="flex-row items-center justify-between mb-1.5">
                       <View className="flex-row items-center gap-2">
                         <View style={{ width: 24, height: 24, borderRadius: 8, backgroundColor: `${meta.color}18`, alignItems: 'center', justifyContent: 'center' }}>
-                          <Icon size={12} style={{ color: meta.color }} />
+                          <Icon size={12} color={meta.color} />
                         </View>
                         <Text className="text-foreground text-sm font-semibold">{meta.label}</Text>
                       </View>
@@ -165,7 +165,7 @@ export default function StorageOverviewScreen() {
           className="mx-5 mt-6 bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
           style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
           <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: '#8B5E3C18' }}>
-            <CloudIcon size={18} style={{ color: '#8B5E3C' }} />
+            <CloudIcon size={18} color="#8B5E3C" />
           </View>
           <View className="flex-1">
             <Text className="text-foreground text-sm font-semibold">Sync & Storage</Text>

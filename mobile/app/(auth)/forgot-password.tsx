@@ -57,7 +57,7 @@ export default function ForgotPasswordScreen() {
             <View className="px-6 mt-12 items-center">
               <View className="w-20 h-20 rounded-full bg-[#6B8E4E18] items-center justify-center mb-6"
                 style={{ shadowColor: '#6B8E4E', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: 3 }, elevation: 5 }}>
-                <CheckCircleIcon size={36} style={{ color: '#6B8E4E' }} />
+                <CheckCircleIcon size={36} color="#6B8E4E" />
               </View>
               <Text className="text-foreground text-xl font-extrabold">Check Your Email</Text>
               <Text className="text-muted-foreground text-sm text-center mt-3 leading-relaxed px-4">

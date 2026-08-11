@@ -12,6 +12,7 @@ import {
   UserPlusIcon,
   UsersIcon,
   XIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { router } from 'expo-router';
@@ -36,7 +37,7 @@ cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color:
 
 /** Same mapping the schedule screens use, so an invitation looks like the
  *  event it will become once accepted. */
-const EVENT_ICONS: Record<string, React.ComponentType<any>> = {
+const EVENT_ICONS: Record<string, LucideIcon> = {
   shoot: CameraIcon,
   editing: ScissorsIcon,
   review: EyeIcon,
@@ -471,7 +472,7 @@ export function EventInvitationsCard() {
                         justifyContent: 'center',
                       }}
                     >
-                      <Icon size={17} style={{ color }} />
+                      <Icon size={17} color={color} />
                     </View>
 
                     <View className="flex-1 min-w-0">

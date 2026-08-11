@@ -236,7 +236,7 @@ export default function HireScreen() {
           >
             {send.isPending
               ? <ActivityIndicator size="small" color="#fff" />
-              : <SendIcon size={16} style={{ color: '#fff' }} />}
+              : <SendIcon size={16} color="#fff" />}
             <Text className="text-white text-[15px] font-bold">Send enquiry</Text>
           </Pressable>
 
