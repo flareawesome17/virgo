@@ -7,6 +7,8 @@ import { useTheme } from 'next-themes';
 import {
   Bell,
   BellOff,
+  Volume2,
+  VolumeX,
   CreditCard,
   ExternalLink,
   Eye,
@@ -43,6 +45,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
+import { playAlert, setSoundEnabled, soundEnabled } from '@/lib/sounds';
 import { useAuth } from '@/hooks/useAuth';
 import { useUsage } from '@/hooks/useUsage';
 import { useLocationSharing, useShareLocation, useStopSharingLocation } from '@/hooks/useNearby';
@@ -120,9 +123,14 @@ export default function SettingsPage() {
     setDeleteConfirm('');
   };
 
+  // Read in an effect, not in useState: localStorage does not exist during
+  // the server render, and reading it inline would mismatch on hydration.
+  const [sound, setSound] = useState(true);
+
   useEffect(() => {
     setMounted(true);
     setPermission(notificationPermission());
+    setSound(soundEnabled());
   }, []);
 
   const discoverable = profile?.discoverable ?? true;
@@ -264,6 +272,34 @@ export default function SettingsPage() {
                   Enable
                 </Button>
               )}
+            </SettingRow>
+
+            {/* Separate from the permission above, and deliberately so: the
+                browser's permission governs notifications you get when the tab
+                is behind others, this governs the sound you hear when you are
+                looking straight at it. Somebody in an open-plan office wants
+                the first and not the second. */}
+            <SettingRow
+              icon={sound ? Volume2 : VolumeX}
+              title="Notification sound"
+              detail={
+                sound
+                  ? 'Messages, reminders and everything else each have their own tone.'
+                  : 'Notifications arrive silently.'
+              }
+            >
+              <Switch
+                checked={sound}
+                onCheckedChange={(next) => {
+                  setSound(next);
+                  setSoundEnabled(next);
+                  // Plays the sound being switched on, because the only way to
+                  // judge a notification tone is to hear it. Nothing on switching
+                  // off, which would be a joke at the user's expense.
+                  if (next) playAlert('global');
+                }}
+                aria-label="Notification sound"
+              />
             </SettingRow>
           </CardContent>
         </Card>

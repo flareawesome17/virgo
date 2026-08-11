@@ -18,6 +18,7 @@ import {
   setTyping,
 } from '@/lib/presence-store';
 import { buzzForMessage, notifyMessage } from '@/lib/alerts';
+import { playAlert, primeSounds } from '@/lib/sounds';
 
 /** Mirrors NotificationTopic on the server. */
 type NotificationTopic =
@@ -176,6 +177,10 @@ function applyNotification(
       : undefined,
   });
 
+  // A reminder is a shoot about to start, which is a different kind of urgent
+  // from somebody asking you a question — so it gets its own sound. Told apart
+  // by ear, you know whether to look now without looking at all.
+  playAlert(event.topic === 'reminder' ? 'event' : 'global');
   buzzForMessage();
   notifyMessage({
     title: event.title,
@@ -216,6 +221,12 @@ export function useRealtime(enabled: boolean): void {
     if (!enabled || !user?.id) return;
     stopped.current = false;
 
+    // Spends the session's first click on unlocking audio, because browsers
+    // refuse to play until the user has interacted — which would otherwise
+    // silence the first notification of every session, the one most likely to
+    // matter.
+    const unprime = primeSounds();
+
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
 
@@ -237,6 +248,7 @@ export function useRealtime(enabled: boolean): void {
           const mine = event.message.sender_id === user.id;
           const looking = getOpenConversation() === event.conversationId;
           if (!mine && !looking) {
+            playAlert('chat');
             buzzForMessage();
             notifyMessage({
               title: event.message.sender_name ?? 'New message',
@@ -367,6 +379,7 @@ export function useRealtime(enabled: boolean): void {
 
     return () => {
       stopped.current = true;
+      unprime();
       registerTypingSender(null);
       resetPresence();
       document.removeEventListener('visibilitychange', onVisible);

@@ -18,6 +18,7 @@ import {
   setTyping,
 } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
+import { loadSoundPreference, playAlert } from '@/src/lib/sounds';
 
 /** Mirrors NotificationTopic on the server. */
 type NotificationTopic =
@@ -108,8 +109,13 @@ function applyNotification(
   // how the next topic added would quietly leave the list behind.
   queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
 
-  // A buzz, not a local notification: the push for this is already in flight,
-  // and posting one here would show the same thing twice.
+  // A buzz and a sound, not a local notification: the push for this is already
+  // in flight, and posting one here would show the same thing twice.
+  //
+  // A reminder is a shoot about to start, which is a different kind of urgent
+  // from somebody asking you a question — so it gets its own sound. Told apart
+  // by ear, you know whether to look now without looking at all.
+  playAlert(event.topic === 'reminder' ? 'event' : 'global');
   void buzzForMessage();
 }
 
@@ -143,6 +149,11 @@ export function useRealtime(enabled: boolean): void {
     if (!enabled || !user?.id) return;
     stopped.current = false;
 
+    // Read once, here, rather than on each frame: playAlert is called from the
+    // socket handler and cannot await storage without putting the sound behind
+    // the message it announces.
+    void loadSoundPreference();
+
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
 
@@ -165,7 +176,10 @@ export function useRealtime(enabled: boolean): void {
           const looking = getOpenConversation() === event.conversationId;
           // The push notification covers a backgrounded app; this is the
           // foreground case, where no system notification is produced.
-          if (!mine && !looking) void buzzForMessage();
+          if (!mine && !looking) {
+            playAlert('chat');
+            void buzzForMessage();
+          }
           break;
         }
         case 'message-deleted':

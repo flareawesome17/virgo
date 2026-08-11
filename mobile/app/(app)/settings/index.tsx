@@ -61,9 +61,9 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
       {
         icon: BellIcon,
         label: 'Notifications',
-        detail: 'Which alerts reach you',
+        detail: 'Sounds for messages, events and everything else',
+        route: '/settings/notifications',
         color: '#B66A40',
-        soon: true,
       },
     ],
   },
