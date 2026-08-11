@@ -1,6 +1,11 @@
 import { api } from '../client';
 import { clearTokens, getRefreshToken, setTokens } from '../tokens';
-import type { AuthResult, AuthUser, UpdateProfileInput } from '../types';
+import type {
+  AuthResult,
+  AuthUser,
+  RegisterResult,
+  UpdateProfileInput,
+} from '../types';
 
 export interface Credentials {
   email: string;
@@ -48,13 +53,21 @@ export interface SignupProfile {
 }
 
 export const authApi = {
-  async register(credentials: Credentials & SignupProfile): Promise<AuthResult> {
-    const result = await api.post<AuthResult>('/auth/register', {
+  /**
+   * Creates the account. Does NOT sign in.
+   *
+   * No tokens come back and none are stored: the address has to be confirmed
+   * first, and `login` refuses an unverified account. Registering used to
+   * return a session, which meant the verification link was decorative —
+   * anybody could use the app by typing an address they did not own.
+   */
+  async register(
+    credentials: Credentials & SignupProfile,
+  ): Promise<RegisterResult> {
+    return api.post<RegisterResult>('/auth/register', {
       body: credentials,
       anonymous: true,
     });
-    await setTokens(result.accessToken, result.refreshToken);
-    return result;
   },
 
   /** The roles a sign-up may choose from, as the server defines them. */

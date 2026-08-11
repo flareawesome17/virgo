@@ -29,6 +29,17 @@ export interface AuthResult extends AuthTokens {
   user: PublicUser;
 }
 
+/**
+ * What registering returns: an account, and no way into it yet.
+ *
+ * Separate from AuthResult precisely because it carries no tokens — the type
+ * is what stops a caller quietly going back to signing people in on signup.
+ */
+export interface RegisterResult {
+  user: PublicUser;
+  verificationRequired: true;
+}
+
 export interface JwtPayload {
   sub: string;
   email: string;
@@ -167,7 +178,7 @@ export class AuthService {
     displayName?: string,
     roles: string[] = [],
     details: SignupDetails = {},
-  ): Promise<AuthResult> {
+  ): Promise<RegisterResult> {
     const normalized = this.normalizeEmail(email);
 
     const existing = await this.users.findByEmail(normalized);
@@ -191,7 +202,21 @@ export class AuthService {
       details,
     );
 
-    return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
+    /*
+     * No tokens. Registering is not signing in.
+     *
+     * This used to return a full session, so a new account was signed in
+     * before anybody had opened the email — which made the verification link
+     * decorative. `login` has always refused an unverified account, so the
+     * only route in without proving the address was to register, and the only
+     * thing that ended that session was its own expiry.
+     *
+     * It matters more than it reads: anything that rewards an account — a
+     * referral bonus, a promo grant, free quota — is farmable at the price of
+     * typing an address you do not own. Owning the mailbox is the one step
+     * that costs an attacker something per account.
+     */
+    return { user: toPublicUser(user), verificationRequired: true as const };
   }
 
   /**

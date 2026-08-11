@@ -153,7 +153,10 @@ export function useAuth() {
       }
     },
     onSuccess: (result) => {
-      queryClient.setQueryData(queryKeys.auth.session, result.user);
+      // No session to seed: registering no longer signs anybody in. The form
+      // sends them to check their inbox, and they sign in once the address is
+      // confirmed.
+      //
       // The number that matters most for a pre-release: did anybody finish.
       track('signed_up', { roles: result.user.roles?.length ?? 0 });
     },

@@ -126,7 +126,11 @@ export function SignUpWizard() {
         socialHandle: socialHandle.trim() || undefined,
       },
       {
-        onSuccess: () => router.replace(next),
+        // Not into the app: registering no longer signs anybody in. The
+        // address goes along so the next screen can name it and offer to send
+        // the link again.
+        onSuccess: () =>
+          router.replace(`/check-inbox?email=${encodeURIComponent(email.trim())}`),
         onError: (err: Error) => {
           setError(err.message);
           // A duplicate email or a rejected password belongs to step one, and

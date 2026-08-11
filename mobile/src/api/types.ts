@@ -220,6 +220,18 @@ export interface UpdateProfileInput {
   socialHandle?: string | null;
 }
 
+/**
+ * What registering returns: an account, and no session.
+ *
+ * Deliberately not AuthResult. Registering does not sign anybody in — the
+ * address has to be confirmed first — and a separate type is what stops a
+ * caller reaching for tokens that are not there.
+ */
+export interface RegisterResult {
+  user: AuthUser;
+  verificationRequired: true;
+}
+
 export interface AuthResult {
   user: AuthUser;
   accessToken: string;

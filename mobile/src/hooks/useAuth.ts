@@ -178,9 +178,9 @@ export function useAuth() {
         throw toAuthError(err);
       }
     },
-    onSuccess: (result) => {
-      queryClient.setQueryData(queryKeys.auth.session, result.user);
-    },
+    // No session to seed: registering no longer signs anybody in. The
+    // screen sends them to check their inbox, and they sign in after
+    // confirming the address.
   });
 
   const updateProfile = useMutation({
