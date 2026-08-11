@@ -174,12 +174,16 @@ export function useRealtime(enabled: boolean): void {
 
           const mine = event.message.sender_id === user.id;
           const looking = getOpenConversation() === event.conversationId;
+          // Sound whenever somebody else writes, including while their thread
+          // is open. It sat inside the `!looking` guard below and was silent
+          // for exactly the case people test first — sitting in a chat waiting
+          // for a reply. Still nothing for your own message: you know you sent
+          // it.
+          if (!mine) playAlert('chat');
+
           // The push notification covers a backgrounded app; this is the
           // foreground case, where no system notification is produced.
-          if (!mine && !looking) {
-            playAlert('chat');
-            void buzzForMessage();
-          }
+          if (!mine && !looking) void buzzForMessage();
           break;
         }
         case 'message-deleted':

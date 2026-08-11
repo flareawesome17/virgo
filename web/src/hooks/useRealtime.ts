@@ -247,8 +247,16 @@ export function useRealtime(enabled: boolean): void {
 
           const mine = event.message.sender_id === user.id;
           const looking = getOpenConversation() === event.conversationId;
+
+          // Sound whenever somebody else writes, including while their thread
+          // is open. It sat inside the `!looking` guard below and was silent
+          // for exactly the case people test first — sitting in a chat waiting
+          // for a reply. A banner for a message you are reading is noise; a
+          // sound for one is how you know it landed without watching for it.
+          // Still nothing for your own message: you know you sent it.
+          if (!mine) playAlert('chat');
+
           if (!mine && !looking) {
-            playAlert('chat');
             buzzForMessage();
             notifyMessage({
               title: event.message.sender_name ?? 'New message',
