@@ -9,7 +9,12 @@
 
 import { clearReminderNotifications } from '@/src/lib/notifications';
 import { useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useIsRestoring,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {
   ApiError,
   clearTokens,
@@ -94,6 +99,9 @@ function toAuthError(err: unknown): AuthError {
 
 export function useAuth() {
   const queryClient = useQueryClient();
+  // True while the persisted cache is being read off disk. Safe without a
+  // PersistQueryClientProvider — it simply reports false.
+  const isRestoring = useIsRestoring();
 
   // A 401 that survives a refresh attempt means the session is unrecoverable.
   // Handling it centrally flips the app to the signed-out UI once, instead of
@@ -237,7 +245,21 @@ export function useAuth() {
     /** Kept for shape compatibility; there is no session object now. */
     session: authUser ? { user: authUser } : null,
     isAuthenticated: !!authUser,
-    isLoading: sessionQuery.isLoading,
+    /*
+     * Restoring counts as loading, and leaving it out was the sign-in flash.
+     *
+     * The persisted cache is read from AsyncStorage on launch, and while that
+     * is happening React Query holds every query paused. A paused query is
+     * pending but not fetching, and v5's `isLoading` is exactly
+     * `isPending && isFetching` — so it reported false with no session data
+     * yet. Every guard read that as "resolved, and signed out", showed the
+     * welcome screen, and corrected itself a moment later once the restore
+     * finished and the session actually loaded.
+     *
+     * Web has no persister and so never had this window, which is why it only
+     * ever showed on a phone.
+     */
+    isLoading: (isRestoring || sessionQuery.isPending) && !sessionQuery.isError,
     /**
      * True when the session could not be resolved for a reason other than a
      * 401 — almost always the network. Distinct from "signed out": the guard
