@@ -80,15 +80,46 @@ export function startAnalytics(): void {
     // render UI in a product it is only supposed to be counting.
     disable_surveys: true,
     /*
-     * Unhandled errors and rejected promises.
+     * Off, and replaced by the listeners below.
      *
-     * The other half of flying blind: without this, somebody hits a crash and
-     * leaves, and the only trace is that they stopped appearing. It sends the
-     * message, the stack and the URL — not the page's contents, which is the
-     * line that matters given what autocapture and recording were turned off
-     * for.
+     * PostHog's own exception autocapture is gated by a project setting
+     * (`errorTracking.autocaptureExceptions`) that arrives in remote config.
+     * Ours read false with the client asking for it and no toggle for it
+     * anywhere in the project's Autocapture settings, so the feature was
+     * silently doing nothing and there was no way from here to tell whether
+     * it ever would.
+     *
+     * Reporting an error is not worth a dependency on a switch in somebody
+     * else's dashboard. Two listeners and an explicit `captureException` —
+     * the same call the error boundaries make, which nothing gates — does the
+     * job and is visible in this file.
      */
-    capture_exceptions: true,
+    capture_exceptions: false,
+  });
+
+  listenForErrors();
+}
+
+/**
+ * Reports what reaches `window`.
+ *
+ * The two events that matter: a thrown error nothing caught, and a rejected
+ * promise nobody handled. React render errors never get here — they go to the
+ * nearest boundary, which reports them itself.
+ *
+ * Nothing is read off the page. The message, the stack and the URL are what
+ * PostHog gets, and they come from the error object rather than the DOM.
+ */
+function listenForErrors(): void {
+  window.addEventListener('error', (event) => {
+    // `event.error` is absent for cross-origin script errors, where the
+    // message is the useless "Script error." — reported anyway, because a
+    // burst of them is itself worth seeing.
+    captureError(event.error ?? new Error(event.message || 'Unknown error'), 'window');
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    captureError(event.reason, 'unhandled-rejection');
   });
 }
 
@@ -159,10 +190,29 @@ export function identify(userId: string): void {
  */
 export function captureError(error: unknown, where: string): void {
   if (!started) return;
-  posthog.captureException(
-    error instanceof Error ? error : new Error(String(error)),
-    { where },
-  );
+
+  const e = error instanceof Error ? error : new Error(String(error));
+
+  /*
+   * A plain capture, not `posthog.captureException`.
+   *
+   * That helper produced nothing at all while the project's
+   * `errorTracking.autocaptureExceptions` was false — no request on any
+   * transport — so every error this app caught was being dropped on the floor
+   * silently, boundaries included. `capture` is the path the pageviews and
+   * the funnel events already go down, and it works today.
+   *
+   * `$exception` with these property names is what PostHog's error tracking
+   * reads, so enabling the product later picks these up rather than starting
+   * a second, parallel history.
+   */
+  posthog.capture('$exception', {
+    $exception_message: e.message,
+    $exception_type: e.name,
+    $exception_stack_trace_raw: e.stack,
+    $exception_source: window.location.href,
+    where,
+  });
 }
 
 /** Signing out ends the identity, so the next person on this browser is not them. */
