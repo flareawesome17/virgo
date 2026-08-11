@@ -1,9 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Copy, Gift, Loader2, Share2 } from 'lucide-react';
+import { Check, Copy, Gift, Loader2, PartyPopper, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { expiryLabel, rewardLabel, type OfferedPromo } from '@/api';
+import {
+  expiryLabel,
+  rewardLabel,
+  storageLabel,
+  type ClaimedPromo,
+  type OfferedPromo,
+} from '@/api';
 import { AppShell, PageHeader } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import {
@@ -13,17 +19,27 @@ import {
 } from '@/hooks/usePromos';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
-function OfferCard({ offer }: { offer: OfferedPromo }) {
+function OfferCard({
+  offer,
+  onClaimed,
+}: {
+  offer: OfferedPromo;
+  onClaimed: (result: ClaimedPromo) => void;
+}) {
   const claim = useClaimPromo();
   const expiry = expiryLabel(offer.expiresAt);
 
   const take = async () => {
     try {
-      const result = await claim.mutateAsync(offer.grantId);
-      toast.success('Claimed', {
-        description: `${result.reward} has been added to your account.`,
-      });
+      onClaimed(await claim.mutateAsync(offer.grantId));
     } catch (err) {
       toast.error('Could not claim that', {
         description:
@@ -76,6 +92,73 @@ function OfferCard({ offer }: { offer: OfferedPromo }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The moment after claiming.
+ *
+ * A toast was not enough. A promo *adds* to what the plan already gives, and
+ * the one thing somebody wants confirmed is the new total — "15 GB" on its own
+ * leaves them wondering whether it replaced their allowance. So the new
+ * ceilings are stated outright, next to what was just won.
+ */
+function ClaimedDialog({
+  result,
+  onClose,
+}: {
+  result: ClaimedPromo | null;
+  onClose: () => void;
+}) {
+  const totals = [
+    result?.limits.storageBytes != null && {
+      label: 'Storage',
+      value: storageLabel(result.limits.storageBytes),
+    },
+    result?.limits.workspaces != null && {
+      label: 'Workspaces',
+      value: `${result.limits.workspaces}`,
+    },
+    result?.limits.albumsPerWorkspace != null && {
+      label: 'Albums each',
+      value: `${result.limits.albumsPerWorkspace}`,
+    },
+  ].filter(Boolean) as { label: string; value: string }[];
+
+  return (
+    <Dialog open={!!result} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-sm text-center">
+        <DialogHeader className="items-center">
+          <div className="mx-auto grid size-16 place-items-center rounded-2xl bg-primary/10">
+            <PartyPopper className="size-8 text-primary" />
+          </div>
+          <DialogTitle className="mt-4 text-xl">You got it!</DialogTitle>
+          <DialogDescription className="text-balance">
+            {result?.reward} has been added to your account.
+          </DialogDescription>
+        </DialogHeader>
+
+        {totals.length > 0 && (
+          <div className="mt-2 rounded-xl border bg-muted/40 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Your account now has
+            </p>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {totals.map((t) => (
+                <div key={t.label}>
+                  <p className="text-lg font-bold tabular-nums">{t.value}</p>
+                  <p className="text-[11px] text-muted-foreground">{t.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Button className="mt-2 w-full" onClick={onClose}>
+          Nice
+        </Button>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -139,6 +222,7 @@ function ReferralCard() {
  */
 export default function RewardsPage() {
   const { offers, isLoading, loadFailed, refetch } = usePromoOffers();
+  const [claimed, setClaimed] = useState<ClaimedPromo | null>(null);
 
   return (
     <AppShell title="Rewards">
@@ -178,7 +262,11 @@ export default function RewardsPage() {
               </div>
             ) : (
               offers.map((offer) => (
-                <OfferCard key={offer.grantId} offer={offer} />
+                <OfferCard
+                  key={offer.grantId}
+                  offer={offer}
+                  onClaimed={setClaimed}
+                />
               ))
             )}
 
@@ -186,6 +274,8 @@ export default function RewardsPage() {
           </>
         )}
       </div>
+
+      <ClaimedDialog result={claimed} onClose={() => setClaimed(null)} />
     </AppShell>
   );
 }

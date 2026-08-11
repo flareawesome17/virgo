@@ -29,6 +29,19 @@ export interface ClaimedPromo {
   claimed: true;
   /** "5 GB of storage and 2 extra workspaces", ready to show. */
   reward: string;
+  /**
+   * The account's totals *after* claiming. null means unlimited.
+   *
+   * Sent so the congratulation can say "your storage is now 30 GB" instead of
+   * only naming the reward. A promo adds to what the plan already gives, and
+   * without the new total somebody has to do that sum themselves — or wonder
+   * whether it replaced their allowance rather than adding to it.
+   */
+  limits: {
+    storageBytes: number | null;
+    workspaces: number | null;
+    albumsPerWorkspace: number | null;
+  };
 }
 
 export const promosApi = {

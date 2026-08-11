@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,11 +12,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Stack } from 'expo-router';
-import { CheckIcon, CopyIcon, GiftIcon, Share2Icon } from 'lucide-react-native';
+import {
+  CheckIcon,
+  CopyIcon,
+  GiftIcon,
+  PartyPopperIcon,
+  Share2Icon,
+} from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   expiryLabel,
   rewardLabel,
+  storageLabel,
+  type ClaimedPromo,
   type OfferedPromo,
 } from '@/src/api';
 import {
@@ -29,17 +38,22 @@ const interop = { className: { target: 'style', nativeStyleToProp: { color: true
 cssInterop(CheckIcon, interop);
 cssInterop(CopyIcon, interop);
 cssInterop(GiftIcon, interop);
+cssInterop(PartyPopperIcon, interop);
 cssInterop(Share2Icon, interop);
 
-function OfferCard({ offer }: { offer: OfferedPromo }) {
+function OfferCard({
+  offer,
+  onClaimed,
+}: {
+  offer: OfferedPromo;
+  onClaimed: (result: ClaimedPromo) => void;
+}) {
   const claim = useClaimPromo();
   const expiry = expiryLabel(offer.expiresAt);
 
   const take = () => {
     claim.mutate(offer.grantId, {
-      onSuccess: (result) => {
-        Alert.alert('Claimed', `${result.reward} has been added to your account.`);
-      },
+      onSuccess: onClaimed,
       onError: () => {
         Alert.alert(
           'Could not claim that',
@@ -96,6 +110,90 @@ function OfferCard({ offer }: { offer: OfferedPromo }) {
         </View>
       </View>
     </View>
+  );
+}
+
+/**
+ * The moment after claiming.
+ *
+ * A system Alert was not enough. A promo *adds* to what the plan already
+ * gives, and the one thing somebody wants confirmed is the new total — "15 GB"
+ * on its own leaves them wondering whether it replaced their allowance. So the
+ * new ceilings are stated outright, next to what was just won.
+ */
+function ClaimedModal({
+  result,
+  onClose,
+}: {
+  result: ClaimedPromo | null;
+  onClose: () => void;
+}) {
+  const totals = [
+    result?.limits.storageBytes != null && {
+      label: 'Storage',
+      value: storageLabel(result.limits.storageBytes),
+    },
+    result?.limits.workspaces != null && {
+      label: 'Workspaces',
+      value: `${result.limits.workspaces}`,
+    },
+    result?.limits.albumsPerWorkspace != null && {
+      label: 'Albums each',
+      value: `${result.limits.albumsPerWorkspace}`,
+    },
+  ].filter(Boolean) as { label: string; value: string }[];
+
+  return (
+    <Modal
+      visible={!!result}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View className="flex-1 items-center justify-center bg-black/60 px-8">
+        <View className="w-full rounded-3xl bg-card p-6">
+          <View className="items-center">
+            <View className="size-16 items-center justify-center rounded-2xl bg-primary/10">
+              <PartyPopperIcon size={32} className="text-primary" />
+            </View>
+            <Text className="mt-4 text-[20px] font-extrabold text-foreground">
+              You got it!
+            </Text>
+            <Text className="mt-2 text-center text-[13px] leading-5 text-muted-foreground">
+              {result?.reward} has been added to your account.
+            </Text>
+          </View>
+
+          {totals.length > 0 && (
+            <View className="mt-5 rounded-2xl border border-border bg-muted/40 p-4">
+              <Text className="text-[11px] font-bold uppercase tracking-[1.5px] text-muted-foreground">
+                Your account now has
+              </Text>
+              <View className="mt-3 flex-row">
+                {totals.map((t) => (
+                  <View key={t.label} className="flex-1">
+                    <Text className="text-[17px] font-extrabold text-foreground">
+                      {t.value}
+                    </Text>
+                    <Text className="text-[11px] text-muted-foreground">
+                      {t.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <Pressable
+            onPress={onClose}
+            className="mt-5 items-center rounded-xl py-3"
+            style={{ backgroundColor: '#B66A40' }}
+          >
+            <Text className="text-[15px] font-bold text-white">Nice</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -171,6 +269,7 @@ function ReferralCard() {
 export default function RewardsScreen() {
   const { offers, isLoading, loadFailed, refetch, isRefetching } =
     usePromoOffers();
+  const [claimed, setClaimed] = useState<ClaimedPromo | null>(null);
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
@@ -205,13 +304,19 @@ export default function RewardsScreen() {
             </View>
           ) : (
             offers.map((offer) => (
-              <OfferCard key={offer.grantId} offer={offer} />
+              <OfferCard
+                key={offer.grantId}
+                offer={offer}
+                onClaimed={setClaimed}
+              />
             ))
           )}
 
           <ReferralCard />
         </ScrollView>
       )}
+
+      <ClaimedModal result={claimed} onClose={() => setClaimed(null)} />
     </SafeAreaView>
   );
 }

@@ -7,6 +7,7 @@ import {
 import { randomBytes } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
 import { NotifyService } from '../notifications/notify.service';
+import { QuotaService } from '../quota/quota.service';
 
 export type PromoKind = 'targeted' | 'referral';
 
@@ -38,6 +39,19 @@ export interface OfferedPromo extends PromoReward {
   expiresAt: string | null;
   /** Who joining earned this, for a referral. */
   referredName: string | null;
+}
+
+/** What claiming gives back: what was won, and what the account now has. */
+export interface ClaimResult {
+  claimed: true;
+  /** "15 GB of storage and 1 extra workspace". */
+  reward: string;
+  /** The account's totals *after* the claim. null means unlimited. */
+  limits: {
+    storageBytes: number | null;
+    workspaces: number | null;
+    albumsPerWorkspace: number | null;
+  };
 }
 
 /** One grant, as the console lists them. */
@@ -82,6 +96,12 @@ export class PromosService {
   constructor(
     private readonly db: DatabaseService,
     private readonly notify: NotifyService,
+    /**
+     * Only to read back the new totals after a claim. No cycle: QuotaService
+     * sums claimed grants with its own query rather than calling back in here,
+     * and QuotaModule is @Global so nothing has to import it.
+     */
+    private readonly quota: QuotaService,
   ) {}
 
   private present(row: PromoRow): Promo {
@@ -358,7 +378,7 @@ export class PromosService {
    * two taps, or somebody else's grant id all fall through to the same
    * "nothing to claim" rather than paying out twice.
    */
-  async claim(userId: string, grantId: string): Promise<{ claimed: true; reward: string }> {
+  async claim(userId: string, grantId: string): Promise<ClaimResult> {
     const row = await this.db.queryOne<{ promo_id: string }>(
       `update promo_grants
           set claimed_at = now()
@@ -379,7 +399,33 @@ export class PromosService {
       'select * from promos where id = $1',
       [row.promo_id],
     );
-    return { claimed: true, reward: this.rewardLabel(this.present(promo!)) };
+
+    /*
+     * The new totals, read back after the claim.
+     *
+     * So the congratulation can say "your storage is now 30 GB" rather than
+     * only "you got 15 GB". A promo adds to what the plan already gives, and
+     * naming the reward alone leaves somebody to do that sum themselves — or
+     * to wonder whether it replaced their allowance instead of adding to it.
+     */
+    const limits = await this.limitsFor(userId);
+
+    return {
+      claimed: true,
+      reward: this.rewardLabel(this.present(promo!)),
+      limits,
+    };
+  }
+
+  /** The account's limits as JSON — Infinity is not representable, so null. */
+  private async limitsFor(userId: string): Promise<ClaimResult['limits']> {
+    const limits = await this.quota.limits(userId);
+    const finite = (n: number) => (Number.isFinite(n) ? n : null);
+    return {
+      storageBytes: finite(limits.storageBytes),
+      workspaces: finite(limits.workspaces),
+      albumsPerWorkspace: finite(limits.albumsPerWorkspace),
+    };
   }
 
   // ─── referrals ────────────────────────────────────────────────────────────
