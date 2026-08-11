@@ -156,7 +156,9 @@ export {
 export {
   chatApi,
   type Conversation,
-  // Not 'ChatMessage' — the AI proxy in services.ts already owns that name.
+  // Not 'ChatMessage': the AI proxy that owned that name was removed with
+  // the services module. Renaming it now would touch every chat screen on
+  // both clients for no gain, so the name stands.
   type ConversationMessage,
   type JobAcceptedContext,
   type Participant,
