@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { AppShell } from '@/components/app-shell';
 
 const STATUS_LABEL: Record<string, string> = {
   open: 'Open',
@@ -43,6 +44,7 @@ export default function SupportPage() {
   }
 
   return (
+    <AppShell title="Support">
     <div className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -116,6 +118,7 @@ export default function SupportPage() {
         </div>
       )}
     </div>
+    </AppShell>
   );
 }
 
@@ -178,6 +181,7 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const [body, setBody] = useState('');
 
   return (
+    <AppShell title="Support">
     <div className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
       <button
         onClick={onBack}
@@ -251,5 +255,6 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
         </>
       )}
     </div>
+    </AppShell>
   );
 }

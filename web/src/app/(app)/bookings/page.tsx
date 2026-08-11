@@ -19,7 +19,7 @@ export default function BookingsPage() {
   const { bookings, isLoading, loadFailed, refetch } = useBookings();
 
   return (
-    <AppShell>
+    <AppShell title="Bookings">
       <PageHeader
         title="Bookings"
         description="What you and the other person agreed"

@@ -748,7 +748,7 @@ function MyJobs() {
   }, [tab, unseen, markJobsSeen]);
 
   return (
-    <AppShell>
+    <AppShell title="Jobs">
       <PageHeader
         title="Jobs"
         description="Find work, and manage what you have posted"

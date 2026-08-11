@@ -7,8 +7,46 @@
  * are best-effort and none of them are load-bearing.
  */
 
-/** Set while the tab is showing an unread count, so it can be put back. */
-let baseTitle: string | null = null;
+/*
+ * The tab title, which two things want to write at once: the page you are on,
+ * and how many messages are waiting.
+ *
+ * Both are held here and composed by one function, because the alternative was
+ * tried and broke. Reading the existing title to find the "base" captured
+ * whatever happened to be there the first time a count arrived — the sign-in
+ * page — and every screen after that read "(3) Sign in · Virgo" no matter
+ * where you actually were.
+ *
+ * Matches the template in the root layout's metadata, so a client-rendered
+ * title is indistinguishable from a server-rendered one.
+ */
+const SUFFIX = 'Virgo';
+
+let pageTitle: string | null = null;
+let unreadCount = 0;
+
+function renderTitle(): void {
+  if (typeof document === 'undefined') return;
+  const base = pageTitle ? `${pageTitle} · ${SUFFIX}` : SUFFIX;
+  document.title =
+    unreadCount > 0
+      ? `(${unreadCount > 99 ? '99+' : unreadCount}) ${base}`
+      : base;
+}
+
+/**
+ * Names the page you are on.
+ *
+ * Called by the app shell from the title it already shows in the mobile
+ * header, so a route names itself once and both places agree. Signed-in pages
+ * are client components, and Next's `metadata` export is Server Components
+ * only, so this is the way a title follows the route without restructuring
+ * every page around a server wrapper.
+ */
+export function setPageTitle(title: string | null): void {
+  pageTitle = title?.trim() || null;
+  renderTitle();
+}
 
 /**
  * Puts an unread count in front of the page title.
@@ -17,9 +55,8 @@ let baseTitle: string | null = null;
  * is visible from a tab the user is not looking at, which is the whole point.
  */
 export function setUnreadTitle(count: number): void {
-  if (typeof document === 'undefined') return;
-  baseTitle ??= document.title.replace(/^\(\d+\+?\)\s*/, '');
-  document.title = count > 0 ? `(${count > 99 ? '99+' : count}) ${baseTitle}` : baseTitle;
+  unreadCount = Math.max(0, count);
+  renderTitle();
 }
 
 /** True once the user has allowed OS notifications for this origin. */

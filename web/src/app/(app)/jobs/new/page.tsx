@@ -117,7 +117,7 @@ export default function NewJobPage() {
   };
 
   return (
-    <AppShell>
+    <AppShell title="Post a job">
       <div className="mx-auto w-full max-w-2xl px-6 py-6">
         <Button
           variant="ghost"

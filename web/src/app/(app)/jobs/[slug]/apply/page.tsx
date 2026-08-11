@@ -44,11 +44,11 @@ export default function ApplyPage({
   const apply = useApplyToJob();
   const [role, setRole] = useState<string | null>(null);
 
-  if (job.isLoading) return <AppShell><CenteredSpinner /></AppShell>;
+  if (job.isLoading) return <AppShell title="Apply"><CenteredSpinner /></AppShell>;
 
   if (job.isError || !job.data) {
     return (
-      <AppShell>
+      <AppShell title="Apply">
         <EmptyState
           icon={BriefcaseBusiness}
           title="Job not found"
@@ -65,7 +65,7 @@ export default function ApplyPage({
   // post. Say so before the form rather than after the submit.
   if (post.isMine) {
     return (
-      <AppShell>
+      <AppShell title="Apply">
         <EmptyState
           icon={BriefcaseBusiness}
           title="This is your own post"
@@ -83,7 +83,7 @@ export default function ApplyPage({
   // offering a form whose only outcome is a 409.
   if (left.length === 0) {
     return (
-      <AppShell>
+      <AppShell title="Apply">
         <EmptyState
           icon={BriefcaseBusiness}
           title="You have applied for every role on this job"
@@ -122,7 +122,7 @@ export default function ApplyPage({
   };
 
   return (
-    <AppShell>
+    <AppShell title="Apply">
       <div className="mx-auto w-full max-w-2xl px-6 py-6">
         <Button
           variant="ghost"

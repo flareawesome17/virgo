@@ -54,11 +54,11 @@ export default function AppProfilePage({
     retry: false,
   });
 
-  if (profile.isLoading) return <AppShell><CenteredSpinner /></AppShell>;
+  if (profile.isLoading) return <AppShell title="Profile"><CenteredSpinner /></AppShell>;
 
   if (profile.isError || !profile.data) {
     return (
-      <AppShell>
+      <AppShell title="Profile">
         <EmptyState
           icon={UserSearch}
           title="Profile not found"
@@ -92,7 +92,7 @@ export default function AppProfilePage({
   };
 
   return (
-    <AppShell>
+    <AppShell title={profile.data.displayName ?? "Profile"}>
       <div className="mx-auto w-full max-w-4xl px-6 py-6">
         <Button
           variant="ghost"

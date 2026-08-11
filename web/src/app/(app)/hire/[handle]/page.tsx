@@ -45,11 +45,11 @@ export default function HirePage({
   const [eventDate, setEventDate] = useState('');
   const [budget, setBudget] = useState('');
 
-  if (profile.isLoading) return <AppShell><CenteredSpinner /></AppShell>;
+  if (profile.isLoading) return <AppShell title="Hire"><CenteredSpinner /></AppShell>;
 
   if (profile.isError || !profile.data) {
     return (
-      <AppShell>
+      <AppShell title="Hire">
         <EmptyState
           icon={UserSearch}
           title="Profile not found"
@@ -86,7 +86,7 @@ export default function HirePage({
   };
 
   return (
-    <AppShell>
+    <AppShell title={`Hire ${profile.data.displayName ?? ""}`.trim()}>
       <div className="mx-auto w-full max-w-2xl px-6 py-6">
         <Button
           variant="ghost"

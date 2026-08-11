@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { useState, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import {
   BriefcaseBusiness,
   FileText,
@@ -42,6 +42,7 @@ import { useUnseenJobs } from '@/hooks/useJobs';
 import { NotificationBell } from '@/components/notification-bell';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
+import { setPageTitle } from '@/lib/alerts';
 
 interface NavItem {
   href: string;
@@ -278,12 +279,25 @@ export function AppShell({
   title,
   actions,
 }: {
-  children: ReactNode;
-  /** Shown in the mobile header, where the sidebar is hidden. */
+  /**
+   * Shown in the mobile header, where the sidebar is hidden, and used as the
+   * browser tab title.
+   *
+   * One prop for both so a route cannot name itself two different things.
+   * Every signed-in page is a client component, and Next's `metadata` export
+   * is Server Components only, so the tab title has to be set from here.
+   */
   title?: string;
+  children: ReactNode;
   actions?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+
+  // Not cleared on unmount: navigating replaces one shell with another, and
+  // resetting on the way out flashes a bare "Virgo" between the two.
+  useEffect(() => {
+    setPageTitle(title ?? null);
+  }, [title]);
 
   return (
     // data-app-shell is what globals.css keys `body { overflow: hidden }` off.

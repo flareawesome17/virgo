@@ -102,11 +102,11 @@ export default function JobPage({
   const conversationId =
     applications.find((a) => a.postSlug === slug)?.conversationId ?? null;
 
-  if (job.isLoading) return <AppShell><CenteredSpinner /></AppShell>;
+  if (job.isLoading) return <AppShell title="Job"><CenteredSpinner /></AppShell>;
 
   if (job.isError || !job.data) {
     return (
-      <AppShell>
+      <AppShell title="Job">
         <EmptyState
           icon={BriefcaseBusiness}
           title="Job not found"
@@ -147,7 +147,7 @@ export default function JobPage({
   };
 
   return (
-    <AppShell>
+    <AppShell title={job.data.title}>
       <div className="mx-auto w-full max-w-3xl px-6 py-6">
         <Button
           variant="ghost"

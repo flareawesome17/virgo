@@ -41,7 +41,7 @@ export default function BookingPage({
 
   if (isLoading) {
     return (
-      <AppShell>
+      <AppShell title="Booking">
         <CenteredSpinner />
       </AppShell>
     );
@@ -49,7 +49,7 @@ export default function BookingPage({
 
   if (loadFailed || !booking) {
     return (
-      <AppShell>
+      <AppShell title="Booking">
         <div className="mx-auto w-full max-w-3xl px-6 py-6">
           <p className="py-16 text-center text-sm text-muted-foreground">
             That booking is not available.
@@ -60,7 +60,7 @@ export default function BookingPage({
   }
 
   return (
-    <AppShell>
+    <AppShell title="Booking">
       {/*
         The same container every other page in the app has, and this one did
         not: it rendered straight into the shell, so the back link sat against
