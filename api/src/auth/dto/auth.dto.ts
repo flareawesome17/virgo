@@ -54,40 +54,49 @@ export class RegisterDto {
   /*
    * Postal address, collected on the last step of signup.
    *
-   * Required, apart from the second line and the postal code — plenty of
-   * Philippine addresses have neither, and rejecting somebody for not having
-   * a ZIP is rejecting them for where they live.
+   * Optional here until both clients have the three-step form that asks for
+   * it. Requiring a field no client sends turns every signup into a 400 —
+   * shipping the server ahead of the forms did exactly that.
+   *
+   * When the forms land, drop @IsOptional on line1, city, province and
+   * country. Not on line2 or the postal code: plenty of Philippine addresses
+   * have neither, and rejecting somebody for not having a ZIP is rejecting
+   * them for where they live.
    *
    * Private: never returned on a public profile, never shown to another user.
    */
+  @IsOptional()
   @IsString()
   @MinLength(4, { message: 'Give a street address' })
   @MaxLength(200)
-  addressLine1!: string;
+  addressLine1?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(200)
   addressLine2?: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(2, { message: 'Give a city or municipality' })
   @MaxLength(120)
-  addressCity!: string;
+  addressCity?: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(2, { message: 'Give a province or region' })
   @MaxLength(120)
-  addressProvince!: string;
+  addressProvince?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(20)
   addressPostal?: string;
 
+  @IsOptional()
   @IsString()
   @Length(2, 2, { message: 'Use a two-letter country code' })
-  addressCountry!: string;
+  addressCountry?: string;
 
   /** What they trade as, if that is not their own name. */
   @IsOptional()
