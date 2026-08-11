@@ -34,6 +34,46 @@ export class HealthController {
   }
 
   /**
+   * Liveness: is this process able to answer at all?
+   *
+   * Deliberately touches nothing. A liveness probe that checks the database
+   * restarts the API when Postgres is the thing that is down — which loses the
+   * one process that could have served cached reads or a useful error, and
+   * turns a database blip into a restart loop. Readiness is where dependencies
+   * belong.
+   */
+  @Public()
+  @Get('health/live')
+  live() {
+    return { status: 'ok' };
+  }
+
+  /**
+   * Readiness: can this instance serve traffic right now?
+   *
+   * Postgres only, because that is the whole of this API's hard runtime
+   * dependency — there is no Redis, no queue and no external cache in this
+   * stack. Mail and billing have their own endpoints and are deliberately not
+   * checked here: both make network calls measured in seconds, and neither
+   * stops the app serving requests.
+   *
+   * Says what is wrong but not where: no host, no connection string, no
+   * driver error text. A readiness probe is reachable without credentials.
+   */
+  @Public()
+  @Get('health/ready')
+  async ready() {
+    const database = await this.db.ping();
+    if (!database) {
+      throw new ServiceUnavailableException({
+        status: 'not-ready',
+        database: 'unreachable',
+      });
+    }
+    return { status: 'ready', database: 'ok' };
+  }
+
+  /**
    * Whether outbound email is actually usable.
    *
    * Worth its own endpoint because a mail misconfiguration otherwise surfaces

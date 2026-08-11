@@ -1,0 +1,134 @@
+# Publishing a GitHub Release builds Virgo and pushes it to GHCR.
+#
+# The production host never builds. It pulls the images this workflow produced
+# and runs them, which is what makes a release a fixed thing you can point at,
+# roll forward to, and roll back from.
+#
+# Mobile is deliberately absent. The Expo app ships through EAS and the native
+# app stores; there is no server to run it on and no image to build.
+
+name: Release
+
+on:
+  release:
+    types: [published]
+  # Lets a release be rebuilt without cutting a new tag — for a failed run, or
+  # a rebuild after fixing the workflow itself. The tag is typed in by hand so
+  # it is never ambiguous which release is being rebuilt.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build, e.g. v1.0.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+
+    # One job per image so a failure names the thing that failed, and so the
+    # three build in parallel rather than end to end.
+    strategy:
+      # false: if the web image fails there is still value in knowing whether
+      # the API built. fail-fast would cancel the others and hide that.
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: ./api
+            image: virgo-api
+          - name: web
+            context: ./web
+            image: virgo-web
+          - name: dashboard
+            context: ./dashboard
+            image: virgo-dashboard
+
+    steps:
+      - name: Resolve the release tag
+        id: release
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "::error::No release tag to build."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # GHCR paths must be lowercase; a repository owner with capitals
+          # otherwise produces a push error that reads like a permissions
+          # problem rather than a naming one.
+          echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      # The release tag, not the default branch. A release is a fixed commit,
+      # and building anything else would make the image a lie.
+      - name: Check out the release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          # The token Actions provides for this run. Scoped to this repository
+          # and expires with the job, unlike a personal access token, which is
+          # why there is no PAT anywhere in this file.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.release.outputs.owner }}/${{ matrix.image }}:${{ steps.release.outputs.tag }}
+          # NEXT_PUBLIC_* values are inlined into the client bundle at build
+          # time, so the API URL has to be known here — it cannot be supplied
+          # when the container starts. That makes each web/dashboard image
+          # specific to the API it was built against; see the note in
+          # docs/PRODUCTION_DEPLOYMENT.md before pointing one at another
+          # environment.
+          #
+          # Public values, not secrets: the API URL and the PostHog *project*
+          # key both ship to every browser that loads the app. Repository
+          # variables rather than hardcoded so a fork or a staging environment
+          # can differ without editing this file.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.PROD_API_URL || 'https://api.virgo.ph' }}
+            NEXT_PUBLIC_POSTHOG_KEY=${{ vars.POSTHOG_KEY }}
+            NEXT_PUBLIC_POSTHOG_HOST=${{ vars.POSTHOG_HOST || 'https://us.i.posthog.com' }}
+          # Reuses layers between runs, so a release that only touches the web
+          # app does not rebuild the API's dependency layer from scratch.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  # Fails the run if any image is missing, so a green tick means all three are
+  # actually in the registry. Without this, fail-fast:false would let a partial
+  # release report success.
+  verify:
+    name: All images published
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+    steps:
+      - name: Check the build results
+        shell: bash
+        run: |
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "::error::One or more images failed to build. This release is NOT deployable."
+            exit 1
+          fi
+          echo "api, web and dashboard all published."

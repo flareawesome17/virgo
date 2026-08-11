@@ -8,3 +8,6 @@ dist/
 # exactly as sensitive and matched none of the old rule.
 .env*
 !.env.example
+# The production template. Placeholders only — the filled-in copy lives on the
+# production host and is still caught by the glob above.
+!.env.production.example

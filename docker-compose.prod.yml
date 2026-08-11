@@ -1,0 +1,179 @@
+# Virgo — production.
+#
+# The rule this file exists to enforce: GitHub builds Virgo, the production
+# host only runs it. Every application service below names an image that
+# already exists in GHCR. Nothing here has a `build:` key, so the production
+# host needs neither the source tree nor a toolchain — this file, an .env, and
+# a Docker login are the whole deployment.
+#
+# The development stack is unchanged and still lives in api/docker-compose.yml,
+# which does build from source. The two are separate on purpose: a production
+# host that can build is a production host that can drift from the release.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# See docs/PRODUCTION_DEPLOYMENT.md.
+
+# ── shared hardening ──────────────────────────────────────────────────────────
+# no-new-privileges stops a process gaining rights through a setuid binary.
+# The log caps matter more than they look: Docker's json-file driver grows
+# without bound, and a full disk on this host takes Postgres down with it.
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: '10m'
+      max-file: '5'
+
+services:
+  # ── data ───────────────────────────────────────────────────────────────────
+  # Infrastructure, not application: pinned to its own upstream version and
+  # deliberately NOT to ${IMAGE_TAG}. A Virgo release does not imply a new
+  # Postgres, and tying them together would mean every app rollback dragged the
+  # database engine backwards with it.
+  postgres:
+    <<: *hardening
+    image: postgres:17-alpine
+    container_name: virgo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    ports:
+      # Loopback only. The API reaches Postgres over the compose network by
+      # service name; nothing legitimate needs it from the LAN.
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      # The production database. Never `docker compose down -v` on this host —
+      # that flag deletes this volume and there is no undo.
+      - virgo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── application ────────────────────────────────────────────────────────────
+  api:
+    <<: *hardening
+    image: ghcr.io/flareawesome17/virgo-api:${IMAGE_TAG:?set IMAGE_TAG in .env, e.g. IMAGE_TAG=v1.0.0}
+    container_name: virgo-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Built here rather than read from .env: inside the compose network
+      # Postgres answers on its service name at its container port, and the
+      # loopback mapping above does not exist in here.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      NODE_ENV: production
+      # OFF in production, unlike the development stack.
+      #
+      # Migrations are a release step here — see PRODUCTION_DEPLOYMENT.md — so
+      # that a deploy cannot silently change the schema on the way up. Rolling
+      # an image back is easy; rolling a migration back is not, and the two
+      # happening together is how a bad release becomes an outage rather than
+      # an inconvenience.
+      RUN_MIGRATIONS_ON_BOOT: 'false'
+      TRUST_PROXY: 'true'
+    ports:
+      - '127.0.0.1:${API_PORT:-3001}:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    <<: *hardening
+    image: ghcr.io/flareawesome17/virgo-web:${IMAGE_TAG:?set IMAGE_TAG in .env, e.g. IMAGE_TAG=v1.0.0}
+    container_name: virgo-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # The API over the container network for server-rendered pages, so they
+      # do not leave the host and come back through Cloudflare.
+      API_INTERNAL_URL: http://api:3000
+    expose:
+      - '3000'
+    depends_on:
+      - api
+
+  dashboard:
+    <<: *hardening
+    image: ghcr.io/flareawesome17/virgo-dashboard:${IMAGE_TAG:?set IMAGE_TAG in .env, e.g. IMAGE_TAG=v1.0.0}
+    container_name: virgo-dashboard
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    expose:
+      - '3002'
+    depends_on:
+      - api
+
+  # ── database console ───────────────────────────────────────────────────────
+  # Upstream infrastructure, so no ${IMAGE_TAG} here either. Present because
+  # the tunnel already routes db.virgo.ph at it; drop this service and that
+  # hostname 502s.
+  #
+  # SECURITY: a full read/write console on the production database, reachable
+  # from a public hostname with one login form in front of it. Put Cloudflare
+  # Access on db.virgo.ph — it is free on the plan the tunnel already uses.
+  pgadmin:
+    # Logging only, NOT the *hardening anchor. no-new-privileges breaks this
+    # image: its entrypoint uses sudo to bind port 80, and when that fails it
+    # silently listens on 8080 instead of exiting — the container reports
+    # healthy while the tunnel gets nothing. Learned the hard way.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+    image: dpage/pgadmin4:latest
+    container_name: virgo-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:?set PGADMIN_EMAIL in .env}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?set PGADMIN_PASSWORD in .env}
+      # Behind the tunnel every request arrives over http, so without these
+      # pgAdmin builds redirects from the wrong scheme and loops.
+      PGADMIN_CONFIG_PROXY_X_FOR_COUNT: 1
+      PGADMIN_CONFIG_PROXY_X_PROTO_COUNT: 1
+      PGADMIN_CONFIG_PROXY_X_HOST_COUNT: 1
+      PGADMIN_CONFIG_PROXY_X_PORT_COUNT: 1
+      PGADMIN_CONFIG_PROXY_X_PREFIX_COUNT: 1
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: 'True'
+    ports:
+      - '127.0.0.1:${PGADMIN_PORT:-5050}:80'
+    volumes:
+      - virgo_pgadmin:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── ingress ────────────────────────────────────────────────────────────────
+  # Cloudflare Tunnel dials out, so this host needs no inbound port and no
+  # public IP. Routing lives in the Cloudflare dashboard, not in this file:
+  #
+  #   api.virgo.ph     -> http://api:3000
+  #   web.virgo.ph     -> http://web:3000
+  #   console.virgo.ph -> http://dashboard:3002
+  #   db.virgo.ph      -> http://pgadmin:80
+  cloudflared:
+    <<: *hardening
+    image: cloudflare/cloudflared:latest
+    container_name: virgo-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on:
+      - api
+      - web
+      - dashboard
+
+volumes:
+  virgo_pgdata:
+  virgo_pgadmin:

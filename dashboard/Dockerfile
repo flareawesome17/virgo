@@ -43,4 +43,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 USER nextjs
 EXPOSE 3002
 
+# node's global fetch rather than curl or wget: this image is Next's standalone
+# output on alpine and ships neither, so a curl-based check would report
+# unhealthy for the rest of the container's life without ever reaching the app.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3002/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 CMD ["node", "server.js"]
