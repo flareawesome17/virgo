@@ -161,6 +161,24 @@ export interface AuthUser {
   bio: string | null;
   /** Whether name search can surface this account. Email lookup is unaffected. */
   discoverable: boolean;
+  /**
+   * Postal address, collected at signup and editable on the profile.
+   *
+   * Private. This shape only ever describes the signed-in account — other
+   * people arrive as PublicProfile or NearbyPerson, neither of which carries
+   * an address. Null on accounts made before it was collected.
+   */
+  addressLine1: string | null;
+  addressLine2: string | null;
+  addressCity: string | null;
+  addressProvince: string | null;
+  addressPostal: string | null;
+  /** Two letters, ISO 3166-1. */
+  addressCountry: string | null;
+  /** What they trade as, if that is not their own name. */
+  studioName: string | null;
+  /** A handle, a page or a URL — whatever they actually use. */
+  socialHandle: string | null;
   createdAt: string;
 }
 
@@ -183,6 +201,23 @@ export interface UpdateProfileInput {
    * anyone looking to hire. Omit the key to leave them unchanged.
    */
   roles?: string[];
+
+  /**
+   * The address. Not nullable, for the same reason roles are not: signup
+   * requires these four, so letting the edit screen clear them would be a way
+   * around that. Omit the keys to leave the address alone — which is also how
+   * an account that predates the address saves the rest of its profile.
+   */
+  addressLine1?: string;
+  addressCity?: string;
+  addressProvince?: string;
+  addressCountry?: string;
+
+  /** Genuinely optional, so `null` clears them. */
+  addressLine2?: string | null;
+  addressPostal?: string | null;
+  studioName?: string | null;
+  socialHandle?: string | null;
 }
 
 export interface AuthResult {

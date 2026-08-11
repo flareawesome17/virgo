@@ -283,6 +283,17 @@ export class AuthService {
       bio?: string | null;
       discoverable?: boolean;
       roles?: string[];
+      // Not nullable, like roles: signup requires these, so accepting null
+      // here would make the edit screen a way around that. Omit to leave the
+      // address as it is.
+      addressLine1?: string;
+      addressCity?: string;
+      addressProvince?: string;
+      addressCountry?: string;
+      addressLine2?: string | null;
+      addressPostal?: string | null;
+      studioName?: string | null;
+      socialHandle?: string | null;
     },
   ): Promise<PublicUser> {
     // Read the old avatar before the write, so the object it points at can be
@@ -304,6 +315,14 @@ export class AuthService {
       bio: input.bio,
       discoverable: input.discoverable,
       roles: input.roles ? normalizeRoles(input.roles) : undefined,
+      address_line1: input.addressLine1,
+      address_line2: input.addressLine2,
+      address_city: input.addressCity,
+      address_province: input.addressProvince,
+      address_postal: input.addressPostal,
+      address_country: input.addressCountry,
+      studio_name: input.studioName,
+      social_handle: input.socialHandle,
     });
     if (!user) throw new UnauthorizedException();
 

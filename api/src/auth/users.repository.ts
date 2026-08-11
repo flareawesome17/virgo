@@ -19,6 +19,20 @@ export interface UserRow {
   /** What they do on a shoot. See auth/roles.ts. */
   roles: string[];
   /**
+   * Postal address, collected at signup. Private — see PublicUser below for
+   * why it is safe to return. Null on accounts made before migration 050.
+   */
+  address_line1: string | null;
+  address_line2: string | null;
+  address_city: string | null;
+  address_province: string | null;
+  address_postal: string | null;
+  address_country: string | null;
+  /** What they trade as, if that is not their own name. */
+  studio_name: string | null;
+  /** A handle, a page or a URL — whatever they actually use. */
+  social_handle: string | null;
+  /**
    * When a self-imposed pause ends. Null, or in the past, means active.
    *
    * A date rather than a flag so it lifts on its own — see migration 027.
@@ -30,7 +44,20 @@ export interface UserRow {
   updated_at: Date;
 }
 
-/** Shape returned to clients — never includes password_hash. */
+/**
+ * Shape returned to clients — never includes password_hash.
+ *
+ * "Public" here means "safe to serialise", not "public to everybody". Every
+ * caller resolves the row from the authenticated session's own id — /auth/me,
+ * register, login, refresh, updateProfile, enable — so this only ever reaches
+ * the account it describes. That is what makes it safe to carry the postal
+ * address, which is otherwise private.
+ *
+ * Another person's details go through PublicProfile (profiles module) or
+ * NearbyPerson (discover), which are separate shapes and carry no address. If
+ * this one ever starts serving somebody else's row, the address has to come
+ * back out of it first.
+ */
 export interface PublicUser {
   id: string;
   email: string;
@@ -44,6 +71,14 @@ export interface PublicUser {
   discoverable: boolean;
   emailVerified: boolean;
   roles: string[];
+  addressLine1: string | null;
+  addressLine2: string | null;
+  addressCity: string | null;
+  addressProvince: string | null;
+  addressPostal: string | null;
+  addressCountry: string | null;
+  studioName: string | null;
+  socialHandle: string | null;
   createdAt: Date;
 }
 
@@ -64,6 +99,16 @@ export function toPublicUser(row: UserRow): PublicUser {
     emailVerified: !!row.email_verified_at,
     // Defaulted for rows written before the column existed.
     roles: row.roles ?? [],
+    // Null on accounts made before migration 050, which is not an error —
+    // they signed up before there was anywhere to put an address.
+    addressLine1: row.address_line1 ?? null,
+    addressLine2: row.address_line2 ?? null,
+    addressCity: row.address_city ?? null,
+    addressProvince: row.address_province ?? null,
+    addressPostal: row.address_postal ?? null,
+    addressCountry: row.address_country ?? null,
+    studioName: row.studio_name ?? null,
+    socialHandle: row.social_handle ?? null,
     createdAt: row.created_at,
   };
 }
@@ -81,6 +126,14 @@ export type ProfileFields = Partial<
     | 'bio'
     | 'discoverable'
     | 'roles'
+    | 'address_line1'
+    | 'address_line2'
+    | 'address_city'
+    | 'address_province'
+    | 'address_postal'
+    | 'address_country'
+    | 'studio_name'
+    | 'social_handle'
   >
 >;
 

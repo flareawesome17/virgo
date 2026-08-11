@@ -9,6 +9,7 @@ import {
   HardDrive,
   Images,
   Loader2,
+  Lock,
   LogOut,
   Settings,
   Users,
@@ -53,14 +54,23 @@ export default function ProfilePage() {
   const { collaborators } = useCollaborators({ limit: 100 });
   const { storageUsedBytes, usage } = useUsage();
 
-  const [form, setForm] = useState({
+  const EMPTY = {
     displayName: '',
     title: '',
     phone: '',
     website: '',
     location: '',
     bio: '',
-  });
+    studioName: '',
+    socialHandle: '',
+    addressLine1: '',
+    addressLine2: '',
+    addressCity: '',
+    addressProvince: '',
+    addressPostal: '',
+    addressCountry: '',
+  };
+  const [form, setForm] = useState(EMPTY);
   const [roles, setRoles] = useState<string[]>([]);
   const [seeded, setSeeded] = useState(false);
 
@@ -75,20 +85,55 @@ export default function ProfilePage() {
       website: profile.website ?? '',
       location: profile.location ?? '',
       bio: profile.bio ?? '',
+      studioName: profile.studioName ?? '',
+      socialHandle: profile.socialHandle ?? '',
+      addressLine1: profile.addressLine1 ?? '',
+      addressLine2: profile.addressLine2 ?? '',
+      addressCity: profile.addressCity ?? '',
+      addressProvince: profile.addressProvince ?? '',
+      addressPostal: profile.addressPostal ?? '',
+      addressCountry: profile.addressCountry ?? '',
     });
     setRoles(profile.roles ?? []);
     setSeeded(true);
   }, [profile, seeded]);
 
+  const set = (key: keyof typeof EMPTY) => (value: string) =>
+    setForm((f) => ({ ...f, [key]: value }));
+
   const dirty =
     seeded &&
-    (form.displayName !== (profile?.displayName ?? '') ||
-      form.title !== (profile?.title ?? '') ||
-      form.phone !== (profile?.phone ?? '') ||
-      form.website !== (profile?.website ?? '') ||
-      form.location !== (profile?.location ?? '') ||
-      form.bio !== (profile?.bio ?? '') ||
+    ((Object.keys(EMPTY) as (keyof typeof EMPTY)[]).some(
+      (k) => form[k] !== (profile?.[k] ?? ''),
+    ) ||
       roles.join(',') !== (profile?.roles ?? []).join(','));
+
+  /*
+   * The address is all-or-nothing.
+   *
+   * Untouched, it is left out of the save entirely — that is what lets the
+   * accounts made before it was collected edit the rest of their profile
+   * without being made to invent one. Touched, it has to be complete: half an
+   * address is worse than none, because it looks filled in.
+   */
+  const address = {
+    addressLine1: form.addressLine1.trim(),
+    addressCity: form.addressCity.trim(),
+    addressProvince: form.addressProvince.trim(),
+    addressCountry: form.addressCountry.trim().toUpperCase(),
+  };
+  const addressStarted =
+    Object.values(address).some(Boolean) ||
+    !!form.addressLine2.trim() ||
+    !!form.addressPostal.trim();
+  const addressMissing = !addressStarted
+    ? []
+    : [
+        !address.addressLine1 && 'a street address',
+        !address.addressCity && 'a city or municipality',
+        !address.addressProvince && 'a province or region',
+        address.addressCountry.length !== 2 && 'a two-letter country code',
+      ].filter(Boolean as unknown as (v: unknown) => v is string);
 
   const save = () => {
     updateProfile.mutate(
@@ -100,9 +145,18 @@ export default function ProfilePage() {
         website: form.website.trim() || null,
         location: form.location.trim() || null,
         bio: form.bio.trim() || null,
+        studioName: form.studioName.trim() || null,
+        socialHandle: form.socialHandle.trim() || null,
         // Omitted when empty: the API requires at least one, and an empty
         // array would fail the whole save rather than just leaving roles be.
         ...(roles.length > 0 ? { roles } : {}),
+        ...(addressStarted
+          ? {
+              ...address,
+              addressLine2: form.addressLine2.trim() || null,
+              addressPostal: form.addressPostal.trim() || null,
+            }
+          : {}),
       },
       {
         onSuccess: () => toast.success('Profile saved'),
@@ -207,6 +261,29 @@ export default function ProfilePage() {
                     placeholder="yourstudio.com"
                   />
                 </div>
+                {/* Both collected at sign-up and both optional there, so they
+                    are optional here too — plenty of people freelance under
+                    the name on their passport. */}
+                <div className="grid gap-2">
+                  <Label htmlFor="studioName">Studio name</Label>
+                  <Input
+                    id="studioName"
+                    value={form.studioName}
+                    onChange={(e) => set('studioName')(e.target.value)}
+                    placeholder="Northlight Studio"
+                    maxLength={120}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="socialHandle">Social</Label>
+                  <Input
+                    id="socialHandle"
+                    value={form.socialHandle}
+                    onChange={(e) => set('socialHandle')(e.target.value)}
+                    placeholder="@yourstudio"
+                    maxLength={200}
+                  />
+                </div>
                 <div className="grid gap-2 sm:col-span-2">
                   <Label htmlFor="location">Location</Label>
                   <Input
@@ -244,6 +321,106 @@ export default function ProfilePage() {
                     </p>
                   )}
                 </div>
+
+                {/* Everything above this line is how you appear to other
+                    people. Everything below it is not, and the separator is
+                    doing real work — this page is titled "how you appear to
+                    collaborators and clients", and a postal address sitting
+                    unmarked underneath that reads like a promise to publish
+                    it. */}
+                <div className="sm:col-span-2">
+                  <Separator className="my-2" />
+                  <div className="mt-4 flex items-center gap-2">
+                    <Lock className="size-3.5 text-muted-foreground" />
+                    <Label className="text-sm">Address</Label>
+                    <Badge variant="secondary" className="text-[10px]">Private</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Only you can see this. It is never shown on your profile,
+                    on a job post, or to anyone you work with.
+                  </p>
+
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-2 sm:col-span-2">
+                      <Label htmlFor="addressLine1">Street address</Label>
+                      <Input
+                        id="addressLine1"
+                        value={form.addressLine1}
+                        onChange={(e) => set('addressLine1')(e.target.value)}
+                        placeholder="123 Rizal Street, Barangay San Roque"
+                        autoComplete="address-line1"
+                        maxLength={200}
+                      />
+                    </div>
+                    <div className="grid gap-2 sm:col-span-2">
+                      <Label htmlFor="addressLine2">
+                        Apartment, unit, floor
+                        <span className="ml-1 font-normal text-muted-foreground">
+                          · optional
+                        </span>
+                      </Label>
+                      <Input
+                        id="addressLine2"
+                        value={form.addressLine2}
+                        onChange={(e) => set('addressLine2')(e.target.value)}
+                        autoComplete="address-line2"
+                        maxLength={200}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="addressCity">City or municipality</Label>
+                      <Input
+                        id="addressCity"
+                        value={form.addressCity}
+                        onChange={(e) => set('addressCity')(e.target.value)}
+                        placeholder="Cebu City"
+                        autoComplete="address-level2"
+                        maxLength={120}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="addressProvince">Province or region</Label>
+                      <Input
+                        id="addressProvince"
+                        value={form.addressProvince}
+                        onChange={(e) => set('addressProvince')(e.target.value)}
+                        placeholder="Cebu"
+                        autoComplete="address-level1"
+                        maxLength={120}
+                      />
+                    </div>
+                    {/* Optional on purpose, as at sign-up: plenty of
+                        Philippine addresses have no ZIP. */}
+                    <div className="grid gap-2">
+                      <Label htmlFor="addressPostal">
+                        Postal code
+                        <span className="ml-1 font-normal text-muted-foreground">
+                          · optional
+                        </span>
+                      </Label>
+                      <Input
+                        id="addressPostal"
+                        value={form.addressPostal}
+                        onChange={(e) => set('addressPostal')(e.target.value)}
+                        autoComplete="postal-code"
+                        maxLength={20}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="addressCountry">Country</Label>
+                      <Input
+                        id="addressCountry"
+                        value={form.addressCountry}
+                        onChange={(e) =>
+                          set('addressCountry')(e.target.value.toUpperCase())
+                        }
+                        placeholder="PH"
+                        autoComplete="country"
+                        maxLength={2}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-5 flex items-center gap-3">
@@ -251,14 +428,23 @@ export default function ProfilePage() {
                   onClick={save}
                   // Roles are required, so saving with none would be rejected
                   // by the API anyway — better to say so before the round trip.
-                  disabled={!dirty || roles.length === 0 || updateProfile.isPending}
+                  disabled={
+                    !dirty ||
+                    roles.length === 0 ||
+                    addressMissing.length > 0 ||
+                    updateProfile.isPending
+                  }
                 >
                   {updateProfile.isPending && <Loader2 className="size-4 animate-spin" />}
                   Save changes
                 </Button>
-                {dirty && (
+                {addressMissing.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    The address still needs {addressMissing.join(', ')}.
+                  </p>
+                ) : dirty ? (
                   <p className="text-xs text-muted-foreground">Unsaved changes</p>
-                )}
+                ) : null}
               </div>
             </CardContent>
           </Card>

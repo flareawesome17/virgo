@@ -246,6 +246,79 @@ export class UpdateProfileDto {
   @ArrayMaxSize(USER_ROLES.length)
   @IsIn(USER_ROLES as readonly string[], { each: true, message: 'Unknown role' })
   roles?: string[];
+
+  /*
+   * The address, editable after signup — people move.
+   *
+   * These four may be changed but not emptied: signup demands them, so an
+   * edit screen that accepted a blank would be a way to undo that. Omit the
+   * key to leave the address alone, which is also what lets the accounts that
+   * predate migration 050 save the rest of their profile without being made
+   * to invent an address they were never asked for.
+   *
+   * ValidateIf on `undefined` rather than @IsOptional, which is the whole
+   * point here: @IsOptional skips null *and* undefined, so `{"addressCity":
+   * null}` sailed past every validator below and wrote a null into a column
+   * signup will not let you leave empty. Verified — it emptied a city.
+   * ValidateIf skips only a genuinely absent key, and @IsString then rejects
+   * the null.
+   */
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString({ message: 'Give a street address' })
+  @MinLength(4, { message: 'Give a street address' })
+  @MaxLength(200)
+  addressLine1?: string;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString({ message: 'Give a city or municipality' })
+  @MinLength(2, { message: 'Give a city or municipality' })
+  @MaxLength(120)
+  addressCity?: string;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString({ message: 'Give a province or region' })
+  @MinLength(2, { message: 'Give a province or region' })
+  @MaxLength(120)
+  addressProvince?: string;
+
+  /** Upper-cased at the boundary, exactly as at signup — see RegisterDto. */
+  @ValidateIf((_, value) => value !== undefined)
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsString({ message: 'Use a two-letter country code' })
+  @Length(2, 2, { message: 'Use a two-letter country code' })
+  addressCountry?: string;
+
+  /*
+   * These four are nullable, because they are genuinely optional: an address
+   * with no unit number and no ZIP is a complete address, and somebody who
+   * closes their studio should be able to empty the field rather than leave a
+   * business name that is no longer theirs.
+   */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(200)
+  addressLine2?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(20)
+  addressPostal?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(120)
+  studioName?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(200)
+  socialHandle?: string | null;
 }
 
 export class ForgotPasswordDto {
