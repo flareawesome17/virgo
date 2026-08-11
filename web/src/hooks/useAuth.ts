@@ -12,6 +12,8 @@ import {
   watchTokensAcrossTabs,
   type AuthUser,
   type UpdateProfileInput,
+  type Credentials,
+  type SignupProfile,
 } from '@/api';
 
 export interface User {
@@ -143,12 +145,7 @@ export function useAuth() {
   });
 
   const signUp = useMutation({
-    mutationFn: async (input: {
-      email: string;
-      password: string;
-      displayName?: string;
-      roles: string[];
-    }) => {
+    mutationFn: async (input: Credentials & SignupProfile) => {
       try {
         return await authApi.register(input);
       } catch (err) {

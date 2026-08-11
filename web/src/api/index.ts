@@ -22,7 +22,11 @@ export {
 } from './tokens';
 export { queryKeys } from './queryKeys';
 
-export { authApi, type Credentials } from './endpoints/auth';
+export {
+  authApi,
+  type Credentials,
+  type SignupProfile,
+} from './endpoints/auth';
 export {
   bookingsApi,
   rateLabel,

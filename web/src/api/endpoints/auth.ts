@@ -14,10 +14,37 @@ export interface Credentials {
  * Authorization header, and a 401 from them means "bad credentials", not
  * "token expired", so the refresh-retry would be wrong.
  */
+/**
+ * Everything signup collects beyond the credentials.
+ *
+ * Gathered across three steps — credentials, then what they do, then where
+ * they are — and sent once at the end. The wizard is progressive disclosure
+ * of a single form, not three saves: abandoning it halfway should leave no
+ * half-made account behind.
+ *
+ * The address fields are optional *here* while mobile still has the old
+ * one-page form. The web form requires them, the server will require them
+ * once both clients ask, and this type tightens last — a required field in a
+ * shared type is a compile error in whichever client has not caught up yet.
+ */
+export interface SignupProfile {
+  displayName?: string;
+  roles: string[];
+  addressLine1?: string;
+  addressLine2?: string;
+  addressCity?: string;
+  addressProvince?: string;
+  addressPostal?: string;
+  /** Two letters, ISO 3166-1. */
+  addressCountry?: string;
+  /** What they trade as, if that is not their own name. */
+  studioName?: string;
+  /** A handle, a page or a URL — whatever they actually use. */
+  socialHandle?: string;
+}
+
 export const authApi = {
-  async register(
-    credentials: Credentials & { displayName?: string; roles: string[] },
-  ): Promise<AuthResult> {
+  async register(credentials: Credentials & SignupProfile): Promise<AuthResult> {
     const result = await api.post<AuthResult>('/auth/register', {
       body: credentials,
       anonymous: true,
