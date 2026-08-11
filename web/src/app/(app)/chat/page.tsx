@@ -1,17 +1,17 @@
-'use client';
+import type { Metadata } from 'next';
+import PageClient from './page-client';
 
-import { MessageCircle } from 'lucide-react';
-import { EmptyState } from '@/components/states';
+/*
+ * A server component so the tab title can be a real metadata export.
+ *
+ * `metadata` is Server Components only, and this page is interactive, so
+ * the two halves are split: the title is resolved on the server and sent
+ * in the initial HTML, and everything below it stays a client component in
+ * page-client.tsx. Setting document.title from the client instead loses a
+ * race against Next re-asserting this value after every navigation.
+ */
+export const metadata: Metadata = { title: "Chat" };
 
-/** The empty right-hand pane, shown until a conversation is picked. */
-export default function ChatIndexPage() {
-  return (
-    <div className="grid h-full place-items-center">
-      <EmptyState
-        icon={MessageCircle}
-        title="Pick a conversation"
-        description="Choose someone on the left, or start a new chat."
-      />
-    </div>
-  );
+export default function Page() {
+  return <PageClient />;
 }

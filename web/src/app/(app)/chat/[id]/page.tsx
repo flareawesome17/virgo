@@ -1,34 +1,17 @@
-'use client';
+import type { Metadata } from 'next';
+import PageClient from './page-client';
 
-import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { Thread } from '@/components/chat/thread';
-import { ConversationInfo } from '@/components/chat/conversation-info';
-
-/**
- * One conversation.
+/*
+ * A server component so the tab title can be a real metadata export.
  *
- * `useParams` rather than the page's `params` prop: Next 16 makes that prop a
- * Promise, and this tree is a client component anyway.
+ * `metadata` is Server Components only, and this page is interactive, so
+ * the two halves are split: the title is resolved on the server and sent
+ * in the initial HTML, and everything below it stays a client component in
+ * page-client.tsx. Setting document.title from the client instead loses a
+ * race against Next re-asserting this value after every navigation.
  */
-export default function ConversationPage() {
-  const { id } = useParams<{ id: string }>();
-  const router = useRouter();
-  const [infoOpen, setInfoOpen] = useState(false);
+export const metadata: Metadata = { title: "Chat" };
 
-  return (
-    <>
-      <Thread
-        conversationId={id}
-        onBack={() => router.push('/chat')}
-        onOpenInfo={() => setInfoOpen(true)}
-      />
-      <ConversationInfo
-        conversationId={id}
-        open={infoOpen}
-        onOpenChange={setInfoOpen}
-        onLeft={() => router.push('/chat')}
-      />
-    </>
-  );
+export default function Page() {
+  return <PageClient />;
 }

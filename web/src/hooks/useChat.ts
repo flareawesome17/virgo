@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { chatApi, type SendMessageInput, type Thread } from '@/api';
 import { seedPresence } from '@/lib/presence-store';
@@ -303,11 +304,23 @@ export function useDeleteConversation() {
 export function useMessageAlerts(enabled: boolean): void {
   const unread = useUnreadCount(enabled);
   const previous = useRef<number | null>(null);
+  // Each route now sets its own title through a metadata export, which
+  // replaces the whole string — count included — on every navigation. Reacting
+  // to the path puts the count back on the new page's name.
+  const pathname = usePathname();
 
   useEffect(() => {
     if (!enabled) return;
     setUnreadTitle(unread);
-  }, [enabled, unread]);
+    // Again on the next frame. On a navigation this effect can run before Next
+    // has written the new route's title, and that write would drop the prefix;
+    // re-applying after the frame lands on top of it. Without this the count
+    // followed some navigations and not others. It is not load-bearing either
+    // way — the unread query polls, so a missed one corrects itself shortly —
+    // but "usually immediately" beats "eventually".
+    const frame = requestAnimationFrame(() => setUnreadTitle(unread));
+    return () => cancelAnimationFrame(frame);
+  }, [enabled, unread, pathname]);
 
   useEffect(() => {
     if (!enabled) {
