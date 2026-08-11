@@ -1,4 +1,4 @@
-import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
+import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, Image, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useCollaborators, useTheme, useWorkspaces,
   usePlanLimits,
@@ -11,7 +11,6 @@ import {
   ImageIcon,
   UsersIcon,
   FolderPlusIcon,
-  SlidersHorizontalIcon,
   WifiIcon,
   ClockIcon,
 } from 'lucide-react-native';
@@ -24,11 +23,10 @@ cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color:
 cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(SlidersHorizontalIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(WifiIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const CATEGORIES = ['All', 'Active', 'Archived', 'Shared'];
+const CATEGORIES = ['All', 'Shared', 'Private'];
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -90,6 +88,7 @@ export default function WorkspacesScreen() {
   const { isDark } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   const [activeCategory, setActiveCategory] = useState('All');
+  const [query, setQuery] = useState('');
 
   // The API scopes every row to the authenticated user, so there is no longer
   // a user_id filter to pass — the JWT is the filter.
@@ -126,13 +125,41 @@ export default function WorkspacesScreen() {
     setRefreshing(false);
   };
 
+  /*
+   * The search box and the pills filter the list, which they did not before.
+   *
+   * All three controls up there were decorative: the search box was a <Text>
+   * rather than a TextInput, the pills set state nothing read, and the button
+   * beside them had no onPress at all. The list rendered `workspaces` raw.
+   *
+   * The old pills were All / Active / Archived / Shared, and two of those can
+   * never work — a workspace has no archived flag and no notion of active, so
+   * there was nothing to filter on even if the wiring had existed. These three
+   * come straight off the data: a workspace is shared when somebody else can
+   * see it, and private when nobody can.
+   */
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return workspaces.filter((w) => {
+      if (activeCategory === 'Shared' && (w.collaborator_count || 0) === 0) return false;
+      if (activeCategory === 'Private' && (w.collaborator_count || 0) > 0) return false;
+      if (!q) return true;
+      return (
+        w.name.toLowerCase().includes(q) ||
+        (w.description ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [workspaces, query, activeCategory]);
+
+  // Totals describe everything you have, not the current filter — they sit in
+  // a summary card that should not change as you type.
   const totalAssets = workspaces.reduce((s, w) => s + (w.media_count || 0), 0);
   const totalCollabs = workspaces.reduce((s, w) => s + (w.collaborator_count || 0), 0);
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       <FlatList
-        data={workspaces}
+        data={visible}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={
@@ -174,10 +201,12 @@ export default function WorkspacesScreen() {
                 the one thing on this screen waiting on somebody else. */}
             <WorkspaceInvitations />
 
-            {/* Search + Filter */}
-            <View className="px-5 pt-3 pb-2 flex-row items-center gap-3">
+            {/* Search. The sliders button that sat beside this opened nothing
+                and is gone — the pills below are the filter, and two controls
+                for one job, one of them inert, is worse than one that works. */}
+            <View className="px-5 pt-3 pb-2">
               <View
-                className="flex-1 flex-row items-center bg-card rounded-2xl px-4 h-11 gap-3"
+                className="flex-row items-center bg-card rounded-2xl px-4 h-11 gap-3"
                 style={{
                   shadowColor: '#000',
                   shadowOpacity: 0.03,
@@ -187,20 +216,18 @@ export default function WorkspacesScreen() {
                 }}
               >
                 <SearchIcon size={16} className="text-muted-foreground" />
-                <Text className="text-muted-foreground text-sm flex-1">Search workspaces</Text>
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search workspaces"
+                  placeholderTextColor="#A89489"
+                  className="flex-1 text-foreground text-sm"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                  clearButtonMode="while-editing"
+                />
               </View>
-              <Pressable
-                className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-                style={{
-                  shadowColor: '#000',
-                  shadowOpacity: 0.03,
-                  shadowRadius: 6,
-                  shadowOffset: { width: 0, height: 2 },
-                  elevation: 2,
-                }}
-              >
-                <SlidersHorizontalIcon size={18} className="text-muted-foreground" />
-              </Pressable>
             </View>
 
             {/* Category pills */}
@@ -250,6 +277,37 @@ export default function WorkspacesScreen() {
                 onRetry={() => refetchWorkspaces()}
                 compact
               />
+            </View>
+          ) : workspaces.length > 0 ? (
+            /*
+             * Filtered down to nothing, which is not the same as having none.
+             *
+             * Now that the search and the pills actually filter, the empty
+             * state below became reachable with a full account behind it —
+             * somebody searching for a name they mistyped would be told they
+             * have no workspaces and invited to create their first. That is
+             * the same lie the loadFailed branch above exists to prevent.
+             */
+            <View className="px-5 pt-8 items-center gap-3">
+              <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
+                <SearchIcon size={26} className="text-muted-foreground" />
+              </View>
+              <Text className="text-foreground text-lg font-bold">Nothing matches</Text>
+              <Text className="text-muted-foreground text-sm text-center px-8">
+                {query.trim()
+                  ? `No workspace matches “${query.trim()}”.`
+                  : `You have no ${activeCategory.toLowerCase()} workspaces.`}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setQuery('');
+                  setActiveCategory('All');
+                }}
+                className="bg-card rounded-2xl px-5 py-3 active:scale-[0.96]"
+                style={{ borderWidth: 1, borderColor: '#D9C2B7' }}
+              >
+                <Text className="text-foreground text-sm font-semibold">Clear filters</Text>
+              </Pressable>
             </View>
           ) : (
           <View className="px-5 pt-8 items-center gap-4">
