@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -52,51 +52,62 @@ export class RegisterDto {
   roles!: string[];
 
   /*
-   * Postal address, collected on the last step of signup.
+   * Postal address, collected on the last step of signup and required there.
    *
-   * Optional here until both clients have the three-step form that asks for
-   * it. Requiring a field no client sends turns every signup into a 400 —
-   * shipping the server ahead of the forms did exactly that.
+   * These four went required only once both clients had the three-step form
+   * that asks for them — requiring a field no client sends turns every signup
+   * into a 400, which is exactly what shipping the server first did.
    *
-   * When the forms land, drop @IsOptional on line1, city, province and
-   * country. Not on line2 or the postal code: plenty of Philippine addresses
-   * have neither, and rejecting somebody for not having a ZIP is rejecting
-   * them for where they live.
+   * Line two and the postal code stay optional. Plenty of Philippine
+   * addresses have neither, and rejecting somebody for having no ZIP is
+   * rejecting them for where they live.
+   *
+   * Accounts made before this have no address and are not broken: the columns
+   * are nullable and nothing reads them yet. The requirement lives here, at
+   * the point of collection where it can be explained, rather than as a
+   * constraint that would make older rows illegal.
    *
    * Private: never returned on a public profile, never shown to another user.
    */
-  @IsOptional()
   @IsString()
   @MinLength(4, { message: 'Give a street address' })
   @MaxLength(200)
-  addressLine1?: string;
+  addressLine1!: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(200)
   addressLine2?: string;
 
-  @IsOptional()
   @IsString()
   @MinLength(2, { message: 'Give a city or municipality' })
   @MaxLength(120)
-  addressCity?: string;
+  addressCity!: string;
 
-  @IsOptional()
   @IsString()
   @MinLength(2, { message: 'Give a province or region' })
   @MaxLength(120)
-  addressProvince?: string;
+  addressProvince!: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(20)
   addressPostal?: string;
 
-  @IsOptional()
+  /*
+   * Upper-cased here rather than trusted from the client. Both forms send
+   * "PH", but the endpoint accepted "ph" from anything that did not, and the
+   * column would then hold both — which splits every count by country in two,
+   * and counting by country is the reason this is collected at all.
+   *
+   * Length runs after the transform, so " ph " is still two characters.
+   */
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
   @IsString()
   @Length(2, 2, { message: 'Use a two-letter country code' })
-  addressCountry?: string;
+  addressCountry!: string;
 
   /** What they trade as, if that is not their own name. */
   @IsOptional()

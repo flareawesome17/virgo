@@ -22,21 +22,25 @@ export interface Credentials {
  * of a single form, not three saves: abandoning it halfway should leave no
  * half-made account behind.
  *
- * The address fields are optional *here* while mobile still has the old
- * one-page form. The web form requires them, the server will require them
- * once both clients ask, and this type tightens last — a required field in a
- * shared type is a compile error in whichever client has not caught up yet.
+ * The address is required, as it is on both forms and in RegisterDto. Line
+ * two and the postal code are not: plenty of Philippine addresses have
+ * neither, and rejecting somebody for having no ZIP is rejecting them for
+ * where they live.
+ *
+ * This type tightened last, after both clients had the form. A required
+ * field in a shared type is a compile error in whichever client has not
+ * caught up yet, which is the useful direction for that error to point.
  */
 export interface SignupProfile {
   displayName?: string;
   roles: string[];
-  addressLine1?: string;
+  addressLine1: string;
   addressLine2?: string;
-  addressCity?: string;
-  addressProvince?: string;
+  addressCity: string;
+  addressProvince: string;
   addressPostal?: string;
   /** Two letters, ISO 3166-1. */
-  addressCountry?: string;
+  addressCountry: string;
   /** What they trade as, if that is not their own name. */
   studioName?: string;
   /** A handle, a page or a URL — whatever they actually use. */
