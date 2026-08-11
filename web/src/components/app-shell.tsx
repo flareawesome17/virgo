@@ -199,11 +199,18 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      {/* min-h-0 is what makes this scroll instead of grow.
+          A flex item defaults to min-height:auto, so flex-1 alone cannot
+          shrink it below its own content — the nav pushed itself past the
+          bottom of the sidebar, taking the profile button and the last few
+          links off the screen, and never showed a scrollbar because as far
+          as the browser was concerned nothing overflowed. On a short window
+          Support and the sign-out menu were simply unreachable. */}
+      <ScrollArea className="min-h-0 flex-1">
         <NavLinks onNavigate={onNavigate} />
       </ScrollArea>
 
-      <div className="border-t p-3">
+      <div className="shrink-0 border-t p-3">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/60">
@@ -282,7 +289,13 @@ export function AppShell({
     // data-app-shell is what globals.css keys `body { overflow: hidden }` off.
     // The rule has to be conditional: it keeps the sidebar still while the app
     // scrolls, and it stops the marketing page scrolling at all.
-    <div data-app-shell className="flex h-full">
+    //
+    // h-dvh, not h-full. h-full inherits from html/body, whose 100% is the
+    // *large* viewport — the height a phone browser would have if its URL bar
+    // were retracted. With the bar on screen the app was that much taller than
+    // the room it had, and because body is overflow:hidden here, the part
+    // underneath could not be scrolled to. dvh tracks what is actually visible.
+    <div data-app-shell className="flex h-dvh">
       <aside className="hidden w-64 shrink-0 border-r lg:block">
         <SidebarBody />
       </aside>
