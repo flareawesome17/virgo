@@ -40,7 +40,7 @@ export default function SupportScreen() {
   const [openId, setOpenId] = useState<string | null>(null);
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={['bottom']}>
+    <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
       <Stack.Screen
         options={{
           title: openId ? 'Request' : 'Support',

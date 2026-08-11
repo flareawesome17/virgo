@@ -124,8 +124,11 @@ export default function NotificationsScreen() {
     router.push(href as never);
   };
 
+  // 'top' as well as 'bottom'. The stack runs headerShown:false, so nothing
+  // above this reserves the status bar — without the top edge the title sat
+  // under the clock and the notch. Every other screen already insets the top.
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={['bottom']}>
+    <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
       <Stack.Screen
         options={{
           title: 'Notifications',

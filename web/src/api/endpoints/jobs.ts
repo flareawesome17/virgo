@@ -324,24 +324,40 @@ export function applicationFor(
   post: Pick<JobPost, 'myApplications' | 'rolesWanted'>,
   role: string,
 ): MyApplication | undefined {
-  return post.myApplications.find(
-    (a) => a.role === role || (a.role === null && post.rolesWanted.length === 1),
+  return (post.myApplications ?? []).find(
+    (a) =>
+      a.role === role ||
+      (a.role === null && (post.rolesWanted ?? []).length === 1),
   );
 }
+
+/*
+ * The three helpers below all default their arrays.
+ *
+ * Every one of these fields is non-optional in the type and the API fills all
+ * of them, so in principle none of this is reachable. In practice
+ * `post.filledRoles.includes(role)` threw "Cannot read property 'includes' of
+ * undefined" on a phone and took the entire home screen down with it — a job
+ * board that cannot render is worse than a badge that is missing.
+ *
+ * These are display helpers. The worst an absent array should cost is a role
+ * shown as open when it is filled, corrected on the next fetch. Nothing here
+ * is authorisation: the server decides who may apply, and it re-checks.
+ */
 
 /** Whether somebody has already been hired for this role. */
 export function isRoleFilled(
   post: Pick<JobPost, 'filledRoles'>,
   role: string,
 ): boolean {
-  return post.filledRoles.includes(role);
+  return (post.filledRoles ?? []).includes(role);
 }
 
 /** Roles nobody has been hired for yet — what the post is still offering. */
 export function openRolesOf(
   post: Pick<JobPost, 'rolesWanted' | 'filledRoles'>,
 ): string[] {
-  return post.rolesWanted.filter((role) => !isRoleFilled(post, role));
+  return (post.rolesWanted ?? []).filter((role) => !isRoleFilled(post, role));
 }
 
 /**
@@ -374,7 +390,7 @@ export function headlineApplication(
     new: 2,
     declined: 3,
   };
-  return [...post.myApplications].sort(
+  return [...(post.myApplications ?? [])].sort(
     (a, b) => rank[a.status] - rank[b.status],
   )[0];
 }

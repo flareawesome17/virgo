@@ -33,7 +33,7 @@ export default function BookingScreen() {
   const [editing, setEditing] = useState(false);
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={['bottom']}>
+    <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
       <Stack.Screen options={{ title: 'Booking', headerBackTitle: 'Back' }} />
       <KeyboardAvoidingView
         className="flex-1"
