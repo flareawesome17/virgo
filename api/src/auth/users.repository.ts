@@ -84,6 +84,25 @@ export type ProfileFields = Partial<
   >
 >;
 
+/**
+ * What signup collects beyond the credentials.
+ *
+ * Every field optional here even though the API requires most of them: this
+ * is the storage layer, and the accounts that predate the address have none
+ * of it. The requirement lives in RegisterDto, where it can be explained to
+ * the person filling the form in.
+ */
+export interface SignupDetails {
+  addressLine1?: string;
+  addressLine2?: string;
+  addressCity?: string;
+  addressProvince?: string;
+  addressPostal?: string;
+  addressCountry?: string;
+  studioName?: string;
+  socialHandle?: string;
+}
+
 @Injectable()
 export class UsersRepository {
   constructor(private readonly db: DatabaseService) {}
@@ -104,12 +123,33 @@ export class UsersRepository {
     passwordHash: string,
     displayName?: string,
     roles: string[] = [],
+    // An object rather than six more positional arguments: a create() with
+    // ten parameters is a call site nobody can read and one transposition
+    // away from storing a province in a postal code.
+    details: SignupDetails = {},
   ): Promise<UserRow> {
     const row = await this.db.queryOne<UserRow>(
-      `insert into users (email, password_hash, display_name, roles)
-       values ($1, $2, $3, $4::text[])
+      `insert into users (
+         email, password_hash, display_name, roles,
+         address_line1, address_line2, address_city, address_province,
+         address_postal, address_country, studio_name, social_handle
+       )
+       values ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10, $11, $12)
        returning *`,
-      [email, passwordHash, displayName ?? null, roles],
+      [
+        email,
+        passwordHash,
+        displayName ?? null,
+        roles,
+        details.addressLine1 ?? null,
+        details.addressLine2 ?? null,
+        details.addressCity ?? null,
+        details.addressProvince ?? null,
+        details.addressPostal ?? null,
+        details.addressCountry ?? null,
+        details.studioName ?? null,
+        details.socialHandle ?? null,
+      ],
     );
     return row as UserRow;
   }

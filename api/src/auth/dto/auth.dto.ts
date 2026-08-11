@@ -4,12 +4,13 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
-  IsIn,
   IsEmail,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
   IsUrl,
+  Length,
   Matches,
   Max,
   MaxLength,
@@ -49,6 +50,56 @@ export class RegisterDto {
     message: 'Unknown role',
   })
   roles!: string[];
+
+  /*
+   * Postal address, collected on the last step of signup.
+   *
+   * Required, apart from the second line and the postal code — plenty of
+   * Philippine addresses have neither, and rejecting somebody for not having
+   * a ZIP is rejecting them for where they live.
+   *
+   * Private: never returned on a public profile, never shown to another user.
+   */
+  @IsString()
+  @MinLength(4, { message: 'Give a street address' })
+  @MaxLength(200)
+  addressLine1!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  addressLine2?: string;
+
+  @IsString()
+  @MinLength(2, { message: 'Give a city or municipality' })
+  @MaxLength(120)
+  addressCity!: string;
+
+  @IsString()
+  @MinLength(2, { message: 'Give a province or region' })
+  @MaxLength(120)
+  addressProvince!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  addressPostal?: string;
+
+  @IsString()
+  @Length(2, 2, { message: 'Use a two-letter country code' })
+  addressCountry!: string;
+
+  /** What they trade as, if that is not their own name. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  studioName?: string;
+
+  /** An Instagram handle, a page, or a URL — whatever they actually use. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  socialHandle?: string;
 }
 
 export class LoginDto {

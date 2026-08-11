@@ -49,6 +49,16 @@ export class AuthController {
       dto.password,
       dto.displayName,
       dto.roles,
+      {
+        addressLine1: dto.addressLine1,
+        addressLine2: dto.addressLine2,
+        addressCity: dto.addressCity,
+        addressProvince: dto.addressProvince,
+        addressPostal: dto.addressPostal,
+        addressCountry: dto.addressCountry,
+        studioName: dto.studioName,
+        socialHandle: dto.socialHandle,
+      },
     );
     // Not awaited: a slow SMTP handshake must not hold up the signup response,
     // and a failed send is logged rather than failing an account that exists.

@@ -14,6 +14,7 @@ import {
   toPublicUser,
   UsersRepository,
   UserRow,
+  type SignupDetails,
 } from './users.repository';
 import { StorageService } from '../storage/storage.service';
 import { normalizeRoles } from './roles';
@@ -165,6 +166,7 @@ export class AuthService {
     password: string,
     displayName?: string,
     roles: string[] = [],
+    details: SignupDetails = {},
   ): Promise<AuthResult> {
     const normalized = this.normalizeEmail(email);
 
@@ -186,6 +188,7 @@ export class AuthService {
       passwordHash,
       displayName,
       normalizeRoles(roles),
+      details,
     );
 
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
