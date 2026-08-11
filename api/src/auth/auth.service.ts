@@ -17,6 +17,7 @@ import {
   type SignupDetails,
 } from './users.repository';
 import { StorageService } from '../storage/storage.service';
+import { PromosService } from '../promos/promos.service';
 import { normalizeRoles } from './roles';
 
 export interface AuthTokens {
@@ -54,6 +55,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly storage: StorageService,
+    private readonly promos: PromosService,
   ) {}
 
   private normalizeEmail(email: string): string {
@@ -178,6 +180,7 @@ export class AuthService {
     displayName?: string,
     roles: string[] = [],
     details: SignupDetails = {},
+    referralCode?: string,
   ): Promise<RegisterResult> {
     const normalized = this.normalizeEmail(email);
 
@@ -187,6 +190,22 @@ export class AuthService {
       // way to both reject duplicates and hide them. Login, where it matters
       // more, does not leak this.
       throw new ConflictException('An account with that email already exists');
+    }
+
+    /*
+     * A referral code that matches nobody is recorded as no referral, not as a
+     * rejected signup.
+     *
+     * Someone mistyping a friend's code should still end up with an account —
+     * refusing the registration punishes the wrong person for a typo, and the
+     * reward is the friend's to lose, not theirs. Nothing is paid here either
+     * way: this only records who to pay once the address is confirmed.
+     */
+    const referredByUserId = referralCode
+      ? ((await this.promos.userForCode(referralCode)) ?? undefined)
+      : undefined;
+    if (referralCode && !referredByUserId) {
+      this.logger.log('Signup used a referral code that matches no account');
     }
 
     const rounds = Number(this.config.get('BCRYPT_ROUNDS', '12'));
@@ -199,7 +218,7 @@ export class AuthService {
       passwordHash,
       displayName,
       normalizeRoles(roles),
-      details,
+      { ...details, referredByUserId },
     );
 
     /*

@@ -31,6 +31,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
 import { AdminModule } from './admin/admin.module';
 import { VisitsModule } from './visits/visits.module';
 import { BookingsModule } from './bookings/bookings.module';
+import { PromosModule } from './promos/promos.module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { BookingsModule } from './bookings/bookings.module';
     ProfilesModule,
     HireModule,
     HiringModule,
+    PromosModule,
   ],
   providers: [
     // Deny by default: every route requires a valid JWT unless it carries

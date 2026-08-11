@@ -5,7 +5,7 @@ import Constants from 'expo-constants';
 import { useTheme } from '@/src/hooks';
 import {
   ArrowLeftIcon, ChevronRightIcon, BellIcon, LockIcon, ShieldIcon,
-  PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, LifeBuoyIcon,
+  PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, LifeBuoyIcon, GiftIcon,
   InfoIcon, FileTextIcon, StarIcon,
   GlobeIcon,
   BriefcaseIcon,
@@ -18,7 +18,7 @@ import { cssInterop } from 'nativewind';
 // nobody traces back to this list.
 for (const Icon of [
   ArrowLeftIcon, ChevronRightIcon, BellIcon, LockIcon, ShieldIcon,
-  PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, LifeBuoyIcon, InfoIcon,
+  PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, LifeBuoyIcon, GiftIcon, InfoIcon,
   FileTextIcon, StarIcon, GlobeIcon, BriefcaseIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });

@@ -9,6 +9,7 @@ import { AccountFlowsService } from './account-flows.service';
 import { AuthTokensService } from './auth-tokens.service';
 import { JwtStrategy } from './jwt.strategy';
 import { StorageModule } from '../storage/storage.module';
+import { PromosModule } from '../promos/promos.module';
 import { UsersRepository } from './users.repository';
 
 @Module({
@@ -21,6 +22,9 @@ import { UsersRepository } from './users.repository';
     // Deleting an account has to empty its bucket objects too, or they are
     // stranded — paid for, unreachable, and impossible to find again.
     StorageModule,
+    // Signup records who referred an account; verifying the address is what
+    // pays them. Both halves of a referral live in this module's flows.
+    PromosModule,
   ],
   controllers: [AuthController],
   providers: [

@@ -59,6 +59,7 @@ export class AuthController {
         studioName: dto.studioName,
         socialHandle: dto.socialHandle,
       },
+      dto.referralCode,
     );
     // Not awaited: a slow SMTP handshake must not hold up the signup response,
     // and a failed send is logged rather than failing an account that exists.

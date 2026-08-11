@@ -9,6 +9,7 @@ import {
   CheckCheck,
   CreditCard,
   FileText,
+  Gift,
   LifeBuoy,
   MessageCircle,
   Trash2,
@@ -70,6 +71,7 @@ const TOPICS: Record<
   billing: { icon: CreditCard, href: '/settings/billing' },
   retention: { icon: Trash2, href: '/albums' },
   support: { icon: LifeBuoy, href: '/support' },
+  promo: { icon: Gift, href: '/rewards' },
 };
 
 /** "4m", "3h", "2d" — a list this dense has no room for a sentence. */

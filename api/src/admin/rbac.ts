@@ -35,6 +35,12 @@ export const ADMIN_PERMISSIONS = [
   'billing.read',
   'billing.manage',
 
+  // Promos hand out quota, which costs storage the same way a plan change
+  // does — so managing them sits at the same tier as `users.setPlan`, not at
+  // the support tier that can only look.
+  'promos.read',
+  'promos.manage',
+
   'support.read',
   'support.reply',
   'support.manage',

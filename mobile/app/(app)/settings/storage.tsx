@@ -85,6 +85,14 @@ export default function StorageOverviewScreen() {
               <Text className="text-muted-foreground text-xs mt-2 font-medium">
                 {formatBytes(remainingBytes ?? 0)} remaining
               </Text>
+              {/* Where the extra came from. Without this the ceiling silently
+                  changes after claiming a reward, and a limit that moved for
+                  no visible reason reads as a bug. */}
+              {!!usage?.bonus?.storageBytes && (
+                <Text className="text-muted-foreground text-xs mt-1">
+                  Includes {formatBytes(usage.bonus.storageBytes)} from rewards
+                </Text>
+              )}
             </>
           )}
         </View>

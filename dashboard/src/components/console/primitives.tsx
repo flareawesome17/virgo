@@ -189,6 +189,24 @@ export function peso(minor: number): string {
   }).format(minor / 100);
 }
 
+/**
+ * A date in the future, said forwards: "in 14 days".
+ *
+ * Separate from `when` rather than a branch inside it. `when` subtracts in one
+ * direction and reads "just now" for anything not yet past, so a promo expiring
+ * in a fortnight rendered as "just now" in the Expires column — a confident
+ * statement, and the opposite of the truth.
+ */
+export function until(value: string | null | undefined): string {
+  if (!value) return 'Never';
+  const ms = new Date(value).getTime() - Date.now();
+  if (ms <= 0) return 'Expired';
+  const hours = Math.ceil(ms / 3_600_000);
+  if (hours < 24) return `in ${hours}h`;
+  const days = Math.ceil(hours / 24);
+  return `in ${days} day${days === 1 ? '' : 's'}`;
+}
+
 export function when(value: string | null | undefined): string {
   if (!value) return '—';
   const d = new Date(value);

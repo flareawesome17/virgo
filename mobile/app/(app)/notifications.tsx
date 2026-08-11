@@ -16,6 +16,7 @@ import {
   CheckCheckIcon,
   CreditCardIcon,
   FileTextIcon,
+  GiftIcon,
   LifeBuoyIcon,
   MessageCircleIcon,
   Trash2Icon,
@@ -37,6 +38,7 @@ cssInterop(CalendarIcon, interop);
 cssInterop(CheckCheckIcon, interop);
 cssInterop(CreditCardIcon, interop);
 cssInterop(FileTextIcon, interop);
+cssInterop(GiftIcon, interop);
 cssInterop(LifeBuoyIcon, interop);
 cssInterop(MessageCircleIcon, interop);
 cssInterop(Trash2Icon, interop);
@@ -81,6 +83,7 @@ const TOPICS: Record<
   billing: { icon: CreditCardIcon, href: '/settings/billing' },
   retention: { icon: Trash2Icon, href: '/albums' },
   support: { icon: LifeBuoyIcon, href: '/support' },
+  promo: { icon: GiftIcon, href: '/rewards' },
 };
 
 /** "4m", "3h", "2d" — a list this dense has no room for a sentence. */

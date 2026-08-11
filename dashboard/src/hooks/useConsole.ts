@@ -7,7 +7,7 @@ import {
   type QueryKey,
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { console_, type AdminRole } from '@/api/console';
+import { console_, type AdminRole, type PromoInput } from '@/api/console';
 
 export const keys = {
   me: ['me'] as QueryKey,
@@ -23,6 +23,8 @@ export const keys = {
   ticket: (id: string) => ['ticket', id] as QueryKey,
   accounts: ['accounts'] as QueryKey,
   audit: (p: unknown) => ['audit', p] as QueryKey,
+  promos: ['promos'] as QueryKey,
+  promoGrants: (id: string) => ['promoGrants', id] as QueryKey,
 };
 
 export function useMe() {
@@ -198,5 +200,71 @@ export function useRemoveAccount() {
   return useConsoleMutation((id: string) => console_.removeAccount(id), {
     success: 'Console account removed',
     invalidate: [keys.accounts],
+  });
+}
+
+// ─── promos ────────────────────────────────────────────────────────────────
+
+export function usePromos(enabled = true) {
+  return useQuery({ queryKey: keys.promos, queryFn: console_.promos, enabled });
+}
+
+/** Who holds a promo, and who took it. Only fetched when a row is expanded. */
+export function usePromoGrants(id: string | null) {
+  return useQuery({
+    queryKey: keys.promoGrants(id ?? ''),
+    queryFn: () => console_.promoGrants(id!),
+    enabled: !!id,
+  });
+}
+
+export function useCreatePromo() {
+  return useConsoleMutation((input: PromoInput) => console_.createPromo(input), {
+    success: 'Promo created',
+    invalidate: [keys.promos],
+  });
+}
+
+export function useSetPromoActive() {
+  return useConsoleMutation(
+    ({ id, active }: { id: string; active: boolean }) =>
+      console_.setPromoActive(id, active),
+    { success: 'Promo updated', invalidate: [keys.promos] },
+  );
+}
+
+/**
+ * Offers a promo to the selected accounts.
+ *
+ * Reports both numbers rather than just the total: re-running a selection that
+ * mostly overlaps grants very little, and "12 of 30 — the rest already had it"
+ * is the difference between that reading as a bug and reading as correct.
+ */
+export function useGrantPromo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, userIds }: { id: string; userIds: string[] }) =>
+      console_.grantPromo(id, userIds).then((r) => ({ ...r, selected: userIds.length })),
+    onSuccess: (result) => {
+      const { granted, selected } = result;
+      if (granted === 0) {
+        toast.info('Nothing to send', {
+          description: 'Everyone selected already had this promo.',
+        });
+      } else {
+        toast.success(`Offered to ${granted} ${granted === 1 ? 'person' : 'people'}`, {
+          description:
+            granted < selected
+              ? `${selected - granted} of the ${selected} selected already had it.`
+              : undefined,
+        });
+      }
+      void qc.invalidateQueries({ queryKey: keys.promos });
+      void qc.invalidateQueries({ queryKey: ['promoGrants'] });
+      void qc.invalidateQueries({ queryKey: ['audit'] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'That did not work');
+    },
   });
 }

@@ -100,6 +100,52 @@ function qs(params: Record<string, string | number | undefined>): string {
     : '';
 }
 
+/**
+ * A reward the admin defined. Mirrors `Promo` in api/src/promos/promos.service.ts.
+ *
+ * A *targeted* promo is offered to accounts the admin picks. A *referral* one
+ * pays whoever invited an account, when that account confirms its address.
+ * They differ in how a grant comes to exist, not in what it gives.
+ */
+export interface Promo {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: 'targeted' | 'referral';
+  /** Bytes. The form works in GB and multiplies before sending. */
+  storageBytes: number;
+  extraWorkspaces: number;
+  extraAlbumsPerWorkspace: number;
+  /** How long a new grant stays claimable. Null never expires. */
+  claimWindowDays: number | null;
+  active: boolean;
+  createdAt: string;
+  granted: number;
+  claimed: number;
+}
+
+export interface PromoGrant {
+  id: string;
+  userId: string;
+  displayName: string | null;
+  email: string;
+  claimedAt: string | null;
+  expiresAt: string | null;
+  /** Who joining earned this, on a referral grant. */
+  referredName: string | null;
+  createdAt: string;
+}
+
+export interface PromoInput {
+  name: string;
+  description?: string;
+  kind: 'targeted' | 'referral';
+  storageBytes?: number;
+  extraWorkspaces?: number;
+  extraAlbumsPerWorkspace?: number;
+  claimWindowDays?: number | null;
+}
+
 export const console_ = {
   me: () => api.get<AdminMe>('/admin/me'),
   overview: (days = 30) => api.get<Overview>(`/admin/overview?days=${days}`),
@@ -174,6 +220,14 @@ export const console_ = {
   setAccountPassword: (id: string, password: string) =>
     api.patch(`/admin/accounts/${id}/password`, { password }),
   removeAccount: (id: string) => api.delete(`/admin/accounts/${id}`),
+
+  promos: () => api.get<Promo[]>('/admin/promos'),
+  promoGrants: (id: string) => api.get<PromoGrant[]>(`/admin/promos/${id}/grants`),
+  createPromo: (input: PromoInput) => api.post<Promo>('/admin/promos', input),
+  setPromoActive: (id: string, active: boolean) =>
+    api.patch<Promo>(`/admin/promos/${id}/active`, { active }),
+  grantPromo: (id: string, userIds: string[]) =>
+    api.post<{ granted: number }>(`/admin/promos/${id}/grants`, { userIds }),
 
   audit: (p: { limit?: number; offset?: number; targetId?: string }) =>
     api.get<

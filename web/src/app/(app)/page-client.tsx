@@ -244,7 +244,13 @@ export default function HomePage() {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {storageLimitBytes
-                    ? `of ${formatBytes(storageLimitBytes)} on ${usage?.plan ?? 'free'}`
+                    ? // Not "on free" once a reward has raised the ceiling above
+                      // what the plan gives — see the storage screen.
+                      `of ${formatBytes(storageLimitBytes)}${
+                        usage?.bonus?.storageBytes
+                          ? ' with rewards'
+                          : ` on ${usage?.plan ?? 'free'}`
+                      }`
                     : 'used'}
                 </p>
                 {storageLimitBytes ? (

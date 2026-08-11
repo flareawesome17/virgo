@@ -1,0 +1,191 @@
+'use client';
+
+import { useState } from 'react';
+import { Check, Copy, Gift, Loader2, Share2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { expiryLabel, rewardLabel, type OfferedPromo } from '@/api';
+import { AppShell, PageHeader } from '@/components/app-shell';
+import { CenteredSpinner } from '@/components/states';
+import {
+  useClaimPromo,
+  usePromoOffers,
+  useReferralCode,
+} from '@/hooks/usePromos';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+
+function OfferCard({ offer }: { offer: OfferedPromo }) {
+  const claim = useClaimPromo();
+  const expiry = expiryLabel(offer.expiresAt);
+
+  const take = async () => {
+    try {
+      const result = await claim.mutateAsync(offer.grantId);
+      toast.success('Claimed', {
+        description: `${result.reward} has been added to your account.`,
+      });
+    } catch (err) {
+      toast.error('Could not claim that', {
+        description:
+          err instanceof Error
+            ? err.message
+            : 'It may have expired. Reload and try again.',
+      });
+    }
+  };
+
+  return (
+    <div className="rounded-xl border bg-card p-5">
+      <div className="flex items-start gap-4">
+        <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary/10">
+          <Gift className="size-5 text-primary" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-semibold tracking-tight">{offer.name}</h2>
+            {offer.kind === 'referral' && (
+              <Badge variant="secondary">Referral</Badge>
+            )}
+          </div>
+
+          <p className="mt-1 text-sm font-medium text-primary">
+            {rewardLabel(offer)}
+          </p>
+
+          {offer.description && (
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              {offer.description}
+            </p>
+          )}
+
+          {offer.referredName && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              You earned this when {offer.referredName} joined with your code.
+            </p>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button onClick={() => void take()} disabled={claim.isPending}>
+              {claim.isPending && <Loader2 className="size-4 animate-spin" />}
+              Claim
+            </Button>
+            {expiry && (
+              <span className="text-xs text-muted-foreground">{expiry}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The code to share, and what sharing it is worth.
+ *
+ * Deliberately vague about the reward: what a referral pays is whatever promo
+ * is active at the time, and it can be switched off entirely. Promising a
+ * specific number here would be a promise the console can revoke.
+ */
+function ReferralCard() {
+  const { code, isLoading } = useReferralCode();
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast.success('Code copied');
+    } catch {
+      toast.error('Could not copy', { description: 'Select it and copy by hand.' });
+    }
+  };
+
+  return (
+    <div className="rounded-xl border bg-card p-5">
+      <div className="flex items-start gap-4">
+        <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-muted">
+          <Share2 className="size-5 text-muted-foreground" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold tracking-tight">Invite other creatives</h2>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            Share your code. When someone signs up with it and confirms their
+            email address, any reward we are running lands here for you to claim.
+          </p>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <code className="rounded-lg border bg-muted px-4 py-2 font-mono text-lg font-semibold tracking-[0.2em]">
+              {isLoading ? '······' : (code ?? '—')}
+            </code>
+            <Button variant="outline" onClick={() => void copy()} disabled={!code}>
+              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Rewards waiting to be claimed, and the code that earns more of them.
+ *
+ * Claiming is explicit rather than automatic on purpose: somebody who was
+ * given storage should know they have it, and a limit that silently changed
+ * is indistinguishable from a bug.
+ */
+export default function RewardsPage() {
+  const { offers, isLoading, loadFailed, refetch } = usePromoOffers();
+
+  return (
+    <AppShell title="Rewards">
+      <PageHeader
+        title="Rewards"
+        description="What is waiting for you, and how to earn more"
+      />
+
+      <div className="mx-auto w-full max-w-4xl space-y-4 px-6 py-6">
+        {isLoading ? (
+          <CenteredSpinner />
+        ) : loadFailed ? (
+          <div className="rounded-lg border border-dashed py-12 text-center">
+            <p className="text-sm font-medium">Could not load your rewards</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              This is a connection problem, not an empty list.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-3"
+              onClick={() => void refetch()}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : (
+          <>
+            {offers.length === 0 ? (
+              <div className="rounded-lg border border-dashed py-14 text-center">
+                <Gift className="mx-auto size-6 text-muted-foreground" />
+                <p className="mt-3 text-sm font-medium">Nothing waiting right now</p>
+                <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">
+                  Rewards show up here when we send one your way, or when someone
+                  joins with your code below.
+                </p>
+              </div>
+            ) : (
+              offers.map((offer) => (
+                <OfferCard key={offer.grantId} offer={offer} />
+              ))
+            )}
+
+            <ReferralCard />
+          </>
+        )}
+      </div>
+    </AppShell>
+  );
+}

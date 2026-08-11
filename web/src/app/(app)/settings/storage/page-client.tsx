@@ -231,9 +231,19 @@ export default function StorageSettingsPage() {
                 <p className="text-3xl font-bold tabular-nums">
                   {formatBytes(storageUsedBytes)}
                 </p>
+                {/*
+                  "on the free plan" only while the plan is the whole story.
+                  A claimed promo raises this ceiling above what the tier
+                  gives, and attributing the total to the plan then makes the
+                  reward look like it did nothing.
+                */}
                 <p className="mt-1 text-sm text-muted-foreground">
                   {storageLimitBytes
-                    ? `of ${formatBytes(storageLimitBytes)} on the ${usage?.plan ?? 'free'} plan`
+                    ? `of ${formatBytes(storageLimitBytes)}${
+                        usage?.bonus?.storageBytes
+                          ? `, including ${formatBytes(usage.bonus.storageBytes)} from rewards`
+                          : ` on the ${usage?.plan ?? 'free'} plan`
+                      }`
                     : 'used'}
                 </p>
               </div>

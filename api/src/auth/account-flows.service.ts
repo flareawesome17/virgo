@@ -9,6 +9,7 @@ import {
   resetPassword,
   verifyEmail,
 } from '../mail/mail.templates';
+import { PromosService } from '../promos/promos.service';
 import { AuthTokensService, TOKEN_TTL_MS } from './auth-tokens.service';
 import { UsersRepository } from './users.repository';
 
@@ -35,6 +36,7 @@ export class AccountFlowsService {
     private readonly mail: MailService,
     private readonly mailConfig: MailConfig,
     private readonly config: ConfigService,
+    private readonly promos: PromosService,
   ) {}
 
   private link(path: string, token: string): string {
@@ -97,10 +99,31 @@ export class AccountFlowsService {
       );
     }
 
-    await this.db.query(
-      'update users set email_verified_at = now() where id = $1 and email_verified_at is null',
+    const flipped = await this.db.query<{ id: string }>(
+      `update users set email_verified_at = now()
+        where id = $1 and email_verified_at is null
+        returning id`,
       [userId],
     );
+
+    // Referrals pay out here and nowhere else.
+    //
+    // Guarded on the update having actually changed a row, so this is the
+    // moment an address is first proven — not every time somebody revisits a
+    // link. `payReferral` is idempotent as well, but the cheapest defence
+    // against paying twice is not calling it twice.
+    //
+    // Failing to pay must not fail the verification: the user did their part,
+    // and an account stuck unverified because a promo lookup threw would be a
+    // far worse bug than a missed reward.
+    if (flipped.length > 0) {
+      try {
+        await this.promos.payReferral(userId);
+      } catch (err) {
+        this.logger.error(`Referral payout failed for ${userId}: ${String(err)}`);
+      }
+    }
+
     return { verified: true };
   }
 

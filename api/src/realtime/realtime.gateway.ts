@@ -34,7 +34,9 @@ export type NotificationTopic =
   /** Support answered a ticket this account opened. */
   | 'support'
   /** A booking was created, changed, agreed or cancelled. */
-  | 'booking';
+  | 'booking'
+  /** A reward is being offered to this account, and is waiting to be claimed. */
+  | 'promo';
 
 /** What the server pushes. Discriminated on `type`. */
 export type ServerEvent =

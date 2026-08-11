@@ -7,6 +7,7 @@ import { useState, type ComponentType, type ReactNode } from 'react';
 import {
   BriefcaseBusiness,
   FileText,
+  Gift,
   LifeBuoy,
   CalendarDays,
   FolderOpen,
@@ -39,6 +40,7 @@ import { useIncomingFriendRequests } from '@/hooks/useFriends';
 import { SidebarFriends } from '@/components/sidebar-friends';
 import { useEventInvitations } from '@/hooks/useScheduleEvents';
 import { useUnseenJobs } from '@/hooks/useJobs';
+import { usePromoOffers } from '@/hooks/usePromos';
 import { NotificationBell } from '@/components/notification-bell';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
@@ -48,7 +50,13 @@ interface NavItem {
   label: string;
   icon: ComponentType<{ className?: string }>;
   /** Which live count fills this item's badge slot, if any. */
-  badge?: 'unread' | 'invitations' | 'friendRequests' | 'eventInvites' | 'newJobs';
+  badge?:
+    | 'unread'
+    | 'invitations'
+    | 'friendRequests'
+    | 'eventInvites'
+    | 'newJobs'
+    | 'rewards';
 }
 
 const NAV: { heading?: string; items: NavItem[] }[] = [
@@ -74,7 +82,12 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
     // Its own group at the bottom rather than buried in settings. During a
     // pre-release the most valuable thing a user can do is tell you what
     // broke, and a support link nobody finds collects nothing.
-    items: [{ href: '/support', label: 'Support', icon: LifeBuoy }],
+    items: [
+      // Badged, because an offer can expire — a reward nobody noticed in time
+      // is worse than no reward at all.
+      { href: '/rewards', label: 'Rewards', icon: Gift, badge: 'rewards' },
+      { href: '/support', label: 'Support', icon: LifeBuoy },
+    ],
   },
 ];
 
@@ -101,6 +114,9 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   // surfaces — an application otherwise announced itself over the socket and
   // by email and left no trace in the app at all.
   const { total: newJobs } = useUnseenJobs();
+  // Rewards waiting to be claimed. Cheap — the list is almost always empty,
+  // and it is the only surface that says an offer arrived.
+  const { offers: rewards } = usePromoOffers();
 
   return (
     <nav className="flex flex-col gap-6 px-3 py-2">
@@ -154,6 +170,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 {item.badge === 'friendRequests' && friendRequests > 0 && (
                   <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
                     {friendRequests > 99 ? '99+' : friendRequests}
+                  </Badge>
+                )}
+                {item.badge === 'rewards' && rewards.length > 0 && (
+                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
+                    {rewards.length > 99 ? '99+' : rewards.length}
                   </Badge>
                 )}
                 {item.badge === 'invitations' && invitations.length > 0 && (

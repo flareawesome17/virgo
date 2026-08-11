@@ -10,6 +10,16 @@ export interface UsageSummary {
   };
   workspaces: { used: number; limit: number | null };
   albums: { used: number; limit: number | null };
+  /**
+   * How much of each limit above came from claimed promos rather than the plan.
+   *
+   * Reported by the server rather than derived here: subtracting a plan
+   * catalogue from a limit is arithmetic every screen would have to repeat, and
+   * getting it wrong puts a number on screen that contradicts the plan page.
+   *
+   * All zeroes for an account that has claimed nothing, which is most of them.
+   */
+  bonus: { storageBytes: number; workspaces: number; albumsPerWorkspace: number };
 }
 
 export interface PlanInfo {

@@ -7,7 +7,7 @@ import { Redirect, router } from 'expo-router';
 import { useState } from 'react';
 import {
   ArrowLeftIcon, UserIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
-  CheckIcon, MapPinIcon, Building2Icon, AtSignIcon, HomeIcon, GlobeIcon,
+  CheckIcon, MapPinIcon, Building2Icon, AtSignIcon, HomeIcon, GlobeIcon, GiftIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -24,6 +24,7 @@ cssInterop(Building2Icon, { className: { target: 'style', nativeStyleToProp: { c
 cssInterop(AtSignIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(GlobeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(GiftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /**
  * Signing up, in three steps.
@@ -57,6 +58,7 @@ export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
 
   // Step 2
   const [roles, setRoles] = useState<string[]>([]);
@@ -147,9 +149,13 @@ export default function SignUpScreen() {
         addressCountry: country.trim().toUpperCase(),
         studioName: studioName.trim() || undefined,
         socialHandle: socialHandle.trim() || undefined,
+        referralCode: referralCode.trim() || undefined,
       },
       {
-        onSuccess: () => router.push('/check-inbox'),
+        // With the address: there is no session after signing up, so the
+        // next screen has nothing to name unless it is passed one.
+        onSuccess: () =>
+          router.push(`/check-inbox?email=${encodeURIComponent(email.trim())}`),
         onError: (err: any) => {
           const message = err?.reason || err?.message || 'Sign up failed. Please try again.';
           setErrorMsg(message);
@@ -231,6 +237,26 @@ export default function SignUpScreen() {
                   <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Re-enter password"
                     placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
                     secureTextEntry={!showPassword} autoCapitalize="none" />
+                </Field>
+
+                {/* On the first step rather than with the other optional fields
+                    two screens later: somebody who was sent a code is holding it
+                    now, and a field they have to go looking for is a referral
+                    that never pays. */}
+                <Field
+                  label="Invite Code (optional)"
+                  icon={<GiftIcon size={16} className="text-muted-foreground" />}
+                >
+                  <TextInput
+                    value={referralCode}
+                    onChangeText={(v) => setReferralCode(v.toUpperCase())}
+                    placeholder="From whoever invited you"
+                    placeholderTextColor="#A89489"
+                    className="flex-1 text-foreground text-base tracking-[2px]"
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    maxLength={32}
+                  />
                 </Field>
               </>
             )}

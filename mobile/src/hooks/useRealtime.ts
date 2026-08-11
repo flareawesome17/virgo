@@ -20,23 +20,16 @@ import {
 import { buzzForMessage } from '@/src/lib/notifications';
 import { loadSoundPreference, playAlert } from '@/src/lib/sounds';
 
-/** Mirrors NotificationTopic on the server. */
-type NotificationTopic =
-  | 'friend-request'
-  | 'friend-accepted'
-  | 'collaborator-invite'
-  | 'collaborator-response'
-  | 'event-invite'
-  | 'event-response'
-  | 'hire-enquiry'
-  | 'hire-response'
-  | 'job-application'
-  | 'support'
-  | 'booking'
-  | 'job-response'
-  | 'reminder'
-  | 'billing'
-  | 'retention';
+/*
+ * The one definition, imported rather than mirrored.
+ *
+ * This was a hand-kept copy of the server union, and a copy of a closed set
+ * is a copy that goes stale: the TOPICS table below is exhaustive over it, so
+ * a topic missing here silently opts out of type checking for the topic that
+ * was added. Importing the shared type makes adding one on the server a
+ * compile error in every client that has not handled it.
+ */
+import type { NotificationTopic } from '@/src/api';
 
 type ServerEvent =
   | { type: 'ready'; userId: string }
@@ -93,6 +86,9 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   // arrived without refreshing anything.
   billing: [['usage'], ['plans']],
   retention: [queryKeys.albums.all],
+  // Usage too: an offer is not a reward yet, but the Rewards screen shows both
+  // what is waiting and what the account currently gets.
+  promo: [queryKeys.promos.all, ['usage']],
 };
 
 function applyNotification(

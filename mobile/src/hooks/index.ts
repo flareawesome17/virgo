@@ -187,3 +187,9 @@ export {
   useConfirmBooking,
   useCancelBooking,
 } from './useBookings';
+
+export {
+  usePromoOffers,
+  useReferralCode,
+  useClaimPromo,
+} from './usePromos';

@@ -22,7 +22,8 @@ export type NotificationTopic =
   | 'billing'
   | 'retention'
   | 'support'
-  | 'booking';
+  | 'booking'
+  | 'promo';
 
 export interface AppNotification {
   id: string;

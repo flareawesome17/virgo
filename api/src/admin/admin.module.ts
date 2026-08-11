@@ -14,6 +14,8 @@ import { AdminSupportController, SupportController } from './support.controller'
 import { SupportService } from './support.service';
 import { VisitsModule } from '../visits/visits.module';
 import { VisitsService } from '../visits/visits.service';
+import { PromosModule } from '../promos/promos.module';
+import { AdminPromosController } from '../promos/admin-promos.controller';
 
 /**
  * The management console's API.
@@ -34,12 +36,17 @@ import { VisitsService } from '../visits/visits.service';
     MailModule,
     NotificationsModule,
     VisitsModule,
+    // For AdminPromosController below: the promo routes are console routes, so
+    // they are registered here to inherit this module's guard and audit log
+    // rather than reimplementing either inside PromosModule.
+    PromosModule,
   ],
   controllers: [
     AdminAuthController,
     AdminController,
     AdminSupportController,
     SupportController,
+    AdminPromosController,
   ],
   providers: [
     AdminAuthService,

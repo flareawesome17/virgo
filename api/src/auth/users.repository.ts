@@ -154,6 +154,12 @@ export interface SignupDetails {
   addressCountry?: string;
   studioName?: string;
   socialHandle?: string;
+  /**
+   * Resolved from a referral code before this call, never the raw code — an
+   * unknown code is a no-op signup detail, not a failed registration, and that
+   * decision belongs in the service rather than in an insert.
+   */
+  referredByUserId?: string;
 }
 
 @Injectable()
@@ -185,9 +191,10 @@ export class UsersRepository {
       `insert into users (
          email, password_hash, display_name, roles,
          address_line1, address_line2, address_city, address_province,
-         address_postal, address_country, studio_name, social_handle
+         address_postal, address_country, studio_name, social_handle,
+         referred_by_user_id
        )
-       values ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10, $11, $12)
+       values ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10, $11, $12, $13)
        returning *`,
       [
         email,
@@ -202,6 +209,7 @@ export class UsersRepository {
         details.addressCountry ?? null,
         details.studioName ?? null,
         details.socialHandle ?? null,
+        details.referredByUserId ?? null,
       ],
     );
     return row as UserRow;

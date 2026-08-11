@@ -48,6 +48,7 @@ export function SignUpWizard() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [referralCode, setReferralCode] = useState('');
 
   // Step 2
   const [roles, setRoles] = useState<string[]>([]);
@@ -124,6 +125,7 @@ export function SignUpWizard() {
         addressCountry: country.trim().toUpperCase(),
         studioName: studioName.trim() || undefined,
         socialHandle: socialHandle.trim() || undefined,
+        referralCode: referralCode.trim() || undefined,
       },
       {
         // Not into the app: registering no longer signs anybody in. The
@@ -245,6 +247,26 @@ export function SignUpWizard() {
                 autoComplete="new-password"
                 required
               />
+            </Field>
+
+            {/*
+              On the first step rather than with the other optional fields two
+              screens later: somebody who was sent a code is holding it now, and
+              a field they have to go looking for is a referral that never pays.
+            */}
+            <Field label="Invite code (optional)">
+              <Input
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                placeholder="From whoever invited you"
+                autoCapitalize="characters"
+                maxLength={32}
+                className="font-mono tracking-widest"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Leave it blank if you do not have one. Nothing here can stop your
+                account being created.
+              </p>
             </Field>
           </div>
         )}

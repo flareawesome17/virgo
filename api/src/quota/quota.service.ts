@@ -17,6 +17,17 @@ export interface UsageSummary {
   workspaces: { used: number; limit: number | null };
   /** `limit` is per workspace; `used` is the total across all of them. */
   albums: { used: number; limit: number | null };
+  /**
+   * How much of each limit above came from claimed promos rather than the plan.
+   *
+   * Reported rather than left for a client to derive: the alternative is every
+   * screen fetching the plan catalogue and subtracting, and the storage screen
+   * doing that arithmetic wrong is how "20 GB on the free plan" ended up on
+   * screen for a plan that gives 15.
+   *
+   * All zeroes for an account that has claimed nothing, which is most of them.
+   */
+  bonus: { storageBytes: number; workspaces: number; albumsPerWorkspace: number };
 }
 
 /** What a collaborator may do with the media in an album they were granted. */
@@ -128,8 +139,57 @@ export class QuotaService {
     return row?.plan ?? 'free';
   }
 
+  /**
+   * What this account has been given on top of its plan.
+   *
+   * Summed from claimed grants rather than kept in a counter column on users.
+   * A counter is one bad write away from being wrong with nothing to
+   * reconcile against; this can always be explained — every byte traces to a
+   * promo somebody claimed on a date.
+   *
+   * Unclaimed grants are worth nothing, and an expired one stops counting
+   * even if it was claimed late: `claimed_at` is only ever set while the
+   * grant is live, so the expiry check here is belt and braces.
+   */
+  private async bonusFor(userId: string): Promise<PlanLimits> {
+    const row = await this.db.queryOne<{
+      storage_bytes: string;
+      extra_workspaces: string;
+      extra_albums: string;
+    }>(
+      `select coalesce(sum(p.storage_bytes), 0)::text              as storage_bytes,
+              coalesce(sum(p.extra_workspaces), 0)::text           as extra_workspaces,
+              coalesce(sum(p.extra_albums_per_workspace), 0)::text as extra_albums
+         from promo_grants g
+         join promos p on p.id = g.promo_id
+        where g.user_id = $1
+          and g.claimed_at is not null`,
+      [userId],
+    );
+    return {
+      storageBytes: Number(row?.storage_bytes ?? 0),
+      workspaces: Number(row?.extra_workspaces ?? 0),
+      albumsPerWorkspace: Number(row?.extra_albums ?? 0),
+    };
+  }
+
+  /**
+   * The plan, plus anything claimed on top of it.
+   *
+   * Every quota check in the app goes through here, so a claimed promo takes
+   * effect everywhere at once — uploads, workspace creation, album creation —
+   * without each call site learning about promos.
+   */
   async limits(userId: string): Promise<PlanLimits> {
-    return limitsFor(await this.planFor(userId));
+    const [plan, bonus] = await Promise.all([
+      this.planFor(userId).then(limitsFor),
+      this.bonusFor(userId),
+    ]);
+    return {
+      storageBytes: plan.storageBytes + bonus.storageBytes,
+      workspaces: plan.workspaces + bonus.workspaces,
+      albumsPerWorkspace: plan.albumsPerWorkspace + bonus.albumsPerWorkspace,
+    };
   }
 
   /** Bytes currently stored, summed from the recorded file rows. */
@@ -152,7 +212,11 @@ export class QuotaService {
 
   async summary(userId: string): Promise<UsageSummary> {
     const plan = await this.planFor(userId);
-    const limits = limitsFor(plan);
+    // this.limits, not limitsFor(plan): the storage screen has to show what
+    // the account actually gets, or claiming a promo would raise the real
+    // ceiling while the number on screen kept quoting the plan.
+    const limits = await this.limits(userId);
+    const bonus = await this.bonusFor(userId);
 
     const [usedBytes, fileCount, workspaces, albums] = await Promise.all([
       this.storageUsed(userId),
@@ -175,6 +239,11 @@ export class QuotaService {
       },
       workspaces: { used: workspaces, limit: toJsonLimit(limits.workspaces) },
       albums: { used: albums, limit: toJsonLimit(limits.albumsPerWorkspace) },
+      bonus: {
+        storageBytes: bonus.storageBytes,
+        workspaces: bonus.workspaces,
+        albumsPerWorkspace: bonus.albumsPerWorkspace,
+      },
     };
   }
 

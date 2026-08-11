@@ -120,6 +120,25 @@ export class RegisterDto {
   @IsString()
   @MaxLength(200)
   socialHandle?: string;
+
+  /*
+   * Somebody else's referral code, if they were invited.
+   *
+   * Upper-cased and trimmed here for the same reason the country code is:
+   * codes are generated upper-case, and a person retyping one from a message
+   * types whatever their keyboard gave them. Matching should not depend on
+   * that.
+   *
+   * An unknown code is not an error — see AuthService.register. Validation
+   * here is only about shape.
+   */
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsString()
+  @MaxLength(32)
+  referralCode?: string;
 }
 
 export class LoginDto {

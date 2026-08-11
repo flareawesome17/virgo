@@ -35,6 +35,15 @@ export {
   type BookingSide,
 } from './endpoints/bookings';
 export {
+  promosApi,
+  expiryLabel,
+  rewardLabel,
+  storageLabel,
+  type ClaimedPromo,
+  type OfferedPromo,
+  type PromoKind,
+} from './endpoints/promos';
+export {
   notificationsApi,
   type AppNotification,
   type NotificationTopic,

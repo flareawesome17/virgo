@@ -50,6 +50,14 @@ export interface SignupProfile {
   studioName?: string;
   /** A handle, a page or a URL — whatever they actually use. */
   socialHandle?: string;
+  /**
+   * Somebody else's referral code, if they were invited.
+   *
+   * A code that matches nobody is not an error: the account is created either
+   * way and no referral is recorded. Rejecting the signup would punish the
+   * wrong person for a typo, and the reward was the referrer's to lose.
+   */
+  referralCode?: string;
 }
 
 export const authApi = {

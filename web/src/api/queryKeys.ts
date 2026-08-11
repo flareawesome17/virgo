@@ -82,4 +82,9 @@ export const queryKeys = {
   profile: {
     settings: ['profile', 'settings'] as const,
   },
+  promos: {
+    all: ['promos'] as const,
+    offers: ['promos', 'offers'] as const,
+    referralCode: ['promos', 'referral-code'] as const,
+  },
 } as const;
