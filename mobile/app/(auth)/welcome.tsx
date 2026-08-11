@@ -52,24 +52,11 @@ export default function WelcomeScreen() {
 
         {/* Buttons */}
         <View className="gap-3">
-          {/* Continue with Google */}
-          <Pressable
-            onPress={() => router.push('/sign-in')}
-            className="bg-card rounded-2xl py-3.5 flex-row items-center justify-center gap-3 active:scale-[0.97] border border-border"
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: 0.04,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 2,
-            }}
-          >
-            <View className="w-6 h-6 items-center justify-center">
-              {/* Simple Google G icon */}
-              <Text className="text-base font-bold" style={{ color: '#4285F4' }}>G</Text>
-            </View>
-            <Text className="text-foreground text-base font-semibold">Continue with Google</Text>
-          </Pressable>
+          {/* There was a "Continue with Google" button here. It was wired to
+              the email sign-in screen — tapping Google asked for a password,
+              which is the kind of thing that makes people think they have the
+              wrong app. There is no OAuth client behind it. It comes back when
+              it works. */}
 
           {/* Sign in with email */}
           <Pressable

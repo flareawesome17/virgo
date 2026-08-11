@@ -71,21 +71,12 @@ export default function SignInScreen() {
             </View>
           </View>
 
-          {/* Google button */}
-          <View className="px-6 mt-6">
-            <Pressable className="bg-card rounded-2xl py-3.5 flex-row items-center justify-center gap-3 active:scale-[0.97] border border-border"
-              style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-              <Text className="text-base font-bold" style={{ color: '#4285F4' }}>G</Text>
-              <Text className="text-foreground text-sm font-semibold">Continue with Google</Text>
-            </Pressable>
-
-            {/* Divider */}
-            <View className="flex-row items-center gap-3 my-6">
-              <View className="flex-1 h-px bg-border" />
-              <Text className="text-muted-foreground text-xs font-medium">or sign in with email</Text>
-              <View className="flex-1 h-px bg-border" />
-            </View>
-          </View>
+          {/* There was a "Continue with Google" button here that did nothing —
+              no handler, no provider, no OAuth client. Offering a sign-in
+              method that cannot sign anyone in is worse than not offering it:
+              somebody with a Google-created account taps it, gets nothing, and
+              reasonably concludes the app is broken. It comes back when it
+              works. */}
 
           {/* Form */}
           <View className="px-6 gap-4">

@@ -19,6 +19,8 @@ import {
   queryKeys,
   setAuthFailureHandler,
   type AuthUser,
+  type Credentials,
+  type SignupProfile,
   type UpdateProfileInput,
 } from '@/src/api';
 
@@ -152,20 +154,18 @@ export function useAuth() {
     },
   });
 
+  /**
+   * Takes the whole signup payload rather than picking fields out of it.
+   *
+   * It used to destructure four names and rebuild the object, which meant
+   * every field added to the form had to be added here too or it was silently
+   * dropped on the way to the API — which is exactly how displayName came to
+   * be collected, validated, and thrown away.
+   */
   const signUp = useMutation({
-    mutationFn: async ({
-      email,
-      password,
-      displayName,
-      roles,
-    }: {
-      email: string;
-      password: string;
-      displayName?: string;
-      roles: string[];
-    }) => {
+    mutationFn: async (input: Credentials & SignupProfile) => {
       try {
-        return await authApi.register({ email, password, displayName, roles });
+        return await authApi.register(input);
       } catch (err) {
         throw toAuthError(err);
       }

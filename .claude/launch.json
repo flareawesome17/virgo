@@ -15,6 +15,23 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "web", "--", "--port", "3002"],
       "port": 3002
+    },
+    {
+      // Expo's web target, for looking at a screen without a device attached.
+      // It renders the same components through react-native-web, so a layout
+      // or a render crash shows up here; anything native does not.
+      //
+      // Through npm rather than `npx expo`: npx run from the repo root does
+      // not see mobile/node_modules and downloads a different major of the
+      // Expo CLI than the project is pinned to.
+      "name": "mobile",
+      "runtimeExecutable": "npm",
+      // 3002 for the same reason the web entry uses it: it is the one dev
+      // origin the API's CORS allow-list contains, and Expo's web build makes
+      // real browser requests that a device never would. Only one of the two
+      // can run at a time, which is fine — they are never both needed.
+      "runtimeArgs": ["run", "web", "--prefix", "mobile", "--", "--port", "3002"],
+      "port": 3002
     }
   ]
 }
