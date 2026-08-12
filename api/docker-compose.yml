@@ -278,17 +278,24 @@ services:
     #
     #   docker compose --profile tunnel up -d cloudflared
     #
-    # DEV_TUNNEL_TOKEN, not CLOUDFLARE_TUNNEL_TOKEN. This must be a *second*
-    # tunnel, its own token, carrying only development hostnames:
+    # CLOUDFLARE_TUNNEL_TOKEN here must be the **development** tunnel's token.
+    #
+    # There are two tunnels. Each machine's own .env carries the token for the
+    # one it owns, under the same variable name:
+    #
+    #   api/.env         -> the development tunnel   (this machine)
+    #   .env.production  -> the production tunnel    (the production host)
+    #
+    # The development tunnel should carry development hostnames only:
     #
     #   dev.virgo.ph      -> http://host.docker.internal:8081   (Metro)
     #   dev-api.virgo.ph  -> http://api:3000                    (optional)
     #
-    # The separate variable is the safety property. Two connectors sharing one
-    # token are replicas and Cloudflare load-balances between them, so booting
-    # this with production's token would put half of production's traffic on
-    # this machine. A different name means that cannot happen by accident —
-    # the value simply is not here to be picked up.
+    # Worth being careful rather than clever about: two connectors started with
+    # the *same* token are replicas, and Cloudflare load-balances between them.
+    # Booting this with production's token would put a share of production's
+    # traffic on this machine. So never copy .env.production here, and never
+    # copy this file's .env there.
     profiles: ['tunnel']
     # Pinned by digest — this process is the ingress for every hostname, so
     # it should change when you decide it does, not when a restart happens.
