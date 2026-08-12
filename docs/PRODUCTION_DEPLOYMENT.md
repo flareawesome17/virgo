@@ -67,10 +67,14 @@ full audit are in [DOMAINS.md](DOMAINS.md).
    re-releasing. The list is in [DOMAINS.md](DOMAINS.md#public-build-time-variables).
 
 4. **The production tunnel exists and owns the hostnames.** The routes today
-   belong to the development machine's tunnel. Production needs its own tunnel
-   and token, and the hostnames must be moved to it at cutover — otherwise
-   production traffic keeps arriving at a laptop. Also put Cloudflare Access in
-   front of `db.virgo.ph` (required) and `console.virgo.ph` (recommended).
+   belong to the development machine's tunnel. Production needs its **own**
+   tunnel — not a copy of the same token, which would make both machines
+   connectors for one tunnel and have Cloudflare load-balance production
+   traffic onto a laptop. The full procedure, including what development must
+   be repointed at afterwards, is in [CUTOVER.md](CUTOVER.md).
+
+   Also put Cloudflare Access in front of `db.virgo.ph` (required) and
+   `console.virgo.ph` (recommended).
 
 ## First-time host setup
 
