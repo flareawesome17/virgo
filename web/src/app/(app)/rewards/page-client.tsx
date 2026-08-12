@@ -1,7 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Copy, Gift, Loader2, PartyPopper, Share2 } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  Gift,
+  Loader2,
+  PartyPopper,
+  Share2,
+  TicketCheck,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   expiryLabel,
@@ -15,10 +23,12 @@ import { CenteredSpinner } from '@/components/states';
 import {
   useClaimPromo,
   usePromoOffers,
+  useRedeemReferral,
   useReferralCode,
 } from '@/hooks/usePromos';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -194,8 +204,9 @@ function ReferralCard() {
         <div className="min-w-0 flex-1">
           <h2 className="font-semibold tracking-tight">Invite other creatives</h2>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            Share your code. When someone signs up with it and confirms their
-            email address, any reward we are running lands here for you to claim.
+            Share your code. When someone joins with it and confirms their email
+            address, <span className="font-medium text-foreground">you both</span>{' '}
+            get whatever reward we are running.
           </p>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -205,6 +216,79 @@ function ReferralCard() {
             <Button variant="outline" onClick={() => void copy()} disabled={!code}>
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
               {copied ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Using somebody else's code.
+ *
+ * The signup form has a field for this too, but most people are handed a code
+ * by a friend after they have already joined — and a field only reachable by
+ * starting over is a field nobody uses.
+ *
+ * Hides itself once used: it is once per account, and a control that can only
+ * fail is not worth the space.
+ */
+function RedeemCard() {
+  const [code, setCode] = useState('');
+  const [done, setDone] = useState(false);
+  const redeem = useRedeemReferral();
+
+  const submit = async () => {
+    try {
+      const result = await redeem.mutateAsync(code.trim());
+      setDone(true);
+      toast.success('Invite code accepted', {
+        description: result.rewarded
+          ? 'Your reward is waiting above — claim it whenever you like.'
+          : 'No reward is running right now, but your invite is recorded.',
+      });
+    } catch (err) {
+      toast.error('Could not use that code', {
+        description:
+          err instanceof Error ? err.message : 'Check the code and try again.',
+      });
+    }
+  };
+
+  if (done) return null;
+
+  return (
+    <div className="rounded-xl border bg-card p-5">
+      <div className="flex items-start gap-4">
+        <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-muted">
+          <TicketCheck className="size-5 text-muted-foreground" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold tracking-tight">Have an invite code?</h2>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            Enter the code somebody shared with you and you both get the reward.
+            One code per account.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && code.trim().length >= 4) void submit();
+              }}
+              placeholder="ABC1234"
+              maxLength={32}
+              className="w-40 font-mono tracking-widest"
+            />
+            <Button
+              variant="outline"
+              onClick={() => void submit()}
+              disabled={code.trim().length < 4 || redeem.isPending}
+            >
+              {redeem.isPending && <Loader2 className="size-4 animate-spin" />}
+              Use code
             </Button>
           </div>
         </div>
@@ -270,6 +354,7 @@ export default function RewardsPage() {
               ))
             )}
 
+            <RedeemCard />
             <ReferralCard />
           </>
         )}

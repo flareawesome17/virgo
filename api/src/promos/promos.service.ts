@@ -54,6 +54,16 @@ export interface ClaimResult {
   };
 }
 
+/** What entering somebody's invite code did. */
+export interface ReferralResult {
+  accepted: true;
+  /**
+   * Whether a reward was actually granted. False when no referral promo is
+   * running — the code is still recorded, there is just nothing to pay.
+   */
+  rewarded: boolean;
+}
+
 /** One grant, as the console lists them. */
 export interface PromoGrantRow {
   id: string;
@@ -279,12 +289,16 @@ export class PromosService {
       referred_name: string | null;
       created_at: Date;
     }>(
+      // Same `r.id <> g.user_id` as offers(): both sides of a referral carry
+      // the same referred_user_id, and only the referrer's row is the one that
+      // was earned by somebody else joining.
       `select g.id, g.user_id, u.display_name, u.email,
               g.claimed_at, g.expires_at, g.created_at,
               r.display_name as referred_name
          from promo_grants g
          join users u on u.id = g.user_id
-         left join users r on r.id = g.referred_user_id
+         left join users r
+           on r.id = g.referred_user_id and r.id <> g.user_id
         where g.promo_id = $1
         order by g.claimed_at nulls first, g.created_at desc
         limit 500`,
@@ -344,12 +358,21 @@ export class PromosService {
       expires_at: Date | null;
       referred_name: string | null;
     }>(
+      /*
+       * `r.id <> g.user_id` on the join, not just `r.id = g.referred_user_id`.
+       *
+       * A referral now grants both people, and both rows carry the same
+       * referred_user_id — so the referee's own grant joined to the referee and
+       * the card read "you earned this when Bob joined with your code" to Bob.
+       * The name is only meaningful on the referrer's copy.
+       */
       `select g.id as grant_id, p.name, p.description, p.kind,
               p.storage_bytes, p.extra_workspaces, p.extra_albums_per_workspace,
               g.expires_at, r.display_name as referred_name
          from promo_grants g
          join promos p on p.id = g.promo_id
-         left join users r on r.id = g.referred_user_id
+         left join users r
+           on r.id = g.referred_user_id and r.id <> g.user_id
         where g.user_id = $1
           and g.claimed_at is null
           and (g.expires_at is null or g.expires_at > now())
@@ -491,16 +514,99 @@ export class PromosService {
   }
 
   /**
-   * Pays the referrer, once the referred account has confirmed its address.
+   * Records who referred this account, from inside the app.
+   *
+   * Signup is not the only moment somebody is handed a code — most people get
+   * one from a friend after they have already joined, and a field reachable
+   * only by starting over is a field nobody uses.
+   *
+   * Safe to expose because the caller is signed in, which means verified, so
+   * this cannot be used to pay out on an address nobody owns. The rest is
+   * guarded here: once only, never your own code, and never somebody you
+   * referred yourself.
+   */
+  async redeemReferralCode(userId: string, code: string): Promise<ReferralResult> {
+    const me = await this.db.queryOne<{
+      referred_by_user_id: string | null;
+      referral_code: string | null;
+    }>(
+      'select referred_by_user_id, referral_code from users where id = $1',
+      [userId],
+    );
+    if (!me) throw new NotFoundException('Account not found');
+
+    if (me.referred_by_user_id) {
+      throw new BadRequestException(
+        'You have already used an invite code. Each account can use one.',
+      );
+    }
+
+    const referrer = await this.userForCode(code);
+    if (!referrer) {
+      throw new BadRequestException('That code does not match anybody. Check it and try again.');
+    }
+    if (referrer === userId) {
+      throw new BadRequestException('That is your own code — share it with somebody else.');
+    }
+
+    /*
+     * Not somebody this account already referred.
+     *
+     * Two people swapping codes is the cheapest way to farm a reward that pays
+     * both sides: each invites the other and both collect twice. Every other
+     * guard here is about a single account, so this is the one that has to look
+     * at the pair.
+     */
+    const mutual = await this.db.queryOne<{ id: string }>(
+      'select id from users where id = $1 and referred_by_user_id = $2',
+      [referrer, userId],
+    );
+    if (mutual) {
+      throw new BadRequestException(
+        'You invited them, so they cannot invite you back.',
+      );
+    }
+
+    const updated = await this.db.queryOne<{ id: string }>(
+      `update users
+          set referred_by_user_id = $2, referred_at = now()
+        where id = $1 and referred_by_user_id is null
+        returning id`,
+      [userId, referrer],
+    );
+    // Lost a race with another request doing the same thing.
+    if (!updated) {
+      throw new BadRequestException('You have already used an invite code.');
+    }
+
+    const paid = await this.payReferral(userId);
+    return {
+      accepted: true,
+      // False when referrals are switched off. The code is still recorded —
+      // turning the promo back on later does not retroactively pay, but the
+      // relationship is not lost either.
+      rewarded: paid,
+    };
+  }
+
+  /**
+   * Pays out a referral, to both sides.
    *
    * Called from email verification, never from signup. An unverified signup
    * paying out is the whole attack: addresses are free, and a referral that
-   * pays before anybody proves they own one is a storage tap.
+   * pays before anybody proves they own one is a storage tap. Also called
+   * straight from `redeemReferralCode`, where the caller is signed in and so
+   * already verified.
+   *
+   * Both people get the same promo. It rewarded the referrer alone, which made
+   * an invitation a worse thing to send: on a free tier the person being
+   * invited has nothing yet, and "join so I get storage" persuades nobody.
    *
    * Silent when there is no active referral promo — referrals being switched
-   * off is a normal state, not an error on somebody's verification.
+   * off is a normal state, not an error on somebody's verification. Returns
+   * whether anything was actually paid.
    */
-  async payReferral(referredUserId: string): Promise<void> {
+  async payReferral(referredUserId: string): Promise<boolean> {
     const referred = await this.db.queryOne<{
       referred_by_user_id: string | null;
       display_name: string | null;
@@ -509,7 +615,7 @@ export class PromosService {
       [referredUserId],
     );
     const referrer = referred?.referred_by_user_id;
-    if (!referrer) return;
+    if (!referrer) return false;
 
     const promo = await this.db.queryOne<PromoRow>(
       `select * from promos
@@ -517,28 +623,46 @@ export class PromosService {
         order by created_at desc
         limit 1`,
     );
-    if (!promo) return;
+    if (!promo) return false;
 
     const expiresAt = promo.claim_window_days
       ? new Date(Date.now() + promo.claim_window_days * 86_400_000)
       : null;
 
-    const row = await this.db.queryOne<{ id: string }>(
+    /*
+     * Two rows from one statement, so a crash between them is not a state
+     * where one side was paid and the other was not.
+     *
+     * `on conflict do nothing` against the (promo, user, referred) index makes
+     * this idempotent: a replay inserts nothing and returns nothing.
+     */
+    const rows = await this.db.query<{ user_id: string }>(
       `insert into promo_grants (promo_id, user_id, expires_at, referred_user_id)
-       values ($1, $2, $3, $4)
+       select $1, u, $3, $4 from unnest($2::uuid[]) as u
        on conflict do nothing
-       returning id`,
-      [promo.id, referrer, expiresAt, referredUserId],
+       returning user_id`,
+      [promo.id, [referrer, referredUserId], expiresAt, referredUserId],
     );
-    // Already paid for this referee — the unique index caught a replay.
-    if (!row) return;
+    if (rows.length === 0) return false;
 
+    const label = this.rewardLabel(this.present(promo));
     const who = referred?.display_name ?? 'Someone you invited';
-    await this.notify.notify([referrer], {
-      topic: 'promo',
-      title: promo.name,
-      body: `${who} joined with your code. ${this.rewardLabel(this.present(promo))} is waiting — open it to claim.`,
-      data: { promoId: promo.id },
-    });
+
+    await Promise.all(
+      rows.map((r) =>
+        this.notify.notify([r.user_id], {
+          topic: 'promo',
+          title: promo.name,
+          body:
+            r.user_id === referrer
+              ? `${who} joined with your code. ${label} is waiting — open it to claim.`
+              : `You used an invite code. ${label} is waiting — open it to claim.`,
+          data: { promoId: promo.id },
+        }),
+      ),
+    );
+
+    this.logger.log(`referral paid to ${rows.length} account(s) for ${referredUserId}`);
+    return true;
   }
 }

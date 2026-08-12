@@ -4,6 +4,7 @@ import {
   useAuth,
   useCollaborators,
   useOffline,
+  usePromoOffers,
   useScheduleEvents,
   useTheme,
   useUsage,
@@ -99,6 +100,9 @@ export default function ProfileScreen() {
   const { collaborators } = useCollaborators({ limit: 100 }, enabled);
   const { events } = useScheduleEvents({ limit: 100 }, enabled);
   const { storageUsedBytes, usage } = useUsage(enabled);
+  // Behind the gear, so this screen has to carry the signal through.
+  // A bare boolean, unlike the object the list hooks above take.
+  const { offers: rewards } = usePromoOffers(!!user?.id);
 
   const totalAssets = workspaces.reduce((s, w) => s + (w.media_count || 0), 0);
   const statValues = [workspaces.length, totalAssets, collaborators.length, events.length];
@@ -126,11 +130,30 @@ export default function ProfileScreen() {
           <Text className="text-foreground text-[28px] font-bold tracking-tight">Profile</Text>
           <Pressable
             onPress={() => router.push('/settings')}
-            accessibilityLabel="Settings"
+            accessibilityLabel={
+              rewards.length > 0
+                ? `Settings, ${rewards.length} reward waiting`
+                : 'Settings'
+            }
             className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={cardShadow}
           >
             <SettingsIcon size={20} className="text-muted-foreground" />
+            {/* Rewards are behind this gear, and an offer expires. A dot rather
+                than a count: the number is on the row itself one screen in, and
+                what matters here is only that something is waiting. */}
+            {rewards.length > 0 && (
+              <View
+                className="absolute rounded-full"
+                style={{
+                  top: 8,
+                  right: 8,
+                  width: 9,
+                  height: 9,
+                  backgroundColor: '#B66A40',
+                }}
+              />
+            )}
           </Pressable>
         </View>
 

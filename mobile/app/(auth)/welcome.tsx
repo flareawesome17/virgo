@@ -25,18 +25,21 @@ export default function WelcomeScreen() {
       <View className="flex-1 px-8 justify-center" style={{ paddingBottom: 60 }}>
         {/* Logo + Wordmark */}
         <View className="items-center mb-10">
-          <View
-            className="w-20 h-20 rounded-[22px] bg-primary items-center justify-center mb-5"
-            style={{
-              shadowColor: '#B66A40',
-              shadowOpacity: 0.3,
-              shadowRadius: 20,
-              shadowOffset: { width: 0, height: 6 },
-              elevation: 8,
-            }}
-          >
-            <Text className="text-white text-3xl font-extrabold tracking-tight">V</Text>
-          </View>
+          {/*
+            The real mark, not a letter in a box.
+
+            This was a "V" set in the app's own font on an orange tile — a
+            stand-in from before the logo existed, and the first thing anybody
+            sees. Shown bare rather than inside a tile, which is what the web
+            sign-in already does: the mark carries its own colour and a
+            container behind it only competes with it.
+          */}
+          <Image
+            source={require('@/assets/splash-icon.png')}
+            style={{ width: 96, height: 96, marginBottom: 12 }}
+            resizeMode="contain"
+            accessibilityLabel="Virgo"
+          />
           <Text className="text-foreground text-[32px] font-extrabold tracking-tight">
             Virgo
           </Text>

@@ -44,10 +44,31 @@ export interface ClaimedPromo {
   };
 }
 
+/** What entering somebody's invite code did. */
+export interface ReferralResult {
+  accepted: true;
+  /**
+   * Whether a reward was actually granted. False when no referral promo is
+   * running — the code is recorded, there is just nothing to pay right now.
+   */
+  rewarded: boolean;
+}
+
 export const promosApi = {
   /** What this account is being offered right now. */
   offers(): Promise<OfferedPromo[]> {
     return api.get('/promos');
+  },
+
+  /**
+   * Uses somebody else's invite code.
+   *
+   * Once per account, never your own, and never somebody you invited. Both
+   * sides are rewarded — the person who shared the code and the person who
+   * used it.
+   */
+  redeemReferral(code: string): Promise<ReferralResult> {
+    return api.post('/promos/referral', { body: { code } });
   },
 
   /**

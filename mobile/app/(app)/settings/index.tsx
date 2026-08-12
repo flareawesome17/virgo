@@ -2,7 +2,7 @@ import { View, Text, ScrollView, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
-import { useTheme } from '@/src/hooks';
+import { usePromoOffers, useTheme } from '@/src/hooks';
 import {
   ArrowLeftIcon, ChevronRightIcon, BellIcon, LockIcon, ShieldIcon,
   PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, LifeBuoyIcon, GiftIcon,
@@ -39,6 +39,13 @@ interface SettingsRow {
    * honest "Soon" badge beats both that and a fake screen.
    */
   soon?: boolean;
+  /**
+   * Which live count fills this row's badge slot, if any.
+   *
+   * A name rather than a number because SECTIONS is a module constant and
+   * cannot call a hook. The screen resolves it at render.
+   */
+  badge?: 'rewards';
 }
 
 /**
@@ -127,6 +134,16 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
         route: '/settings/offline',
         color: '#C17745',
       },
+      // In this group because a promo is quota: what it gives is storage,
+      // workspaces and albums, which is exactly what the rows above are about.
+      {
+        icon: GiftIcon,
+        label: 'Rewards',
+        detail: 'Offers waiting for you, and your invite code',
+        route: '/rewards',
+        color: '#C17745',
+        badge: 'rewards',
+      },
     ],
   },
   {
@@ -169,6 +186,9 @@ export default function SettingsHomeScreen() {
   const { isDark } = useTheme();
 
   const version = Constants.expoConfig?.version ?? '1.0';
+  // Fills the Rewards row's badge. SECTIONS is a module constant, so the count
+  // is resolved here and matched to the row by name.
+  const { offers: rewards } = usePromoOffers();
   const border = isDark ? '#2A2522' : '#F0E8E2';
 
   // Was a literal 'Version 1.0' baked into the section table, which would have
@@ -260,6 +280,21 @@ export default function SettingsHomeScreen() {
                         <Text className="text-muted-foreground text-xs mr-1" numberOfLines={1}>
                           {row.value}
                         </Text>
+                      )}
+                      {row.badge === 'rewards' && rewards.length > 0 && (
+                        <View
+                          className="rounded-full items-center justify-center mr-1"
+                          style={{
+                            minWidth: 18,
+                            height: 18,
+                            paddingHorizontal: 5,
+                            backgroundColor: '#B66A40',
+                          }}
+                        >
+                          <Text className="text-white text-[10px] font-bold">
+                            {rewards.length > 99 ? '99+' : rewards.length}
+                          </Text>
+                        </View>
                       )}
                       {row.soon ? (
                         <View className="rounded-md px-2 py-0.5 bg-muted">

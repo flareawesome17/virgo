@@ -7,6 +7,7 @@ import {
   RefreshControl,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,6 +19,7 @@ import {
   GiftIcon,
   PartyPopperIcon,
   Share2Icon,
+  TicketCheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -30,6 +32,7 @@ import {
 import {
   useClaimPromo,
   usePromoOffers,
+  useRedeemReferral,
   useReferralCode,
 } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
@@ -40,6 +43,7 @@ cssInterop(CopyIcon, interop);
 cssInterop(GiftIcon, interop);
 cssInterop(PartyPopperIcon, interop);
 cssInterop(Share2Icon, interop);
+cssInterop(TicketCheckIcon, interop);
 
 function OfferCard({
   offer,
@@ -198,6 +202,93 @@ function ClaimedModal({
 }
 
 /**
+ * Using somebody else's code.
+ *
+ * The signup form has a field for this too, but most people are handed a code
+ * by a friend after they have already joined — and a field only reachable by
+ * starting over is a field nobody uses.
+ *
+ * Hides itself once used: it is once per account, and a control that can only
+ * fail is not worth the space.
+ */
+function RedeemCard() {
+  const [code, setCode] = useState('');
+  const [done, setDone] = useState(false);
+  const redeem = useRedeemReferral();
+
+  const submit = () => {
+    redeem.mutate(code.trim(), {
+      onSuccess: (result) => {
+        setDone(true);
+        Alert.alert(
+          'Invite code accepted',
+          result.rewarded
+            ? 'Your reward is waiting above — claim it whenever you like.'
+            : 'No reward is running right now, but your invite is recorded.',
+        );
+      },
+      onError: (err) => {
+        Alert.alert(
+          'Could not use that code',
+          err instanceof Error ? err.message : 'Check the code and try again.',
+        );
+      },
+    });
+  };
+
+  if (done) return null;
+
+  return (
+    <View className="mb-3 rounded-2xl border border-border bg-card p-5">
+      <View className="flex-row items-start gap-4">
+        <View className="size-11 items-center justify-center rounded-xl bg-muted">
+          <TicketCheckIcon size={20} className="text-muted-foreground" />
+        </View>
+
+        <View className="flex-1">
+          <Text className="text-[16px] font-bold text-foreground">
+            Have an invite code?
+          </Text>
+          <Text className="mt-1 text-[13px] leading-5 text-muted-foreground">
+            Enter the code somebody shared with you and you both get the reward.
+            One code per account.
+          </Text>
+
+          <View className="mt-4 flex-row items-center gap-3">
+            <TextInput
+              value={code}
+              onChangeText={(v) => setCode(v.toUpperCase())}
+              placeholder="ABC1234"
+              placeholderTextColor="#A89489"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={32}
+              className="flex-1 rounded-xl border border-border bg-muted px-4 py-2.5 text-[15px] font-bold tracking-[2px] text-foreground"
+            />
+            <Pressable
+              onPress={submit}
+              disabled={code.trim().length < 4 || redeem.isPending}
+              className="rounded-xl border border-border px-4 py-2.5"
+              style={{
+                opacity: code.trim().length < 4 || redeem.isPending ? 0.5 : 1,
+              }}
+            >
+              {redeem.isPending ? (
+                <ActivityIndicator size="small" />
+              ) : (
+                <Text className="text-[13px] font-semibold text-foreground">
+                  Use code
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/**
  * The code to share, and what sharing it is worth.
  *
  * Deliberately vague about the reward: what a referral pays is whatever promo
@@ -227,8 +318,8 @@ function ReferralCard() {
             Invite other creatives
           </Text>
           <Text className="mt-1 text-[13px] leading-5 text-muted-foreground">
-            Share your code. When someone signs up with it and confirms their
-            email address, any reward we are running lands here for you to claim.
+            Share your code. When someone joins with it and confirms their email
+            address, you both get whatever reward we are running.
           </Text>
 
           <View className="mt-4 flex-row items-center gap-3">
@@ -312,6 +403,7 @@ export default function RewardsScreen() {
             ))
           )}
 
+          <RedeemCard />
           <ReferralCard />
         </ScrollView>
       )}

@@ -38,6 +38,7 @@ export {
   type ClaimedPromo,
   type OfferedPromo,
   type PromoKind,
+  type ReferralResult,
 } from './endpoints/promos';
 export {
   notificationsApi,

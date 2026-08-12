@@ -192,4 +192,5 @@ export {
   usePromoOffers,
   useReferralCode,
   useClaimPromo,
+  useRedeemReferral,
 } from './usePromos';

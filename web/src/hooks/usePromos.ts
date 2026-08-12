@@ -58,3 +58,19 @@ export function useClaimPromo() {
     },
   });
 }
+
+/**
+ * Uses somebody else's invite code.
+ *
+ * Rewards both sides, so on success this account has an offer waiting — hence
+ * invalidating the offer list rather than only reporting the result.
+ */
+export function useRedeemReferral() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => promosApi.redeemReferral(code),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.promos.all });
+    },
+  });
+}

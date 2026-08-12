@@ -13,6 +13,7 @@ import {
   useCollaboratorInvitations,
   useEventInvitations,
   useIncomingFriendRequests,
+  usePromoOffers,
   useUnreadCount,
   useUnseenJobs,
 } from '@/src/hooks';
@@ -46,6 +47,9 @@ export default function TabsLayout() {
   // its own, so this is the only place either can announce itself without the
   // screen being open.
   const { total: newJobs } = useUnseenJobs();
+  // Rewards waiting to be claimed. Almost always an empty list, and the only
+  // thing that says an offer arrived while the app was closed.
+  const { offers: rewards } = usePromoOffers();
 
   // The bar was a fixed height:88 / paddingBottom:28. On an iPhone with a home
   // indicator the bottom inset is 34pt, so 28 put the labels *underneath* it;
@@ -214,6 +218,24 @@ export default function TabsLayout() {
               strokeWidth={focused ? 2.5 : 2}
             />
           ),
+          // Rewards live three screens in — Profile, the gear, then Settings —
+          // and an offer expires. The badge is carried on every step of that
+          // path so it is never the case that something is waiting and nothing
+          // on screen says so.
+          tabBarBadge:
+            rewards.length > 0
+              ? rewards.length > 99
+                ? '99+'
+                : rewards.length
+              : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#B66A40',
+            fontSize: 10,
+            fontWeight: '700',
+            minWidth: 17,
+            height: 17,
+            lineHeight: 13,
+          },
         }}
       />
     </Tabs>
