@@ -221,6 +221,30 @@ Invoke-Test 'octet-stream release marker bytes are decoded as UTF-8 JSON' {
   Assert-True ($null -ne ($result.Bytes | ConvertFrom-Json)) 'decoded byte-array response must remain valid JSON'
 }
 
+Invoke-Test 'targeted IMAGE_TAG update supports CRLF and preserves unrelated env lines' {
+  $root = Join-Path ([System.IO.Path]::GetTempPath()) ('virgo-env-test-' + [guid]::NewGuid().ToString('N'))
+  [System.IO.Directory]::CreateDirectory($root) | Out-Null
+  try {
+    $module = Get-Module -Name 'Virgo.Deployment'
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    foreach ($case in @(
+      [pscustomobject]@{ Name = 'crlf'; NewLine = "`r`n" },
+      [pscustomobject]@{ Name = 'lf'; NewLine = "`n" }
+    )) {
+      $path = Join-Path $root ('.env.' + $case.Name)
+      $original = @('POSTGRES_DB=virgo_prod', 'IMAGE_TAG=v1.0.0', 'UNRELATED_VALUE=preserve-me', '') -join $case.NewLine
+      $expected = @('POSTGRES_DB=virgo_prod', 'IMAGE_TAG=v1.0.1', 'UNRELATED_VALUE=preserve-me', '') -join $case.NewLine
+      [System.IO.File]::WriteAllText($path, $original, $utf8)
+      & $module {
+        param($EnvPath)
+        Set-VirgoImageTag -EnvPath $EnvPath -ExpectedCurrent 'v1.0.0' -NewTag 'v1.0.1'
+      } $path
+      Assert-True ([System.IO.File]::ReadAllText($path) -ceq $expected) "$($case.Name) update must change only IMAGE_TAG and preserve line endings"
+      Assert-True ([System.IO.File]::ReadAllText($path + '.phase2.bak') -ceq $original) "$($case.Name) update must retain an exact backup"
+    }
+  } finally { Remove-TestRoot $root }
+}
+
 Invoke-Test 'invalid tag is rejected' {
   Assert-True (-not (Test-VirgoTag 'latest')) 'latest must be rejected'
   Assert-True (-not (Test-VirgoTag 'v1.0.0-rc.1')) 'prerelease must be rejected'

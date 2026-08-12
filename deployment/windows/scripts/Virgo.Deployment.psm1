@@ -211,7 +211,7 @@ function Set-VirgoImageTag {
   if (-not $envData.Values.ContainsKey('IMAGE_TAG')) { throw 'IMAGE_TAG is missing from .env.' }
   $actual = [string]$envData.Values['IMAGE_TAG']
   if ($actual -ne $ExpectedCurrent) { throw "IMAGE_TAG mismatch: expected '$ExpectedCurrent', found '$actual'." }
-  $matches = [regex]::Matches($envData.Text, '(?m)^IMAGE_TAG=[^\r\n]*$')
+  $matches = [regex]::Matches($envData.Text, '(?m)^IMAGE_TAG=[^\r\n]*(?=\r?$)')
   if ($matches.Count -ne 1) { throw "Expected exactly one IMAGE_TAG line; found $($matches.Count)." }
   $match = $matches[0]
   $updated = $envData.Text.Substring(0, $match.Index) + "IMAGE_TAG=$NewTag" + $envData.Text.Substring($match.Index + $match.Length)
