@@ -245,6 +245,22 @@ Invoke-Test 'targeted IMAGE_TAG update supports CRLF and preserves unrelated env
   } finally { Remove-TestRoot $root }
 }
 
+Invoke-Test 'native stderr is captured while the real exit code remains authoritative' {
+  $module = Get-Module -Name 'Virgo.Deployment'
+  $results = & $module {
+    $adapter = New-DefaultVirgoAdapter
+    $runner = $adapter.Run
+    [pscustomobject]@{
+      Success = & $runner 'powershell.exe' @('-NoProfile', '-Command', "[Console]::Error.WriteLine('normal progress'); exit 0") ([System.IO.Path]::GetTempPath())
+      Failure = & $runner 'powershell.exe' @('-NoProfile', '-Command', "[Console]::Error.WriteLine('real failure'); exit 7") ([System.IO.Path]::GetTempPath())
+    }
+  }
+  Assert-True ($results.Success.ExitCode -eq 0) 'stderr from a successful native command must not become a failure'
+  Assert-True (($results.Success.Output -join ' ') -like '*normal progress*') 'successful native stderr must remain visible in captured output'
+  Assert-True ($results.Failure.ExitCode -eq 7) 'a native nonzero exit code must be preserved exactly'
+  Assert-True (($results.Failure.Output -join ' ') -like '*real failure*') 'failed native stderr must remain visible in captured output'
+}
+
 Invoke-Test 'invalid tag is rejected' {
   Assert-True (-not (Test-VirgoTag 'latest')) 'latest must be rejected'
   Assert-True (-not (Test-VirgoTag 'v1.0.0-rc.1')) 'prerelease must be rejected'

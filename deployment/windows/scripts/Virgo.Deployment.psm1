@@ -70,8 +70,17 @@ function New-DefaultVirgoAdapter {
     param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory)
     Push-Location -LiteralPath $WorkingDirectory
     try {
-      $lines = @(& $FilePath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
-      $code = $LASTEXITCODE
+      $previousPreference = $ErrorActionPreference
+      try {
+        # Docker and other native tools use stderr for ordinary progress. Capture
+        # it without allowing PowerShell's preference to turn progress into a
+        # terminating error; the native exit code remains authoritative.
+        $ErrorActionPreference = 'Continue'
+        $lines = @(& $FilePath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
+        $code = $LASTEXITCODE
+      } finally {
+        $ErrorActionPreference = $previousPreference
+      }
       if ($null -eq $code) { $code = 0 }
       return [pscustomobject]@{ ExitCode = [int]$code; Output = $lines }
     } catch {
