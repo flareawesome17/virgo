@@ -179,6 +179,30 @@ function Remove-TestRoot([string]$Root) {
   if ($Root -and (Test-Path -LiteralPath $Root)) { Remove-Item -LiteralPath $Root -Recurse -Force }
 }
 
+Invoke-Test 'entry scripts resolve omitted RootPath after PowerShell 5.1 parameter binding' {
+  $windowsRoot = Split-Path -Parent $PSScriptRoot
+  $entryScripts = @(
+    'deploy.ps1',
+    'check-release.ps1',
+    'initialize-deployment.ps1',
+    'register-deployment-task.ps1',
+    'set-github-token.ps1'
+  )
+  foreach ($name in $entryScripts) {
+    $content = [System.IO.File]::ReadAllText((Join-Path $windowsRoot $name))
+    Assert-True ($content -notmatch '\[string\]\$RootPath\s*=') "$name must not evaluate PSScriptRoot as a parameter default"
+    Assert-True ($content -match 'IsNullOrWhiteSpace\(\$RootPath\).*\$RootPath\s*=\s*\$PSScriptRoot') "$name must resolve an omitted RootPath after parameter binding"
+  }
+
+  $setTokenOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $windowsRoot 'set-github-token.ps1') -WhatIf 2>&1)
+  Assert-True ($LASTEXITCODE -eq 0) "set-github-token.ps1 default RootPath failed: $($setTokenOutput -join ' ')"
+  Assert-True (($setTokenOutput -join ' ') -like "*$windowsRoot*") 'set-github-token.ps1 must resolve RootPath to its own directory'
+
+  $initializeOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $windowsRoot 'initialize-deployment.ps1') -WhatIf 2>&1)
+  Assert-True ($LASTEXITCODE -eq 0) "initialize-deployment.ps1 default RootPath failed: $($initializeOutput -join ' ')"
+  Assert-True (($initializeOutput -join ' ') -like "*$windowsRoot*") 'initialize-deployment.ps1 must resolve RootPath to its own directory'
+}
+
 Invoke-Test 'invalid tag is rejected' {
   Assert-True (-not (Test-VirgoTag 'latest')) 'latest must be rejected'
   Assert-True (-not (Test-VirgoTag 'v1.0.0-rc.1')) 'prerelease must be rejected'

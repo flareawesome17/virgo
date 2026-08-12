@@ -1,11 +1,12 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
-  [string]$RootPath = $PSScriptRoot,
+  [string]$RootPath,
   [string]$Repository = 'flareawesome17/virgo',
   [switch]$Clear
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($RootPath)) { $RootPath = $PSScriptRoot }
 $root = [System.IO.Path]::GetFullPath($RootPath)
 $secretsPath = Join-Path $root 'secrets'
 $tokenPath = Join-Path $secretsPath 'github-releases-token.dpapi'

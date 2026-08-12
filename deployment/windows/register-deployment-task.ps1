@@ -1,6 +1,6 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
-  [string]$RootPath = $PSScriptRoot,
+  [string]$RootPath,
   [string]$TaskName = 'Virgo Production Release Poller',
   [int]$IntervalMinutes = 5,
   [switch]$RunWhetherLoggedOn,
@@ -9,6 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($RootPath)) { $RootPath = $PSScriptRoot }
 if ($IntervalMinutes -lt 1) { throw 'IntervalMinutes must be at least 1.' }
 
 if ($Unregister) {

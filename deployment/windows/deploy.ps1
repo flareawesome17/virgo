@@ -3,7 +3,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$Tag,
 
-  [string]$RootPath = $PSScriptRoot,
+  [string]$RootPath,
   [string]$Repository = 'flareawesome17/virgo',
   [switch]$AllowDowngrade,
   [switch]$ForceRetry,
@@ -13,6 +13,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($RootPath)) { $RootPath = $PSScriptRoot }
 $modulePath = Join-Path $PSScriptRoot 'scripts\Virgo.Deployment.psm1'
 Import-Module $modulePath -Force
 

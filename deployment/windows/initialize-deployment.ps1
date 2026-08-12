@@ -1,11 +1,12 @@
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
-  [string]$RootPath = $PSScriptRoot,
+  [string]$RootPath,
   [switch]$ReconcileImageTag,
   [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($RootPath)) { $RootPath = $PSScriptRoot }
 $modulePath = Join-Path $PSScriptRoot 'scripts\Virgo.Deployment.psm1'
 Import-Module $modulePath -Force
 
