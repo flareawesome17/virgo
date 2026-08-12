@@ -1,5 +1,10 @@
 # Production deployment
 
+This document describes the Phase 1 production architecture and its manual
+first-install/recovery commands. Phase 2 adds release polling, backup,
+health-gated upgrades, and application rollback without replacing the tested
+first-install path. See [AUTOMATIC_DEPLOYMENT.md](AUTOMATIC_DEPLOYMENT.md).
+
 **GitHub builds Virgo. The production host only pulls and runs it.**
 
 Publishing a GitHub Release builds three images and pushes them to GHCR tagged
@@ -287,15 +292,36 @@ production without a backup taken in the same session.
 
 ---
 
-## What is deliberately not automated yet
+## Phase 1 and Phase 2 responsibilities
 
-This phase is manual on purpose. Not yet built:
+Phase 1 remains the manual, clean-host bootstrap:
 
-- automatic release polling or webhook deploys
-- automatic rollback on failed health checks
+```text
+prod-setup.ps1 = first production setup only
+```
+
+Phase 2 provides upgrades for an already healthy stack:
+
+```text
+deploy.ps1        = manual deployment through the safe upgrade pipeline
+check-release.ps1 = automatic published-release detector
+```
+
+Phase 2 automates pre-migration backup, targeted application pulls,
+migrations, health/smoke gates, and application-only rollback. It never
+automatically restores PostgreSQL and never recreates cloudflared during a
+normal release. Full setup, state, failure, and Scheduled Task behavior are in
+[AUTOMATIC_DEPLOYMENT.md](AUTOMATIC_DEPLOYMENT.md).
+
+Still deliberately not implemented:
+
+- webhook deployment
 - blue/green or zero-downtime switching
-- database backup automation and restore
-- smoke tests after deploy
+- multiple API replicas
+- database automatic restore
+- destructive migration rollback
+- Cloudflare route switching
+- multi-server orchestration
 
 ### Known constraints for later
 

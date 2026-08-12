@@ -62,6 +62,10 @@ jobs:
             echo "::error::No release tag to build."
             exit 1
           fi
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release tag must be vMAJOR.MINOR.PATCH; received '$TAG'."
+            exit 1
+          fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           # GHCR paths must be lowercase; a repository owner with capitals
           # otherwise produces a push error that reads like a permissions
@@ -89,6 +93,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.image }}
+        id: image
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -128,6 +133,21 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
+      # The final deployable marker binds the mutable release tag to the exact
+      # manifest produced by this successful matrix job. A failed rebuild can
+      # therefore never reuse an older marker for partially overwritten tags.
+      - name: Record the image digest
+        shell: bash
+        run: printf '%s\n' '${{ steps.image.outputs.digest }}' > '${{ matrix.image }}.digest'
+
+      - name: Upload the image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-digest-${{ matrix.image }}
+          path: ${{ matrix.image }}.digest
+          if-no-files-found: error
+          retention-days: 1
+
   # Fails the run if any image is missing, so a green tick means all three are
   # actually in the registry. Without this, fail-fast:false would let a partial
   # release report success.
@@ -136,6 +156,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: always()
+    permissions:
+      contents: write
     steps:
       - name: Check the build results
         shell: bash
@@ -145,3 +167,64 @@ jobs:
             exit 1
           fi
           echo "api, web and dashboard all published."
+
+      # A Release object exists before its images finish building. The worker
+      # requires this asset as proof that the all-images gate above completed;
+      # image manifests are checked independently as a second guard.
+      - name: Check out the deployment worker
+        uses: actions/checkout@v4
+        with:
+          # Pin the package to the exact commit containing the workflow that
+          # authorized it; the default branch could advance while images build.
+          ref: ${{ github.workflow_sha }}
+
+      - name: Download verified image digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-digest-*
+          merge-multiple: true
+
+      - name: Publish the deployable marker and Windows worker
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release tag must be vMAJOR.MINOR.PATCH; received '$TAG'."
+            exit 1
+          fi
+
+          MARKER="virgo-deployable-$TAG.json"
+          PACKAGE="virgo-production-worker-$TAG.zip"
+          CHECKSUM="$PACKAGE.sha256"
+          API_DIGEST="$(cat virgo-api.digest)"
+          WEB_DIGEST="$(cat virgo-web.digest)"
+          DASHBOARD_DIGEST="$(cat virgo-dashboard.digest)"
+          for DIGEST in "$API_DIGEST" "$WEB_DIGEST" "$DASHBOARD_DIGEST"; do
+            if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Invalid image digest '$DIGEST'."
+              exit 1
+            fi
+          done
+          (cd deployment/windows && zip -q -r "$GITHUB_WORKSPACE/$PACKAGE" \
+            deploy.ps1 check-release.ps1 initialize-deployment.ps1 \
+            register-deployment-task.ps1 set-github-token.ps1 scripts)
+          PACKAGE_SHA256="$(sha256sum "$PACKAGE" | awk '{print $1}')"
+          printf '%s  %s\n' "$PACKAGE_SHA256" "$PACKAGE" > "$CHECKSUM"
+          cat > "$MARKER" <<EOF
+          {
+            "tag": "$TAG",
+            "workflowRunId": "${{ github.run_id }}",
+            "workflowRunAttempt": "${{ github.run_attempt }}",
+            "repository": "${{ github.repository }}",
+            "workerSha256": "$PACKAGE_SHA256",
+            "images": {
+              "api": "$API_DIGEST",
+              "web": "$WEB_DIGEST",
+              "dashboard": "$DASHBOARD_DIGEST"
+            }
+          }
+          EOF
+
+          gh release upload "$TAG" "$MARKER" "$PACKAGE" "$CHECKSUM" --clobber --repo "$GITHUB_REPOSITORY"
