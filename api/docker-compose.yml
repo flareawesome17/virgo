@@ -79,14 +79,33 @@ services:
       # NODE_ENV=production disables auto-migrate, so switch it back on
       # explicitly. Safe with a single replica; if you ever scale this service,
       # move migrations to a release step — concurrent runners race.
-      RUN_MIGRATIONS_ON_BOOT: 'true'
-      # Always behind cloudflared here.
-      TRUST_PROXY: 'true'
+      # Defaults to true, which is correct while api.virgo.ph still routes to
+      # this machine: behind cloudflared every request arrives from the local
+      # daemon, so without this the whole user base shares one rate-limit
+      # bucket.
+      #
+      # Set TRUST_PROXY=false in api/.env at cutover, together with
+      # API_BIND=0.0.0.0 above. The two belong to the same moment and neither
+      # is safe alone: a published port with the header still trusted lets a
+      # LAN caller forge CF-Connecting-IP and never hit a limit, and an
+      # untrusted header while still behind the tunnel buckets everybody
+      # together. See docs/CUTOVER.md step 6.
+      TRUST_PROXY: ${TRUST_PROXY:-true}
     ports:
-      # Published to the host for local testing. Do NOT forward this port on
-      # your router — the tunnel is the only ingress that should exist, and
-      # CF-Connecting-IP is only trustworthy while that holds.
-      - '127.0.0.1:${API_PORT:-3000}:3000'
+      # On the LAN, not just loopback, so a physical phone can reach this API
+      # during development. Production hostnames belong to the production
+      # machine now, so `api.virgo.ph` is no longer this stack's address and a
+      # device needs somewhere else to point.
+      #
+      # Still not something to forward on your router. LAN means the machines
+      # in your home, and the rate limiter stops reading CF-Connecting-IP when
+      # TRUST_PROXY is off (below) precisely because a directly-reachable port
+      # lets a caller set that header itself.
+      #
+      # Defaults to loopback, which is correct while the tunnel is still the
+      # ingress. Set API_BIND=0.0.0.0 in api/.env at cutover — together with
+      # TRUST_PROXY=false, see below.
+      - '${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000'
     depends_on:
       postgres:
         # Wait for real readiness, not just "container started" — otherwise

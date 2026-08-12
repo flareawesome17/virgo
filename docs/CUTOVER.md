@@ -44,12 +44,26 @@ Development keeps its existing tunnel and serves only development hostnames.**
 | | `console.virgo.ph` | `http://dashboard:3002` |
 | | `db.virgo.ph` | `http://pgadmin:80` |
 | **development** | `dev.virgo.ph` | `http://host.docker.internal:8081` — Metro |
-| | `dev-api.virgo.ph` | `http://api:3000` — **new, see below** |
 
-`dev-api.virgo.ph` is new and is the piece that keeps mobile development
-working. Right now the phone reaches the development API at `api.virgo.ph`;
-after cutover that hostname is production, so without a replacement every test
-on a real device would be writing to production data.
+Development keeps **one** hostname, for the Metro bundler. Everything else on
+that machine moves to the LAN: the API is now published on `0.0.0.0` rather
+than loopback, so a phone reaches it at `http://<dev-LAN-IP>:3001` directly.
+
+That is the piece that keeps mobile development working. The phone currently
+reaches the development API at `api.virgo.ph`; after cutover that hostname is
+production, so without a replacement every test on a real device would be
+writing to production data.
+
+Two consequences of publishing that port, both already handled:
+
+- **The rate limiter stopped trusting `CF-Connecting-IP`.** It is unforgeable
+  only because Cloudflare overwrites it, which holds while Cloudflare is the
+  only way in. A directly reachable port means the caller sets that header
+  itself — so a forged value per request would be a limiter that never fires.
+  The guard now reads it only when `TRUST_PROXY` is on, and development sets
+  it off. Verified: twelve logins with twelve different forged
+  `CF-Connecting-IP` values share one bucket and start returning 429.
+- **LAN is not the internet.** Do not forward this port on the router.
 
 ---
 
@@ -135,41 +149,59 @@ period with no route at all.
 
 `dev.virgo.ph` stays on the development tunnel. Do not touch it.
 
-### 6. Give development its own API hostname
+### 6. Point development at the LAN
 
-On the **development** tunnel, add:
+Find the development machine's address on the network:
 
+```powershell
+ipconfig | Select-String "IPv4"
 ```
-dev-api.virgo.ph  →  http://api:3000
-```
 
-Then, on the development machine, repoint everything that currently names a
-production host. These are the exact keys — the values are yours to edit:
+Take the one on your Wi-Fi or Ethernet adapter — `192.168.x.x` or `10.x.x.x`.
+Ignore anything starting `172.` on Windows; that is usually WSL or Hyper-V.
+
+Then repoint everything on that machine that currently names a production
+host. These are the exact keys; the values are yours to edit, substituting
+your own address for `192.168.1.50`:
 
 **`mobile/.env`**
 
 ```env
-EXPO_PUBLIC_API_URL=https://dev-api.virgo.ph
+EXPO_PUBLIC_API_URL=http://192.168.1.50:3001
 ```
 
-This is the one that matters most. Left pointing at `api.virgo.ph`, every test
-on a physical device writes to production.
+The one that matters most. Left pointing at `api.virgo.ph`, every test on a
+physical device writes to production.
+
+`EXPO_PACKAGER_PROXY_URL=https://dev.virgo.ph` stays as it is — Metro keeps
+the tunnel.
 
 **`api/.env`**
 
+The first two lines are the pair that opens the LAN. Set them together — a
+published port while the header is still trusted lets any LAN caller forge
+`CF-Connecting-IP` and never hit a rate limit, and an untrusted header while
+still behind the tunnel puts every user in one bucket. Both default to today's
+values, so nothing changes until you add these lines.
+
 ```env
-CORS_ORIGINS=http://localhost:3005,http://localhost:8081,http://localhost:19006,https://dev-api.virgo.ph
+API_BIND=0.0.0.0
+TRUST_PROXY=false
+
+CORS_ORIGINS=http://localhost:3005,http://localhost:8081,http://localhost:19006,http://192.168.1.50:3001,http://192.168.1.50:8081
 WEB_APP_URL=http://localhost:3005
-PUBLIC_APP_URL=http://localhost:3001
-CLIENT_DELIVERY_URL=http://localhost:3001
+PUBLIC_APP_URL=http://192.168.1.50:3001
+CLIENT_DELIVERY_URL=http://192.168.1.50:3001
 PUBLIC_SITE_URL=http://localhost:3005
-PUBLIC_API_URL=https://dev-api.virgo.ph
+PUBLIC_API_URL=http://192.168.1.50:3001
 CONSOLE_URL=http://localhost:3002
 ```
 
 `WEB_APP_URL` is the second dangerous one: left as `https://web.virgo.ph`, a
 test signup on the development stack emails somebody a confirmation link into
-production, where the account does not exist.
+production, where the account does not exist. Pointing it at localhost means
+the link only works on the development machine itself — correct, because that
+is the only place the development web app runs.
 
 Restart the development stack afterwards:
 
@@ -177,6 +209,29 @@ Restart the development stack afterwards:
 cd <repo>\api
 docker compose up -d
 ```
+
+**Two things that can stop the phone reaching it**, neither of them Virgo:
+
+- **Windows Firewall.** The bind is open, but Windows may still refuse the
+  inbound connection. Allow the port once:
+
+  ```powershell
+  New-NetFirewallRule -DisplayName "Virgo dev API" -Direction Inbound -LocalPort 3001 -Protocol TCP -Action Allow -Profile Private
+  ```
+
+- **Client isolation on the Wi-Fi.** Some routers stop devices on the same
+  network from talking to each other, which is what made the tunnel necessary
+  in the first place. Test from the phone's browser before assuming the app is
+  broken:
+
+  ```
+  http://192.168.1.50:3001/health
+  ```
+
+  A JSON response means the path is clear. A timeout means the network is
+  blocking it, and the Metro tunnel arrangement would need extending to the
+  API as well — a second hostname on the development tunnel pointing at
+  `http://api:3000`.
 
 ### 7. Verify both machines
 
@@ -189,7 +244,7 @@ curl.exe -s -o NUL -w "console  %{http_code}`n" https://console.virgo.ph
 curl.exe -s -o NUL -w "client   %{http_code}`n" https://client.virgo.ph/s/nope   # expect 403
 
 # development
-curl.exe -s -o NUL -w "dev api  %{http_code}`n" https://dev-api.virgo.ph/health
+curl.exe -s -o NUL -w "dev api  %{http_code}`n" http://192.168.1.50:3001/health
 ```
 
 Then the thing that actually proves the split: sign in on production, and

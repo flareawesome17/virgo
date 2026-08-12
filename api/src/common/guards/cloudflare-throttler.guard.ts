@@ -43,12 +43,33 @@ export class CloudflareThrottlerGuard extends ThrottlerGuard {
       | Record<string, string | string[] | undefined>
       | undefined;
 
-    const cfConnectingIp = headers?.['cf-connecting-ip'];
-    if (typeof cfConnectingIp === 'string' && cfConnectingIp.trim()) {
-      return cfConnectingIp.trim();
+    /*
+     * Only trust the header when the app is configured to be behind a proxy.
+     *
+     * `CF-Connecting-IP` is unforgeable *because* Cloudflare overwrites it —
+     * which holds only while Cloudflare is the sole path in. Development now
+     * publishes this port on the LAN so a phone can reach it, and there a
+     * client sets that header itself: read unconditionally, anyone could send
+     * a fresh value per request and never hit a limit.
+     *
+     * `trust proxy` is set in main.ts from TRUST_PROXY, so this follows the
+     * same switch rather than inventing a second one. Production is behind the
+     * tunnel and trusts it; development is not and does not.
+     */
+    const behindProxy = Boolean(
+      (req?.app as { get?: (k: string) => unknown } | undefined)?.get?.(
+        'trust proxy',
+      ),
+    );
+
+    if (behindProxy) {
+      const cfConnectingIp = headers?.['cf-connecting-ip'];
+      if (typeof cfConnectingIp === 'string' && cfConnectingIp.trim()) {
+        return cfConnectingIp.trim();
+      }
     }
 
-    // Direct (non-tunnelled) access, e.g. local development.
+    // Direct access — local development, or the LAN.
     const ip = req?.ip;
     return typeof ip === 'string' && ip ? ip : 'unknown';
   }
