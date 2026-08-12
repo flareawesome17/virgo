@@ -9,61 +9,74 @@ Read [DOMAINS.md](DOMAINS.md) first for what each hostname is for.
 
 ---
 
-## Why two tunnels
+## The tunnel moves; it is not duplicated
 
-Not because the token is secret — because of what happens when two machines
-present the same one.
+**Decision: the existing tunnel moves to the production machine.** Development
+keeps no hostnames at all and goes entirely to the LAN.
 
-A tunnel's token identifies the tunnel. Any `cloudflared` started with it
-registers as a **connector** for that tunnel, and Cloudflare treats multiple
-connectors as replicas: it load-balances across them. Run the same token on the
-laptop and the server and `api.virgo.ph` lands on one or the other per request,
-each resolving `http://api:3000` on its own Docker network to its own API and
-its own database. Same hostname, two backends, no way to predict which.
+The appeal is that there is nothing to reconfigure in Cloudflare. A route says
+`api.virgo.ph → http://api:3000`, and that address is resolved by whichever
+`cloudflared` is running, on its own Docker network. Move the token to the
+production host and all seven hostnames follow it — no dashboard edits, no DNS
+change, no propagation wait.
 
-Moving the single tunnel — stop `cloudflared` here, start it there with the
-same token — does work and avoids that. But the development machine then loses
-`dev.virgo.ph` as well, and per the setup notes this Wi-Fi has client
-isolation, so a physical phone cannot reach Metro over the LAN. Development
-needs at least one hostname of its own.
+**The one rule: never run it on both machines at once.**
 
-So: **production gets a new tunnel that owns the seven production hostnames.
-Development keeps its existing tunnel and serves only development hostnames.**
+A tunnel's token identifies the tunnel, and any `cloudflared` started with it
+registers as a **connector**. Cloudflare treats multiple connectors as replicas
+and load-balances across them — so with both running, `api.virgo.ph` lands on
+the laptop for some requests and the server for others, each hitting its own
+database. This is not a caution about copying the token; it is a caution about
+the two processes overlapping, even for a minute.
+
+That is why production starts **without** `cloudflared` below, is verified on
+loopback first, and only then does the tunnel change hands.
+
+`dev.virgo.ph` moves with everything else and will resolve to the production
+machine's `host.docker.internal:8081`, where no bundler is listening — a
+harmless 502. Remove that route from the tunnel once the move is done; Metro is
+on the LAN afterwards and no longer needs it.
 
 ---
 
 ## What each machine ends up serving
 
-| Tunnel | Hostname | Points at |
+Every hostname ends up on the production machine. The routes themselves do not
+change — only which machine answers them.
+
+| Hostname | Points at | Served by |
 |---|---|---|
-| **production** | `virgo.ph` | `http://web:3000` |
-| | `www.virgo.ph` | `http://web:3000` |
-| | `web.virgo.ph` | `http://web:3000` |
-| | `api.virgo.ph` | `http://api:3000` |
-| | `client.virgo.ph` | `http://api:3000` |
-| | `console.virgo.ph` | `http://dashboard:3002` |
-| | `db.virgo.ph` | `http://pgadmin:80` |
-| **development** | `dev.virgo.ph` | `http://host.docker.internal:8081` — Metro |
+| `virgo.ph` | `http://web:3000` | production |
+| `www.virgo.ph` | `http://web:3000` | production |
+| `web.virgo.ph` | `http://web:3000` | production |
+| `api.virgo.ph` | `http://api:3000` | production |
+| `client.virgo.ph` | `http://api:3000` | production |
+| `console.virgo.ph` | `http://dashboard:3002` | production |
+| `db.virgo.ph` | `http://pgadmin:80` | production |
+| `dev.virgo.ph` | `http://host.docker.internal:8081` | nothing — delete this route |
 
-Development keeps **one** hostname, for the Metro bundler. Everything else on
-that machine moves to the LAN: the API is now published on `0.0.0.0` rather
-than loopback, so a phone reaches it at `http://<dev-LAN-IP>:3001` directly.
+**Development keeps no hostnames.** Both things a phone needs move to the LAN:
 
-That is the piece that keeps mobile development working. The phone currently
-reaches the development API at `api.virgo.ph`; after cutover that hostname is
-production, so without a replacement every test on a real device would be
-writing to production data.
+| | Before | After |
+|---|---|---|
+| API | `https://api.virgo.ph` | `http://<dev-LAN-IP>:3001` |
+| Metro bundler | `https://dev.virgo.ph` | `http://<dev-LAN-IP>:8081` |
 
-Two consequences of publishing that port, both already handled:
+The API part is what keeps development honest: the phone currently reaches the
+development API at `api.virgo.ph`, and after the move that hostname is
+production. Left unchanged, every test on a real device writes to production
+data.
+
+Two consequences of publishing the API port, both already handled:
 
 - **The rate limiter stopped trusting `CF-Connecting-IP`.** It is unforgeable
   only because Cloudflare overwrites it, which holds while Cloudflare is the
   only way in. A directly reachable port means the caller sets that header
   itself — so a forged value per request would be a limiter that never fires.
-  The guard now reads it only when `TRUST_PROXY` is on, and development sets
+  The guard now reads it only when `TRUST_PROXY` is on, and development turns
   it off. Verified: twelve logins with twelve different forged
   `CF-Connecting-IP` values share one bucket and start returning 429.
-- **LAN is not the internet.** Do not forward this port on the router.
+- **LAN is not the internet.** Do not forward these ports on the router.
 
 ---
 
@@ -93,7 +106,20 @@ repository, so this needs a personal access token with `read:packages`:
 $env:CR_PAT | docker login ghcr.io -u flareawesome17 --password-stdin
 ```
 
-### 2. Create the production tunnel
+### 2. Nothing to do in Cloudflare
+
+The tunnel already exists and its routes already point at the right service
+addresses. It moves in step 5, by stopping `cloudflared` here and starting it
+there — no dashboard edits, no DNS change, no propagation wait.
+
+`CLOUDFLARE_TUNNEL_TOKEN` in the production `.env` is the existing token, which
+is correct under this plan. It is the **only** value that may legitimately match
+development, and it is safe precisely because the two machines never run it at
+the same time.
+
+<!-- Superseded: the two-tunnel arrangement, kept for context only.
+
+### Create the production tunnel
 
 Cloudflare Zero Trust → Networks → Tunnels → **Create a tunnel**. Name it
 something that cannot be confused with the existing one — `virgo-production`.
@@ -103,14 +129,21 @@ Copy its token into `CLOUDFLARE_TUNNEL_TOKEN` in the production `.env`.
 **Do not add any public hostnames to it yet.** Routes are what move traffic;
 adding them now would start serving from a stack that has not been migrated.
 
-### 3. Start production and migrate
+-->
+
+### 3. Start production, but not the tunnel
+
+**Name the services explicitly. A bare `up -d` starts `cloudflared` too**, and
+because the production `.env` already carries the existing token, that would
+put a second connector on the live tunnel and start splitting real traffic onto
+a machine that has not been migrated yet.
 
 ```powershell
 cd C:\VirgoProduction
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d postgres
 docker compose -f docker-compose.prod.yml run --rm api node dist/database/migrate-cli.js
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d api web dashboard pgadmin
 ```
 
 The migration is its own step and always will be — publishing a release never
@@ -136,18 +169,39 @@ What to confirm in the log:
 - No `CORS_ORIGINS is required` — that error means the variable is missing
 - The seeded console owner's one-time password, printed once. Copy it now.
 
-### 5. Move the hostnames
+### 5. Hand the tunnel over
 
-This is the only step with an outage, and it is short. For each of the seven
-production hostnames:
+The only step with an outage, and it is seconds. **Stop before you start** —
+the reverse order puts two connectors on the tunnel and splits live traffic
+between the machines.
 
-1. **Production tunnel** → Public Hostnames → Add, per the table above.
-2. **Development tunnel** → remove the same hostname.
+On the **development** machine:
 
-Add before removing, per hostname, so the gap is a DNS update rather than a
-period with no route at all.
+```powershell
+cd <repo>\api
+docker compose stop cloudflared
+```
 
-`dev.virgo.ph` stays on the development tunnel. Do not touch it.
+Confirm it is really down before continuing. From anywhere:
+
+```powershell
+curl.exe -s -o NUL -w "%{http_code}`n" https://virgo.ph
+```
+
+A 502 or 530 is what you want here — it means no connector is answering.
+
+Then on the **production** machine:
+
+```powershell
+cd C:\VirgoProduction
+docker compose -f docker-compose.prod.yml up -d cloudflared
+```
+
+All seven hostnames now resolve to production. Nothing changed in Cloudflare.
+
+Afterwards, remove the `dev.virgo.ph` route from the tunnel — it points at a
+bundler that is not on this machine, and Metro moves to the LAN in the next
+step.
 
 ### 6. Point development at the LAN
 
@@ -173,8 +227,17 @@ EXPO_PUBLIC_API_URL=http://192.168.1.50:3001
 The one that matters most. Left pointing at `api.virgo.ph`, every test on a
 physical device writes to production.
 
-`EXPO_PACKAGER_PROXY_URL=https://dev.virgo.ph` stays as it is — Metro keeps
-the tunnel.
+**Delete the `EXPO_PACKAGER_PROXY_URL` line entirely.** It advertises
+`https://dev.virgo.ph` as the bundler address, and that hostname now resolves
+to the production machine. Removed, Expo advertises the LAN address by itself,
+which is the arrangement everything else on this machine has moved to.
+
+If Expo picks the wrong interface — Windows machines often have several — pin
+it:
+
+```env
+REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.50
+```
 
 **`api/.env`**
 
@@ -216,7 +279,7 @@ docker compose up -d
   inbound connection. Allow the port once:
 
   ```powershell
-  New-NetFirewallRule -DisplayName "Virgo dev API" -Direction Inbound -LocalPort 3001 -Protocol TCP -Action Allow -Profile Private
+  New-NetFirewallRule -DisplayName "Virgo dev" -Direction Inbound -LocalPort 3001,8081 -Protocol TCP -Action Allow -Profile Private
   ```
 
 - **Client isolation on the Wi-Fi.** Some routers stop devices on the same
@@ -255,13 +318,21 @@ development login works against `api.virgo.ph`, the hostname did not move.
 
 ## Rollback
 
-Nothing is destroyed by this procedure, so rollback is moving the routes back:
-add the seven hostnames to the development tunnel, remove them from
-production's. Production keeps running, unreachable, until you point at it
-again.
+Nothing is destroyed by this procedure. To put things back, hand the tunnel the
+other way — same rule, stop before you start, never both:
+
+```powershell
+# on production
+docker compose -f docker-compose.prod.yml stop cloudflared
+
+# on development
+docker compose up -d cloudflared
+```
+
+Production keeps running, unreachable, until you hand the tunnel back to it.
 
 Revert the development `.env` edits from step 6 at the same time, or
-development will still be talking to localhost while serving public hostnames.
+development will be talking to localhost while serving public hostnames.
 
 ---
 
