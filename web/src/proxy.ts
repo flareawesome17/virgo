@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 const MARKETING_HOSTS = new Set(['virgo.ph', 'www.virgo.ph']);
 
 /** Where the app lives, for links out of the marketing site. */
-const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN ?? 'https://web.virgo.ph';
+const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN || 'https://web.virgo.ph';
 
 /**
  * Serves one Next app on two hostnames.

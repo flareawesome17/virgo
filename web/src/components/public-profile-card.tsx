@@ -44,7 +44,7 @@ const MAX_IMAGES = 24;
 const MAX_ALBUMS = 12;
 
 /** Where a claimed handle actually resolves. */
-const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
+const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
 
 /**
  * Claiming a handle.

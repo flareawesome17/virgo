@@ -10,7 +10,7 @@
  * of at production.
  */
 export const APP_URL =
-  process.env.NEXT_PUBLIC_APP_ORIGIN ?? 'https://web.virgo.ph';
+  process.env.NEXT_PUBLIC_APP_ORIGIN || 'https://web.virgo.ph';
 
 export const SIGN_IN_URL = `${APP_URL}/sign-in`;
 export const SIGN_UP_URL = `${APP_URL}/sign-up`;

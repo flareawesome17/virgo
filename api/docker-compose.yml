@@ -84,12 +84,11 @@ services:
       # daemon, so without this the whole user base shares one rate-limit
       # bucket.
       #
-      # Set TRUST_PROXY=false in api/.env at cutover, together with
-      # API_BIND=0.0.0.0 above. The two belong to the same moment and neither
-      # is safe alone: a published port with the header still trusted lets a
-      # LAN caller forge CF-Connecting-IP and never hit a limit, and an
-      # untrusted header while still behind the tunnel buckets everybody
-      # together. See docs/CUTOVER.md step 6.
+      # Set TRUST_PROXY=false in api/.env together with DEV_BIND=0.0.0.0 above.
+      # The two belong to the same moment and neither is safe alone: a published
+      # port with the header still trusted lets a LAN caller forge
+      # CF-Connecting-IP and never hit a limit, and an untrusted header while
+      # still behind the tunnel buckets everybody together.
       TRUST_PROXY: ${TRUST_PROXY:-true}
     ports:
       # On the LAN, not just loopback, so a physical phone can reach this API
@@ -102,10 +101,10 @@ services:
       # TRUST_PROXY is off (below) precisely because a directly-reachable port
       # lets a caller set that header itself.
       #
-      # Defaults to loopback, which is correct while the tunnel is still the
-      # ingress. Set API_BIND=0.0.0.0 in api/.env at cutover — together with
-      # TRUST_PROXY=false, see below.
-      - '${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000'
+      # DEV_BIND covers api, web and dashboard together. Defaults to loopback;
+      # set DEV_BIND=0.0.0.0 in api/.env to reach them from a phone on the LAN,
+      # together with TRUST_PROXY=false below.
+      - '${DEV_BIND:-127.0.0.1}:${API_PORT:-3000}:3000'
     depends_on:
       postgres:
         # Wait for real readiness, not just "container started" — otherwise
@@ -166,8 +165,11 @@ services:
       # Cloudflare and back, which is slower and fails whenever the public
       # hostname is having a bad day. Falls back to the public URL if unset.
       API_INTERNAL_URL: http://api:3000
-    expose:
-      - '3000'
+    # Published, not merely exposed. `expose` only opens a port to the other
+    # containers, so with the tunnel gone this app was unreachable — including
+    # from a browser on this very machine.
+    ports:
+      - '${DEV_BIND:-127.0.0.1}:${WEB_PORT:-3005}:3000'
     depends_on:
       - api
 
@@ -189,11 +191,14 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-    # 3002, not 3000: the tunnel route for console.virgo.ph points at
-    # `dashboard:3002`, matching the dev script so there is one port to
-    # remember rather than two.
-    expose:
-      - '3002'
+    # 3002 inside and out: the tunnel route for console.virgo.ph pointed at
+    # `dashboard:3002`, and keeping the same number on the host means one port
+    # to remember rather than two.
+    #
+    # Published for the same reason as web above — `expose` alone left it
+    # reachable only through the tunnel.
+    ports:
+      - '${DEV_BIND:-127.0.0.1}:${DASHBOARD_PORT:-3002}:3002'
     depends_on:
       - api
 
@@ -263,6 +268,21 @@ services:
 
   cloudflared:
     <<: *hardening
+    # Behind a profile, so `docker compose up -d` does NOT start it.
+    #
+    # The public hostnames belong to the production machine now. This stack is
+    # local: localhost and the LAN. Leaving the connector in the default set
+    # would mean any routine `up` here quietly claims the live domains back —
+    # and worse, if production is also running, Cloudflare would treat the two
+    # as replicas of one tunnel and split real traffic between them.
+    #
+    # Kept rather than deleted because it is the rollback: if production has to
+    # hand the tunnel back, start it deliberately with
+    #
+    #   docker compose --profile tunnel up -d cloudflared
+    #
+    # and make sure production's is stopped first. Never both.
+    profiles: ['tunnel']
     # Pinned by digest — this process is the ingress for every hostname, so
     # it should change when you decide it does, not when a restart happens.
     image: cloudflare/cloudflared@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf
