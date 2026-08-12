@@ -203,6 +203,24 @@ Invoke-Test 'entry scripts resolve omitted RootPath after PowerShell 5.1 paramet
   Assert-True (($initializeOutput -join ' ') -like "*$windowsRoot*") 'initialize-deployment.ps1 must resolve RootPath to its own directory'
 }
 
+Invoke-Test 'octet-stream release marker bytes are decoded as UTF-8 JSON' {
+  $module = Get-Module -Name 'Virgo.Deployment'
+  Assert-True ($null -ne $module) 'deployment module must be loaded'
+  $result = & $module {
+    $expected = '{"message":"' + [char]0x2713 + '"}'
+    [pscustomobject]@{
+      Expected = $expected
+      Bytes = ConvertTo-VirgoResponseBody ([System.Text.Encoding]::UTF8.GetBytes($expected))
+      Text = ConvertTo-VirgoResponseBody $expected
+      Empty = ConvertTo-VirgoResponseBody $null
+    }
+  }
+  Assert-True ($result.Bytes -eq $result.Expected) 'byte-array response content must be decoded as UTF-8'
+  Assert-True ($result.Text -eq $result.Expected) 'text response content must remain unchanged'
+  Assert-True ($result.Empty -eq '') 'null response content must become an empty body'
+  Assert-True ($null -ne ($result.Bytes | ConvertFrom-Json)) 'decoded byte-array response must remain valid JSON'
+}
+
 Invoke-Test 'invalid tag is rejected' {
   Assert-True (-not (Test-VirgoTag 'latest')) 'latest must be rejected'
   Assert-True (-not (Test-VirgoTag 'v1.0.0-rc.1')) 'prerelease must be rejected'

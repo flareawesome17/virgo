@@ -58,6 +58,13 @@ function Format-VirgoCommand {
   return ((@($FilePath) + @($rendered)) -join ' ').Trim()
 }
 
+function ConvertTo-VirgoResponseBody {
+  param([AllowNull()]$Content)
+  if ($null -eq $Content) { return '' }
+  if ($Content -is [byte[]]) { return [System.Text.Encoding]::UTF8.GetString($Content) }
+  return [string]$Content
+}
+
 function New-DefaultVirgoAdapter {
   $run = {
     param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory)
@@ -81,7 +88,7 @@ function New-DefaultVirgoAdapter {
       return [pscustomobject]@{
         Success = ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400)
         StatusCode = [int]$response.StatusCode
-        Body = [string]$response.Content
+        Body = ConvertTo-VirgoResponseBody $response.Content
         Error = $null
       }
     } catch {
