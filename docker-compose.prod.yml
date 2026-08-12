@@ -42,7 +42,15 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      # No default, deliberately: `:?` refuses to start rather than inventing a
+      # name. The development stack defaults to `virgo_dev`, so a missing
+      # variable there lands somewhere harmless — here it must be stated, and
+      # the expected value is `virgo_prod`.
+      #
+      # These are separate hosts with separate volumes, so the two databases
+      # cannot see each other. The naming is what stops a human pointing a tool
+      # at the wrong one.
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env — production is virgo_prod}
     ports:
       # Loopback only. The API reaches Postgres over the compose network by
       # service name; nothing legitimate needs it from the LAN.

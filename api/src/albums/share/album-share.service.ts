@@ -116,14 +116,25 @@ export class AlbumShareService {
   }
 
   /**
-   * Where a share token is served. Falls back to the API's own public origin,
-   * which is what serves the client page.
+   * Where a share token is served: client.virgo.ph, the public delivery host.
+   *
+   * Three names, tried in order, because this value predates having a word for
+   * it. `CLIENT_DELIVERY_URL` says what it is and is what new deployments
+   * should set; `PUBLIC_APP_URL` is the name the running stack already uses and
+   * keeps working; `PUBLIC_API_URL` is the last resort, and lands on the API's
+   * own origin — which does serve the page, since client.virgo.ph routes to
+   * this service, but produces a link that says api.virgo.ph to a client who
+   * has no business seeing it.
+   *
+   * Deliberately NOT WEB_APP_URL. A share link goes to somebody with no Virgo
+   * account, and web.virgo.ph would put them at a sign-in wall.
    */
   private shareBaseUrl(): string {
     return (
+      this.config.get<string>('CLIENT_DELIVERY_URL') ??
       this.config.get<string>('PUBLIC_APP_URL') ??
       this.config.get<string>('PUBLIC_API_URL') ??
-      'https://api.virgo.ph'
+      'https://client.virgo.ph'
     ).replace(/\/+$/, '');
   }
 

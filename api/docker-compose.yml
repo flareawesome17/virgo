@@ -28,7 +28,19 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-virgo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-virgo_dev_password}
-      POSTGRES_DB: ${POSTGRES_DB:-virgo}
+      # `virgo_dev`, not `virgo`.
+      #
+      # Production names its database explicitly and has no default at all —
+      # see docker-compose.prod.yml, where POSTGRES_DB uses `:?`. The two
+      # together mean a connection string can never quietly resolve to the
+      # wrong environment: a dev stack missing its variable lands on
+      # `virgo_dev`, and a production stack missing it refuses to start.
+      #
+      # Renamed from `virgo` in place (ALTER DATABASE). If you have a
+      # host-side DATABASE_URL in api/.env, point it at virgo_dev too — the
+      # api container does not read it (the environment block below wins), but
+      # anything you run outside compose does.
+      POSTGRES_DB: ${POSTGRES_DB:-virgo_dev}
     ports:
       # Bound to loopback, not 0.0.0.0. It was reachable from anything on the
       # same network, and the password in this file is a default that anyone
@@ -44,7 +56,7 @@ services:
     volumes:
       - virgo_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-virgo} -d ${POSTGRES_DB:-virgo}']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-virgo} -d ${POSTGRES_DB:-virgo_dev}']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -62,7 +74,7 @@ services:
       # OVERRIDES .env. Inside the compose network Postgres answers on its
       # service name at its *container* port — the 5434 host mapping does not
       # exist in here, and `localhost` would be this container itself.
-      DATABASE_URL: postgresql://${POSTGRES_USER:-virgo}:${POSTGRES_PASSWORD:-virgo_dev_password}@postgres:5432/${POSTGRES_DB:-virgo}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-virgo}:${POSTGRES_PASSWORD:-virgo_dev_password}@postgres:5432/${POSTGRES_DB:-virgo_dev}
       NODE_ENV: production
       # NODE_ENV=production disables auto-migrate, so switch it back on
       # explicitly. Safe with a single replica; if you ever scale this service,

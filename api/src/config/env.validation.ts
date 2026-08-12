@@ -42,5 +42,27 @@ export function validateEnv(
     );
   }
 
+  /*
+   * Production must name its allowed origins.
+   *
+   * Unset, CORS falls back to reflecting whatever origin asked — fine on a
+   * laptop where localhost, a LAN IP and the Expo tunnel all need to work at
+   * once, wrong on the internet. Every session here is a Bearer token rather
+   * than a cookie, so this was never an ambient-credential hole; it did mean
+   * any site could read this API from a browser, and a forgotten variable is
+   * exactly how that happens.
+   *
+   * Checked here rather than at the CORS call itself so it fails with the
+   * other environment problems, before anything starts listening. An outage
+   * during a deploy is loud and fixable; a permissive API looks healthy.
+   */
+  if (config.NODE_ENV === 'production' && !String(config.CORS_ORIGINS ?? '').trim()) {
+    throw new Error(
+      'CORS_ORIGINS is required when NODE_ENV=production. Name the origins ' +
+        'explicitly, e.g. CORS_ORIGINS=https://web.virgo.ph,https://virgo.ph,' +
+        'https://www.virgo.ph,https://console.virgo.ph',
+    );
+  }
+
   return config;
 }

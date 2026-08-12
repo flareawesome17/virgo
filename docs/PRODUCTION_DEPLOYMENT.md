@@ -44,6 +44,34 @@ the Actions tab and type the existing tag.
 
 ---
 
+## Before the first release
+
+Four things must be true before `v1.0.0` is published. Hostname roles and the
+full audit are in [DOMAINS.md](DOMAINS.md).
+
+1. **`CORS_ORIGINS` is set in the production `.env`.** The API refuses to boot
+   without it when `NODE_ENV=production` — deliberately, because the old
+   fallback reflected whatever origin asked. Set it to the hostnames that
+   actually call the API:
+
+   ```env
+   CORS_ORIGINS=https://web.virgo.ph,https://virgo.ph,https://www.virgo.ph,https://console.virgo.ph
+   ```
+
+2. **`POSTGRES_DB=virgo_prod`.** There is no default in production — a missing
+   value stops the stack rather than inventing a name. Development is
+   `virgo_dev`, on a different host and volume.
+
+3. **GitHub Repository Variables are set.** `NEXT_PUBLIC_*` values are baked
+   into the image at build time, so changing one later means rebuilding and
+   re-releasing. The list is in [DOMAINS.md](DOMAINS.md#public-build-time-variables).
+
+4. **The production tunnel exists and owns the hostnames.** The routes today
+   belong to the development machine's tunnel. Production needs its own tunnel
+   and token, and the hostnames must be moved to it at cutover — otherwise
+   production traffic keeps arriving at a laptop. Also put Cloudflare Access in
+   front of `db.virgo.ph` (required) and `console.virgo.ph` (recommended).
+
 ## First-time host setup
 
 Docker Desktop must be installed and running.

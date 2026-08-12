@@ -76,6 +76,9 @@ async function bootstrap(): Promise<void> {
     .map((o) => o.trim())
     .filter(Boolean);
 
+  // The empty case only ever happens outside production — validateEnv refuses
+  // to boot a production process with no CORS_ORIGINS. Reflecting the origin is
+  // what makes localhost, a LAN IP and the Expo tunnel all work at once.
   app.enableCors({
     origin: origins.length > 0 ? origins : true,
     credentials: true,
