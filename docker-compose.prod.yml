@@ -163,12 +163,26 @@ services:
 
   # ── ingress ────────────────────────────────────────────────────────────────
   # Cloudflare Tunnel dials out, so this host needs no inbound port and no
-  # public IP. Routing lives in the Cloudflare dashboard, not in this file:
+  # public IP. Routing lives in the Cloudflare dashboard, not in this file —
+  # all seven production hostnames, so nothing here is a surprise later:
   #
-  #   api.virgo.ph     -> http://api:3000
-  #   web.virgo.ph     -> http://web:3000
+  #   virgo.ph         -> http://web:3000        public site, profiles, jobs
+  #   www.virgo.ph     -> http://web:3000        alias (or a redirect rule)
+  #   web.virgo.ph     -> http://web:3000        the authenticated browser app
+  #   api.virgo.ph     -> http://api:3000        REST + WebSocket
+  #   client.virgo.ph  -> http://api:3000        public delivery, /s/<token>
   #   console.virgo.ph -> http://dashboard:3002
-  #   db.virgo.ph      -> http://pgadmin:80
+  #   db.virgo.ph      -> http://pgadmin:80      put Cloudflare Access on this
+  #
+  # virgo.ph and web.virgo.ph share a container because one Next app serves
+  # both — public routes and the app. They are not interchangeable, and there
+  # must be no redirect between them: email links need the app host, profile
+  # and job links need to be readable signed-out.
+  #
+  # client.virgo.ph shares the API container. No route here may point at 5432.
+  #
+  # dev.virgo.ph is NOT part of this stack. It is the Expo bundler tunnel on a
+  # developer's machine — see docs/DOMAINS.md.
   cloudflared:
     <<: *hardening
     image: cloudflare/cloudflared:latest
