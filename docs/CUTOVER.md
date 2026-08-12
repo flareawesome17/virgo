@@ -133,6 +133,18 @@ adding them now would start serving from a stack that has not been migrated.
 
 ### 3. Start production, but not the tunnel
 
+**There is a script for this**, which does everything below and refuses to
+continue if anything is wrong — placeholders left in `.env`, a development
+database name, or an existing Virgo stack on the machine:
+
+```powershell
+cd C:\VirgoProduction
+powershell -ExecutionPolicy Bypass -File .\prod-setup.ps1
+```
+
+Copy `scripts/prod-setup.ps1` alongside the other two files. The rest of this
+step is what it does, if you would rather run it by hand.
+
 **Name the services explicitly. A bare `up -d` starts `cloudflared` too**, and
 because the production `.env` already carries the existing token, that would
 put a second connector on the live tunnel and start splitting real traffic onto
