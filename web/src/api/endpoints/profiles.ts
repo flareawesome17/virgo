@@ -129,6 +129,26 @@ export const portfolioApi = {
 };
 
 /** The public address of a profile, for sharing and for canonical tags. */
+/**
+ * A title made out of the roles somebody picked.
+ *
+ * "Photographer", "Photographer & Videographer", "Photographer, HMUA & Host".
+ *
+ * The title field is free text and always was, but leaving it blank is the
+ * common case — and a profile with no title reads as unfinished when the
+ * person has already said exactly what they do one field below. This is what
+ * the form falls back to, so the two never disagree.
+ *
+ * Order is preserved rather than sorted: it is the order they were chosen in,
+ * which puts the thing somebody thinks of first at the front.
+ */
+export function titleFromRoles(roles: readonly string[] | null | undefined): string {
+  const list = (roles ?? []).map((r) => r.trim()).filter(Boolean);
+  if (list.length === 0) return '';
+  if (list.length === 1) return list[0];
+  return `${list.slice(0, -1).join(', ')} & ${list[list.length - 1]}`;
+}
+
 export function profileUrl(handle: string, origin = 'https://virgo.ph'): string {
   return `${origin}/@${handle}`;
 }

@@ -107,6 +107,7 @@ export {
   profilesApi,
   portfolioApi,
   profileUrl,
+  titleFromRoles,
   type PublicProfile,
   type ProfileSettings,
   type PortfolioItem,

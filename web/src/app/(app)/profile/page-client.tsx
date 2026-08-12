@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import {
   CalendarDays,
+  Camera,
   CreditCard,
   FolderOpen,
   HardDrive,
@@ -35,7 +36,8 @@ import { useUsage } from '@/hooks/useUsage';
 import { useOnline } from '@/hooks/useOnline';
 import { RolePicker } from '@/components/role-picker';
 import { PublicProfileCard } from '@/components/public-profile-card';
-import { formatBytes } from '@/api';
+import { formatBytes, storageApi, titleFromRoles } from '@/api';
+import { cn } from '@/lib/utils';
 
 /**
  * Profile — who you are and what you have.
@@ -53,6 +55,61 @@ export default function ProfilePage() {
   const { events } = useScheduleEvents({ limit: 100 });
   const { collaborators } = useCollaborators({ limit: 100 });
   const { storageUsedBytes, usage } = useUsage();
+
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  /**
+   * Uploads a picture and saves the URL it came back with.
+   *
+   * `storageApi.uploadFile` directly rather than the useUpload hook: that hook
+   * models an album batch — many files, per-file progress, and it discards the
+   * result. An avatar is one file whose whole point is the URL at the end.
+   *
+   * The avatars bucket is the public one, so what comes back is a durable
+   * address rather than a signed URL that expires in an hour. That matters
+   * because this value is *stored* — on the user row, and denormalised onto
+   * friends and collaborators — so a URL that stopped resolving would leave
+   * broken images scattered across other people's screens.
+   */
+  const changeAvatar = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('That is not an image', {
+        description: 'Pick a JPEG, PNG or WebP.',
+      });
+      return;
+    }
+    // 8 MB. The server enforces the real quota; this is here so somebody who
+    // picks a 40 MB raw export is told immediately rather than after a long
+    // upload that fails at the end.
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error('That image is too large', {
+        description: 'Profile pictures are limited to 8 MB.',
+      });
+      return;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      const uploaded = await storageApi.uploadFile(file, { scope: 'avatars' });
+      if (!uploaded.publicUrl) {
+        // Only happens when CDN_BASE_URL is unset, which makes the avatars
+        // bucket unreachable by a durable URL. Worth saying plainly — the
+        // upload did work, there is simply nowhere to point at it from.
+        toast.error('Uploaded, but it cannot be served', {
+          description: 'No public URL is configured for the avatars bucket.',
+        });
+        return;
+      }
+      await updateProfile.mutateAsync({ avatarUrl: uploaded.publicUrl });
+      toast.success('Profile picture updated');
+    } catch (err) {
+      toast.error('Could not update your picture', {
+        description: err instanceof Error ? err.message : 'Please try again.',
+      });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const EMPTY = {
     displayName: '',
@@ -73,6 +130,14 @@ export default function ProfilePage() {
   const [form, setForm] = useState(EMPTY);
   const [roles, setRoles] = useState<string[]>([]);
   const [seeded, setSeeded] = useState(false);
+
+  /*
+   * Whether the Title field is still tracking the roles.
+   *
+   * True until somebody types their own, and re-decided when the profile
+   * loads — see the seed effect below.
+   */
+  const [titleFollowsRoles, setTitleFollowsRoles] = useState(true);
 
   // Seeded once the profile lands, not on every render: re-seeding would wipe
   // whatever the user was midway through typing on a background refetch.
@@ -95,6 +160,20 @@ export default function ProfilePage() {
       addressCountry: profile.addressCountry ?? '',
     });
     setRoles(profile.roles ?? []);
+
+    /*
+     * Does the saved title look like one the roles produced?
+     *
+     * If it does — or there is none — the field keeps tracking the roles, so
+     * adding Videographer later updates it. If it is anything else, somebody
+     * wrote it deliberately and it is theirs to keep: changing a role must not
+     * silently rewrite "Wedding & lifestyle photographer".
+     */
+    const saved = (profile.title ?? '').trim();
+    setTitleFollowsRoles(
+      saved === '' || saved === titleFromRoles(profile.roles ?? []),
+    );
+
     setSeeded(true);
   }, [profile, seeded]);
 
@@ -134,6 +213,32 @@ export default function ProfilePage() {
         !address.addressProvince && 'a province or region',
         address.addressCountry.length !== 2 && 'a two-letter country code',
       ].filter(Boolean as unknown as (v: unknown) => v is string);
+
+  /**
+   * The title the chosen roles imply — "Photographer & Videographer".
+   *
+   * Declared here rather than beside the other state because it reads `roles`,
+   * which is set further up.
+   */
+  const derivedTitle = titleFromRoles(roles);
+
+  /*
+   * The title follows the roles until somebody writes their own.
+   *
+   * Leaving it blank is the common case, and a profile with no title reads as
+   * unfinished when the person has already said exactly what they do one field
+   * below. So picking Photographer and Videographer fills in "Photographer &
+   * Videographer", and changing the roles updates it.
+   *
+   * It stops following the moment the text is anything other than a title the
+   * roles would have produced — including empty, which is somebody deliberately
+   * clearing it. Overwriting a hand-written title because a role was added
+   * would be worse than leaving it blank in the first place.
+   */
+  useEffect(() => {
+    if (!titleFollowsRoles) return;
+    setForm((f) => (f.title === derivedTitle ? f : { ...f, title: derivedTitle }));
+  }, [derivedTitle, titleFollowsRoles]);
 
   const save = () => {
     updateProfile.mutate(
@@ -194,12 +299,56 @@ export default function ProfilePage() {
           <Card>
             <CardContent className="py-6">
               <div className="flex items-center gap-4">
-                <Avatar className="size-16">
-                  {profile?.avatarUrl && <AvatarImage src={profile.avatarUrl} alt="" />}
-                  <AvatarFallback className="bg-primary/15 text-lg font-bold text-primary">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
+                {/*
+                  A label wrapping a hidden file input, not a button.
+                  A button cannot open the file picker without scripting a
+                  click on a separate input, and a label does it natively —
+                  which also gives keyboard and screen-reader behaviour for
+                  free.
+                */}
+                <label
+                  className="group relative cursor-pointer rounded-full"
+                  aria-label="Change profile picture"
+                >
+                  <Avatar className="size-16">
+                    {profile?.avatarUrl && (
+                      <AvatarImage src={profile.avatarUrl} alt="" />
+                    )}
+                    <AvatarFallback className="bg-primary/15 text-lg font-bold text-primary">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+
+                  <span
+                    className={cn(
+                      'absolute inset-0 grid place-items-center rounded-full bg-black/55 text-white transition-opacity',
+                      uploadingAvatar
+                        ? 'opacity-100'
+                        : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                    )}
+                  >
+                    {uploadingAvatar ? (
+                      <Loader2 className="size-5 animate-spin" />
+                    ) : (
+                      <Camera className="size-5" />
+                    )}
+                  </span>
+
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    disabled={uploadingAvatar}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      // Cleared so picking the same file twice still fires a
+                      // change event — otherwise a retry after a failure does
+                      // nothing at all.
+                      e.target.value = '';
+                      if (file) void changeAvatar(file);
+                    }}
+                  />
+                </label>
                 <div className="min-w-0">
                   <p className="truncate text-lg font-bold">
                     {profile?.displayName || 'Add your name'}
@@ -239,8 +388,13 @@ export default function ProfilePage() {
                   <Input
                     id="title"
                     value={form.title}
-                    onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                    placeholder="Wedding photographer"
+                    onChange={(e) => {
+                      // Typing takes ownership of the field; it stops tracking
+                      // the roles from here on.
+                      setTitleFollowsRoles(false);
+                      setForm((f) => ({ ...f, title: e.target.value }));
+                    }}
+                    placeholder={derivedTitle || 'Wedding photographer'}
                   />
                 </div>
                 <div className="grid gap-2">

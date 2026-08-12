@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth, useUpload } from '@/src/hooks';
+import { titleFromRoles } from '@/src/api';
 import { RolePicker } from '@/components';
 import {
   ArrowLeftIcon, CameraIcon, UserIcon, MailIcon, BriefcaseIcon, PhoneIcon,
@@ -53,6 +54,15 @@ export default function ProfileSettingsScreen() {
   const [country, setCountry] = useState('');
   const [hydrated, setHydrated] = useState(false);
 
+  /*
+   * Whether Title is still tracking the roles.
+   *
+   * True until somebody types their own. Leaving Title blank is the common
+   * case, and a profile with no title reads as unfinished when the person has
+   * already said exactly what they do one field below.
+   */
+  const [titleFollowsRoles, setTitleFollowsRoles] = useState(true);
+
   useEffect(() => {
     if (!profile || hydrated) return;
     setName(profile.displayName ?? '');
@@ -62,6 +72,20 @@ export default function ProfileSettingsScreen() {
     setLocation(profile.location ?? '');
     setBio(profile.bio ?? '');
     setRoles(profile.roles ?? []);
+
+    /*
+     * Does the saved title look like one the roles produced?
+     *
+     * If it does — or there is none — Title keeps tracking the roles, so adding
+     * Videographer later updates it. Anything else was written deliberately and
+     * stays: changing a role must not rewrite "Wedding & lifestyle
+     * photographer".
+     */
+    const savedTitle = (profile.title ?? '').trim();
+    setTitleFollowsRoles(
+      savedTitle === '' || savedTitle === titleFromRoles(profile.roles ?? []),
+    );
+
     setStudioName(profile.studioName ?? '');
     setSocialHandle(profile.socialHandle ?? '');
     setLine1(profile.addressLine1 ?? '');
@@ -72,6 +96,15 @@ export default function ProfileSettingsScreen() {
     setCountry(profile.addressCountry ?? '');
     setHydrated(true);
   }, [profile, hydrated]);
+
+  /** "Photographer & Videographer", from whatever is selected below. */
+  const derivedTitle = titleFromRoles(roles);
+
+  // Keeps Title in step with the roles until somebody writes their own.
+  useEffect(() => {
+    if (!titleFollowsRoles) return;
+    setTitle((current) => (current === derivedTitle ? current : derivedTitle));
+  }, [derivedTitle, titleFollowsRoles]);
 
   const [saved, setSaved] = useState(false);
 
@@ -231,7 +264,18 @@ export default function ProfileSettingsScreen() {
         {/* Form fields */}
         <View className="px-5 gap-4">
           <FieldRow icon={UserIcon} label="Name" value={name} onChange={setName} color="#B66A40" />
-          <FieldRow icon={BriefcaseIcon} label="Title" value={title} onChange={setTitle} color="#C17745" />
+          {/* Typing takes ownership: it stops tracking the roles from here. */}
+          <FieldRow
+            icon={BriefcaseIcon}
+            label="Title"
+            value={title}
+            onChange={(v) => {
+              setTitleFollowsRoles(false);
+              setTitle(v);
+            }}
+            placeholder={derivedTitle || 'Wedding photographer'}
+            color="#C17745"
+          />
           {/* Read-only: changing the login address needs a verification flow
               that does not exist yet, so editing it here would be a lie. */}
           <View>
@@ -359,10 +403,13 @@ export default function ProfileSettingsScreen() {
 
 function FieldRow({
   icon: IconComp, label, value, onChange, color, keyboardType, maxLength,
+  placeholder,
 }: {
   icon: LucideIcon; label: string; value: string;
   onChange: (v: string) => void; color: string; keyboardType?: string;
   maxLength?: number;
+  /** Shown when the field is empty. Used by Title to suggest the roles. */
+  placeholder?: string;
 }) {
   return (
     <View>
@@ -379,6 +426,8 @@ function FieldRow({
         <TextInput
           value={value}
           onChangeText={onChange}
+          placeholder={placeholder}
+          placeholderTextColor="#A89489"
           className="text-foreground text-sm flex-1"
           keyboardType={keyboardType as any}
           maxLength={maxLength}
