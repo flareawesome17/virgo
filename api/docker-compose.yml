@@ -111,23 +111,6 @@ services:
         # boot-time migrations hit a Postgres that is still initialising.
         condition: service_healthy
 
-  # Cloudflare Tunnel — publishes the API at your public hostname without
-  # opening a single inbound port. cloudflared dials OUT to Cloudflare and
-  # traffic returns down that connection, so there is no port forwarding, no
-  # firewall hole, and your origin IP is never exposed.
-  #
-  # Routing is configured in the Cloudflare dashboard (token-based tunnels are
-  # remotely managed, so it does not live in this file):
-  #
-  #   Public hostname : api.virgo.ph
-  #   Service         : http://api:3000
-  #
-  # Note `api:3000`, NOT host.docker.internal:3000 — now that the API runs in
-  # this compose network, cloudflared reaches it by service name and the
-  # traffic never leaves Docker.
-  #
-  # Keep port 3000 unforwarded at the router — the tunnel is the only ingress,
-  # and CF-Connecting-IP can only be trusted while that stays true.
   # The Next.js app in ../web.
   #
   # Its own Node server rather than a static export: the app has dynamic
@@ -137,13 +120,11 @@ services:
   # inlines NEXT_PUBLIC_* values into the client bundle at build time. Changing
   # it means rebuilding the image, not restarting the container.
   #
-  # Add the tunnel route in the Cloudflare Zero Trust dashboard:
-  #
-  #   Public hostname : web.virgo.ph
-  #   Service         : http://web:3000
-  #
-  # And add https://web.virgo.ph to CORS_ORIGINS in api/.env, or the browser
-  # blocks every API call before it leaves the page.
+  # Reached on the host, not through a tunnel: web.virgo.ph belongs to the
+  # production machine. Locally this is http://localhost:3005, and on the LAN
+  # http://<dev-ip>:3005 when DEV_BIND is 0.0.0.0. Both forms need to be in
+  # CORS_ORIGINS in api/.env, or the browser blocks every API call before it
+  # leaves the page.
   web:
     <<: *hardening
     build:
@@ -288,8 +269,8 @@ services:
     #
     # The development tunnel should carry development hostnames only:
     #
-    #   dev.virgo.ph      -> http://host.docker.internal:8081   (Metro)
-    #   dev-api.virgo.ph  -> http://api:3000                    (optional)
+    #   mobile-dev.virgo.ph    -> http://host.docker.internal:8081  (Metro)
+    #   virgo-dev-api.virgo.ph -> http://api:3000                   (the API)
     #
     # Worth being careful rather than clever about: two connectors started with
     # the *same* token are replicas, and Cloudflare load-balances between them.
