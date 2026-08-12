@@ -101,7 +101,8 @@
           "color": "#B66A40"
         }
       ],
-      "expo-video"
+      "expo-video",
+      "expo-build-properties"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
