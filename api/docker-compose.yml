@@ -270,18 +270,25 @@ services:
     <<: *hardening
     # Behind a profile, so `docker compose up -d` does NOT start it.
     #
-    # The public hostnames belong to the production machine now. This stack is
-    # local: localhost and the LAN. Leaving the connector in the default set
-    # would mean any routine `up` here quietly claims the live domains back —
-    # and worse, if production is also running, Cloudflare would treat the two
-    # as replicas of one tunnel and split real traffic between them.
+    # The public hostnames belong to the production machine. This stack is
+    # local — localhost and the LAN — and leaving the connector in the default
+    # set would mean any routine `up` here quietly claiming those names back.
     #
-    # Kept rather than deleted because it is the rollback: if production has to
-    # hand the tunnel back, start it deliberately with
+    # Start it deliberately, when the LAN is not usable from a phone:
     #
     #   docker compose --profile tunnel up -d cloudflared
     #
-    # and make sure production's is stopped first. Never both.
+    # DEV_TUNNEL_TOKEN, not CLOUDFLARE_TUNNEL_TOKEN. This must be a *second*
+    # tunnel, its own token, carrying only development hostnames:
+    #
+    #   dev.virgo.ph      -> http://host.docker.internal:8081   (Metro)
+    #   dev-api.virgo.ph  -> http://api:3000                    (optional)
+    #
+    # The separate variable is the safety property. Two connectors sharing one
+    # token are replicas and Cloudflare load-balances between them, so booting
+    # this with production's token would put half of production's traffic on
+    # this machine. A different name means that cannot happen by accident —
+    # the value simply is not here to be picked up.
     profiles: ['tunnel']
     # Pinned by digest — this process is the ingress for every hostname, so
     # it should change when you decide it does, not when a restart happens.
