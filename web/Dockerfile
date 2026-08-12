@@ -26,6 +26,16 @@ ARG NEXT_PUBLIC_POSTHOG_KEY
 ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
 ARG NEXT_PUBLIC_POSTHOG_HOST
 ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
+# The two origins this app writes into links it does not serve itself:
+# SITE is the public host (canonical URLs, robots, sitemap, profile and job
+# links), APP is the authenticated host the landing page and the handle proxy
+# send people to. Both have correct production defaults in the source, so an
+# unset value still builds a correct production image — these exist so a fork
+# or a staging environment can differ without editing code.
+ARG NEXT_PUBLIC_SITE_ORIGIN
+ENV NEXT_PUBLIC_SITE_ORIGIN=$NEXT_PUBLIC_SITE_ORIGIN
+ARG NEXT_PUBLIC_APP_ORIGIN
+ENV NEXT_PUBLIC_APP_ORIGIN=$NEXT_PUBLIC_APP_ORIGIN
 
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build

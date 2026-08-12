@@ -106,8 +106,21 @@ jobs:
           # key both ship to every browser that loads the app. Repository
           # variables rather than hardcoded so a fork or a staging environment
           # can differ without editing this file.
+          #
+          # Every one falls back to its production value, so a release cut
+          # before the repository variables are set still produces a correct
+          # production image. The variables exist so a fork or a staging
+          # environment can differ without editing this file — not because the
+          # defaults are placeholders.
+          #
+          # SITE_ORIGIN and APP_ORIGIN are ignored by the dashboard build,
+          # which declares no such ARG. Passing an undeclared build-arg is a
+          # warning, not an error, and one list is easier to keep true than
+          # two that drift.
           build-args: |
             NEXT_PUBLIC_API_URL=${{ vars.PROD_API_URL || 'https://api.virgo.ph' }}
+            NEXT_PUBLIC_SITE_ORIGIN=${{ vars.PROD_SITE_ORIGIN || 'https://virgo.ph' }}
+            NEXT_PUBLIC_APP_ORIGIN=${{ vars.PROD_APP_ORIGIN || 'https://web.virgo.ph' }}
             NEXT_PUBLIC_POSTHOG_KEY=${{ vars.POSTHOG_KEY }}
             NEXT_PUBLIC_POSTHOG_HOST=${{ vars.POSTHOG_HOST || 'https://us.i.posthog.com' }}
           # Reuses layers between runs, so a release that only touches the web

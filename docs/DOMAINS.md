@@ -224,14 +224,21 @@ docker compose -f docker-compose.prod.yml run --rm api node dist/database/migrat
 Baked into the image at build time, so they must be set as **GitHub Repository
 Variables** before publishing `v1.0.0` — changing them later means a rebuild.
 
-| Variable | Production value | Notes |
+**Every one has a correct production default in the workflow**, so a release cut
+before any of them is set still produces a correct production image. Set them
+only to point a fork or a staging build somewhere else.
+
+| Repository variable | Default if unset | Becomes |
 |---|---|---|
-| `PROD_API_URL` | `https://api.virgo.ph` | Consumed by the workflow as `NEXT_PUBLIC_API_URL`. Already has this default. |
-| `PROD_SITE_ORIGIN` | `https://virgo.ph` | For `NEXT_PUBLIC_SITE_ORIGIN` |
-| `PROD_APP_ORIGIN` | `https://web.virgo.ph` | For `NEXT_PUBLIC_APP_ORIGIN` |
-| `NEXT_PUBLIC_POSTHOG_KEY` | project key | A PostHog **project** key is publishable by design |
-| `NEXT_PUBLIC_POSTHOG_HOST` | e.g. `https://eu.i.posthog.com` | |
-| `NEXT_PUBLIC_PAYMONGO_PUBLIC_KEY` | `pk_live_…` | Publishable key. **Never `sk_`.** |
+| `PROD_API_URL` | `https://api.virgo.ph` | `NEXT_PUBLIC_API_URL` |
+| `PROD_SITE_ORIGIN` | `https://virgo.ph` | `NEXT_PUBLIC_SITE_ORIGIN` |
+| `PROD_APP_ORIGIN` | `https://web.virgo.ph` | `NEXT_PUBLIC_APP_ORIGIN` |
+| `POSTHOG_KEY` | *(empty — analytics off)* | `NEXT_PUBLIC_POSTHOG_KEY`. A PostHog **project** key is publishable by design. |
+| `POSTHOG_HOST` | `https://us.i.posthog.com` | `NEXT_PUBLIC_POSTHOG_HOST` |
+
+`NEXT_PUBLIC_PAYMONGO_PUBLIC_KEY` is **not** a web build arg — no file under
+`web/src` reads it. Checkout is server-side, so the publishable key never needs
+to reach the browser bundle.
 
 Audited: no secret is in a `NEXT_PUBLIC_*` or `EXPO_PUBLIC_*` variable. Every
 one is a URL, a publishable key, or a mode flag. Secrets — `JWT_*`, `B2_*`,
