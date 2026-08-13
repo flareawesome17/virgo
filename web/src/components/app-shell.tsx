@@ -25,7 +25,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -224,17 +223,21 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           links off the screen, and never showed a scrollbar because as far
           as the browser was concerned nothing overflowed. On a short window
           Support and the sign-out menu were simply unreachable. */}
-      {/* The bar is hidden rather than styled. It sat over the nav the whole
-          time the sidebar was scrollable, which on a list of ten destinations
-          is a lot of furniture for very little travel. Scrolling still works;
-          only the drawn bar is gone. */}
-      <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-scrollbar]]:hidden">
+      {/* A plain scroller, not Radix's ScrollArea.
+
+          ScrollArea exists to draw a custom scrollbar, and this sidebar wants
+          none — so hiding its bar with a class meant fighting a component for
+          the one thing it is for, and losing if it ever set the property
+          inline. Dropping it removes the argument: the native bar is hidden by
+          `.no-scrollbar`, there is no second bar to hide, and scrolling by
+          wheel, trackpad, keyboard and touch is untouched. */}
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <NavLinks onNavigate={onNavigate} />
-      </ScrollArea>
+      </div>
 
       {/* Below the destinations, not among them: these are people, and a row
           that changes colour when somebody signs in does not belong in a list
-          of places. Outside the ScrollArea too — it owns its own scroll, so a
+          of places. Outside the nav's scroller too — it owns its own, so a
           long friends list no longer pushes Rewards and Support out of reach.
           Renders nothing until there are friends with accounts. */}
       {/* px-3 replaces the padding it used to inherit from the nav, so the
