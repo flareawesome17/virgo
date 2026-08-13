@@ -2,19 +2,8 @@
 
 import { MessageSquare, UserPlus, Users2 } from 'lucide-react';
 import { Reveal } from './reveal';
-
-/** The nine roles the product knows about. See api/src/auth/roles.ts. */
-const ROLES = [
-  'Photographer',
-  'Videographer',
-  'Photo Editor',
-  'Video Editor',
-  'SDE Editor Photo',
-  'SDE Editor Video',
-  'Coordinator',
-  'Host',
-  'HMUA',
-];
+import { SectionHeader } from './section-header';
+import { ROLES } from './roles';
 
 /**
  * The community half of the product.
@@ -43,27 +32,26 @@ const THREADS = [
 
 export function LandingCommunity() {
   return (
-    <section id="community" className="relative overflow-hidden py-24 sm:py-32">
-      <div className="rule-fade mx-auto mb-24 w-full max-w-6xl" />
+    // The tall one. Something on the page has to be allowed to breathe, and
+    // this is the section carrying the argument the product rests on.
+    <section id="community" className="relative overflow-hidden py-28 sm:py-40">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(40rem_26rem_at_78%_40%,color-mix(in_oklab,var(--primary)_15%,transparent),transparent_70%)]"
       />
 
       <div className="relative mx-auto w-full max-w-6xl px-5 sm:px-8">
-        <Reveal className="mx-auto max-w-2xl text-center">
-          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
-            The community
-          </span>
-          <h2 className="mt-3 text-balance text-3xl font-extrabold tracking-tight text-white sm:text-[2.6rem] sm:leading-[1.1]">
-            A creative industry is a people business
-          </h2>
-          <p className="mt-4 text-pretty text-[15px] leading-relaxed text-white/55">
-            Most of the work in this trade comes from someone you know. Virgo
-            makes that network something you can actually search, message and
-            book — instead of a phone full of numbers you half remember.
-          </p>
-        </Reveal>
+        {/* The one section that keeps a centred header, and the only one at
+            `lg` — five sections opening centred is a template, one is an
+            emphasis. */}
+        <SectionHeader
+          index="05"
+          eyebrow="The community"
+          align="center"
+          size="lg"
+          title="A creative industry is a people business"
+          lead="Most of the work in this trade comes from someone you know. Virgo makes that network something you can actually search, message and book — instead of a phone full of numbers you half remember."
+        />
 
         <div className="mt-14 grid items-center gap-14 lg:grid-cols-2 lg:gap-20">
           <Reveal from="left">

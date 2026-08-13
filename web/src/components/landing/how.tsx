@@ -1,6 +1,7 @@
 'use client';
 
 import { Reveal } from './reveal';
+import { SectionHeader } from './section-header';
 
 const STEPS = [
   {
@@ -33,22 +34,17 @@ const STEPS = [
  */
 export function LandingHow() {
   return (
-    <section id="how" className="relative py-24 sm:py-32">
-      <div className="rule-fade mx-auto mb-24 w-full max-w-6xl" />
-
+    <section id="how" className="relative py-20 sm:py-24">
       <div className="mx-auto grid w-full max-w-6xl gap-14 px-5 sm:px-8 lg:grid-cols-[22rem_1fr] lg:gap-20">
-        <Reveal from="left" className="lg:sticky lg:top-28 lg:self-start">
-          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
-            How it works
-          </span>
-          <h2 className="mt-3 text-balance text-3xl font-extrabold tracking-tight text-white sm:text-[2.6rem] sm:leading-[1.1]">
-            From finding a crew to closing the job
-          </h2>
-          <p className="mt-4 text-pretty text-[15px] leading-relaxed text-white/55">
-            No migration, no onboarding call. Make an account, say what you do,
-            and the next booking can run through it end to end.
-          </p>
-        </Reveal>
+        <div className="lg:sticky lg:top-28 lg:self-start">
+          <SectionHeader
+            index="08"
+            eyebrow="How it works"
+            size="sm"
+            title="From finding a crew to closing the job"
+            lead="No migration, no onboarding call. Make an account, say what you do, and the next booking can run through it end to end."
+          />
+        </div>
 
         <ol className="relative">
           {/* The rail the numbers sit on. */}

@@ -25,7 +25,7 @@ export function LandingDelivery() {
       <div className="mx-auto grid w-full max-w-6xl items-center gap-14 px-5 sm:px-8 lg:grid-cols-[1fr_1.05fr] lg:gap-20">
         <Reveal from="left" className="lg:order-2">
           <SectionHeader
-            index="05"
+            index="06"
             eyebrow="Delivery"
             title="Hand it over. Then forget about it."
             lead="Share an album as a link. The client opens it in a browser — no account, no app, no password to talk them through. You choose whether they get photos, video, audio, or everything."

@@ -29,7 +29,7 @@ export function LandingFaq() {
   return (
     <section id="faq" className="mx-auto w-full max-w-3xl px-6 py-24 sm:py-28">
       <SectionHeader
-        index="09"
+        index="10"
         eyebrow="FAQ"
         align="center"
         size="sm"

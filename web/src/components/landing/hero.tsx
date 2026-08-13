@@ -4,19 +4,7 @@ import Image from 'next/image';
 import { ArrowRight } from 'lucide-react';
 import { Reveal } from './reveal';
 import { SIGN_IN_URL, SIGN_UP_URL } from './links';
-
-/**
- * "Kenn Francis" → "KF".
- *
- * The first two letters of the string gave "KE" and "JU", which reads as a
- * truncation bug rather than an avatar. Falls back to the first two letters
- * only for a single-word name.
- */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+import { initials } from './roles';
 
 /**
  * The hero.

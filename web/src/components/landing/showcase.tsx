@@ -1,4 +1,5 @@
 import { Reveal } from './reveal';
+import { Plate } from './plate';
 
 /**
  * What the product actually looks like.
@@ -29,17 +30,6 @@ const NAV = [
   { label: 'Home', d: 'M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5' },
   { label: 'Workspaces', d: 'M3 7h6l2 2h10v11H3z' },
   { label: 'Schedule', d: 'M4 5h16v16H4zM4 10h16M9 3v4M15 3v4' },
-];
-
-const TILES = [
-  'from-[#c17745]/70 to-[#8b5e3c]/60',
-  'from-[#5b7b9a]/60 to-[#3d5468]/60',
-  'from-[#6b8e4e]/60 to-[#425a31]/60',
-  'from-[#cd8250]/60 to-[#7d4a28]/60',
-  'from-[#8b6f5e]/60 to-[#4e3a2e]/60',
-  'from-[#9a7b5b]/60 to-[#5c4633]/60',
-  'from-[#4e6b7d]/60 to-[#2f4351]/60',
-  'from-[#a8746a]/60 to-[#6b423c]/60',
 ];
 
 const NEARBY = [
@@ -125,12 +115,16 @@ export function LandingShowcase() {
                   </span>
                 </div>
 
+                {/* Plates. These were eight flat two-stop gradients, which on
+                    a page selling to photographers read as eight images that
+                    failed to load rather than as a deliberate abstraction. */}
                 <div className="mt-4 grid grid-cols-4 gap-2 sm:gap-3">
-                  {TILES.map((tile, i) => (
-                    <div
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <Plate
                       key={i}
-                      className={`aspect-[4/3] rounded-lg bg-gradient-to-br ${tile}`}
+                      seed={i}
                       aria-hidden
+                      className="aspect-[4/3] rounded-lg"
                     />
                   ))}
                 </div>
