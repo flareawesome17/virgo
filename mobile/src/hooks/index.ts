@@ -62,6 +62,7 @@ export {
   useUpdateReminder,
   useDeleteReminder,
 } from '@/src/hooks/useReminders'
+export { useServerVersion } from '@/src/hooks/useVersion';
 
 export {
   useFriends,

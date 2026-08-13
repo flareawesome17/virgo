@@ -21,6 +21,14 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# The release this image was built from, for GET /version. Runtime env
+# rather than an inlined constant: the API serves the value, it does not
+# ship a bundle.
+ARG APP_VERSION
+ENV APP_VERSION=$APP_VERSION
+ARG APP_COMMIT
+ENV APP_COMMIT=$APP_COMMIT
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 

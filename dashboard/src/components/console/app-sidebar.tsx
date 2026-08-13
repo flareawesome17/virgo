@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { signOut } from '@/api/client';
 import type { AdminMe } from '@/api/console';
+import { APP_COMMIT, APP_VERSION } from '@/lib/version';
 import {
   Sidebar,
   SidebarContent,
@@ -237,6 +238,16 @@ export function AppSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+
+        {/* The running release. Absent on a local build, which is not one. */}
+        {APP_VERSION && (
+          <p
+            className="px-2 pb-1 text-center text-[10px] tabular-nums text-muted-foreground/60 group-data-[collapsible=icon]:hidden"
+            title={APP_COMMIT ? `Release ${APP_VERSION} · commit ${APP_COMMIT}` : undefined}
+          >
+            {APP_VERSION}
+          </p>
+        )}
       </SidebarFooter>
 
       {/* Drag to resize, click to collapse. */}

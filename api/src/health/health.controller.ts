@@ -13,6 +13,33 @@ export class HealthController {
   ) {}
 
   /**
+   * Which release is running.
+   *
+   * The value is baked into the image by the release workflow from the GitHub
+   * tag it checked out, so it cannot disagree with the code around it. That
+   * distinction matters: asking GitHub for "the latest release" at runtime
+   * would report a version that may not be deployed yet, and an app that
+   * claims to be v1.1.0 while serving v1.0.0 is worse than one that says
+   * nothing.
+   *
+   * Public and unauthenticated on purpose — it is the endpoint the mobile app
+   * reads to show the current release, and mobile ships through EAS rather
+   * than through the workflow that stamps the images, so this is the only way
+   * it can know.
+   *
+   * `null` rather than a guess when unset: a local or ad-hoc build is not a
+   * release, and labelling it with the package.json version would invent one.
+   */
+  @Public()
+  @Get('version')
+  version() {
+    return {
+      version: process.env.APP_VERSION?.trim() || null,
+      commit: process.env.APP_COMMIT?.trim()?.slice(0, 7) || null,
+    };
+  }
+
+  /**
    * Actually queries Postgres rather than just returning 200. A health check
    * that cannot fail tells a load balancer nothing.
    *

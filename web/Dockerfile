@@ -20,6 +20,14 @@ COPY . .
 # will happily pass a build arg the Dockerfile never declares: it is dropped
 # without a warning, and the result is a build that looks fine and ships an
 # app with the value undefined.
+# The release this image was built from. Supplied by the release
+# workflow from the GitHub tag it checked out, so it cannot disagree
+# with the code inside. Empty on a local build, which is correct: a
+# local build is not a release.
+ARG APP_VERSION
+ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
+ARG APP_COMMIT
+ENV NEXT_PUBLIC_APP_COMMIT=$APP_COMMIT
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_POSTHOG_KEY

@@ -7,6 +7,10 @@
  * silently fails to refresh a list that used a slightly different key.
  */
 export const queryKeys = {
+  /** The release the API reports. One key; there is only one. */
+  version: {
+    current: ['version'] as const,
+  },
   auth: {
     all: ['auth'] as const,
     session: ['auth', 'session'] as const,

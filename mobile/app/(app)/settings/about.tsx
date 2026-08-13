@@ -1,9 +1,9 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
-import { useTheme } from '@/src/hooks';
+import { useServerVersion, useTheme } from '@/src/hooks';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
-import { ArrowLeftIcon, InfoIcon, GlobeIcon, LayersIcon } from 'lucide-react-native';
+import { ArrowLeftIcon, InfoIcon, GlobeIcon, LayersIcon, TagIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { API_BASE_URL } from '@/src/api';
 
@@ -11,6 +11,7 @@ cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { c
 cssInterop(InfoIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(GlobeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /**
  * Build and environment info.
@@ -21,12 +22,29 @@ cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { colo
  */
 export default function AboutScreen() {
   const { isDark } = useTheme();
+  // Two different numbers, deliberately shown as two rows.
+  //
+  // "App version" is this binary, from app.json — what is actually installed
+  // on the phone. "Release" is what the API reports, stamped into its image by
+  // the release workflow from the GitHub tag.
+  //
+  // They are not the same thing and collapsing them would hide the case that
+  // matters: an install that is behind the deployed release. Mobile ships
+  // through EAS and the app stores, not through the workflow that builds the
+  // server images, so it cannot know the release number without asking.
+  const { version: release } = useServerVersion();
   const rows = [
     {
       icon: InfoIcon,
-      label: 'Version',
+      label: 'App version',
       value: Constants.expoConfig?.version ?? '—',
       color: '#8B5E3C',
+    },
+    {
+      icon: TagIcon,
+      label: 'Release',
+      value: release ?? '—',
+      color: '#6B8E4E',
     },
     {
       icon: LayersIcon,
