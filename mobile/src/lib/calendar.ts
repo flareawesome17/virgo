@@ -214,3 +214,57 @@ export function combineDateAndTime(key: string, time: string): Date {
   base.setHours(h || 0, m || 0, 0, 0);
   return base;
 }
+
+/**
+ * Dot colour per event type.
+ *
+ * This table existed in five separate copies across the mobile screens and not
+ * at all on web, which is why the web calendar drew one colourless dot however
+ * many events a day held. One table, both clients.
+ *
+ * Hex rather than semantic colour classes on purpose: the value is chosen at
+ * runtime, and NativeWind cannot see `bg-[${colour}]` at build time, so it
+ * would purge the class and the dot would render transparent.
+ */
+export const EVENT_COLORS: Record<string, string> = {
+  shoot: '#B66A40',
+  editing: '#C17745',
+  review: '#8B5E3C',
+  delivery: '#6B8E4E',
+  meeting: '#5B7B9A',
+};
+
+/** For an event with no type, or a type added server-side that predates this. */
+export const EVENT_COLOR_FALLBACK = '#B66A40';
+
+export function eventColor(eventType: string | null | undefined): string {
+  return EVENT_COLORS[eventType ?? ''] ?? EVENT_COLOR_FALLBACK;
+}
+
+/**
+ * Dot diameter, in px.
+ *
+ * Was 4px on web and the full calendar and 3.5px on the schedule tab. At that
+ * size a day with something on it is hard to tell from one without, which is
+ * the whole of the complaint.
+ */
+export const DAY_DOT_SIZE = 6;
+
+/** How many dots a day draws before the rest collapse into `+N`. */
+export const MAX_DAY_DOTS = 3;
+
+/**
+ * What one day cell should draw.
+ *
+ * Computed here rather than sliced at each call site because the three grids
+ * had each picked their own cap — 1 on web, 3 on the schedule tab, 4 on the
+ * full calendar — and two of them dropped the remainder silently.
+ */
+export function dayDots(
+  dayEvents: readonly { event_type?: string | null }[],
+): { colors: string[]; overflow: number } {
+  return {
+    colors: dayEvents.slice(0, MAX_DAY_DOTS).map((e) => eventColor(e.event_type)),
+    overflow: Math.max(0, dayEvents.length - MAX_DAY_DOTS),
+  };
+}

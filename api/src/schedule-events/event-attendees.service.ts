@@ -259,6 +259,44 @@ export class EventAttendeesService {
     }
   }
 
+  /**
+   * Tells everyone who accepted that the event moved.
+   *
+   * Only for a changed date or time. A corrected typo in the title is not
+   * worth a push to five people, and notifying on every edit is how a useful
+   * alert becomes one people swipe away without reading.
+   *
+   * Best-effort, like the rest: the edit is already committed, and failing to
+   * announce it must not fail the edit.
+   */
+  async notifyEventChanged(
+    organiserId: string,
+    event: { id: string; title: string; event_date: string; event_time: string | null },
+  ): Promise<void> {
+    try {
+      const rows = await this.db.query<{ user_id: string }>(
+        `select user_id from event_attendees
+          where event_id = $1 and status = 'accepted' and user_id <> $2`,
+        [event.id, organiserId],
+      );
+      const attendeeIds = rows.map((r) => r.user_id);
+      if (attendeeIds.length === 0) return;
+
+      const when = event.event_time
+        ? `${event.event_date} at ${event.event_time.slice(0, 5)}`
+        : event.event_date;
+
+      await this.notifier.notify(attendeeIds, {
+        topic: 'event-updated',
+        title: 'An event you joined has moved',
+        body: `${event.title} — now ${when}`,
+        data: { type: 'event_updated', eventId: event.id },
+      });
+    } catch {
+      // Swallowed on purpose — see above.
+    }
+  }
+
   private async notifyOrganiser(
     responderId: string,
     eventId: string,

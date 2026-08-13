@@ -14,10 +14,11 @@ import { useState } from 'react';
 import {
   ArrowLeftIcon, ClockIcon, CalendarDaysIcon, BellIcon, BellOffIcon,
   CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
-  CheckCircleIcon, CircleIcon, PlusIcon, Trash2Icon,
+  CheckCircleIcon, CircleIcon, PlusIcon, Trash2Icon, PencilIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { eventColor } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -33,14 +34,11 @@ cssInterop(CheckCircleIcon, { className: { target: 'style', nativeStyleToProp: {
 cssInterop(CircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(Trash2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(PencilIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const EVENT_ICONS: Record<string, LucideIcon> = {
   shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
   delivery: PackageIcon, meeting: PresentationIcon,
-};
-const EVENT_COLORS: Record<string, string> = {
-  shoot: '#B66A40', editing: '#C17745', review: '#8B5E3C',
-  delivery: '#6B8E4E', meeting: '#5B7B9A',
 };
 function formatTime(timeStr: string | null): string {
   if (!timeStr) return '';
@@ -86,7 +84,7 @@ export default function EventDetailScreen() {
     return <SafeAreaView edges={['top']} className="flex-1 bg-background"><View className="flex-1 items-center justify-center"><Text className="text-muted-foreground text-sm">Loading...</Text></View></SafeAreaView>;
   }
 
-  const color = EVENT_COLORS[event.event_type] || '#B66A40';
+  const color = eventColor(event.event_type);
   const IconComp = EVENT_ICONS[event.event_type] || CalendarDaysIcon;
   const wsAccent = workspace?.accent_color || color;
   // Undefined on a just-created event, which is always yours.
@@ -196,10 +194,20 @@ export default function EventDetailScreen() {
           )}
         </View>
 
-        {/* Delete — hidden for a guest, whose delete would 404 anyway. */}
+        {/* Edit and Delete — both hidden for a guest, whose write would 404
+            anyway. Edit reuses the create form, which carries exactly the
+            fields the API accepts on a PATCH. */}
         {isOwner && (
           <View className="px-5 mt-8">
-            <Pressable onPress={() => deleteEvent()} className="flex-row items-center justify-center gap-2 py-3 active:scale-[0.97]">
+            <Pressable
+              onPress={() => router.push({ pathname: '/schedule/create', params: { eventId } })}
+              className="flex-row items-center justify-center gap-2 py-3 rounded-2xl bg-card active:scale-[0.97]"
+              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+            >
+              <PencilIcon size={15} className="text-primary" />
+              <Text className="text-primary text-sm font-semibold">Edit Event</Text>
+            </Pressable>
+            <Pressable onPress={() => deleteEvent()} className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]">
               <Trash2Icon size={15} className="text-destructive" />
               <Text className="text-destructive text-sm font-semibold">Delete Event</Text>
             </Pressable>

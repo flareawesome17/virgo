@@ -22,8 +22,11 @@ import {
 import { cssInterop } from 'nativewind';
 import { AttendeeSummary, EventInvitationsCard } from '@/components';
 import {
+  DAY_DOT_SIZE,
   DAYS,
   MONTHS,
+  dayDots,
+  eventColor,
   formatTime,
   getMonthWeeks,
   labelForDateKey,
@@ -47,13 +50,9 @@ const EVENT_ICONS: Record<string, LucideIcon> = {
   shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
   delivery: PackageIcon, meeting: PresentationIcon,
 };
-const EVENT_COLORS: Record<string, string> = {
-  shoot: '#B66A40', editing: '#C17745', review: '#8B5E3C',
-  delivery: '#6B8E4E', meeting: '#5B7B9A',
-};
-
-// Date helpers live in src/lib/calendar.ts — they were duplicated here and in
-// schedule/calendar.tsx, and both copies mishandled month/year rollover.
+// Date helpers and the event colour table live in src/lib/calendar.ts — both
+// were duplicated across these screens. The date copies mishandled month/year
+// rollover; the colour table had drifted into five copies.
 
 export default function ScheduleScreen() {
   const { user } = useAuth();
@@ -185,13 +184,27 @@ export default function ScheduleScreen() {
                       {cell.day}
                     </Text>
                   </View>
-                  {dayEvents.length > 0 && (
-                    <View className="flex-row gap-0.5 mt-0.5">
-                      {dayEvents.slice(0, 3).map((ev) => (
-                        <View key={ev.id} style={{ width: 3.5, height: 3.5, borderRadius: 2, backgroundColor: EVENT_COLORS[ev.event_type] || '#B66A40', opacity: cell.isOutside ? 0.35 : 1 }} />
-                      ))}
-                    </View>
-                  )}
+                  {dayEvents.length > 0 && (() => {
+                    const dots = dayDots(dayEvents);
+                    return (
+                      <View className="flex-row items-center gap-[3px] mt-0.5" style={{ opacity: cell.isOutside ? 0.35 : 1 }}>
+                        {dots.colors.map((color, i) => (
+                          <View
+                            key={i}
+                            style={{
+                              width: DAY_DOT_SIZE,
+                              height: DAY_DOT_SIZE,
+                              borderRadius: DAY_DOT_SIZE / 2,
+                              backgroundColor: color,
+                            }}
+                          />
+                        ))}
+                        {dots.overflow > 0 && (
+                          <Text className="text-muted-foreground text-[8px] font-bold">+{dots.overflow}</Text>
+                        )}
+                      </View>
+                    );
+                  })()}
                 </Pressable>
               );
             })}
@@ -225,7 +238,7 @@ export default function ScheduleScreen() {
             <View className="bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
               {selectedEvents.map((ev, i) => {
                 const IconComp = EVENT_ICONS[ev.event_type] || CalendarDaysIcon;
-                const color = EVENT_COLORS[ev.event_type] || '#B66A40';
+                const color = eventColor(ev.event_type);
                 const evReminders = reminders.filter(r => r.schedule_event_id === ev.id);
                 return (
                   <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
@@ -271,7 +284,7 @@ export default function ScheduleScreen() {
           ) : (
             <View className="gap-2">
               {upcomingEvents.map(ev => {
-                const color = EVENT_COLORS[ev.event_type] || '#B66A40';
+                const color = eventColor(ev.event_type);
                 return (
                   <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
                     className="bg-card rounded-2xl px-4 py-3 flex-row items-center gap-3 active:scale-[0.98]"

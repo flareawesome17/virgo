@@ -14,6 +14,7 @@ export type NotificationTopic =
   | 'collaborator-response'
   | 'event-invite'
   | 'event-response'
+  | 'event-updated'
   | 'hire-enquiry'
   | 'hire-response'
   | 'job-application'

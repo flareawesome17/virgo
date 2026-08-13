@@ -94,6 +94,7 @@ const TOPICS: Record<
     href: '/schedule?tab=invites',
   },
   'event-response': { keys: [queryKeys.scheduleEvents.all], href: '/schedule' },
+  'event-updated': { keys: [queryKeys.scheduleEvents.all], href: '/schedule' },
   'hire-enquiry': { keys: [queryKeys.hire.all], href: '/network?tab=enquiries' },
   // Accepting also creates a friendship and a conversation, so all three lists
   // are stale for the sender the moment this arrives.

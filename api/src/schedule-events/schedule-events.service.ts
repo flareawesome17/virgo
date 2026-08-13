@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { EventAttendeesService } from './event-attendees.service';
 import {
   ScheduleEventRow,
   ScheduleEventsRepository,
@@ -16,6 +17,7 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
   constructor(
     private readonly events: ScheduleEventsRepository,
     private readonly workspaces: WorkspacesService,
+    private readonly attendees: EventAttendeesService,
   ) {
     super(events, 'Schedule event');
   }
@@ -38,13 +40,39 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     return super.create(userId, data);
   }
 
+  /**
+   * Editing an event changes it on the calendar of everyone who accepted, so
+   * a move is announced.
+   *
+   * Read-then-write rather than trusting the request body: a client may send
+   * `event_date` unchanged, and notifying on "the field was present" would
+   * push to everyone every time the form is saved. Both rows come back from
+   * Postgres, so the values are already normalised and compare directly.
+   */
   async update(
     userId: string,
     id: string,
     data: Record<string, unknown>,
   ): Promise<ScheduleEventRow> {
     await this.assertWorkspace(userId, data.workspace_id as string | undefined);
-    return super.update(userId, id, data);
+
+    const before = await this.get(userId, id);
+    const after = await super.update(userId, id, data);
+
+    const moved =
+      before.event_date !== after.event_date ||
+      before.event_time !== after.event_time;
+
+    if (moved) {
+      await this.attendees.notifyEventChanged(userId, {
+        id: after.id,
+        title: after.title,
+        event_date: after.event_date,
+        event_time: after.event_time,
+      });
+    }
+
+    return after;
   }
 
   /** Used by reminders before attaching one to a schedule event. */

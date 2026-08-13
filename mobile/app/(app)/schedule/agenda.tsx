@@ -8,6 +8,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { eventColor } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -23,10 +24,6 @@ cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: 
 const EVENT_ICONS: Record<string, LucideIcon> = {
   shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
   delivery: PackageIcon, meeting: PresentationIcon,
-};
-const EVENT_COLORS: Record<string, string> = {
-  shoot: '#B66A40', editing: '#C17745', review: '#8B5E3C',
-  delivery: '#6B8E4E', meeting: '#5B7B9A',
 };
 function formatTime(timeStr: string | null): string {
   if (!timeStr) return '';
@@ -113,7 +110,7 @@ export default function AgendaScreen() {
                     <View className="ml-3 gap-2">
                       {hourEvents.map(ev => {
                         const IconComp = EVENT_ICONS[ev.event_type] || CalendarDaysIcon;
-                        const color = EVENT_COLORS[ev.event_type] || '#B66A40';
+                        const color = eventColor(ev.event_type);
                         return (
                           <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
                             className="bg-card rounded-2xl p-3 flex-row items-center gap-3 active:scale-[0.98]"

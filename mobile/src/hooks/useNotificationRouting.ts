@@ -32,7 +32,10 @@ export function useNotificationRouting(enabled: boolean): void {
           router.push('/(app)/(tabs)/schedule');
           return;
         // A response is about an event you own, so the event itself is right.
+        // A move is about one you accepted, which you can also open — the
+        // detail screen is readable by attendees, not just the organiser.
         case 'event_response':
+        case 'event_updated':
           if (payload.eventId) router.push(`/schedule/${payload.eventId}`);
           else router.push('/(app)/(tabs)/schedule');
           return;

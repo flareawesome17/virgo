@@ -20,6 +20,8 @@ export type NotificationTopic =
   | 'collaborator-response'
   | 'event-invite'
   | 'event-response'
+  /** An event someone accepted was moved to a different date or time. */
+  | 'event-updated'
   /** Someone wants to hire you, and said what for. */
   | 'hire-enquiry'
   | 'hire-response'
