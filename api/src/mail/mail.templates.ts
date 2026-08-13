@@ -349,6 +349,81 @@ export function jobPostReported(options: {
   };
 }
 
+/**
+ * An event somebody accepted has moved.
+ *
+ * Carries the old time as well as the new one. "Your shoot has moved" with a
+ * single date leaves the reader working out what changed from memory, and the
+ * one thing this message exists to prevent is somebody turning up at the time
+ * they had written down.
+ *
+ * No accept/decline call to action: they already accepted, and the organiser
+ * moved it. The link goes to the event so they can see it and talk to whoever
+ * moved it if the new time does not work.
+ */
+export function eventChanged(options: {
+  organiserName: string;
+  eventTitle: string;
+  /** Already formatted for reading, as it stood before the edit. */
+  previousWhen: string;
+  /** Already formatted for reading — "Fri 14 Mar at 09:00". */
+  when: string;
+  /** What changed, already phrased: `['the title', 'the notes']`. */
+  changed: readonly string[];
+  url: string;
+}): RenderedEmail {
+  const moved = options.previousWhen !== options.when;
+  const others = options.changed.filter((c) => c !== 'the date and time');
+
+  // A move gets its own wording. It is the change that can cost somebody a
+  // wasted trip, and it should not read like a corrected typo.
+  const intro = moved
+    ? `${options.organiserName} moved “${options.eventTitle}”. It was ${options.previousWhen}, and it is now ${options.when}.` +
+      // Starts a new sentence, so it is capitalised; the other branch is
+      // mid-sentence and must not be.
+      (others.length > 0 ? ` ${capitalise(joinList(others))} also changed.` : '')
+    : `${options.organiserName} updated “${options.eventTitle}” — ${joinList(options.changed)} changed. It is still ${options.when}.`;
+
+  const heading = moved
+    ? 'An event you joined has moved'
+    : 'An event you joined was updated';
+
+  return {
+    subject: moved
+      ? `Moved: ${options.eventTitle} is now ${options.when}`
+      : `Updated: ${options.eventTitle}`,
+    html: layout({
+      heading,
+      intro,
+      cta: { label: 'Open the event', url: options.url },
+      fineprint: [
+        'Your place is unchanged — you do not need to accept again. If it no longer works for you, tell the organiser.',
+      ],
+    }),
+    text: [
+      heading,
+      '',
+      intro,
+      '',
+      options.url,
+      '',
+      'Your place is unchanged. If it no longer works for you, tell the organiser.',
+    ].join('\n'),
+  };
+}
+
+/** `['a', 'b', 'c']` -> `"a, b, and c"`. Left lowercase; callers capitalise. */
+function joinList(items: readonly string[]): string {
+  if (items.length === 0) return 'something';
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export function eventInvite(options: {
   inviterName: string;
   eventTitle: string;

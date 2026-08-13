@@ -59,17 +59,46 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     const before = await this.get(userId, id);
     const after = await super.update(userId, id, data);
 
-    const moved =
+    /**
+     * What actually changed, in words an attendee would use.
+     *
+     * Compared field by field against the stored row rather than read off the
+     * request body: a form that submits every field on every save would
+     * otherwise report a change each time somebody opened and closed it.
+     *
+     * Date and time collapse into one entry. They are one fact to the person
+     * reading it — "the time changed" — and listing both when a shoot slides
+     * an hour is noise.
+     */
+    const changed: string[] = [];
+    if (
       before.event_date !== after.event_date ||
-      before.event_time !== after.event_time;
+      before.event_time !== after.event_time
+    ) {
+      changed.push('the date and time');
+    }
+    if (before.title !== after.title) changed.push('the title');
+    if (before.description !== after.description) changed.push('the notes');
+    if (before.event_type !== after.event_type) changed.push('the event type');
+    if (before.workspace_id !== after.workspace_id) {
+      changed.push('the workspace');
+    }
 
-    if (moved) {
-      await this.attendees.notifyEventChanged(userId, {
-        id: after.id,
-        title: after.title,
-        event_date: after.event_date,
-        event_time: after.event_time,
-      });
+    if (changed.length > 0) {
+      await this.attendees.notifyEventChanged(
+        userId,
+        {
+          id: after.id,
+          title: after.title,
+          event_date: after.event_date,
+          event_time: after.event_time,
+        },
+        // The email says what it moved *from* as well as to. "Your shoot has
+        // moved" with only the new date leaves the reader reconstructing the
+        // old one from memory, which is the mistake this exists to prevent.
+        { event_date: before.event_date, event_time: before.event_time },
+        changed,
+      );
     }
 
     return after;
