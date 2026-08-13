@@ -99,12 +99,24 @@ export class AdminService {
     const q = params.q?.trim() ? `%${params.q.trim()}%` : null;
     const plan = params.plan?.trim() || null;
 
-    const rows = await this.db.query(
+    const rows = await this.db.query<{
+      plan: string;
+      bonus_storage_bytes: string;
+      [key: string]: unknown;
+    }>(
       `select u.id, u.email, u.display_name, u.avatar_url, u.plan, u.roles,
               u.created_at, u.last_seen_at, u.email_verified_at,
               u.disabled_at, u.disabled_until, u.handle, u.public_profile,
               (select coalesce(sum(f.size_bytes), 0) from user_files f where f.user_id = u.id)::bigint
                 as storage_bytes,
+              -- Claimed promos, which raise the ceiling above what the plan
+              -- name implies. Computed here rather than by calling
+              -- QuotaService per row, which would be one query per user.
+              (select coalesce(sum(p.storage_bytes), 0)
+                 from promo_grants g
+                 join promos p on p.id = g.promo_id
+                where g.user_id = u.id and g.claimed_at is not null)::text
+                as bonus_storage_bytes,
               (select count(*) from albums a where a.user_id = u.id)::int as albums
          from users u
         where ($3::text is null or u.email ilike $3 or u.display_name ilike $3 or u.handle ilike $3)
@@ -114,6 +126,24 @@ export class AdminService {
       [limit, offset, q, plan],
     );
 
+    /**
+     * What each account may actually store.
+     *
+     * The plan allowance lives in `quota.config.ts`, not the database, so this
+     * half cannot be done in SQL. Adding the promo bonus to it here matches
+     * `QuotaService.limits`, which is what every upload is actually checked
+     * against — the console showing anything else would be showing a number
+     * the product does not enforce.
+     */
+    const data = rows.map((row) => {
+      const bonus = Number(row.bonus_storage_bytes ?? 0);
+      return {
+        ...row,
+        storage_bonus_bytes: bonus,
+        storage_limit_bytes: limitsFor(row.plan).storageBytes + bonus,
+      };
+    });
+
     const total = await this.db.queryOne<{ count: string }>(
       `select count(*)::text as count from users u
         where ($1::text is null or u.email ilike $1 or u.display_name ilike $1 or u.handle ilike $1)
@@ -121,7 +151,7 @@ export class AdminService {
       [q, plan],
     );
 
-    return { data: rows, total: Number(total?.count ?? 0) };
+    return { data, total: Number(total?.count ?? 0) };
   }
 
   /**
