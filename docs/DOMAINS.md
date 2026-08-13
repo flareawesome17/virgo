@@ -146,42 +146,65 @@ Internet → Cloudflare → Cloudflare Access → pgAdmin login → PostgreSQL
 
 Only the middle step is missing.
 
-### `dev.virgo.ph` — development bridge (development only)
+### `mobile-dev.virgo.ph` — development bridge (development only)
+
+Replaced `dev.virgo.ph`, which is no longer routed.
 
 | | |
 |---|---|
 | **Purpose** | Metro/Expo bundler tunnel, so a physical phone can reach the dev machine when `localhost` is not usable and the Wi-Fi has client isolation |
 | **Environment** | **Development only** |
-| **Target** | `host.docker.internal:8081` (Metro), via the tunnel |
-| **Referenced** | **Exactly one place:** `mobile/.env` → `EXPO_PACKAGER_PROXY_URL`. Nothing else in the tree — no API base URL, no CORS entry, no deep link, no webhook, no OAuth callback, no Docker or production config. |
-| **Variables** | `EXPO_PACKAGER_PROXY_URL` |
+| **Target** | `host.docker.internal:8081` (Metro), via the development tunnel |
+| **Referenced** | `mobile/.env` → `EXPO_PACKAGER_PROXY_URL`, and `CORS_ORIGINS` in `api/.env` so Expo Web served through the tunnel can call the API. No deep link, no webhook, no OAuth callback, no production config. |
+| **Variables** | `EXPO_PACKAGER_PROXY_URL`, `CORS_ORIGINS` |
 | **Required for v1.0.0** | No — and it must not appear in any production configuration |
 | **Security** | Exposes a bundler, not data. Keep it off when not actively developing on a device. |
 | **Cloudflare action** | None. Keep the route; it costs nothing when Metro is not running. |
 
 **Confirmed a development bridge only.** Preserved.
 
+### `virgo-dev-api.virgo.ph` — development API (development only)
+
+| | |
+|---|---|
+| **Purpose** | The development API, reachable from a phone that is not on the LAN. Also what lets Expo Web over the tunnel avoid a mixed-content block — an `https://` page cannot call an `http://` LAN address. |
+| **Environment** | **Development only** |
+| **Target** | `http://api:3000` on the development tunnel |
+| **Referenced** | `EXPO_PUBLIC_API_URL` in `mobile/.env` and in the `development` and `preview` profiles of `mobile/eas.json`. Not in `CORS_ORIGINS` — the API is not a browser origin for itself. |
+| **Variables** | `EXPO_PUBLIC_API_URL` |
+| **Required for v1.0.0** | No — production uses `api.virgo.ph` |
+| **Security** | Serves real development data. It is a separate database from production, but it is still an open endpoint on the internet whenever the tunnel is up. |
+| **Cloudflare action** | Keep on the development tunnel only. It must never be added to production's. |
+
 ---
 
 ## Environment split
 
-```
-PRODUCTION                          DEVELOPMENT
-virgo.ph                            localhost
-www.virgo.ph                        LAN IP  (http://<dev-LAN-IP>:3000)
-web.virgo.ph                        dev.virgo.ph   (optional, tunnel only)
-api.virgo.ph
-client.virgo.ph
-console.virgo.ph
-db.virgo.ph
-```
+Development serves the same four applications on ports instead of hostnames.
+`<LAN>` is the development machine's address on the network; those bindings
+exist only while `DEV_BIND=0.0.0.0`.
+
+| Production | Development | Also reachable as |
+|---|---|---|
+| `virgo.ph`, `www.virgo.ph`, `web.virgo.ph` | `http://localhost:3005`, `http://<LAN>:3005` | — |
+| `api.virgo.ph` | `http://localhost:3001`, `http://<LAN>:3001` | `https://virgo-dev-api.virgo.ph` (tunnel) |
+| `client.virgo.ph` | `http://localhost:3001` — share pages are served by the API | — |
+| `console.virgo.ph` | `http://localhost:3002`, `http://<LAN>:3002` | — |
+| `db.virgo.ph` | `http://localhost:5050` — **localhost only**, bound to `127.0.0.1` rather than `DEV_BIND`, deliberately | — |
+| *(no equivalent)* | `http://localhost:8081`, `http://<LAN>:8081` — Metro/Expo Web | `https://mobile-dev.virgo.ph` (tunnel) |
+
+Every development origin that a browser loads a page from is listed in
+`CORS_ORIGINS` in `api/.env`. The two tunnel hostnames are why that list needs
+`https://` entries at all — an `https://` page cannot call an `http://` LAN
+address without the browser blocking it as mixed content.
 
 Neither direction falls back to the other:
 
 - Development never resolves to a production domain. Local URLs come from
   `NEXT_PUBLIC_API_URL` / `EXPO_PUBLIC_API_URL` in the local `.env`.
-- Production never resolves to `dev.virgo.ph` — it appears in one development
-  file and nowhere else.
+- Production never resolves to a development hostname. `mobile-dev.virgo.ph`
+  and `virgo-dev-api.virgo.ph` live on the development tunnel only, and must
+  never be added to production's.
 - The API's production defaults name production hosts, so a *missing* variable
   degrades to the right hostname rather than to a development one.
 
@@ -271,8 +294,10 @@ nothing should. These are for you to do by hand.
 
 **Verify, do not change**
 
-3. Confirm the eight routes still map as follows, and that **no route points at
-   port 5432**:
+3. Confirm the routes still map as follows, and that **no route points at port
+   5432**.
+
+   **Production tunnel** — seven routes, on the production host's token:
 
    | Hostname | Service |
    |---|---|
@@ -283,12 +308,24 @@ nothing should. These are for you to do by hand.
    | `client.virgo.ph` | `http://api:3000` |
    | `console.virgo.ph` | `http://dashboard:3002` |
    | `db.virgo.ph` | `http://pgadmin:80` |
-   | `dev.virgo.ph` | `http://host.docker.internal:8081` — development only |
 
-4. **Production is a different tunnel.** The routes above belong to the
-   development machine's tunnel. The production host needs its own tunnel and
-   its own token, and the hostnames must be moved to it at cutover — otherwise
-   production traffic keeps arriving at a laptop.
+   **Development tunnel** — two routes, on the development machine's token:
+
+   | Hostname | Service |
+   |---|---|
+   | `mobile-dev.virgo.ph` | `http://host.docker.internal:8081` (Metro) |
+   | `virgo-dev-api.virgo.ph` | `http://api:3000` |
+
+   `dev.virgo.ph` was the development bridge before this split and is no longer
+   routed anywhere.
+
+4. **They are two tunnels, and that is the safety property.** Each machine's
+   `.env` carries the token for the one it owns, both under the name
+   `CLOUDFLARE_TUNNEL_TOKEN`. Two connectors started with the *same* token are
+   replicas and Cloudflare load-balances between them, so booting the
+   development stack with production's token would put a share of production's
+   traffic on a laptop. Never copy `.env.production` to the development machine,
+   and never copy `api/.env` to the production host.
 
 **Optional, after v1.0.0**
 
