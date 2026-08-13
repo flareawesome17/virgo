@@ -85,7 +85,8 @@ export default function VirgoUsersPage() {
                   <TableRow>
                     <TableHead>Account</TableHead>
                     <TableHead>Plan</TableHead>
-                    <TableHead>Storage</TableHead>
+                    <TableHead>Storage used</TableHead>
+                    <TableHead>Actual storage</TableHead>
                     <TableHead>Albums</TableHead>
                     <TableHead>Last seen</TableHead>
                     <TableHead>Status</TableHead>
@@ -114,6 +115,19 @@ export default function VirgoUsersPage() {
                       </TableCell>
                       <TableCell className="tabular-nums">
                         {bytes(u.storage_bytes)}
+                      </TableCell>
+                      {/* What the account may actually store: the plan
+                          allowance plus anything a claimed promo added. The
+                          plan badge alone does not answer this — a Free
+                          account holding a 15 GB promo has twice the ceiling
+                          the word "Free" implies. */}
+                      <TableCell className="tabular-nums">
+                        {bytes(u.storage_limit_bytes)}
+                        {u.storage_bonus_bytes > 0 && (
+                          <span className="ml-1.5 text-xs text-muted-foreground">
+                            incl. {bytes(u.storage_bonus_bytes)} promo
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="tabular-nums">{u.albums}</TableCell>
                       <TableCell className="text-muted-foreground">

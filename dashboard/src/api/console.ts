@@ -62,7 +62,18 @@ export interface AdminUserRow {
   disabled_at: string | null;
   handle: string | null;
   public_profile: boolean;
+  /** What the account is currently holding. */
   storage_bytes: string | number;
+  /**
+   * What it is allowed to hold: the plan allowance plus any claimed promo.
+   *
+   * Not derivable from `plan` on this side — the allowances live in the API's
+   * quota config, and a promo can raise the ceiling above what the plan name
+   * implies.
+   */
+  storage_limit_bytes: number;
+  /** How much of `storage_limit_bytes` came from promos rather than the plan. */
+  storage_bonus_bytes: number;
   albums: number;
 }
 

@@ -35,6 +35,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -483,6 +493,9 @@ function ScheduleContent() {
   const [cursor, setCursor] = useState(() => new Date());
   const [creatingEvent, setCreatingEvent] = useState(false);
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
+  const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(
+    null,
+  );
   const [creatingReminder, setCreatingReminder] = useState(false);
   /** The event whose guest list is open, if any. */
   const [managing, setManaging] = useState<{ id: string; title: string } | null>(
@@ -743,7 +756,9 @@ function ScheduleContent() {
                                   size="icon"
                                   variant="ghost"
                                   aria-label="Delete event"
-                                  onClick={() => removeEvent.mutate(event.id)}
+                                  onClick={() =>
+                                    setDeleting({ id: event.id, title: event.title })
+                                  }
                                 >
                                   <Trash2 className="size-3.5" />
                                 </Button>
@@ -868,6 +883,38 @@ function ScheduleContent() {
         />
       )}
       <NewReminderDialog open={creatingReminder} onOpenChange={setCreatingReminder} />
+      {/* Deleting an event was immediate and irreversible, with no undo and
+          no trace — one mis-aimed click on a phone-sized target destroyed a
+          booking and everyone's invitations to it. */}
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this event?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleting?.title} will be removed from your schedule and from the
+              calendar of everyone who accepted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!deleting) return;
+                removeEvent.mutate(deleting.id, {
+                  onError: (err: Error) =>
+                    toast.error('Could not delete the event', {
+                      description: err.message,
+                    }),
+                });
+                setDeleting(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {managing && (
         <ManageAttendeesDialog
           eventId={managing.id}
