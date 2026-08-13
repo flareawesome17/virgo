@@ -368,29 +368,60 @@ export function eventChanged(options: {
   previousWhen: string;
   /** Already formatted for reading — "Fri 14 Mar at 09:00". */
   when: string;
+  /** What changed, already phrased: `['the title', 'the notes']`. */
+  changed: readonly string[];
   url: string;
 }): RenderedEmail {
-  const intro = `${options.organiserName} moved “${options.eventTitle}”. It was ${options.previousWhen}, and it is now ${options.when}.`;
+  const moved = options.previousWhen !== options.when;
+  const others = options.changed.filter((c) => c !== 'the date and time');
+
+  // A move gets its own wording. It is the change that can cost somebody a
+  // wasted trip, and it should not read like a corrected typo.
+  const intro = moved
+    ? `${options.organiserName} moved “${options.eventTitle}”. It was ${options.previousWhen}, and it is now ${options.when}.` +
+      // Starts a new sentence, so it is capitalised; the other branch is
+      // mid-sentence and must not be.
+      (others.length > 0 ? ` ${capitalise(joinList(others))} also changed.` : '')
+    : `${options.organiserName} updated “${options.eventTitle}” — ${joinList(options.changed)} changed. It is still ${options.when}.`;
+
+  const heading = moved
+    ? 'An event you joined has moved'
+    : 'An event you joined was updated';
+
   return {
-    subject: `Moved: ${options.eventTitle} is now ${options.when}`,
+    subject: moved
+      ? `Moved: ${options.eventTitle} is now ${options.when}`
+      : `Updated: ${options.eventTitle}`,
     html: layout({
-      heading: 'An event you joined has moved',
+      heading,
       intro,
       cta: { label: 'Open the event', url: options.url },
       fineprint: [
-        'Your place is unchanged — you do not need to accept again. If the new time does not work, tell the organiser.',
+        'Your place is unchanged — you do not need to accept again. If it no longer works for you, tell the organiser.',
       ],
     }),
     text: [
-      'An event you joined has moved',
+      heading,
       '',
       intro,
       '',
       options.url,
       '',
-      'Your place is unchanged. If the new time does not work, tell the organiser.',
+      'Your place is unchanged. If it no longer works for you, tell the organiser.',
     ].join('\n'),
   };
+}
+
+/** `['a', 'b', 'c']` -> `"a, b, and c"`. Left lowercase; callers capitalise. */
+function joinList(items: readonly string[]): string {
+  if (items.length === 0) return 'something';
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export function eventInvite(options: {
