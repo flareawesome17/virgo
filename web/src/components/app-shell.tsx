@@ -20,6 +20,7 @@ import {
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { APP_COMMIT, APP_VERSION } from '@/lib/version';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -278,6 +279,18 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* The running release. Absent entirely on a local build, because a
+            local build is not a release and labelling it with one would be a
+            small lie told on every screen. */}
+        {APP_VERSION && (
+          <p
+            className="mt-2 px-2 text-center text-[10px] tabular-nums text-muted-foreground/60"
+            title={APP_COMMIT ? `Release ${APP_VERSION} · commit ${APP_COMMIT}` : undefined}
+          >
+            {APP_VERSION}
+          </p>
+        )}
       </div>
     </div>
   );

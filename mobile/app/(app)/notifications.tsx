@@ -64,6 +64,7 @@ const TOPICS: Record<
   'collaborator-response': { icon: UsersIcon, href: '/workspaces' },
   'event-invite': { icon: CalendarIcon, href: '/schedule' },
   'event-response': { icon: CalendarIcon, href: '/schedule' },
+  'event-updated': { icon: CalendarIcon, href: '/schedule' },
   'hire-enquiry': { icon: MessageCircleIcon, href: '/friends/enquiries' },
   'hire-response': { icon: MessageCircleIcon, href: '/friends/enquiries' },
   'job-application': { icon: BriefcaseBusinessIcon, href: '/jobs/mine?tab=posted' },

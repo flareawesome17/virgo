@@ -65,6 +65,14 @@ export const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
 /** 500 MB. Videos are the reason this is not smaller. */
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
+/**
+ * Avatars, by key shape.
+ *
+ * Keyed off the path rather than a column because it has to give the same
+ * answer for an object whose `user_files` row was never written.
+ */
+const AVATAR_KEY = /^users\/[^/]+\/avatars\//;
+
 /** Presigned URLs are short-lived — long enough to start an upload, not to share. */
 export const UPLOAD_URL_TTL_SECONDS = 15 * 60;
 export const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
@@ -144,7 +152,18 @@ export class StorageConfig {
    * hope: the bucket had 30 objects with no `user_files` row at all.
    */
   bucketForKey(key: string): string {
-    return /^users\/[^/]+\/avatars\//.test(key) ? this.bucket : this.mediaBucket;
+    return AVATAR_KEY.test(key) ? this.bucket : this.mediaBucket;
+  }
+
+  /**
+   * Is this an avatar?
+   *
+   * The same test `bucketForKey` uses, named because two things now turn on
+   * it: which bucket the object lives in, and whether it gets resized on
+   * confirm.
+   */
+  isAvatarKey(key: string): boolean {
+    return AVATAR_KEY.test(key);
   }
 
   /**

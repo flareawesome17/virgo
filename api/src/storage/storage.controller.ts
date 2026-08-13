@@ -9,6 +9,7 @@ import {
   ObjectKeyDto,
   WipeStorageDto,
 } from './dto/storage.dto';
+import { StorageConfig } from './storage.config';
 import { StorageService } from './storage.service';
 import { ThumbnailsService } from './thumbnails.service';
 
@@ -27,6 +28,7 @@ export class StorageController {
   constructor(
     private readonly storage: StorageService,
     private readonly thumbs: ThumbnailsService,
+    private readonly config: StorageConfig,
   ) {}
 
   // Issuing signed URLs is cheap but not free, and each one is a write
@@ -65,6 +67,13 @@ export class StorageController {
    * tiles silently fall back to full-size originals, and loses the work
    * entirely if the container restarts mid-flight. `generate` never throws, so
    * a failure here still returns a successful confirm.
+   *
+   * Avatars take the other branch. They used to get a thumbnail like anything
+   * else, and it was never read once — `avatar_url` points at the original —
+   * so every avatar wrote a second object nothing loaded, and replacing one
+   * orphaned that object forever. Resizing the original in place is what the
+   * thumbnail was pretending to do, and it makes the stored file the size it
+   * is actually displayed at.
    */
   @HttpCode(200)
   @Post('confirm')
@@ -73,9 +82,20 @@ export class StorageController {
     @Body() dto: ConfirmUploadDto,
   ) {
     const result = await this.storage.statObject(userId, dto.key, dto.albumId);
-    if (result.exists) {
-      await this.thumbs.generate(dto.key, result.contentType ?? null, result.size);
+    if (!result.exists) return result;
+
+    if (this.config.isAvatarKey(dto.key)) {
+      const resized = await this.thumbs.normaliseAvatar(
+        dto.key,
+        result.contentType ?? null,
+        result.size,
+      );
+      // Report what is actually stored, so the client's `size` is not the
+      // number of bytes it sent a moment ago.
+      return resized ? { ...result, ...resized } : result;
     }
+
+    await this.thumbs.generate(dto.key, result.contentType ?? null, result.size);
     return result;
   }
 

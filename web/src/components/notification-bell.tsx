@@ -49,6 +49,7 @@ const TOPICS: Record<
   'collaborator-response': { icon: Users, href: '/network' },
   'event-invite': { icon: Calendar, href: '/schedule?tab=invites' },
   'event-response': { icon: Calendar, href: '/schedule' },
+  'event-updated': { icon: Calendar, href: '/schedule' },
   'hire-enquiry': { icon: MessageCircle, href: '/network?tab=enquiries' },
   'hire-response': { icon: MessageCircle, href: '/network?tab=enquiries' },
   'job-application': {

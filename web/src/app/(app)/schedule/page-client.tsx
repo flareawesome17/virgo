@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Loader2,
   Mail,
+  Pencil,
   Plus,
   Trash2,
   Users,
@@ -48,7 +49,9 @@ import {
   useInviteToEvent,
   useRespondToEventInvitation,
   useScheduleEvents,
+  useUpdateScheduleEvent,
 } from '@/hooks/useScheduleEvents';
+import type { ScheduleEvent } from '@/api';
 import {
   AttendeeSummary,
   InvitePeople,
@@ -56,8 +59,10 @@ import {
 } from '@/components/event-invites';
 import { useCreateReminder, useDeleteReminder, useReminders } from '@/hooks/useReminders';
 import {
+  DAY_DOT_SIZE,
   DAYS,
   MONTHS,
+  dayDots,
   formatTime,
   getMonthWeeks,
   isEventUpcoming,
@@ -71,17 +76,23 @@ const EVENT_TYPES: EventType[] = ['shoot', 'editing', 'review', 'delivery', 'mee
 /** Tab values that ?tab= may name. Anything else is ignored. */
 const TABS = ['day', 'upcoming', 'invites', 'reminders'];
 
-function NewEventDialog({
+function EventDialog({
   open,
   onOpenChange,
   defaultDate,
+  event,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultDate: string;
+  /** Present to edit that event; absent to create a new one. */
+  event?: ScheduleEvent;
 }) {
   const create = useCreateScheduleEvent();
+  const update = useUpdateScheduleEvent();
   const invite = useInviteToEvent();
+  const editing = Boolean(event);
+  const pending = editing ? update.isPending : create.isPending;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(defaultDate);
@@ -89,13 +100,50 @@ function NewEventDialog({
   const [type, setType] = useState<EventType>('shoot');
   const [guests, setGuests] = useState<string[]>([]);
 
+  // Refilled on every open, not just mount: one dialog instance serves
+  // whichever event the pencil was pressed on, so without this you would be
+  // editing the previous event's values.
   useEffect(() => {
-    if (open) setDate(defaultDate);
-  }, [open, defaultDate]);
+    if (!open) return;
+    if (event) {
+      setTitle(event.title);
+      setDescription(event.description ?? '');
+      setDate(event.event_date);
+      // Postgres `time` comes back as HH:MM:SS; <input type="time"> wants HH:MM
+      // and silently renders empty otherwise.
+      setTime(event.event_time ? event.event_time.slice(0, 5) : '');
+      setType(event.event_type as EventType);
+    } else {
+      setDate(defaultDate);
+    }
+  }, [open, event, defaultDate]);
 
   const submit = () => {
     const trimmed = title.trim();
     if (!trimmed || !date) return;
+
+    if (event) {
+      update.mutate(
+        {
+          id: event.id,
+          title: trimmed,
+          description: description.trim() || null,
+          event_date: date,
+          event_time: time || null,
+          event_type: type,
+        },
+        {
+          onSuccess: () => {
+            toast.success('Event updated');
+            onOpenChange(false);
+          },
+          onError: (err: Error) =>
+            toast.error('Could not save the event', { description: err.message }),
+        },
+      );
+      return;
+    }
+
     create.mutate(
       {
         title: trimmed,
@@ -139,8 +187,12 @@ function NewEventDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New event</DialogTitle>
-          <DialogDescription>A shoot, an edit, a review or a delivery.</DialogDescription>
+          <DialogTitle>{editing ? 'Edit event' : 'New event'}</DialogTitle>
+          <DialogDescription>
+            {editing
+              ? 'Anyone who accepted sees these changes on their own calendar.'
+              : 'A shoot, an edit, a review or a delivery.'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-2">
@@ -205,29 +257,33 @@ function NewEventDialog({
             />
           </div>
 
-          <div className="grid gap-2 border-t pt-3">
-            <Label>
-              Invite collaborators
-              {guests.length > 0 && (
-                <span className="ml-1 font-normal text-muted-foreground">
-                  · {guests.length} selected
-                </span>
-              )}
-            </Label>
-            <p className="-mt-1 text-xs text-muted-foreground">
-              They choose whether to join. Accepting puts it on their calendar.
-            </p>
-            <InvitePeople selected={guests} onChange={setGuests} />
-          </div>
+          {/* Guests are managed from the event's own Users button once it
+              exists, so an edit does not offer to invite anyone. */}
+          {!editing && (
+            <div className="grid gap-2 border-t pt-3">
+              <Label>
+                Invite collaborators
+                {guests.length > 0 && (
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    · {guests.length} selected
+                  </span>
+                )}
+              </Label>
+              <p className="-mt-1 text-xs text-muted-foreground">
+                They choose whether to join. Accepting puts it on their calendar.
+              </p>
+              <InvitePeople selected={guests} onChange={setGuests} />
+            </div>
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!title.trim() || !date || create.isPending}>
-            {create.isPending && <Loader2 className="size-4 animate-spin" />}
-            Create event
+          <Button onClick={submit} disabled={!title.trim() || !date || pending}>
+            {pending && <Loader2 className="size-4 animate-spin" />}
+            {editing ? 'Save changes' : 'Create event'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -426,6 +482,7 @@ function ScheduleContent() {
   const [selected, setSelected] = useState(today);
   const [cursor, setCursor] = useState(() => new Date());
   const [creatingEvent, setCreatingEvent] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
   const [creatingReminder, setCreatingReminder] = useState(false);
   /** The event whose guest list is open, if any. */
   const [managing, setManaging] = useState<{ id: string; title: string } | null>(
@@ -538,7 +595,7 @@ function ScheduleContent() {
                 </div>
               ))}
               {weeks.flat().map((cell) => {
-                const count = (eventsByDate[cell.key] ?? []).length;
+                const dots = dayDots(eventsByDate[cell.key] ?? []);
                 const isSelected = cell.key === selected;
                 return (
                   <button
@@ -554,13 +611,35 @@ function ScheduleContent() {
                     )}
                   >
                     {cell.day}
-                    {count > 0 && (
-                      <span
-                        className={cn(
-                          'absolute inset-x-0 bottom-1.5 mx-auto size-1 rounded-full',
-                          isSelected ? 'bg-primary-foreground' : 'bg-primary',
+                    {dots.colors.length > 0 && (
+                      <span className="absolute inset-x-0 bottom-1 flex items-center justify-center gap-[3px]">
+                        {dots.colors.map((color, i) => (
+                          <span
+                            key={i}
+                            // A selected cell is filled with `primary`, and a
+                            // type colour on top of that can disappear. The
+                            // fill already says which day is selected, so the
+                            // dots only have to stay visible.
+                            className={cn('rounded-full', isSelected && 'bg-primary-foreground')}
+                            style={{
+                              width: DAY_DOT_SIZE,
+                              height: DAY_DOT_SIZE,
+                              opacity: cell.isOutside ? 0.4 : 1,
+                              ...(isSelected ? {} : { backgroundColor: color }),
+                            }}
+                          />
+                        ))}
+                        {dots.overflow > 0 && (
+                          <span
+                            className={cn(
+                              'text-[9px] font-bold leading-none',
+                              isSelected ? 'text-primary-foreground' : 'text-muted-foreground',
+                            )}
+                          >
+                            +{dots.overflow}
+                          </span>
                         )}
-                      />
+                      </span>
                     )}
                   </button>
                 );
@@ -642,6 +721,14 @@ function ScheduleContent() {
                             </div>
                             {mine ? (
                               <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label="Edit event"
+                                  onClick={() => setEditingEvent(event)}
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
                                 <Button
                                   size="icon"
                                   variant="ghost"
@@ -767,11 +854,19 @@ function ScheduleContent() {
         </div>
       </div>
 
-      <NewEventDialog
+      <EventDialog
         open={creatingEvent}
         onOpenChange={setCreatingEvent}
         defaultDate={selected}
       />
+      {editingEvent && (
+        <EventDialog
+          open
+          onOpenChange={(next) => !next && setEditingEvent(null)}
+          defaultDate={selected}
+          event={editingEvent}
+        />
+      )}
       <NewReminderDialog open={creatingReminder} onOpenChange={setCreatingReminder} />
       {managing && (
         <ManageAttendeesDialog

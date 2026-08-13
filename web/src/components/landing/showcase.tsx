@@ -1,4 +1,5 @@
 import { Reveal } from './reveal';
+import { Plate } from './plate';
 
 /**
  * What the product actually looks like.
@@ -31,17 +32,6 @@ const NAV = [
   { label: 'Schedule', d: 'M4 5h16v16H4zM4 10h16M9 3v4M15 3v4' },
 ];
 
-const TILES = [
-  'from-[#c17745]/70 to-[#8b5e3c]/60',
-  'from-[#5b7b9a]/60 to-[#3d5468]/60',
-  'from-[#6b8e4e]/60 to-[#425a31]/60',
-  'from-[#cd8250]/60 to-[#7d4a28]/60',
-  'from-[#8b6f5e]/60 to-[#4e3a2e]/60',
-  'from-[#9a7b5b]/60 to-[#5c4633]/60',
-  'from-[#4e6b7d]/60 to-[#2f4351]/60',
-  'from-[#a8746a]/60 to-[#6b423c]/60',
-];
-
 const NEARBY = [
   { name: 'Second shooter', role: 'Photographer', km: '2.4 km' },
   { name: 'Same-day edit', role: 'SDE Editor Video', km: '5.1 km' },
@@ -50,8 +40,16 @@ const NEARBY = [
 
 export function LandingShowcase() {
   return (
-    <section id="showcase" className="relative overflow-hidden py-24 sm:py-28">
-      <div className="mx-auto w-full max-w-6xl px-5 sm:px-8">
+    <section
+      id="showcase"
+      // The one section that is its own surface. Every other section sits on
+      // the same flat #161311, so nothing on the page ever read as a change
+      // of chapter. Edge-to-edge because a section already spans the
+      // viewport - this needs no 100vw trick and so cannot cause the
+      // sideways drift that one would risk on a phone.
+      className="relative overflow-hidden border-y border-white/[0.06] bg-white/[0.015] py-24 sm:py-28"
+    >
+      <div className="mx-auto w-full max-w-7xl px-5 sm:px-8">
         <Reveal className="text-center">
           <h2 className="text-balance text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
             The delivery your client sees. The people you need.
@@ -125,12 +123,16 @@ export function LandingShowcase() {
                   </span>
                 </div>
 
+                {/* Plates. These were eight flat two-stop gradients, which on
+                    a page selling to photographers read as eight images that
+                    failed to load rather than as a deliberate abstraction. */}
                 <div className="mt-4 grid grid-cols-4 gap-2 sm:gap-3">
-                  {TILES.map((tile, i) => (
-                    <div
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <Plate
                       key={i}
-                      className={`aspect-[4/3] rounded-lg bg-gradient-to-br ${tile}`}
+                      seed={i}
                       aria-hidden
+                      className="aspect-[4/3] rounded-lg"
                     />
                   ))}
                 </div>

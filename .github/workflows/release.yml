@@ -123,6 +123,8 @@ jobs:
           # warning, not an error, and one list is easier to keep true than
           # two that drift.
           build-args: |
+            APP_VERSION=${{ steps.release.outputs.tag }}
+            APP_COMMIT=${{ github.sha }}
             NEXT_PUBLIC_API_URL=${{ vars.PROD_API_URL || 'https://api.virgo.ph' }}
             NEXT_PUBLIC_SITE_ORIGIN=${{ vars.PROD_SITE_ORIGIN || 'https://virgo.ph' }}
             NEXT_PUBLIC_APP_ORIGIN=${{ vars.PROD_APP_ORIGIN || 'https://web.virgo.ph' }}

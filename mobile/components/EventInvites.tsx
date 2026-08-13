@@ -25,7 +25,7 @@ import {
   useTheme,
   useUninviteFromEvent,
 } from '@/src/hooks';
-import { formatTime, labelForDateKey } from '@/src/lib/calendar';
+import { eventColor, formatTime, labelForDateKey } from '@/src/lib/calendar';
 import type { AttendeeStatus } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 
@@ -43,13 +43,6 @@ const EVENT_ICONS: Record<string, LucideIcon> = {
   review: EyeIcon,
   delivery: PackageIcon,
   meeting: PresentationIcon,
-};
-const EVENT_COLORS: Record<string, string> = {
-  shoot: '#B66A40',
-  editing: '#C17745',
-  review: '#8B5E3C',
-  delivery: '#6B8E4E',
-  meeting: '#5B7B9A',
 };
 
 const STATUS_LABEL: Record<AttendeeStatus, string> = {
@@ -439,7 +432,7 @@ export function EventInvitationsCard() {
 
       <View className="gap-3">
         {invitations.map((invitation) => {
-          const color = EVENT_COLORS[invitation.event_type] ?? '#B66A40';
+          const color = eventColor(invitation.event_type);
           const Icon = EVENT_ICONS[invitation.event_type] ?? CalendarDaysIcon;
           const busy = answering === invitation.event_id;
 

@@ -38,6 +38,7 @@ import { RolePicker } from '@/components/role-picker';
 import { PublicProfileCard } from '@/components/public-profile-card';
 import { formatBytes, storageApi, titleFromRoles } from '@/api';
 import { cn } from '@/lib/utils';
+import { AVATAR_MAX_EDGE, resizeImage } from '@/lib/image';
 
 /**
  * Profile — who you are and what you have.
@@ -90,7 +91,12 @@ export default function ProfilePage() {
 
     setUploadingAvatar(true);
     try {
-      const uploaded = await storageApi.uploadFile(file, { scope: 'avatars' });
+      // Scaled here so a 12 MP phone photo does not cross the connection at
+      // full size. The server resizes avatars on confirm regardless, so this
+      // is bandwidth, not correctness — and it returns the original file
+      // unchanged if the browser cannot do it.
+      const scaled = await resizeImage(file, AVATAR_MAX_EDGE);
+      const uploaded = await storageApi.uploadFile(scaled, { scope: 'avatars' });
       if (!uploaded.publicUrl) {
         // Only happens when CDN_BASE_URL is unset, which makes the avatars
         // bucket unreachable by a durable URL. Worth saying plainly — the

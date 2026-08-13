@@ -2,6 +2,7 @@
 
 import { Check } from 'lucide-react';
 import { Reveal } from './reveal';
+import { SectionHeader } from './section-header';
 import { SIGN_UP_URL } from './links';
 import { formatMoney, planCurrency, planPrice, type PlanInfo } from '@/api';
 
@@ -36,22 +37,14 @@ export function LandingPricing({ plans }: { plans: PlanInfo[] }) {
 
   return (
     <section id="pricing" className="relative py-24 sm:py-32">
-      <div className="rule-fade mx-auto mb-24 w-full max-w-6xl" />
-
       <div className="mx-auto w-full max-w-6xl px-5 sm:px-8">
-        <Reveal className="mx-auto max-w-2xl text-center">
-          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
-            Pricing
-          </span>
-          <h2 className="mt-3 text-balance text-3xl font-extrabold tracking-tight text-white sm:text-[2.6rem] sm:leading-[1.1]">
-            Free while we are in pre-release.
-          </h2>
-          <p className="mt-4 text-pretty text-[15px] leading-relaxed text-white/55">
-            No card, no trial clock. We would rather find out what a working
-            photographer actually needs than guess at a price and be wrong
-            about it.
-          </p>
-        </Reveal>
+        <SectionHeader
+          index="09"
+          eyebrow="Pricing"
+          align="center"
+          title="Free while we are in pre-release."
+          lead="No card, no trial clock. We would rather find out what a working photographer actually needs than guess at a price and be wrong about it."
+        />
 
         {!free ? (
           // The API was unreachable at build time. Better to send people to

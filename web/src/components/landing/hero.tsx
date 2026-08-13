@@ -1,22 +1,10 @@
 'use client';
 
 import Image from 'next/image';
-import { ArrowRight, Play } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Reveal } from './reveal';
 import { SIGN_IN_URL, SIGN_UP_URL } from './links';
-
-/**
- * "Kenn Francis" → "KF".
- *
- * The first two letters of the string gave "KE" and "JU", which reads as a
- * truncation bug rather than an avatar. Falls back to the first two letters
- * only for a single-word name.
- */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+import { initials } from './roles';
 
 /**
  * The hero.
@@ -35,7 +23,7 @@ export function LandingHero() {
 
       <div className="relative mx-auto w-full max-w-6xl px-5 text-center sm:px-8">
         <Reveal from="none" delay={0}>
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/5 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-white/70 uppercase backdrop-blur">
+          <span className="figure inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/5 px-3.5 py-1.5 text-[11px] font-semibold text-white/70 uppercase backdrop-blur">
             <span className="size-1.5 rounded-full bg-[#c17745]" />
             Built in the Philippines, for Filipino creatives
           </span>
@@ -53,10 +41,14 @@ export function LandingHero() {
         </Reveal>
 
         <Reveal delay={140}>
-          <h1 className="mx-auto mt-6 max-w-4xl text-balance text-4xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-6xl lg:text-[4.25rem]">
-            Where creatives find
-            <br className="hidden sm:block" />{' '}
-            <span className="bg-gradient-to-r from-[#e0a274] via-[#c17745] to-[#b66a40] bg-clip-text text-transparent">
+          {/* Two weights, not one. The whole page was extrabold-or-nothing,
+              which is why a 68px headline still read flat — there was no
+              lighter mass for the heavy line to be heavy against. */}
+          <h1 className="mx-auto mt-6 max-w-5xl text-balance text-[2.6rem] leading-[1.02] tracking-tight text-white sm:text-[4.25rem] lg:text-[5.25rem]">
+            <span className="block font-medium text-white/70">
+              Where creatives find
+            </span>
+            <span className="block font-extrabold bg-gradient-to-r from-[#e8b189] via-[#c17745] to-[#a85f38] bg-clip-text text-transparent">
               each other, and get paid.
             </span>
           </h1>
@@ -80,11 +72,12 @@ export function LandingHero() {
               Join the community
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
             </a>
+            {/* No Play icon. It sat on a button that opens a login form, so it
+                promised a video that does not exist. */}
             <a
               href={SIGN_IN_URL}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-7 py-3.5 text-[15px] font-semibold text-white backdrop-blur transition-colors hover:bg-white/10 active:scale-[0.98] sm:w-auto"
             >
-              <Play className="size-3.5 fill-current" />
               Sign in
             </a>
           </div>

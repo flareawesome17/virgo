@@ -9,7 +9,15 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { DAYS, formatTime, getMonthWeeks, todayKey } from '@/src/lib/calendar';
+import {
+  DAY_DOT_SIZE,
+  DAYS,
+  dayDots,
+  eventColor,
+  formatTime,
+  getMonthWeeks,
+  todayKey,
+} from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -24,11 +32,6 @@ const EVENT_ICONS: Record<string, LucideIcon> = {
   shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
   delivery: PackageIcon, meeting: PresentationIcon,
 };
-const EVENT_COLORS: Record<string, string> = {
-  shoot: '#B66A40', editing: '#C17745', review: '#8B5E3C',
-  delivery: '#6B8E4E', meeting: '#5B7B9A',
-};
-
 // Long month names for this screen's header; the rest of the date helpers
 // come from src/lib/calendar.ts. The local copies mishandled month/year
 // rollover, emitting keys like 2026-00-29 and 2026-13-01.
@@ -117,14 +120,27 @@ export default function CalendarScreen() {
                       {cell.day}
                     </Text>
                   </View>
-                  {has && (
-                    <View className="flex-row gap-[1.5px]" style={{ opacity: cell.isOutside ? 0.35 : 1 }}>
-                      {dayEvents.slice(0,4).map((ev) => (
-                        <View key={ev.id} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: EVENT_COLORS[ev.event_type] || '#B66A40' }} />
-                      ))}
-                      {dayEvents.length > 4 && <Text className="text-muted-foreground text-[7px] font-bold">+{dayEvents.length - 4}</Text>}
-                    </View>
-                  )}
+                  {has && (() => {
+                    const dots = dayDots(dayEvents);
+                    return (
+                      <View className="flex-row items-center gap-[3px]" style={{ opacity: cell.isOutside ? 0.35 : 1 }}>
+                        {dots.colors.map((color, i) => (
+                          <View
+                            key={i}
+                            style={{
+                              width: DAY_DOT_SIZE,
+                              height: DAY_DOT_SIZE,
+                              borderRadius: DAY_DOT_SIZE / 2,
+                              backgroundColor: color,
+                            }}
+                          />
+                        ))}
+                        {dots.overflow > 0 && (
+                          <Text className="text-muted-foreground text-[8px] font-bold">+{dots.overflow}</Text>
+                        )}
+                      </View>
+                    );
+                  })()}
                 </Pressable>
               );
             })}
@@ -161,7 +177,7 @@ export default function CalendarScreen() {
             <View className="gap-2">
               {selectedEvents.map(ev => {
                 const IconComp = EVENT_ICONS[ev.event_type] || CalendarDaysIcon;
-                const color = EVENT_COLORS[ev.event_type] || '#B66A40';
+                const color = eventColor(ev.event_type);
                 return (
                   <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
                     className="bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"

@@ -4,18 +4,25 @@ import {
   useAuth,
   useCreateScheduleEvent,
   useInviteToEvent,
+  useScheduleEvent,
+  useUpdateScheduleEvent,
   useWorkspaces,
   useTheme,
 } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeftIcon, CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
   CalendarDaysIcon, ClockIcon, CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { DateTimeField, InvitePeoplePicker } from '@/components';
-import { dateToKey, dateToTimeString, parseDateKey } from '@/src/lib/calendar';
+import {
+  combineDateAndTime,
+  dateToKey,
+  dateToTimeString,
+  parseDateKey,
+} from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CameraIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -40,10 +47,20 @@ export default function CreateEventScreen() {
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   // workspaceId arrives when this is opened from a workspace's quick actions,
-  // so that workspace starts selected.
-  const { date: initialDate, workspaceId: initialWorkspaceId } =
-    useLocalSearchParams<{ date?: string; workspaceId?: string }>();
+  // so that workspace starts selected. eventId turns the same form into an
+  // edit — the field set is identical, so a second screen would only be this
+  // one with a different mutation on the end.
+  const {
+    date: initialDate,
+    workspaceId: initialWorkspaceId,
+    eventId,
+  } = useLocalSearchParams<{
+    date?: string;
+    workspaceId?: string;
+    eventId?: string;
+  }>();
   const { user } = useAuth();
+  const editing = Boolean(eventId);
 
   const [eventType, setEventType] = useState('shoot');
   const [title, setTitle] = useState('');
@@ -55,11 +72,39 @@ export default function CreateEventScreen() {
     base.setHours(9, 0, 0, 0);
     return base;
   });
+  // Whether this event has a time at all. Creating always does — the picker
+  // gives one. Editing an all-day event made on web must not silently acquire
+  // 9:00 just because the picker has to show something.
+  const [hasTime, setHasTime] = useState(true);
   const [selectedWsId, setSelectedWsId] = useState<string | null>(
     initialWorkspaceId ?? null,
   );
   const [showWsPicker, setShowWsPicker] = useState(false);
   const [guests, setGuests] = useState<string[]>([]);
+
+  const { data: existing } = useScheduleEvent(eventId ?? undefined);
+
+  // Once per event, not on every refetch: React Query refreshing in the
+  // background must not overwrite what is being typed.
+  const prefilledFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!existing || prefilledFor.current === existing.id) return;
+    prefilledFor.current = existing.id;
+    setEventType(existing.event_type);
+    setTitle(existing.title);
+    setDescription(existing.description ?? '');
+    setHasTime(Boolean(existing.event_time));
+    setWhen(
+      existing.event_time
+        ? combineDateAndTime(existing.event_date, existing.event_time)
+        : (() => {
+            const base = parseDateKey(existing.event_date);
+            base.setHours(9, 0, 0, 0);
+            return base;
+          })(),
+    );
+    setSelectedWsId(existing.workspace_id ?? null);
+  }, [existing]);
 
   const { workspaces } = useWorkspaces(
     { orderBy: 'name', direction: 'asc', limit: 100 },
@@ -70,7 +115,33 @@ export default function CreateEventScreen() {
   const canSave = title.trim().length > 0;
 
   const createEvent = useCreateScheduleEvent();
+  const updateEvent = useUpdateScheduleEvent();
   const inviteToEvent = useInviteToEvent();
+  const saving = editing ? updateEvent.isPending : createEvent.isPending;
+
+  const handleUpdate = () => {
+    if (!eventId) return;
+    updateEvent.mutate(
+      {
+        id: eventId,
+        title: title.trim(),
+        description: description.trim() || null,
+        event_date: dateToKey(when),
+        event_time: hasTime ? dateToTimeString(when) : null,
+        event_type: eventType as 'shoot' | 'editing' | 'review' | 'delivery' | 'meeting',
+        // Unlike create, null is meaningful here: it detaches the workspace.
+        workspace_id: selectedWsId,
+      },
+      {
+        onSuccess: () => router.back(),
+        onError: (err: any) =>
+          Alert.alert(
+            'Could not save the event',
+            err?.message || 'Something went wrong. Please try again.',
+          ),
+      },
+    );
+  };
 
   const handleCreate = () => {
     createEvent.mutate(
@@ -133,7 +204,7 @@ export default function CreateEventScreen() {
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
-          <Text className="text-foreground text-[22px] font-bold tracking-tight">New Event</Text>
+          <Text className="text-foreground text-[22px] font-bold tracking-tight">{editing ? 'Edit Event' : 'New Event'}</Text>
         </View>
 
         {/* Event Type */}
@@ -179,10 +250,15 @@ export default function CreateEventScreen() {
             onChange={(next) => setWhen(next)}
           />
           <DateTimeField
-            label="Time"
+            // Says so rather than showing a plausible-looking 9:00 for an
+            // all-day event. Touching the picker is what gives it a time.
+            label={hasTime ? 'Time' : 'Time (not set)'}
             mode="time"
             value={when}
-            onChange={(next) => setWhen(next)}
+            onChange={(next) => {
+              setWhen(next);
+              setHasTime(true);
+            }}
           />
         </View>
 
@@ -218,19 +294,30 @@ export default function CreateEventScreen() {
           )}
         </View>
 
-        {/* Invitations */}
-        <View className="px-5 mt-5">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-            Invite{' '}
-            <Text className="font-medium normal-case tracking-normal">
-              {guests.length > 0 ? `(${guests.length} selected)` : '(optional)'}
+        {/* Invitations. Absent when editing: an existing event manages its
+            guests from the detail screen, which can also uninvite. */}
+        {!editing && (
+          <View className="px-5 mt-5">
+            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+              Invite{' '}
+              <Text className="font-medium normal-case tracking-normal">
+                {guests.length > 0 ? `(${guests.length} selected)` : '(optional)'}
+              </Text>
             </Text>
-          </Text>
-          <Text className="text-muted-foreground text-xs mb-2 ml-1">
-            They choose whether to join. Accepting puts it on their calendar.
-          </Text>
-          <InvitePeoplePicker selected={guests} onChange={setGuests} />
-        </View>
+            <Text className="text-muted-foreground text-xs mb-2 ml-1">
+              They choose whether to join. Accepting puts it on their calendar.
+            </Text>
+            <InvitePeoplePicker selected={guests} onChange={setGuests} />
+          </View>
+        )}
+
+        {editing && (
+          <View className="px-5 mt-5">
+            <Text className="text-muted-foreground text-xs ml-1">
+              Anyone who accepted sees these changes on their own calendar.
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       {/* Bottom actions */}
@@ -239,8 +326,10 @@ export default function CreateEventScreen() {
           style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
           <Text className="text-foreground text-base font-semibold">Back</Text>
         </Pressable>
-        <Pressable onPress={() => canSave && handleCreate()} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-primary' : 'bg-muted'}`} disabled={!canSave || createEvent.isPending}>
-          <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>{createEvent.isPending ? 'Creating...' : 'Create Event'}</Text>
+        <Pressable onPress={() => canSave && (editing ? handleUpdate() : handleCreate())} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-primary' : 'bg-muted'}`} disabled={!canSave || saving}>
+          <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>
+            {saving ? (editing ? 'Saving...' : 'Creating...') : editing ? 'Save Changes' : 'Create Event'}
+          </Text>
         </Pressable>
       </View>
           </KeyboardAvoidingView>

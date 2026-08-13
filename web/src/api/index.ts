@@ -176,6 +176,7 @@ export {
   type Thread,
   type SendMessageInput,
 } from './endpoints/chat';
+export { versionApi, type ServerVersion } from './endpoints/version';
 export { discoverApi, type NearbyPerson, type LocationStatus } from './endpoints/discover';
 
 export type * from './types';

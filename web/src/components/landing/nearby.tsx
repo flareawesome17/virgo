@@ -1,20 +1,10 @@
 'use client';
 
-import { MapPin, Search } from 'lucide-react';
+import { ArrowRight, MapPin, Search } from 'lucide-react';
 import { Reveal } from './reveal';
-
-/**
- * "Kenn Francis" → "KF".
- *
- * The first two letters of the string gave "KE" and "JU", which reads as a
- * truncation bug rather than an avatar. Falls back to the first two letters
- * only for a single-word name.
- */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+import { SectionHeader } from './section-header';
+import { ROLES, initials } from './roles';
+import { SIGN_UP_URL } from './links';
 
 /**
  * What this mock is searching for.
@@ -26,19 +16,6 @@ function initials(name: string): string {
  * that tells a visitor the screenshot is invented.
  */
 const LOOKING_FOR = new Set(['Photographer', 'SDE Editor Video']);
-
-/** The nine roles the product actually knows about. See api/src/auth/roles.ts. */
-const ROLES = [
-  'Photographer',
-  'Videographer',
-  'Photo Editor',
-  'Video Editor',
-  'SDE Editor Photo',
-  'SDE Editor Video',
-  'Coordinator',
-  'Host',
-  'HMUA',
-];
 
 /**
  * The Nearby feature, given its own section.
@@ -55,26 +32,39 @@ export function LandingNearby() {
       />
 
       <div className="relative mx-auto grid w-full max-w-6xl items-center gap-14 px-5 sm:px-8 lg:grid-cols-2 lg:gap-20">
-        <Reveal from="left">
-          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#c17745]">
-            Nearby
-          </span>
-          <h2 className="mt-3 text-balance text-3xl font-extrabold tracking-tight text-white sm:text-[2.6rem] sm:leading-[1.1]">
-            Need an SDE editor by Saturday?
-          </h2>
-          <p className="mt-5 text-pretty text-[15px] leading-relaxed text-white/55">
-            Pick the role and the distance. Virgo shows the people around you
-            who actually do that job — and somebody who both shoots and cuts the
-            same-day edit turns up under either search.
-          </p>
-          <p className="mt-4 text-pretty text-[14px] leading-relaxed text-white/40">
-            Discovery works both ways: only people sharing their location can
-            see each other, and the only thing anyone learns is how far away you
-            are. Turning it off erases the position rather than hiding it.
-          </p>
-        </Reveal>
+        <div>
+          {/* The first of the two splits, and the one that sets the pattern —
+              so it stays copy-left. Delivery further down runs the other way
+              round rather than repeating it. */}
+          <SectionHeader
+            index="04"
+            eyebrow="Nearby"
+            size="lg"
+            title="Need an SDE editor by Saturday?"
+            lead="Pick the role and the distance. Virgo shows the people around you who actually do that job — and somebody who both shoots and cuts the same-day edit turns up under either search."
+          />
+          <Reveal from="left" delay={190}>
+            <p className="mt-4 max-w-2xl text-pretty text-[14px] leading-relaxed text-white/40">
+              Discovery works both ways: only people sharing their location can
+              see each other, and the only thing anyone learns is how far away
+              you are. Turning it off erases the position rather than hiding it.
+            </p>
 
-        <Reveal from="right" delay={120}>
+            {/* The page ran seven consecutive sections without a single call
+                to action — from here to Pricing there was nothing to click.
+                A quiet inline one, not a third slab button: the loud asks
+                belong in the hero and the close. */}
+            <a
+              href={SIGN_UP_URL}
+              className="group mt-6 inline-flex items-center gap-2 text-[14px] font-semibold text-[#e0a274] transition-colors hover:text-[#f0bb92]"
+            >
+              See who is working near you
+              <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+            </a>
+          </Reveal>
+        </div>
+
+        <Reveal from="right" delay={120} duration={900}>
           <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#1e1b18]/80 shadow-2xl shadow-black/40 backdrop-blur-xl">
             <div className="flex items-center gap-2.5 border-b border-white/8 px-4 py-3.5">
               <Search className="size-3.5 text-white/30" />

@@ -329,6 +329,7 @@ export interface NotificationPayload {
     | 'collaborator_response'
     | 'event_invite'
     | 'event_response'
+    | 'event_updated'
     | 'hire_enquiry'
     | 'hire_response'
     | 'job_application'
