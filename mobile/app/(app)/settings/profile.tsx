@@ -3,6 +3,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { useAuth, useUpload } from '@/src/hooks';
 import { titleFromRoles } from '@/src/api';
 import { RolePicker } from '@/components';
@@ -29,6 +30,48 @@ cssInterop(HashIcon, { className: { target: 'style', nativeStyleToProp: { color:
 cssInterop(Building2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(AtSignIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+
+/** Matches AVATAR_EDGE in api/src/storage/thumbnails.service.ts. */
+const AVATAR_MAX_EDGE = 512;
+
+/**
+ * Scales a picked photo down before it is uploaded.
+ *
+ * The picker's `quality: 0.8` only re-encodes — it does not bound dimensions,
+ * so a 12 MP camera photo was uploaded at 4032 px to fill an 88 px circle,
+ * and counted against the account's storage quota at that size.
+ *
+ * The API resizes avatars on confirm regardless, so this is not what makes
+ * them small; it is what stops several megabytes crossing a mobile connection
+ * to be discarded on arrival. Returns the asset untouched if anything fails —
+ * not shrinking an upload is no reason to fail it.
+ */
+async function shrinkForAvatar(
+  asset: ImagePicker.ImagePickerAsset,
+): Promise<{ uri: string; mimeType?: string }> {
+  const original = { uri: asset.uri, mimeType: asset.mimeType };
+  const longest = Math.max(asset.width ?? 0, asset.height ?? 0);
+  if (!longest || longest <= AVATAR_MAX_EDGE) return original;
+
+  try {
+    // Only the longer edge is given; the other is derived to keep the ratio.
+    const size =
+      (asset.width ?? 0) >= (asset.height ?? 0)
+        ? { width: AVATAR_MAX_EDGE }
+        : { height: AVATAR_MAX_EDGE };
+
+    const rendered = await ImageManipulator.manipulate(asset.uri)
+      .resize(size)
+      .renderAsync();
+    const out = await rendered.saveAsync({
+      format: SaveFormat.JPEG,
+      compress: 0.82,
+    });
+    return { uri: out.uri, mimeType: 'image/jpeg' };
+  } catch {
+    return original;
+  }
+}
 
 export default function ProfileSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -181,11 +224,26 @@ export default function ProfileSettingsScreen() {
     });
     if (result.canceled || !result.assets?.[0]) return;
 
+    const asset = result.assets[0];
+    const scaled = await shrinkForAvatar(asset);
+
+    // Only reached when the shrink declined or failed — a scaled avatar is
+    // well under any limit. Rejecting a 20 MP photo we could have scaled
+    // would be worse than uploading it, so this guards the fallback, not the
+    // happy path. Web has the same 8 MB ceiling; mobile had none at all.
+    if (scaled.uri === asset.uri && (asset.fileSize ?? 0) > 8 * 1024 * 1024) {
+      Alert.alert(
+        'That image is too large',
+        'Profile pictures are limited to 8 MB.',
+      );
+      return;
+    }
+
     try {
       const uploaded = await upload.mutateAsync({
-        uri: result.assets[0].uri,
+        uri: scaled.uri,
         scope: 'avatars',
-        mimeType: result.assets[0].mimeType,
+        mimeType: scaled.mimeType,
       });
       if (!uploaded.publicUrl) {
         Alert.alert('Uploaded', 'No public URL is configured to serve it.');

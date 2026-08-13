@@ -25,6 +25,20 @@ const MAX_SOURCE_BYTES = 40 * 1024 * 1024;
 /** WebP everywhere: ~30% smaller than JPEG at the same quality, and universal. */
 const THUMB_CONTENT_TYPE = 'image/webp';
 
+/**
+ * The longest edge an avatar is stored at.
+ *
+ * The largest an avatar is ever drawn is 112 CSS px on web and 88 on mobile,
+ * so 512 covers every surface past 3x and leaves room for bigger ones later.
+ * Uploads were the phone's original file — a 12 MP camera JPEG is 4-6 MB and
+ * 4032 px wide, stored and served in full to fill a 96 px circle, and counted
+ * against the uploader's storage quota at that size.
+ */
+const AVATAR_EDGE = 512;
+
+/** Higher than a thumbnail's: this is the only copy, not a stand-in for one. */
+const AVATAR_QUALITY = 82;
+
 /** `.../abc.jpg` → `.../abc-thumb.webp`, beside the original. */
 export function thumbKeyFor(key: string): string {
   return `${key.replace(/\.[^./]+$/, '')}-thumb.webp`;
@@ -86,6 +100,61 @@ export class ThumbnailsService {
     } catch (err) {
       this.logger.warn(
         `Thumbnail failed for ${key}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Shrinks a just-uploaded avatar in place.
+   *
+   * Rewrites the same key rather than writing a resized copy beside it. The
+   * `publicUrl` was handed to the client when the upload was presigned and is
+   * about to be stored in `users.avatar_url`, so the bytes behind that URL are
+   * what has to change. The original is not kept — an avatar has no use for a
+   * 4032 px master, and keeping one is what the quota was being spent on.
+   *
+   * Runs on the server so it applies to every client, including the app builds
+   * already installed on people's phones that will never resize before upload.
+   *
+   * Never throws, for the same reason `generate` does not: the upload has
+   * already succeeded, and failing here must leave the original in place and
+   * usable rather than fail the confirm.
+   *
+   * Returns the new size and content type, or null if it declined or failed.
+   */
+  async normaliseAvatar(
+    key: string,
+    contentType: string | null,
+    sizeBytes: number,
+  ): Promise<{ size: number; contentType: string } | null> {
+    if (!contentType?.startsWith('image/')) return null;
+    if (sizeBytes > MAX_SOURCE_BYTES) return null;
+
+    try {
+      const source = await this.readAll(key);
+      const body = await sharp(source, { failOn: 'none' })
+        .rotate()
+        .resize(AVATAR_EDGE, AVATAR_EDGE, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: AVATAR_QUALITY })
+        .toBuffer();
+
+      // An avatar that is already small, or a PNG of flat colour that WebP
+      // cannot beat. Rewriting it would spend a request to make the file
+      // bigger.
+      if (body.length >= sizeBytes) return null;
+
+      await this.storage.putDerived(key, body, THUMB_CONTENT_TYPE);
+      // The quota was recorded from the uploaded size a moment ago. Left
+      // alone, the user goes on paying for bytes that are no longer there.
+      await this.db.query(
+        'update user_files set size_bytes = $2, content_type = $3 where key = $1',
+        [key, body.length, THUMB_CONTENT_TYPE],
+      );
+      return { size: body.length, contentType: THUMB_CONTENT_TYPE };
+    } catch (err) {
+      this.logger.warn(
+        `Avatar resize failed for ${key}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
     }
