@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useDeleteScheduleEvent,
@@ -71,8 +71,40 @@ export default function EventDetailScreen() {
     updateReminder.mutate({ id, is_completed });
 
   const deleteEventMutation = useDeleteScheduleEvent();
-  const deleteEvent = () =>
-    deleteEventMutation.mutate(eventId, { onSuccess: () => router.back() });
+
+  /**
+   * Confirm first.
+   *
+   * This deleted on the first tap, with no undo and no trace. On a phone that
+   * is one mis-aimed thumb between a booking and losing it — along with every
+   * invitation attached to it, which is the part the organiser cannot rebuild
+   * by remembering harder.
+   *
+   * Names the event and says who else loses it, because "Are you sure?" on its
+   * own is a question nobody reads.
+   */
+  const confirmDelete = () => {
+    Alert.alert(
+      'Delete event',
+      `"${event?.title ?? 'This event'}" will be removed from your schedule and from the calendar of everyone who accepted. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () =>
+            deleteEventMutation.mutate(eventId, {
+              onSuccess: () => router.back(),
+              onError: (err: Error) =>
+                Alert.alert(
+                  'Could not delete the event',
+                  err.message || 'Please try again.',
+                ),
+            }),
+        },
+      ],
+    );
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -207,7 +239,7 @@ export default function EventDetailScreen() {
               <PencilIcon size={15} className="text-primary" />
               <Text className="text-primary text-sm font-semibold">Edit Event</Text>
             </Pressable>
-            <Pressable onPress={() => deleteEvent()} className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]">
+            <Pressable onPress={confirmDelete} className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]">
               <Trash2Icon size={15} className="text-destructive" />
               <Text className="text-destructive text-sm font-semibold">Delete Event</Text>
             </Pressable>
