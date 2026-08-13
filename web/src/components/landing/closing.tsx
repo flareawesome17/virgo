@@ -42,7 +42,7 @@ export function LandingClosing() {
             href={SIGN_IN_URL}
             className="inline-flex w-full items-center justify-center rounded-xl border border-white/15 px-7 py-3.5 text-[15px] font-semibold text-white transition-colors hover:bg-white/5 active:scale-[0.98] sm:w-auto"
           >
-            I already have an account
+            Sign in
           </a>
         </div>
       </Reveal>

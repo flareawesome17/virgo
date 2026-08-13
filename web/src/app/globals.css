@@ -249,9 +249,22 @@
    * every real overflow after it. The horizontal travel is barely legible at
    * this width anyway, and vertical matches what the rest of the page does.
    */
+  /*
+   * The doubled `.reveal.reveal` is load-bearing, not a typo.
+   *
+   * This guard and the rule it overrides have identical specificity, so it
+   * only won by being later in the file — and Tailwind v4 sorts what it emits
+   * for `@layer utilities`. Adding unrelated utilities to this block was
+   * enough to reorder the two, at which point the horizontal transform came
+   * back and the page drifted sideways on a phone again.
+   *
+   * Repeating the class raises specificity to (0,3,0) and makes the guard
+   * independent of emit order, so the next utility added here cannot silently
+   * undo it.
+   */
   @media (max-width: 639px) {
-    .reveal[data-reveal='left'],
-    .reveal[data-reveal='right'] {
+    .reveal.reveal[data-reveal='left'],
+    .reveal.reveal[data-reveal='right'] {
       transform: translate3d(0, 2rem, 0);
     }
   }
@@ -301,6 +314,76 @@
     height: 1px;
     background: linear-gradient(90deg, transparent, var(--border), transparent);
   }
+
+  /*
+   * Plates — the page's stand-in for photography.
+   *
+   * There are no photographs on this site and that is deliberate: a screenshot
+   * of the product goes stale, and real client work cannot be published. What
+   * was here before was a flat `bg-gradient-to-br` rectangle, which reads as an
+   * image that failed to load.
+   *
+   * A plate reads as a made thing instead: two brand stops, an off-centre
+   * bloom, grain, and a vignette that seats it on the page. Angle and stops are
+   * per-instance custom properties, so a grid of them varies the way a wall of
+   * prints does rather than repeating one swatch.
+   */
+  .plate {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background-color: #17130f;
+  }
+
+  .plate::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(
+        115% 95% at var(--plate-x, 28%) var(--plate-y, 18%),
+        color-mix(in oklab, var(--plate-a, #c17745) 62%, transparent),
+        transparent 72%
+      ),
+      linear-gradient(
+        var(--plate-angle, 135deg),
+        color-mix(in oklab, var(--plate-a, #c17745) 26%, transparent),
+        color-mix(in oklab, var(--plate-b, #5b7b9a) 20%, transparent)
+      );
+  }
+
+  /* Grain and vignette in one layer. Overlay keeps the noise reading as
+     texture on the plate rather than as a grey film over it. */
+  .plate::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.32;
+    mix-blend-mode: overlay;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(120% 120% at 50% 40%, transparent 45%, rgba(0, 0, 0, 0.55));
+  }
+
+  /* The hairline that stops a plate dissolving into a dark background. */
+  .plate-ring {
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  }
+
+  /*
+   * Figures — Geist Mono, already loaded for the app and unused here until now.
+   *
+   * Gives the page a second voice for the things that are not prose: eyebrows,
+   * step numbers, plate indices, distances. Everything was one family at one
+   * weight band, which is most of why it read flat.
+   */
+  .figure {
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.06em;
+  }
+
 }
 
 @media (prefers-reduced-motion: reduce) {
