@@ -64,12 +64,19 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
       before.event_time !== after.event_time;
 
     if (moved) {
-      await this.attendees.notifyEventChanged(userId, {
-        id: after.id,
-        title: after.title,
-        event_date: after.event_date,
-        event_time: after.event_time,
-      });
+      await this.attendees.notifyEventChanged(
+        userId,
+        {
+          id: after.id,
+          title: after.title,
+          event_date: after.event_date,
+          event_time: after.event_time,
+        },
+        // The email says what it moved *from* as well as to. "Your shoot has
+        // moved" with only the new date leaves the reader reconstructing the
+        // old one from memory, which is the mistake this exists to prevent.
+        { event_date: before.event_date, event_time: before.event_time },
+      );
     }
 
     return after;

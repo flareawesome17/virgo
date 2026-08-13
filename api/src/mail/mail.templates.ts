@@ -349,6 +349,50 @@ export function jobPostReported(options: {
   };
 }
 
+/**
+ * An event somebody accepted has moved.
+ *
+ * Carries the old time as well as the new one. "Your shoot has moved" with a
+ * single date leaves the reader working out what changed from memory, and the
+ * one thing this message exists to prevent is somebody turning up at the time
+ * they had written down.
+ *
+ * No accept/decline call to action: they already accepted, and the organiser
+ * moved it. The link goes to the event so they can see it and talk to whoever
+ * moved it if the new time does not work.
+ */
+export function eventChanged(options: {
+  organiserName: string;
+  eventTitle: string;
+  /** Already formatted for reading, as it stood before the edit. */
+  previousWhen: string;
+  /** Already formatted for reading — "Fri 14 Mar at 09:00". */
+  when: string;
+  url: string;
+}): RenderedEmail {
+  const intro = `${options.organiserName} moved “${options.eventTitle}”. It was ${options.previousWhen}, and it is now ${options.when}.`;
+  return {
+    subject: `Moved: ${options.eventTitle} is now ${options.when}`,
+    html: layout({
+      heading: 'An event you joined has moved',
+      intro,
+      cta: { label: 'Open the event', url: options.url },
+      fineprint: [
+        'Your place is unchanged — you do not need to accept again. If the new time does not work, tell the organiser.',
+      ],
+    }),
+    text: [
+      'An event you joined has moved',
+      '',
+      intro,
+      '',
+      options.url,
+      '',
+      'Your place is unchanged. If the new time does not work, tell the organiser.',
+    ].join('\n'),
+  };
+}
+
 export function eventInvite(options: {
   inviterName: string;
   eventTitle: string;

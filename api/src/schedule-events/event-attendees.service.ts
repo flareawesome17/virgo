@@ -7,10 +7,21 @@ import {
 import { DatabaseService } from '../database/database.service';
 import { FriendsService } from '../friends/friends.service';
 import { MailConfig } from '../mail/mail.config';
-import { eventInvite } from '../mail/mail.templates';
+import { eventChanged, eventInvite } from '../mail/mail.templates';
 import { NotifyService } from '../notifications/notify.service';
 
 export type AttendeeStatus = 'pending' | 'accepted' | 'declined';
+
+/**
+ * `2026-08-25` + `09:00:00` -> `2026-08-25 at 09:00`.
+ *
+ * Shared so the invite email and the change email cannot describe the same
+ * event two different ways. An event with no time is a whole day, and saying
+ * "at 00:00" about one would be inventing precision.
+ */
+function formatWhen(date: string, time: string | null): string {
+  return time ? `${date} at ${time.slice(0, 5)}` : date;
+}
 
 export interface Attendee {
   id: string;
@@ -237,9 +248,7 @@ export class EventAttendeesService {
         [organiserId],
       );
 
-      const when = event.event_time
-        ? `${event.event_date} at ${event.event_time.slice(0, 5)}`
-        : event.event_date;
+      const when = formatWhen(event.event_date, event.event_time);
       const who = organiser?.name ?? 'Someone';
 
       await this.notifier.notify(inviteeIds, {
@@ -272,6 +281,8 @@ export class EventAttendeesService {
   async notifyEventChanged(
     organiserId: string,
     event: { id: string; title: string; event_date: string; event_time: string | null },
+    /** The date and time as they stood before the edit, for the email. */
+    previous: { event_date: string; event_time: string | null },
   ): Promise<void> {
     try {
       const rows = await this.db.query<{ user_id: string }>(
@@ -282,15 +293,29 @@ export class EventAttendeesService {
       const attendeeIds = rows.map((r) => r.user_id);
       if (attendeeIds.length === 0) return;
 
-      const when = event.event_time
-        ? `${event.event_date} at ${event.event_time.slice(0, 5)}`
-        : event.event_date;
+      const organiser = await this.db.queryOne<{ name: string }>(
+        `select coalesce(display_name, split_part(email, '@', 1)) as name
+           from users where id = $1`,
+        [organiserId],
+      );
+
+      const when = formatWhen(event.event_date, event.event_time);
+      const previousWhen = formatWhen(previous.event_date, previous.event_time);
 
       await this.notifier.notify(attendeeIds, {
         topic: 'event-updated',
         title: 'An event you joined has moved',
         body: `${event.title} — now ${when}`,
         data: { type: 'event_updated', eventId: event.id },
+        // A moved shoot is exactly the case where in-app is not enough: the
+        // people who need it are the ones not currently looking at Virgo.
+        email: eventChanged({
+          organiserName: organiser?.name ?? 'The organiser',
+          eventTitle: event.title,
+          previousWhen,
+          when,
+          url: `${this.mailConfig.appUrl}/schedule`,
+        }),
       });
     } catch {
       // Swallowed on purpose — see above.
