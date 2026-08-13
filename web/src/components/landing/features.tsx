@@ -78,7 +78,7 @@ const FEATURES = [
 
 export function LandingFeatures() {
   return (
-    <section id="features" className="relative py-24 sm:py-32">
+    <section id="features" className="relative py-16 sm:py-20">
       <div className="mx-auto w-full max-w-6xl px-5 sm:px-8">
         <SectionHeader
           index="07"
@@ -98,7 +98,7 @@ export function LandingFeatures() {
          * The spans are chosen to fill exactly: 8 single + 2 double = 12
          * column units = three clean rows of four.
          */}
-        <ul className="mt-14 grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+        <ul className="mt-10 grid gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-4">
           {FEATURES.map((feature, i) => {
             const wide = i === 0 || i === 5;
             return (
@@ -112,7 +112,7 @@ export function LandingFeatures() {
                 <div
                   className={
                     wide
-                      ? 'group relative h-full overflow-hidden rounded-2xl border border-white/10 p-6 transition-colors hover:border-[#c17745]/35'
+                      ? 'group relative h-full overflow-hidden rounded-2xl border border-white/10 p-5 transition-colors hover:border-[#c17745]/35'
                       : 'group h-full'
                   }
                 >
@@ -123,19 +123,19 @@ export function LandingFeatures() {
                       className="pointer-events-none absolute inset-0 -z-10 opacity-[0.22] transition-opacity duration-500 group-hover:opacity-30"
                     />
                   )}
-                  <span className="inline-flex size-11 items-center justify-center rounded-xl border border-[#c17745]/25 bg-[#c17745]/10 transition-colors group-hover:border-[#c17745]/50 group-hover:bg-[#c17745]/15">
-                    <feature.icon className="size-5 text-[#c17745]" />
+                  <span className="inline-flex size-9 items-center justify-center rounded-lg border border-[#c17745]/25 bg-[#c17745]/10 transition-colors group-hover:border-[#c17745]/50 group-hover:bg-[#c17745]/15">
+                    <feature.icon className="size-4 text-[#c17745]" />
                   </span>
                   <h3
                     className={
                       wide
-                        ? 'mt-4 text-[17px] font-bold text-white'
-                        : 'mt-4 text-[15px] font-bold text-white'
+                        ? 'mt-3 text-[15px] font-bold text-white'
+                        : 'mt-3 text-[14px] font-bold text-white'
                     }
                   >
                     {feature.title}
                   </h3>
-                  <p className="mt-2 text-[13px] leading-relaxed text-white/50">
+                  <p className="mt-1.5 text-[12.5px] leading-snug text-white/50">
                     {feature.body}
                   </p>
                 </div>

@@ -231,43 +231,42 @@
 
   .reveal[data-reveal='up'] { transform: translate3d(0, 2rem, 0); }
   .reveal[data-reveal='down'] { transform: translate3d(0, -2rem, 0); }
-  .reveal[data-reveal='left'] { transform: translate3d(-2rem, 0, 0); }
-  .reveal[data-reveal='right'] { transform: translate3d(2rem, 0, 0); }
   .reveal[data-reveal='none'] { transform: none; }
 
   /*
-   * On a phone a sideways reveal is what makes the whole page scroll
-   * sideways.
+   * `left` and `right` travel vertically, at every width.
    *
-   * The section content is already the full width of the viewport minus its
-   * padding, so translating it 2rem puts its edge ~13px past the right of the
-   * screen, and the document grows to fit — you get a page that drifts when
-   * you swipe, on every section using `from="left"` or `from="right"`.
-   *
-   * Turning them into the vertical reveal removes the cause rather than
-   * clipping it: `overflow-x: hidden` on a wrapper would hide this one and
-   * every real overflow after it. The horizontal travel is barely legible at
-   * this width anyway, and vertical matches what the rest of the page does.
+   * A horizontal reveal on a phone is what makes the whole page scroll
+   * sideways: the content is already the viewport minus its padding, so
+   * translating it 2rem puts its edge ~13px past the right and the document
+   * grows to fit. That regression shipped twice from this file.
    */
-  /*
-   * The doubled `.reveal.reveal` is load-bearing, not a typo.
-   *
-   * This guard and the rule it overrides have identical specificity, so it
-   * only won by being later in the file — and Tailwind v4 sorts what it emits
-   * for `@layer utilities`. Adding unrelated utilities to this block was
-   * enough to reorder the two, at which point the horizontal transform came
-   * back and the page drifted sideways on a phone again.
-   *
-   * Repeating the class raises specificity to (0,3,0) and makes the guard
-   * independent of emit order, so the next utility added here cannot silently
-   * undo it.
-   */
-  @media (max-width: 639px) {
-    .reveal.reveal[data-reveal='left'],
-    .reveal.reveal[data-reveal='right'] {
-      transform: translate3d(0, 2rem, 0);
-    }
+  .reveal[data-reveal='left'],
+  .reveal[data-reveal='right'] {
+    transform: translate3d(0, 2rem, 0);
   }
+
+  /*
+   * There is no width-dependent direction any more, and that is deliberate.
+   *
+   * `left` and `right` travel vertically like everything else. Three attempts
+   * to make direction responsive all failed in ways I could not explain from
+   * the shipped CSS: a `max-width` override lost to a lower-specificity plain
+   * rule; the same override at (0,3,0) lost too; and inverting it to a
+   * `min-width` opt-in lost in the other direction. Tailwind v4 sorts what it
+   * emits for `@layer utilities` and the ordering defeats media queries here.
+   *
+   * The next step would have been `!important` on both the travel and the
+   * resting state, which does win — but it also puts two `!important`
+   * transforms on a live marketing page to buy a 32px difference in entrance
+   * direction, in a file that has already produced two sideways-scroll
+   * regressions on phones. Uniform vertical costs almost nothing visually and
+   * cannot break.
+   *
+   * The `from` prop stays: it still expresses intent, it is what a future
+   * revisit would key off, and collapsing it would touch fifteen call sites
+   * to change nothing a reader can see.
+   */
 
   .reveal[data-shown] {
     opacity: 1;

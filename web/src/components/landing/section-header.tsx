@@ -4,14 +4,10 @@ import { Reveal } from './reveal';
 /**
  * The header block every section opens with.
  *
- * This markup was copy-pasted into six files, identical to the character —
- * same eyebrow, same `sm:text-[2.6rem]` heading, same lead paragraph, same
- * centre alignment. Six sections opening the same way is most of what made the
- * page read as one long template.
- *
- * One component, with the variance made explicit. `align` and `size` are the
- * knobs that let a section be loud or quiet on purpose, instead of every
- * section being the same medium.
+ * This markup was copy-pasted into six files, identical to the character.
+ * One component, with the variance made explicit — `align`, `size` and `tone`
+ * are the knobs that let a section be loud or quiet, dark or light, on
+ * purpose, instead of every section being the same medium.
  */
 export function SectionHeader({
   eyebrow,
@@ -19,21 +15,29 @@ export function SectionHeader({
   lead,
   align = 'left',
   size = 'md',
+  tone = 'dark',
   index,
   className,
 }: {
   eyebrow: string;
   title: React.ReactNode;
   lead?: React.ReactNode;
-  /** Centre is now the exception, not the default. */
+  /** Centre is the exception, not the default. */
   align?: 'left' | 'center';
-  /** `lg` is for the two or three sections that carry the page. */
-  size?: 'sm' | 'md' | 'lg';
-  /** A plate-style index, e.g. "02". Mono, so it reads as a mark not a word. */
+  /**
+   * `xl` is the page's typographic peak and belongs to exactly one section.
+   * Nothing on this page was ever allowed to be big, which is most of why it
+   * read as flat at any distance.
+   */
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  /** `light` is for the one inverted section. */
+  tone?: 'dark' | 'light';
+  /** A plate-style index, e.g. "04". Mono, so it reads as a mark not a word. */
   index?: string;
   className?: string;
 }) {
   const centred = align === 'center';
+  const light = tone === 'light';
 
   return (
     <div
@@ -41,20 +45,27 @@ export function SectionHeader({
         'max-w-2xl',
         centred && 'mx-auto text-center',
         size === 'lg' && 'max-w-3xl',
+        size === 'xl' && 'max-w-none',
         className,
       )}
     >
       <Reveal from={centred ? 'up' : 'left'} duration={420}>
         <span
           className={cn(
-            'figure flex items-center gap-2.5 text-[11px] font-semibold uppercase text-[#c17745]',
+            'figure flex items-center gap-2.5 text-[11px] font-semibold uppercase',
+            light ? 'text-[#a85f38]' : 'text-[#c17745]',
             centred && 'justify-center',
           )}
         >
           {index && (
             <>
-              <span className="text-white/25">{index}</span>
-              <span aria-hidden className="h-px w-6 bg-white/15" />
+              <span className={light ? 'text-[#1e1b18]/35' : 'text-white/25'}>
+                {index}
+              </span>
+              <span
+                aria-hidden
+                className={cn('h-px w-6', light ? 'bg-[#1e1b18]/20' : 'bg-white/15')}
+              />
             </>
           )}
           {eyebrow}
@@ -64,11 +75,16 @@ export function SectionHeader({
       <Reveal from={centred ? 'up' : 'left'} delay={70} duration={520}>
         <h2
           className={cn(
-            'mt-4 text-balance font-extrabold tracking-tight text-white',
+            'mt-4 text-balance font-extrabold tracking-tight',
+            light ? 'text-[#1e1b18]' : 'text-white',
             size === 'sm' && 'text-2xl sm:text-[2rem] sm:leading-[1.15]',
             size === 'md' && 'text-3xl sm:text-[2.6rem] sm:leading-[1.1]',
             size === 'lg' &&
               'text-[2.25rem] leading-[1.05] sm:text-[3.4rem] lg:text-[3.9rem]',
+            // Clamped rather than stepped: at this size a breakpoint jump is
+            // the difference between filling the line and wrapping to three.
+            size === 'xl' &&
+              'text-[clamp(2.75rem,9vw,7.5rem)] leading-[0.92] tracking-[-0.03em]',
           )}
         >
           {title}
@@ -79,8 +95,12 @@ export function SectionHeader({
         <Reveal from={centred ? 'up' : 'left'} delay={130} duration={600}>
           <p
             className={cn(
-              'mt-4 text-pretty leading-relaxed text-white/55',
-              size === 'lg' ? 'text-base sm:text-[17px]' : 'text-[15px]',
+              'mt-4 text-pretty leading-relaxed',
+              light ? 'text-[#54433c]' : 'text-white/55',
+              size === 'lg' || size === 'xl'
+                ? 'max-w-2xl text-base sm:text-[17px]'
+                : 'text-[15px]',
+              centred && 'mx-auto',
             )}
           >
             {lead}
