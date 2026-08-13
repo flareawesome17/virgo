@@ -25,7 +25,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -189,10 +188,6 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       ))}
 
-      {/* Below the destinations, not among them: these are people, and a row
-          that changes colour when somebody signs in does not belong in a list
-          of places. Renders nothing until there are friends with accounts. */}
-      <SidebarFriends />
     </nav>
   );
 }
@@ -228,9 +223,30 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           links off the screen, and never showed a scrollbar because as far
           as the browser was concerned nothing overflowed. On a short window
           Support and the sign-out menu were simply unreachable. */}
-      <ScrollArea className="min-h-0 flex-1">
+      {/* A plain scroller, not Radix's ScrollArea.
+
+          ScrollArea exists to draw a custom scrollbar, and this sidebar wants
+          none — so hiding its bar with a class meant fighting a component for
+          the one thing it is for, and losing if it ever set the property
+          inline. Dropping it removes the argument: the native bar is hidden by
+          `.no-scrollbar`, there is no second bar to hide, and scrolling by
+          wheel, trackpad, keyboard and touch is untouched. */}
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <NavLinks onNavigate={onNavigate} />
-      </ScrollArea>
+      </div>
+
+      {/* Below the destinations, not among them: these are people, and a row
+          that changes colour when somebody signs in does not belong in a list
+          of places. Outside the nav's scroller too — it owns its own, so a
+          long friends list no longer pushes Rewards and Support out of reach.
+          Renders nothing until there are friends with accounts. */}
+      {/* px-3 replaces the padding it used to inherit from the nav, so the
+          rows keep their original indent. min-h-0 rather than shrink-0: on a
+          short window this block gives height back to the nav above it, down
+          to the floor the component sets on itself. */}
+      <div className="min-h-0 px-3">
+        <SidebarFriends />
+      </div>
 
       <div className="shrink-0 border-t p-3">
         <DropdownMenu>

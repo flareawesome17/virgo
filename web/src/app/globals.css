@@ -209,6 +209,26 @@
     grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
     gap: 0.75rem;
   }
+
+  /*
+   * Scrolls, without drawing a bar.
+   *
+   * Opt-in and used only where something else already signals that there is
+   * more to see — the sidebar's friends list fades at its bottom edge. Applied
+   * broadly this would remove the one affordance that tells a reader a long
+   * album or chat continues below the fold.
+   *
+   * No cascade fight here, unlike the reveal rules further down: the global
+   * bar is styled through `*::-webkit-scrollbar` at (0,0,0), and this is
+   * (0,1,0), so it wins on specificity whatever order Tailwind emits them in.
+   */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* ─── Landing page ─────────────────────────────────────────────────────────
