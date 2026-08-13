@@ -48,7 +48,7 @@ export function LandingDelivery() {
 
         {/* Lifted above the other mocks on the page. Every surface carried the
             same shadow, so nothing was ever the focal object in its section. */}
-        <Reveal from="right" delay={120} className="lg:order-1">
+        <Reveal from="right" delay={120} duration={900} className="lg:order-1">
           <div className="overflow-hidden rounded-2xl border border-white/12 bg-[#1e1b18]/80 shadow-[0_40px_80px_-20px_rgba(0,0,0,0.75)] backdrop-blur-xl">
             <div className="flex items-center gap-2.5 border-b border-white/8 px-4 py-3.5">
               <Link2 className="size-3.5 text-white/30" />

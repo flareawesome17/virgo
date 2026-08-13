@@ -44,7 +44,7 @@ export function SectionHeader({
         className,
       )}
     >
-      <Reveal from={centred ? 'up' : 'left'}>
+      <Reveal from={centred ? 'up' : 'left'} duration={420}>
         <span
           className={cn(
             'figure flex items-center gap-2.5 text-[11px] font-semibold uppercase text-[#c17745]',
@@ -61,7 +61,7 @@ export function SectionHeader({
         </span>
       </Reveal>
 
-      <Reveal from={centred ? 'up' : 'left'} delay={70}>
+      <Reveal from={centred ? 'up' : 'left'} delay={70} duration={520}>
         <h2
           className={cn(
             'mt-4 text-balance font-extrabold tracking-tight text-white',
@@ -76,7 +76,7 @@ export function SectionHeader({
       </Reveal>
 
       {lead && (
-        <Reveal from={centred ? 'up' : 'left'} delay={130}>
+        <Reveal from={centred ? 'up' : 'left'} delay={130} duration={600}>
           <p
             className={cn(
               'mt-4 text-pretty leading-relaxed text-white/55',

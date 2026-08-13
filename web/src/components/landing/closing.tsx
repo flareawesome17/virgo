@@ -7,7 +7,7 @@ import { SIGN_IN_URL, SIGN_UP_URL } from './links';
 
 export function LandingClosing() {
   return (
-    <section className="relative overflow-hidden py-24 sm:py-32">
+    <section id="start" className="relative overflow-hidden py-24 sm:py-32">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(42rem_26rem_at_50%_100%,color-mix(in_oklab,var(--primary)_22%,transparent),transparent_70%)]"

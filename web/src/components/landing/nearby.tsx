@@ -64,7 +64,7 @@ export function LandingNearby() {
           </Reveal>
         </div>
 
-        <Reveal from="right" delay={120}>
+        <Reveal from="right" delay={120} duration={900}>
           <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#1e1b18]/80 shadow-2xl shadow-black/40 backdrop-blur-xl">
             <div className="flex items-center gap-2.5 border-b border-white/8 px-4 py-3.5">
               <Search className="size-3.5 text-white/30" />

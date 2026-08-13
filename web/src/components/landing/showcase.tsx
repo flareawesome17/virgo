@@ -40,8 +40,16 @@ const NEARBY = [
 
 export function LandingShowcase() {
   return (
-    <section id="showcase" className="relative overflow-hidden py-24 sm:py-28">
-      <div className="mx-auto w-full max-w-6xl px-5 sm:px-8">
+    <section
+      id="showcase"
+      // The one section that is its own surface. Every other section sits on
+      // the same flat #161311, so nothing on the page ever read as a change
+      // of chapter. Edge-to-edge because a section already spans the
+      // viewport - this needs no 100vw trick and so cannot cause the
+      // sideways drift that one would risk on a phone.
+      className="relative overflow-hidden border-y border-white/[0.06] bg-white/[0.015] py-24 sm:py-28"
+    >
+      <div className="mx-auto w-full max-w-7xl px-5 sm:px-8">
         <Reveal className="text-center">
           <h2 className="text-balance text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
             The delivery your client sees. The people you need.

@@ -24,12 +24,22 @@ export function Reveal({
   delay = 0,
   /** Which way it travels in from. */
   from = 'up',
+  /**
+   * How long the travel takes, in milliseconds.
+   *
+   * Every reveal on the page ran at the CSS default of 700ms, so eleven
+   * sections arrived at exactly the same speed however big or small the thing
+   * arriving was. A heading block wants to be quicker than a full mock panel;
+   * matching them makes the page feel metronomic rather than composed.
+   */
+  duration,
   className,
   as: Tag = 'div',
 }: {
   children: ReactNode;
   delay?: number;
   from?: 'up' | 'down' | 'left' | 'right' | 'none';
+  duration?: number;
   className?: string;
   as?: 'div' | 'section' | 'li' | 'span';
 }) {
@@ -71,7 +81,17 @@ export function Reveal({
       ref={ref as React.Ref<never>}
       data-reveal={from}
       data-shown={shown ? '' : undefined}
-      style={delay ? { transitionDelay: `${delay}ms` } : undefined}
+      style={
+        delay || duration
+          ? {
+              ...(delay ? { transitionDelay: `${delay}ms` } : null),
+              // Overrides the 700ms in globals.css. The reduced-motion rule
+              // there kills the transition outright with !important, so this
+              // cannot reintroduce motion for anyone who asked for none.
+              ...(duration ? { transitionDuration: `${duration}ms` } : null),
+            }
+          : undefined
+      }
       className={cn('reveal', className)}
     >
       {children}

@@ -74,7 +74,7 @@ export function LandingCommunity() {
             </ul>
           </Reveal>
 
-          <Reveal from="right" delay={120}>
+          <Reveal from="right" delay={120} duration={900}>
             <div className="rounded-2xl border border-white/10 bg-[#1e1b18]/80 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/35">
                 Every role on a shoot

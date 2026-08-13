@@ -34,7 +34,7 @@ const OFFSET = ['md:mt-0', 'md:mt-14', 'md:mt-7'];
 
 export function LandingPillars() {
   return (
-    <section className="relative py-20 sm:py-24">
+    <section id="pillars" className="relative py-20 sm:py-24">
       <div className="mx-auto w-full max-w-6xl px-5 sm:px-8">
         <ul className="grid gap-x-10 gap-y-14 md:grid-cols-3">
           {PILLARS.map((pillar, i) => (
