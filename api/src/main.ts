@@ -8,6 +8,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module';
+import { corsOptions } from './config/cors';
 import { DatabaseService } from './database/database.service';
 import { runMigrations } from './database/migrator';
 
@@ -71,19 +72,25 @@ async function bootstrap(): Promise<void> {
 
   // Explicit allow-list. A wildcard origin combined with credentials is
   // rejected by browsers anyway, and would be wrong here regardless.
+  //
+  // ALLOW_LAN_ORIGINS widens it to any plain-HTTP origin on this machine or
+  // this LAN. That is a development setting: the dev address comes from DHCP,
+  // and naming it here means every new lease breaks every request at the
+  // preflight. Never set it on a deployed instance. See config/cors.ts.
   const origins = (config.get<string>('CORS_ORIGINS') ?? '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
 
-  // The empty case only ever happens outside production — validateEnv refuses
-  // to boot a production process with no CORS_ORIGINS. Reflecting the origin is
-  // what makes localhost, a LAN IP and the Expo tunnel all work at once.
-  app.enableCors({
-    origin: origins.length > 0 ? origins : true,
-    credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  });
+  const allowLan = config.get<string>('ALLOW_LAN_ORIGINS') === 'true';
+  app.enableCors(corsOptions(origins, allowLan));
+
+  if (allowLan) {
+    logger.warn(
+      'ALLOW_LAN_ORIGINS is on: any http:// origin on this machine or LAN is ' +
+        'accepted in addition to CORS_ORIGINS. Development only.',
+    );
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({

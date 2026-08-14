@@ -9,8 +9,72 @@
  * anyway via a different audience claim.
  */
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') ?? 'https://api.virgo.ph';
+/**
+ * Hostnames that only mean something on this machine or this network.
+ *
+ * Matched as four whole octets, not by prefix: `/^192\.168\./` also matches
+ * `192.168.1.5.evil.com`, a name anybody can register.
+ */
+function isPrivateIPv4(hostname: string): boolean {
+  const parts = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (!parts) return false;
+
+  const octets = parts.slice(1).map(Number);
+  if (octets.some((n) => n > 255)) return false;
+
+  const [a, b] = octets;
+  if (a === 127) return true; // loopback
+  if (a === 10) return true; // RFC 1918
+  if (a === 192 && b === 168) return true; // RFC 1918
+  if (a === 172 && b >= 16 && b <= 31) return true; // RFC 1918
+  if (a === 169 && b === 254) return true; // link-local
+  return false;
+}
+
+function isLocalHostname(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    hostname === 'local' ||
+    hostname.endsWith('.local') ||
+    isPrivateIPv4(hostname)
+  );
+}
+
+/**
+ * Follows the browser's own hostname when the configured API is a local one.
+ *
+ * NEXT_PUBLIC_* is inlined at build time, so a development image carries the
+ * LAN address the machine had when it was built. On a DHCP lease that address
+ * changes and the console can no longer reach the API — it looks broken, and
+ * the only fix is a rebuild. The port is what is actually configured; the host
+ * is just "wherever this stack is", which the page already knows.
+ *
+ * https://api.virgo.ph is not a local hostname, so production is untouched.
+ * Mirrors web/src/api/config.ts — the two clients are deliberately separate,
+ * so this rule is stated in both rather than shared.
+ */
+function resolveBaseUrl(raw: string): string {
+  if (!raw || typeof window === 'undefined') return raw;
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return raw;
+  }
+
+  if (!isLocalHostname(url.hostname)) return raw;
+  if (url.hostname === window.location.hostname) return raw;
+
+  url.hostname = window.location.hostname;
+  return url.toString();
+}
+
+export const API_BASE_URL = resolveBaseUrl(
+  process.env.NEXT_PUBLIC_API_URL ?? 'https://api.virgo.ph',
+).replace(/\/+$/, '');
 
 /**
  * Storage keys, prefixed so they cannot collide with the app's if someone ever
