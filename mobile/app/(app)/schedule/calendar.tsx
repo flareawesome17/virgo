@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
   ArrowLeftIcon, PlusIcon, CalendarDaysIcon,
-  CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
+  TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -17,20 +17,21 @@ import {
   formatTime,
   getMonthWeeks,
   todayKey,
+  eventTypeLabel,
 } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CameraIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const EVENT_ICONS: Record<string, LucideIcon> = {
-  shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
-  delivery: PackageIcon, meeting: PresentationIcon,
+  event: CalendarDaysIcon, editing: ScissorsIcon, review: EyeIcon,
+  delivery: PackageIcon, meeting: PresentationIcon, other: TagIcon,
 };
 // Long month names for this screen's header; the rest of the date helpers
 // come from src/lib/calendar.ts. The local copies mishandled month/year
@@ -190,7 +191,7 @@ export default function CalendarScreen() {
                       {ev.description ? <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>{ev.description}</Text> : null}
                       <View className="flex-row items-center gap-3 mt-2">
                         <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: `${color}14` }}>
-                          <Text style={{ color, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 }}>{ev.event_type}</Text>
+                          <Text numberOfLines={1} style={{ color, fontSize: 9, fontWeight: '700', textTransform: ev.event_type_other ? 'none' : 'uppercase', letterSpacing: 0.3 }}>{eventTypeLabel(ev)}</Text>
                         </View>
                       </View>
                     </View>

@@ -227,11 +227,15 @@ export function combineDateAndTime(key: string, time: string): Date {
  * would purge the class and the dot would render transparent.
  */
 export const EVENT_COLORS: Record<string, string> = {
-  shoot: '#B66A40',
+  event: '#B66A40',
   editing: '#C17745',
   review: '#8B5E3C',
   delivery: '#6B8E4E',
   meeting: '#5B7B9A',
+  // Deliberately outside the earthy run the other five sit in. "Other" is
+  // whatever the five did not cover, and a colour that reads as one of them
+  // would undo the distinction the user just made.
+  other: '#8A6E9E',
 };
 
 /** For an event with no type, or a type added server-side that predates this. */
@@ -239,6 +243,30 @@ export const EVENT_COLOR_FALLBACK = '#B66A40';
 
 export function eventColor(eventType: string | null | undefined): string {
   return EVENT_COLORS[eventType ?? ''] ?? EVENT_COLOR_FALLBACK;
+}
+
+/**
+ * What to print for an event's type.
+ *
+ * Every screen used to render the raw column, capitalised — fine while the
+ * five values were all English words, and wrong the moment `other` exists,
+ * because it would print the literal word "Other" instead of what the person
+ * typed.
+ *
+ * Takes the whole event rather than two arguments so a call site cannot pass
+ * the type and forget the label; that mistake is invisible until somebody
+ * creates an "other" event, which is exactly the case this exists for.
+ */
+export function eventTypeLabel(event: {
+  event_type?: string | null;
+  event_type_other?: string | null;
+}): string {
+  const custom = event.event_type_other?.trim();
+  if (custom) return custom;
+
+  const type = event.event_type?.trim();
+  if (!type) return 'Event';
+  return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 /**

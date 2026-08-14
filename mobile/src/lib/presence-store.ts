@@ -165,7 +165,7 @@ const NOBODY: string[] = [];
  * fresh `[]` from getSnapshot would make useSyncExternalStore believe the
  * store changed on every render and loop.
  */
-let typingCache = new Map<string, string[]>();
+const typingCache = new Map<string, string[]>();
 
 /**
  * Which of these accounts are online, as a stable key.

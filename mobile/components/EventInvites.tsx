@@ -2,13 +2,13 @@ import { View, Text, Pressable, Image, Alert } from 'react-native';
 import { useState } from 'react';
 import {
   CalendarDaysIcon,
-  CameraIcon,
   CheckIcon,
   EyeIcon,
   MailIcon,
   PackageIcon,
   PresentationIcon,
   ScissorsIcon,
+  TagIcon,
   UserPlusIcon,
   UsersIcon,
   XIcon,
@@ -25,7 +25,12 @@ import {
   useTheme,
   useUninviteFromEvent,
 } from '@/src/hooks';
-import { eventColor, formatTime, labelForDateKey } from '@/src/lib/calendar';
+import {
+  eventColor,
+  eventTypeLabel,
+  formatTime,
+  labelForDateKey,
+} from '@/src/lib/calendar';
 import type { AttendeeStatus } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 
@@ -38,11 +43,12 @@ cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color:
 /** Same mapping the schedule screens use, so an invitation looks like the
  *  event it will become once accepted. */
 const EVENT_ICONS: Record<string, LucideIcon> = {
-  shoot: CameraIcon,
+  event: CalendarDaysIcon,
   editing: ScissorsIcon,
   review: EyeIcon,
   delivery: PackageIcon,
   meeting: PresentationIcon,
+  other: TagIcon,
 };
 
 const STATUS_LABEL: Record<AttendeeStatus, string> = {
@@ -496,11 +502,13 @@ export function EventInvitationsCard() {
                           color,
                           fontSize: 10,
                           fontWeight: '700',
-                          textTransform: 'uppercase',
+                          textTransform: invitation.event_type_other
+                            ? 'none'
+                            : 'uppercase',
                           letterSpacing: 0.4,
                         }}
                       >
-                        {invitation.event_type}
+                        {eventTypeLabel(invitation)}
                       </Text>
                     </View>
                   </View>

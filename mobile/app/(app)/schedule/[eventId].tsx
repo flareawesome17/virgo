@@ -13,19 +13,19 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
   ArrowLeftIcon, ClockIcon, CalendarDaysIcon, BellIcon, BellOffIcon,
-  CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
+  TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
   CheckCircleIcon, CircleIcon, PlusIcon, Trash2Icon, PencilIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { eventColor } from '@/src/lib/calendar';
+import { eventColor, eventTypeLabel } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CameraIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -37,8 +37,8 @@ cssInterop(Trash2Icon, { className: { target: 'style', nativeStyleToProp: { colo
 cssInterop(PencilIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const EVENT_ICONS: Record<string, LucideIcon> = {
-  shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
-  delivery: PackageIcon, meeting: PresentationIcon,
+  event: CalendarDaysIcon, editing: ScissorsIcon, review: EyeIcon,
+  delivery: PackageIcon, meeting: PresentationIcon, other: TagIcon,
 };
 function formatTime(timeStr: string | null): string {
   if (!timeStr) return '';
@@ -141,7 +141,7 @@ export default function EventDetailScreen() {
               <Text className="text-foreground text-[20px] font-bold tracking-tight">{event.title}</Text>
               <View className="flex-row items-center gap-2 mt-1.5">
                 <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${color}22` }}>
-                  <Text style={{ color, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 }}>{event.event_type}</Text>
+                  <Text numberOfLines={1} style={{ color, fontSize: 11, fontWeight: '700', textTransform: event.event_type_other ? 'none' : 'uppercase', letterSpacing: 0.4 }}>{eventTypeLabel(event)}</Text>
                 </View>
                 {workspace && (
                   <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${wsAccent}15` }}>

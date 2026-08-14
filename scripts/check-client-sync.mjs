@@ -3,9 +3,10 @@
  * Keeps the web and mobile clients in step.
  *
  * The two apps share a transport layer — the same endpoints, the same request
- * and response types, the same query keys — and drift there is silent. A field
- * added to one `types.ts` and not the other does not fail a build; it fails at
- * runtime, on one platform, on whichever screen reads the field.
+ * and response types, the same query keys — plus a handful of pure helpers
+ * under `lib/`, and drift in any of it is silent. A field added to one
+ * `types.ts` and not the other does not fail a build; it fails at runtime, on
+ * one platform, on whichever screen reads the field.
  *
  * So the shared files are compared directly. Two differences are expected and
  * normalised away rather than flagged:
@@ -53,7 +54,38 @@ const PLATFORM_SPECIFIC = {
   // Mobile has no hook: the album screen calls the shared albumShareApi
   // directly. The endpoint module — the part that has to agree — is compared.
   'hooks/useAlbumShare.ts': 'mobile calls albumShareApi from the screen',
+  'lib/queryClient.ts': 'AsyncStorage persistence has no web counterpart',
+  'lib/sounds.ts': 'expo-audio vs WebAudio',
 };
+
+/**
+ * Shared files under `lib/`, named one by one.
+ *
+ * `api/` and `hooks/` can be walked because everything in them is meant to
+ * match. `lib/` cannot: web has `analytics.ts`, `image.ts` and `version.ts`
+ * that mobile has no use for, and mobile has `notifications.ts`,
+ * `query-focus.ts` and `themePreference.ts` that web has no use for. Walking it
+ * would report a dozen files as missing and teach everyone to ignore the
+ * output.
+ *
+ * These six are duplicated on purpose. Four are pure logic and must match;
+ * `queryClient.ts` and `sounds.ts` are named here anyway, and exempted in
+ * PLATFORM_SPECIFIC above, so that "these two are allowed to differ" is
+ * recorded rather than left to be rediscovered.
+ *
+ * Keeping them in step was a matter of remembering until now — which held
+ * right up until an event type was renamed in one copy of `calendar.ts`, at
+ * which point one client draws the right colour and the other draws the
+ * fallback.
+ */
+const SHARED_LIB = [
+  'calendar.ts',
+  'job-form.ts',
+  'ph-locations.ts',
+  'presence-store.ts',
+  'queryClient.ts',
+  'sounds.ts',
+];
 
 function walk(dir, base = dir, out = []) {
   for (const entry of readdirSync(dir)) {
@@ -79,26 +111,31 @@ const drifted = [];
 const missing = [];
 let compared = 0;
 
-for (const area of ['api', 'hooks']) {
-  const webDir = join(WEB, area);
-  for (const file of walk(webDir)) {
-    const key = `${area}/${file}`;
-    if (key in PLATFORM_SPECIFIC) continue;
+/** Every path to compare, relative to each client's `src/`. */
+const keys = [
+  ...['api', 'hooks'].flatMap((area) =>
+    walk(join(WEB, area)).map((file) => `${area}/${file}`),
+  ),
+  ...SHARED_LIB.map((file) => `lib/${file}`),
+];
 
-    const mobilePath = join(MOBILE, area, file);
-    let mobileText;
-    try {
-      mobileText = readFileSync(mobilePath, 'utf8');
-    } catch {
-      missing.push(key);
-      continue;
-    }
+for (const key of keys) {
+  if (key in PLATFORM_SPECIFIC) continue;
 
-    compared++;
-    if (normalise(readFileSync(join(webDir, file), 'utf8')) !== normalise(mobileText)) {
-      drifted.push(key);
-    }
+  let webText;
+  let mobileText;
+  try {
+    // Web first: a SHARED_LIB entry naming a file that does not exist there is
+    // a mistake in this script, not drift between the clients.
+    webText = readFileSync(join(WEB, key), 'utf8');
+    mobileText = readFileSync(join(MOBILE, key), 'utf8');
+  } catch {
+    missing.push(key);
+    continue;
   }
+
+  compared++;
+  if (normalise(webText) !== normalise(mobileText)) drifted.push(key);
 }
 
 console.log(`Compared ${compared} shared file(s).`);

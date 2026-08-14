@@ -73,6 +73,7 @@ import {
   DAYS,
   MONTHS,
   dayDots,
+  eventTypeLabel,
   formatTime,
   getMonthWeeks,
   isEventUpcoming,
@@ -81,7 +82,19 @@ import {
 } from '@/lib/calendar';
 import type { EventType } from '@/api';
 
-const EVENT_TYPES: EventType[] = ['shoot', 'editing', 'review', 'delivery', 'meeting'];
+/**
+ * Written out with labels rather than capitalising the value, because one of
+ * them is not a word — "Others (specify)" is an instruction, and `other`
+ * capitalised reads as a category nobody would pick on purpose.
+ */
+const EVENT_TYPES: { value: EventType; label: string }[] = [
+  { value: 'event', label: 'Event' },
+  { value: 'editing', label: 'Editing' },
+  { value: 'review', label: 'Review' },
+  { value: 'delivery', label: 'Delivery' },
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'other', label: 'Others (specify)' },
+];
 
 /** Tab values that ?tab= may name. Anything else is ignored. */
 const TABS = ['day', 'upcoming', 'invites', 'reminders'];
@@ -107,8 +120,13 @@ function EventDialog({
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(defaultDate);
   const [time, setTime] = useState('');
-  const [type, setType] = useState<EventType>('shoot');
+  const [type, setType] = useState<EventType>('event');
+  const [otherLabel, setOtherLabel] = useState('');
   const [guests, setGuests] = useState<string[]>([]);
+
+  // An "other" event is only half-described until it is named, so the save
+  // button waits for the name the same way it waits for the title.
+  const needsLabel = type === 'other' && !otherLabel.trim();
 
   // Refilled on every open, not just mount: one dialog instance serves
   // whichever event the pencil was pressed on, so without this you would be
@@ -123,6 +141,7 @@ function EventDialog({
       // and silently renders empty otherwise.
       setTime(event.event_time ? event.event_time.slice(0, 5) : '');
       setType(event.event_type as EventType);
+      setOtherLabel(event.event_type_other ?? '');
     } else {
       setDate(defaultDate);
     }
@@ -130,7 +149,15 @@ function EventDialog({
 
   const submit = () => {
     const trimmed = title.trim();
-    if (!trimmed || !date) return;
+    if (!trimmed || !date || needsLabel) return;
+
+    // Sent on every save, not only when `other` is chosen: switching away from
+    // it has to clear the old name, and omitting the field would leave the
+    // server to guess whether that was intended.
+    const typeFields = {
+      event_type: type,
+      event_type_other: type === 'other' ? otherLabel.trim() : null,
+    };
 
     if (event) {
       update.mutate(
@@ -140,7 +167,7 @@ function EventDialog({
           description: description.trim() || null,
           event_date: date,
           event_time: time || null,
-          event_type: type,
+          ...typeFields,
         },
         {
           onSuccess: () => {
@@ -160,12 +187,12 @@ function EventDialog({
         description: description.trim() || null,
         event_date: date,
         event_time: time || null,
-        event_type: type,
+        ...typeFields,
       },
       {
         onSuccess: (event) => {
           // Invitations are a second call on purpose: the event exists either
-          // way, so a failure here loses the invitations, not the shoot.
+          // way, so a failure here loses the invitations, not the event.
           if (guests.length > 0) {
             invite.mutate(
               { eventId: event.id, userIds: guests },
@@ -185,6 +212,7 @@ function EventDialog({
           setTitle('');
           setDescription('');
           setTime('');
+          setOtherLabel('');
           setGuests([]);
         },
         onError: (err: Error) =>
@@ -201,7 +229,7 @@ function EventDialog({
           <DialogDescription>
             {editing
               ? 'Anyone who accepted sees these changes on their own calendar.'
-              : 'A shoot, an edit, a review or a delivery.'}
+              : 'A shoot, an edit, a meeting — or anything else you name.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -247,13 +275,25 @@ function EventDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {EVENT_TYPES.map((value) => (
-                  <SelectItem key={value} value={value} className="capitalize">
-                    {value}
+                {EVENT_TYPES.map(({ value, label }) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+
+            {type === 'other' && (
+              <Input
+                id="event-type-other"
+                value={otherLabel}
+                onChange={(e) => setOtherLabel(e.target.value)}
+                placeholder="Client viewing"
+                maxLength={40}
+                aria-label="What kind of event"
+                autoFocus
+              />
+            )}
           </div>
 
           <div className="grid gap-2">
@@ -291,7 +331,10 @@ function EventDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!title.trim() || !date || pending}>
+          <Button
+            onClick={submit}
+            disabled={!title.trim() || !date || needsLabel || pending}
+          >
             {pending && <Loader2 className="size-4 animate-spin" />}
             {editing ? 'Save changes' : 'Create event'}
           </Button>
@@ -415,7 +458,7 @@ function InvitationsTab() {
         <EmptyState
           icon={Mail}
           title="No invitations"
-          description="When someone invites you to a shoot, it lands here."
+          description="When someone invites you to an event, it lands here."
         />
       </Card>
     );
@@ -440,8 +483,8 @@ function InvitationsTab() {
                     Invited by {invitation.inviter_name}
                   </p>
                 </div>
-                <Badge variant="secondary" className="shrink-0 capitalize">
-                  {invitation.event_type}
+                <Badge variant="secondary" className="shrink-0">
+                  {eventTypeLabel(invitation)}
                 </Badge>
               </div>
 
@@ -723,8 +766,8 @@ function ScheduleContent() {
                               )}
                             </div>
                             <div className="flex shrink-0 flex-col items-end gap-1">
-                              <Badge variant="secondary" className="capitalize">
-                                {event.event_type}
+                              <Badge variant="secondary">
+                                {eventTypeLabel(event)}
                               </Badge>
                               {!mine && (
                                 <Badge variant="outline" className="text-[10px]">

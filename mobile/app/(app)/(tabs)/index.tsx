@@ -1,5 +1,5 @@
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
-import { isEventUpcoming } from '@/src/lib/calendar';
+import { eventColor, eventTypeLabel, isEventUpcoming } from '@/src/lib/calendar';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
 import { Image } from 'expo-image';
@@ -56,14 +56,6 @@ const QUICK_ACTIONS = [
   { key: 'album', label: 'Create Album', icon: PlusIcon },
   { key: 'invite', label: 'Invite', icon: UserPlusIcon },
 ];
-
-const EVENT_TYPE_COLORS: Record<string, string> = {
-  shoot: '#B66A40',
-  editing: '#C17745',
-  review: '#8B5E3C',
-  delivery: '#6B8E4E',
-  meeting: '#5B7B9A',
-};
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -415,7 +407,7 @@ export default function HomeScreen() {
                   className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
                   style={i < upcomingEvents.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
                 >
-                  <View style={{ width: 3, height: 36, borderRadius: 2, backgroundColor: EVENT_TYPE_COLORS[event.event_type] || '#B66A40' }} />
+                  <View style={{ width: 3, height: 36, borderRadius: 2, backgroundColor: eventColor(event.event_type) }} />
                   <View className="flex-1 min-w-0">
                     <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
                       {event.title}
@@ -424,7 +416,7 @@ export default function HomeScreen() {
                       {event.workspace_id && workspaceNameById[event.workspace_id]
                         ? `${workspaceNameById[event.workspace_id]} · `
                         : ''}
-                      {event.event_type.charAt(0).toUpperCase() + event.event_type.slice(1)}
+                      {eventTypeLabel(event)}
                     </Text>
                   </View>
                   <View className="items-end">

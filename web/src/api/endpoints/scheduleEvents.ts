@@ -24,6 +24,13 @@ export interface CreateScheduleEventInput {
   event_date: string;
   event_time?: string | null;
   event_type?: EventType;
+  /**
+   * Required when `event_type` is `other`, and null for every other type.
+   *
+   * Declared here so a caller that changes the type without clearing the label
+   * is a compile error rather than a 400 — the two only make sense together.
+   */
+  event_type_other?: string | null;
 }
 
 export type UpdateScheduleEventInput = Partial<
