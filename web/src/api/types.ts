@@ -62,6 +62,14 @@ export interface ScheduleEvent {
   event_type: EventType;
   /** What the user called it. Set only when `event_type` is `other`. */
   event_type_other: string | null;
+  /**
+   * Where it happens, as typed.
+   *
+   * Canonicalised server-side to a known city when we recognise one, kept
+   * verbatim otherwise — so "Shangri-La Mactan" survives, it just cannot be
+   * measured from. `isKnownLocation` in lib/ph-locations tells the two apart.
+   */
+  location: string | null;
   created_at: string;
   /**
    * False when you are attending somebody else's event.
@@ -97,6 +105,7 @@ export interface EventInvitation {
   event_time: string | null;
   event_type: EventType;
   event_type_other: string | null;
+  location: string | null;
   inviter_name: string;
   created_at: string;
 }

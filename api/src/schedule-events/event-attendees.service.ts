@@ -58,6 +58,8 @@ export interface EventInvitation {
   event_type: string;
   /** Set only when `event_type` is `other`; what the organiser called it. */
   event_type_other: string | null;
+  /** Where it happens. Usually the first thing an invitee wants to know. */
+  location: string | null;
   /** Who sent it — an invitation with no name attached is unanswerable. */
   inviter_name: string;
   created_at: Date;
@@ -214,7 +216,7 @@ export class EventAttendeesService {
     return this.db.query<EventInvitation>(
       `select a.id, a.event_id, a.status, a.created_at,
               e.title, e.description, e.event_date, e.event_time,
-              e.event_type, e.event_type_other,
+              e.event_type, e.event_type_other, e.location,
               coalesce(o.display_name, split_part(o.email, '@', 1)) as inviter_name
          from event_attendees a
          join schedule_events e on e.id = a.event_id

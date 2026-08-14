@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Loader2,
   Mail,
+  MapPin,
   Pencil,
   Plus,
   Trash2,
@@ -81,6 +82,7 @@ import {
   todayKey,
 } from '@/lib/calendar';
 import type { EventType } from '@/api';
+import { LocationField } from '@/components/location-field';
 
 /**
  * Written out with labels rather than capitalising the value, because one of
@@ -124,6 +126,7 @@ function EventDialog({
   const [time, setTime] = useState('');
   const [type, setType] = useState<EventType>('event');
   const [otherLabel, setOtherLabel] = useState('');
+  const [location, setLocation] = useState('');
   const [guests, setGuests] = useState<string[]>([]);
 
   // An "other" event is only half-described until it is named, so the save
@@ -144,6 +147,7 @@ function EventDialog({
       setTime(event.event_time ? event.event_time.slice(0, 5) : '');
       setType(event.event_type as EventType);
       setOtherLabel(event.event_type_other ?? '');
+      setLocation(event.location ?? '');
     } else {
       setDate(defaultDate);
     }
@@ -159,6 +163,9 @@ function EventDialog({
     const typeFields = {
       event_type: type,
       event_type_other: type === 'other' ? otherLabel.trim() : null,
+      // Null rather than '' when cleared, so "has a location" stays one check.
+      // The server settles the spelling — "cebu" comes back as "Cebu City".
+      location: location.trim() || null,
     };
 
     if (event) {
@@ -215,6 +222,7 @@ function EventDialog({
           setDescription('');
           setTime('');
           setOtherLabel('');
+          setLocation('');
           setGuests([]);
         },
         onError: (err: Error) =>
@@ -301,6 +309,16 @@ function EventDialog({
                 autoFocus
               />
             )}
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="event-location">Where</Label>
+            <LocationField
+              id="event-location"
+              value={location}
+              onChange={setLocation}
+              placeholder="Cebu City, or the venue"
+            />
           </div>
 
           <div className="grid gap-2">
@@ -485,6 +503,7 @@ function InvitationsTab() {
                     {invitation.event_time
                       ? ` · ${formatTime(invitation.event_time)}`
                       : ''}
+                    {invitation.location ? ` · ${invitation.location}` : ''}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Invited by {invitation.inviter_name}
@@ -758,8 +777,15 @@ function ScheduleContent() {
                           <CardContent className="flex items-start gap-3 py-3">
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-semibold">{event.title}</p>
-                              <p className="mt-0.5 text-xs text-muted-foreground">
+                              <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                                 {event.event_time ? formatTime(event.event_time) : 'All day'}
+                                {event.location && (
+                                  <>
+                                    <span aria-hidden>·</span>
+                                    <MapPin className="size-3 shrink-0" />
+                                    <span className="truncate">{event.location}</span>
+                                  </>
+                                )}
                               </p>
                               {event.description && (
                                 <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">

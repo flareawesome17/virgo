@@ -21,6 +21,8 @@ export interface ScheduleEventRow {
   event_type: EventType;
   /** What the user called it. Set only when `event_type` is `other`. */
   event_type_other: string | null;
+  /** Where it happens, as typed. Canonicalised when we recognise the place. */
+  location: string | null;
   created_at: Date;
 }
 
@@ -43,6 +45,7 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     'event_time',
     'event_type',
     'event_type_other',
+    'location',
   ];
 
   protected readonly filterableColumns = [

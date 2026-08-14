@@ -12,7 +12,7 @@ import { EventAttendeesSection } from '@/components';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
-  ArrowLeftIcon, ClockIcon, CalendarDaysIcon, BellIcon, BellOffIcon,
+  ArrowLeftIcon, ClockIcon, CalendarDaysIcon, MapPinIcon, BellIcon, BellOffIcon,
   TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
   CheckCircleIcon, CircleIcon, PlusIcon, Trash2Icon, PencilIcon,
   type LucideIcon,
@@ -21,6 +21,7 @@ import { cssInterop } from 'nativewind';
 import { eventColor, eventTypeLabel } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -177,6 +178,17 @@ export default function EventDetailScreen() {
             </View>
           )}
         </View>
+
+        {/* Where */}
+        {event.location && (
+          <View className="mx-5 mt-4 bg-card rounded-2xl p-4 flex-row items-center gap-3" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+            <MapPinIcon size={14} color={color} />
+            <View className="flex-1 min-w-0">
+              <Text className="text-muted-foreground text-[10px] font-semibold uppercase">Where</Text>
+              <Text className="text-foreground text-sm font-bold">{event.location}</Text>
+            </View>
+          </View>
+        )}
 
         {/* Description */}
         {event.description && (

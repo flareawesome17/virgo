@@ -31,6 +31,8 @@ export interface CreateScheduleEventInput {
    * is a compile error rather than a 400 — the two only make sense together.
    */
   event_type_other?: string | null;
+  /** Where it happens. Null clears it; the server settles the spelling. */
+  location?: string | null;
 }
 
 export type UpdateScheduleEventInput = Partial<

@@ -29,6 +29,9 @@ const EVENT_TYPES = [
  */
 const OTHER_LABEL_MAX = 40;
 
+/** Matches hiring_posts.location, so the same venue fits in both. */
+const LOCATION_MAX = 120;
+
 /** HH:MM or HH:MM:SS — matches Postgres `time`. */
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
 
@@ -68,6 +71,12 @@ export class CreateScheduleEventDto {
   @IsString()
   @MaxLength(OTHER_LABEL_MAX)
   event_type_other?: string;
+
+  /** Where it happens. Same 120 cap as a job post's location. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(LOCATION_MAX)
+  location?: string;
 }
 
 export class UpdateScheduleEventDto {
@@ -104,6 +113,12 @@ export class UpdateScheduleEventDto {
   @IsString()
   @MaxLength(OTHER_LABEL_MAX)
   event_type_other?: string | null;
+
+  /** Null clears it — an event can stop having a location. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(LOCATION_MAX)
+  location?: string | null;
 }
 
 export class ListScheduleEventsDto extends ListQueryDto {

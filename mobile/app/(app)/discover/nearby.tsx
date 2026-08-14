@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ArrowLeftIcon,
   MapPinIcon,
@@ -23,12 +23,14 @@ import {
 import { cssInterop } from 'nativewind';
 import { LocationField } from '@/components/LocationField';
 import { canonicalLocation, isKnownLocation } from '@/src/lib/ph-locations';
+import { isEventUpcoming } from '@/src/lib/calendar';
 import {
   useFriends,
   useLocationSharing,
   useNearbyPeople,
   useNearbyRoleCounts,
   useOpenDirectChat,
+  useScheduleEvents,
   useSetLocationPlace,
   useRespondToFriendRequest,
   useSendFriendRequest,
@@ -98,6 +100,35 @@ export default function NearbyScreen() {
 
   /** "within 50 km of Cebu City", or just "within 50 km" when it is you. */
   const near = searchPlace ? ` of ${searchPlace}` : '';
+
+  /**
+   * Your own upcoming shoots, as one-tap search centres.
+   *
+   * The question behind this screen is usually "who is free near my job", and
+   * the job is already on your calendar with a place on it. Typing that place
+   * again is work the app can do.
+   *
+   * Only events we can actually measure from. A shoot at "Shangri-La Mactan"
+   * is a real event with no coordinates, and offering it would produce a chip
+   * that answers with an error — the typed field below still handles it.
+   */
+  const { events } = useScheduleEvents({ limit: 100 });
+  const eventShortcuts = useMemo(() => {
+    const now = new Date();
+    return events
+      .filter(
+        (e) =>
+          e.location &&
+          isKnownLocation(e.location) &&
+          isEventUpcoming(e.event_date, e.event_time, now),
+      )
+      .sort((a, b) =>
+        `${a.event_date}${a.event_time ?? ''}`.localeCompare(
+          `${b.event_date}${b.event_time ?? ''}`,
+        ),
+      )
+      .slice(0, 5);
+  }, [events]);
 
   const sendRequest = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
@@ -417,6 +448,41 @@ export default function NearbyScreen() {
                 </Pressable>
               ) : null}
             </View>
+            {eventShortcuts.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
+              >
+                {eventShortcuts.map((event) => {
+                  // Compared canonically: the chip is on when the search is
+                  // measuring from this event's place, however it got there.
+                  const place = canonicalLocation(event.location ?? '');
+                  const on = searchPlace === place;
+                  return (
+                    <Pressable
+                      key={event.id}
+                      onPress={() => setPlaceInput(place)}
+                      className={`px-3 py-2 rounded-2xl active:scale-[0.96] ${on ? 'bg-primary' : 'bg-card'}`}
+                      style={on ? undefined : cardShadow}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        className={`text-xs font-bold ${on ? 'text-white' : 'text-foreground'}`}
+                      >
+                        {event.title}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        className={`text-[10px] ${on ? 'text-white/80' : 'text-muted-foreground'}`}
+                      >
+                        {place}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
             <LocationField
               value={placeInput}
               onChange={setPlaceInput}

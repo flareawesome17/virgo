@@ -486,6 +486,7 @@ export function EventInvitationsCard() {
                         {invitation.event_time
                           ? ` · ${formatTime(invitation.event_time)}`
                           : ' · All day'}
+                        {invitation.location ? ` · ${invitation.location}` : ''}
                       </Text>
                     </View>
 

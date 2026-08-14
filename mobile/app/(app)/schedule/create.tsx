@@ -17,6 +17,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { DateTimeField, InvitePeoplePicker } from '@/components';
+import { LocationField } from '@/components/LocationField';
 import type { EventType } from '@/src/api';
 import {
   combineDateAndTime,
@@ -69,6 +70,7 @@ export default function CreateEventScreen() {
 
   const [eventType, setEventType] = useState<EventType>('event');
   const [otherLabel, setOtherLabel] = useState('');
+  const [location, setLocation] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   // One Date backs both pickers. The screen used to hold two hand-typed
@@ -98,6 +100,7 @@ export default function CreateEventScreen() {
     prefilledFor.current = existing.id;
     setEventType(existing.event_type);
     setOtherLabel(existing.event_type_other ?? '');
+    setLocation(existing.location ?? '');
     setTitle(existing.title);
     setDescription(existing.description ?? '');
     setHasTime(Boolean(existing.event_time));
@@ -144,6 +147,9 @@ export default function CreateEventScreen() {
   const typeFields = {
     event_type: eventType,
     event_type_other: eventType === 'other' ? otherLabel.trim() : null,
+    // Null rather than '' when cleared, so "has a location" stays one check.
+    // The server settles the spelling — "cebu" comes back as "Cebu City".
+    location: location.trim() || null,
   };
 
   const createEvent = useCreateScheduleEvent();
@@ -279,7 +285,7 @@ export default function CreateEventScreen() {
         {/* Description */}
         <View className="px-5 mt-4">
           <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Description <Text className="font-medium normal-case tracking-normal">(optional)</Text></Text>
-          <TextInput value={description} onChangeText={setDescription} placeholder="Details, location, notes..." placeholderTextColor="#A89489"
+          <TextInput value={description} onChangeText={setDescription} placeholder="Details, notes, what to bring..." placeholderTextColor="#A89489"
             multiline numberOfLines={3} textAlignVertical="top"
             className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2, minHeight: 72 }} />
         </View>
@@ -303,6 +309,16 @@ export default function CreateEventScreen() {
               setWhen(next);
               setHasTime(true);
             }}
+          />
+        </View>
+
+        {/* Where */}
+        <View className="px-5 mt-5">
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Where <Text className="font-medium normal-case tracking-normal">(optional)</Text></Text>
+          <LocationField
+            value={location}
+            onChange={setLocation}
+            placeholder="Cebu City, or the venue"
           />
         </View>
 

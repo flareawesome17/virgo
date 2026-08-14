@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { OwnedResourceService } from '../common/owned-resource.service';
+import { canonicalLocation } from '../hiring/locations';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { EventAttendeesService } from './event-attendees.service';
 import {
@@ -72,6 +73,27 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     return { ...data, event_type_other: label };
   }
 
+  /**
+   * Settles on one spelling of the place, server-side.
+   *
+   * The same treatment a job post's location gets, and for the same reason: a
+   * request does not have to come from our own form, and "cebu", "Cebu" and
+   * "Cebu City" are one place. Storing the canonical name means the stored
+   * value is at once what is displayed and what Nearby can measure from.
+   *
+   * A venue we do not recognise falls through unchanged — "Shangri-La Mactan"
+   * is a real answer and has to survive. It simply cannot be searched from.
+   *
+   * Blank becomes null rather than an empty string, so "has a location" is one
+   * check everywhere instead of two.
+   */
+  private resolveLocation(data: Record<string, unknown>): Record<string, unknown> {
+    if (data.location === undefined) return data;
+
+    const typed = (data.location as string | null)?.trim();
+    return { ...data, location: typed ? canonicalLocation(typed) : null };
+  }
+
   async create(
     userId: string,
     data: Record<string, unknown>,
@@ -81,7 +103,12 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     // would have taken.
     return super.create(
       userId,
-      this.resolveEventType(data, { event_type: 'event', event_type_other: null }),
+      this.resolveLocation(
+        this.resolveEventType(data, {
+          event_type: 'event',
+          event_type_other: null,
+        }),
+      ),
     );
   }
 
@@ -128,7 +155,7 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
       );
     }
 
-    const payload = this.resolveEventType(data, before);
+    const payload = this.resolveLocation(this.resolveEventType(data, before));
     const after = before.is_owner
       ? await super.update(userId, id, payload)
       : await this.events.updateVisible(userId, id, payload);
@@ -166,6 +193,10 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     ) {
       changed.push('the event type');
     }
+    // Ahead of the workspace deliberately: where a shoot is decides how
+    // somebody's whole morning goes, and it is the change most likely to cost
+    // them if they miss it.
+    if (before.location !== after.location) changed.push('the location');
     if (before.workspace_id !== after.workspace_id) {
       changed.push('the workspace');
     }
