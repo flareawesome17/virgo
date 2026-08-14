@@ -122,6 +122,7 @@ export { useRoles } from '@/src/hooks/useRoles'
 
 export {
   useLocationSharing,
+  useSetLocationPlace,
   useShareLocation,
   useStopSharingLocation,
   useNearbyPeople,

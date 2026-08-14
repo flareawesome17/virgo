@@ -98,21 +98,51 @@ export const PH_LOCATIONS: readonly string[] = [
  * Prefix matches come before contained ones, so typing "ceb" offers "Cebu
  * City" ahead of "Talisay, Cebu". An exact match is dropped: re-offering what
  * is already in the box is a row that does nothing.
+ *
+ * Matched on `locationKey`, not on the raw lowercase text. This used to
+ * compare strings directly, which meant typing "parana" offered nothing for
+ * "Parañaque" and "dasmarinas" nothing for "Dasmariñas" — while the job board,
+ * which does fold accents, found both. Two spellings of one city are not two
+ * places, and the person typing has no way to know which one the list holds.
+ *
+ * Folding also drops punctuation, so "san fernando pampanga" now finds
+ * "San Fernando, Pampanga" without the comma being guessed correctly.
  */
 export function suggestLocations(query: string, limit = 6): string[] {
-  const q = query.trim().toLowerCase();
+  // The key, not the trimmed text: a query of only punctuation folds to an
+  // empty string, and an empty prefix matches every entry in the list.
+  const q = locationKey(query);
   if (q.length < 2) return [];
 
   const starts: string[] = [];
   const contains: string[] = [];
   for (const city of PH_LOCATIONS) {
-    const lower = city.toLowerCase();
-    if (lower === q) continue;
-    if (lower.startsWith(q)) starts.push(city);
-    else if (lower.includes(q)) contains.push(city);
+    const key = locationKey(city);
+    if (key === q) continue;
+    if (key.startsWith(q)) starts.push(city);
+    else if (key.includes(q)) contains.push(city);
     if (starts.length >= limit) break;
   }
   return [...starts, ...contains].slice(0, limit);
+}
+
+/**
+ * Whether this is a place the app has coordinates for.
+ *
+ * The search field applies what has been typed only once it resolves to a real
+ * city, so a half-typed "ceb" does not fire a request the server would refuse.
+ *
+ * Mirrors `coordsFor` on the server exactly — `canonicalLocation` first, then
+ * fold — and that order is the whole point. Without it this answered false for
+ * "cebu", "cdo", "qc" and every other alias, while the server resolved them
+ * happily; the field then refused to search for something the API would have
+ * accepted. Two functions deciding the same question have to decide it the
+ * same way.
+ */
+export function isKnownLocation(input: string): boolean {
+  const key = locationKey(canonicalLocation(input));
+  if (!key) return false;
+  return PH_LOCATIONS.some((city) => locationKey(city) === key);
 }
 
 /**

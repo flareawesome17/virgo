@@ -9,18 +9,37 @@ import {
   IsLongitude,
   IsNumber,
   IsOptional,
+  IsString,
   Max,
+  MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { USER_ROLES } from '../auth/roles';
 import { DiscoverService } from './discover.service';
 
+/**
+ * Either coordinates from the device, or the name of a city.
+ *
+ * One endpoint rather than two, because it is one decision to the person
+ * making it — "here is where I am" — and the client picks the form it has.
+ * `location` wins when both arrive.
+ */
 export class UpdateLocationDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  location?: string;
+
+  // Skipped entirely when a place was named. @IsOptional would not do: these
+  // are required in the coordinate form, and a body with neither should fail.
+  @ValidateIf((dto: UpdateLocationDto) => !dto.location)
   @Type(() => Number)
   @IsLatitude()
   latitude!: number;
 
+  @ValidateIf((dto: UpdateLocationDto) => !dto.location)
   @Type(() => Number)
   @IsLongitude()
   longitude!: number;
@@ -53,6 +72,17 @@ export class NearbyQueryDto {
   @ArrayMaxSize(USER_ROLES.length)
   @IsIn(USER_ROLES as readonly string[], { each: true, message: 'Unknown role' })
   roles?: string[];
+
+  /**
+   * Look from this city instead of from where the caller is.
+   *
+   * Changes the centre of the search, not who can see the caller — being
+   * findable still requires sharing a position of your own.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  location?: string;
 }
 
 @Controller('discover')
@@ -68,6 +98,9 @@ export class DiscoverController {
   @HttpCode(200)
   @Post('location')
   update(@CurrentUser('id') userId: string, @Body() dto: UpdateLocationDto) {
+    if (dto.location) {
+      return this.discover.setLocationPlace(userId, dto.location);
+    }
     return this.discover.updateLocation(userId, dto.latitude, dto.longitude);
   }
 
@@ -85,7 +118,12 @@ export class DiscoverController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Get('nearby')
   nearby(@CurrentUser('id') userId: string, @Query() query: NearbyQueryDto) {
-    return this.discover.nearby(userId, query.radiusKm, query.roles);
+    return this.discover.nearby(
+      userId,
+      query.radiusKm,
+      query.roles,
+      query.location,
+    );
   }
 
   /**
@@ -100,6 +138,6 @@ export class DiscoverController {
     @CurrentUser('id') userId: string,
     @Query() query: NearbyQueryDto,
   ) {
-    return this.discover.roleCounts(userId, query.radiusKm);
+    return this.discover.roleCounts(userId, query.radiusKm, query.location);
   }
 }
