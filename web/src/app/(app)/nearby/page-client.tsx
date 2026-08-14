@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -29,6 +29,8 @@ import {
   useStopSharingLocation,
 } from '@/hooks/useNearby';
 import { LocationField } from '@/components/location-field';
+import { useScheduleEvents } from '@/hooks/useScheduleEvents';
+import { isEventUpcoming } from '@/lib/calendar';
 import { canonicalLocation, isKnownLocation } from '@/lib/ph-locations';
 import { useFriends, useRespondToFriendRequest, useSendFriendRequest } from '@/hooks/useFriends';
 import { useOpenDirectChat } from '@/hooks/useChat';
@@ -75,6 +77,35 @@ export default function NearbyPage() {
 
   /** "within 50 km of Cebu City", or just "within 50 km" when it is you. */
   const near = searchPlace ? ` of ${searchPlace}` : '';
+
+  /**
+   * Your own upcoming shoots, as one-tap search centres.
+   *
+   * The question behind this screen is usually "who is free near my job", and
+   * the job is already on your calendar with a place on it. Typing that place
+   * again is work the app can do.
+   *
+   * Only events we can actually measure from. A shoot at "Shangri-La Mactan"
+   * is a real event with no coordinates, and offering it would produce a chip
+   * that answers with an error — the typed field below still handles it.
+   */
+  const { events } = useScheduleEvents({ limit: 100 });
+  const eventShortcuts = useMemo(() => {
+    const now = new Date();
+    return events
+      .filter(
+        (e) =>
+          e.location &&
+          isKnownLocation(e.location) &&
+          isEventUpcoming(e.event_date, e.event_time, now),
+      )
+      .sort((a, b) =>
+        `${a.event_date}${a.event_time ?? ''}`.localeCompare(
+          `${b.event_date}${b.event_time ?? ''}`,
+        ),
+      )
+      .slice(0, 5);
+  }, [events]);
 
   const sendRequest = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
@@ -289,6 +320,27 @@ export default function NearbyPage() {
                 </Button>
               )}
             </div>
+            {eventShortcuts.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {eventShortcuts.map((event) => {
+                  // Compared canonically: the chip is on when the search is
+                  // measuring from this event's place, however it got there.
+                  const place = canonicalLocation(event.location ?? '');
+                  return (
+                    <Button
+                      key={event.id}
+                      size="sm"
+                      variant={searchPlace === place ? 'default' : 'outline'}
+                      className="h-auto py-1 text-xs font-normal"
+                      onClick={() => setPlaceInput(place)}
+                    >
+                      <span className="font-semibold">{event.title}</span>
+                      <span className="opacity-70">· {place}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
             <LocationField
               id="search-near"
               value={placeInput}
