@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { normalizeRoles, USER_ROLES } from '../auth/roles';
 import { DatabaseService } from '../database/database.service';
+import { canonicalLocation, coordsFor } from '../hiring/locations';
 
 export interface NearbyPerson {
   id: string;
@@ -32,12 +33,35 @@ const DEFAULT_RADIUS_KM = 50;
 export class DiscoverService {
   constructor(private readonly db: DatabaseService) {}
 
-  /** Stores the caller's position and turns sharing on. */
+  /**
+   * A place name turned into the coordinates Nearby measures from.
+   *
+   * Reuses the table the job board already ranks by distance with, so a city
+   * means the same point in both features. Unknown names are refused rather
+   * than stored uselessly: a position that resolves to nothing would leave the
+   * account sharing but invisible, which looks exactly like a bug.
+   */
+  private resolvePlace(place: string): {
+    name: string;
+    lat: number;
+    lon: number;
+  } {
+    const name = canonicalLocation(place);
+    const coords = coordsFor(name);
+    if (!coords) {
+      throw new BadRequestException(
+        `We do not know where “${place.trim()}” is. Pick a city from the list.`,
+      );
+    }
+    return { name, lat: coords.lat, lon: coords.lon };
+  }
+
+  /** Stores the caller's position from the device, and turns sharing on. */
   async updateLocation(
     userId: string,
     latitude: number,
     longitude: number,
-  ): Promise<{ sharing: boolean }> {
+  ): Promise<{ sharing: boolean; place: string | null }> {
     if (
       !Number.isFinite(latitude) ||
       !Number.isFinite(longitude) ||
@@ -51,12 +75,41 @@ export class DiscoverService {
 
     await this.db.query(
       `update users
-          set latitude = $2, longitude = $3,
+          set latitude = $2, longitude = $3, location_place = null,
               location_updated_at = now(), shares_location = true
         where id = $1`,
       [userId, latitude, longitude],
     );
-    return { sharing: true };
+    return { sharing: true, place: null };
+  }
+
+  /**
+   * The same thing, from a city instead of the device.
+   *
+   * This is what makes the feature usable without granting a location
+   * permission, and it keeps discovery reciprocal: naming a city publishes an
+   * approximate position of your own, so you become findable on the same terms
+   * as everyone you can see. A read-only mode that let somebody browse the
+   * neighbourhood without appearing in it would be a different feature, and a
+   * worse one.
+   *
+   * Precision is the city, which is honest — the screen only ever shows
+   * kilometres, and everyone in one city then reads as roughly equidistant.
+   */
+  async setLocationPlace(
+    userId: string,
+    place: string,
+  ): Promise<{ sharing: boolean; place: string }> {
+    const resolved = this.resolvePlace(place);
+
+    await this.db.query(
+      `update users
+          set latitude = $2, longitude = $3, location_place = $4,
+              location_updated_at = now(), shares_location = true
+        where id = $1`,
+      [userId, resolved.lat, resolved.lon, resolved.name],
+    );
+    return { sharing: true, place: resolved.name };
   }
 
   /**
@@ -68,27 +121,33 @@ export class DiscoverService {
   async stopSharing(userId: string): Promise<{ sharing: boolean }> {
     await this.db.query(
       `update users
-          set shares_location = false, latitude = null,
-              longitude = null, location_updated_at = null
+          set shares_location = false, latitude = null, longitude = null,
+              location_place = null, location_updated_at = null
         where id = $1`,
       [userId],
     );
     return { sharing: false };
   }
 
-  async sharingStatus(
-    userId: string,
-  ): Promise<{ sharing: boolean; updatedAt: Date | null }> {
+  async sharingStatus(userId: string): Promise<{
+    sharing: boolean;
+    updatedAt: Date | null;
+    /** The city they picked, or null when the position came from the device. */
+    place: string | null;
+  }> {
     const row = await this.db.queryOne<{
       shares_location: boolean;
       location_updated_at: Date | null;
+      location_place: string | null;
     }>(
-      'select shares_location, location_updated_at from users where id = $1',
+      `select shares_location, location_updated_at, location_place
+         from users where id = $1`,
       [userId],
     );
     return {
       sharing: row?.shares_location ?? false,
       updatedAt: row?.location_updated_at ?? null,
+      place: row?.location_place ?? null,
     };
   }
 
@@ -108,7 +167,14 @@ export class DiscoverService {
     userId: string,
     radiusKm = DEFAULT_RADIUS_KM,
     roles: readonly string[] = [],
-  ): Promise<{ sharing: boolean; people: NearbyPerson[] }> {
+    /** Search from here instead of from the caller's own position. */
+    place?: string,
+  ): Promise<{
+    sharing: boolean;
+    people: NearbyPerson[];
+    /** Where the search was measured from, when it was not the caller. */
+    place?: string;
+  }> {
     const radius = Math.min(Math.max(radiusKm, 1), MAX_RADIUS_KM);
     // Unrecognised values are dropped rather than rejected: the DTO already
     // refuses them, and a filter that silently matches nothing is worse than
@@ -124,9 +190,15 @@ export class DiscoverService {
       [userId],
     );
 
+    // Looking somewhere else does not exempt you from being findable. This
+    // changes where you look, not whether you appear.
     if (!me?.shares_location || me.latitude == null || me.longitude == null) {
       return { sharing: false, people: [] };
     }
+
+    const from = place?.trim() ? this.resolvePlace(place) : null;
+    const originLat = from?.lat ?? me.latitude;
+    const originLon = from?.lon ?? me.longitude;
 
     const rows = await this.db.query<{
       id: string;
@@ -168,9 +240,15 @@ export class DiscoverService {
             and u.shares_location = true
             and u.latitude is not null
             and u.longitude is not null
-            -- Stale positions are worse than none: someone who shared their
-            -- location months ago is not "nearby" in any useful sense.
-            and u.location_updated_at > now() - interval '30 days'
+            -- Stale positions are worse than none: someone whose device
+            -- reported a fix months ago is not "nearby" in any useful sense.
+            --
+            -- A city picked by hand is exempt. It was not a reading that has
+            -- since drifted, it was a statement about where somebody is based,
+            -- and expiring it would drop them out of discovery a month later
+            -- with nothing to tell them why.
+            and (u.location_place is not null
+                 or u.location_updated_at > now() - interval '30 days')
             -- A paused account is not available to hire.
             and (u.disabled_until is null or u.disabled_until <= now())
             -- Overlap, not containment: somebody who is both a photographer
@@ -181,11 +259,12 @@ export class DiscoverService {
         where distance_km <= $4
         order by distance_km
         limit 50`,
-      [userId, me.latitude, me.longitude, radius, wanted],
+      [userId, originLat, originLon, radius, wanted],
     );
 
     return {
       sharing: true,
+      ...(from ? { place: from.name } : {}),
       people: rows.map((r) => ({
         id: r.id,
         name: r.display_name?.trim() || r.email.split('@')[0],
@@ -219,8 +298,10 @@ export class DiscoverService {
   async roleCounts(
     userId: string,
     radiusKm = DEFAULT_RADIUS_KM,
+    /** Same override as `nearby`, or the chips would count a different place. */
+    place?: string,
   ): Promise<Record<string, number>> {
-    const { people } = await this.nearby(userId, radiusKm);
+    const { people } = await this.nearby(userId, radiusKm, [], place);
 
     const counts: Record<string, number> = {};
     for (const role of USER_ROLES) counts[role] = 0;

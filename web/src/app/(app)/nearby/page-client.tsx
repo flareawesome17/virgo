@@ -24,9 +24,12 @@ import {
   useLocationSharing,
   useNearbyPeople,
   useNearbyRoleCounts,
+  useSetLocationPlace,
   useShareLocation,
   useStopSharingLocation,
 } from '@/hooks/useNearby';
+import { LocationField } from '@/components/location-field';
+import { canonicalLocation, isKnownLocation } from '@/lib/ph-locations';
 import { useFriends, useRespondToFriendRequest, useSendFriendRequest } from '@/hooks/useFriends';
 import { useOpenDirectChat } from '@/hooks/useChat';
 import { RolePicker } from '@/components/role-picker';
@@ -41,11 +44,37 @@ export default function NearbyPage() {
   /** Empty means everyone; otherwise only people who do one of these. */
   const [roleFilter, setRoleFilter] = useState<string[]>([]);
 
-  const { sharing, isLoading: loadingStatus } = useLocationSharing();
+  /**
+   * What is in the "Near" box, and what is actually being searched.
+   *
+   * Two states, because they are not the same thing: the box holds whatever
+   * has been typed, and only a value the app has coordinates for becomes a
+   * search. Sending every keystroke would mean a request per letter, each one
+   * refused by the server for naming a place that does not exist.
+   *
+   * Empty searches from the caller's own position, which is what it did before
+   * this field existed.
+   */
+  const [placeInput, setPlaceInput] = useState('');
+  /** Separate box, separate job: this one publishes a position. */
+  const [myCityInput, setMyCityInput] = useState('');
+  const searchPlace = isKnownLocation(placeInput)
+    ? canonicalLocation(placeInput)
+    : '';
+
+  const { sharing, place: myPlace, isLoading: loadingStatus } = useLocationSharing();
   const startSharing = useShareLocation();
+  const setPlace = useSetLocationPlace();
   const stopSharing = useStopSharingLocation();
-  const { people, isLoading, loadFailed, refetch } = useNearbyPeople(radiusKm, roleFilter);
-  const { counts } = useNearbyRoleCounts(radiusKm);
+  const { people, isLoading, loadFailed, refetch } = useNearbyPeople(
+    radiusKm,
+    roleFilter,
+    searchPlace,
+  );
+  const { counts } = useNearbyRoleCounts(radiusKm, searchPlace);
+
+  /** "within 50 km of Cebu City", or just "within 50 km" when it is you. */
+  const near = searchPlace ? ` of ${searchPlace}` : '';
 
   const sendRequest = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
@@ -190,15 +219,48 @@ export default function NearbyPage() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold">Share my location</p>
                 <p className="text-xs text-muted-foreground">
-                  {sharing ? 'You are discoverable' : 'You are not discoverable'}
+                  {sharing
+                    ? myPlace
+                      ? `Discoverable · ${myPlace}`
+                      : 'Discoverable · from this device'
+                    : 'You are not discoverable'}
                 </p>
               </div>
-              {loadingStatus || startSharing.isPending || stopSharing.isPending ? (
+              {loadingStatus ||
+              startSharing.isPending ||
+              stopSharing.isPending ||
+              setPlace.isPending ? (
                 <Loader2 className="size-4 animate-spin text-primary" />
               ) : (
                 <Switch checked={sharing} onCheckedChange={toggleSharing} />
               )}
             </div>
+
+            {/* The way in for anyone who will not grant the browser prompt —
+                and on a desktop it is usually the better answer anyway, where
+                the prompt is more intrusive and the fix less accurate than
+                simply saying which city you work in. */}
+            {!sharing && (
+              <div className="mt-4 border-t pt-4">
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Would rather not share a live position? Name your city instead —
+                  it makes you findable to the same kilometre.
+                </p>
+                <LocationField
+                  id="my-city"
+                  value={myCityInput}
+                  onChange={(next) => {
+                    setMyCityInput(next);
+                    if (!isKnownLocation(next)) return;
+                    setPlace.mutate(canonicalLocation(next), {
+                      onSuccess: () => setMyCityInput(''),
+                      onError: fail('Could not set your city'),
+                    });
+                  }}
+                  placeholder="Cebu City"
+                />
+              </div>
+            )}
 
             <p className="mt-4 flex items-start gap-2 border-t pt-4 text-xs leading-relaxed text-muted-foreground">
               <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
@@ -207,6 +269,39 @@ export default function NearbyPage() {
             </p>
           </CardContent>
         </Card>
+
+        {/* Where to look from. Only shown once sharing is on, because until
+            then there is nothing to look at — discovery is reciprocal. */}
+        {sharing && (
+          <div className="mt-6">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                Near
+              </p>
+              {searchPlace && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => setPlaceInput('')}
+                >
+                  Back to my location
+                </Button>
+              )}
+            </div>
+            <LocationField
+              id="search-near"
+              value={placeInput}
+              onChange={setPlaceInput}
+              placeholder={myPlace ?? 'Where you are'}
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              {searchPlace
+                ? `Measuring from ${searchPlace}. This does not move you — you are still findable where you are.`
+                : 'Searching from where you are. Type a city to look somewhere else.'}
+            </p>
+          </div>
+        )}
 
         {/* Radius */}
         <div className="mt-6">
@@ -253,7 +348,7 @@ export default function NearbyPage() {
             />
             <p className="mt-2 text-xs text-muted-foreground">
               {roleFilter.length === 0
-                ? `Everyone within ${radiusKm} km. Pick a role to narrow it down — the number is how many are in range.`
+                ? `Everyone within ${radiusKm} km${near}. Pick a role to narrow it down — the number is how many are in range.`
                 : `Anyone who does ${roleFilter.join(' or ')}.`}
             </p>
           </div>
@@ -266,7 +361,7 @@ export default function NearbyPage() {
               <EmptyState
                 icon={MapPin}
                 title="Turn on sharing to see who is nearby"
-                description="Discovery works both ways — only people who share their location can find each other."
+                description="Discovery works both ways — only people who share their location can find each other. Use the switch above, or name your city if you would rather not share a live position."
               />
             </Card>
           ) : isLoading ? (
@@ -281,18 +376,22 @@ export default function NearbyPage() {
                 icon={MapPin}
                 title={
                   roleFilter.length > 0
-                    ? `No ${roleFilter.join(' or ')} within ${radiusKm} km`
-                    : `Nobody within ${radiusKm} km`
+                    ? `No ${roleFilter.join(' or ')} within ${radiusKm} km${near}`
+                    : `Nobody within ${radiusKm} km${near}`
                 }
                 description={
                   roleFilter.length > 0
-                    ? 'Try a wider radius or a different role. Only people sharing their location appear here.'
-                    : 'Try a wider radius. Only people sharing their location appear here.'
+                    ? 'Try a wider radius, a different role, or another city. Only people sharing their location appear here.'
+                    : 'Try a wider radius or another city. Only people sharing their location appear here.'
                 }
                 action={
                   roleFilter.length > 0 ? (
                     <Button size="sm" variant="outline" onClick={() => setRoleFilter([])}>
                       Clear the filter
+                    </Button>
+                  ) : searchPlace ? (
+                    <Button size="sm" variant="outline" onClick={() => setPlaceInput('')}>
+                      Back to my location
                     </Button>
                   ) : undefined
                 }
