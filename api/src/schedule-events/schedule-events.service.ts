@@ -32,12 +32,57 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     if (!owned) throw new BadRequestException('Unknown workspace');
   }
 
+  /**
+   * Keeps `event_type` and `event_type_other` consistent with each other.
+   *
+   * The two are one choice to the person making it — "Other, and here is what
+   * it is" — but they arrive as two independent fields, and a PATCH may carry
+   * either without the other. So the pair is resolved against the event as it
+   * currently stands rather than against the request alone: sending only a
+   * label leaves the existing type, and sending only a type reuses or clears
+   * the existing label.
+   *
+   * Switching away from `other` clears the label rather than keeping it. A
+   * meeting that still remembers it was once called "Client viewing" would
+   * eventually surface that name somewhere, and the database rejects the
+   * combination anyway.
+   */
+  private resolveEventType(
+    data: Record<string, unknown>,
+    current: { event_type: string; event_type_other: string | null },
+  ): Record<string, unknown> {
+    const type = (data.event_type as string | undefined) ?? current.event_type;
+
+    if (type !== 'other') return { ...data, event_type_other: null };
+
+    // `undefined` means the field was not sent and the stored label stands;
+    // `null` means it was sent as empty, which is a request to clear it — and
+    // an `other` event with no label is exactly what this rejects.
+    const supplied =
+      data.event_type_other === undefined
+        ? current.event_type_other
+        : (data.event_type_other as string | null);
+
+    const label = supplied?.trim();
+    if (!label) {
+      throw new BadRequestException(
+        'Say what kind of event this is, or pick one of the listed types',
+      );
+    }
+    return { ...data, event_type_other: label };
+  }
+
   async create(
     userId: string,
     data: Record<string, unknown>,
   ): Promise<ScheduleEventRow> {
     await this.assertWorkspace(userId, data.workspace_id as string | undefined);
-    return super.create(userId, data);
+    // Nothing stored yet, so the fallback is the column default a bare insert
+    // would have taken.
+    return super.create(
+      userId,
+      this.resolveEventType(data, { event_type: 'event', event_type_other: null }),
+    );
   }
 
   /**
@@ -57,7 +102,11 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     await this.assertWorkspace(userId, data.workspace_id as string | undefined);
 
     const before = await this.get(userId, id);
-    const after = await super.update(userId, id, data);
+    const after = await super.update(
+      userId,
+      id,
+      this.resolveEventType(data, before),
+    );
 
     /**
      * What actually changed, in words an attendee would use.
@@ -79,7 +128,15 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     }
     if (before.title !== after.title) changed.push('the title');
     if (before.description !== after.description) changed.push('the notes');
-    if (before.event_type !== after.event_type) changed.push('the event type');
+    // The label is part of the type, not a field of its own — renaming an
+    // "Other" event from "Client viewing" to "Site recce" changed what kind of
+    // thing it is, as far as anyone reading the calendar is concerned.
+    if (
+      before.event_type !== after.event_type ||
+      before.event_type_other !== after.event_type_other
+    ) {
+      changed.push('the event type');
+    }
     if (before.workspace_id !== after.workspace_id) {
       changed.push('the workspace');
     }

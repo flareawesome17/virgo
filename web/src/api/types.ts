@@ -39,7 +39,17 @@ export interface Album {
   updated_at: string;
 }
 
-export type EventType = 'shoot' | 'editing' | 'review' | 'delivery' | 'meeting';
+/**
+ * `other` carries its name in `event_type_other` rather than here, so the set
+ * stays closed and colours, icons and filters can keep keying off it.
+ */
+export type EventType =
+  | 'event'
+  | 'editing'
+  | 'review'
+  | 'delivery'
+  | 'meeting'
+  | 'other';
 
 export interface ScheduleEvent {
   id: string;
@@ -50,6 +60,8 @@ export interface ScheduleEvent {
   event_date: string;
   event_time: string | null;
   event_type: EventType;
+  /** What the user called it. Set only when `event_type` is `other`. */
+  event_type_other: string | null;
   created_at: string;
   /**
    * False when you are attending somebody else's event.
@@ -84,6 +96,7 @@ export interface EventInvitation {
   event_date: string;
   event_time: string | null;
   event_type: EventType;
+  event_type_other: string | null;
   inviter_name: string;
   created_at: string;
 }

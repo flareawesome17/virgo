@@ -10,12 +10,24 @@ import {
 import { ListQueryDto } from '../../common/dto/list-query.dto';
 
 const EVENT_TYPES = [
-  'shoot',
+  'event',
   'editing',
   'review',
   'delivery',
   'meeting',
+  /** Free text, carried in `event_type_other`. */
+  'other',
 ] as const;
+
+/**
+ * The label on an `other` event.
+ *
+ * Not validated against `event_type` here: a PATCH may send either field
+ * without the other, and a DTO cannot see the stored row to know which type it
+ * is being combined with. ScheduleEventsService resolves the pair against the
+ * event as it stands and rejects the combinations that make no sense.
+ */
+const OTHER_LABEL_MAX = 40;
 
 /** HH:MM or HH:MM:SS — matches Postgres `time`. */
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
@@ -51,6 +63,11 @@ export class CreateScheduleEventDto {
   @IsOptional()
   @IsIn(EVENT_TYPES)
   event_type?: (typeof EVENT_TYPES)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(OTHER_LABEL_MAX)
+  event_type_other?: string;
 }
 
 export class UpdateScheduleEventDto {
@@ -81,6 +98,12 @@ export class UpdateScheduleEventDto {
   @IsOptional()
   @IsIn(EVENT_TYPES)
   event_type?: (typeof EVENT_TYPES)[number];
+
+  /** Null clears it, which is what switching away from `other` does. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(OTHER_LABEL_MAX)
+  event_type_other?: string | null;
 }
 
 export class ListScheduleEventsDto extends ListQueryDto {

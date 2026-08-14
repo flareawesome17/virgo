@@ -1,5 +1,5 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
-import { isEventUpcoming } from '@/src/lib/calendar';
+import { eventColor, eventTypeLabel, isEventUpcoming } from '@/src/lib/calendar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useAlbums,
@@ -46,14 +46,6 @@ const STATUS_BADGES: Record<string, { bg: string; text: string; label: string }>
   draft: { bg: '#A8948920', text: '#8B7355', label: 'Draft' },
   review: { bg: '#C1774520', text: '#C17745', label: 'In Review' },
   delivered: { bg: '#6B8E4E20', text: '#4A6B3A', label: 'Delivered' },
-};
-
-const EVENT_TYPE_COLORS: Record<string, string> = {
-  shoot: '#B66A40',
-  editing: '#C17745',
-  review: '#8B5E3C',
-  delivery: '#6B8E4E',
-  meeting: '#5B7B9A',
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -530,7 +522,7 @@ export default function WorkspaceDetailScreen() {
               }}
             >
               {upcomingEvents.map((event, i) => {
-                const dotColor = EVENT_TYPE_COLORS[event.event_type] || '#B66A40';
+                const dotColor = eventColor(event.event_type);
                 return (
                   <Pressable
                     key={event.id}
@@ -555,7 +547,7 @@ export default function WorkspaceDetailScreen() {
                         {event.title}
                       </Text>
                       <Text className="text-muted-foreground text-xs mt-0.5">
-                        {event.event_type.charAt(0).toUpperCase() + event.event_type.slice(1)}
+                        {eventTypeLabel(event)}
                       </Text>
                     </View>
                     <View className="items-end">

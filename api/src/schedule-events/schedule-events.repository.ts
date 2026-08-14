@@ -3,11 +3,12 @@ import { OwnedRepository } from '../common/owned.repository';
 import { DatabaseService } from '../database/database.service';
 
 export type EventType =
-  | 'shoot'
+  | 'event'
   | 'editing'
   | 'review'
   | 'delivery'
-  | 'meeting';
+  | 'meeting'
+  | 'other';
 
 export interface ScheduleEventRow {
   id: string;
@@ -18,6 +19,8 @@ export interface ScheduleEventRow {
   event_date: string;
   event_time: string | null;
   event_type: EventType;
+  /** What the user called it. Set only when `event_type` is `other`. */
+  event_type_other: string | null;
   created_at: Date;
 }
 
@@ -39,6 +42,7 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     'event_date',
     'event_time',
     'event_type',
+    'event_type_other',
   ];
 
   protected readonly filterableColumns = [

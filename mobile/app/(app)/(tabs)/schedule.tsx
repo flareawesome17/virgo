@@ -6,7 +6,7 @@ import { router } from 'expo-router';
 import {
   CalendarDaysIcon,
   ClockIcon,
-  CameraIcon,
+  TagIcon,
   ScissorsIcon,
   EyeIcon,
   PackageIcon,
@@ -30,11 +30,11 @@ import {
   formatTime,
   getMonthWeeks,
   labelForDateKey,
-  todayKey, isEventUpcoming } from '@/src/lib/calendar';
+  todayKey, isEventUpcoming, eventTypeLabel } from '@/src/lib/calendar';
 
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CameraIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -47,8 +47,8 @@ cssInterop(CheckCircleIcon, { className: { target: 'style', nativeStyleToProp: {
 cssInterop(CircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const EVENT_ICONS: Record<string, LucideIcon> = {
-  shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
-  delivery: PackageIcon, meeting: PresentationIcon,
+  event: CalendarDaysIcon, editing: ScissorsIcon, review: EyeIcon,
+  delivery: PackageIcon, meeting: PresentationIcon, other: TagIcon,
 };
 // Date helpers and the event colour table live in src/lib/calendar.ts — both
 // were duplicated across these screens. The date copies mishandled month/year
@@ -250,7 +250,7 @@ export default function ScheduleScreen() {
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{ev.title}</Text>
                       <Text className="text-muted-foreground text-xs mt-0.5">
-                        {ev.event_type.charAt(0).toUpperCase() + ev.event_type.slice(1)}
+                        {eventTypeLabel(ev)}
                         {ev.is_owner === false ? ' · Guest' : ''}
                       </Text>
                       {/* Renders nothing unless somebody was invited. */}
@@ -295,7 +295,7 @@ export default function ScheduleScreen() {
                       <Text className="text-muted-foreground text-xs mt-0.5">{labelForDateKey(ev.event_date)}{ev.event_time ? ` · ${formatTime(ev.event_time)}` : ''}</Text>
                     </View>
                     <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: `${color}14` }}>
-                      <Text style={{ color, fontSize: 9, fontWeight: '700', textTransform: 'uppercase' }}>{ev.event_type}</Text>
+                      <Text numberOfLines={1} style={{ color, fontSize: 9, fontWeight: '700', textTransform: ev.event_type_other ? 'none' : 'uppercase' }}>{eventTypeLabel(ev)}</Text>
                     </View>
                   </Pressable>
                 );

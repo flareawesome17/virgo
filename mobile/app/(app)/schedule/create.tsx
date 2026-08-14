@@ -12,11 +12,12 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeftIcon, CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
+  ArrowLeftIcon, TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
   CalendarDaysIcon, ClockIcon, CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { DateTimeField, InvitePeoplePicker } from '@/components';
+import type { EventType } from '@/src/api';
 import {
   combineDateAndTime,
   dateToKey,
@@ -25,7 +26,7 @@ import {
 } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CameraIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -34,13 +35,17 @@ cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: 
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const EVENT_TYPES = [
-  { key: 'shoot', label: 'Shoot', icon: CameraIcon, color: '#B66A40' },
-  { key: 'editing', label: 'Editing', icon: ScissorsIcon, color: '#C17745' },
-  { key: 'review', label: 'Review', icon: EyeIcon, color: '#8B5E3C' },
-  { key: 'delivery', label: 'Delivery', icon: PackageIcon, color: '#6B8E4E' },
-  { key: 'meeting', label: 'Meeting', icon: PresentationIcon, color: '#5B7B9A' },
+const EVENT_TYPES: { key: EventType; label: string; icon: typeof TagIcon }[] = [
+  { key: 'event', label: 'Event', icon: CalendarDaysIcon },
+  { key: 'editing', label: 'Editing', icon: ScissorsIcon },
+  { key: 'review', label: 'Review', icon: EyeIcon },
+  { key: 'delivery', label: 'Delivery', icon: PackageIcon },
+  { key: 'meeting', label: 'Meeting', icon: PresentationIcon },
+  { key: 'other', label: 'Others', icon: TagIcon },
 ];
+
+/** Matches the column, so a longer label cannot be typed and then rejected. */
+const OTHER_LABEL_MAX = 40;
 
 
 export default function CreateEventScreen() {
@@ -62,7 +67,8 @@ export default function CreateEventScreen() {
   const { user } = useAuth();
   const editing = Boolean(eventId);
 
-  const [eventType, setEventType] = useState('shoot');
+  const [eventType, setEventType] = useState<EventType>('event');
+  const [otherLabel, setOtherLabel] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   // One Date backs both pickers. The screen used to hold two hand-typed
@@ -91,6 +97,7 @@ export default function CreateEventScreen() {
     if (!existing || prefilledFor.current === existing.id) return;
     prefilledFor.current = existing.id;
     setEventType(existing.event_type);
+    setOtherLabel(existing.event_type_other ?? '');
     setTitle(existing.title);
     setDescription(existing.description ?? '');
     setHasTime(Boolean(existing.event_time));
@@ -112,7 +119,19 @@ export default function CreateEventScreen() {
   );
 
   const selectedWs = workspaces.find((w) => w.id === selectedWsId);
-  const canSave = title.trim().length > 0;
+  // An "Others" event is only half-described until it is named, so Save waits
+  // for the name the way it already waits for the title.
+  const canSave =
+    title.trim().length > 0 &&
+    (eventType !== 'other' || otherLabel.trim().length > 0);
+
+  // Sent on every save, not only when Others is chosen: switching away from it
+  // has to clear the old name, and omitting the field leaves the server to
+  // guess whether that was meant.
+  const typeFields = {
+    event_type: eventType,
+    event_type_other: eventType === 'other' ? otherLabel.trim() : null,
+  };
 
   const createEvent = useCreateScheduleEvent();
   const updateEvent = useUpdateScheduleEvent();
@@ -128,7 +147,7 @@ export default function CreateEventScreen() {
         description: description.trim() || null,
         event_date: dateToKey(when),
         event_time: hasTime ? dateToTimeString(when) : null,
-        event_type: eventType as 'shoot' | 'editing' | 'review' | 'delivery' | 'meeting',
+        ...typeFields,
         // Unlike create, null is meaningful here: it detaches the workspace.
         workspace_id: selectedWsId,
       },
@@ -150,7 +169,7 @@ export default function CreateEventScreen() {
         description: description.trim() || null,
         event_date: dateToKey(when),
         event_time: dateToTimeString(when),
-        event_type: eventType as 'shoot' | 'editing' | 'review' | 'delivery' | 'meeting',
+        ...typeFields,
         // Omitted rather than null when unset: the API rejects an explicit null
         // for an optional string, and a missing key simply leaves it NULL.
         ...(selectedWsId ? { workspace_id: selectedWsId } : {}),
@@ -158,7 +177,7 @@ export default function CreateEventScreen() {
       {
         onSuccess: (event) => {
           // A second call on purpose: the event exists either way, so a failure
-          // here costs the invitations, not the shoot. The detail screen the
+          // here costs the invitations, not the event. The detail screen the
           // user lands on shows who was actually invited.
           if (guests.length > 0) {
             inviteToEvent.mutate(
@@ -186,8 +205,6 @@ export default function CreateEventScreen() {
       },
     );
   };
-
-  const activeType = EVENT_TYPES.find(t => t.key === eventType) || EVENT_TYPES[0];
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -223,6 +240,18 @@ export default function CreateEventScreen() {
               );
             })}
           </View>
+
+          {eventType === 'other' && (
+            <TextInput
+              value={otherLabel}
+              onChangeText={setOtherLabel}
+              placeholder="e.g. Client viewing"
+              placeholderTextColor="#A89489"
+              maxLength={OTHER_LABEL_MAX}
+              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base mt-3"
+              style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+            />
+          )}
         </View>
 
         {/* Title */}

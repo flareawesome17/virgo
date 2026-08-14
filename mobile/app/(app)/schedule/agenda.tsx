@@ -4,26 +4,26 @@ import { useAuth, useReminders, useScheduleEventRange, useTheme } from '@/src/ho
 import { useLocalSearchParams, router } from 'expo-router';
 import {
   ArrowLeftIcon, PlusIcon, CalendarDaysIcon, ClockIcon, BellIcon,
-  CameraIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
+  TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { eventColor } from '@/src/lib/calendar';
+import { eventColor, eventTypeLabel } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CameraIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const EVENT_ICONS: Record<string, LucideIcon> = {
-  shoot: CameraIcon, editing: ScissorsIcon, review: EyeIcon,
-  delivery: PackageIcon, meeting: PresentationIcon,
+  event: CalendarDaysIcon, editing: ScissorsIcon, review: EyeIcon,
+  delivery: PackageIcon, meeting: PresentationIcon, other: TagIcon,
 };
 function formatTime(timeStr: string | null): string {
   if (!timeStr) return '';
@@ -121,7 +121,7 @@ export default function AgendaScreen() {
                               {ev.description ? <Text className="text-muted-foreground text-[11px] mt-0.5" numberOfLines={1}>{ev.description}</Text> : null}
                             </View>
                             <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: `${color}14` }}>
-                              <Text style={{ color, fontSize: 9, fontWeight: '700', textTransform: 'uppercase' }}>{ev.event_type}</Text>
+                              <Text numberOfLines={1} style={{ color, fontSize: 9, fontWeight: '700', textTransform: ev.event_type_other ? 'none' : 'uppercase' }}>{eventTypeLabel(ev)}</Text>
                             </View>
                           </Pressable>
                         );

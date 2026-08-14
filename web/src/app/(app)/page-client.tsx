@@ -24,7 +24,12 @@ import { useScheduleEvents } from '@/hooks/useScheduleEvents';
 import { useCollaborators } from '@/hooks/useCollaborators';
 import { useUsage } from '@/hooks/useUsage';
 import { formatBytes } from '@/api';
-import { isEventUpcoming, labelForDateKey, formatTime } from '@/lib/calendar';
+import {
+  eventTypeLabel,
+  formatTime,
+  isEventUpcoming,
+  labelForDateKey,
+} from '@/lib/calendar';
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -137,7 +142,7 @@ export default function HomePage() {
                 <EmptyState
                   icon={CalendarDays}
                   title="Nothing scheduled"
-                  description="Shoots, edits and deliveries you add will show up here."
+                  description="Events, edits and deliveries you add will show up here."
                   action={
                     <Button asChild size="sm">
                       <Link href="/schedule?new=1">Add an event</Link>
@@ -161,8 +166,8 @@ export default function HomePage() {
                             {event.event_time ? ` · ${formatTime(event.event_time)}` : ''}
                           </p>
                         </div>
-                        <Badge variant="secondary" className="shrink-0 capitalize">
-                          {event.event_type}
+                        <Badge variant="secondary" className="shrink-0">
+                          {eventTypeLabel(event)}
                         </Badge>
                       </CardContent>
                     </Card>
