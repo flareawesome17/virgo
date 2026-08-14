@@ -131,11 +131,16 @@ export function suggestLocations(query: string, limit = 6): string[] {
  *
  * The search field applies what has been typed only once it resolves to a real
  * city, so a half-typed "ceb" does not fire a request the server would refuse.
- * Folded, so "parana" counts as Parañaque here exactly as it does everywhere
- * else.
+ *
+ * Mirrors `coordsFor` on the server exactly — `canonicalLocation` first, then
+ * fold — and that order is the whole point. Without it this answered false for
+ * "cebu", "cdo", "qc" and every other alias, while the server resolved them
+ * happily; the field then refused to search for something the API would have
+ * accepted. Two functions deciding the same question have to decide it the
+ * same way.
  */
 export function isKnownLocation(input: string): boolean {
-  const key = locationKey(input);
+  const key = locationKey(canonicalLocation(input));
   if (!key) return false;
   return PH_LOCATIONS.some((city) => locationKey(city) === key);
 }
