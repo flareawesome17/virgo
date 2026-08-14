@@ -115,6 +115,8 @@ function EventDialog({
   const update = useUpdateScheduleEvent();
   const invite = useInviteToEvent();
   const editing = Boolean(event);
+  /** Editing something somebody else created. Undefined means just-created. */
+  const guestEdit = editing && event?.is_owner === false;
   const pending = editing ? update.isPending : create.isPending;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -227,9 +229,14 @@ function EventDialog({
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit event' : 'New event'}</DialogTitle>
           <DialogDescription>
-            {editing
-              ? 'Anyone who accepted sees these changes on their own calendar.'
-              : 'A shoot, an edit, a meeting — or anything else you name.'}
+            {!editing
+              ? 'A shoot, an edit, a meeting — or anything else you name.'
+              : guestEdit
+                ? // Says who owns it and that the change is not quiet. Editing
+                  // somebody else's event should feel like an act with an
+                  // audience, because it is one.
+                  'This is not your event. The organiser and everyone going will be told what you changed.'
+                : 'Anyone who accepted sees these changes on their own calendar.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -775,16 +782,23 @@ function ScheduleContent() {
                                 </Badge>
                               )}
                             </div>
+                            {/* Editing is open to anyone on the event. If this
+                                row is in your list at all you either own it or
+                                accepted an invitation to it — the API scopes
+                                the read to exactly those two — so no extra
+                                flag is needed to know you may change it. */}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              aria-label="Edit event"
+                              onClick={() => setEditingEvent(event)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            {/* The guest list and deleting stay with whoever
+                                created it. */}
                             {mine ? (
                               <>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  aria-label="Edit event"
-                                  onClick={() => setEditingEvent(event)}
-                                >
-                                  <Pencil className="size-3.5" />
-                                </Button>
                                 <Button
                                   size="icon"
                                   variant="ghost"

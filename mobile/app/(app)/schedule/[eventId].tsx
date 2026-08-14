@@ -226,25 +226,35 @@ export default function EventDetailScreen() {
           )}
         </View>
 
-        {/* Edit and Delete — both hidden for a guest, whose write would 404
-            anyway. Edit reuses the create form, which carries exactly the
-            fields the API accepts on a PATCH. */}
-        {isOwner && (
-          <View className="px-5 mt-8">
-            <Pressable
-              onPress={() => router.push({ pathname: '/schedule/create', params: { eventId } })}
-              className="flex-row items-center justify-center gap-2 py-3 rounded-2xl bg-card active:scale-[0.97]"
-              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-            >
-              <PencilIcon size={15} className="text-primary" />
-              <Text className="text-primary text-sm font-semibold">Edit Event</Text>
-            </Pressable>
+        {/* Edit is open to anyone on the event: if this screen loaded at all
+            you either own it or accepted an invitation to it, which is exactly
+            who the API lets write. Delete stays with whoever created it — it
+            cannot be undone, and it takes the event off everybody's calendar.
+
+            Edit reuses the create form, which carries exactly the fields the
+            API accepts on a PATCH. */}
+        <View className="px-5 mt-8">
+          <Pressable
+            onPress={() => router.push({ pathname: '/schedule/create', params: { eventId } })}
+            className="flex-row items-center justify-center gap-2 py-3 rounded-2xl bg-card active:scale-[0.97]"
+            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+          >
+            <PencilIcon size={15} className="text-primary" />
+            <Text className="text-primary text-sm font-semibold">Edit Event</Text>
+          </Pressable>
+          {!isOwner && (
+            <Text className="text-muted-foreground text-[11px] text-center mt-2 leading-4">
+              This is not your event. The organiser and everyone going will be
+              told what you change.
+            </Text>
+          )}
+          {isOwner && (
             <Pressable onPress={confirmDelete} className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]">
               <Trash2Icon size={15} className="text-destructive" />
               <Text className="text-destructive text-sm font-semibold">Delete Event</Text>
             </Pressable>
-          </View>
-        )}
+          )}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

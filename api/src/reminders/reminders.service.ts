@@ -18,8 +18,8 @@ export class RemindersService extends OwnedResourceService<ReminderRow> {
     eventId: string | undefined | null,
   ): Promise<void> {
     if (eventId === undefined || eventId === null) return;
-    const owned = await this.events.assertOwned(userId, eventId);
-    if (!owned) throw new BadRequestException('Unknown schedule event');
+    const visible = await this.events.assertVisible(userId, eventId);
+    if (!visible) throw new BadRequestException('Unknown schedule event');
   }
 
   async create(

@@ -174,12 +174,17 @@ export class EventAttendeesService {
    */
   async attendees(userId: string, eventId: string): Promise<Attendee[]> {
     const allowed = await this.db.queryOne<{ ok: boolean }>(
+      // `status = 'accepted'`, matching every other read on this event. Without
+      // it this was the one path looser than the rest: somebody still deciding
+      // — or who had already said no — could read the full guest list of an
+      // event they cannot otherwise fetch.
       `select true as ok
          from schedule_events e
         where e.id = $1
           and (e.user_id = $2
                or exists (select 1 from event_attendees a
-                           where a.event_id = e.id and a.user_id = $2))`,
+                           where a.event_id = e.id and a.user_id = $2
+                             and a.status = 'accepted'))`,
       [eventId, userId],
     );
     if (!allowed) throw new NotFoundException('Event not found');
@@ -285,19 +290,33 @@ export class EventAttendeesService {
   }
 
   /**
-   * Tells everyone who accepted that the event changed.
+   * Tells everyone with a stake in the event that it changed.
    *
-   * Every edit an attendee can see: the date or time, the title, the notes,
+   * Every edit anybody on it can see: the date or time, the title, the notes,
    * the event type, the workspace. A move keeps its own wording, because it
    * is the change that can cost somebody a wasted trip and it should not read
    * like a corrected typo.
+   *
+   * Two audiences, deliberately, because attendees may now edit an event they
+   * did not create. Everyone who accepted hears that their plans changed; the
+   * organiser hears that somebody touched their event, which is different news
+   * and needs the person named. Whoever made the edit is in neither list —
+   * they were there when it happened.
    *
    * Best-effort, like the rest: the edit is already committed, and failing to
    * announce it must not fail the edit.
    */
   async notifyEventChanged(
-    organiserId: string,
-    event: { id: string; title: string; event_date: string; event_time: string | null },
+    /** Whoever made the change. Not necessarily the organiser. */
+    editorId: string,
+    event: {
+      id: string;
+      /** The organiser, who is told when somebody else does the editing. */
+      user_id: string;
+      title: string;
+      event_date: string;
+      event_time: string | null;
+    },
     /** The date and time as they stood before the edit, for the email. */
     previous: { event_date: string; event_time: string | null },
     /** What changed, already phrased — "the title", "the date and time". */
@@ -307,44 +326,64 @@ export class EventAttendeesService {
       const rows = await this.db.query<{ user_id: string }>(
         `select user_id from event_attendees
           where event_id = $1 and status = 'accepted' and user_id <> $2`,
-        [event.id, organiserId],
+        [event.id, editorId],
       );
       const attendeeIds = rows.map((r) => r.user_id);
-      if (attendeeIds.length === 0) return;
+      const tellOrganiser = event.user_id !== editorId;
+      if (attendeeIds.length === 0 && !tellOrganiser) return;
 
-      const organiser = await this.db.queryOne<{ name: string }>(
+      const editor = await this.db.queryOne<{ name: string }>(
         `select coalesce(display_name, split_part(email, '@', 1)) as name
            from users where id = $1`,
-        [organiserId],
+        [editorId],
       );
 
       const when = formatWhen(event.event_date, event.event_time);
       const previousWhen = formatWhen(previous.event_date, previous.event_time);
       const moved = previousWhen !== when;
+      const who = editor?.name ?? 'Someone';
 
-      await this.notifier.notify(attendeeIds, {
-        topic: 'event-updated',
-        // A move is the change that costs somebody a wasted trip, so it keeps
-        // its own wording. Saying "has moved" about a corrected typo would
-        // teach people to distrust the one alert that matters.
-        title: moved
-          ? 'An event you joined has moved'
-          : 'An event you joined was updated',
+      // A move is the change that costs somebody a wasted trip, so it keeps
+      // its own wording. Saying "has moved" about a corrected typo would
+      // teach people to distrust the one alert that matters.
+      //
+      // Named rather than "An event you joined": with attendees editing, the
+      // first thing anybody wants to know is who changed it — and the same
+      // sentence then works for the organiser, whose event it is.
+      const push = {
+        topic: 'event-updated' as const,
+        title: moved ? `${who} moved an event` : `${who} updated an event`,
         body: moved
           ? `${event.title} — now ${when}`
           : `${event.title} — ${listChanges(changed)} changed`,
         data: { type: 'event_updated', eventId: event.id },
-        // In-app is not enough here: the people who need this are the ones not
-        // currently looking at Virgo.
-        email: eventChanged({
-          organiserName: organiser?.name ?? 'The organiser',
+      };
+
+      const email = (audience: 'attendee' | 'organiser') =>
+        eventChanged({
+          editorName: who,
           eventTitle: event.title,
           previousWhen,
           when,
           changed,
+          audience,
           url: `${this.mailConfig.appUrl}/schedule`,
-        }),
-      });
+        });
+
+      // In-app is not enough here: the people who need this are the ones not
+      // currently looking at Virgo.
+      if (attendeeIds.length > 0) {
+        await this.notifier.notify(attendeeIds, {
+          ...push,
+          email: email('attendee'),
+        });
+      }
+      if (tellOrganiser) {
+        await this.notifier.notify([event.user_id], {
+          ...push,
+          email: email('organiser'),
+        });
+      }
     } catch {
       // Swallowed on purpose — see above.
     }

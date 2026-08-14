@@ -20,7 +20,11 @@ export type NotificationTopic =
   | 'collaborator-response'
   | 'event-invite'
   | 'event-response'
-  /** An event someone accepted was moved to a different date or time. */
+  /**
+   * Somebody changed an event you are on — moved it, renamed it, or edited
+   * anything else about it. Sent to everyone who accepted plus the organiser,
+   * minus whoever made the change.
+   */
   | 'event-updated'
   /** Someone wants to hire you, and said what for. */
   | 'hire-enquiry'

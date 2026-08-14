@@ -93,20 +93,49 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
    * `event_date` unchanged, and notifying on "the field was present" would
    * push to everyone every time the form is saved. Both rows come back from
    * Postgres, so the values are already normalised and compare directly.
+   *
+   * Anybody on the event may edit it, not only whoever created it. A shoot is
+   * shared work, and the person who notices the venue moved is not reliably
+   * the person who made the calendar entry — making them message the organiser
+   * and wait is how a wrong time survives until somebody turns up to it.
+   *
+   * What an attendee may change is what the event *is*: its title, notes,
+   * date, time and type. Not where it lives, not who is on it, and not whether
+   * it exists. Those stay with the organiser, and the first of them is
+   * enforced here rather than in the repository because the reason is
+   * ownership of a different record — you cannot file an event into a
+   * workspace that is not yours.
    */
   async update(
     userId: string,
     id: string,
     data: Record<string, unknown>,
   ): Promise<ScheduleEventRow> {
-    await this.assertWorkspace(userId, data.workspace_id as string | undefined);
+    // Visible, not owned: the owner-only read is what used to reject an
+    // attendee here, several lines before any write was attempted.
+    const before = await this.getVisible(userId, id);
 
-    const before = await this.get(userId, id);
-    const after = await super.update(
-      userId,
-      id,
-      this.resolveEventType(data, before),
-    );
+    if (before.is_owner) {
+      await this.assertWorkspace(
+        userId,
+        data.workspace_id as string | undefined,
+      );
+    } else if (data.workspace_id !== undefined) {
+      // Refused rather than quietly dropped. A silent no-op would leave the
+      // client showing a workspace the event is not in.
+      throw new BadRequestException(
+        'Only the organiser can move this event to another workspace',
+      );
+    }
+
+    const payload = this.resolveEventType(data, before);
+    const after = before.is_owner
+      ? await super.update(userId, id, payload)
+      : await this.events.updateVisible(userId, id, payload);
+
+    // The row was visible a moment ago, so this means it was deleted or the
+    // invitation withdrawn in between. Same 404 the read would have given.
+    if (!after) throw new NotFoundException('Schedule event not found');
 
     /**
      * What actually changed, in words an attendee would use.
@@ -143,9 +172,13 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
 
     if (changed.length > 0) {
       await this.attendees.notifyEventChanged(
+        // Whoever edited it, which is no longer necessarily the organiser —
+        // so the organiser is now among the people told, and the message has
+        // to name who did it.
         userId,
         {
           id: after.id,
+          user_id: after.user_id,
           title: after.title,
           event_date: after.event_date,
           event_time: after.event_time,
@@ -161,9 +194,16 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     return after;
   }
 
-  /** Used by reminders before attaching one to a schedule event. */
-  async assertOwned(userId: string, eventId: string): Promise<boolean> {
-    return this.events.existsForUser(userId, eventId);
+  /**
+   * Used by reminders before attaching one to a schedule event.
+   *
+   * Visible rather than owned. A reminder is a private row on the person who
+   * set it — nobody else sees it, and it changes nothing about the event — so
+   * "an event on my calendar" is the right test. Owner-only meant the mobile
+   * detail screen offered an attendee an Add button that always failed.
+   */
+  async assertVisible(userId: string, eventId: string): Promise<boolean> {
+    return (await this.events.findVisible(userId, eventId)) !== null;
   }
 
   async listRange(

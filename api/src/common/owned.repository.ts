@@ -4,7 +4,12 @@ import { DatabaseService } from '../database/database.service';
 /** Postgres identifier: lowercase word characters only. */
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 
-function assertIdentifier(value: string, kind: string): string {
+/**
+ * Exported so a hand-written statement in a subclass can build assignments the
+ * same way this file does, rather than interpolating a column name it has not
+ * checked.
+ */
+export function assertIdentifier(value: string, kind: string): string {
   if (!IDENTIFIER.test(value)) {
     throw new Error(`Unsafe ${kind} identifier: ${value}`);
   }
