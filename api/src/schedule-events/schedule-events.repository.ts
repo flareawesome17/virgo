@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { OwnedRepository } from '../common/owned.repository';
+import { assertIdentifier, OwnedRepository } from '../common/owned.repository';
 import { DatabaseService } from '../database/database.service';
 
 export type EventType =
@@ -73,14 +73,16 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
    * A pending or declined invitation is deliberately not here. Only a yes puts
    * something on your calendar.
    */
-  private static readonly VISIBLE = `
-    from schedule_events e
-   where (e.user_id = $1
+  private static readonly VISIBLE_TO_$1 = `(e.user_id = $1
           or exists (select 1
                        from event_attendees a
                       where a.event_id = e.id
                         and a.user_id = $1
                         and a.status = 'accepted'))`;
+
+  private static readonly VISIBLE = `
+    from schedule_events e
+   where ${ScheduleEventsRepository.VISIBLE_TO_$1}`;
 
   /** Calendar and agenda screens need a window, not offset pagination. */
   async findInRange(
@@ -179,6 +181,55 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
        ${ScheduleEventsRepository.VISIBLE}
          and e.id = $2`,
       [userId, id],
+    );
+  }
+
+  /**
+   * An edit by somebody who is on the event but does not own it.
+   *
+   * The base class cannot express this. Every statement it builds ends in
+   * `user_id = $n`, structurally, because that rule is what stands in for row
+   * level security — so the way to let an attendee write is a second statement
+   * that names its own predicate out loud, not a relaxed base that every other
+   * table then inherits.
+   *
+   * The predicate is the same one the reads use, character for character: if
+   * you can see this event, you may change it. Anything narrower would be a
+   * second, subtly different definition of "on this event", and the two would
+   * eventually disagree.
+   *
+   * Assignments are still built from `writableColumns`, so a caller cannot
+   * reach a column the whitelist excludes. `workspace_id` is on that list and
+   * is refused for attendees a layer up, in the service, where the reason —
+   * they do not own the workspace — is checkable.
+   */
+  async updateVisible(
+    userId: string,
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<ScheduleEventRow | null> {
+    const entries = Object.entries(data).filter(
+      ([column, value]) =>
+        value !== undefined && this.writableColumns.includes(column),
+    );
+
+    if (entries.length === 0) return this.findVisible(userId, id);
+
+    // The user id is $1 so the shared predicate above reads here exactly as it
+    // does in the SELECTs — assignments take $2 onwards.
+    const params: unknown[] = [userId, ...entries.map(([, v]) => v)];
+    const assignments = entries.map(
+      ([column], i) => `${assertIdentifier(column, 'column')} = $${i + 2}`,
+    );
+    params.push(id);
+
+    return this.db.queryOne<ScheduleEventRow>(
+      `update schedule_events as e
+          set ${assignments.join(', ')}
+        where e.id = $${params.length}
+          and ${ScheduleEventsRepository.VISIBLE_TO_$1}
+        returning e.*`,
+      params,
     );
   }
 }

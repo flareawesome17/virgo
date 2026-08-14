@@ -119,6 +119,19 @@ export default function CreateEventScreen() {
   );
 
   const selectedWs = workspaces.find((w) => w.id === selectedWsId);
+
+  /**
+   * Editing an event somebody else created.
+   *
+   * Anyone on an event may change what it is, but not where it is filed — a
+   * workspace belongs to the organiser, and the API refuses the field from
+   * anyone else. Showing the picker anyway would be offering a control that
+   * always fails.
+   *
+   * Undefined while the event is still loading, and on a create, both of which
+   * are "yours" as far as this is concerned.
+   */
+  const guestEdit = editing && existing?.is_owner === false;
   // An "Others" event is only half-described until it is named, so Save waits
   // for the name the way it already waits for the title.
   const canSave =
@@ -149,7 +162,9 @@ export default function CreateEventScreen() {
         event_time: hasTime ? dateToTimeString(when) : null,
         ...typeFields,
         // Unlike create, null is meaningful here: it detaches the workspace.
-        workspace_id: selectedWsId,
+        // Omitted for a guest: they may not set it, and sending the value
+        // unchanged would still be a field the server refuses.
+        ...(guestEdit ? {} : { workspace_id: selectedWsId }),
       },
       {
         onSuccess: () => router.back(),
@@ -291,7 +306,9 @@ export default function CreateEventScreen() {
           />
         </View>
 
-        {/* Workspace */}
+        {/* Workspace — the organiser's to decide, so hidden when editing
+            somebody else's event rather than shown and rejected. */}
+        {!guestEdit && (
         <View className="px-5 mt-5">
           <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Workspace <Text className="font-medium normal-case tracking-normal">(optional)</Text></Text>
           <Pressable onPress={() => setShowWsPicker(!showWsPicker)}
@@ -322,6 +339,16 @@ export default function CreateEventScreen() {
             </View>
           )}
         </View>
+        )}
+
+        {guestEdit && (
+          <View className="px-5 mt-5">
+            <Text className="text-muted-foreground text-xs leading-4">
+              This is not your event. The organiser and everyone going will be
+              told what you change.
+            </Text>
+          </View>
+        )}
 
         {/* Invitations. Absent when editing: an existing event manages its
             guests from the detail screen, which can also uninvite. */}

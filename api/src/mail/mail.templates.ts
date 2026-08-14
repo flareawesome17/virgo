@@ -350,19 +350,24 @@ export function jobPostReported(options: {
 }
 
 /**
- * An event somebody accepted has moved.
+ * An event somebody is on has changed.
  *
  * Carries the old time as well as the new one. "Your shoot has moved" with a
  * single date leaves the reader working out what changed from memory, and the
  * one thing this message exists to prevent is somebody turning up at the time
  * they had written down.
  *
- * No accept/decline call to action: they already accepted, and the organiser
- * moved it. The link goes to the event so they can see it and talk to whoever
- * moved it if the new time does not work.
+ * Two audiences, because an attendee and the organiser need different sentences
+ * from the same event. An attendee is being told their plans moved and that
+ * their place is safe; the organiser is being told that somebody else touched
+ * their event, which is a different kind of news and needs the person named.
+ *
+ * No accept/decline call to action: nobody's attendance is in question. The
+ * link goes to the event so they can see it and talk to whoever changed it.
  */
 export function eventChanged(options: {
-  organiserName: string;
+  /** Whoever made the change. Not necessarily the organiser any more. */
+  editorName: string;
   eventTitle: string;
   /** Already formatted for reading, as it stood before the edit. */
   previousWhen: string;
@@ -370,23 +375,34 @@ export function eventChanged(options: {
   when: string;
   /** What changed, already phrased: `['the title', 'the notes']`. */
   changed: readonly string[];
+  /** Who is reading. The organiser owns the event; an attendee joined it. */
+  audience: 'attendee' | 'organiser';
   url: string;
 }): RenderedEmail {
   const moved = options.previousWhen !== options.when;
   const others = options.changed.filter((c) => c !== 'the date and time');
+  const mine = options.audience === 'organiser';
 
   // A move gets its own wording. It is the change that can cost somebody a
   // wasted trip, and it should not read like a corrected typo.
   const intro = moved
-    ? `${options.organiserName} moved “${options.eventTitle}”. It was ${options.previousWhen}, and it is now ${options.when}.` +
+    ? `${options.editorName} moved “${options.eventTitle}”. It was ${options.previousWhen}, and it is now ${options.when}.` +
       // Starts a new sentence, so it is capitalised; the other branch is
       // mid-sentence and must not be.
       (others.length > 0 ? ` ${capitalise(joinList(others))} also changed.` : '')
-    : `${options.organiserName} updated “${options.eventTitle}” — ${joinList(options.changed)} changed. It is still ${options.when}.`;
+    : `${options.editorName} updated “${options.eventTitle}” — ${joinList(options.changed)} changed. It is still ${options.when}.`;
 
-  const heading = moved
-    ? 'An event you joined has moved'
-    : 'An event you joined was updated';
+  const heading = mine
+    ? moved
+      ? 'Your event has been moved'
+      : 'Your event was updated'
+    : moved
+      ? 'An event you joined has moved'
+      : 'An event you joined was updated';
+
+  const note = mine
+    ? 'Anyone who is going to this has been told as well. You own the event, so you can change it back.'
+    : 'Your place is unchanged — you do not need to accept again. If it no longer works for you, tell the organiser.';
 
   return {
     subject: moved
@@ -396,19 +412,9 @@ export function eventChanged(options: {
       heading,
       intro,
       cta: { label: 'Open the event', url: options.url },
-      fineprint: [
-        'Your place is unchanged — you do not need to accept again. If it no longer works for you, tell the organiser.',
-      ],
+      fineprint: [note],
     }),
-    text: [
-      heading,
-      '',
-      intro,
-      '',
-      options.url,
-      '',
-      'Your place is unchanged. If it no longer works for you, tell the organiser.',
-    ].join('\n'),
+    text: [heading, '', intro, '', options.url, '', note].join('\n'),
   };
 }
 
