@@ -1,0 +1,14 @@
+{
+  "name": "virgo-desktop",
+  "version": "1.3.0",
+  "private": true,
+  "description": "Tauri shell that runs the Virgo web client as a desktop app",
+  "scripts": {
+    "stage": "node scripts/stage-web.mjs",
+    "stage:quick": "node scripts/stage-web.mjs --no-build",
+    "dev:web": "npm --prefix ../web run dev -- -p 4123",
+    "dev": "cargo tauri dev",
+    "build": "npm run stage && cargo tauri build",
+    "icons": "cargo tauri icon ../web/public/icon.png"
+  }
+}
