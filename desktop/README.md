@@ -50,6 +50,33 @@ shared with the web deployment and compared against `mobile/src` in CI. Running
 the real server costs ~30 MB and a cold start. That is the cheaper side of the
 trade.
 
+## The window
+
+Two things stop it reading as a web page in a frame.
+
+**macOS gets an overlay title bar.** `titleBarStyle: "Overlay"` with
+`hiddenTitle` lets the app run to the top of the window, with the traffic lights
+floating over it rather than sitting in a separate grey strip. The app shell
+pads its top by `pt-7` to keep the sidebar clear of them, and what that leaves
+is the region macOS still treats as the title bar — so the window is still
+dragged by it.
+
+That padding is decided at build time from the target triple, not sniffed from
+the user agent, because it changes layout: working it out after hydration would
+paint the Windows layout first and jump. `stage-web.mjs` sets
+`NEXT_PUBLIC_DESKTOP_OS` alongside the desktop flag.
+
+**The window remembers where it was.** `tauri-plugin-window-state` saves size
+and position on exit and restores them on launch. Opening at the same centred
+1280×860 every time, whatever the user did last, is a small thing that reads as
+a web page rather than an application.
+
+Windows keeps its standard frame for now. Replacing it means drawing the
+controls in the app, which needs Tauri's JS API — and that is not injected here,
+because the app is loaded from `http://127.0.0.1:41730`, an origin the webview
+treats as remote. Granting IPC to that origin is a deliberate decision rather
+than a detail, so it is not taken as part of this.
+
 ## Updates
 
 There is no auto-updater, and for this architecture that is less of a gap than
