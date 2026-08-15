@@ -97,7 +97,13 @@ export class DownloadsService {
   }
 
   private get token(): string | undefined {
-    return this.config.get<string>('GITHUB_RELEASES_TOKEN')?.trim() || undefined;
+    // Not the deployment worker's token, despite doing the same job against
+    // the same repository. That one lives DPAPI-encrypted under
+    // deployment/windows/secrets and can be read only by the Windows account
+    // running the scheduled task, which a Linux container cannot do. Separate
+    // tokens also mean this one — reachable from the internet — can be revoked
+    // without stopping deployments.
+    return this.config.get<string>('GITHUB_DOWNLOADS_TOKEN')?.trim() || undefined;
   }
 
   private get publicApiUrl(): string {
