@@ -95,6 +95,25 @@ function desktopVersion() {
 
 const VERSION = desktopVersion();
 
+/**
+ * Which desktop platform this bundle is for.
+ *
+ * Needed at build time rather than sniffed at runtime because it decides
+ * layout: on macOS the window uses an overlay title bar, so the traffic lights
+ * float over the app's own sidebar and the top of it has to be padded out of
+ * their way. Deciding that after hydration would show the wrong layout first
+ * and jump, which is worse than the seam it is meant to remove.
+ *
+ * `targetTriple` is a function declaration and therefore hoisted, so this can
+ * run before its definition further down.
+ */
+const TRIPLE = targetTriple();
+const DESKTOP_OS = TRIPLE.includes('apple-darwin')
+  ? 'macos'
+  : TRIPLE.includes('windows')
+    ? 'windows'
+    : 'linux';
+
 if (!skipBuild) {
   step(`Building web/ ${VERSION || '(unversioned)'} against ${API_URL}`);
   // `shell: true` on Windows, and it has to be. npm is a `.cmd` shim there, and
@@ -122,6 +141,7 @@ if (!skipBuild) {
       // serves web.virgo.ph compiles the update banner away entirely.
       NEXT_PUBLIC_VIRGO_DESKTOP: '1',
       NEXT_PUBLIC_DESKTOP_VERSION: VERSION,
+      NEXT_PUBLIC_DESKTOP_OS: DESKTOP_OS,
     },
   });
   if (result.status !== 0) {
@@ -265,7 +285,7 @@ async function fetchNodeFor(build, version, dest) {
 step('Staging Node runtime');
 mkdirSync(BINARIES, { recursive: true });
 
-const triple = targetTriple();
+const triple = TRIPLE;
 const host = hostTriple();
 const ext = triple.includes('windows') ? '.exe' : '';
 const dest = join(BINARIES, `node-${triple}${ext}`);
@@ -299,6 +319,7 @@ console.log(`
   version    ${VERSION || '(none — the update banner stays quiet)'}
   runtime    node ${process.version} (${triple})
   target     ${triple === host ? 'native' : `cross-built on ${host}`}
+  platform   ${DESKTOP_OS}
 
 Next: cargo tauri build   (or: cargo tauri dev)
 `);

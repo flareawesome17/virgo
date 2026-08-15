@@ -46,6 +46,8 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
 import { DesktopUpdateBanner } from '@/components/desktop-update-banner';
 
+import { DesktopTitleBar } from '@/components/desktop-title-bar';
+
 interface NavItem {
   href: string;
   label: string;
@@ -369,12 +371,20 @@ export function AppShell({
     // were retracted. With the bar on screen the app was that much taller than
     // the room it had, and because body is overflow:hidden here, the part
     // underneath could not be scrolled to. dvh tracks what is actually visible.
-    <div data-app-shell className="flex h-dvh">
-      <aside className="hidden w-64 shrink-0 border-r lg:block">
-        <SidebarBody />
-      </aside>
+    <div data-app-shell className="flex h-dvh flex-col">
+      {/* Renders nothing on the web, where the browser owns the chrome. In the
+          desktop app it is the title bar: the whole strip on Windows, where
+          decorations are off, and a drag region beside the native traffic
+          lights on macOS. The column wrapper is what gives it somewhere to sit
+          above the sidebar rather than beside it. */}
+      <DesktopTitleBar />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1">
+        <aside className="hidden w-64 shrink-0 border-r lg:block">
+          <SidebarBody />
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 lg:hidden">
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
@@ -403,7 +413,8 @@ export function AppShell({
           <DesktopUpdateBanner />
           <VerifyEmailBanner />
           {children}
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );
