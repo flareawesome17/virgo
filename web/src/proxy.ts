@@ -122,6 +122,11 @@ export function proxy(request: NextRequest): NextResponse {
     pathname === '/terms' ||
     pathname === '/privacy' ||
     pathname === '/landing' ||
+    // The desktop download page. Marketing, not product: it is for people who
+    // do not have an account yet, and it is linked from the header of every
+    // page on this host. Without this line the catch-all below would send it
+    // to web.virgo.ph/download, which does not exist.
+    pathname === '/download' ||
     pathname.startsWith('/opengraph-image') ||
     pathname.startsWith('/twitter-image')
   ) {

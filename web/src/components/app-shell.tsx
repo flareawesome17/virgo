@@ -44,6 +44,7 @@ import { usePromoOffers } from '@/hooks/usePromos';
 import { NotificationBell } from '@/components/notification-bell';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
+import { DesktopUpdateBanner } from '@/components/desktop-update-banner';
 
 interface NavItem {
   href: string;
@@ -395,6 +396,11 @@ export function AppShell({
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto">
+          {/* Above the verification notice: that one is about this account and
+              comes back every load until it is resolved, while this is about
+              the application itself and can be dismissed for good. Renders
+              nothing at all in the web build. */}
+          <DesktopUpdateBanner />
           <VerifyEmailBanner />
           {children}
         </main>

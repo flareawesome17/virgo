@@ -26,6 +26,7 @@ import { ScheduleEventsModule } from './schedule-events/schedule-events.module';
 import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DiscoverModule } from './discover/discover.module';
+import { DownloadsModule } from './downloads/downloads.module';
 import { MessagesModule } from './messages/messages.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 import { AdminModule } from './admin/admin.module';
@@ -63,6 +64,7 @@ import { PromosModule } from './promos/promos.module';
     HireModule,
     HiringModule,
     PromosModule,
+    DownloadsModule,
   ],
   providers: [
     // Deny by default: every route requires a valid JWT unless it carries

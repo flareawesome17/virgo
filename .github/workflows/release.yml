@@ -4,6 +4,10 @@
 # and runs them, which is what makes a release a fixed thing you can point at,
 # roll forward to, and roll back from.
 #
+# The desktop app is built here too, but as installers attached to the release
+# rather than images — it runs on the user's machine, not the host. See the
+# `desktop` job for why it is kept out of the deployable gate.
+#
 # Mobile is deliberately absent. The Expo app ships through EAS and the native
 # app stores; there is no server to run it on and no image to build.
 
@@ -149,6 +153,173 @@ jobs:
           path: ${{ matrix.image }}.digest
           if-no-files-found: error
           retention-days: 1
+
+  # The desktop app, built on the platform it ships for.
+  #
+  # Deliberately not part of the `build` matrix, and deliberately not a
+  # dependency of `verify`. Those three images are what the production host
+  # pulls, and the marker `verify` publishes is what authorises a deployment —
+  # a macOS runner failing to compile a webview shell must not be able to stop
+  # the server from being deployed. A failed desktop job leaves the release
+  # without installers, which is visible on the release page and can be fixed
+  # by re-running this job alone.
+  #
+  # There is no cross-compilation. Tauri links against the platform's own
+  # webview — WebView2 on Windows, WKWebView on macOS — so each installer has
+  # to be produced on its own runner.
+  #
+  # macOS is built twice rather than as one universal binary because the app
+  # ships a Node runtime, and `stage-web.mjs` takes it from the runner it is
+  # executing on. A universal app would carry a single-architecture sidecar and
+  # fail on half the Macs that installed it.
+  desktop:
+    name: desktop (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+
+    strategy:
+      # As above: an installer failing on one platform should not hide whether
+      # the others built.
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            runner: windows-latest
+          - name: macos-arm64
+            runner: macos-latest
+          # Intel. GitHub retires its x86 macOS runners as the fleet moves on,
+          # and a retired label fails the job before it starts rather than
+          # during it. If this one goes, drop this entry: an Apple Silicon Mac
+          # runs the arm64 build natively, and Intel Macs are the only thing
+          # lost. `fail-fast: false` means losing it does not take the arm64
+          # installer with it.
+          - name: macos-x64
+            runner: macos-13
+
+    steps:
+      - name: Resolve the release tag
+        id: release
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "::error::No release tag to build."
+            exit 1
+          fi
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release tag must be vMAJOR.MINOR.PATCH; received '$TAG'."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # Installer versions are numeric — MSI rejects a leading 'v' outright.
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Tauri pulls in several hundred crates. Without this every release
+      # compiles them from scratch on three runners.
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+          key: ${{ matrix.name }}
+
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      # tauri.conf.json carries a version so that a local build has one, but a
+      # release has to say what it actually is. Taken from the tag rather than
+      # kept in step by hand, which is the kind of edit everyone forgets until
+      # a user reports the installer showing the wrong number.
+      - name: Stamp the release version
+        working-directory: desktop/src-tauri
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const config = JSON.parse(fs.readFileSync("tauri.conf.json", "utf8"));
+            config.version = process.argv[1];
+            fs.writeFileSync("tauri.conf.json", JSON.stringify(config, null, 2) + "\n");
+          ' '${{ steps.release.outputs.version }}'
+
+      # Icons are generated from the web app's logo rather than committed, so
+      # this step is required, not a convenience — the bundler fails without
+      # the .ico and .icns it produces.
+      - name: Generate the icons
+        working-directory: desktop
+        run: cargo tauri icon ../web/public/icon.png
+
+      # Builds web/ in standalone mode and stages it beside a Node runtime for
+      # this platform. The API URL is inlined into the client bundle here and
+      # cannot be changed afterwards, exactly as for the web image above.
+      #
+      # This origin must be listed in the API's CORS_ORIGINS or every request
+      # from the installed app fails at the preflight; the port is fixed in
+      # desktop/src-tauri/src/lib.rs for that reason.
+      - name: Stage the web client
+        working-directory: desktop
+        env:
+          VIRGO_API_URL: ${{ vars.PROD_API_URL || 'https://api.virgo.ph' }}
+          NEXT_PUBLIC_SITE_ORIGIN: ${{ vars.PROD_SITE_ORIGIN || 'https://virgo.ph' }}
+          NEXT_PUBLIC_APP_ORIGIN: ${{ vars.PROD_APP_ORIGIN || 'https://web.virgo.ph' }}
+        run: node scripts/stage-web.mjs
+
+      # Signing is driven entirely by whether the secrets exist. With none set
+      # the build still succeeds and produces unsigned installers — which
+      # Gatekeeper quarantines on macOS, and which Windows refuses outright on
+      # any machine with Smart App Control enforced. Unsigned builds are fine
+      # for an internal drop and are not fit to hand to a customer.
+      #
+      # Windows Authenticode is configured in tauri.conf.json under
+      # bundle.windows rather than by environment, so adding a certificate
+      # there is a config change as well as a secret.
+      - name: Build the installers
+        working-directory: desktop
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: cargo tauri build
+
+      # `nullglob` so the patterns for the other platform expand to nothing
+      # rather than to themselves — without it a Windows run would try to
+      # upload a file literally named '*.dmg'.
+      - name: Attach the installers to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          shopt -s nullglob
+          BUNDLE=desktop/src-tauri/target/release/bundle
+          FILES=("$BUNDLE"/msi/*.msi "$BUNDLE"/nsis/*-setup.exe "$BUNDLE"/dmg/*.dmg)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "::error::The build reported success but produced no installers."
+            exit 1
+          fi
+          printf 'uploading %s\n' "${FILES[@]}"
+          gh release upload "$TAG" "${FILES[@]}" --clobber --repo "$GITHUB_REPOSITORY"
 
   # Fails the run if any image is missing, so a green tick means all three are
   # actually in the registry. Without this, fail-fast:false would let a partial

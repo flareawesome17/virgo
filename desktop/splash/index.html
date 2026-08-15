@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Virgo</title>
+    <style>
+      /*
+       * Shown while the Node server starts, then replaced by the app itself.
+       * Colours are the two the mobile app uses for its splash, so the desktop
+       * cold start looks like the same product rather than a blank frame.
+       */
+      :root {
+        --bg: #fff8f4;
+        --fg: #1e1b18;
+        --muted: #847167;
+        --accent: #b66a40;
+        --track: #ece1d9;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #161311;
+          --fg: #f2ede8;
+          --muted: #948278;
+          --accent: #c17745;
+          --track: #2a2320;
+        }
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { height: 100%; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-sans-serif, "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* The whole surface drags the window; nothing here is selectable. */
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+      }
+
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 22px;
+        padding: 32px;
+        max-width: 420px;
+        text-align: center;
+      }
+
+      .mark {
+        font-size: 30px;
+        font-weight: 600;
+        letter-spacing: 0.24em;
+        text-indent: 0.24em;
+        text-transform: uppercase;
+      }
+
+      .track {
+        width: 172px;
+        height: 2px;
+        background: var(--track);
+        overflow: hidden;
+        border-radius: 2px;
+      }
+      .track i {
+        display: block;
+        height: 100%;
+        width: 40%;
+        background: var(--accent);
+        border-radius: 2px;
+        animation: slide 1.15s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(350%); }
+      }
+
+      .status {
+        font-size: 13.5px;
+        color: var(--muted);
+        margin: 0;
+        line-height: 1.5;
+      }
+
+      /* Failure state — swapped in by the listener below. */
+      body.failed .track { display: none; }
+      body.failed .status { color: var(--fg); }
+
+      .detail {
+        display: none;
+        font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+        font-size: 11.5px;
+        line-height: 1.6;
+        color: var(--muted);
+        background: var(--track);
+        padding: 12px 14px;
+        border-radius: 6px;
+        max-width: 100%;
+        overflow-x: auto;
+        text-align: left;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      body.failed .detail { display: block; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .track i { animation: none; width: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">Virgo</div>
+      <div class="track"><i></i></div>
+      <p class="status" id="status">Starting…</p>
+      <pre class="detail" id="detail"></pre>
+    </main>
+
+    <script>
+      /*
+       * The shell emits `startup-failed` when the server does not come up. It
+       * is the only Tauri API this page uses; once the server answers, the
+       * webview is moved to it and the ordinary web app takes over, which uses
+       * no Tauri APIs at all.
+       */
+      const slow = setTimeout(() => {
+        document.getElementById('status').textContent =
+          'Still starting — the first launch after an update takes longer.';
+      }, 6000);
+
+      window.__TAURI__?.event?.listen('startup-failed', (event) => {
+        clearTimeout(slow);
+        document.body.classList.add('failed');
+        document.getElementById('status').textContent = 'Virgo could not start.';
+        document.getElementById('detail').textContent = String(event.payload ?? '');
+      });
+    </script>
+  </body>
+</html>
