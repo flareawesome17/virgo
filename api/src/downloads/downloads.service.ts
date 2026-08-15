@@ -232,7 +232,26 @@ export class DownloadsService {
       // Stale is better than nothing: GitHub being briefly unavailable should
       // not empty a page that was correct a minute ago.
       if (this.cached) return this.cached.release;
-      throw new NotFoundException('No downloads are available right now.');
+
+      // The status is named in the response, not only in the log.
+      //
+      // Without it, a token GitHub rejects and a token that is merely missing
+      // look identical from outside — and diagnosing it needs a shell on the
+      // production host, which is a poor requirement for "the download page is
+      // empty". This is not sensitive: it says the server cannot read its own
+      // releases, which the empty page already says.
+      const reason =
+        response.status === 401
+          ? 'the configured token was rejected'
+          : response.status === 403
+            ? 'the configured token is forbidden or rate limited'
+            : response.status === 404
+              ? 'the configured token cannot see the repository — check it lists this repository and grants Contents: Read'
+              : `GitHub answered ${response.status}`;
+
+      throw new NotFoundException(
+        `No downloads are available right now: ${reason}.`,
+      );
     }
 
     const releases = (await response.json()) as GitHubRelease[];
