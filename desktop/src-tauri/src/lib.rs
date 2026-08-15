@@ -290,8 +290,11 @@ pub fn run() {
         // did last time, is a small thing that reads as "web page in a frame"
         // rather than as an application.
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        // Lets the update notice open the installer in the system browser.
+        // Kept as the fallback route to an installer, and for any other link
+        // the app needs to hand to the browser.
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Windows draws a title bar the app replaces with its own, so the
             // system one is turned off before the window is ever shown.

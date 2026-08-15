@@ -18,6 +18,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 
+# Not used directly. `tauri::generate_context!` expands to code that names
+# `serde_json` once tauri.conf.json carries a `plugins` block, and fails to
+# compile without it in scope.
+serde_json = "1"
+
 # Remembers the window's size and position between launches. Driven entirely
 # from Rust, so it needs no capability: the app never calls it from JavaScript,
 # which it could not do anyway — the page is served from a loopback address the
@@ -30,6 +35,15 @@ tauri-plugin-window-state = "2"
 # reimplementing progress and "where did it go" for a file the browser already
 # manages well.
 tauri-plugin-opener = "2"
+
+# In-app updates: check, download with progress, install, relaunch. The update
+# must carry a signature made with the key whose public half is in
+# tauri.conf.json, so a tampered or third-party build is refused before it is
+# ever run.
+tauri-plugin-updater = "2"
+# `relaunch()` after the installer finishes. Nothing else in the app restarts
+# the process, so this is the updater's dependency rather than its own feature.
+tauri-plugin-process = "2"
 
 # Nothing else. The Node process is started with std::process::Command and the
 # webview is moved with `eval`, so neither tauri-plugin-shell nor

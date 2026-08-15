@@ -32,12 +32,25 @@
     ],
     "security": {
       "csp": null,
-      "capabilities": ["default", "window-controls"]
+      "capabilities": ["default", "window-controls", "updater"]
+    }
+  },
+
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlDMjAxM0QyQUNBRjY4NzcKUldSM2FLK3MwaE1nbkFtZU40QzlmV011UjBzZ0E5TVFSNko1UWZ0RkpBc21ZZVZmSTJsRzd5SEcK",
+      "endpoints": [
+        "https://api.virgo.ph/downloads/updater/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   },
 
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["msi", "nsis", "dmg", "app"],
     "icon": [
       "icons/32x32.png",

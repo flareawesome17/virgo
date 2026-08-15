@@ -57,10 +57,42 @@ interface GitHubAsset {
 
 interface GitHubRelease {
   tag_name: string;
+  name?: string | null;
   published_at: string | null;
   draft: boolean;
   prerelease: boolean;
   assets: GitHubAsset[];
+}
+
+/**
+ * The dynamic-format response `tauri-plugin-updater` expects.
+ *
+ * Field names are Tauri's, `pub_date` included — the plugin deserialises this,
+ * nothing of ours reads it.
+ */
+export interface UpdateManifest {
+  version: string;
+  notes?: string;
+  pub_date?: string;
+  url: string;
+  signature: string;
+}
+
+/**
+ * `a` is newer than `b`, compared numerically per part.
+ *
+ * 1.10.0 is newer than 1.9.0, which a string comparison gets backwards — and
+ * that is exactly the release where somebody would notice, because every
+ * installed copy would quietly stop being offered updates.
+ */
+function isNewer(a: string, b: string): boolean {
+  const parse = (v: string) => v.split('.').map((n) => Number.parseInt(n, 10) || 0);
+  const [x, y] = [parse(a), parse(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const diff = (x[i] ?? 0) - (y[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
 }
 
 /**
@@ -202,6 +234,108 @@ export class DownloadsService {
       };
     }
 
+    return null;
+  }
+
+  /**
+   * What a Tauri dynamic updater endpoint answers with.
+   *
+   * Field names are Tauri's, including the snake_case `pub_date` — this is
+   * deserialised by the plugin, not read by anything of ours.
+   */
+  private async updateFor(
+    target: string,
+    arch: string,
+    currentVersion: string,
+  ): Promise<UpdateManifest | null> {
+    // Only Windows for now. macOS updates need the app packaged as a tarball
+    // rather than the .dmg the download page serves, which is a separate build
+    // target and a platform this has never run on — so it is added
+    // deliberately rather than by leaving a guess in here.
+    if (target !== 'windows') return null;
+
+    const release = await this.newestReleaseWithInstallers();
+    if (!release) return null;
+
+    const version = release.tag_name.replace(/^v/, '');
+    if (!isNewer(version, currentVersion)) return null;
+
+    // The NSIS installer is what the updater runs, and the .sig beside it is
+    // what proves the download is ours. Both come from the same build; a
+    // release carrying one without the other is not offered at all, because
+    // the plugin would download the installer and then refuse it.
+    const installer = release.assets.find((asset) =>
+      asset.name.toLowerCase().endsWith('-setup.exe'),
+    );
+    const signatureAsset = installer
+      ? release.assets.find((asset) => asset.name === `${installer.name}.sig`)
+      : undefined;
+
+    if (!installer || !signatureAsset) {
+      this.logger.warn(
+        `${release.tag_name} has no signed Windows installer — not offering an update.`,
+      );
+      return null;
+    }
+
+    const signature = await this.readAssetText(signatureAsset.id);
+    if (!signature) return null;
+
+    return {
+      version,
+      notes: release.name || undefined,
+      pub_date: release.published_at ?? undefined,
+      url: `${this.publicApiUrl}/downloads/${release.tag_name}/${encodeURIComponent(installer.name)}`,
+      signature: signature.trim(),
+    };
+  }
+
+  /** Public wrapper, so the controller does not reach into the private half. */
+  async getUpdate(
+    target: string,
+    arch: string,
+    currentVersion: string,
+  ): Promise<UpdateManifest | null> {
+    return this.updateFor(target, arch, currentVersion);
+  }
+
+  /**
+   * A small asset's contents, as text.
+   *
+   * Only ever used for `.sig` files, which are a single short line. Anything
+   * larger has no business being read into memory here — the installers
+   * themselves are streamed by `openAsset`.
+   */
+  private async readAssetText(assetId: number): Promise<string | null> {
+    const response = await this.github(
+      `/repos/${this.repository}/releases/assets/${assetId}`,
+      'application/octet-stream',
+    );
+    if (!response.ok) {
+      this.logger.error(
+        `Reading asset ${assetId} failed: ${response.status} ${response.statusText}`,
+      );
+      return null;
+    }
+    return response.text();
+  }
+
+  /** The raw release behind `getLatest`, for callers that need its assets. */
+  private async newestReleaseWithInstallers(): Promise<GitHubRelease | null> {
+    const response = await this.github(
+      `/repos/${this.repository}/releases?per_page=20`,
+      'application/vnd.github+json',
+    );
+    if (!response.ok) return null;
+
+    const releases = (await response.json()) as GitHubRelease[];
+    for (const release of releases) {
+      if (release.draft || release.prerelease) continue;
+      if (!TAG_PATTERN.test(release.tag_name)) continue;
+      if (release.assets.some((asset) => this.classify(asset, release.tag_name))) {
+        return release;
+      }
+    }
     return null;
   }
 

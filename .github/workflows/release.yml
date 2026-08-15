@@ -342,9 +342,21 @@ jobs:
             echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
           } >> "$GITHUB_ENV"
 
+      # The updater signing key is required, not optional like the Apple
+      # credentials above: `createUpdaterArtifacts` is on in tauri.conf.json, so
+      # a build without this key fails rather than quietly producing installers
+      # nobody can update from. That is the behaviour we want — an unsigned
+      # release would be invisible to every installed copy.
+      #
+      # Not Authenticode. This is a minisign keypair that proves an update came
+      # from us; the public half is embedded in the app and checked before an
+      # update is ever run.
       - name: Build the installers
         working-directory: desktop
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
 
       # `nullglob` so the patterns for the other platform expand to nothing
@@ -364,7 +376,11 @@ jobs:
           if [ -n "${{ matrix.target }}" ]; then
             BUNDLE="desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
           fi
-          FILES=("$BUNDLE"/msi/*.msi "$BUNDLE"/nsis/*-setup.exe "$BUNDLE"/dmg/*.dmg)
+          # The .sig files are what the updater endpoint reads to prove a
+          # download is ours. Without them attached, the API has an installer it
+          # cannot vouch for and will not offer the update at all.
+          FILES=("$BUNDLE"/msi/*.msi "$BUNDLE"/nsis/*-setup.exe "$BUNDLE"/dmg/*.dmg
+                 "$BUNDLE"/nsis/*-setup.exe.sig "$BUNDLE"/msi/*.msi.sig)
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "::error::The build reported success but produced no installers."
             exit 1
