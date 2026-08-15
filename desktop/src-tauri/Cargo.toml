@@ -24,6 +24,13 @@ tauri = { version = "2", features = [] }
 # webview treats as remote, and Tauri injects its API only into its own pages.
 tauri-plugin-window-state = "2"
 
+# Hands a URL to the system browser. The update notice needs it: a link to the
+# installer does nothing in the webview, because Tauri intercepts downloads and
+# drops them unless the shell handles them, and handling them here would mean
+# reimplementing progress and "where did it go" for a file the browser already
+# manages well.
+tauri-plugin-opener = "2"
+
 # Nothing else. The Node process is started with std::process::Command and the
 # webview is moved with `eval`, so neither tauri-plugin-shell nor
 # tauri-plugin-http is pulled in.
