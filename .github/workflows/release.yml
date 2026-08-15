@@ -188,14 +188,22 @@ jobs:
             runner: windows-latest
           - name: macos-arm64
             runner: macos-latest
-          # Intel. GitHub retires its x86 macOS runners as the fleet moves on,
-          # and a retired label fails the job before it starts rather than
-          # during it. If this one goes, drop this entry: an Apple Silicon Mac
-          # runs the arm64 build natively, and Intel Macs are the only thing
-          # lost. `fail-fast: false` means losing it does not take the arm64
-          # installer with it.
+            target: aarch64-apple-darwin
+          # Intel, cross-compiled on the Apple Silicon runner rather than built
+          # on a `macos-13` one. Those are no longer being handed out: two
+          # consecutive releases sat with this job queued, never picked up, and
+          # a job that is never scheduled holds the whole run open until it
+          # times out. Xcode targets x86_64 from Apple Silicon without
+          # complaint, so nothing is lost by not asking for Intel hardware.
+          #
+          # The one part that does not cross-compile by itself is the Node
+          # sidecar, which `stage-web.mjs` would otherwise copy from the runner
+          # — an arm64 binary inside an app only Intel Macs will run. It
+          # downloads the matching build instead when VIRGO_TARGET_TRIPLE names
+          # a platform it is not running on.
           - name: macos-x64
-            runner: macos-13
+            runner: macos-latest
+            target: x86_64-apple-darwin
 
     steps:
       - name: Resolve the release tag
@@ -227,8 +235,12 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # `targets` installs the cross-compilation target's standard library.
+      # Empty for Windows, which builds for the host.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       # Tauri pulls in several hundred crates. Without this every release
       # compiles them from scratch on three runners.
@@ -280,6 +292,9 @@ jobs:
           VIRGO_API_URL: ${{ vars.PROD_API_URL || 'https://api.virgo.ph' }}
           NEXT_PUBLIC_SITE_ORIGIN: ${{ vars.PROD_SITE_ORIGIN || 'https://virgo.ph' }}
           NEXT_PUBLIC_APP_ORIGIN: ${{ vars.PROD_APP_ORIGIN || 'https://web.virgo.ph' }}
+          # Names the Node build to ship. Unset for Windows, where the runner's
+          # own runtime is the right one.
+          VIRGO_TARGET_TRIPLE: ${{ matrix.target }}
         run: node scripts/stage-web.mjs
 
       # Exported here rather than declared on the build step, and that
@@ -329,7 +344,8 @@ jobs:
 
       - name: Build the installers
         working-directory: desktop
-        run: cargo tauri build
+        shell: bash
+        run: cargo tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
 
       # `nullglob` so the patterns for the other platform expand to nothing
       # rather than to themselves — without it a Windows run would try to
@@ -341,7 +357,13 @@ jobs:
           TAG: ${{ steps.release.outputs.tag }}
         run: |
           shopt -s nullglob
+          # `--target` moves the output under a directory named for the triple.
+          # A build without one leaves it at target/release, so both are checked
+          # rather than assuming which shape this job produced.
           BUNDLE=desktop/src-tauri/target/release/bundle
+          if [ -n "${{ matrix.target }}" ]; then
+            BUNDLE="desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          fi
           FILES=("$BUNDLE"/msi/*.msi "$BUNDLE"/nsis/*-setup.exe "$BUNDLE"/dmg/*.dmg)
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "::error::The build reported success but produced no installers."
