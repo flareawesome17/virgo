@@ -18,9 +18,15 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 
-# No plugins. The Node process is started with std::process::Command and the
+# Remembers the window's size and position between launches. Driven entirely
+# from Rust, so it needs no capability: the app never calls it from JavaScript,
+# which it could not do anyway — the page is served from a loopback address the
+# webview treats as remote, and Tauri injects its API only into its own pages.
+tauri-plugin-window-state = "2"
+
+# Nothing else. The Node process is started with std::process::Command and the
 # webview is moved with `eval`, so neither tauri-plugin-shell nor
-# tauri-plugin-http is pulled in — nothing here needs a capability grant.
+# tauri-plugin-http is pulled in.
 
 [profile.release]
 codegen-units = 1

@@ -285,6 +285,11 @@ fn stop_server() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Restores the window to where it was left, and saves it on exit.
+        // Opening at the same centred 1280x860 every launch, whatever the user
+        // did last time, is a small thing that reads as "web page in a frame"
+        // rather than as an application.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             // In `cargo tauri dev` the webview is already pointed at the Next
             // dev server named by `devUrl`, which `beforeDevCommand` started.

@@ -23,8 +23,10 @@
         "resizable": true,
         "center": true,
         "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "theme": null,
-        "backgroundColor": "#FFF8F4"
+        "backgroundColor": "#161311"
       }
     ],
     "security": {
