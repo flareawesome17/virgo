@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
+import { toast } from 'sonner';
 
 /**
  * The desktop app's own title bar.
@@ -113,9 +114,37 @@ export function DesktopTitleBar() {
     return () => unlisten?.();
   }, []);
 
-  const minimise = useCallback(() => void currentWindow()?.minimize(), []);
-  const toggle = useCallback(() => void currentWindow()?.toggleMaximize(), []);
-  const close = useCallback(() => void currentWindow()?.close(), []);
+  /**
+   * Runs a window command and says so when it fails.
+   *
+   * These were fire-and-forget — `void win.minimize()` — which meant a rejected
+   * promise went nowhere. Every button appeared to do nothing, with no error
+   * anywhere, and the reason took three attempts to find because the failure
+   * was invisible rather than because it was subtle.
+   *
+   * The buttons rendering was not evidence they worked, either: they were shown
+   * once `getCurrentWindow()` returned an object, and that is a local
+   * constructor which never touches IPC. It succeeds whether or not the app is
+   * permitted to do anything with it.
+   */
+  const run = useCallback((action: keyof TauriWindow, label: string) => {
+    const win = currentWindow();
+    if (!win) {
+      toast.error(`Cannot ${label}`, {
+        description: 'The desktop bridge is unavailable.',
+      });
+      return;
+    }
+    void (win[action] as () => Promise<unknown>)().catch((error: unknown) => {
+      toast.error(`Cannot ${label}`, {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, []);
+
+  const minimise = useCallback(() => run('minimize', 'minimise'), [run]);
+  const toggle = useCallback(() => run('toggleMaximize', 'resize'), [run]);
+  const close = useCallback(() => run('close', 'close'), [run]);
 
   if (!IS_DESKTOP) return null;
 

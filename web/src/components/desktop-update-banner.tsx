@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowDownToLine, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { API_BASE_URL } from '@/api';
 
 /**
@@ -47,6 +48,63 @@ const IS_DESKTOP = process.env.NEXT_PUBLIC_VIRGO_DESKTOP === '1';
 const CURRENT_VERSION = process.env.NEXT_PUBLIC_DESKTOP_VERSION ?? '';
 
 const DISMISS_KEY = 'virgo.desktop.updateDismissed';
+
+/**
+ * Opens the installer in the system browser.
+ *
+ * A plain `<a download>` did nothing at all here. Tauri intercepts downloads in
+ * the webview and drops them unless the shell handles them, so the Update button
+ * looked broken — it was the first thing anybody tried after being told an
+ * update existed.
+ *
+ * Handing it to the browser rather than teaching the shell to download is the
+ * smaller and better answer: the browser already shows progress, resumes, and
+ * puts the file somewhere the user can find, none of which is worth rebuilding
+ * inside the app to fetch one file a few times a year.
+ *
+ * Returns false when the API is not there — on the web, or if the IPC grant
+ * ever stops reaching the page — so the caller can fall back to the link rather
+ * than swallow the click.
+ */
+function openInBrowser(url: string): boolean {
+  if (typeof window === 'undefined') return false;
+
+  const globals = window as unknown as {
+    __TAURI_PLUGIN_OPENER__?: { openUrl?: (url: string) => Promise<void> };
+    __TAURI_INTERNALS__?: {
+      invoke?: (command: string, args: Record<string, unknown>) => Promise<unknown>;
+    };
+  };
+
+  // The plugin's own binding. It attaches to its own global rather than to a
+  // namespace on `__TAURI__` — which is what the first attempt at this looked
+  // for, found missing every time, and quietly fell back to the link that does
+  // nothing.
+  if (globals.__TAURI_PLUGIN_OPENER__?.openUrl) {
+    globals.__TAURI_PLUGIN_OPENER__.openUrl(url).catch((error: unknown) => {
+      toast.error('Could not open the installer', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
+    return true;
+  }
+
+  // The same call one layer down, for the case where the plugin's script has
+  // not been injected but core IPC has. This is all the binding above does, and
+  // core IPC is known to be present because the title bar's buttons use it.
+  if (globals.__TAURI_INTERNALS__?.invoke) {
+    globals.__TAURI_INTERNALS__
+      .invoke('plugin:opener|open_url', { url })
+      .catch((error: unknown) => {
+        toast.error('Could not open the installer', {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * `a` is newer than `b`.
@@ -148,10 +206,12 @@ export function DesktopUpdateBanner() {
       {installer ? (
         <a
           href={installer.url}
-          // Hands the file to the webview's own download handling rather than
-          // navigating. Without it the app window would leave the app to fetch
-          // a 100 MB file and have nowhere to come back to.
-          download
+          // The href stays as the fallback for anywhere the opener is missing,
+          // and because a link people can copy is more useful than a button
+          // that only works from inside the app.
+          onClick={(event) => {
+            if (openInBrowser(installer.url)) event.preventDefault();
+          }}
           className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
         >
           Update
