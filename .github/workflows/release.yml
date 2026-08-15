@@ -282,17 +282,27 @@ jobs:
           NEXT_PUBLIC_APP_ORIGIN: ${{ vars.PROD_APP_ORIGIN || 'https://web.virgo.ph' }}
         run: node scripts/stage-web.mjs
 
-      # Signing is driven entirely by whether the secrets exist. With none set
-      # the build still succeeds and produces unsigned installers — which
-      # Gatekeeper quarantines on macOS, and which Windows refuses outright on
-      # any machine with Smart App Control enforced. Unsigned builds are fine
-      # for an internal drop and are not fit to hand to a customer.
+      # Exported here rather than declared on the build step, and that
+      # distinction is the whole point.
       #
-      # Windows Authenticode is configured in tauri.conf.json under
-      # bundle.windows rather than by environment, so adding a certificate
-      # there is a config change as well as a secret.
-      - name: Build the installers
-        working-directory: desktop
+      # Tauri decides whether to sign by whether APPLE_CERTIFICATE is *present*,
+      # not whether it holds anything. A GitHub secret that has never been set
+      # expands to an empty string, and an empty string is present — so naming
+      # these on the build step made an unsigned build try to sign, and fail
+      # after a perfectly good compile:
+      #
+      #   security: SecKeychainItemImport: One or more parameters ... not valid
+      #   Error failed to bundle project: failed codesign application:
+      #         failed to run command security import
+      #
+      # Writing them to the environment only when there is a certificate means a
+      # repository with no Apple credentials produces an unsigned .dmg instead
+      # of no .dmg at all. Adding the secrets later needs no change here.
+      #
+      # Windows is unaffected either way: Authenticode is configured in
+      # tauri.conf.json under bundle.windows, not by environment.
+      - name: Prepare macOS signing
+        if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -300,6 +310,25 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No Apple certificate configured — building unsigned."
+            echo "::notice::macOS build is unsigned; Gatekeeper will quarantine it."
+            exit 0
+          fi
+          echo "Apple certificate present — the build will sign and notarise."
+          {
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Build the installers
+        working-directory: desktop
         run: cargo tauri build
 
       # `nullglob` so the patterns for the other platform expand to nothing
