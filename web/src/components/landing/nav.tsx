@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import Image from 'next/image';
+import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { APP_URL, SIGN_IN_URL, SIGN_UP_URL } from './links';
+import { APP_URL, DOWNLOAD_PATH, SIGN_IN_URL, SIGN_UP_URL } from './links';
 import { useActiveSection } from './use-active-section';
 
 const SECTIONS = [
@@ -24,11 +25,18 @@ const SECTION_IDS = SECTIONS.map((s) => s.id);
  * Transparent over the hero and solid once you scroll past it — a permanent
  * bar over a full-bleed hero cuts the image in half, and an invisible one over
  * body copy makes the links unreadable.
+ *
+ * `sectionBase` is what makes this header usable on a page that is not the
+ * landing page. The section links are fragments, and a fragment only means
+ * something where the section exists — on /download every one of them would
+ * be a link that visibly does nothing. Passing '/' turns them into links back
+ * to the landing page and the right place on it.
  */
-export function LandingNav() {
+export function LandingNav({ sectionBase = '' }: { sectionBase?: string }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const active = useActiveSection(SECTION_IDS);
+  const onDownloadPage = usePathname() === DOWNLOAD_PATH;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -88,7 +96,7 @@ export function LandingNav() {
             return (
               <a
                 key={item.id}
-                href={`#${item.id}`}
+                href={`${sectionBase}#${item.id}`}
                 // Announces the current section to a screen reader, which
                 // otherwise gets nothing from a colour change.
                 aria-current={isActive ? 'true' : undefined}
@@ -112,6 +120,28 @@ export function LandingNav() {
               </a>
             );
           })}
+
+          {/* A page, not a section, so it is a real link and is marked active
+              by route rather than by what is on screen. */}
+          <a
+            href={DOWNLOAD_PATH}
+            aria-current={onDownloadPage ? 'page' : undefined}
+            className={cn(
+              'relative py-1 text-[13px] transition-colors',
+              onDownloadPage
+                ? 'font-semibold text-white'
+                : 'font-medium text-white/60 hover:text-white',
+            )}
+          >
+            Download
+            <span
+              aria-hidden
+              className={cn(
+                'absolute -bottom-0.5 left-0 h-0.5 rounded-full bg-[#c17745] transition-all duration-300',
+                onDownloadPage ? 'w-full opacity-100' : 'w-0 opacity-0',
+              )}
+            />
+          </a>
         </nav>
 
         <div className="ml-auto flex items-center gap-2 md:ml-0">
@@ -157,7 +187,7 @@ export function LandingNav() {
             {SECTIONS.map((item) => (
               <a
                 key={item.id}
-                href={`#${item.id}`}
+                href={`${sectionBase}#${item.id}`}
                 onClick={() => setMenuOpen(false)}
                 aria-current={active === item.id ? 'true' : undefined}
                 className={cn(
@@ -170,6 +200,20 @@ export function LandingNav() {
                 {item.label}
               </a>
             ))}
+
+            <a
+              href={DOWNLOAD_PATH}
+              onClick={() => setMenuOpen(false)}
+              aria-current={onDownloadPage ? 'page' : undefined}
+              className={cn(
+                'flex min-h-11 items-center rounded-lg px-3 text-[15px] transition-colors',
+                onDownloadPage
+                  ? 'bg-white/[0.06] font-semibold text-white'
+                  : 'font-medium text-white/70 hover:bg-white/[0.04] hover:text-white',
+              )}
+            >
+              Download
+            </a>
 
             {/* Where Sign in goes on the screens too narrow to keep it in the
                 bar. Divided off, because it is an account action rather than

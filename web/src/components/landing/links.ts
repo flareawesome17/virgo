@@ -14,3 +14,14 @@ export const APP_URL =
 
 export const SIGN_IN_URL = `${APP_URL}/sign-in`;
 export const SIGN_UP_URL = `${APP_URL}/sign-up`;
+
+/**
+ * The desktop download page.
+ *
+ * Relative, unlike the two above, and deliberately: this page is part of the
+ * marketing site and is served by the apex. Pointing it at APP_URL would send
+ * somebody to web.virgo.ph/download, which does not exist — and `proxy.ts`
+ * has to name it explicitly, or the apex redirects it to the app for the same
+ * reason.
+ */
+export const DOWNLOAD_PATH = '/download';

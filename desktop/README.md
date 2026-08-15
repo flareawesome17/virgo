@@ -50,6 +50,35 @@ shared with the web deployment and compared against `mobile/src` in CI. Running
 the real server costs ~30 MB and a cold start. That is the cheaper side of the
 trade.
 
+## Updates
+
+There is no auto-updater, and for this architecture that is less of a gap than
+it sounds. The app *is* the web client, so every product change reaches it the
+moment the server is deployed — no installer involved. The installer only needs
+replacing when the shell itself changes, which is rare.
+
+What the app cannot work out on its own is that it has been superseded. So
+`DesktopUpdateBanner` in `web/src/components` asks `/downloads/latest` on load,
+compares it to the version staged into the bundle, and offers the installer for
+the platform it is running on. Dismissal is remembered per version, so saying
+"not now" to 1.8.0 does not also silence 1.9.0.
+
+Two things make that work, both of them build-time:
+
+- `NEXT_PUBLIC_VIRGO_DESKTOP` is set only by `stage-web.mjs`, so the banner is
+  inert in the image serving web.virgo.ph. It cannot be detected at runtime:
+  Tauri injects its API only into pages it serves itself, and this bundle is
+  loaded over `http://127.0.0.1:41730`, which the webview treats as remote.
+  Nothing on the page can tell itself apart from a browser tab.
+- `NEXT_PUBLIC_DESKTOP_VERSION` is read out of `tauri.conf.json` by the same
+  script, so it is by construction the number the installer carries. A bundle
+  that disagreed with its own installer would either nag forever or never
+  mention an update at all.
+
+A local `npm run stage` picks up whatever version that file says, which is
+usually behind the newest release — so a locally built app will offer to update
+itself to the real one. That is correct rather than a bug.
+
 ## The API has to allow this app's origin
 
 The webview loads the app from `http://127.0.0.1:41730` and calls the API

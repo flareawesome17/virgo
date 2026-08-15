@@ -19,7 +19,15 @@
  *   node scripts/stage-web.mjs --no-build stage an existing .next/
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, rmSync, copyFileSync, chmodSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,10 +66,35 @@ function step(msg) {
   console.log(`\n\x1b[36m▸\x1b[0m ${msg}`);
 }
 
+/**
+ * The version this build will identify itself as.
+ *
+ * Read from tauri.conf.json rather than passed in, so it is by construction the
+ * same number the installer carries — the update banner compares it against the
+ * newest release, and a bundle that disagreed with its own installer would
+ * either nag forever or never mention an update at all.
+ *
+ * The release workflow rewrites that file from the tag before this script runs.
+ * Locally it is whatever the file says, which is correct: a local build is not
+ * a release and has no business claiming a version it does not have.
+ */
+function desktopVersion() {
+  try {
+    const config = JSON.parse(
+      readFileSync(join(desktop, 'src-tauri', 'tauri.conf.json'), 'utf8'),
+    );
+    return typeof config.version === 'string' ? config.version : '';
+  } catch {
+    return '';
+  }
+}
+
 /* ------------------------------------------------------------------ build */
 
+const VERSION = desktopVersion();
+
 if (!skipBuild) {
-  step(`Building web/ against ${API_URL}`);
+  step(`Building web/ ${VERSION || '(unversioned)'} against ${API_URL}`);
   // `shell: true` on Windows, and it has to be. npm is a `.cmd` shim there, and
   // since the fix for CVE-2024-27980 Node refuses to spawn `.cmd` without a
   // shell — naming `npm.cmd` directly fails with EINVAL rather than running.
@@ -80,6 +113,13 @@ if (!skipBuild) {
       NEXT_PUBLIC_API_URL: API_URL,
       NEXT_PUBLIC_APP_ORIGIN: process.env.NEXT_PUBLIC_APP_ORIGIN || 'https://web.virgo.ph',
       NEXT_PUBLIC_SITE_ORIGIN: process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph',
+      // What tells the web client it is the desktop app. Nothing on the page
+      // can work this out at runtime: Tauri injects its API only into pages it
+      // serves itself, and this bundle is loaded over http://127.0.0.1:41730,
+      // which the webview treats as remote. Set only here, so the image that
+      // serves web.virgo.ph compiles the update banner away entirely.
+      NEXT_PUBLIC_VIRGO_DESKTOP: '1',
+      NEXT_PUBLIC_DESKTOP_VERSION: VERSION,
     },
   });
   if (result.status !== 0) {
@@ -165,6 +205,7 @@ console.log(`
 
   server     src-tauri/resources/web/server.js
   API        ${API_URL}
+  version    ${VERSION || '(none — the update banner stays quiet)'}
   runtime    node ${process.version} (${triple})
 
 Next: cargo tauri build   (or: cargo tauri dev)
