@@ -291,6 +291,27 @@ pub fn run() {
         // rather than as an application.
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
+            // Windows draws a title bar the app replaces with its own, so the
+            // system one is turned off before the window is ever shown.
+            //
+            // Done here rather than in tauri.windows.conf.json, which is the
+            // documented way and did not take effect — the built app kept
+            // WS_CAPTION and showed two title bars, one above the other. This
+            // is explicit and verifiable, and it keeps every window decision in
+            // one place instead of splitting them across two config files.
+            //
+            // macOS is untouched on purpose: there the traffic lights *are* the
+            // decorations, and turning them off would take the native controls
+            // with them. It keeps them and the overlay title bar style.
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "windows")]
+                let _ = window.set_decorations(false);
+
+                // The window is created hidden so the frame above is never
+                // painted and then removed, which reads as a flicker on launch.
+                let _ = window.show();
+            }
+
             // In `cargo tauri dev` the webview is already pointed at the Next
             // dev server named by `devUrl`, which `beforeDevCommand` started.
             // Spawning the staged production server too would start a second

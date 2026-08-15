@@ -4,7 +4,7 @@
   "description": "Lets the app draw its own title bar. The window is loaded from http://127.0.0.1:41730 — a remote origin as far as the webview is concerned — so Tauri injects nothing into it by default and the page cannot move, minimise or close its own window. This grants exactly those, and nothing else: no filesystem, no shell, no HTTP. If the app were ever to serve someone else's script, the worst it could do with this is close a window.",
   "windows": ["main"],
   "remote": {
-    "urls": ["http://127.0.0.1:41730"]
+    "urls": ["http://127.0.0.1:41730/*"]
   },
   "permissions": [
     "core:window:allow-start-dragging",
