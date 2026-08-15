@@ -26,7 +26,9 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -186,17 +188,106 @@ function targetTriple() {
   return `${arch}-unknown-linux-gnu`;
 }
 
+/** The triple this script is itself running on. */
+function hostTriple() {
+  const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+  if (process.platform === 'win32') return `${arch}-pc-windows-msvc`;
+  if (process.platform === 'darwin') return `${arch}-apple-darwin`;
+  return `${arch}-unknown-linux-gnu`;
+}
+
+/** How nodejs.org names the build for a Rust target triple. */
+function nodeBuildFor(triple) {
+  const arch = triple.startsWith('aarch64')
+    ? 'arm64'
+    : triple.startsWith('x86_64')
+      ? 'x64'
+      : null;
+  const platform = triple.includes('apple-darwin')
+    ? 'darwin'
+    : triple.includes('windows')
+      ? 'win'
+      : triple.includes('linux')
+        ? 'linux'
+        : null;
+  return arch && platform ? { platform, arch } : null;
+}
+
+/**
+ * Fetches the Node runtime for a platform this script is not running on.
+ *
+ * Cross-compiling is the only way to produce an Intel macOS build now: GitHub's
+ * `macos-13` runners no longer get picked up, and a job asking for one waits
+ * until it times out — two releases hung on exactly that. Xcode targets
+ * x86_64 from an Apple Silicon runner without complaint, but the Node sidecar
+ * cannot come from `process.execPath` there, because that binary is arm64 and
+ * would be bundled into an app that only Intel Macs are meant to run.
+ *
+ * The version fetched is the one running this script, so a cross-built app
+ * ships the same runtime as a native one.
+ */
+async function fetchNodeFor(build, version, dest) {
+  const name = `node-${version}-${build.platform}-${build.arch}`;
+  const url = `https://nodejs.org/dist/${version}/${name}.tar.gz`;
+
+  console.log(`  downloading ${name}`);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Could not download ${url} — ${response.status} ${response.statusText}`);
+  }
+
+  const archive = join(BINARIES, `${name}.tar.gz`);
+  writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
+
+  try {
+    // Only the executable is wanted, so the member is named explicitly and its
+    // two leading directories stripped.
+    //
+    // Run from inside the directory, with a bare filename, rather than given
+    // absolute paths. GNU tar reads an argument containing a colon as
+    // `host:path` and tries to fetch it over the network — an absolute Windows
+    // path fails with "Cannot connect to C: resolve failed". `--force-local`
+    // fixes that on GNU tar and is rejected outright by the BSD tar macOS
+    // ships, so avoiding the colon is the portable answer.
+    const extracted = spawnSync(
+      'tar',
+      ['-xzf', `${name}.tar.gz`, '--strip-components=2', `${name}/bin/node`],
+      { cwd: BINARIES, stdio: 'inherit' },
+    );
+    if (extracted.status !== 0) throw new Error(`Could not extract ${archive}`);
+    renameSync(join(BINARIES, 'node'), dest);
+    chmodSync(dest, 0o755);
+  } finally {
+    rmSync(archive, { force: true });
+  }
+}
+
 step('Staging Node runtime');
 mkdirSync(BINARIES, { recursive: true });
 
 const triple = targetTriple();
-const ext = process.platform === 'win32' ? '.exe' : '';
+const host = hostTriple();
+const ext = triple.includes('windows') ? '.exe' : '';
 const dest = join(BINARIES, `node-${triple}${ext}`);
 
-copyFileSync(process.execPath, dest);
-if (process.platform !== 'win32') chmodSync(dest, 0o755);
+if (triple === host) {
+  // The common case, and free: the runtime already running this script is the
+  // one the app should ship.
+  copyFileSync(process.execPath, dest);
+  if (process.platform !== 'win32') chmodSync(dest, 0o755);
+} else {
+  const build = nodeBuildFor(triple);
+  if (!build) {
+    console.error(`\nNo Node build is known for the target ${triple}.`);
+    process.exit(1);
+  }
+  await fetchNodeFor(build, process.version, dest);
+}
 
-console.log(`  node ${process.version} → binaries/node-${triple}${ext}`);
+console.log(
+  `  node ${process.version} → binaries/node-${triple}${ext}` +
+    (triple === host ? ' (host)' : ` (cross-built on ${host})`),
+);
 
 /* ---------------------------------------------------------------- summary */
 
@@ -207,6 +298,7 @@ console.log(`
   API        ${API_URL}
   version    ${VERSION || '(none — the update banner stays quiet)'}
   runtime    node ${process.version} (${triple})
+  target     ${triple === host ? 'native' : `cross-built on ${host}`}
 
 Next: cargo tauri build   (or: cargo tauri dev)
 `);
