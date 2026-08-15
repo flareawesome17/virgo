@@ -1,242 +1,256 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { ArrowDownToLine, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowDownToLine, Loader2, RotateCw, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { API_BASE_URL } from '@/api';
 
 /**
- * Tells the desktop app when a newer version has been released.
+ * Updates the desktop app in place.
  *
- * The desktop app has no auto-updater. It runs the web client, so every change
- * to the product reaches it the moment the server is deployed — the installer
- * only ever needs replacing when the shell itself changes, which is rare. What
- * it cannot do on its own is notice that it has been superseded, and a desktop
- * app that quietly rots is worse than one that says so.
+ * The app has no auto-update in the sense of doing it behind your back — it
+ * runs the web client, so the product itself changes on every deploy and only
+ * the shell needs replacing, which is rare. What this does is make that
+ * replacement not feel like a chore: the update downloads inside the app with a
+ * progress bar, and then asks before restarting.
+ *
+ * The previous version sent people to the browser to fetch an installer and run
+ * it by hand. That worked, and felt like homework.
  *
  * Nothing here runs on the web. `NEXT_PUBLIC_VIRGO_DESKTOP` is set only by
- * `desktop/scripts/stage-web.mjs`, so this component compiles to a `null`
- * return in the image that serves web.virgo.ph.
+ * `desktop/scripts/stage-web.mjs`, and the plugin globals below exist only
+ * inside the shell.
  */
 
-/** What GET /downloads/latest returns, narrowed to what this needs. */
-interface LatestAsset {
-  platform: 'windows' | 'macos';
-  arch: 'x64' | 'arm64';
-  label: string;
-  recommended: boolean;
-  url: string;
-}
-
-interface LatestRelease {
-  version: string;
-  assets: LatestAsset[];
-}
-
-/**
- * Whether this build is the desktop app.
- *
- * Baked in at build time rather than probed for at runtime. The obvious probe —
- * looking for `window.__TAURI__` — does not work: Tauri only injects its API
- * into pages it serves itself, and the desktop app loads the web client from
- * http://127.0.0.1:41730, which is a remote origin as far as the webview is
- * concerned. Nothing on the page can tell it apart from a browser tab.
- */
 const IS_DESKTOP = process.env.NEXT_PUBLIC_VIRGO_DESKTOP === '1';
-
-/** The version of the installer this bundle was staged into. */
-const CURRENT_VERSION = process.env.NEXT_PUBLIC_DESKTOP_VERSION ?? '';
-
 const DISMISS_KEY = 'virgo.desktop.updateDismissed';
 
-/**
- * Opens the installer in the system browser.
- *
- * A plain `<a download>` did nothing at all here. Tauri intercepts downloads in
- * the webview and drops them unless the shell handles them, so the Update button
- * looked broken — it was the first thing anybody tried after being told an
- * update existed.
- *
- * Handing it to the browser rather than teaching the shell to download is the
- * smaller and better answer: the browser already shows progress, resumes, and
- * puts the file somewhere the user can find, none of which is worth rebuilding
- * inside the app to fetch one file a few times a year.
- *
- * Returns false when the API is not there — on the web, or if the IPC grant
- * ever stops reaching the page — so the caller can fall back to the link rather
- * than swallow the click.
- */
-function openInBrowser(url: string): boolean {
-  if (typeof window === 'undefined') return false;
-
-  const globals = window as unknown as {
-    __TAURI_PLUGIN_OPENER__?: { openUrl?: (url: string) => Promise<void> };
-    __TAURI_INTERNALS__?: {
-      invoke?: (command: string, args: Record<string, unknown>) => Promise<unknown>;
-    };
-  };
-
-  // The plugin's own binding. It attaches to its own global rather than to a
-  // namespace on `__TAURI__` — which is what the first attempt at this looked
-  // for, found missing every time, and quietly fell back to the link that does
-  // nothing.
-  if (globals.__TAURI_PLUGIN_OPENER__?.openUrl) {
-    globals.__TAURI_PLUGIN_OPENER__.openUrl(url).catch((error: unknown) => {
-      toast.error('Could not open the installer', {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    });
-    return true;
-  }
-
-  // The same call one layer down, for the case where the plugin's script has
-  // not been injected but core IPC has. This is all the binding above does, and
-  // core IPC is known to be present because the title bar's buttons use it.
-  if (globals.__TAURI_INTERNALS__?.invoke) {
-    globals.__TAURI_INTERNALS__
-      .invoke('plugin:opener|open_url', { url })
-      .catch((error: unknown) => {
-        toast.error('Could not open the installer', {
-          description: error instanceof Error ? error.message : String(error),
-        });
-      });
-    return true;
-  }
-
-  return false;
-}
+/** Progress events emitted by the plugin while the update downloads. */
+type DownloadEvent =
+  | { event: 'Started'; data?: { contentLength?: number } }
+  | { event: 'Progress'; data?: { chunkLength?: number } }
+  | { event: 'Finished' };
 
 /**
- * `a` is newer than `b`.
+ * The slice of the updater plugin this uses.
  *
- * Compares numerically per part, so 1.10.0 is correctly newer than 1.9.0 —
- * which a string comparison gets backwards, and which is exactly the release
- * where somebody would notice.
+ * Declared rather than imported: `@tauri-apps/plugin-updater` is a dependency
+ * of the desktop shell, not of `web/`, and pulling it in would ship it to every
+ * browser for an API that only exists inside the app.
+ *
+ * `download` and `install` are deliberately separate. `downloadAndInstall`
+ * exists and does both, but on Windows the install step exits the app
+ * immediately — so the download would finish and the window would vanish with
+ * no warning. Splitting them is what allows "downloaded, restart when you're
+ * ready".
  */
-function isNewer(a: string, b: string): boolean {
-  const parse = (v: string) => v.split('.').map((n) => Number.parseInt(n, 10) || 0);
-  const [x, y] = [parse(a), parse(b)];
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const diff = (x[i] ?? 0) - (y[i] ?? 0);
-    if (diff !== 0) return diff > 0;
-  }
-  return false;
+interface TauriUpdate {
+  version: string;
+  currentVersion: string;
+  download(onEvent?: (event: DownloadEvent) => void): Promise<void>;
+  install(): Promise<void>;
 }
 
-/** Same detection as the download page, and for the same reason. */
-function detectPlatform(): 'windows' | 'macos' | null {
-  if (typeof navigator === 'undefined') return null;
-  const data = (
-    navigator as Navigator & { userAgentData?: { platform?: string } }
-  ).userAgentData;
-  const platform = (data?.platform || navigator.userAgent || '').toLowerCase();
-  if (platform.includes('win')) return 'windows';
-  if (platform.includes('mac')) return 'macos';
-  return null;
+interface UpdaterGlobal {
+  check?: () => Promise<TauriUpdate | null>;
 }
+
+function updater(): UpdaterGlobal | null {
+  if (typeof window === 'undefined') return null;
+  return (
+    (window as unknown as { __TAURI_PLUGIN_UPDATER__?: UpdaterGlobal })
+      .__TAURI_PLUGIN_UPDATER__ ?? null
+  );
+}
+
+function relaunch(): void {
+  const process = (
+    window as unknown as {
+      __TAURI_PLUGIN_PROCESS__?: { relaunch?: () => Promise<void> };
+    }
+  ).__TAURI_PLUGIN_PROCESS__;
+  void process?.relaunch?.();
+}
+
+type Phase = 'idle' | 'downloading' | 'ready';
 
 export function DesktopUpdateBanner() {
-  const [release, setRelease] = useState<LatestRelease | null>(null);
+  const [update, setUpdate] = useState<TauriUpdate | null>(null);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [percent, setPercent] = useState<number | null>(null);
   const [dismissed, setDismissed] = useState(true);
 
   useEffect(() => {
-    // Compiled away on the web build, and skipped when the staged bundle has
-    // no version to compare against — a local `npm run stage` before any
-    // release has one, and "update available" against nothing is noise.
-    if (!IS_DESKTOP || !CURRENT_VERSION) return;
+    if (!IS_DESKTOP) return;
+    const plugin = updater();
+    if (!plugin?.check) return;
 
     let cancelled = false;
 
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/downloads/latest`);
-        if (!res.ok) return;
-        const latest = (await res.json()) as LatestRelease;
-        if (cancelled) return;
-        if (!isNewer(latest.version, CURRENT_VERSION)) return;
-
-        // Dismissal is remembered per version, so saying "not now" to 1.8.0
-        // does not also silence 1.9.0.
+    void plugin
+      .check()
+      .then((found) => {
+        if (cancelled || !found) return;
+        // Dismissal is per version, so "not now" on 1.9.1 does not also
+        // silence 1.10.0.
         const silenced =
           typeof localStorage !== 'undefined' &&
-          localStorage.getItem(DISMISS_KEY) === latest.version;
-
-        setRelease(latest);
+          localStorage.getItem(DISMISS_KEY) === found.version;
+        setUpdate(found);
         setDismissed(silenced);
-      } catch {
-        // An update notice is the least important thing on the page. If the
-        // API is unreachable the app itself is already broken and saying so is
-        // the app's job, not this banner's.
-      }
-    })();
+      })
+      .catch((error: unknown) => {
+        // Deliberately quiet. A failed update check is not something to
+        // interrupt somebody's work with — the app is running fine, and the
+        // check runs again next launch.
+        console.warn('[updater] check failed', error);
+      });
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (!release || dismissed) return null;
+  const startDownload = useCallback(() => {
+    if (!update) return;
+    setPhase('downloading');
+    setPercent(null);
 
-  const platform = detectPlatform();
-  const installer =
-    release.assets.find((a) => a.platform === platform && a.recommended) ??
-    release.assets.find((a) => a.platform === platform);
+    let total = 0;
+    let received = 0;
 
-  const dismiss = () => {
+    void update
+      .download((event) => {
+        if (event.event === 'Started') {
+          total = event.data?.contentLength ?? 0;
+          setPercent(total > 0 ? 0 : null);
+        } else if (event.event === 'Progress') {
+          received += event.data?.chunkLength ?? 0;
+          // Without a content length there is nothing to be a percentage of,
+          // so the bar stays indeterminate rather than inventing a number.
+          if (total > 0) setPercent(Math.min(99, Math.round((received / total) * 100)));
+        } else if (event.event === 'Finished') {
+          setPercent(100);
+        }
+      })
+      .then(() => setPhase('ready'))
+      .catch((error: unknown) => {
+        setPhase('idle');
+        setPercent(null);
+        toast.error('Could not download the update', {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }, [update]);
+
+  const installAndRestart = useCallback(() => {
+    if (!update) return;
+    // On Windows this hands over to the installer and the app exits, so
+    // anything after it may never run. `relaunch` is called anyway for the
+    // platforms where install returns.
+    void update
+      .install()
+      .then(relaunch)
+      .catch((error: unknown) => {
+        toast.error('Could not install the update', {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }, [update]);
+
+  const dismiss = useCallback(() => {
     setDismissed(true);
     try {
-      localStorage.setItem(DISMISS_KEY, release.version);
+      if (update) localStorage.setItem(DISMISS_KEY, update.version);
     } catch {
       // Private browsing, or storage full. Dismissing for this session only is
-      // a perfectly good outcome; failing to dismiss is not.
+      // a fine outcome; failing to dismiss is not.
     }
-  };
+  }, [update]);
+
+  if (!update || dismissed) return null;
 
   return (
     <div className="flex items-center gap-3 border-b bg-primary/5 px-4 py-2.5">
-      <ArrowDownToLine className="size-4 shrink-0 text-primary" aria-hidden />
+      {phase === 'downloading' ? (
+        <Loader2 className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
+      ) : (
+        <ArrowDownToLine className="size-4 shrink-0 text-primary" aria-hidden />
+      )}
 
       <p className="min-w-0 flex-1 text-sm">
-        <span className="font-medium">Virgo {release.version} is available.</span>{' '}
-        <span className="text-muted-foreground">
-          You have {CURRENT_VERSION}.
-        </span>
+        {phase === 'idle' && (
+          <>
+            <span className="font-medium">Virgo {update.version} is available.</span>{' '}
+            <span className="text-muted-foreground">
+              You have {update.currentVersion}.
+            </span>
+          </>
+        )}
+        {phase === 'downloading' && (
+          <span className="text-muted-foreground">
+            {percent === null
+              ? 'Downloading the update…'
+              : `Downloading the update… ${percent}%`}
+          </span>
+        )}
+        {phase === 'ready' && (
+          <>
+            <span className="font-medium">Update ready.</span>{' '}
+            <span className="text-muted-foreground">
+              Virgo will restart to finish installing.
+            </span>
+          </>
+        )}
       </p>
 
-      {installer ? (
-        <a
-          href={installer.url}
-          // The href stays as the fallback for anywhere the opener is missing,
-          // and because a link people can copy is more useful than a button
-          // that only works from inside the app.
-          onClick={(event) => {
-            if (openInBrowser(installer.url)) event.preventDefault();
-          }}
+      {phase === 'downloading' && percent !== null && (
+        <div
+          className="hidden h-1.5 w-32 shrink-0 overflow-hidden rounded-full bg-primary/15 sm:block"
+          role="progressbar"
+          aria-valuenow={percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-200"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      )}
+
+      {phase === 'idle' && (
+        <button
+          type="button"
+          onClick={startDownload}
           className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
         >
           Update
-        </a>
-      ) : (
-        // No installer for this platform in that release — rare, and it means
-        // the build failed on one runner rather than that there is no update.
-        // Pointing at the page is still better than a button that downloads
-        // the wrong thing.
-        <a
-          href="https://virgo.ph/download"
-          className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          Get it
-        </a>
+        </button>
       )}
 
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label="Dismiss until the next version"
-        className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      >
-        <X className="size-4" />
-      </button>
+      {phase === 'ready' && (
+        <button
+          type="button"
+          onClick={installAndRestart}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          <RotateCw className="size-3" aria-hidden />
+          Restart now
+        </button>
+      )}
+
+      {/* No way out mid-download: the file is already being fetched, and a
+          dismiss that leaves it running would be a lie. */}
+      {phase !== 'downloading' && (
+        <button
+          type="button"
+          onClick={dismiss}
+          aria-label="Dismiss until the next version"
+          className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      )}
     </div>
   );
 }

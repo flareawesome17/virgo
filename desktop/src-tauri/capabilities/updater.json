@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "updater",
+  "//": "Must also be listed in app.security.capabilities in tauri.conf.json. A capability absent from that allow-list is parsed and validated and then never enabled, and every command it grants is refused with 'not allowed by ACL' — which reads as a missing permission rather than a switched-off capability.",
+  "description": "Lets the app update itself: ask whether a newer version exists, download and install it, and relaunch. Granted to the loopback origin the app is served from, the same one the title bar uses. The update is only accepted if it is signed with the key whose public half is in tauri.conf.json, so this cannot be used to install something that did not come from us.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:41730/*"]
+  },
+  "permissions": [
+    "updater:default",
+    "core:app:allow-version",
+    "process:allow-restart"
+  ]
+}

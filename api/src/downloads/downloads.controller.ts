@@ -32,6 +32,35 @@ export class DownloadsController {
   }
 
   /**
+   * What `tauri-plugin-updater` polls.
+   *
+   * Answers 204 when the caller is already current, which is how the plugin is
+   * told there is nothing to do — an empty body or a 404 would both be read as
+   * an error and surface to the user as a failed update check.
+   *
+   * The path carries the caller's platform and version because Tauri
+   * substitutes them into the endpoint URL it was configured with; none of it
+   * is trusted for anything beyond choosing which asset to describe.
+   */
+  @Public()
+  @Get('updater/:target/:arch/:version')
+  async updater(
+    @Param('target') target: string,
+    @Param('arch') arch: string,
+    @Param('version') version: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const update = await this.downloads.getUpdate(target, arch, version);
+
+    if (!update) {
+      res.status(204).end();
+      return;
+    }
+
+    res.status(200).json(update);
+  }
+
+  /**
    * The installer itself, relayed from the release.
    *
    * Rate limited well below the default: these are ~100 MB files, and the
