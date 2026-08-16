@@ -27,22 +27,26 @@ const DISMISS_KEY = 'virgo.desktop.updateDismissed';
 /**
  * How often to look for a new version while the app is open.
  *
- * The first version checked once, on mount, and never again — so an app left
- * open for a week never noticed a release, which is most of the time for
- * something people keep running all day. Releases land a few times a month, so
- * six hours is far more often than it needs to be and still costs one request.
+ * Thirty minutes, down from six hours. Six was chosen against how often
+ * releases happen, which was the wrong question — what matters is how long
+ * somebody sits in front of an app that already knows nothing. A release cut
+ * during the working day should reach an open app within that day, not
+ * tomorrow.
+ *
+ * The cost is one small request an hour or two per running app, and the server
+ * caches the release listing for five minutes anyway, so most of them never
+ * reach GitHub.
  */
-const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+const CHECK_EVERY_MS = 30 * 60 * 1000;
 
 /**
  * How long the window must have been unfocused before returning triggers a
  * check.
  *
- * Coming back to the app after a day is the moment somebody is most likely to
- * want this, and the cheapest signal that time has passed. The threshold stops
- * every alt-tab from asking.
+ * Coming back to the app is the moment somebody is most likely to want this.
+ * The threshold only exists to stop every alt-tab from asking.
  */
-const REFOCUS_AFTER_MS = 30 * 60 * 1000;
+const REFOCUS_AFTER_MS = 5 * 60 * 1000;
 
 /** Progress events emitted by the plugin while the update downloads. */
 type DownloadEvent =
@@ -156,10 +160,17 @@ export function DesktopUpdateBanner() {
     };
     document.addEventListener('visibilitychange', onVisibility);
 
+    // Coming back onto the network is worth a look on its own. Every check made
+    // while offline failed, so an app that was disconnected across a release
+    // would otherwise wait out the full interval before noticing — and
+    // reconnecting is exactly when somebody is around to act on it.
+    window.addEventListener('online', look);
+
     return () => {
       cancelled = true;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', look);
     };
   }, []);
 
