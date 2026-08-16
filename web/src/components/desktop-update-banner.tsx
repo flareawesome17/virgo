@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, Loader2, RotateCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -23,6 +23,26 @@ import { toast } from 'sonner';
 
 const IS_DESKTOP = process.env.NEXT_PUBLIC_VIRGO_DESKTOP === '1';
 const DISMISS_KEY = 'virgo.desktop.updateDismissed';
+
+/**
+ * How often to look for a new version while the app is open.
+ *
+ * The first version checked once, on mount, and never again — so an app left
+ * open for a week never noticed a release, which is most of the time for
+ * something people keep running all day. Releases land a few times a month, so
+ * six hours is far more often than it needs to be and still costs one request.
+ */
+const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * How long the window must have been unfocused before returning triggers a
+ * check.
+ *
+ * Coming back to the app after a day is the moment somebody is most likely to
+ * want this, and the cheapest signal that time has passed. The threshold stops
+ * every alt-tab from asking.
+ */
+const REFOCUS_AFTER_MS = 30 * 60 * 1000;
 
 /** Progress events emitted by the plugin while the update downloads. */
 type DownloadEvent =
@@ -79,34 +99,67 @@ export function DesktopUpdateBanner() {
   const [percent, setPercent] = useState<number | null>(null);
   const [dismissed, setDismissed] = useState(true);
 
+  // Read by the recurring check, which is set up once and would otherwise close
+  // over the phase as it was at mount — and so would happily re-check in the
+  // middle of a download.
+  const phaseRef = useRef<Phase>('idle');
+  phaseRef.current = phase;
+
   useEffect(() => {
     if (!IS_DESKTOP) return;
     const plugin = updater();
     if (!plugin?.check) return;
+    // Bound and captured: `look` runs later, from a timer and an event, where
+    // the narrowing above no longer applies and `this` would otherwise be lost.
+    const check = plugin.check.bind(plugin);
 
     let cancelled = false;
+    let lastHidden = 0;
 
-    void plugin
-      .check()
-      .then((found) => {
-        if (cancelled || !found) return;
-        // Dismissal is per version, so "not now" on 1.9.1 does not also
-        // silence 1.10.0.
-        const silenced =
-          typeof localStorage !== 'undefined' &&
-          localStorage.getItem(DISMISS_KEY) === found.version;
-        setUpdate(found);
-        setDismissed(silenced);
-      })
-      .catch((error: unknown) => {
-        // Deliberately quiet. A failed update check is not something to
-        // interrupt somebody's work with — the app is running fine, and the
-        // check runs again next launch.
-        console.warn('[updater] check failed', error);
-      });
+    const look = () => {
+      // Never interrupt a download or a finished one waiting to restart: a
+      // fresh `check()` would replace the Update object mid-flight and the
+      // progress bar would jump back to the start.
+      if (cancelled || phaseRef.current !== 'idle') return;
+
+      void check()
+        .then((found) => {
+          if (cancelled || !found) return;
+          // Dismissal is per version, so "not now" on 1.10.1 does not also
+          // silence 1.11.0.
+          const silenced =
+            typeof localStorage !== 'undefined' &&
+            localStorage.getItem(DISMISS_KEY) === found.version;
+          setUpdate(found);
+          setDismissed(silenced);
+        })
+        .catch((error: unknown) => {
+          // Deliberately quiet. A failed check is not worth interrupting
+          // somebody's work over — the app is running fine and this runs
+          // again shortly.
+          console.warn('[updater] check failed', error);
+        });
+    };
+
+    look();
+    const timer = setInterval(look, CHECK_EVERY_MS);
+
+    // Coming back after a while is the other moment worth checking, and it
+    // catches the case the interval alone misses: a machine asleep overnight
+    // does not fire timers, so without this the app wakes up still unaware.
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        lastHidden = Date.now();
+        return;
+      }
+      if (lastHidden && Date.now() - lastHidden > REFOCUS_AFTER_MS) look();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
