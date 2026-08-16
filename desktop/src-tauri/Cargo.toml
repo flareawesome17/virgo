@@ -15,6 +15,19 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# Finding a server left behind by a previous run. Only ever used to kill a
+# process running our own bundled node binary, matched by full path.
+[dependencies.sysinfo]
+version = "0.39"
+default-features = false
+features = ["system"]
+
+# Job objects, so the Node child cannot outlive this process even if this
+# process is killed rather than closed.
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.61"
+features = ["Win32_Foundation", "Win32_System_JobObjects"]
+
 [dependencies]
 tauri = { version = "2", features = [] }
 
