@@ -1,10 +1,11 @@
 'use client';
 
 import { QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { ThemeProvider } from 'next-themes';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
-import { queryClient } from '@/lib/queryClient';
+import { queryClient, persistOptions } from '@/lib/queryClient';
 import type { ReactNode } from 'react';
 import { useMessageAlerts } from '@/hooks/useChat';
 import { useRealtime } from '@/hooks/useRealtime';
@@ -34,15 +35,44 @@ export function Providers({ children }: { children: ReactNode }) {
       disableTransitionOnChange
       storageKey="virgo.theme"
     >
-      <QueryClientProvider client={queryClient}>
+      <QueryCache>
         <TooltipProvider delayDuration={300}>
           <RealtimeBridge />
           <AnalyticsBridge />
           {children}
           <Toaster position="bottom-right" richColors closeButton />
         </TooltipProvider>
-      </QueryClientProvider>
+      </QueryCache>
     </ThemeProvider>
+  );
+}
+
+/**
+ * The query provider, with the cache kept on disk in the desktop app.
+ *
+ * Two providers rather than one with a flag, because they differ in a way that
+ * matters: `PersistQueryClientProvider` holds its children back until the
+ * cache has been read off disk. That pause is what makes a cold start offline
+ * show the workspace instead of a spinner or a "can't reach the server" — the
+ * gate has an answer by the time it asks.
+ *
+ * `persistOptions` is null on the web, where the plain provider keeps exactly
+ * the behaviour that shipped.
+ */
+function QueryCache({ children }: { children: ReactNode }) {
+  if (!persistOptions) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  }
+
+  return (
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={persistOptions}
+    >
+      {children}
+    </PersistQueryClientProvider>
   );
 }
 
