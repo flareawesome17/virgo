@@ -18,13 +18,105 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use sysinfo::{ProcessesToUpdate, System};
 use tauri::{Emitter, Manager};
+
+/// Ties the Node child's lifetime to this process, whatever ends it.
+///
+/// `stop_server` only runs on Tauri's exit events. Anything else — a crash,
+/// Task Manager, or the updater handing over to the installer — leaves the
+/// child running, and it goes on holding `node.exe` open in the install
+/// directory. That is not theoretical: an orphan from an earlier session made
+/// the 1.10.0 installer fail with "Error opening file for writing", and it
+/// would fail an in-app update the same way, at the worst possible moment.
+///
+/// A job object with `KILL_ON_JOB_CLOSE` moves the guarantee into the kernel:
+/// when this process ends, for any reason, Windows closes the job and kills
+/// everything in it. No exit handler can promise that, because an exit handler
+/// does not run when a process is killed.
+///
+/// Failure is logged and tolerated. It makes an orphan possible again, which is
+/// where this started — not something to refuse to launch over.
+#[cfg(windows)]
+fn tie_child_to_this_process(child: &Child) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            log("could not create a job object — the server may outlive a crash");
+            return;
+        }
+
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+        if SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        ) == 0
+        {
+            log("could not configure the job object — the server may outlive a crash");
+            return;
+        }
+
+        if AssignProcessToJobObject(job, child.as_raw_handle() as _) == 0 {
+            log("could not assign the server to the job object");
+            return;
+        }
+
+        // The job handle is deliberately never closed. Holding it open for the
+        // life of this process is the whole mechanism: the kernel closes it
+        // when this process ends, and that close is what kills the child.
+        log("server tied to this process (job object)");
+    }
+}
+
+#[cfg(not(windows))]
+fn tie_child_to_this_process(_child: &Child) {
+    // Nothing equivalent is wired up yet. macOS and Linux still rely on the
+    // exit handler, so a killed app can leave the server running there — worth
+    // solving when macOS updates are added, because that is when it starts to
+    // cost something.
+}
+
+/// Kills a server left behind by an earlier run of this app.
+///
+/// Only processes running our own bundled `node`, matched on the full path, are
+/// touched — never another Node on the machine. With the job object above this
+/// should find nothing; it matters when upgrading from a build that did not
+/// have one, and as insurance if the job object ever fails to attach.
+fn reap_orphaned_servers(node: &Path) {
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+
+    let ours = std::process::id();
+    for process in system.processes().values() {
+        if process.pid().as_u32() == ours {
+            continue;
+        }
+        if process.exe() == Some(node) {
+            log(&format!(
+                "killing a server left behind by an earlier run (pid {})",
+                process.pid()
+            ));
+            process.kill();
+        }
+    }
+}
 
 /// The running Node process, kept so it can be killed on exit.
 ///
@@ -201,18 +293,31 @@ fn start_server(resources: PathBuf) -> Result<u16, String> {
         ));
     }
 
+    let node = node_binary();
+    log(&format!("node binary: {}", node.display()));
+
+    // Before claiming the port, clear anything this app left running last time.
+    // A build without the job object below could orphan its server, and that
+    // orphan both holds the port and — more damagingly — keeps `node.exe` open
+    // in the install directory, which is what makes an installer or an in-app
+    // update fail partway through.
+    reap_orphaned_servers(&node);
+
     if !port_available(APP_PORT) {
+        // Reaching here means the holder is not a server this build started —
+        // those were just cleared. It can still be Virgo: a copy installed
+        // somewhere else runs a different `node` and is deliberately left
+        // alone, which is exactly what happens when a development build meets
+        // an installed one.
         return Err(format!(
             "Port {APP_PORT} is already in use. Virgo serves itself on this exact port \
              because it is the origin the API accepts — on any other port every request \
-             is refused at the CORS preflight. Quit the other copy of Virgo, or whatever \
+             is refused at the CORS preflight. Close the other copy of Virgo, or whatever \
              else is holding the port, and try again."
         ));
     }
 
     let port = APP_PORT;
-    let node = node_binary();
-    log(&format!("node binary: {}", node.display()));
 
     let mut command = Command::new(&node);
     command
@@ -240,6 +345,10 @@ fn start_server(resources: PathBuf) -> Result<u16, String> {
     let mut child = command
         .spawn()
         .map_err(|e| format!("Could not start the Node runtime: {e}"))?;
+
+    // Immediately, and before anything can go wrong further down: from here on
+    // the child cannot outlive this process, however this process ends.
+    tie_child_to_this_process(&child);
 
     // Next's output is the only diagnostic when a start fails, and a piped
     // stream that nobody reads fills its buffer and blocks the writer. Drained
