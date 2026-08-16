@@ -45,6 +45,7 @@ import { NotificationBell } from '@/components/notification-bell';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
 import { DesktopUpdateBanner } from '@/components/desktop-update-banner';
+import { OfflineBanner } from '@/components/offline-banner';
 
 import { DesktopTitleBar } from '@/components/desktop-title-bar';
 
@@ -410,6 +411,9 @@ export function AppShell({
               comes back every load until it is resolved, while this is about
               the application itself and can be dismissed for good. Renders
               nothing at all in the web build. */}
+          {/* First of the three: being offline explains most other failures,
+              so it belongs above them rather than under. */}
+          <OfflineBanner />
           <DesktopUpdateBanner />
           <VerifyEmailBanner />
           {children}
