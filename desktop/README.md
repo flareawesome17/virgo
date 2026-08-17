@@ -146,6 +146,29 @@ WebSockets are unaffected either way: `realtime.gateway.ts` does not check
 `Origin`, and authenticates from a token sent after the connection opens, so
 live chat and notifications work regardless of which API is configured.
 
+### And so does the storage bucket
+
+Uploads do not go through the API. The client asks for a presigned URL and then
+`PUT`s the file straight to Backblaze, so the **bucket** decides which origins
+may upload — a second allow-list, in a different system, that has to learn the
+same address.
+
+Missing from it, the preflight answers 403 with no
+`Access-Control-Allow-Origin` and the upload fails before a byte moves. Uploading
+works in a browser and fails in the desktop app, with nothing else different
+between them, which is a confusing way to find out.
+
+```bash
+node scripts/allow-origin-cors.mjs http://127.0.0.1:41730          # report
+node scripts/allow-origin-cors.mjs http://127.0.0.1:41730 --apply  # change it
+```
+
+Run from `api/`, with a key that may write bucket settings. The application key
+the API uses is scoped to its buckets and cannot — use the master key, or make
+the change in the B2 console.
+
+Both buckets need it: `B2_BUCKET_NAME` and `B2_MEDIA_BUCKET_NAME`.
+
 ## Prerequisites
 
 ### Windows
