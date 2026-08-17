@@ -10,19 +10,21 @@
 /**
  * Android 9 and later block cleartext HTTP by default, and the failure is
  * silent from the app's side: every request errors as if the network were
- * down. A test build points at the development API on the LAN, which is
+ * down. The development build points at an API on the LAN, which is
  * http://<ip>:3001 and cannot be anything else — there is no certificate for
  * a private address.
  *
- * So cleartext is allowed for every profile EXCEPT production. Production
- * talks to https://api.virgo.ph and must keep the protection: without this
- * branch, a store build would accept a downgrade to plain HTTP for the sake
- * of a convenience it never uses.
+ * So cleartext is granted to the profiles that genuinely need it, rather than
+ * withheld from the one that obviously must not have it. Preview used to point
+ * at the development tunnel and now points at https://api.virgo.ph, and an
+ * allow-list is what keeps a change like that from quietly leaving a build
+ * willing to be downgraded to plain HTTP months after it stopped needing to be.
  *
  * EAS sets EAS_BUILD_PROFILE from the --profile flag. Undefined locally, which
- * is the permissive case, and correct — a local run is development.
+ * is permissive, and correct — a local run is development.
  */
-const isProduction = process.env.EAS_BUILD_PROFILE === 'production';
+const profile = process.env.EAS_BUILD_PROFILE;
+const allowsCleartext = profile === undefined || profile === 'development';
 
 module.exports = ({ config }) => ({
   ...config,
@@ -32,7 +34,7 @@ module.exports = ({ config }) => ({
       'expo-build-properties',
       {
         android: {
-          usesCleartextTraffic: !isProduction,
+          usesCleartextTraffic: allowsCleartext,
         },
       },
     ],
