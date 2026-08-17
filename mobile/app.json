@@ -115,6 +115,11 @@
         "image": "./assets/splash-icon.png",
         "backgroundColor": "#161311"
       }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "280a9b7e-6f27-49df-991f-12bee641dc40"
+      }
     }
   }
 }
