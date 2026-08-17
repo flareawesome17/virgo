@@ -23,6 +23,10 @@
  *   node scripts/allow-origin-cors.mjs http://127.0.0.1:41730
  *   node scripts/allow-origin-cors.mjs http://127.0.0.1:41730 --apply
  */
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 const APPLY = process.argv.includes('--apply');
 const ORIGIN = process.argv.find((a) => /^https?:\/\//.test(a));
 
@@ -31,14 +35,50 @@ if (!ORIGIN) {
   process.exit(2);
 }
 
-const KEY_ID = process.env.B2_KEY_ID;
-const APP_KEY = process.env.B2_APPLICATION_KEY;
-const BUCKETS = [process.env.B2_BUCKET_NAME, process.env.B2_MEDIA_BUCKET_NAME].filter(
+/**
+ * Values from `api/.env`, for anything the environment does not already set.
+ *
+ * The sibling script assumes the environment is populated because it runs
+ * inside the container, where it is. Run by hand from a shell it is not, and
+ * the first attempt at this failed on exactly that — reporting missing
+ * credentials while they sat in a file two directories up.
+ *
+ * The environment still wins, which is what makes the credential override
+ * below work: the bucket names come from the file, the master key from the
+ * shell.
+ */
+function fromEnvFile() {
+  const path = join(dirname(dirname(fileURLToPath(import.meta.url))), '.env');
+  try {
+    return Object.fromEntries(
+      readFileSync(path, 'utf8')
+        .split(/\r?\n/)
+        .filter((line) => /^[A-Z0-9_]+=/.test(line))
+        .map((line) => {
+          const at = line.indexOf('=');
+          return [line.slice(0, at), line.slice(at + 1).trim()];
+        }),
+    );
+  } catch {
+    return {};
+  }
+}
+
+const file = fromEnvFile();
+const value = (name) => process.env[name] || file[name];
+
+const KEY_ID = value('B2_KEY_ID');
+const APP_KEY = value('B2_APPLICATION_KEY');
+const BUCKETS = [value('B2_BUCKET_NAME'), value('B2_MEDIA_BUCKET_NAME')].filter(
   Boolean,
 );
 
 if (!KEY_ID || !APP_KEY) {
-  console.error('B2 credentials are not set in this environment.');
+  console.error(
+    'No B2 credentials — not in the environment, and not in api/.env.\n' +
+      'Set a master application key for this run:\n' +
+      '  $env:B2_KEY_ID = "..."; $env:B2_APPLICATION_KEY = "..."',
+  );
   process.exit(2);
 }
 if (BUCKETS.length === 0) {
