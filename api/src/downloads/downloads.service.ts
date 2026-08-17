@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Readable } from 'node:stream';
 
@@ -163,14 +168,46 @@ export class DownloadsService {
       );
     }
 
-    return fetch(`https://api.github.com${path}`, {
-      headers: {
-        Accept: accept,
-        Authorization: `Bearer ${token}`,
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'virgo-api',
-      },
-    });
+    // GitHub answers this repository's release endpoints with an occasional
+    // 404 that is not true — the same request repeated immediately succeeds.
+    // Observed directly: three identical calls returned 404, the release, 404,
+    // with the rate limit untouched at 5000/5000.
+    //
+    // A private repository returns 404 rather than 403 for anything the caller
+    // may not see, so a transient internal state looks identical to "no such
+    // release". Retrying is the only way to tell them apart, and it is cheap:
+    // a genuine 404 costs two extra requests and still answers in well under a
+    // second.
+    const RETRYABLE = new Set([404, 500, 502, 503, 504]);
+    let last: Response | undefined;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+      }
+
+      last = await fetch(`https://api.github.com${path}`, {
+        headers: {
+          Accept: accept,
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'virgo-api',
+        },
+      });
+
+      if (last.ok || !RETRYABLE.has(last.status)) return last;
+
+      // Only the metadata calls are retried. An asset download follows a
+      // redirect to storage and streams tens of megabytes; replaying that on a
+      // transient failure would fetch the whole installer twice.
+      if (accept === 'application/octet-stream') return last;
+
+      this.logger.warn(
+        `GitHub answered ${last.status} for ${path} (attempt ${attempt + 1} of 3)`,
+      );
+    }
+
+    return last!;
   }
 
   /**
@@ -442,7 +479,20 @@ export class DownloadsService {
       'application/vnd.github+json',
     );
 
-    if (!response.ok) throw new NotFoundException('No such download.');
+    if (!response.ok) {
+      this.logger.error(
+        `Looking up ${tag} failed: ${response.status} ${response.statusText}`,
+      );
+      // Not "no such download": after three attempts this is a failure to
+      // reach GitHub, and saying otherwise sends whoever is debugging it to
+      // look for a missing file that is sitting right there on the release.
+      // That is precisely what happened — every installer 404'd while the
+      // download page listed them, because the page reads a cached listing and
+      // this does not.
+      throw new ServiceUnavailableException(
+        `Could not reach the release store (GitHub answered ${response.status}). Try again in a moment.`,
+      );
+    }
 
     const release = (await response.json()) as GitHubRelease;
     if (release.draft) throw new NotFoundException('No such download.');
@@ -487,7 +537,12 @@ export class DownloadsService {
       this.logger.error(
         `Fetching asset ${asset.id} failed: ${response.status} ${response.statusText}`,
       );
-      throw new NotFoundException('That download could not be fetched.');
+      // Same distinction as above: the asset was found a moment ago, so a
+      // failure here is the store being unreachable rather than the file being
+      // absent.
+      throw new ServiceUnavailableException(
+        `Could not fetch that download (GitHub answered ${response.status}). Try again in a moment.`,
+      );
     }
 
     return {
