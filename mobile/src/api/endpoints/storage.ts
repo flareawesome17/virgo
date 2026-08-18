@@ -53,6 +53,23 @@ export interface UploadResult {
  * The file goes from the device straight to B2 — it never passes through the
  * API server. The server only issues and validates the signature.
  */
+/**
+ * The signed headers, minus the one that cannot be sent by hand.
+ *
+ * Matched case-insensitively: the server sends `Content-Length`, but a header
+ * map is not case-sensitive and a future change to `content-length` must not
+ * quietly restore the hang.
+ */
+function withoutContentLength(
+  headers: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([name]) => name.toLowerCase() !== 'content-length',
+    ),
+  );
+}
+
 export const storageApi = {
   /** Step 1: ask the server for a signed PUT URL. Keys are server-generated. */
   createUploadUrl(input: {
@@ -155,9 +172,19 @@ export const storageApi = {
     const uploadOptions = {
       httpMethod: 'PUT' as const,
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-      // These exact headers are part of the signature — B2 rejects the upload
-      // if Content-Type or Content-Length differ from what was signed.
-      headers: ticket.requiredHeaders,
+      // The signed headers must go out exactly as issued — except
+      // Content-Length, which no HTTP client lets you set by hand.
+      //
+      // The native uploader sets it itself from the file it streams, and that
+      // is the same number the ticket was signed for, so the signature still
+      // matches. Passing it through as well left OkHttp holding two lengths for
+      // one body: the request never went out, no error was raised, and the
+      // upload sat at 0% for as long as anyone was willing to watch it.
+      //
+      // web/src/api/endpoints/storage.ts drops it for the same reason — there
+      // the browser refuses the assignment outright, which is why uploads work
+      // on web and hung on Android.
+      headers: withoutContentLength(ticket.requiredHeaders),
     };
 
     // createUploadTask reports real bytes-sent; uploadAsync gives no progress.
