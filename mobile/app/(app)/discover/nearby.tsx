@@ -287,7 +287,7 @@ export default function NearbyScreen() {
         <Pressable
           onPress={() => message(person)}
           disabled={openDirect.isPending}
-          className="px-3 py-2 rounded-xl bg-primary flex-row items-center gap-1.5 active:scale-[0.94]"
+          className="px-3 py-2 rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.94]"
         >
           <MessageCircleIcon size={13} className="text-white" />
           <Text className="text-white text-xs font-bold">Message</Text>
@@ -299,7 +299,7 @@ export default function NearbyScreen() {
       ) : person.relationship === 'pending_in' ? (
         <Pressable
           onPress={() => acceptFrom(person.id)}
-          className="px-3 py-2 rounded-xl bg-primary active:scale-[0.94]"
+          className="px-3 py-2 rounded-xl bg-action active:scale-[0.94]"
         >
           <Text className="text-white text-xs font-bold">Accept</Text>
         </Pressable>
@@ -307,7 +307,7 @@ export default function NearbyScreen() {
         <Pressable
           onPress={() => addFriend(person)}
           disabled={sendRequest.isPending}
-          className="px-3 py-2 rounded-xl bg-primary flex-row items-center gap-1.5 active:scale-[0.94]"
+          className="px-3 py-2 rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.94]"
         >
           <UserPlusIcon size={13} className="text-white" />
           <Text className="text-white text-xs font-bold">Add</Text>
@@ -463,7 +463,7 @@ export default function NearbyScreen() {
                     <Pressable
                       key={event.id}
                       onPress={() => setPlaceInput(place)}
-                      className={`px-3 py-2 rounded-2xl active:scale-[0.96] ${on ? 'bg-primary' : 'bg-card'}`}
+                      className={`px-3 py-2 rounded-2xl active:scale-[0.96] ${on ? 'bg-action' : 'bg-card'}`}
                       style={on ? undefined : cardShadow}
                     >
                       <Text
@@ -512,7 +512,7 @@ export default function NearbyScreen() {
                 <Pressable
                   key={r}
                   onPress={() => setRadiusKm(r)}
-                  className={`px-4 py-2 rounded-full active:scale-[0.95] ${on ? 'bg-primary' : 'bg-card'}`}
+                  className={`px-4 py-2 rounded-full active:scale-[0.95] ${on ? 'bg-action' : 'bg-card'}`}
                   style={on ? undefined : cardShadow}
                 >
                   <Text

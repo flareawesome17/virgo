@@ -48,7 +48,7 @@ export default function CheckInboxScreen() {
             <MailIcon size={40} className="text-primary" />
           </View>
           {/* Pulse dot */}
-          <View className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary items-center justify-center">
+          <View className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-action items-center justify-center">
             <View className="w-2.5 h-2.5 rounded-full bg-white" />
           </View>
         </View>

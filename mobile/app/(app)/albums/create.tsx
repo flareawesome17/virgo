@@ -347,7 +347,7 @@ export default function CreateAlbumScreen() {
                     key={days}
                     onPress={() => setCustomDays(days)}
                     className={`rounded-xl px-3.5 py-2 active:scale-[0.96] ${
-                      customDays === days ? 'bg-primary' : 'bg-muted'
+                      customDays === days ? 'bg-action' : 'bg-muted'
                     }`}
                   >
                     <Text
@@ -383,7 +383,7 @@ export default function CreateAlbumScreen() {
         <Pressable
           onPress={() => canCreate && handleCreate()}
           className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${
-            canCreate ? 'bg-primary' : 'bg-muted'
+            canCreate ? 'bg-action' : 'bg-muted'
           }`}
           disabled={!canCreate || createAlbum.isPending}
         >

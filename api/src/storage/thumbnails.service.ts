@@ -69,35 +69,62 @@ export class ThumbnailsService {
     sizeBytes: number,
   ): Promise<string | null> {
     if (!contentType?.startsWith('image/')) return null;
-    // An animated GIF would come back as a still first frame, which is worse
-    // than showing the real thing.
-    if (contentType === 'image/gif') return null;
-    if (sizeBytes > MAX_SOURCE_BYTES) return null;
+    if (sizeBytes > MAX_SOURCE_BYTES) {
+      await this.db.query(
+        `update user_files
+            set processing_status = 'ready', next_processing_at = null,
+                processed_at = now()
+          where key = $1`,
+        [key],
+      );
+      return null;
+    }
 
     try {
       const source = await this.readAll(key);
-      const body = await sharp(source, { failOn: 'none' })
-        // `inside` keeps the aspect ratio and never enlarges a photo that is
-        // already smaller than the box — upscaling would produce a thumbnail
-        // heavier than its own original.
-        .rotate()
-        .resize(THUMB_EDGE, THUMB_EDGE, { fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 72 })
-        .toBuffer();
+      const metadata = await sharp(source, { failOn: 'none' }).metadata();
+      const rotated = (metadata.orientation ?? 1) >= 5;
+      const width = rotated ? metadata.height : metadata.width;
+      const height = rotated ? metadata.width : metadata.height;
+      let thumbKey: string | null = null;
 
-      // Bigger than the source happens with small or already-optimised images.
-      // Recording it would make the gallery slower, which is the opposite of
-      // the point.
-      if (body.length >= sizeBytes) return null;
+      // An animated GIF thumbnail would silently turn motion into a still.
+      if (contentType !== 'image/gif') {
+        const body = await sharp(source, { failOn: 'none' })
+          .rotate()
+          .resize(THUMB_EDGE, THUMB_EDGE, {
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
+          .webp({ quality: 72 })
+          .toBuffer();
 
-      const thumbKey = thumbKeyFor(key);
-      await this.storage.putDerived(thumbKey, body, THUMB_CONTENT_TYPE);
+        if (body.length < sizeBytes) {
+          thumbKey = thumbKeyFor(key);
+          await this.storage.putDerived(thumbKey, body, THUMB_CONTENT_TYPE);
+        }
+      }
+
       await this.db.query(
-        'update user_files set thumb_key = $2 where key = $1',
-        [key, thumbKey],
+        `update user_files
+            set thumb_key = coalesce($2, thumb_key),
+                width_px = $3,
+                height_px = $4,
+                processing_status = 'ready',
+                next_processing_at = null,
+                processed_at = now()
+          where key = $1`,
+        [key, thumbKey, width ?? null, height ?? null],
       );
       return thumbKey;
     } catch (err) {
+      await this.db.query(
+        `update user_files
+            set processing_status = 'failed', next_processing_at = null,
+                processed_at = now()
+          where key = $1`,
+        [key],
+      );
       this.logger.warn(
         `Thumbnail failed for ${key}: ${err instanceof Error ? err.message : String(err)}`,
       );

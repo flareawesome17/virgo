@@ -92,7 +92,7 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
       {
         q: 'Why can I only invite friends?',
         a: 'Collaborating means access to your work, so it takes both sides agreeing first. Find someone on the Network screen, send a friend request, and once they accept you can invite them to a workspace or album.',
-        route: '/(app)/(tabs)/network',
+        route: '/(app)/(tabs)/connect?view=people',
         routeLabel: 'Open Network',
       },
       {
@@ -102,7 +102,7 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
       {
         q: 'Who can I chat with?',
         a: 'Anyone you are friends with, one to one or in a group. Groups can hold anyone you are friends with, and members can leave without ending the conversation for everyone else.',
-        route: '/(app)/(tabs)/chat',
+        route: '/(app)/(tabs)/connect?view=messages',
         routeLabel: 'Open Chat',
       },
       {

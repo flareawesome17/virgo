@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 
+export type TwoFactorPurpose = 'setup' | 'login' | 'disable' | 'recovery';
+
 export interface UserRow {
   id: string;
   email: string;
@@ -40,6 +42,9 @@ export interface UserRow {
   disabled_until: Date | null;
   /** When they last disabled it. Kept after it lifts, as history. */
   disabled_at: Date | null;
+  two_factor_enabled_at: Date | null;
+  /** SHA-256 hashes; the printable recovery codes are shown once. */
+  two_factor_recovery_codes: string[];
   created_at: Date;
   updated_at: Date;
 }
@@ -79,6 +84,7 @@ export interface PublicUser {
   addressCountry: string | null;
   studioName: string | null;
   socialHandle: string | null;
+  twoFactorEnabled: boolean;
   createdAt: Date;
 }
 
@@ -109,6 +115,7 @@ export function toPublicUser(row: UserRow): PublicUser {
     addressCountry: row.address_country ?? null,
     studioName: row.studio_name ?? null,
     socialHandle: row.social_handle ?? null,
+    twoFactorEnabled: !!row.two_factor_enabled_at,
     createdAt: row.created_at,
   };
 }
@@ -280,6 +287,145 @@ export class UsersRepository {
         where user_id = $1 and revoked_at is null`,
       [userId],
     );
+  }
+
+  async enableTwoFactor(
+    userId: string,
+    recoveryCodeHashes: string[],
+  ): Promise<UserRow | null> {
+    return this.db.queryOne<UserRow>(
+      `update users
+          set two_factor_enabled_at = now(),
+              two_factor_recovery_codes = $2::text[]
+        where id = $1
+        returning *`,
+      [userId, recoveryCodeHashes],
+    );
+  }
+
+  async disableTwoFactor(userId: string): Promise<UserRow | null> {
+    return this.db.queryOne<UserRow>(
+      `update users
+          set two_factor_enabled_at = null,
+              two_factor_recovery_codes = '{}'
+        where id = $1
+        returning *`,
+      [userId],
+    );
+  }
+
+  async replaceRecoveryCodes(
+    userId: string,
+    hashes: string[],
+  ): Promise<void> {
+    await this.db.query(
+      'update users set two_factor_recovery_codes = $2::text[] where id = $1',
+      [userId, hashes],
+    );
+  }
+
+  /** Atomically removes one recovery code so concurrent requests cannot reuse it. */
+  async consumeRecoveryCode(userId: string, hash: string): Promise<boolean> {
+    const rows = await this.db.query<{ id: string }>(
+      `update users
+          set two_factor_recovery_codes = array_remove(two_factor_recovery_codes, $2)
+        where id = $1 and $2 = any(two_factor_recovery_codes)
+        returning id`,
+      [userId, hash],
+    );
+    return rows.length === 1;
+  }
+
+  async createTwoFactorChallenge(
+    userId: string,
+    tokenHash: string,
+    codeHash: string,
+    purpose: TwoFactorPurpose,
+    expiresAt: Date,
+  ): Promise<void> {
+    await this.db.transaction(async (client) => {
+      // Serialises challenge creation for this account. Without the row lock,
+      // two password submissions arriving together could both leave a valid
+      // email code behind.
+      await client.query(`select id from users where id = $1 for update`, [userId]);
+      await client.query(
+        `delete from two_factor_challenges
+          where user_id = $1
+            and (purpose = $2 or expires_at <= now() or used_at is not null)`,
+        [userId, purpose],
+      );
+      await client.query(
+        `insert into two_factor_challenges
+           (user_id, token_hash, code_hash, purpose, expires_at, last_sent_at)
+         values ($1, $2, $3, $4, $5, now())`,
+        [userId, tokenHash, codeHash, purpose, expiresAt],
+      );
+    });
+  }
+
+  async findActiveTwoFactorChallenge(
+    tokenHash: string,
+  ): Promise<{
+    user_id: string;
+    code_hash: string;
+    purpose: TwoFactorPurpose;
+    attempts: number;
+    last_sent_at: Date;
+  } | null> {
+    return this.db.queryOne<{
+      user_id: string;
+      code_hash: string;
+      purpose: TwoFactorPurpose;
+      attempts: number;
+      last_sent_at: Date;
+    }>(
+      `select user_id, code_hash, purpose, attempts, last_sent_at
+         from two_factor_challenges
+        where token_hash = $1
+          and used_at is null
+          and expires_at > now()
+          and attempts < 5`,
+      [tokenHash],
+    );
+  }
+
+  async recordTwoFactorFailure(tokenHash: string): Promise<void> {
+    await this.db.query(
+      `update two_factor_challenges
+          set attempts = attempts + 1
+        where token_hash = $1 and used_at is null`,
+      [tokenHash],
+    );
+  }
+
+  async replaceTwoFactorChallengeCode(
+    tokenHash: string,
+    codeHash: string,
+    expiresAt: Date,
+  ): Promise<{ user_id: string; purpose: TwoFactorPurpose } | null> {
+    return this.db.queryOne<{ user_id: string; purpose: TwoFactorPurpose }>(
+      `update two_factor_challenges
+          set code_hash = $2,
+              expires_at = $3,
+              attempts = 0,
+              last_sent_at = now()
+        where token_hash = $1
+          and used_at is null
+          and last_sent_at <= now() - interval '60 seconds'
+        returning user_id, purpose`,
+      [tokenHash, codeHash, expiresAt],
+    );
+  }
+
+  async consumeTwoFactorChallenge(tokenHash: string): Promise<boolean> {
+    const rows = await this.db.query<{ id: string }>(
+      `update two_factor_challenges
+          set used_at = now()
+        where token_hash = $1 and used_at is null and expires_at > now()
+        returning id`,
+      [tokenHash],
+    );
+    return rows.length === 1;
   }
 
   /** Pauses the account until `until`. */

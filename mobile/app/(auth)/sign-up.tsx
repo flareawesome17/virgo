@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '@/src/hooks';
+import { useAuth, useTheme } from '@/src/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { authApi } from '@/src/api';
 import { Redirect, router } from 'expo-router';
@@ -10,6 +10,7 @@ import {
   CheckIcon, MapPinIcon, Building2Icon, AtSignIcon, HomeIcon, GlobeIcon, GiftIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PALETTES } from '@/theme';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -48,6 +49,8 @@ const STEPS = ['You', 'What you do', 'Where you are'] as const;
 
 export default function SignUpScreen() {
   const { signUp, user } = useAuth();
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
 
   const [step, setStep] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
@@ -174,8 +177,12 @@ export default function SignUpScreen() {
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           {/* Header */}
           <View className="px-6 pt-4 pb-2 flex-row items-center gap-3">
-            <Pressable onPress={goBack} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+            <Pressable
+              onPress={goBack}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:scale-[0.96]"
+            >
               <ArrowLeftIcon size={18} className="text-foreground" />
             </Pressable>
             <View>
@@ -192,7 +199,7 @@ export default function SignUpScreen() {
             {STEPS.map((label, i) => (
               <View key={label} className="flex-1 gap-1.5">
                 <View
-                  className={`h-1 rounded-full ${i < step ? 'bg-primary' : i === step ? 'bg-primary/60' : 'bg-muted'}`}
+                  className={`h-1 rounded-full ${i < step ? 'bg-action' : i === step ? 'bg-primary/60' : 'bg-muted'}`}
                 />
                 <Text
                   className={`text-[11px] ${i === step ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}
@@ -208,20 +215,25 @@ export default function SignUpScreen() {
               <>
                 <Field label="Full Name" icon={<UserIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={name} onChangeText={setName} placeholder="Your name"
-                    placeholderTextColor="#A89489" className="flex-1 text-foreground text-base" autoCapitalize="words" />
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" autoCapitalize="words" />
                 </Field>
 
                 <Field label="Email" icon={<MailIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
-                    placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                     keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
                 </Field>
 
                 <Field label="Password" icon={<LockIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={password} onChangeText={setPassword} placeholder="Min. 8 characters"
-                    placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                     secureTextEntry={!showPassword} autoCapitalize="none" />
-                  <Pressable onPress={() => setShowPassword(!showPassword)} className="active:scale-[0.90]">
+                  <Pressable
+                    onPress={() => setShowPassword(!showPassword)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'Hide passwords' : 'Show passwords'}
+                    className="w-11 h-11 items-center justify-center active:scale-[0.96]"
+                  >
                     {showPassword ? <EyeOffIcon size={18} className="text-muted-foreground" /> : <EyeIcon size={18} className="text-muted-foreground" />}
                   </Pressable>
                 </Field>
@@ -235,7 +247,7 @@ export default function SignUpScreen() {
                   error={confirmPassword.length > 0 && confirmPassword !== password ? 'These do not match.' : undefined}
                 >
                   <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Re-enter password"
-                    placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                     secureTextEntry={!showPassword} autoCapitalize="none" />
                 </Field>
 
@@ -251,7 +263,7 @@ export default function SignUpScreen() {
                     value={referralCode}
                     onChangeText={(v) => setReferralCode(v.toUpperCase())}
                     placeholder="From whoever invited you"
-                    placeholderTextColor="#A89489"
+                    placeholderTextColor={palette.mutedForeground}
                     className="flex-1 text-foreground text-base tracking-[2px]"
                     autoCapitalize="characters"
                     autoCorrect={false}
@@ -281,11 +293,10 @@ export default function SignUpScreen() {
                         onPress={() => toggleRole(role)}
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: on }}
-                        className={`flex-row items-center gap-1.5 rounded-full px-3.5 py-2 active:scale-[0.96] ${on ? 'bg-primary' : 'bg-card'}`}
-                        style={on ? undefined : { borderWidth: 1, borderColor: '#D9C2B7' }}
+                        className={`min-h-11 flex-row items-center gap-1.5 rounded-full px-3.5 py-2 active:scale-[0.98] ${on ? 'bg-action' : 'bg-secondary'}`}
                       >
-                        {on && <CheckIcon size={12} className="text-white" />}
-                        <Text className={`text-xs font-semibold ${on ? 'text-white' : 'text-foreground'}`}>
+                        {on && <CheckIcon size={12} className="text-action-foreground" />}
+                        <Text className={`text-xs font-semibold ${on ? 'text-action-foreground' : 'text-foreground'}`}>
                           {role}
                         </Text>
                       </Pressable>
@@ -306,25 +317,25 @@ export default function SignUpScreen() {
               <>
                 <Field label="Street Address" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={line1} onChangeText={setLine1} placeholder="123 Rizal Street, Barangay San Roque"
-                    placeholderTextColor="#A89489" className="flex-1 text-foreground text-base" maxLength={200} />
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
                 </Field>
 
                 <Field label="Apartment, Unit, Floor" hint="Optional." icon={<HomeIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={line2} onChangeText={setLine2} placeholder="Unit 4B"
-                    placeholderTextColor="#A89489" className="flex-1 text-foreground text-base" maxLength={200} />
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
                 </Field>
 
                 <View className="flex-row gap-3">
                   <View className="flex-1">
                     <Field label="City" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
                       <TextInput value={city} onChangeText={setCity} placeholder="Cebu City"
-                        placeholderTextColor="#A89489" className="flex-1 text-foreground text-base" maxLength={120} />
+                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
                     </Field>
                   </View>
                   <View className="flex-1">
                     <Field label="Province">
                       <TextInput value={province} onChangeText={setProvince} placeholder="Cebu"
-                        placeholderTextColor="#A89489" className="flex-1 text-foreground text-base" maxLength={120} />
+                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
                     </Field>
                   </View>
                 </View>
@@ -336,14 +347,14 @@ export default function SignUpScreen() {
                   <View className="flex-1">
                     <Field label="Postal Code" hint="Optional.">
                       <TextInput value={postal} onChangeText={setPostal} placeholder="6000"
-                        placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
+                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                         keyboardType="number-pad" maxLength={20} />
                     </Field>
                   </View>
                   <View className="flex-1">
                     <Field label="Country" icon={<GlobeIcon size={16} className="text-muted-foreground" />}>
                       <TextInput value={country} onChangeText={(v) => setCountry(v.toUpperCase())}
-                        placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
+                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                         autoCapitalize="characters" autoCorrect={false} maxLength={2} />
                     </Field>
                   </View>
@@ -351,12 +362,12 @@ export default function SignUpScreen() {
 
                 <Field label="Studio Name" hint="Optional — if you trade under one." icon={<Building2Icon size={16} className="text-muted-foreground" />}>
                   <TextInput value={studioName} onChangeText={setStudioName} placeholder="Northlight Studio"
-                    placeholderTextColor="#A89489" className="flex-1 text-foreground text-base" maxLength={120} />
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
                 </Field>
 
                 <Field label="Social" hint="Optional — an @handle, a page, or a link." icon={<AtSignIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={socialHandle} onChangeText={setSocialHandle} placeholder="@yourstudio"
-                    placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                     autoCapitalize="none" autoCorrect={false} maxLength={200} />
                 </Field>
 
@@ -366,20 +377,14 @@ export default function SignUpScreen() {
                   onPress={() => setAcceptedTerms((v) => !v)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: acceptedTerms }}
-                  className="flex-row items-start gap-3 bg-card rounded-2xl px-4 py-3.5 active:opacity-80"
-                  style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+                  className="flex-row items-start gap-3 bg-secondary rounded-xl px-4 py-3.5 active:opacity-80"
                 >
                   <View
-                    className="items-center justify-center rounded-md mt-0.5"
-                    style={{
-                      width: 20,
-                      height: 20,
-                      backgroundColor: acceptedTerms ? '#B66A40' : 'transparent',
-                      borderWidth: acceptedTerms ? 0 : 1.5,
-                      borderColor: '#D9C2B7',
-                    }}
+                    className={`w-5 h-5 items-center justify-center rounded-md mt-0.5 ${
+                      acceptedTerms ? 'bg-action' : 'border border-input'
+                    }`}
                   >
-                    {acceptedTerms && <CheckIcon size={13} className="text-white" />}
+                    {acceptedTerms && <CheckIcon size={13} className="text-action-foreground" />}
                   </View>
                   <Text className="text-muted-foreground text-xs flex-1 leading-5">
                     I have read and agree to the{' '}
@@ -429,8 +434,8 @@ export default function SignUpScreen() {
             {step > 0 && (
               <Pressable
                 onPress={goBack}
-                className="rounded-2xl py-4 px-5 flex-row items-center justify-center gap-2 bg-card active:scale-[0.97]"
-                style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+                accessibilityRole="button"
+                className="min-h-12 rounded-xl py-4 px-5 flex-row items-center justify-center gap-2 bg-secondary active:scale-[0.98]"
               >
                 <ArrowLeftIcon size={18} className="text-foreground" />
                 <Text className="text-foreground text-base font-semibold">Back</Text>
@@ -439,15 +444,16 @@ export default function SignUpScreen() {
             <Pressable
               onPress={advance}
               disabled={!stepReady || signUp.isPending}
-              className={`flex-1 rounded-2xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.97] ${stepReady ? 'bg-primary' : 'bg-muted'}`}
-              style={stepReady ? { shadowColor: '#B66A40', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 } : undefined}>
-              <Text className={`text-base font-bold ${stepReady ? 'text-white' : 'text-muted-foreground'}`}>
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !stepReady || signUp.isPending }}
+              className={`min-h-12 flex-1 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${stepReady ? 'bg-action' : 'bg-muted'}`}>
+              <Text className={`text-base font-bold ${stepReady ? 'text-action-foreground' : 'text-muted-foreground'}`}>
                 {signUp.isPending ? 'Creating account...' : isLast ? 'Create Account' : 'Continue'}
               </Text>
               {!signUp.isPending && (
                 isLast
-                  ? <CheckIcon size={18} className={stepReady ? 'text-white' : 'text-muted-foreground'} />
-                  : <ArrowRightIcon size={18} className={stepReady ? 'text-white' : 'text-muted-foreground'} />
+                  ? <CheckIcon size={18} className={stepReady ? 'text-action-foreground' : 'text-muted-foreground'} />
+                  : <ArrowRightIcon size={18} className={stepReady ? 'text-action-foreground' : 'text-muted-foreground'} />
               )}
             </Pressable>
           </View>
@@ -484,8 +490,7 @@ function Field({
   return (
     <View>
       <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">{label}</Text>
-      <View className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3"
-        style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+      <View className="bg-secondary rounded-xl px-4 py-3.5 flex-row items-center gap-3">
         {icon}
         {children}
       </View>

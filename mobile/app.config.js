@@ -25,11 +25,28 @@
  */
 const profile = process.env.EAS_BUILD_PROFILE;
 const allowsCleartext = profile === undefined || profile === 'development';
+const iosAppStoreId = process.env.EXPO_PUBLIC_IOS_APP_STORE_ID;
 
 module.exports = ({ config }) => ({
   ...config,
+  ios: {
+    ...config.ios,
+    infoPlist: {
+      ...(config.ios?.infoPlist ?? {}),
+      UIBackgroundModes: [
+        ...new Set([...(config.ios?.infoPlist?.UIBackgroundModes ?? []), 'audio']),
+      ],
+    },
+    ...(iosAppStoreId
+      ? { appStoreUrl: `https://apps.apple.com/app/id${iosAppStoreId}?action=write-review` }
+      : {}),
+  },
   plugins: [
-    ...(config.plugins ?? []),
+    ...(config.plugins ?? []).filter((plugin) =>
+      Array.isArray(plugin)
+        ? plugin[0] !== 'expo-build-properties'
+        : plugin !== 'expo-build-properties',
+    ),
     [
       'expo-build-properties',
       {

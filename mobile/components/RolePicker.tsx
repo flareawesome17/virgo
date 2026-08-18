@@ -58,7 +58,7 @@ export function RolePicker({
             disabled={disabled}
             onPress={() => toggle(role)}
             className={`flex-row items-center gap-1.5 rounded-full px-3.5 py-2 active:scale-[0.96] ${
-              isSelected ? 'bg-primary' : 'bg-card'
+              isSelected ? 'bg-action' : 'bg-card'
             }`}
             style={{
               opacity: disabled ? 0.5 : empty && !isSelected ? 0.55 : 1,

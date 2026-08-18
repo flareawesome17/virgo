@@ -31,6 +31,7 @@ import { LoadFailed } from '@/components/LoadFailed';
 import { AccessChip } from '@/components/WorkspaceInvitations';
 import { lastSeenLabel, usePresence } from '@/src/lib/presence-store';
 import type { Friend, MediaAccess } from '@/src/api';
+import { PALETTES } from '@/theme';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -55,7 +56,7 @@ const ROLE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
   client: { bg: '#6B8E4E18', text: '#6B8E4E' },
 };
 
-export default function NetworkScreen() {
+export default function NetworkScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const sendRequest = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
 
@@ -176,6 +177,7 @@ export default function NetworkScreen() {
 
   const { user } = useAuth();
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -237,7 +239,7 @@ export default function NetworkScreen() {
   const groupKeys = Object.keys(grouped);
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <SafeAreaView edges={embedded ? [] : ['top']} className="flex-1 bg-background">
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
       <KeyboardAvoidingView
@@ -253,12 +255,12 @@ export default function NetworkScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={isDark ? '#C17745' : '#B66A40'}
+            tintColor={palette.primary}
           />
         }
       >
         {/* Header */}
-        <View className="px-5 pt-4 pb-2 flex-row items-start justify-between gap-3">
+        {!embedded && <View className="px-5 pt-4 pb-2 flex-row items-start justify-between gap-3">
           <View className="flex-1 min-w-0">
             <Text className="text-foreground text-[28px] font-bold tracking-tight">Network</Text>
             <Text className="text-muted-foreground text-sm mt-1">
@@ -269,23 +271,23 @@ export default function NetworkScreen() {
               is the other way in. */}
           <Pressable
             onPress={() => router.push('/discover/nearby')}
-            className="flex-row items-center gap-1.5 px-3 py-2 rounded-xl bg-card active:scale-[0.94]"
-            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+            accessibilityRole="button"
+            className="min-h-11 flex-row items-center gap-1.5 px-3 py-2 rounded-xl bg-secondary active:scale-[0.96]"
           >
             <MapPinIcon size={14} className="text-primary" />
             <Text className="text-primary text-xs font-bold">Nearby</Text>
           </Pressable>
-        </View>
+        </View>}
 
         {/* Search */}
         <View className="px-5 pt-3 pb-2">
-          <View className="flex-row items-center bg-card rounded-2xl px-4 h-11 gap-3" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+          <View className="flex-row items-center bg-secondary rounded-xl px-4 h-12 gap-3">
             <SearchIcon size={16} className="text-muted-foreground" />
             <TextInput
               value={search}
               onChangeText={setSearch}
               placeholder="Search people and collaborators"
-              placeholderTextColor="#A89489"
+              placeholderTextColor={palette.mutedForeground}
               className="text-foreground text-sm flex-1"
             />
           </View>
@@ -295,16 +297,13 @@ export default function NetworkScreen() {
             reports, so the button says what tapping it will do. */}
         {search.trim().length >= 2 && (
           <View className="px-5 pb-4">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+            <Text className="text-foreground text-[13px] font-semibold mb-2 ml-1">
               People
             </Text>
-            <View
-              className="bg-card rounded-2xl overflow-hidden"
-              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-            >
+            <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
               {isSearching ? (
                 <View className="px-4 py-5 items-center">
-                  <ActivityIndicator size="small" color="#B66A40" />
+                  <ActivityIndicator size="small" color={palette.primary} />
                 </View>
               ) : peopleFailed ? (
                 <LoadFailed what="the search results" onRetry={() => refetchPeople()} compact />
@@ -317,13 +316,13 @@ export default function NetworkScreen() {
                   <View
                     key={p.id}
                     className="px-4 py-3 flex-row items-center gap-3"
-                    style={i < people.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
+                    style={i < people.length - 1 ? { borderBottomWidth: 1, borderBottomColor: palette.border } : undefined}
                   >
                     {p.avatarUrl ? (
                       <Image source={{ uri: p.avatarUrl }} style={{ width: 40, height: 40, borderRadius: 20 }} />
                     ) : (
-                      <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
-                        <Text style={{ color: '#B66A40', fontWeight: '700' }}>
+                      <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: `${palette.primary}18` }}>
+                        <Text style={{ color: palette.primary, fontWeight: '700' }}>
                           {p.name.charAt(0).toUpperCase()}
                         </Text>
                       </View>
@@ -339,16 +338,16 @@ export default function NetworkScreen() {
 
                     {p.relationship === 'accepted' ? (
                       <View className="px-3 py-1.5 rounded-full bg-[#6B8E4E18]">
-                        <Text className="text-[#6B8E4E] text-[11px] font-bold">Friends</Text>
+                        <Text className="text-[#6B8E4E] text-xs font-bold">Friends</Text>
                       </View>
                     ) : p.relationship === 'pending_out' ? (
                       <View className="px-3 py-1.5 rounded-full bg-muted">
-                        <Text className="text-muted-foreground text-[11px] font-bold">Requested</Text>
+                        <Text className="text-muted-foreground text-xs font-bold">Requested</Text>
                       </View>
                     ) : p.relationship === 'pending_in' ? (
                       <Pressable
                         onPress={() => acceptFromSearch(p.id)}
-                        className="px-3 py-2 rounded-xl bg-primary active:scale-[0.94]"
+                        className="px-3 py-2 rounded-xl bg-action active:scale-[0.94]"
                       >
                         <Text className="text-white text-xs font-bold">Accept</Text>
                       </Pressable>
@@ -356,7 +355,7 @@ export default function NetworkScreen() {
                       <Pressable
                         onPress={() => addFriend(p.id)}
                         disabled={sendRequest.isPending}
-                        className="px-3 py-2 rounded-xl bg-primary flex-row items-center gap-1.5 active:scale-[0.94]"
+                        className="px-3 py-2 rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.94]"
                       >
                         <UserPlusIcon size={13} className="text-white" />
                         <Text className="text-white text-xs font-bold">Add</Text>
@@ -373,21 +372,18 @@ export default function NetworkScreen() {
             for the recipient, so there was nothing here to show. */}
         {incoming.length > 0 && (
           <View className="px-5 pb-4">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+            <Text className="text-foreground text-[13px] font-semibold mb-2 ml-1">
               Friend requests
             </Text>
-            <View
-              className="bg-card rounded-2xl overflow-hidden"
-              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-            >
+            <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
               {incoming.map((req, i) => (
                 <View
                   key={req.id}
                   className="px-4 py-3 flex-row items-center gap-3"
-                  style={i < incoming.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
+                  style={i < incoming.length - 1 ? { borderBottomWidth: 1, borderBottomColor: palette.border } : undefined}
                 >
-                  <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
-                    <Text style={{ color: '#B66A40', fontWeight: '700' }}>
+                  <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: `${palette.primary}18` }}>
+                    <Text style={{ color: palette.primary, fontWeight: '700' }}>
                       {req.friend_name.charAt(0).toUpperCase()}
                     </Text>
                   </View>
@@ -407,7 +403,7 @@ export default function NetworkScreen() {
                   </Pressable>
                   <Pressable
                     onPress={() => respond.mutate({ id: req.id, accept: true })}
-                    className="px-3 py-2 rounded-xl bg-primary active:scale-[0.94]"
+                    className="px-3 py-2 rounded-xl bg-action active:scale-[0.94]"
                   >
                     <Text className="text-white text-xs font-bold">Accept</Text>
                   </Pressable>
@@ -422,18 +418,15 @@ export default function NetworkScreen() {
         {search.trim().length < 2 && (
           <View className="px-5 pb-4">
             <View className="flex-row items-center justify-between mb-2 ml-1">
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
+              <Text className="text-foreground text-[13px] font-semibold">
                 Friends
               </Text>
-              <Text className="text-muted-foreground text-[11px] font-semibold">
+              <Text className="text-muted-foreground text-xs font-semibold">
                 {acceptedFriends.length}
               </Text>
             </View>
 
-            <View
-              className="bg-card rounded-2xl overflow-hidden"
-              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-            >
+            <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
               {friendsFailed && acceptedFriends.length === 0 ? (
                 <LoadFailed what="your friends" onRetry={() => refetchFriends()} compact />
               ) : acceptedFriends.length === 0 ? (
@@ -445,7 +438,8 @@ export default function NetworkScreen() {
                   <FriendRow
                     key={f.id}
                     friend={f}
-                    isDark={isDark}
+                    borderColor={palette.border}
+                    cardColor={palette.card}
                     last={i === acceptedFriends.length - 1}
                     onRemove={() => confirmRemoveFriend(f.id, f.friend_name)}
                   />
@@ -480,11 +474,11 @@ export default function NetworkScreen() {
           groupKeys.map((wsName) => (
             <View key={wsName} className="mb-5">
               <View className="px-5 mb-2">
-                <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
+                <Text className="text-foreground text-[13px] font-semibold">
                   {wsName}
                 </Text>
               </View>
-              <View className="mx-5 bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
+              <View className="mx-5 bg-card rounded-2xl overflow-hidden border border-border/30">
                 {grouped[wsName].map((collab, i) => {
                   const badge = ROLE_BADGE_COLORS[collab.role] || ROLE_BADGE_COLORS.editor;
                   return (
@@ -493,7 +487,7 @@ export default function NetworkScreen() {
                       className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
                       style={
                         i < grouped[wsName].length - 1
-                          ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
+                          ? { borderBottomWidth: 1, borderBottomColor: palette.border }
                           : undefined
                       }
                     >
@@ -511,21 +505,21 @@ export default function NetworkScreen() {
                         </Text>
                         <View className="flex-row items-center gap-2 mt-0.5">
                           <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: badge.bg }}>
-                            <Text style={{ color: badge.text, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                            <Text style={{ color: badge.text, fontSize: 11, fontWeight: '700' }}>
                               {ROLE_LABELS[collab.role] || collab.role}
                             </Text>
                           </View>
                           {/* An invitation not yet answered is not access. */}
                           {collab.status === 'pending' && (
                             <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: '#A8948920' }}>
-                              <Text style={{ color: '#8B7355', fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                              <Text style={{ color: '#8B7355', fontSize: 11, fontWeight: '700' }}>
                                 Pending
                               </Text>
                             </View>
                           )}
                           {collab.status === 'declined' && (
                             <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: '#C76B4A20' }}>
-                              <Text style={{ color: '#C76B4A', fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                              <Text style={{ color: '#C76B4A', fontSize: 11, fontWeight: '700' }}>
                                 Declined
                               </Text>
                             </View>
@@ -583,7 +577,7 @@ export default function NetworkScreen() {
 
           {loadingAccess && accessAlbums.length === 0 ? (
             <View className="py-8 items-center">
-              <ActivityIndicator size="small" color="#B66A40" />
+              <ActivityIndicator size="small" color={palette.primary} />
             </View>
           ) : accessAlbums.length === 0 ? (
             <Text className="text-muted-foreground text-sm text-center py-8">
@@ -606,16 +600,16 @@ export default function NetworkScreen() {
                       })
                     }
                     className="py-3 flex-row items-center gap-3 active:opacity-70"
-                    style={i < accessAlbums.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
+                    style={i < accessAlbums.length - 1 ? { borderBottomWidth: 1, borderBottomColor: palette.border } : undefined}
                   >
                     <View
                       className="items-center justify-center rounded-md"
                       style={{
                         width: 22,
                         height: 22,
-                        backgroundColor: on ? '#B66A40' : 'transparent',
+                        backgroundColor: on ? palette.action : 'transparent',
                         borderWidth: on ? 0 : 1.5,
-                        borderColor: isDark ? '#4A423C' : '#D9C2B7',
+                        borderColor: palette.border,
                       }}
                     >
                       {on && <CheckIcon size={14} className="text-white" />}
@@ -667,7 +661,7 @@ export default function NetworkScreen() {
                 );
               }}
               disabled={saveAccess.isPending}
-              className="flex-[2] bg-primary rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97]"
+              className="flex-[2] bg-action rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97]"
             >
               {saveAccess.isPending && <ActivityIndicator size="small" color="#FFFFFF" />}
               <Text className="text-white text-base font-bold">
@@ -690,12 +684,14 @@ export default function NetworkScreen() {
  */
 function FriendRow({
   friend,
-  isDark,
+  borderColor,
+  cardColor,
   last,
   onRemove,
 }: {
   friend: Friend;
-  isDark: boolean;
+  borderColor: string;
+  cardColor: string;
   last: boolean;
   onRemove: () => void;
 }) {
@@ -711,7 +707,7 @@ function FriendRow({
       style={
         last
           ? undefined
-          : { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
+          : { borderBottomWidth: 1, borderBottomColor: borderColor }
       }
     >
       <View>
@@ -743,7 +739,7 @@ function FriendRow({
               borderRadius: 6,
               backgroundColor: online ? '#10b981' : '#9ca3af',
               borderWidth: 2,
-              borderColor: isDark ? '#1C1917' : '#FFFFFF',
+              borderColor: cardColor,
             }}
           />
         )}

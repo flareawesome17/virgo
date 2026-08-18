@@ -434,6 +434,45 @@
   scroll-margin-top: 5.5rem;
 }
 
+/* Native media ranges, normalized to the Virgo rust and warm graphite. */
+.media-range {
+  height: 0.875rem;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.media-range::-webkit-slider-runnable-track {
+  height: 0.2rem;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.16);
+}
+
+.media-range::-webkit-slider-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: -0.275rem;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: #d89566;
+  box-shadow: 0 0 0 3px rgb(20 18 16 / 0.55);
+}
+
+.media-range::-moz-range-track {
+  height: 0.2rem;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.16);
+}
+
+.media-range::-moz-range-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: #d89566;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .landing-scroll {
     scroll-behavior: auto;

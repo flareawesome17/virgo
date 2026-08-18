@@ -42,7 +42,7 @@ export default function NotFoundScreen() {
 
         <Pressable
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/(app)/(tabs)'))}
-          className="mt-8 bg-primary rounded-2xl px-8 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
+          className="mt-8 bg-action rounded-2xl px-8 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
           style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}
         >
           <ArrowLeftIcon size={16} className="text-white" />

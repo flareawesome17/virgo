@@ -81,7 +81,12 @@ export class StorageController {
     @CurrentUser('id') userId: string,
     @Body() dto: ConfirmUploadDto,
   ) {
-    const result = await this.storage.statObject(userId, dto.key, dto.albumId);
+    const result = await this.storage.statObject(
+      userId,
+      dto.key,
+      dto.albumId,
+      dto.originalName,
+    );
     if (!result.exists) return result;
 
     if (this.config.isAvatarKey(dto.key)) {
@@ -102,9 +107,12 @@ export class StorageController {
   /** Objects this user has stored, optionally narrowed to one album. */
   @Get('files')
   list(@CurrentUser('id') userId: string, @Query() query: ListFilesDto) {
-    return this.storage
-      .listFiles(userId, { albumId: query.albumId, limit: query.limit })
-      .then((data) => ({ data, total: data.length }));
+    return this.storage.listFiles(userId, {
+      albumId: query.albumId,
+      limit: query.limit,
+      cursor: query.cursor,
+      kind: query.kind,
+    });
   }
 
   /** Objects uploaded before an album was chosen. */

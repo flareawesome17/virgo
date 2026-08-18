@@ -299,7 +299,7 @@ export default function PlansScreen() {
                         starting !== null || billing?.paymentsEnabled === false
                       }
                       className={`mt-4 rounded-xl py-3 items-center active:scale-[0.97] ${
-                        billing?.paymentsEnabled === false ? 'bg-muted' : 'bg-primary'
+                        billing?.paymentsEnabled === false ? 'bg-muted' : 'bg-action'
                       }`}
                     >
                       <Text

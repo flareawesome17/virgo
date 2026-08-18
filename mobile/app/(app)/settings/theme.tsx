@@ -290,7 +290,7 @@ export default function AppearanceScreen() {
                     nudge the row's height as the tick appears. */}
                 <View className="h-5 justify-center">
                   {active && (
-                    <View className="w-5 h-5 rounded-full bg-primary items-center justify-center">
+                    <View className="w-5 h-5 rounded-full bg-action items-center justify-center">
                       <CheckIcon size={11} className="text-white" />
                     </View>
                   )}

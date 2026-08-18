@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { limitsFor, toJsonLimit, type PlanLimits } from './quota.config';
 
@@ -9,6 +9,24 @@ export interface StoredFile {
   scope: string | null;
   album_id: string | null;
   created_at: Date;
+  original_name: string | null;
+  thumb_key: string | null;
+  poster_key: string | null;
+  width_px: number | null;
+  height_px: number | null;
+  duration_ms: string | null;
+  media_title: string | null;
+  media_artist: string | null;
+  processing_status: 'pending' | 'ready' | 'failed' | 'not_required';
+}
+
+export type StoredMediaKind = 'image' | 'video' | 'audio' | 'other';
+
+export interface StoredFilePage {
+  rows: StoredFile[];
+  total: number;
+  nextCursor: string | null;
+  counts: Record<StoredMediaKind, number>;
 }
 
 export interface UsageSummary {
@@ -316,15 +334,34 @@ export class QuotaService {
       contentType?: string;
       scope?: string;
       albumId?: string | null;
+      originalName?: string | null;
     },
   ): Promise<void> {
+    const kind = file.contentType?.split('/')[0];
+    const processingStatus = ['image', 'video', 'audio'].includes(kind ?? '')
+      ? 'pending'
+      : 'not_required';
     await this.db.query(
-      `insert into user_files (user_id, key, size_bytes, content_type, scope, album_id)
-       values ($1, $2, $3, $4, $5, $6)
+      `insert into user_files
+         (user_id, key, size_bytes, content_type, scope, album_id,
+          original_name, processing_status, next_processing_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8,
+               case when $8 = 'pending' then now() else null end)
        on conflict (key) do update
          set size_bytes = excluded.size_bytes,
              content_type = excluded.content_type,
-             album_id = coalesce(excluded.album_id, user_files.album_id)`,
+             album_id = coalesce(excluded.album_id, user_files.album_id),
+             original_name = coalesce(excluded.original_name, user_files.original_name),
+             processing_status = case
+               when user_files.content_type is distinct from excluded.content_type
+                 then excluded.processing_status
+               else user_files.processing_status
+             end,
+             next_processing_at = case
+               when user_files.content_type is distinct from excluded.content_type
+                 and excluded.processing_status = 'pending' then now()
+               else user_files.next_processing_at
+             end`,
       [
         userId,
         file.key,
@@ -332,6 +369,8 @@ export class QuotaService {
         file.contentType ?? null,
         file.scope ?? null,
         file.albumId ?? null,
+        file.originalName ?? null,
+        processingStatus,
       ],
     );
   }
@@ -351,8 +390,13 @@ export class QuotaService {
    */
   async listFiles(
     userId: string,
-    filter: { albumId?: string; limit?: number } = {},
-  ): Promise<StoredFile[]> {
+    filter: {
+      albumId?: string;
+      limit?: number;
+      cursor?: string;
+      kind?: StoredMediaKind;
+    } = {},
+  ): Promise<StoredFilePage> {
     // Built as one or the other, never both: an album query must not also
     // carry `userId`, or $1 goes unreferenced and Postgres refuses the
     // statement outright with "could not determine data type of parameter $1".
@@ -367,16 +411,73 @@ export class QuotaService {
       where = `user_id = $${params.length}`;
     }
 
-    params.push(Math.min(Math.max(filter.limit ?? 200, 1), 500));
+    const scopeWhere = where;
+    if (filter.kind) {
+      params.push(filter.kind);
+      where += ` and ${mediaKindSql('content_type')} = $${params.length}`;
+    }
 
-    return this.db.query<StoredFile>(
-      `select key, size_bytes, content_type, scope, album_id, created_at
+    if (filter.cursor) {
+      const cursor = decodeFileCursor(filter.cursor);
+      params.push(cursor.createdAt, cursor.key);
+      where += ` and (created_at, key) < ($${params.length - 1}::timestamptz, $${params.length}::text)`;
+    }
+
+    const limit = Math.min(Math.max(filter.limit ?? 60, 1), 100);
+    params.push(limit + 1);
+
+    const rows = await this.db.query<StoredFile>(
+      `select key, size_bytes, content_type, scope, album_id, created_at,
+              original_name, thumb_key, poster_key, width_px, height_px,
+              duration_ms, media_title, media_artist, processing_status
          from user_files
         where ${where}
-        order by created_at desc
+        order by created_at desc, key desc
         limit $${params.length}`,
       params,
     );
+
+    const countParams: unknown[] = filter.albumId ? [filter.albumId] : [userId];
+    const summary = await this.db.queryOne<{
+      total: string;
+      image_count: string;
+      video_count: string;
+      audio_count: string;
+      other_count: string;
+    }>(
+      `select count(*)::text as total,
+              count(*) filter (where ${mediaKindSql('content_type')} = 'image')::text as image_count,
+              count(*) filter (where ${mediaKindSql('content_type')} = 'video')::text as video_count,
+              count(*) filter (where ${mediaKindSql('content_type')} = 'audio')::text as audio_count,
+              count(*) filter (where ${mediaKindSql('content_type')} = 'other')::text as other_count
+         from user_files
+        where ${scopeWhere}`,
+      countParams,
+    );
+
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const last = pageRows.at(-1);
+    const filteredTotal = filter.kind
+      ? {
+          image: summary?.image_count,
+          video: summary?.video_count,
+          audio: summary?.audio_count,
+          other: summary?.other_count,
+        }[filter.kind]
+      : summary?.total;
+    return {
+      rows: pageRows,
+      total: Number(filteredTotal ?? 0),
+      counts: {
+        image: Number(summary?.image_count ?? 0),
+        video: Number(summary?.video_count ?? 0),
+        audio: Number(summary?.audio_count ?? 0),
+        other: Number(summary?.other_count ?? 0),
+      },
+      nextCursor:
+        hasMore && last ? encodeFileCursor(last.created_at, last.key) : null,
+    };
   }
 
   /** Files with no album yet — uploaded before an album was chosen. */
@@ -494,18 +595,48 @@ export class QuotaService {
   /** Drops the accounting row when an object is deleted. */
   async forgetFile(userId: string, key: string): Promise<void> {
     await this.db.query(
-      'delete from user_files where user_id = $1 and key = $2',
-      [userId, key],
+      // Access was already resolved by StorageService. Deleting by key is
+      // necessary for a collaborator with manage access because the row is
+      // billed to the album owner, not to that collaborator.
+      'delete from user_files where key = $1',
+      [key],
     );
+  }
+
+  /** Original keys plus any thumbnail/poster objects stored beside them. */
+  async objectAndDerivedKeys(keys: readonly string[]): Promise<string[]> {
+    if (keys.length === 0) return [];
+    const rows = await this.db.query<{
+      key: string;
+      thumb_key: string | null;
+      poster_key: string | null;
+    }>(
+      `select key, thumb_key, poster_key
+         from user_files
+        where key = any($1::text[])`,
+      [keys],
+    );
+    const expanded = rows.flatMap((row) => [row.key, row.thumb_key, row.poster_key]);
+    return [...new Set(expanded.filter((key): key is string => !!key))];
   }
 
   /** Every key this user has stored, for a full wipe. */
   async allKeys(userId: string): Promise<string[]> {
-    const rows = await this.db.query<{ key: string }>(
-      'select key from user_files where user_id = $1',
+    const rows = await this.db.query<{
+      key: string;
+      thumb_key: string | null;
+      poster_key: string | null;
+    }>(
+      'select key, thumb_key, poster_key from user_files where user_id = $1',
       [userId],
     );
-    return rows.map((r) => r.key);
+    return [
+      ...new Set(
+        rows
+          .flatMap((row) => [row.key, row.thumb_key, row.poster_key])
+          .filter((key): key is string => !!key),
+      ),
+    ];
   }
 
   /**
@@ -531,4 +662,41 @@ function formatBytes(bytes: number): string {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
   return `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+function mediaKindSql(column: string): string {
+  return `case
+    when coalesce(${column}, '') like 'image/%' then 'image'
+    when coalesce(${column}, '') like 'video/%' then 'video'
+    when coalesce(${column}, '') like 'audio/%' then 'audio'
+    else 'other'
+  end`;
+}
+
+export function encodeFileCursor(createdAt: Date, key: string): string {
+  return Buffer.from(
+    JSON.stringify({ createdAt: createdAt.toISOString(), key }),
+    'utf8',
+  ).toString('base64url');
+}
+
+export function decodeFileCursor(value: string): { createdAt: string; key: string } {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as {
+      createdAt?: unknown;
+      key?: unknown;
+    };
+    if (
+      typeof parsed.createdAt !== 'string' ||
+      !Number.isFinite(Date.parse(parsed.createdAt)) ||
+      typeof parsed.key !== 'string' ||
+      parsed.key.length === 0 ||
+      parsed.key.length > 1024
+    ) {
+      throw new Error('Invalid cursor fields');
+    }
+    return { createdAt: parsed.createdAt, key: parsed.key };
+  } catch {
+    throw new BadRequestException('Invalid file cursor');
+  }
 }

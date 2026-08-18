@@ -6,7 +6,6 @@ import {
   UsersIcon,
   CalendarIcon,
   UserIcon,
-  MessageCircleIcon,
 } from 'lucide-react-native';
 import { cssInterop, useColorScheme } from 'nativewind';
 import {
@@ -17,13 +16,13 @@ import {
   useUnreadCount,
   useUnseenJobs,
 } from '@/src/hooks';
+import { PALETTES } from '@/theme';
 
 cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /** Icon + label area, excluding padding. */
 const TAB_CONTENT_HEIGHT = 52;
@@ -50,6 +49,8 @@ export default function TabsLayout() {
   // Rewards waiting to be claimed. Almost always an empty list, and the only
   // thing that says an offer arrived while the app was closed.
   const { offers: rewards } = usePromoOffers();
+  const connectAlerts = unread + friendRequests;
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
 
   // The bar was a fixed height:88 / paddingBottom:28. On an iPhone with a home
   // indicator the bottom inset is 34pt, so 28 put the labels *underneath* it;
@@ -63,19 +64,17 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: isDark ? '#1E1B18' : '#FFFFFF',
-          borderTopColor: isDark ? '#2A2522' : '#D9C2B7',
+          backgroundColor: palette.card,
+          borderTopColor: palette.border,
           borderTopWidth: 1,
           height: TAB_CONTENT_HEIGHT + TAB_PADDING_TOP + bottomInset,
           paddingTop: TAB_PADDING_TOP,
           paddingBottom: bottomInset,
         },
-        tabBarActiveTintColor: isDark ? '#C17745' : '#B66A40',
-        tabBarInactiveTintColor: isDark ? '#54433C' : '#A89489',
-        // 10pt, not 11: with Chat there are six tabs, and at 11 "Workspaces"
-        // ellipsizes on a 360pt-wide screen.
+        tabBarActiveTintColor: palette.primary,
+        tabBarInactiveTintColor: palette.mutedForeground,
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: '600',
           letterSpacing: 0.2,
         },
@@ -88,16 +87,17 @@ export default function TabsLayout() {
           tabBarBadge:
             newJobs > 0 ? (newJobs > 99 ? '99+' : newJobs) : undefined,
           tabBarBadgeStyle: {
-            backgroundColor: '#B66A40',
-            fontSize: 10,
+            backgroundColor: palette.action,
+            color: palette.actionForeground,
+            fontSize: 11,
             fontWeight: '700',
             minWidth: 17,
             height: 17,
             lineHeight: 13,
           },
-          tabBarIcon: ({ focused }) => (
+          tabBarIcon: ({ focused, color }) => (
             <HomeIcon
-              className={focused ? 'text-[#B66A40]' : 'text-[#A89489]'}
+              color={color}
               size={22}
               strokeWidth={focused ? 2.5 : 2}
             />
@@ -108,9 +108,9 @@ export default function TabsLayout() {
         name="workspaces"
         options={{
           title: 'Workspaces',
-          tabBarIcon: ({ focused }) => (
+          tabBarIcon: ({ focused, color }) => (
             <FolderIcon
-              className={focused ? 'text-[#B66A40]' : 'text-[#A89489]'}
+              color={color}
               size={22}
               strokeWidth={focused ? 2.5 : 2}
             />
@@ -122,8 +122,9 @@ export default function TabsLayout() {
                 : invitations.length
               : undefined,
           tabBarBadgeStyle: {
-            backgroundColor: '#B66A40',
-            fontSize: 10,
+            backgroundColor: palette.action,
+            color: palette.actionForeground,
+            fontSize: 11,
             fontWeight: '700',
             minWidth: 17,
             height: 17,
@@ -132,25 +133,26 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="network"
+        name="connect"
         options={{
-          title: 'Network',
-          tabBarIcon: ({ focused }) => (
+          title: 'Connect',
+          tabBarIcon: ({ focused, color }) => (
             <UsersIcon
-              className={focused ? 'text-[#B66A40]' : 'text-[#A89489]'}
+              color={color}
               size={22}
               strokeWidth={focused ? 2.5 : 2}
             />
           ),
           tabBarBadge:
-            friendRequests > 0
-              ? friendRequests > 99
+            connectAlerts > 0
+              ? connectAlerts > 99
                 ? '99+'
-                : friendRequests
+                : connectAlerts
               : undefined,
           tabBarBadgeStyle: {
-            backgroundColor: '#B66A40',
-            fontSize: 10,
+            backgroundColor: palette.action,
+            color: palette.actionForeground,
+            fontSize: 11,
             fontWeight: '700',
             minWidth: 17,
             height: 17,
@@ -169,51 +171,30 @@ export default function TabsLayout() {
                 : eventInvites.length
               : undefined,
           tabBarBadgeStyle: {
-            backgroundColor: '#B66A40',
-            fontSize: 10,
+            backgroundColor: palette.action,
+            color: palette.actionForeground,
+            fontSize: 11,
             fontWeight: '700',
             minWidth: 17,
             height: 17,
             lineHeight: 13,
           },
-          tabBarIcon: ({ focused }) => (
+          tabBarIcon: ({ focused, color }) => (
             <CalendarIcon
-              className={focused ? 'text-[#B66A40]' : 'text-[#A89489]'}
+              color={color}
               size={22}
               strokeWidth={focused ? 2.5 : 2}
             />
           ),
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          title: 'Chat',
-          tabBarIcon: ({ focused }) => (
-            <MessageCircleIcon
-              className={focused ? 'text-[#B66A40]' : 'text-[#A89489]'}
-              size={22}
-              strokeWidth={focused ? 2.5 : 2}
-            />
-          ),
-          tabBarBadge: unread > 0 ? (unread > 99 ? '99+' : unread) : undefined,
-          tabBarBadgeStyle: {
-            backgroundColor: '#B66A40',
-            fontSize: 10,
-            fontWeight: '700',
-            minWidth: 17,
-            height: 17,
-            lineHeight: 13,
-          },
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ focused }) => (
+          tabBarIcon: ({ focused, color }) => (
             <UserIcon
-              className={focused ? 'text-[#B66A40]' : 'text-[#A89489]'}
+              color={color}
               size={22}
               strokeWidth={focused ? 2.5 : 2}
             />
@@ -229,8 +210,9 @@ export default function TabsLayout() {
                 : rewards.length
               : undefined,
           tabBarBadgeStyle: {
-            backgroundColor: '#B66A40',
-            fontSize: 10,
+            backgroundColor: palette.action,
+            color: palette.actionForeground,
+            fontSize: 11,
             fontWeight: '700',
             minWidth: 17,
             height: 17,
@@ -238,6 +220,10 @@ export default function TabsLayout() {
           },
         }}
       />
+      {/* Keep the original routes available for deep links and existing calls,
+          but remove them from primary navigation. Connect owns their UI. */}
+      <Tabs.Screen name="network" options={{ href: null }} />
+      <Tabs.Screen name="chat" options={{ href: null }} />
     </Tabs>
   );
 }

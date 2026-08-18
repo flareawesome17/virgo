@@ -151,6 +151,56 @@ export class LoginDto {
   password!: string;
 }
 
+export class CompleteTwoFactorLoginDto {
+  @IsString()
+  @MinLength(32)
+  @MaxLength(128)
+  challengeToken!: string;
+
+  @IsString()
+  @Matches(/^(?:\d{6}|[A-Za-z2-7 -]{10,32})$/, {
+    message: 'Enter the 6-digit email code or a recovery code',
+  })
+  code!: string;
+}
+
+export class BeginTwoFactorSetupDto {
+  @IsString()
+  @MaxLength(72)
+  password!: string;
+}
+
+export class ConfirmTwoFactorSetupDto {
+  @IsString()
+  @MinLength(32)
+  @MaxLength(128)
+  challengeToken!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/, { message: 'Enter the 6-digit email code' })
+  code!: string;
+}
+
+export class ResendTwoFactorCodeDto {
+  @IsString()
+  @MinLength(32)
+  @MaxLength(128)
+  challengeToken!: string;
+}
+
+export class BeginTwoFactorSecurityActionDto extends BeginTwoFactorSetupDto {
+  @IsIn(['disable', 'recovery'])
+  action!: 'disable' | 'recovery';
+}
+
+export class TwoFactorSecurityActionDto extends ResendTwoFactorCodeDto {
+  @IsString()
+  @Matches(/^(?:\d{6}|[A-Za-z2-7 -]{10,32})$/, {
+    message: 'Enter the 6-digit email code or a recovery code',
+  })
+  code!: string;
+}
+
 export class RefreshDto {
   @IsString()
   refreshToken!: string;

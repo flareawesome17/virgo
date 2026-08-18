@@ -1,47 +1,34 @@
-import { View, Text, FlatList, RefreshControl, Pressable, Dimensions } from 'react-native';
-// expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
-// versions where the RN one silently renders nothing.
-import { Image } from 'expo-image';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAlbum, useAlbumFiles, useTheme } from '@/src/hooks';
-import { useLocalSearchParams, router } from 'expo-router';
-import { useState, useCallback, useRef } from 'react';
+import { useState } from "react";
 import {
-  ArrowLeftIcon,
-  ImageIcon,
-  Grid3X3Icon,
-  ListIcon,
-  UploadIcon,
-} from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
+  FlatList,
+  Pressable,
+  RefreshControl,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { router, useLocalSearchParams } from "expo-router";
+import { Image } from "expo-image";
+import {
+  ArrowLeft,
+  ImageSquare,
+  SquaresFour,
+  UploadSimple,
+} from "phosphor-react-native";
+import { useAlbum, useAlbumFiles } from "@/src/hooks";
 
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(Grid3X3Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ListIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UploadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+const GAP = 8;
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const COLUMN_COUNT = 3;
-const GAP = 2;
-const ITEM_SIZE = (SCREEN_WIDTH - GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT;
-
-
-function SkeletonGrid() {
+function Skeleton({ width }: { width: number }) {
+  const item = (width - 42) / 2;
   return (
-    <View className="flex-row flex-wrap px-[1px]">
-      {Array.from({ length: 15 }).map((_, i) => (
+    <View className="flex-row flex-wrap px-4 gap-2">
+      {Array.from({ length: 10 }).map((_, index) => (
         <View
-          key={i}
-          style={{
-            width: ITEM_SIZE,
-            height: ITEM_SIZE,
-            margin: GAP / 2,
-            borderRadius: 2,
-            // This grid only ever renders on the gallery's fixed dark
-            // backdrop, so it does not follow the app theme.
-            backgroundColor: '#2A2522',
-          }}
+          key={index}
+          className="rounded-[18px] bg-white/[0.06]"
+          style={{ width: item, height: index % 3 === 0 ? item * 1.25 : item }}
         />
       ))}
     </View>
@@ -50,120 +37,122 @@ function SkeletonGrid() {
 
 export default function GalleryScreen() {
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
-  const { isDark } = useTheme();
+  const { width } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'large'>('grid');
-
-  const { data: album, isLoading, refetch: refetchAlbum } = useAlbum(albumId);
-
-  const onRefresh = async () => {
+  const { data: album, refetch: refetchAlbum } = useAlbum(albumId);
+  // Reuse the unfiltered request already populated by the album overview.
+  const filesQuery = useAlbumFiles(albumId);
+  const photos = filesQuery.images;
+  const itemWidth = (width - 32 - GAP) / 2;
+  const refresh = async () => {
     setRefreshing(true);
-    await refetchAlbum();
+    await Promise.all([refetchAlbum(), filesQuery.refetch()]);
     setRefreshing(false);
   };
 
-  // Real objects stored against this album. An empty album now renders empty
-  // instead of showing generated stock photos.
-  const { images: photos, isLoading: filesLoading } = useAlbumFiles(albumId);
-
-  const openViewer = (index: number) => {
-    router.push(`/albums/${albumId}/viewer?index=${index}`);
-  };
-
-  const colCount = viewMode === 'grid' ? 3 : 1;
-  const itemW = viewMode === 'grid' ? ITEM_SIZE : SCREEN_WIDTH - 4;
-  const itemH = viewMode === 'grid' ? ITEM_SIZE : undefined;
-
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-[#1A1816]">
-      {/* Header */}
-      <View className="px-4 pt-3 pb-2 flex-row items-center justify-between">
-        <View className="flex-row items-center gap-3">
-          <Pressable
-            onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-white/10 items-center justify-center active:scale-[0.94]"
-          >
-            <ArrowLeftIcon size={18} className="text-white" />
-          </Pressable>
-          <View>
-            <Text className="text-white text-lg font-bold tracking-tight" numberOfLines={1}>
-              {album?.name || 'Gallery'}
-            </Text>
-            <Text className="text-white/50 text-xs mt-0.5">
-              {photos.length} photo{photos.length === 1 ? '' : 's'}
-            </Text>
-          </View>
-        </View>
+    <SafeAreaView edges={["top"]} className="flex-1 bg-[#141210]">
+      <View className="px-4 pt-3 pb-5 flex-row items-center gap-3">
         <Pressable
-          onPress={() => setViewMode(viewMode === 'grid' ? 'large' : 'grid')}
-          className="w-10 h-10 rounded-2xl bg-white/10 items-center justify-center active:scale-[0.94]"
+          onPress={() => router.back()}
+          className="w-11 h-11 rounded-full bg-white/10 items-center justify-center active:scale-[.94]"
         >
-          {viewMode === 'grid' ? (
-            <ListIcon size={18} className="text-white" />
-          ) : (
-            <Grid3X3Icon size={18} className="text-white" />
-          )}
+          <ArrowLeft size={19} color="#fff" weight="light" />
         </Pressable>
+        <View className="flex-1 min-w-0">
+          <Text
+            className="text-white text-2xl font-semibold tracking-[-1px]"
+            numberOfLines={1}
+          >
+            {album?.name || "Photos"}
+          </Text>
+          <Text className="text-white/40 text-xs mt-1">
+            {filesQuery.counts.image} photo
+            {filesQuery.counts.image === 1 ? "" : "s"}
+          </Text>
+        </View>
+        <View className="w-11 h-11 rounded-full border border-white/10 items-center justify-center">
+          <SquaresFour size={18} color="rgba(255,255,255,.55)" weight="light" />
+        </View>
       </View>
-
-      {/* Grid */}
-      {isLoading || filesLoading ? (
-        <SkeletonGrid />
+      <Text className="text-[#D89566] text-[10px] uppercase tracking-[2px] font-mono px-4 pb-4">
+        Contact sheet
+      </Text>
+      {filesQuery.isLoading && photos.length === 0 ? (
+        <Skeleton width={width} />
       ) : (
         <FlatList
           data={photos}
           keyExtractor={(item) => item.key}
-          key={viewMode}
-          numColumns={colCount}
-          contentContainerStyle={{ paddingBottom: 120 }}
-          columnWrapperStyle={
-            viewMode === 'grid'
-              ? { gap: GAP }
-              : undefined
+          numColumns={2}
+          columnWrapperStyle={{ gap: GAP, alignItems: "flex-start" }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 80 }}
+          onEndReached={() =>
+            filesQuery.hasNextPage &&
+            !filesQuery.isFetchingNextPage &&
+            filesQuery.fetchNextPage()
           }
-          ItemSeparatorComponent={() => <View style={{ height: GAP }} />}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={onRefresh}
+              onRefresh={refresh}
               tintColor="#C17745"
             />
           }
-          renderItem={({ item, index }) => (
-            <Pressable
-              onPress={() => openViewer(index)}
-              className="active:opacity-80"
-              style={{
-                width: itemW,
-                height: viewMode === 'grid' ? itemH : itemW,
-              }}
-            >
-              <Image
-                source={{ uri: item.url ?? undefined }}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  backgroundColor: '#2A2522',
-                }}
-                contentFit="cover"
-              />
-            </Pressable>
-          )}
-          ListEmptyComponent={
-            <View className="pt-20 items-center gap-3">
-              <View className="w-16 h-16 rounded-full bg-white/10 items-center justify-center">
-                <ImageIcon size={28} className="text-white/40" />
-              </View>
-              <Text className="text-white/40 text-sm">No photos yet</Text>
-              {/* The Videos and Audio tabs both offer an upload here; this one
-                  was a dead end. kind=media opens the gallery, not the file
-                  browser, since photos and videos live in the gallery. */}
+          renderItem={({ item, index }) => {
+            const ratio =
+              item.width && item.height ? item.width / item.height : 1;
+            const height = Math.max(
+              itemWidth * 0.72,
+              Math.min(itemWidth * 1.35, itemWidth / ratio),
+            );
+            return (
               <Pressable
-                onPress={() => router.push(`/albums/upload?albumId=${albumId}&kind=media`)}
-                className="mt-4 bg-primary rounded-2xl px-7 py-3 flex-row items-center gap-2 active:scale-[0.96]"
+                onPress={() =>
+                  router.push(`/albums/${albumId}/viewer?index=${index}`)
+                }
+                className="mb-2 active:scale-[.985]"
+                style={{ width: itemWidth, height }}
               >
-                <UploadIcon size={16} className="text-white" />
-                <Text className="text-white text-sm font-bold">Upload photos</Text>
+                <View className="flex-1 overflow-hidden rounded-[18px] bg-white/[0.06]">
+                  <Image
+                    source={{ uri: item.thumbnailUrl ?? item.url ?? undefined }}
+                    style={{ width: "100%", height: "100%" }}
+                    contentFit="cover"
+                    transition={250}
+                  />
+                  {item.processingStatus === "pending" && (
+                    <View className="absolute top-2 left-2 bg-black/60 rounded-full px-2 py-1">
+                      <Text className="text-white/70 text-[8px] font-mono tracking-wider">
+                        INDEXING
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </Pressable>
+            );
+          }}
+          ListEmptyComponent={
+            <View className="items-center px-8 pt-24">
+              <ImageSquare
+                size={42}
+                color="rgba(255,255,255,.25)"
+                weight="light"
+              />
+              <Text className="text-white text-lg font-semibold mt-5">
+                The contact sheet is empty
+              </Text>
+              <Text className="text-white/40 text-sm text-center mt-2">
+                Upload photographs to begin arranging this album.
+              </Text>
+              <Pressable
+                onPress={() =>
+                  router.push(`/albums/upload?albumId=${albumId}&kind=media`)
+                }
+                className="mt-7 bg-[#C17745] rounded-full px-6 py-3 flex-row items-center gap-2"
+              >
+                <UploadSimple size={17} color="#fff" weight="light" />
+                <Text className="text-white font-semibold">Upload photos</Text>
               </Pressable>
             </View>
           }

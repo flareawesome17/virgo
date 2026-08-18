@@ -48,6 +48,12 @@ export class ConfirmUploadDto extends ObjectKeyDto {
   @IsString()
   @MaxLength(64)
   albumId?: string;
+
+  /** Original device filename; optional for already-released clients. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  originalName?: string;
 }
 
 export class AttachToAlbumDto {
@@ -78,9 +84,20 @@ export class ListFilesDto {
   albumId?: string;
 
   @IsOptional()
+  @IsIn(['image', 'video', 'audio', 'other'])
+  kind?: 'image' | 'video' | 'audio' | 'other';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  cursor?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  // Accepted up to the legacy ceiling so existing unassigned-file clients do
+  // not fail validation; paged album listings clamp this to 100 internally.
   @Max(500)
   limit?: number;
 }

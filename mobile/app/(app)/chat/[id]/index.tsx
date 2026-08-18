@@ -569,7 +569,7 @@ export default function ConversationScreen() {
                               ])
                           : undefined
                       }
-                      className="rounded-2xl px-3.5 py-2.5 bg-primary"
+                      className="rounded-2xl px-3.5 py-2.5 bg-action"
                       style={{ maxWidth: '80%', opacity: failed ? 0.75 : 0.85 }}
                     >
                       {o.replyToBody != null && (
@@ -648,7 +648,7 @@ export default function ConversationScreen() {
                   <Pressable
                     onLongPress={() => setActing(message)}
                     delayLongPress={300}
-                    className={`rounded-2xl px-3.5 py-2.5 ${mine ? 'bg-primary' : 'bg-card'}`}
+                    className={`rounded-2xl px-3.5 py-2.5 ${mine ? 'bg-action' : 'bg-card'}`}
                     style={{ maxWidth: '80%' }}
                   >
                     {/* What this message answers. Shown even when the original
@@ -783,7 +783,7 @@ export default function ConversationScreen() {
             onPress={submit}
             disabled={!draft.trim()}
             className={`w-11 h-11 rounded-full items-center justify-center active:scale-[0.94] ${
-              draft.trim() ? 'bg-primary' : 'bg-muted'
+              draft.trim() ? 'bg-action' : 'bg-muted'
             }`}
           >
             <SendIcon size={17} className={draft.trim() ? 'text-white' : 'text-muted-foreground'} />

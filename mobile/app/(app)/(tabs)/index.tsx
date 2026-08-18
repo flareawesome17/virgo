@@ -20,40 +20,30 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import {
   HardDriveIcon,
-  ImageIcon,
-  ClockIcon,
   CalendarIcon,
-  WifiIcon,
-  WifiOffIcon,
   PlusIcon,
   UserPlusIcon,
   FolderPlusIcon,
   ArrowUpRightIcon,
   ChevronRightIcon,
-  CircleIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
 import { JobsTabs, NotificationBell } from '@/components';
-import { LinearGradient } from 'expo-linear-gradient';
 import { LoadFailed } from '@/components/LoadFailed';
+import { PALETTES } from '@/theme';
 
 cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(WifiIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(WifiOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ArrowUpRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const QUICK_ACTIONS = [
-  { key: 'workspace', label: 'New Workspace', icon: FolderPlusIcon },
-  { key: 'album', label: 'Create Album', icon: PlusIcon },
+  { key: 'workspace', label: 'Workspace', icon: FolderPlusIcon },
+  { key: 'album', label: 'Album', icon: PlusIcon },
   { key: 'invite', label: 'Invite', icon: UserPlusIcon },
 ];
 
@@ -82,40 +72,7 @@ function StorageBar({ used, total }: { used: number; total: number }) {
   const pct = total > 0 ? Math.min((used / total) * 100, 100) : 0;
   return (
     <View className="h-2 bg-muted rounded-full overflow-hidden">
-      <View className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: '#B66A40' }} />
-    </View>
-  );
-}
-
-function AvatarStack({ urls, count }: { urls: string[]; count: number }) {
-  const display = urls.slice(0, 3);
-  const extra = count - display.length;
-  return (
-    <View className="flex-row">
-      {display.map((url, i) => (
-        <Image
-          key={i}
-          source={{ uri: url }}
-          style={{ width: 28, height: 28, borderRadius: 14, marginLeft: i > 0 ? -10 : 0, borderWidth: 2, borderColor: '#FFFFFF' }}
-        />
-      ))}
-      {extra > 0 && (
-        <View
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 14,
-            marginLeft: -10,
-            borderWidth: 2,
-            borderColor: '#FFFFFF',
-            backgroundColor: '#FAF2EC',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Text className="text-[10px] font-bold text-muted-foreground">+{extra}</Text>
-        </View>
-      )}
+      <View className="h-full rounded-full bg-action" style={{ width: `${pct}%` }} />
     </View>
   );
 }
@@ -128,6 +85,7 @@ export default function HomeScreen() {
   const { guardWorkspaceCreate, guardAlbumCreate } = usePlanLimits();
   const { user, profile } = useAuth();
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
 
   const enabled = { enabled: !!user?.id };
@@ -144,7 +102,6 @@ export default function HomeScreen() {
 
   const {
     albums,
-    loadFailed: albumsFailed,
     refetch: refetchAlbums,
   } = useAlbums(
     { orderBy: 'created_at', direction: 'desc', limit: 3 },
@@ -173,12 +130,9 @@ export default function HomeScreen() {
     setRefreshing(false);
   };
 
-  const totalMedia = workspaces.reduce((s, w) => s + (w.media_count || 0), 0);
-  const totalAlbums = albums.length;
   // Real cloud usage from the API — recorded from what B2 reports when an
   // upload is confirmed. Was hardcoded 128.4 / 512 GB.
   const {
-    usage,
     storageUsedBytes,
     storageLimitBytes,
     storageFraction,
@@ -188,9 +142,11 @@ export default function HomeScreen() {
   // over an ascending list meant the oldest events, past ones included.
   const upcomingEvents = events
     .filter((e) => isEventUpcoming(e.event_date, e.event_time))
-    .slice(0, 3);
+    .slice(0, 4);
 
-  const todayEvent = upcomingEvents[0] ?? null;
+  const nextEvent = upcomingEvents[0] ?? null;
+  const laterEvents = upcomingEvents.slice(1);
+  const showStorageWarning = storageLimitBytes != null && storageFraction >= 0.8;
 
   const workspaceNameById = Object.fromEntries(workspaces.map((w) => [w.id, w.name]));
 
@@ -251,7 +207,7 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={isDark ? '#C17745' : '#B66A40'}
+            tintColor={palette.primary}
           />
         }
       >
@@ -263,15 +219,20 @@ export default function HomeScreen() {
               {profile?.displayName?.split(' ')[0] ?? 'there'}
             </Text>
           </View>
-          <Pressable onPress={() => router.push('/profile')} className="active:scale-[0.96]">
+          <Pressable
+            onPress={() => router.push('/profile')}
+            accessibilityRole="button"
+            accessibilityLabel="Open profile"
+            className="active:scale-[0.96]"
+          >
             {profile?.avatarUrl ? (
               <Image
                 source={{ uri: profile.avatarUrl }}
                 style={{ width: 44, height: 44, borderRadius: 22 }}
               />
             ) : (
-              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#B66A4018', alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#B66A40', fontSize: 17, fontWeight: '700' }}>
+              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: `${palette.primary}18`, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: palette.primary, fontSize: 17, fontWeight: '700' }}>
                   {(profile?.displayName || user?.email || '?').charAt(0).toUpperCase()}
                 </Text>
               </View>
@@ -286,165 +247,196 @@ export default function HomeScreen() {
                 borderRadius: 6,
                 backgroundColor: '#6B8E4E',
                 borderWidth: 2,
-                borderColor: '#FFF8F4',
+                borderColor: palette.background,
               }}
             />
           </Pressable>
         </View>
 
-        {/* ── Storage + Activity Hero Row ── */}
-        <View className="px-5 pt-3 flex-row gap-3">
-          {/* Storage card */}
-          <View className="flex-1 bg-card rounded-2xl p-4" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
-            <View className="flex-row items-center gap-2 mb-3">
-              <View className="w-8 h-8 rounded-xl bg-primary/10 items-center justify-center">
-                <HardDriveIcon size={16} className="text-primary" />
+        {/* ── Next up ── */}
+        <View className="px-5 pt-4">
+          <Text className="text-muted-foreground text-[13px] font-semibold mb-2">Next up</Text>
+          {eventsFailed && events.length === 0 ? (
+            <View className="bg-card rounded-2xl border border-border/40">
+              <LoadFailed what="your schedule" onRetry={() => refetchEvents()} compact />
+            </View>
+          ) : nextEvent ? (
+            <Pressable
+              onPress={() => router.push(`/schedule/${nextEvent.id}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${nextEvent.title}`}
+              className="bg-card rounded-3xl border border-border/40 p-5 active:scale-[0.99]"
+            >
+              <View className="flex-row items-center justify-between">
+                <View className="rounded-full bg-primary/10 px-3 py-1.5">
+                  <Text className="text-primary text-xs font-bold">{formatDate(nextEvent.event_date)}</Text>
+                </View>
+                <ArrowUpRightIcon size={18} className="text-muted-foreground" />
               </View>
-              <Text className="text-foreground text-xs font-semibold">Storage</Text>
-            </View>
-            <Text className="text-foreground text-[26px] font-extrabold tracking-tight">
-              {formatBytes(storageUsedBytes).split(' ')[0]}
-              <Text className="text-muted-foreground text-sm font-medium">
-                {' '}
-                {formatBytes(storageUsedBytes).split(' ')[1]}
-                {storageLimitBytes != null
-                  ? ` / ${Math.round(toGB(storageLimitBytes))} GB`
-                  : ''}
+              <Text className="text-foreground text-[22px] leading-[28px] font-bold tracking-tight mt-4" numberOfLines={2}>
+                {nextEvent.title}
               </Text>
-            </Text>
-            <View className="mt-3">
-              <StorageBar used={storageUsedBytes} total={storageLimitBytes ?? 0} />
-            </View>
-            <Text className="text-muted-foreground text-[11px] mt-2 font-medium">
-              {storageLimitBytes != null
-                ? `${Math.round(storageFraction * 100)}% used · ${formatBytes(Math.max(storageLimitBytes - storageUsedBytes, 0))} free`
-                : `${usage?.storage.fileCount ?? 0} files`}
-            </Text>
-          </View>
+              <Text className="text-muted-foreground text-sm leading-[20px] mt-2">
+                {[formatTime(nextEvent.event_time), nextEvent.workspace_id ? workspaceNameById[nextEvent.workspace_id] : '', eventTypeLabel(nextEvent)]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => router.push('/schedule/create')}
+              accessibilityRole="button"
+              className="bg-card rounded-3xl border border-border/40 p-5 flex-row items-center gap-4 active:scale-[0.99]"
+            >
+              <View className="w-11 h-11 rounded-2xl bg-primary/10 items-center justify-center">
+                <CalendarIcon size={20} className="text-primary" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-foreground text-base font-semibold">Your schedule is clear</Text>
+                <Text className="text-muted-foreground text-sm mt-0.5">Add a shoot, review, or deadline</Text>
+              </View>
+              <ChevronRightIcon size={18} className="text-muted-foreground" />
+            </Pressable>
+          )}
+        </View>
 
-          {/* Today activity */}
-          <View className="flex-1 bg-card rounded-2xl p-4" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 3 }}>
-            <View className="flex-row items-center gap-2 mb-3">
-              <View className="w-8 h-8 rounded-xl bg-primary/10 items-center justify-center">
-                <ClockIcon size={16} className="text-primary" />
-              </View>
-              <Text className="text-foreground text-xs font-semibold">Today</Text>
-            </View>
-            {todayEvent ? (
-              <>
-                <Text className="text-foreground text-base font-bold" numberOfLines={1}>
-                  {todayEvent.title}
-                </Text>
-                <Text className="text-muted-foreground text-xs mt-1">
-                  {formatTime(todayEvent.event_time)}
-                </Text>
-              </>
-            ) : (
-              <Text className="text-muted-foreground text-sm">No events today</Text>
-            )}
-            <View className="flex-row items-center gap-1 mt-3">
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#6B8E4E' }} />
-              <Text className="text-muted-foreground text-[11px] font-medium">
-                {totalMedia.toLocaleString()} assets · {totalAlbums} albums
-              </Text>
-            </View>
+        {/* ── Quick create ── */}
+        <View className="px-5 py-4">
+          <View className="flex-row bg-secondary rounded-2xl p-1.5 gap-1">
+            {QUICK_ACTIONS.map((action) => {
+              const Icon = action.icon;
+              return (
+                <Pressable
+                  key={action.key}
+                  onPress={() => {
+                    if (action.key === 'workspace') guardWorkspaceCreate(() => router.push('/workspaces/create'))();
+                    else if (action.key === 'album') guardAlbumCreate(() => router.push('/albums/create'))();
+                    else if (action.key === 'invite') router.push('/(app)/(tabs)/connect?view=people');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Create ${action.label.toLowerCase()}`}
+                  className="flex-1 min-h-12 rounded-xl items-center justify-center gap-1 active:bg-card"
+                >
+                  <Icon size={17} className="text-primary" />
+                  <Text className="text-foreground text-xs font-semibold">{action.label}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
 
-        {/* ── Quick Actions ── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 10, paddingHorizontal: 20, paddingVertical: 16 }}
-        >
-          {QUICK_ACTIONS.map((action) => {
-            const Icon = action.icon;
-            return (
-              <Pressable
-                key={action.key}
-                onPress={() => {
-                  if (action.key === 'workspace') guardWorkspaceCreate(() => router.push('/workspaces/create'))();
-                  else if (action.key === 'album') guardAlbumCreate(() => router.push('/albums/create'))();
-                  else if (action.key === 'invite') router.push('/(app)/(tabs)/network');
-                }}
-                className="bg-card rounded-2xl px-5 py-3 flex-row items-center gap-2 active:scale-[0.96]"
-                style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-              >
-                <Icon size={16} className="text-primary" />
-                <Text className="text-foreground text-sm font-semibold">{action.label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        {/* ── Upcoming Schedule ── */}
-        <View className="px-5">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-lg font-bold tracking-tight">Upcoming</Text>
-            <Pressable onPress={() => router.push('/schedule')} className="flex-row items-center gap-1 active:opacity-60">
-              <Text className="text-primary text-sm font-semibold">See all</Text>
-              <ChevronRightIcon size={14} className="text-primary" />
+        {unseenJobs > 0 && (
+          <View className="px-5 mb-5">
+            <Pressable
+              onPress={() => {
+                setTab('jobs');
+                markSeen.mutate();
+              }}
+              accessibilityRole="button"
+              className="min-h-14 rounded-2xl bg-primary/10 px-4 py-3 flex-row items-center gap-3 active:opacity-80"
+            >
+              <View className="min-w-8 h-8 rounded-full bg-action items-center justify-center px-2">
+                <Text className="text-action-foreground text-xs font-bold">{unseenJobs > 99 ? '99+' : unseenJobs}</Text>
+              </View>
+              <View className="flex-1">
+                <Text className="text-foreground text-sm font-semibold">New job activity</Text>
+                <Text className="text-muted-foreground text-xs mt-0.5">Review opportunities and application updates</Text>
+              </View>
+              <ChevronRightIcon size={17} className="text-primary" />
             </Pressable>
           </View>
+        )}
 
-          {eventsFailed && events.length === 0 ? (
-            <View className="bg-card rounded-2xl">
-              <LoadFailed what="your schedule" onRetry={() => refetchEvents()} compact />
-            </View>
-          ) : upcomingEvents.length === 0 ? (
-            <View className="bg-card rounded-2xl p-8 items-center gap-3">
-              <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
-                <CalendarIcon size={22} className="text-muted-foreground" />
+        {showStorageWarning && (
+          <View className="px-5 mb-5">
+            <View className="rounded-2xl border border-border/50 p-4">
+              <View className="flex-row items-center gap-3">
+                <HardDriveIcon size={18} className="text-primary" />
+                <View className="flex-1">
+                  <Text className="text-foreground text-sm font-semibold">Storage is {Math.round(storageFraction * 100)}% full</Text>
+                  <Text className="text-muted-foreground text-xs mt-0.5">
+                    {formatBytes(storageUsedBytes)} of {Math.round(toGB(storageLimitBytes))} GB used
+                  </Text>
+                </View>
               </View>
-              <Text className="text-muted-foreground text-sm font-medium">No upcoming events</Text>
+              <View className="mt-3">
+                <StorageBar used={storageUsedBytes} total={storageLimitBytes} />
+              </View>
             </View>
-          ) : (
-            <View className="bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
-              {upcomingEvents.map((event, i) => (
+          </View>
+        )}
+
+        {/* ── Later schedule ── */}
+        {laterEvents.length > 0 && (
+          <View className="px-5 mb-1">
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-foreground text-xl font-bold tracking-tight">Later</Text>
+              <Pressable onPress={() => router.push('/schedule')} className="flex-row items-center gap-1 active:opacity-60">
+                <Text className="text-primary text-sm font-semibold">See all</Text>
+                <ChevronRightIcon size={14} className="text-primary" />
+              </Pressable>
+            </View>
+            <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
+              {laterEvents.map((event, i) => (
                 <Pressable
                   key={event.id}
                   onPress={() => router.push(`/schedule/${event.id}`)}
                   className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
-                  style={i < upcomingEvents.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
+                  style={i < laterEvents.length - 1 ? { borderBottomWidth: 1, borderBottomColor: palette.border } : undefined}
                 >
                   <View style={{ width: 3, height: 36, borderRadius: 2, backgroundColor: eventColor(event.event_type) }} />
                   <View className="flex-1 min-w-0">
-                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                      {event.title}
-                    </Text>
-                    <Text className="text-muted-foreground text-xs mt-0.5">
-                      {event.workspace_id && workspaceNameById[event.workspace_id]
-                        ? `${workspaceNameById[event.workspace_id]} · `
-                        : ''}
-                      {eventTypeLabel(event)}
-                    </Text>
+                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>{event.title}</Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">{eventTypeLabel(event)}</Text>
                   </View>
                   <View className="items-end">
                     <Text className="text-foreground text-xs font-bold">{formatDate(event.event_date)}</Text>
-                    {event.event_time && (
-                      <Text className="text-muted-foreground text-xs mt-0.5">{formatTime(event.event_time)}</Text>
-                    )}
+                    {event.event_time && <Text className="text-muted-foreground text-xs mt-0.5">{formatTime(event.event_time)}</Text>}
                   </View>
                 </Pressable>
               ))}
             </View>
-          )}
-        </View>
+          </View>
+        )}
 
-        {/* ── Active Workspaces ── */}
+        {/* ── Recent work ── */}
         <View className="px-5 mt-6">
           <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-lg font-bold tracking-tight">Active Workspaces</Text>
+            <Text className="text-foreground text-xl font-bold tracking-tight">Recent work</Text>
             <Pressable onPress={() => router.push('/workspaces')} className="flex-row items-center gap-1 active:opacity-60">
-              <Text className="text-primary text-sm font-semibold">See all</Text>
+              <Text className="text-primary text-sm font-semibold">Workspaces</Text>
               <ChevronRightIcon size={14} className="text-primary" />
             </Pressable>
           </View>
 
+          {albums.length > 0 && (
+            <Pressable
+              onPress={() => router.push(`/albums/${albums[0].id}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open album ${albums[0].name}`}
+              className="bg-card rounded-3xl overflow-hidden border border-border/30 mb-3 active:scale-[0.99]"
+            >
+              <Image
+                source={{ uri: albums[0].cover_url || PLACEHOLDER_COVER }}
+                style={{ width: '100%', height: 148 }}
+                contentFit="cover"
+              />
+              <View className="p-4 flex-row items-center gap-3">
+                <View className="flex-1 min-w-0">
+                  <Text className="text-foreground text-base font-semibold" numberOfLines={1}>{albums[0].name}</Text>
+                  <Text className="text-muted-foreground text-xs mt-1">
+                    {albums[0].item_count} items · {albums[0].status.charAt(0).toUpperCase() + albums[0].status.slice(1)}
+                  </Text>
+                </View>
+                <ArrowUpRightIcon size={17} className="text-muted-foreground" />
+              </View>
+            </Pressable>
+          )}
+
           {wsLoading ? (
             <View className="gap-3">
               {[1, 2].map((i) => (
-                <View key={i} className="bg-card rounded-2xl p-4 h-[72px]" style={{ opacity: 0.5 }} />
+                <View key={i} className="bg-secondary rounded-2xl p-4 h-[72px]" style={{ opacity: 0.55 }} />
               ))}
             </View>
           ) : wsFailed && workspaces.length === 0 ? (
@@ -459,37 +451,30 @@ export default function HomeScreen() {
               <Text className="text-muted-foreground text-sm font-medium">No workspaces yet</Text>
               <Pressable
                 onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
-                className="bg-primary rounded-xl px-4 py-2 active:scale-[0.96]"
+                className="min-h-11 bg-action rounded-xl px-4 py-2 items-center justify-center active:scale-[0.98]"
               >
-                <Text className="text-white text-sm font-semibold">Create your first workspace</Text>
+                <Text className="text-action-foreground text-sm font-semibold">Create your first workspace</Text>
               </Pressable>
             </View>
           ) : (
             <View className="gap-3">
-              {workspaces.map((ws) => (
+              {workspaces.slice(0, 2).map((ws) => (
                 <Pressable
                   key={ws.id}
                   onPress={() => router.push(`/workspaces/${ws.id}`)}
-                  className="bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
-                  style={{
-                    shadowColor: '#000',
-                    shadowOpacity: 0.04,
-                    shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 3 },
-                    elevation: 3,
-                  }}
+                  className="bg-card rounded-2xl p-4 flex-row items-center gap-4 border border-border/30 active:scale-[0.98]"
                 >
                   <View
                     style={{
                       width: 44,
                       height: 44,
                       borderRadius: 14,
-                      backgroundColor: ws.accent_color ? `${ws.accent_color}18` : '#B66A4018',
+                      backgroundColor: `${ws.accent_color || palette.primary}18`,
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}
                   >
-                    <Text style={{ fontSize: 18, fontWeight: '700', color: ws.accent_color || '#B66A40' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: ws.accent_color || palette.primary }}>
                       {ws.name.charAt(0)}
                     </Text>
                   </View>
@@ -508,84 +493,6 @@ export default function HomeScreen() {
           )}
         </View>
 
-        {/* ── Recent Albums ── */}
-        <View className="px-5 mt-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-lg font-bold tracking-tight">Recent Albums</Text>
-            <Pressable onPress={() => router.push('/albums')} className="flex-row items-center gap-1 active:opacity-60">
-              <Text className="text-primary text-sm font-semibold">See all</Text>
-              <ChevronRightIcon size={14} className="text-primary" />
-            </Pressable>
-          </View>
-
-          {albumsFailed && albums.length === 0 ? (
-            <View className="bg-card rounded-2xl">
-              <LoadFailed what="your albums" onRetry={() => refetchAlbums()} compact />
-            </View>
-          ) : albums.length === 0 ? (
-            <View className="bg-card rounded-2xl p-8 items-center gap-3">
-              <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
-                <ImageIcon size={22} className="text-muted-foreground" />
-              </View>
-              <Text className="text-muted-foreground text-sm font-medium">No albums yet</Text>
-            </View>
-          ) : (
-            <View className="gap-3">
-              {albums.map((album) => (
-                <Pressable
-                  key={album.id}
-                  onPress={() => router.push(`/albums/${album.id}`)}
-                  className="bg-card rounded-2xl overflow-hidden flex-row active:scale-[0.98]"
-                  style={{
-                    shadowColor: '#000',
-                    shadowOpacity: 0.04,
-                    shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 3 },
-                    elevation: 3,
-                  }}
-                >
-                  <Image
-                    source={{ uri: album.cover_url || PLACEHOLDER_COVER }}
-                    style={{ width: 80, height: 80 }}
-                  />
-                  <View className="flex-1 p-3 justify-center min-w-0">
-                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                      {album.name}
-                    </Text>
-                    <Text className="text-muted-foreground text-xs mt-0.5">
-                      {album.item_count} items · {album.status.charAt(0).toUpperCase() + album.status.slice(1)}
-                    </Text>
-                    <View className="flex-row items-center gap-1.5 mt-2">
-                      <View
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: 3,
-                          backgroundColor: album.status === 'delivered' ? '#6B8E4E' : album.status === 'review' ? '#C17745' : '#A89489',
-                        }}
-                      />
-                      <Text className="text-muted-foreground text-[10px] font-medium uppercase tracking-wider">
-                        {album.status}
-                      </Text>
-                    </View>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </View>
-
-        {/* ── Offline Sync Status ── */}
-        <View className="px-5 mt-6 mb-2">
-          <View className="bg-card rounded-2xl px-4 py-3 flex-row items-center gap-3" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <WifiIcon size={16} className="text-[#6B8E4E]" />
-            <View className="flex-1">
-              <Text className="text-foreground text-xs font-semibold">Offline sync active</Text>
-              <Text className="text-muted-foreground text-[10px] mt-0.5">3 workspaces synced · Last sync 2 min ago</Text>
-            </View>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#6B8E4E' }} />
-          </View>
-        </View>
       </ScrollView>
       )}
     </SafeAreaView>
@@ -616,25 +523,16 @@ function Segment({
       // Generous hit area without a bigger pill: the tappable region reaches
       // past the border, which matters most for the one sitting on the edge.
       hitSlop={{ top: 8, bottom: 8, left: 10, right: 10 }}
-      className="flex-row items-center gap-1.5 rounded-full px-4 py-2 active:opacity-80"
-      style={{
-        backgroundColor: active ? '#B66A40' : 'transparent',
-        borderWidth: 1,
-        borderColor: active ? '#B66A40' : '#B66A4033',
-      }}
+      className={`min-h-11 flex-row items-center gap-1.5 rounded-full px-4 py-2 active:opacity-80 ${
+        active ? 'bg-action' : 'border border-primary/30'
+      }`}
     >
-      <Text className="text-[13px] font-bold" style={{ color: active ? '#fff' : '#B66A40' }}>
+      <Text className={`text-[13px] font-bold ${active ? 'text-action-foreground' : 'text-primary'}`}>
         {label}
       </Text>
       {badge > 0 && (
-        <View
-          className="rounded-full px-1.5"
-          style={{
-            backgroundColor: active ? '#ffffff33' : '#B66A40',
-            minWidth: 18,
-          }}
-        >
-          <Text className="text-[10px] font-bold text-center text-white">
+        <View className={`min-w-[18px] rounded-full px-1.5 ${active ? 'bg-action-foreground' : 'bg-action'}`}>
+          <Text className={`text-[11px] font-bold text-center ${active ? 'text-action' : 'text-action-foreground'}`}>
             {badge > 99 ? '99+' : badge}
           </Text>
         </View>

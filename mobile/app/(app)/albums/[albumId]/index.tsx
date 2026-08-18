@@ -55,7 +55,7 @@ const MEDIA_TABS: {
   route: string;
 }[] = [
   { key: 'photos', label: 'Photos', noun: 'photos', singular: 'photo', icon: ImageIcon, route: 'gallery' },
-  { key: 'videos', label: 'Videos', noun: 'videos', singular: 'video', icon: VideoIcon, route: 'videos' },
+  { key: 'videos', label: 'Films', noun: 'films', singular: 'film', icon: VideoIcon, route: 'videos' },
   { key: 'audio', label: 'Audio', noun: 'audio files', singular: 'audio file', icon: MusicIcon, route: 'audio' },
 ];
 
@@ -69,7 +69,7 @@ const LINK_SCOPE_ROWS: {
   icon: typeof ImageIcon;
 }[] = [
   { kind: 'image', tab: 'photos', label: 'Photos', singular: 'photo', plural: 'photos', icon: ImageIcon },
-  { kind: 'video', tab: 'videos', label: 'Videos', singular: 'video', plural: 'videos', icon: VideoIcon },
+  { kind: 'video', tab: 'videos', label: 'Films', singular: 'film', plural: 'films', icon: VideoIcon },
   { kind: 'audio', tab: 'audio', label: 'Audio', singular: 'file', plural: 'files', icon: MusicIcon },
 ];
 
@@ -102,7 +102,7 @@ export default function AlbumDetailScreen() {
 
   // Real stored media. The strip below used to render generated stock photos,
   // so every album looked populated regardless of its contents.
-  const { images, videos, audio, refetch: refetchFiles } = useAlbumFiles(albumId);
+  const { images, videos, audio, counts, refetch: refetchFiles } = useAlbumFiles(albumId);
 
   const [activeTab, setActiveTab] = useState<MediaTab>('photos');
 
@@ -462,7 +462,7 @@ export default function AlbumDetailScreen() {
           <View className="flex-row items-center gap-3 mt-4 pt-4 border-t border-border">
             <Pressable
               onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
-              className="flex-1 bg-primary rounded-xl py-2.5 flex-row items-center justify-center gap-2 active:scale-[0.96]"
+              className="flex-1 bg-action rounded-xl py-2.5 flex-row items-center justify-center gap-2 active:scale-[0.96]"
             >
               <UploadIcon size={15} className="text-white" />
               <Text className="text-white text-sm font-bold">Upload</Text>
@@ -480,7 +480,7 @@ export default function AlbumDetailScreen() {
             {MEDIA_TABS.map((tab) => {
               const Icon = tab.icon;
               const active = tab.key === activeTab;
-              const count = filesFor(tab.key).length;
+              const count = tab.key === 'photos' ? counts.image : tab.key === 'videos' ? counts.video : counts.audio;
               return (
                 <Pressable
                   key={tab.key}
@@ -533,13 +533,11 @@ export default function AlbumDetailScreen() {
                     style={{ width: '25%', aspectRatio: 1 }}
                     className="active:opacity-70"
                   >
-                    <Image source={{ uri: file.url ?? undefined }} style={{ width: '100%', height: '100%' }} />
+                    <Image source={{ uri: file.thumbnailUrl ?? file.url ?? undefined }} style={{ width: '100%', height: '100%' }} />
                   </Pressable>
                 ))}
               </View>
             ) : (
-              // Videos and audio have no thumbnail — nothing generates one, and
-              // a stock image would misrepresent the file. List them by name.
               <View>
                 {activeFiles.slice(0, 4).map((file, i) => (
                   <View
@@ -547,12 +545,16 @@ export default function AlbumDetailScreen() {
                     className="flex-row items-center gap-3 px-4 py-3"
                     style={i > 0 ? { borderTopWidth: 1, borderTopColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
                   >
-                    <View className="w-10 h-10 rounded-xl bg-muted items-center justify-center">
-                      <ActiveIcon size={16} className="text-muted-foreground" />
+                    <View className="w-10 h-10 rounded-xl bg-muted items-center justify-center overflow-hidden">
+                      {activeTab === 'videos' && file.posterUrl ? (
+                        <Image source={{ uri: file.posterUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                      ) : (
+                        <ActiveIcon size={16} className="text-muted-foreground" />
+                      )}
                     </View>
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                        {fileNameFromKey(file.key)}
+                        {file.mediaTitle || file.originalName || fileNameFromKey(file.key)}
                       </Text>
                       <Text className="text-muted-foreground text-xs mt-0.5">
                         {formatBytes(file.sizeBytes)}
@@ -660,7 +662,7 @@ export default function AlbumDetailScreen() {
               }}
               disabled={linkKinds.length === 0 || isLinking}
               className={`flex-[2] rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97] ${
-                linkKinds.length === 0 ? 'bg-muted' : 'bg-primary'
+                linkKinds.length === 0 ? 'bg-muted' : 'bg-action'
               }`}
             >
               {isLinking && <ActivityIndicator size="small" color="#FFFFFF" />}

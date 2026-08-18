@@ -93,7 +93,7 @@ export default function ResetPasswordScreen() {
           </Text>
           <Pressable
             onPress={() => router.replace('/(auth)/forgot-password')}
-            className="mt-8 bg-primary rounded-2xl px-7 py-3.5 active:scale-[0.97]"
+            className="mt-8 bg-action rounded-2xl px-7 py-3.5 active:scale-[0.97]"
           >
             <Text className="text-white text-base font-bold">Request a new link</Text>
           </Pressable>
@@ -118,7 +118,7 @@ export default function ResetPasswordScreen() {
           </Text>
           <Pressable
             onPress={() => router.replace('/(auth)/sign-in')}
-            className="mt-8 bg-primary rounded-2xl px-8 py-3.5 active:scale-[0.97]"
+            className="mt-8 bg-action rounded-2xl px-8 py-3.5 active:scale-[0.97]"
           >
             <Text className="text-white text-base font-bold">Sign in</Text>
           </Pressable>
@@ -221,7 +221,7 @@ export default function ResetPasswordScreen() {
           <Pressable
             onPress={submit}
             disabled={!canSubmit}
-            className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.97] ${canSubmit ? 'bg-primary' : 'bg-muted'}`}
+            className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.97] ${canSubmit ? 'bg-action' : 'bg-muted'}`}
             style={canSubmit ? { shadowColor: '#B66A40', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 } : undefined}
           >
             {reset.isPending && <ActivityIndicator size="small" color="#FFFFFF" />}

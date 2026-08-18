@@ -206,7 +206,7 @@ export default function CreateReminderScreen() {
         <Pressable
           onPress={handleCreate}
           disabled={!canSave || createReminder.isPending}
-          className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-primary' : 'bg-muted'}`}
+          className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-action' : 'bg-muted'}`}
         >
           <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>
             {createReminder.isPending ? 'Creating...' : 'Create Reminder'}

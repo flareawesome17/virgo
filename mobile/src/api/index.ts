@@ -148,6 +148,8 @@ export {
   type UploadScope,
   type UploadTicket,
   type StoredFile,
+  type StoredMediaKind,
+  type StoredFilesPage,
   type StorageBreakdown,
   type WipeResult,
 } from './endpoints/storage';

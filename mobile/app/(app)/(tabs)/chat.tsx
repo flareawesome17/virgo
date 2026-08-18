@@ -26,6 +26,7 @@ import { LoadFailed } from '@/components/LoadFailed';
 import { PresenceDot } from '@/components';
 import { typingLabel, useTypingIn } from '@/src/lib/presence-store';
 import type { Conversation } from '@/src/api';
+import { PALETTES } from '@/theme';
 
 /**
  * A row's second line: who is typing, or the last message.
@@ -97,8 +98,9 @@ function whenLabel(iso: string | null): string {
  * interval and on pull. A new message still arrives immediately as a push
  * notification.
  */
-export default function ChatScreen() {
+export default function ChatScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [term, setTerm] = useState('');
@@ -120,8 +122,8 @@ export default function ChatScreen() {
   }, [refetch]);
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <View className="px-5 pt-4 pb-2 flex-row items-center justify-between">
+    <SafeAreaView edges={embedded ? [] : ['top']} className="flex-1 bg-background">
+      {!embedded && <View className="px-5 pt-4 pb-2 flex-row items-center justify-between">
         <View>
           <Text className="text-foreground text-[28px] font-bold tracking-tight">Chat</Text>
           <Text className="text-muted-foreground text-sm mt-1">
@@ -132,25 +134,25 @@ export default function ChatScreen() {
         </View>
         <Pressable
           onPress={() => router.push('/chat/new')}
-          className="w-11 h-11 rounded-2xl bg-primary items-center justify-center active:scale-[0.94]"
-          style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}
+          accessibilityRole="button"
+          accessibilityLabel="Start a new chat"
+          className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
         >
-          <PlusIcon size={20} className="text-white" />
+          <PlusIcon size={20} className="text-action-foreground" />
         </Pressable>
-      </View>
+      </View>}
 
       {/* Search */}
       <View className="px-5 pt-3 pb-2">
         <View
-          className="flex-row items-center bg-card rounded-2xl px-4 h-11 gap-3"
-          style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+          className="flex-row items-center bg-secondary rounded-xl px-4 h-12 gap-3"
         >
           <SearchIcon size={16} className="text-muted-foreground" />
           <TextInput
             value={search}
             onChangeText={setSearch}
             placeholder="Search names and messages"
-            placeholderTextColor="#A89489"
+            placeholderTextColor={palette.mutedForeground}
             className="text-foreground text-sm flex-1"
             returnKeyType="search"
             autoCorrect={false}
@@ -158,9 +160,14 @@ export default function ChatScreen() {
           {/* Spinner only while a new term is in flight; the 15s background
               poll should not make the box look busy. */}
           {searching && isFetching ? (
-            <ActivityIndicator size="small" color="#B66A40" />
+            <ActivityIndicator size="small" color={palette.primary} />
           ) : search.length > 0 ? (
-            <Pressable onPress={() => setSearch('')} hitSlop={8}>
+            <Pressable
+              onPress={() => setSearch('')}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              hitSlop={12}
+            >
               <XIcon size={15} className="text-muted-foreground" />
             </Pressable>
           ) : null}
@@ -176,7 +183,7 @@ export default function ChatScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={isDark ? '#C17745' : '#B66A40'}
+            tintColor={palette.primary}
           />
         }
         renderItem={({ item }) => (
@@ -199,9 +206,9 @@ export default function ChatScreen() {
                 ) : (
                   <View
                     className="w-12 h-12 rounded-full items-center justify-center"
-                    style={{ backgroundColor: '#B66A4018' }}
+                    style={{ backgroundColor: `${palette.primary}18` }}
                   >
-                    <Text style={{ color: '#B66A40', fontWeight: '700', fontSize: 17 }}>
+                    <Text style={{ color: palette.primary, fontWeight: '700', fontSize: 17 }}>
                       {item.title.charAt(0).toUpperCase()}
                     </Text>
                   </View>
@@ -221,7 +228,7 @@ export default function ChatScreen() {
                 </Text>
                 {item.muted && <BellOffIcon size={11} className="text-muted-foreground" />}
                 <View className="flex-1" />
-                <Text className="text-muted-foreground text-[11px]">
+                <Text className="text-muted-foreground text-xs">
                   {whenLabel(item.lastAt)}
                 </Text>
               </View>
@@ -230,8 +237,8 @@ export default function ChatScreen() {
                     row taller the moment somebody touched a key. */}
                 <TypingOrPreview conversation={item} />
                 {item.unread > 0 ? (
-                  <View className="rounded-full bg-primary px-2 py-0.5 min-w-[20px] items-center">
-                    <Text className="text-white text-[10px] font-bold">{item.unread}</Text>
+                  <View className="rounded-full bg-action px-2 py-0.5 min-w-[20px] items-center">
+                    <Text className="text-action-foreground text-[11px] font-bold">{item.unread}</Text>
                   </View>
                 ) : item.lastMessage ? (
                   // Nothing unread. The double tick says "caught up" without
@@ -245,7 +252,7 @@ export default function ChatScreen() {
               {item.matchSnippet && (
                 <View className="flex-row items-center gap-1.5 mt-1">
                   <SearchIcon size={10} className="text-primary" />
-                  <Text className="text-primary text-[11px] flex-1" numberOfLines={1}>
+                  <Text className="text-primary text-xs flex-1" numberOfLines={1}>
                     {item.matchSnippet}
                   </Text>
                 </View>
@@ -278,9 +285,10 @@ export default function ChatScreen() {
               </Text>
               <Pressable
                 onPress={() => router.push('/chat/new')}
-                className="mt-7 bg-primary rounded-2xl px-7 py-3 active:scale-[0.96]"
+                accessibilityRole="button"
+                className="mt-7 min-h-11 bg-action rounded-xl px-7 py-3 items-center justify-center active:scale-[0.98]"
               >
-                <Text className="text-white text-sm font-bold">New chat</Text>
+                <Text className="text-action-foreground text-sm font-bold">New chat</Text>
               </Pressable>
             </View>
           )

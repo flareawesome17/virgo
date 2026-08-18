@@ -139,7 +139,7 @@ export function InvitePeoplePicker({
   if (invitable.length === 0) {
     return (
       <Pressable
-        onPress={() => router.push('/(app)/(tabs)/network')}
+        onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
         className="bg-card rounded-2xl px-4 py-4 active:opacity-70"
       >
         <Text className="text-muted-foreground text-sm">
@@ -336,7 +336,7 @@ export function EventAttendeesSection({ eventId }: { eventId: string }) {
             onPress={send}
             disabled={picked.length === 0 || invite.isPending}
             className={`mt-3 rounded-2xl py-3 items-center active:scale-[0.97] ${
-              picked.length > 0 ? 'bg-primary' : 'bg-muted'
+              picked.length > 0 ? 'bg-action' : 'bg-muted'
             }`}
           >
             <Text
@@ -429,7 +429,7 @@ export function EventInvitationsCard() {
         <Text className="text-foreground text-base font-bold tracking-tight">
           Invitations
         </Text>
-        <View className="bg-primary rounded-full px-2 py-0.5 min-w-[20px] items-center">
+        <View className="bg-action rounded-full px-2 py-0.5 min-w-[20px] items-center">
           <Text className="text-white text-[10px] font-bold">
             {invitations.length}
           </Text>
@@ -557,7 +557,7 @@ export function EventInvitationsCard() {
                     <Pressable
                       onPress={() => answer(invitation.event_id, true)}
                       disabled={busy}
-                      className="flex-[1.4] bg-primary rounded-xl py-3 flex-row items-center justify-center gap-1.5 active:scale-[0.97]"
+                      className="flex-[1.4] bg-action rounded-xl py-3 flex-row items-center justify-center gap-1.5 active:scale-[0.97]"
                       style={{ opacity: busy ? 0.5 : 1 }}
                     >
                       <CheckIcon size={14} className="text-white" />

@@ -140,7 +140,7 @@ export default function ConversationInfoScreen() {
             leave.mutate(id, {
               // Back twice: past the thread as well, which no longer exists
               // for this account.
-              onSuccess: () => router.replace('/(app)/(tabs)/chat'),
+              onSuccess: () => router.replace('/(app)/(tabs)/connect?view=messages'),
               onError: (err: any) =>
                 Alert.alert('Could not leave', err?.message || 'Please try again.'),
             }),
@@ -162,7 +162,7 @@ export default function ConversationInfoScreen() {
           style: 'destructive',
           onPress: () =>
             remove.mutate(id, {
-              onSuccess: () => router.replace('/(app)/(tabs)/chat'),
+              onSuccess: () => router.replace('/(app)/(tabs)/connect?view=messages'),
               onError: (err: any) =>
                 Alert.alert('Could not delete', err?.message || 'Please try again.'),
             }),
@@ -247,7 +247,7 @@ export default function ConversationInfoScreen() {
                 <Pressable
                   onPress={submitRename}
                   disabled={rename.isPending || !titleDraft.trim()}
-                  className="flex-[2] bg-primary rounded-2xl py-3 items-center flex-row justify-center gap-2 active:scale-[0.97]"
+                  className="flex-[2] bg-action rounded-2xl py-3 items-center flex-row justify-center gap-2 active:scale-[0.97]"
                 >
                   {rename.isPending && <ActivityIndicator size="small" color="#FFFFFF" />}
                   <Text className="text-white text-sm font-bold">Save name</Text>
@@ -379,7 +379,7 @@ export default function ConversationInfoScreen() {
             </Text>
             <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
               <Pressable
-                onPress={() => router.push('/(app)/(tabs)/network')}
+                onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
                 className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
                 style={{ borderBottomWidth: 1, borderBottomColor: border }}
               >

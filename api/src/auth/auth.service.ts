@@ -19,6 +19,7 @@ import {
 import { StorageService } from '../storage/storage.service';
 import { PromosService } from '../promos/promos.service';
 import { normalizeRoles } from './roles';
+import { TwoFactorService } from './two-factor.service';
 
 export interface AuthTokens {
   accessToken: string;
@@ -28,6 +29,13 @@ export interface AuthTokens {
 
 export interface AuthResult extends AuthTokens {
   user: PublicUser;
+}
+
+export interface TwoFactorLoginRequired {
+  twoFactorRequired: true;
+  challengeToken: string;
+  expiresIn: '10m';
+  email: string;
 }
 
 /**
@@ -56,6 +64,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly storage: StorageService,
     private readonly promos: PromosService,
+    private readonly twoFactor: TwoFactorService,
   ) {}
 
   private normalizeEmail(email: string): string {
@@ -254,7 +263,10 @@ export class AuthService {
     return this.dummyHash;
   }
 
-  async login(email: string, password: string): Promise<AuthResult> {
+  async login(
+    email: string,
+    password: string,
+  ): Promise<AuthResult | TwoFactorLoginRequired> {
     const normalized = this.normalizeEmail(email);
     const user = await this.users.findByEmail(normalized);
 
@@ -274,7 +286,85 @@ export class AuthService {
     this.assertVerified(user);
     this.assertNotDisabled(user);
 
+    if (user.two_factor_enabled_at) {
+      return {
+        twoFactorRequired: true,
+        ...(await this.twoFactor.createLoginChallenge(user)),
+      };
+    }
+
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
+  }
+
+  async completeTwoFactorLogin(
+    challengeToken: string,
+    code: string,
+  ): Promise<AuthResult> {
+    const user = await this.twoFactor.completeLoginChallenge(challengeToken, code);
+    this.assertVerified(user);
+    this.assertNotDisabled(user);
+    return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
+  }
+
+  async twoFactorStatus(userId: string) {
+    const user = await this.users.findById(userId);
+    if (!user) throw new UnauthorizedException();
+    return this.twoFactor.status(user);
+  }
+
+  beginTwoFactorSetup(userId: string, password: string) {
+    return this.twoFactor.beginSetup(userId, password);
+  }
+
+  async confirmTwoFactorSetup(
+    userId: string,
+    challengeToken: string,
+    code: string,
+  ) {
+    const { user, recoveryCodes } = await this.twoFactor.confirmSetup(
+      userId,
+      challengeToken,
+      code,
+    );
+    return {
+      user: toPublicUser(user),
+      ...(await this.issueTokens(user)),
+      recoveryCodes,
+    };
+  }
+
+  resendTwoFactorCode(challengeToken: string) {
+    return this.twoFactor.resend(challengeToken);
+  }
+
+  beginTwoFactorSecurityAction(
+    userId: string,
+    password: string,
+    action: 'disable' | 'recovery',
+  ) {
+    return this.twoFactor.beginSecurityAction(userId, password, action);
+  }
+
+  async disableTwoFactor(
+    userId: string,
+    challengeToken: string,
+    code: string,
+  ) {
+    const user = await this.twoFactor.disable(userId, challengeToken, code);
+    if (!user) throw new UnauthorizedException();
+    return { disabled: true as const, user: toPublicUser(user) };
+  }
+
+  regenerateTwoFactorRecoveryCodes(
+    userId: string,
+    challengeToken: string,
+    code: string,
+  ) {
+    return this.twoFactor.regenerateRecoveryCodes(
+      userId,
+      challengeToken,
+      code,
+    );
   }
 
   /**

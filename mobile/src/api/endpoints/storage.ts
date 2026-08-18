@@ -20,6 +20,113 @@ export interface StoredFile {
   createdAt: string;
   /** CDN URL, or null when the bucket is private. */
   url: string | null;
+  thumbnailUrl: string | null;
+  posterUrl: string | null;
+  downloadUrl: string | null;
+  originalName: string;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  mediaTitle: string | null;
+  mediaArtist: string | null;
+  processingStatus: 'pending' | 'ready' | 'failed' | 'not_required';
+  capabilities: { download: boolean; delete: boolean; manage: boolean };
+}
+
+export type StoredMediaKind = 'image' | 'video' | 'audio' | 'other';
+
+export interface StoredFilesPage {
+  data: StoredFile[];
+  total: number;
+  nextCursor: string | null;
+  counts: Record<StoredMediaKind, number>;
+}
+
+function mediaKind(contentType: string | null): StoredMediaKind {
+  if (contentType?.startsWith('image/')) return 'image';
+  if (contentType?.startsWith('video/')) return 'video';
+  if (contentType?.startsWith('audio/')) return 'audio';
+  return 'other';
+}
+
+function storedFileFromUnknown(value: unknown): StoredFile | null {
+  if (!value || typeof value !== 'object') return null;
+  const file = value as Partial<StoredFile> & Record<string, unknown>;
+  if (typeof file.key !== 'string') return null;
+  const contentType = typeof file.contentType === 'string' ? file.contentType : null;
+  const capabilities = file.capabilities && typeof file.capabilities === 'object'
+    ? file.capabilities as Partial<StoredFile['capabilities']>
+    : {};
+
+  return {
+    key: file.key,
+    sizeBytes: typeof file.sizeBytes === 'number' ? file.sizeBytes : 0,
+    contentType,
+    albumId: typeof file.albumId === 'string' ? file.albumId : null,
+    createdAt: typeof file.createdAt === 'string' ? file.createdAt : new Date(0).toISOString(),
+    url: typeof file.url === 'string' ? file.url : null,
+    thumbnailUrl: typeof file.thumbnailUrl === 'string'
+      ? file.thumbnailUrl
+      : typeof file.thumbUrl === 'string' ? file.thumbUrl : null,
+    posterUrl: typeof file.posterUrl === 'string' ? file.posterUrl : null,
+    downloadUrl: typeof file.downloadUrl === 'string' ? file.downloadUrl : null,
+    originalName: typeof file.originalName === 'string' && file.originalName.trim()
+      ? file.originalName
+      : file.key.split('/').pop() ?? file.key,
+    width: typeof file.width === 'number' ? file.width : null,
+    height: typeof file.height === 'number' ? file.height : null,
+    durationMs: typeof file.durationMs === 'number' ? file.durationMs : null,
+    mediaTitle: typeof file.mediaTitle === 'string' ? file.mediaTitle : null,
+    mediaArtist: typeof file.mediaArtist === 'string' ? file.mediaArtist : null,
+    processingStatus: ['pending', 'ready', 'failed', 'not_required'].includes(String(file.processingStatus))
+      ? file.processingStatus as StoredFile['processingStatus']
+      : contentType && mediaKind(contentType) !== 'other' ? 'ready' : 'not_required',
+    capabilities: {
+      download: capabilities.download === true,
+      delete: capabilities.delete === true,
+      manage: capabilities.manage === true,
+    },
+  };
+}
+
+/**
+ * Keeps released apps usable while the paginated API rolls out.
+ *
+ * Older Virgo API versions return `StoredFile[]` directly and ignore the
+ * `kind`/`cursor` query fields. Treating that array as a page made every media
+ * room flatten `undefined` and show a false empty state. Normalising at the API
+ * boundary also fills metadata defaults that those older rows do not carry.
+ */
+export function normalizeStoredFilesResponse(
+  response: unknown,
+  requestedKind?: StoredMediaKind,
+): StoredFilesPage {
+  const envelope = !Array.isArray(response) && response && typeof response === 'object'
+    ? response as Partial<StoredFilesPage>
+    : null;
+  const source = Array.isArray(response)
+    ? response
+    : Array.isArray(envelope?.data) ? envelope.data : [];
+  const allFiles = source.map(storedFileFromUnknown).filter((file): file is StoredFile => !!file);
+  const data = requestedKind
+    ? allFiles.filter((file) => mediaKind(file.contentType) === requestedKind)
+    : allFiles;
+  const derivedCounts = allFiles.reduce<Record<StoredMediaKind, number>>(
+    (counts, file) => ({ ...counts, [mediaKind(file.contentType)]: counts[mediaKind(file.contentType)] + 1 }),
+    { image: 0, video: 0, audio: 0, other: 0 },
+  );
+  const hasServerCounts = !!envelope?.counts
+    && ['image', 'video', 'audio', 'other'].every((kind) => typeof envelope.counts?.[kind as StoredMediaKind] === 'number');
+  const counts = hasServerCounts ? envelope!.counts! : derivedCounts;
+
+  return {
+    data,
+    total: hasServerCounts && typeof envelope?.total === 'number'
+      ? envelope.total
+      : requestedKind ? counts[requestedKind] : data.length,
+    nextCursor: typeof envelope?.nextCursor === 'string' ? envelope.nextCursor : null,
+    counts,
+  };
 }
 
 export interface StorageBreakdown {
@@ -81,20 +188,23 @@ export const storageApi = {
   },
 
   /** Step 3: confirm the object actually landed before saving its URL. */
-  confirm(key: string, albumId?: string): Promise<{
+  confirm(key: string, albumId?: string, originalName?: string): Promise<{
     exists: boolean;
     size: number;
     contentType?: string;
   }> {
-    return api.post('/storage/confirm', { body: { key, albumId } });
+    return api.post('/storage/confirm', { body: { key, albumId, originalName } });
   },
 
   /** Objects the user has stored, optionally narrowed to one album. */
-  listFiles(params: { albumId?: string; limit?: number } = {}): Promise<{
-    data: StoredFile[];
-    total: number;
-  }> {
-    return api.get('/storage/files', { query: params });
+  async listFiles(params: {
+    albumId?: string;
+    limit?: number;
+    cursor?: string;
+    kind?: StoredMediaKind;
+  } = {}): Promise<StoredFilesPage> {
+    const response = await api.get<unknown>('/storage/files', { query: params });
+    return normalizeStoredFilesResponse(response, params.kind);
   },
 
   /** Objects uploaded before an album was chosen. */
@@ -147,6 +257,7 @@ export const storageApi = {
       scope: UploadScope;
       /** Links the upload to an album so album screens can list it. */
       albumId?: string;
+      originalName?: string;
       /** Called with 0-1 as bytes reach B2. Real progress, not simulated. */
       onProgress?: (fraction: number) => void;
     },
@@ -212,7 +323,7 @@ export const storageApi = {
 
     // A 2xx from B2 is good evidence, but confirming via the API is what
     // guarantees a row never ends up pointing at a missing object.
-    const stat = await this.confirm(ticket.key, options.albumId);
+    const stat = await this.confirm(ticket.key, options.albumId, options.originalName);
     if (!stat.exists) {
       throw new ApiError(0, 'Upload could not be verified. Please try again.');
     }

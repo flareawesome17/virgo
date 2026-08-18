@@ -485,7 +485,7 @@ export default function PrivacyScreen() {
                       key={days}
                       onPress={() => setPauseDays(days)}
                       className={`flex-1 rounded-xl py-3 items-center active:scale-[0.96] ${
-                        pauseDays === days ? 'bg-primary' : 'bg-card'
+                        pauseDays === days ? 'bg-action' : 'bg-card'
                       }`}
                     >
                       <Text
@@ -564,7 +564,7 @@ export default function PrivacyScreen() {
                   onPress={confirmPause}
                   disabled={!password || disableAccount.isPending}
                   className={`flex-1 rounded-2xl py-3.5 items-center active:scale-[0.97] ${
-                    password ? 'bg-primary' : 'bg-muted'
+                    password ? 'bg-action' : 'bg-muted'
                   }`}
                 >
                   <Text

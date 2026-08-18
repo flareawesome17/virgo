@@ -163,7 +163,7 @@ export default function InviteCollaboratorsScreen() {
             <LoadFailed what="your friends" onRetry={() => refetch()} compact />
           ) : friends.length === 0 ? (
             <Pressable
-              onPress={() => router.push('/(app)/(tabs)/network')}
+              onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
               className="bg-card rounded-2xl px-4 py-5 items-center active:scale-[0.98]"
               style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
             >
@@ -220,7 +220,7 @@ export default function InviteCollaboratorsScreen() {
                 key={r.key}
                 onPress={() => setRole(r.key)}
                 className={`rounded-xl px-4 py-2.5 active:scale-[0.96] ${
-                  role === r.key ? 'bg-primary' : 'bg-card'
+                  role === r.key ? 'bg-action' : 'bg-card'
                 }`}
                 style={
                   role !== r.key
@@ -347,7 +347,7 @@ export default function InviteCollaboratorsScreen() {
             onPress={sendOne}
             disabled={!selectedFriendId || createCollaborator.isPending}
             className={`rounded-2xl py-3.5 items-center mt-4 flex-row justify-center gap-2 active:scale-[0.97] ${
-              selectedFriendId ? 'bg-primary' : 'bg-muted'
+              selectedFriendId ? 'bg-action' : 'bg-muted'
             }`}
             style={
               selectedFriendId

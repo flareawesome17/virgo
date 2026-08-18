@@ -81,7 +81,7 @@ export default function AgendaScreen() {
             <Text className="text-foreground text-[22px] font-bold tracking-tight">{date ? dateLabel(date) : 'Agenda'}</Text>
             <Text className="text-muted-foreground text-sm mt-0.5">{events.length} events · {dayReminders.length} reminders</Text>
           </View>
-          <Pressable onPress={() => router.push(`/schedule/create?date=${date}`)} className="w-11 h-11 rounded-2xl bg-primary items-center justify-center active:scale-[0.94]"
+          <Pressable onPress={() => router.push(`/schedule/create?date=${date}`)} className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <PlusIcon size={20} className="text-white" />
           </Pressable>

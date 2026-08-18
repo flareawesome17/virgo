@@ -64,14 +64,8 @@ export default function WelcomeScreen() {
           {/* Sign in with email */}
           <Pressable
             onPress={() => router.push('/sign-in')}
-            className="bg-card rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.97]"
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: 0.04,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 2,
-            }}
+            accessibilityRole="button"
+            className="min-h-12 bg-secondary rounded-xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.98]"
           >
             <MailIcon size={18} className="text-primary" />
             <Text className="text-foreground text-base font-semibold">Sign in with email</Text>
@@ -80,17 +74,11 @@ export default function WelcomeScreen() {
           {/* Create account */}
           <Pressable
             onPress={() => router.push('/sign-up')}
-            className="bg-primary rounded-2xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.97]"
-            style={{
-              shadowColor: '#B66A40',
-              shadowOpacity: 0.3,
-              shadowRadius: 12,
-              shadowOffset: { width: 0, height: 4 },
-              elevation: 6,
-            }}
+            accessibilityRole="button"
+            className="min-h-12 bg-action rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
           >
-            <Text className="text-white text-base font-bold">Create Account</Text>
-            <ArrowRightIcon size={18} className="text-white" />
+            <Text className="text-action-foreground text-base font-bold">Create Account</Text>
+            <ArrowRightIcon size={18} className="text-action-foreground" />
           </Pressable>
         </View>
 

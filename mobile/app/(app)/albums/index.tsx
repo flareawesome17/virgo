@@ -159,7 +159,7 @@ export default function AlbumsListScreen() {
                     `/albums/create${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
                   )
                 )}
-                className="w-11 h-11 rounded-2xl bg-primary items-center justify-center active:scale-[0.94]"
+                className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
                 style={{
                   shadowColor: '#B66A40',
                   shadowOpacity: 0.25,
@@ -187,7 +187,7 @@ export default function AlbumsListScreen() {
                   key={chip}
                   onPress={() => setActiveStatus(chip)}
                   className={`rounded-full px-4 py-2 active:scale-[0.96] ${
-                    chip === activeStatus ? 'bg-primary' : 'bg-card'
+                    chip === activeStatus ? 'bg-action' : 'bg-card'
                   }`}
                   style={
                     chip !== activeStatus
@@ -236,7 +236,7 @@ export default function AlbumsListScreen() {
                   `/albums/create${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
                 )
               )}
-              className="bg-primary rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
+              className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
             >
               <PlusIcon size={18} className="text-white" />
               <Text className="text-white text-sm font-semibold">Create Album</Text>

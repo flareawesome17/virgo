@@ -98,7 +98,7 @@ export default function ForgotPasswordScreen() {
             <Pressable
               onPress={handleSend}
               disabled={!canSend || loading}
-              className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.97] ${canSend ? 'bg-primary' : 'bg-muted'}`}
+              className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.97] ${canSend ? 'bg-action' : 'bg-muted'}`}
               style={canSend ? { shadowColor: '#B66A40', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 } : undefined}>
               <SendIcon size={17} className={canSend ? 'text-white' : 'text-muted-foreground'} />
               <Text className={`text-base font-bold ${canSend ? 'text-white' : 'text-muted-foreground'}`}>

@@ -28,6 +28,7 @@ import {
   CreditCardIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PALETTES } from '@/theme';
 
 for (const Icon of [
   SettingsIcon, ChevronRightIcon, HardDriveIcon, WifiIcon, WifiOffIcon,
@@ -78,6 +79,7 @@ const ACCOUNT_ROWS: {
 export default function ProfileScreen() {
   const { user, profile, signOut } = useAuth();
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { isOffline } = useOffline();
 
   // The button below used to have no onPress at all, which is why signing out
@@ -108,14 +110,7 @@ export default function ProfileScreen() {
   const statValues = [workspaces.length, totalAssets, collaborators.length, events.length];
 
   const version = Constants.expoConfig?.version ?? '1.0';
-  const border = isDark ? '#2A2522' : '#F0E8E2';
-  const cardShadow = {
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  } as const;
+  const border = palette.border;
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -136,7 +131,6 @@ export default function ProfileScreen() {
                 : 'Settings'
             }
             className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-            style={cardShadow}
           >
             <SettingsIcon size={20} className="text-muted-foreground" />
             {/* Rewards are behind this gear, and an offer expires. A dot rather
@@ -150,7 +144,7 @@ export default function ProfileScreen() {
                   right: 8,
                   width: 9,
                   height: 9,
-                  backgroundColor: '#B66A40',
+                  backgroundColor: palette.primary,
                 }}
               />
             )}
@@ -158,10 +152,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Profile card */}
-        <View
-          className="mx-5 mt-2 bg-card rounded-3xl p-5 items-center"
-          style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}
-        >
+        <View className="mx-5 mt-2 bg-card rounded-3xl border border-border/40 p-5 items-center">
           {profile?.avatarUrl ? (
             <Image
               source={{ uri: profile.avatarUrl }}
@@ -171,9 +162,9 @@ export default function ProfileScreen() {
             // Initial-letter placeholder rather than a stock photo, so an
             // unset avatar reads as "not set yet" instead of someone else's face.
             <View
-              style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#B66A4018', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: `${palette.primary}18`, alignItems: 'center', justifyContent: 'center' }}
             >
-              <Text style={{ color: '#B66A40', fontSize: 30, fontWeight: '700' }}>
+              <Text style={{ color: palette.primary, fontSize: 30, fontWeight: '700' }}>
                 {(profile?.displayName || user?.email || '?').charAt(0).toUpperCase()}
               </Text>
             </View>
@@ -192,7 +183,7 @@ export default function ProfileScreen() {
             onPress={() => router.push('/settings/profile')}
             className="mt-3 bg-muted rounded-full px-4 py-1.5 active:scale-[0.96]"
           >
-            <Text className="text-foreground text-[11px] font-bold">Edit profile</Text>
+            <Text className="text-foreground text-xs font-bold">Edit profile</Text>
           </Pressable>
 
           <View className="flex-row items-center gap-2 mt-3">
@@ -201,7 +192,7 @@ export default function ProfileScreen() {
               className="flex-row items-center gap-1 bg-muted rounded-full px-3 py-1.5 active:scale-[0.96]"
             >
               <HardDriveIcon size={12} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-[11px] font-semibold">
+              <Text className="text-muted-foreground text-xs font-semibold">
                 {formatBytes(storageUsedBytes)} used
                 {usage?.plan ? ` · ${usage.plan}` : ''}
               </Text>
@@ -218,7 +209,7 @@ export default function ProfileScreen() {
                 <WifiIcon size={12} color="#6B8E4E" />
               )}
               <Text
-                className="text-[11px] font-semibold"
+                className="text-xs font-semibold"
                 style={{ color: isOffline ? '#C76B4A' : '#6B8E4E' }}
               >
                 {isOffline ? 'Offline' : 'Synced'}
@@ -227,34 +218,35 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Stats row */}
-        <View className="mx-5 mt-4 flex-row gap-3">
-          {STATS.map((stat, i) => {
-            const Icon = stat.icon;
-            return (
-              <View
-                key={stat.label}
-                className="flex-1 bg-card rounded-2xl p-3 items-center"
-                style={cardShadow}
-              >
-                <Icon size={16} className="text-primary mb-1.5" />
-                <Text className="text-foreground text-lg font-bold">
-                  {statValues[i].toLocaleString()}
-                </Text>
-                <Text className="text-muted-foreground text-[10px] font-medium mt-0.5">
-                  {stat.label}
-                </Text>
-              </View>
-            );
-          })}
+        {/* Stats: two columns keep the labels readable at 320–375pt widths. */}
+        <View className="mx-5 mt-4 gap-3">
+          {[0, 2].map((start) => (
+            <View key={start} className="flex-row gap-3">
+              {STATS.slice(start, start + 2).map((stat, offset) => {
+                const i = start + offset;
+                const Icon = stat.icon;
+                return (
+                  <View key={stat.label} className="flex-1 bg-card rounded-2xl border border-border/30 p-4 flex-row items-center gap-3">
+                    <View className="w-9 h-9 rounded-xl bg-primary/10 items-center justify-center">
+                      <Icon size={17} className="text-primary" />
+                    </View>
+                    <View>
+                      <Text className="text-foreground text-lg font-bold">{statValues[i].toLocaleString()}</Text>
+                      <Text className="text-muted-foreground text-xs font-medium mt-0.5">{stat.label}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ))}
         </View>
 
         {/* Account */}
         <View className="px-5 mt-6">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 px-1">
+          <Text className="text-foreground text-xl font-bold tracking-tight mb-3 px-1">
             Account
           </Text>
-          <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
+          <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
             {ACCOUNT_ROWS.map((row, i) => {
               const Icon = row.icon;
               return (
@@ -289,8 +281,7 @@ export default function ProfileScreen() {
           <Pressable
             onPress={handleSignOut}
             disabled={signOut.isPending}
-            className="bg-card rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
-            style={cardShadow}
+            className="bg-card rounded-2xl border border-border/30 p-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
           >
             <LogOutIcon size={17} className="text-destructive" />
             <Text className="text-destructive text-sm font-semibold">

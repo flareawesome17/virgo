@@ -17,6 +17,7 @@ import {
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { WorkspaceInvitations } from '@/components/WorkspaceInvitations';
+import { PALETTES } from '@/theme';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -42,7 +43,7 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(days / 7)}w ago`;
 }
 
-function AvatarStack({ urls, count }: { urls: string[]; count: number }) {
+function AvatarStack({ urls, count, borderColor, fillColor }: { urls: string[]; count: number; borderColor: string; fillColor: string }) {
   const display = urls.slice(0, 4);
   const extra = count - display.length;
   return (
@@ -57,7 +58,7 @@ function AvatarStack({ urls, count }: { urls: string[]; count: number }) {
             borderRadius: 13,
             marginLeft: i > 0 ? -9 : 0,
             borderWidth: 2,
-            borderColor: '#FFFFFF',
+            borderColor,
           }}
         />
       ))}
@@ -69,13 +70,13 @@ function AvatarStack({ urls, count }: { urls: string[]; count: number }) {
             borderRadius: 13,
             marginLeft: -9,
             borderWidth: 2,
-            borderColor: '#FFFFFF',
-            backgroundColor: '#FAF2EC',
+            borderColor,
+            backgroundColor: fillColor,
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <Text className="text-[9px] font-bold text-muted-foreground">+{extra}</Text>
+          <Text className="text-[11px] font-bold text-muted-foreground">+{extra}</Text>
         </View>
       )}
     </View>
@@ -86,6 +87,7 @@ export default function WorkspacesScreen() {
   const { guardWorkspaceCreate } = usePlanLimits();
   const { user } = useAuth();
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
   const [activeCategory, setActiveCategory] = useState('All');
   const [query, setQuery] = useState('');
@@ -166,7 +168,7 @@ export default function WorkspacesScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={isDark ? '#C17745' : '#B66A40'}
+            tintColor={palette.primary}
           />
         }
         ListHeaderComponent={
@@ -184,16 +186,11 @@ export default function WorkspacesScreen() {
               </View>
               <Pressable
                 onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
-                className="w-11 h-11 rounded-2xl bg-primary items-center justify-center active:scale-[0.94]"
-                style={{
-                  shadowColor: '#B66A40',
-                  shadowOpacity: 0.25,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 3 },
-                  elevation: 4,
-                }}
+                accessibilityRole="button"
+                accessibilityLabel="Create a workspace"
+                className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
               >
-                <PlusIcon size={20} className="text-white" />
+                <PlusIcon size={20} className="text-action-foreground" />
               </Pressable>
             </View>
 
@@ -206,21 +203,14 @@ export default function WorkspacesScreen() {
                 for one job, one of them inert, is worse than one that works. */}
             <View className="px-5 pt-3 pb-2">
               <View
-                className="flex-row items-center bg-card rounded-2xl px-4 h-11 gap-3"
-                style={{
-                  shadowColor: '#000',
-                  shadowOpacity: 0.03,
-                  shadowRadius: 6,
-                  shadowOffset: { width: 0, height: 2 },
-                  elevation: 2,
-                }}
+                className="flex-row items-center bg-secondary rounded-xl px-4 h-12 gap-3"
               >
                 <SearchIcon size={16} className="text-muted-foreground" />
                 <TextInput
                   value={query}
                   onChangeText={setQuery}
                   placeholder="Search workspaces"
-                  placeholderTextColor="#A89489"
+                  placeholderTextColor={palette.mutedForeground}
                   className="flex-1 text-foreground text-sm"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -239,14 +229,7 @@ export default function WorkspacesScreen() {
 
             {/* Summary card */}
             <View
-              className="mx-5 mb-4 bg-card rounded-2xl p-4 flex-row items-center gap-4"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.04,
-                shadowRadius: 10,
-                shadowOffset: { width: 0, height: 3 },
-                elevation: 3,
-              }}
+              className="mx-5 mb-4 bg-secondary rounded-2xl p-4 flex-row items-center gap-4"
             >
               <View className="w-11 h-11 rounded-2xl bg-primary/10 items-center justify-center">
                 <ImageIcon size={20} className="text-primary" />
@@ -304,7 +287,7 @@ export default function WorkspacesScreen() {
                   setActiveCategory('All');
                 }}
                 className="bg-card rounded-2xl px-5 py-3 active:scale-[0.96]"
-                style={{ borderWidth: 1, borderColor: '#D9C2B7' }}
+                style={{ borderWidth: 1, borderColor: palette.border }}
               >
                 <Text className="text-foreground text-sm font-semibold">Clear filters</Text>
               </Pressable>
@@ -322,7 +305,7 @@ export default function WorkspacesScreen() {
             </View>
             <Pressable
               onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
-              className="bg-primary rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
+              className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
             >
               <PlusIcon size={18} className="text-white" />
               <Text className="text-white text-sm font-semibold">Create Workspace</Text>
@@ -335,14 +318,7 @@ export default function WorkspacesScreen() {
           return (
             <Pressable
               onPress={() => router.push(`/workspaces/${item.id}`)}
-              className="mx-5 mb-3 bg-card rounded-2xl p-4 active:scale-[0.98]"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.04,
-                shadowRadius: 10,
-                shadowOffset: { width: 0, height: 3 },
-                elevation: 3,
-              }}
+              className="mx-5 mb-3 bg-card rounded-2xl p-4 border border-border/30 active:scale-[0.98]"
             >
               {/* Top row: icon + info + sync badge */}
               <View className="flex-row items-center gap-4">
@@ -353,7 +329,7 @@ export default function WorkspacesScreen() {
                     borderRadius: 16,
                     backgroundColor: item.accent_color
                       ? `${item.accent_color}18`
-                      : '#B66A4018',
+                      : `${palette.primary}18`,
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
@@ -362,7 +338,7 @@ export default function WorkspacesScreen() {
                     style={{
                       fontSize: 20,
                       fontWeight: '700',
-                      color: item.accent_color || '#B66A40',
+                      color: item.accent_color || palette.primary,
                     }}
                   >
                     {item.name.charAt(0)}
@@ -389,8 +365,8 @@ export default function WorkspacesScreen() {
                         gap: 3,
                       }}
                     >
-                      <WifiIcon size={9} color="#6B8E4E" />
-                      <Text style={{ color: '#6B8E4E', fontSize: 9, fontWeight: '600' }}>
+                      <WifiIcon size={11} color="#6B8E4E" />
+                      <Text style={{ color: '#6B8E4E', fontSize: 11, fontWeight: '600' }}>
                         Synced
                       </Text>
                     </View>
@@ -408,24 +384,24 @@ export default function WorkspacesScreen() {
                 <View className="flex-row items-center gap-3">
                   <View className="flex-row items-center gap-1">
                     <ImageIcon size={11} className="text-muted-foreground" />
-                    <Text className="text-muted-foreground text-[11px] font-medium">
+                    <Text className="text-muted-foreground text-xs font-medium">
                       {item.media_count.toLocaleString()} assets
                     </Text>
                   </View>
                   <View className="flex-row items-center gap-1">
                     <UsersIcon size={11} className="text-muted-foreground" />
-                    <Text className="text-muted-foreground text-[11px] font-medium">
+                    <Text className="text-muted-foreground text-xs font-medium">
                       {item.collaborator_count}
                     </Text>
                   </View>
                 </View>
                 <View className="flex-row items-center gap-2">
                   {avatars.length > 0 && (
-                    <AvatarStack urls={avatars} count={item.collaborator_count} />
+                    <AvatarStack urls={avatars} count={item.collaborator_count} borderColor={palette.card} fillColor={palette.secondary} />
                   )}
                   <View className="flex-row items-center gap-0.5">
                     <ClockIcon size={10} className="text-muted-foreground" />
-                    <Text className="text-muted-foreground text-[10px] font-medium">
+                    <Text className="text-muted-foreground text-xs font-medium">
                       {timeAgo(item.updated_at)}
                     </Text>
                   </View>
@@ -458,20 +434,11 @@ function ScrollViewPills({
         <Pressable
           key={cat}
           onPress={() => onSelect(cat)}
-          className={`rounded-full px-4 py-2 active:scale-[0.96] ${
-            cat === active ? 'bg-primary' : 'bg-card'
+          accessibilityRole="tab"
+          accessibilityState={{ selected: cat === active }}
+          className={`min-h-11 rounded-full px-4 py-2 justify-center active:scale-[0.98] ${
+            cat === active ? 'bg-action' : 'bg-secondary'
           }`}
-          style={
-            cat !== active
-              ? {
-                  shadowColor: '#000',
-                  shadowOpacity: 0.03,
-                  shadowRadius: 4,
-                  shadowOffset: { width: 0, height: 1 },
-                  elevation: 1,
-                }
-              : undefined
-          }
         >
           <Text
             className={`text-sm font-semibold ${

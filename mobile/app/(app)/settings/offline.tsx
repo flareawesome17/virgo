@@ -155,7 +155,7 @@ export default function OfflineSyncScreen() {
               onPress={() => void syncNow()}
               disabled={syncing || isOffline}
               className={`mt-4 rounded-xl py-3 flex-row items-center justify-center gap-2 active:scale-[0.97] ${
-                isOffline ? 'bg-muted' : 'bg-primary'
+                isOffline ? 'bg-muted' : 'bg-action'
               }`}
             >
               {syncing ? (
