@@ -22,8 +22,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_ENV": "development",
-        "EXPO_PUBLIC_API_URL": "https://virgo-dev-api.virgo.ph"
+        "EXPO_PUBLIC_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://api.virgo.ph"
       }
     },
 

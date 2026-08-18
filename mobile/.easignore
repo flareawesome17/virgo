@@ -1,0 +1,21 @@
+# The same rules, for the case where EAS archives from this directory rather
+# than from the repository root.
+#
+# Which one it picks depends on how it resolves the project root, and the
+# answer has changed between CLI versions. Both files are correct on their own
+# terms, and having both means a build cannot be large — or leak an env file —
+# because the archive root was not the one expected.
+#
+# See ../.easignore for why this denies rather than permits.
+
+node_modules/
+.expo/
+android/
+ios/
+*.log
+
+# Build-time values come from the `env` block of the chosen profile in
+# eas.json, never from a file here.
+.env
+.env.*
+!.env.example

@@ -1,0 +1,41 @@
+# What EAS Build is allowed to upload.
+#
+# The first attempt at an APK compressed to 2.2 GB and was refused for being
+# over the 2.0 GB limit. EAS archives from the repository root, so a build of
+# the phone app was carrying desktop/ (3.2 GB), web/ (2.3 GB) and dashboard/
+# (0.6 GB) along with it — plus every node_modules in the tree. The app itself
+# is about 5 MB.
+#
+# Written as "exclude everything, then name what is needed" rather than a list
+# of things to leave out. That matters more here than it looks: a .easignore
+# REPLACES .gitignore for this upload, so the moment this file exists,
+# api/.env, .env.production, dashboard/.env.local and the rest stop being
+# protected by being git-ignored. Those hold the database password, the B2
+# keys, the SMTP credentials and the JWT secrets. Denying by default means a
+# new package added to this repo cannot quietly become part of a phone build,
+# and a new secret cannot ride along with it.
+#
+# node_modules is excluded on purpose: EAS installs from package.json and
+# package-lock.json on the build server, which is also what makes the build
+# reproducible rather than a copy of whatever this laptop happens to have.
+
+# Everything at the root…
+/*
+
+# …except the app being built. eas.json, app.json, app.config.js and the
+# source all live in here.
+!/mobile
+
+# Inside it, what the build server does not need or must not see.
+mobile/node_modules/
+mobile/.expo/
+mobile/android/
+mobile/ios/
+mobile/*.log
+
+# Values come from the `env` block of the chosen profile in eas.json, not from
+# a file — the CLI says so as it starts: "Environment variables loaded from the
+# 'preview' build profile 'env' configuration".
+mobile/.env
+mobile/.env.*
+!mobile/.env.example
