@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { authApi, queryKeys, type TwoFactorStatus } from '@/src/api';
+import { authApi, queryKeys, type TwoFactorStatus } from '@/api';
 
 export const twoFactorKey = ['auth', 'two-factor'] as const;
 

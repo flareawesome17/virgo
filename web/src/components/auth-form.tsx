@@ -7,7 +7,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Eye, EyeOff, Loader2, MailWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { authApi } from '@/api';
+import { authApi, type TwoFactorLoginRequired } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,6 +15,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth, type AuthError } from '@/hooks/useAuth';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { TwoFactorChallenge } from '@/components/two-factor-challenge';
 
 /**
  * Sign in and sign up.
@@ -40,6 +41,14 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
    * the form for the one thing that helps.
    */
   const [unverified, setUnverified] = useState<string | null>(null);
+  /**
+   * Set when the password was right but the account carries a second factor.
+   * No tokens came back with that response, so this is the rest of the
+   * sign-in rather than a confirmation of it.
+   */
+  const [challenge, setChallenge] = useState<TwoFactorLoginRequired | null>(
+    null,
+  );
 
   const resend = useMutation({
     mutationFn: (address: string) => authApi.requestVerification(address),
@@ -101,7 +110,20 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
       : { email: email.trim(), password };
 
     mutation.mutate(payload as never, {
-      onSuccess: () => router.replace(next),
+      onSuccess: (result: unknown) => {
+        // Signing in does not always end in a session: an account with
+        // two-factor authentication gets a challenge here instead, and is
+        // only signed in once the code clears.
+        if (
+          result &&
+          typeof result === 'object' &&
+          'twoFactorRequired' in result
+        ) {
+          setChallenge(result as TwoFactorLoginRequired);
+          return;
+        }
+        router.replace(next);
+      },
       onError: (err: Error) => {
         const authError = err as AuthError;
         if (authError.code === 'EMAIL_NOT_VERIFIED') {
@@ -112,6 +134,22 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
       },
     });
   };
+
+  // The password step is done and correct; the form has nothing left to ask.
+  if (challenge) {
+    return (
+      <TwoFactorChallenge
+        challengeToken={challenge.challengeToken}
+        email={challenge.email}
+        onSuccess={() => router.replace(next)}
+        onCancel={() => {
+          setChallenge(null);
+          setPassword('');
+          signIn.reset();
+        }}
+      />
+    );
+  }
 
   // Signing in is blocked until the address is confirmed, so the form is not
   // the useful thing to show — the resend is.
