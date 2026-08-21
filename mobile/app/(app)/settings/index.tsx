@@ -1,8 +1,9 @@
-import { View, Text, ScrollView, Pressable, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
-import { usePromoOffers, useTheme } from '@/src/hooks';
+import { useAuth, usePromoOffers, useTheme } from '@/src/hooks';
+import * as StoreReview from 'expo-store-review';
 import {
   ArrowLeftIcon, ChevronRightIcon, BellIcon, LockIcon, ShieldIcon,
   PaletteIcon, HardDriveIcon, CloudIcon, HelpCircleIcon, LifeBuoyIcon, GiftIcon,
@@ -31,14 +32,8 @@ interface SettingsRow {
   detail?: string;
   value?: string;
   route?: string;
+  action?: 'rate';
   color: string;
-  /**
-   * Marks a row whose feature has no implementation behind it yet. These
-   * previously carried a `route` to a screen that did not exist, so tapping
-   * them dropped the user on Expo's raw "Unmatched Route" page. Showing an
-   * honest "Soon" badge beats both that and a fake screen.
-   */
-  soon?: boolean;
   /**
    * Which live count fills this row's badge slot, if any.
    *
@@ -106,14 +101,12 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
         route: '/settings/privacy',
         color: '#5B7B9A',
       },
-      // The old row read "2FA enabled" — there is no 2FA in the backend, so
-      // that was a claim the app could not honour.
       {
         icon: ShieldIcon,
         label: 'Two-factor authentication',
-        detail: 'A second step when signing in',
+        detail: 'A code sent to your email when signing in',
+        route: '/settings/two-factor',
         color: '#6B8E4E',
-        soon: true,
       },
     ],
   },
@@ -169,9 +162,7 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
         route: '/legal',
         color: '#54433C',
       },
-      // Nothing to rate against until the app is on a store listing, and a row
-      // that opens nowhere is worse than one that says so.
-      { icon: StarIcon, label: 'Rate Virgo', color: '#C17745', soon: true },
+      { icon: StarIcon, label: 'Rate Virgo', detail: 'Leave a review in your app store', color: '#C17745', action: 'rate' },
     ],
   },
   {
@@ -184,6 +175,7 @@ const SECTIONS: { title: string; rows: SettingsRow[] }[] = [
 
 export default function SettingsHomeScreen() {
   const { isDark } = useTheme();
+  const { profile } = useAuth();
 
   const version = Constants.expoConfig?.version ?? '1.0';
   // Fills the Rewards row's badge. SECTIONS is a module constant, so the count
@@ -195,10 +187,31 @@ export default function SettingsHomeScreen() {
   // kept saying 1.0 through every release.
   const sections = SECTIONS.map((section) => ({
     ...section,
-    rows: section.rows.map((row) =>
-      row.label === 'About Virgo' ? { ...row, value: `v${version}` } : row,
-    ),
+    rows: section.rows.map((row) => {
+      if (row.label === 'About Virgo') return { ...row, value: `v${version}` };
+      if (row.label === 'Two-factor authentication') {
+        return { ...row, value: profile?.twoFactorEnabled ? 'On' : 'Off' };
+      }
+      return row;
+    }),
   }));
+
+  const rateVirgo = async () => {
+    try {
+      const storeUrl = StoreReview.storeUrl();
+      if (storeUrl && await Linking.canOpenURL(storeUrl)) {
+        await Linking.openURL(storeUrl);
+        return;
+      }
+      if (await StoreReview.isAvailableAsync()) {
+        await StoreReview.requestReview();
+        return;
+      }
+      Alert.alert('Rate Virgo', 'Store ratings are available in the installed iOS or Android app.');
+    } catch {
+      Alert.alert('Could not open the store', 'Please try again from the installed app.');
+    }
+  };
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -246,7 +259,9 @@ export default function SettingsHomeScreen() {
                     <Pressable
                       key={row.label}
                       onPress={
-                        row.route
+                        row.action === 'rate'
+                          ? rateVirgo
+                          : row.route
                           ? () => router.push(row.route as never)
                           : () => Alert.alert(row.label, 'This is not available yet.')
                       }
@@ -296,15 +311,7 @@ export default function SettingsHomeScreen() {
                           </Text>
                         </View>
                       )}
-                      {row.soon ? (
-                        <View className="rounded-md px-2 py-0.5 bg-muted">
-                          <Text className="text-muted-foreground text-[10px] font-bold uppercase tracking-wide">
-                            Soon
-                          </Text>
-                        </View>
-                      ) : (
-                        <ChevronRightIcon size={14} className="text-muted-foreground" />
-                      )}
+                      <ChevronRightIcon size={14} className="text-muted-foreground" />
                     </Pressable>
                   );
                 })}

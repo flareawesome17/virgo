@@ -1,12 +1,13 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '@/src/hooks';
+import { useAuth, useTheme } from '@/src/hooks';
 import { Redirect, router } from 'expo-router';
 import { useState } from 'react';
 import {
   ArrowLeftIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { PALETTES } from '@/theme';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -17,6 +18,8 @@ cssInterop(ArrowRightIcon, { className: { target: 'style', nativeStyleToProp: { 
 
 export default function SignInScreen() {
   const { signIn, user } = useAuth();
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -37,7 +40,19 @@ export default function SignInScreen() {
     signIn.mutate(
       { email: email.trim(), password },
       {
-        onSuccess: () => router.replace('/(app)/(tabs)'),
+        onSuccess: (result) => {
+          if ('twoFactorRequired' in result) {
+            router.push({
+              pathname: '/two-factor-challenge',
+              params: {
+                challenge: result.challengeToken,
+                email: result.email,
+              },
+            });
+            return;
+          }
+          router.replace('/(app)/(tabs)');
+        },
         onError: (err: any) => {
           // Signing in is blocked until the address is confirmed, so the
           // useful destination is the resend screen, not an error banner.
@@ -61,8 +76,12 @@ export default function SignInScreen() {
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
           {/* Header */}
           <View className="px-6 pt-4 pb-2 flex-row items-center gap-3">
-            <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+            <Pressable
+              onPress={() => router.back()}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:scale-[0.96]"
+            >
               <ArrowLeftIcon size={18} className="text-foreground" />
             </Pressable>
             <View>
@@ -83,11 +102,10 @@ export default function SignInScreen() {
             {/* Email */}
             <View>
               <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Email</Text>
-              <View className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3"
-                style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+              <View className="bg-secondary rounded-xl px-4 py-3.5 flex-row items-center gap-3">
                 <MailIcon size={16} className="text-muted-foreground" />
                 <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
-                  placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
+                  placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                   keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
               </View>
             </View>
@@ -95,13 +113,17 @@ export default function SignInScreen() {
             {/* Password */}
             <View>
               <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Password</Text>
-              <View className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3"
-                style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+              <View className="bg-secondary rounded-xl px-4 py-3.5 flex-row items-center gap-3">
                 <LockIcon size={16} className="text-muted-foreground" />
                 <TextInput value={password} onChangeText={setPassword} placeholder="Your password"
-                  placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
+                  placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                   secureTextEntry={!showPassword} autoCapitalize="none" />
-                <Pressable onPress={() => setShowPassword(!showPassword)} className="active:scale-[0.90]">
+                <Pressable
+                  onPress={() => setShowPassword(!showPassword)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  className="w-11 h-11 items-center justify-center active:scale-[0.96]"
+                >
                   {showPassword ? <EyeOffIcon size={18} className="text-muted-foreground" /> : <EyeIcon size={18} className="text-muted-foreground" />}
                 </Pressable>
               </View>
@@ -126,12 +148,13 @@ export default function SignInScreen() {
           <Pressable
             onPress={handleSignIn}
             disabled={!canSubmit || signIn.isPending}
-            className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.97] ${canSubmit ? 'bg-primary' : 'bg-muted'}`}
-            style={canSubmit ? { shadowColor: '#B66A40', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 } : undefined}>
-            <Text className={`text-base font-bold ${canSubmit ? 'text-white' : 'text-muted-foreground'}`}>
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canSubmit || signIn.isPending }}
+            className={`min-h-12 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${canSubmit ? 'bg-action' : 'bg-muted'}`}>
+            <Text className={`text-base font-bold ${canSubmit ? 'text-action-foreground' : 'text-muted-foreground'}`}>
               {signIn.isPending ? 'Signing in...' : 'Sign In'}
             </Text>
-            {!signIn.isPending && <ArrowRightIcon size={18} className={canSubmit ? 'text-white' : 'text-muted-foreground'} />}
+            {!signIn.isPending && <ArrowRightIcon size={18} className={canSubmit ? 'text-action-foreground' : 'text-muted-foreground'} />}
           </Pressable>
           <View className="flex-row items-center justify-center gap-1">
             <Text className="text-muted-foreground text-sm">Don’t have an account?</Text>

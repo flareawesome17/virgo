@@ -10,7 +10,6 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
-  DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -23,6 +22,7 @@ import {
   accessAllows,
   QuotaService,
   type MediaAccess,
+  type StoredMediaKind,
 } from '../quota/quota.service';
 import {
   ALLOWED_CONTENT_TYPES,
@@ -422,9 +422,29 @@ export class StorageService {
     // Destroying someone else's media is the highest bar there is.
     await this.assertCanAccess(userId, key, 'manage');
 
-    await client.send(
-      new DeleteObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
+    const targets = await this.quota.objectAndDerivedKeys([key]);
+    const deleted = new Set<string>();
+    const byBucket = new Map<string, string[]>();
+    for (const target of targets.length > 0 ? targets : [key]) {
+      const bucket = this.config.bucketForKey(target);
+      byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), target]);
+    }
+    const results = await Promise.all(
+      [...byBucket].map(([Bucket, keys]) =>
+        client.send(
+          new DeleteObjectsCommand({
+            Bucket,
+            Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
+          }),
+        ),
+      ),
     );
+    for (const result of results) {
+      for (const item of result.Deleted ?? []) if (item.Key) deleted.add(item.Key);
+    }
+    if (!deleted.has(key)) {
+      throw new ServiceUnavailableException('Could not delete media');
+    }
     // Free the space against the quota. Done after the delete succeeds so a
     // failed delete does not silently hand back allowance.
     await this.quota.forgetFile(userId, key);
@@ -522,13 +542,14 @@ export class StorageService {
   ): Promise<{ deleted: number; failed: number }> {
     if (keys.length === 0) return { deleted: 0, failed: 0 };
     const client = this.requireClient();
+    const targetKeys = await this.quota.objectAndDerivedKeys(keys);
 
     const deletedKeys: string[] = [];
     let failed = 0;
 
     // 1000 is the DeleteObjects maximum.
-    for (let i = 0; i < keys.length; i += 1000) {
-      const batch = keys.slice(i, i + 1000);
+    for (let i = 0; i < targetKeys.length; i += 1000) {
+      const batch = targetKeys.slice(i, i + 1000);
       // Defence in depth: these came from the user's own rows, but the prefix
       // check is what actually guarantees bucket-level scope.
       for (const key of batch) this.assertOwned(userId, key);
@@ -617,35 +638,76 @@ export class StorageService {
    */
   async listFiles(
     userId: string,
-    filter: { albumId?: string; limit?: number } = {},
+    filter: {
+      albumId?: string;
+      limit?: number;
+      cursor?: string;
+      kind?: StoredMediaKind;
+    } = {},
   ) {
     // `QuotaService.listFiles` returns an album's contents without checking
     // who is asking, because within an album the uploader is not the question.
     // That makes this the place the question has to be asked — album ids are
     // guessable, so an unauthorised caller must be stopped here or not at all.
+    let access: Awaited<ReturnType<QuotaService['accessForAlbum']>> = 'owner';
     if (filter.albumId) {
-      const access = await this.quota.accessForAlbum(userId, filter.albumId);
+      access = await this.quota.accessForAlbum(userId, filter.albumId);
       if (!accessAllows(access, 'view')) {
         throw new ForbiddenException('You do not have access to that album');
       }
     }
 
-    const rows = await this.quota.listFiles(userId, filter);
-    const urls = await this.mediaUrls(rows.map((r) => r.key));
-    return rows.map((row, i) => ({
-      key: row.key,
-      sizeBytes: Number(row.size_bytes),
-      contentType: row.content_type,
-      albumId: row.album_id,
-      createdAt: row.created_at,
-      url: urls[i],
-    }));
+    const page = await this.quota.listFiles(userId, filter);
+    const mayDownload = accessAllows(access, 'download');
+    const mayManage = accessAllows(access, 'manage');
+    const names = page.rows.map((row) => storedDisplayName(row.original_name, row.key));
+    const [urls, thumbnailUrls, posterUrls, downloadUrls] = await Promise.all([
+      this.mediaUrls(page.rows.map((row) => row.key)),
+      this.mediaUrls(page.rows.map((row) => row.thumb_key)),
+      this.mediaUrls(page.rows.map((row) => row.poster_key)),
+      mayDownload
+        ? this.mediaUrls(
+            page.rows.map((row) => row.key),
+            DOWNLOAD_URL_TTL_SECONDS,
+            names,
+          )
+        : Promise.resolve(page.rows.map(() => null)),
+    ]);
+    return {
+      data: page.rows.map((row, i) => ({
+        key: row.key,
+        sizeBytes: Number(row.size_bytes),
+        contentType: row.content_type,
+        albumId: row.album_id,
+        createdAt: row.created_at,
+        originalName: names[i],
+        url: urls[i],
+        thumbnailUrl: thumbnailUrls[i],
+        posterUrl: posterUrls[i],
+        downloadUrl: downloadUrls[i],
+        width: row.width_px,
+        height: row.height_px,
+        durationMs: row.duration_ms ? Number(row.duration_ms) : null,
+        mediaTitle: row.media_title,
+        mediaArtist: row.media_artist,
+        processingStatus: row.processing_status,
+        capabilities: {
+          download: mayDownload,
+          delete: mayManage,
+          manage: mayManage,
+        },
+      })),
+      total: page.total,
+      nextCursor: page.nextCursor,
+      counts: page.counts,
+    };
   }
 
   async statObject(
     userId: string,
     key: string,
     albumId?: string,
+    originalName?: string,
   ): Promise<{ exists: boolean; size: number; contentType?: string }> {
     const client = this.requireClient();
     // The key was minted for this caller, so the prefix is the right check for
@@ -682,6 +744,7 @@ export class StorageService {
         contentType: head.ContentType,
         scope: key.split('/')[2],
         albumId,
+        originalName: cleanOriginalName(originalName),
       });
 
       return { exists: true, size, contentType: head.ContentType };
@@ -693,4 +756,19 @@ export class StorageService {
       throw new ServiceUnavailableException('Could not reach storage');
     }
   }
+}
+
+function storedDisplayName(originalName: string | null, key: string): string {
+  return cleanOriginalName(originalName) ?? key.split('/').pop() ?? key;
+}
+
+function cleanOriginalName(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const leaf = value.split(/[\\/]/).pop() ?? value;
+  const cleaned = leaf
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 255);
+  return cleaned || null;
 }

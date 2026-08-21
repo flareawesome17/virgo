@@ -17,6 +17,8 @@ export interface Palette {
   popoverForeground: string;
   primary: string;
   primaryForeground: string;
+  action: string;
+  actionForeground: string;
   secondary: string;
   secondaryForeground: string;
   muted: string;
@@ -37,12 +39,14 @@ export const PALETTES: { light: Palette; dark: Palette } = {
     cardForeground: "#1E1B18",
     popover: "#FFFFFF",
     popoverForeground: "#1E1B18",
-    primary: "#B66A40",
+    primary: "#A85D35",
     primaryForeground: "#FFFFFF",
+    action: "#A85D35",
+    actionForeground: "#FFFFFF",
     secondary: "#FAF2EC",
     secondaryForeground: "#54433C",
     muted: "#F5EEE8",
-    mutedForeground: "#847167",
+    mutedForeground: "#7E6A60",
     accent: "#C17745",
     accentForeground: "#FFFFFF",
     destructive: "#B44632",
@@ -57,8 +61,10 @@ export const PALETTES: { light: Palette; dark: Palette } = {
     cardForeground: "#F2EDE8",
     popover: "#1E1B18",
     popoverForeground: "#F2EDE8",
-    primary: "#C17745",
-    primaryForeground: "#FFFFFF",
+    primary: "#D18A5A",
+    primaryForeground: "#161311",
+    action: "#A85D35",
+    actionForeground: "#FFFFFF",
     secondary: "#26221F",
     secondaryForeground: "#BCADA3",
     muted: "#2A2522",
@@ -95,6 +101,8 @@ function cssVars(palette: Palette) {
     "--popover-foreground": channels(palette.popoverForeground),
     "--primary": channels(palette.primary),
     "--primary-foreground": channels(palette.primaryForeground),
+    "--action": channels(palette.action),
+    "--action-foreground": channels(palette.actionForeground),
     "--secondary": channels(palette.secondary),
     "--secondary-foreground": channels(palette.secondaryForeground),
     "--muted": channels(palette.muted),

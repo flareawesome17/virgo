@@ -99,7 +99,7 @@ export default function StorageOverviewScreen() {
 
         {/* Upgrade CTA */}
         <Pressable onPress={() => router.push('/settings/storage/plans')}
-          className="mx-5 mt-4 bg-primary rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.97]"
+          className="mx-5 mt-4 bg-action rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.97]"
           style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
           <ZapIcon size={18} className="text-white" />
           <Text className="text-white text-base font-bold">Upgrade Storage</Text>

@@ -11,6 +11,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { StorageModule } from '../storage/storage.module';
 import { PromosModule } from '../promos/promos.module';
 import { UsersRepository } from './users.repository';
+import { TwoFactorService } from './two-factor.service';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { UsersRepository } from './users.repository';
     AuthTokensService,
     JwtStrategy,
     UsersRepository,
+    TwoFactorService,
   ],
   exports: [AuthService],
 })

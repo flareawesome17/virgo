@@ -98,7 +98,7 @@ export function RolesRequiredSheet() {
               onPress={save}
               disabled={picked.length === 0 || updateProfile.isPending}
               className={`flex-[1.6] rounded-2xl py-3.5 items-center active:scale-[0.97] ${
-                picked.length > 0 ? 'bg-primary' : 'bg-muted'
+                picked.length > 0 ? 'bg-action' : 'bg-muted'
               }`}
             >
               <Text

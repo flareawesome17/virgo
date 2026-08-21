@@ -222,6 +222,7 @@ export default function UploadScreen() {
         await storageApi.uploadFile(item.uri, {
           contentType: item.mimeType,
           scope: 'albums',
+          originalName: item.name,
           // Without this the object is stored but linked to no album, so it
           // uploads "successfully" and then appears nowhere.
           albumId,
@@ -399,7 +400,7 @@ export default function UploadScreen() {
               {kind !== 'audio' && (
                 <Pressable
                   onPress={pickMedia}
-                  className="bg-primary rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.96]"
+                  className="bg-action rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.96]"
                   style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}
                 >
                   <ImageIcon size={17} className="text-white" />
@@ -409,7 +410,7 @@ export default function UploadScreen() {
               {kind !== 'media' && (
                 <Pressable
                   onPress={pickAudio}
-                  className={`rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.96] ${kind === 'audio' ? 'bg-primary' : 'bg-card'}`}
+                  className={`rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.96] ${kind === 'audio' ? 'bg-action' : 'bg-card'}`}
                   style={kind === 'audio'
                     ? { shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }
                     : { shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
@@ -517,7 +518,7 @@ export default function UploadScreen() {
           <Pressable
             onPress={startUpload}
             disabled={!canUpload}
-            className={`flex-[2] rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97] ${canUpload ? 'bg-primary' : 'bg-muted'}`}
+            className={`flex-[2] rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97] ${canUpload ? 'bg-action' : 'bg-muted'}`}
           >
             {isUploading && <ActivityIndicator size="small" color="#FFFFFF" />}
             <Text className={`text-base font-bold ${canUpload ? 'text-white' : 'text-muted-foreground'}`}>

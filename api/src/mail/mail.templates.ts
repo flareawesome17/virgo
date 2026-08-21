@@ -27,12 +27,14 @@ export interface RenderedEmail {
 function layout(options: {
   heading: string;
   intro: string;
+  /** Large, copyable verification code shown between the intro and CTA. */
+  code?: string;
   cta?: { label: string; url: string };
   /** Sits under the button, usually the raw URL and how long it lasts. */
   fineprint?: string[];
   outro?: string;
 }): string {
-  const { heading, intro, cta, fineprint = [], outro } = options;
+  const { heading, intro, code, cta, fineprint = [], outro } = options;
 
   return `<!doctype html>
 <html lang="en">
@@ -58,6 +60,12 @@ function layout(options: {
       <div style="background:${CARD};border:1px solid ${BORDER};border-radius:16px;padding:32px;">
         <h1 style="margin:0 0 12px;font-size:21px;line-height:1.3;font-weight:700;color:${INK};">${escapeHtml(heading)}</h1>
         <p style="margin:0;font-size:15px;line-height:1.6;color:${MUTED};">${escapeHtml(intro)}</p>
+
+        ${
+          code
+            ? `<div style="margin:26px 0 0;background:${PAPER};border:1px solid ${BORDER};border-radius:12px;padding:18px 16px;text-align:center;font-size:30px;line-height:1;font-weight:750;letter-spacing:7px;color:${INK};font-variant-numeric:tabular-nums;">${escapeHtml(code)}</div>`
+            : ''
+        }
 
         ${
           cta
@@ -95,6 +103,46 @@ function layout(options: {
   </div>
 </body>
 </html>`;
+}
+
+/** A short-lived second factor sent only after the password has been checked. */
+export function twoFactorCode(options: {
+  code: string;
+  purpose: 'setup' | 'login' | 'disable' | 'recovery';
+  expiresInMinutes: number;
+}): RenderedEmail {
+  const descriptions = {
+    setup: 'turning on two-factor authentication',
+    login: 'signing in',
+    disable: 'turning off two-factor authentication',
+    recovery: 'replacing your recovery codes',
+  } as const;
+  const action = descriptions[options.purpose];
+  const intro = `Use this six-digit code to finish ${action} for your Virgo account.`;
+
+  return {
+    subject: `${options.code} is your Virgo verification code`,
+    html: layout({
+      heading: 'Your verification code',
+      intro,
+      code: options.code,
+      fineprint: [
+        `This code expires in ${options.expiresInMinutes} minutes and can be used once.`,
+        'Virgo will never ask you to share this code in a message or phone call.',
+      ],
+      outro: `If you were not ${action}, change your password as soon as possible.`,
+    }),
+    text: [
+      'Your Virgo verification code',
+      '',
+      options.code,
+      '',
+      intro,
+      '',
+      `This code expires in ${options.expiresInMinutes} minutes and can be used once.`,
+      'Do not share it with anyone.',
+    ].join('\n'),
+  };
 }
 
 /** HTML-escapes interpolated text. Names and addresses are user-controlled. */

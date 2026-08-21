@@ -158,7 +158,38 @@ export function useAuth() {
       }
     },
     onSuccess: (result) => {
+      if (!('twoFactorRequired' in result)) {
+        queryClient.setQueryData(queryKeys.auth.session, result.user);
+      }
+    },
+  });
+
+  const completeTwoFactorSignIn = useMutation({
+    mutationFn: async ({
+      challengeToken,
+      code,
+    }: {
+      challengeToken: string;
+      code: string;
+    }) => {
+      try {
+        return await authApi.completeTwoFactorLogin(challengeToken, code);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+    onSuccess: (result) => {
       queryClient.setQueryData(queryKeys.auth.session, result.user);
+    },
+  });
+
+  const resendTwoFactorCode = useMutation({
+    mutationFn: async (challengeToken: string) => {
+      try {
+        return await authApi.resendTwoFactorCode(challengeToken);
+      } catch (err) {
+        throw toAuthError(err);
+      }
     },
   });
 
@@ -273,6 +304,8 @@ export function useAuth() {
     disableAccount,
     deleteAccount,
     signIn,
+    completeTwoFactorSignIn,
+    resendTwoFactorCode,
     signUp,
     signOut,
   };

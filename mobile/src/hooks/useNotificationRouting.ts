@@ -46,7 +46,7 @@ export function useNotificationRouting(enabled: boolean): void {
         case 'friend_accepted':
         case 'collaborator_invite':
         case 'collaborator_response':
-          router.push('/(app)/(tabs)/network');
+          router.push('/(app)/(tabs)/connect?view=people');
           return;
 
         // Both sides of a hire enquiry are answered from the same list, and an

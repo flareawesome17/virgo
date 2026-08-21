@@ -14,6 +14,7 @@ export interface UploadInput {
   mimeType?: string | null;
   /** Links the upload to an album. */
   albumId?: string;
+  originalName?: string;
   /** Real upload progress, 0-1. */
   onProgress?: (fraction: number) => void;
 }
@@ -26,11 +27,12 @@ export interface UploadInput {
  */
 export function useUpload() {
   return useMutation<UploadResult, Error, UploadInput>({
-    mutationFn: ({ uri, scope, mimeType, albumId, onProgress }) =>
+    mutationFn: ({ uri, scope, mimeType, albumId, originalName, onProgress }) =>
       storageApi.uploadFile(uri, {
         contentType: contentTypeForAsset({ uri, mimeType }),
         scope,
         albumId,
+        originalName: originalName ?? uri.split('/').pop(),
         onProgress,
       }),
   });

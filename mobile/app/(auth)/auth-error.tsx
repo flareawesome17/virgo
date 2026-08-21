@@ -39,7 +39,7 @@ export default function AuthErrorScreen() {
         <View className="mt-10 gap-3 w-full">
           <Pressable
             onPress={() => router.back()}
-            className="bg-primary rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.97]"
+            className="bg-action rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.97]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <ArrowLeftIcon size={18} className="text-white" />
             <Text className="text-white text-base font-bold">Go Back</Text>

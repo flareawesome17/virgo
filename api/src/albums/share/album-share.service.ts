@@ -9,6 +9,10 @@ import { randomBytes } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service';
 import { PUBLISHED_URL_TTL_SECONDS } from '../../storage/storage.config';
 import { StorageService } from '../../storage/storage.service';
+import {
+  decodeFileCursor,
+  encodeFileCursor,
+} from '../../quota/quota.service';
 
 export interface ShareLinkRow {
   id: string;
@@ -48,17 +52,28 @@ export interface PublicAlbumView {
      * falls back to `url`, which is what it always used to render.
      */
     thumbUrl: string | null;
+    posterUrl: string | null;
     /** Same object, signed to save rather than open. */
     downloadUrl: string | null;
     /** What it saves as: "Album Name - 004.jpg". */
     downloadName: string;
     contentType: string | null;
     sizeBytes: number;
+    originalName: string;
+    width: number | null;
+    height: number | null;
+    durationMs: number | null;
+    mediaTitle: string | null;
+    mediaArtist: string | null;
+    processingStatus: 'pending' | 'ready' | 'failed' | 'not_required';
   }[];
   /** Sections the link is scoped to, so the page renders only those. */
   kinds: MediaKind[];
   /** Every byte the link covers, for the "Download all" button to declare. */
   totalBytes: number;
+  total: number;
+  nextCursor: string | null;
+  counts: Record<MediaKind, number>;
 }
 
 /**
@@ -154,7 +169,7 @@ export class AlbumShareService {
    * Scoped to this one route rather than loosening the global policy, and
    * still strict: no scripts at all, and only the storage origin is added.
    */
-  contentSecurityPolicy(): string {
+  contentSecurityPolicy(nonce?: string): string {
     const media = this.storage.mediaOrigins();
     const sources = ["'self'", 'data:', ...media].filter(Boolean).join(' ');
     return [
@@ -163,7 +178,7 @@ export class AlbumShareService {
       `media-src ${["'self'", ...media].filter(Boolean).join(' ')}`,
       // The page is pure HTML with one inline <style> block and no JavaScript.
       "style-src 'self' 'unsafe-inline'",
-      "script-src 'none'",
+      nonce ? `script-src 'nonce-${nonce}'` : "script-src 'none'",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'none'",
@@ -348,24 +363,76 @@ export class AlbumShareService {
     return link;
   }
 
-  async resolve(token: string): Promise<PublicAlbumView> {
+  async resolve(
+    token: string,
+    filter: { kind?: MediaKind; cursor?: string; limit?: number } = {},
+  ): Promise<PublicAlbumView> {
     const link = await this.linkFor(token);
+
+    if (filter.kind && !link.media_kinds.includes(filter.kind)) {
+      throw new ForbiddenException('This media is not included in the link');
+    }
+
+    const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
+    let where = `user_id = $1
+          and album_id = $2
+          and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])`;
+    if (filter.kind) {
+      params.push(filter.kind);
+      where += ` and split_part(coalesce(content_type, ''), '/', 1) = $${params.length}`;
+    }
+    if (filter.cursor) {
+      const cursor = decodeFileCursor(filter.cursor);
+      params.push(cursor.createdAt, cursor.key);
+      where += ` and (created_at, key) < ($${params.length - 1}::timestamptz, $${params.length}::text)`;
+    }
+    const limit = Math.min(Math.max(filter.limit ?? 60, 1), 100);
+    params.push(limit + 1);
 
     // Filtered in SQL, not after fetching: a photos-only link must not put
     // video URLs on the wire at all, or the scope would be cosmetic.
     const files = await this.db.query<{
       key: string;
       thumb_key: string | null;
+      poster_key: string | null;
       content_type: string | null;
       size_bytes: string;
+      created_at: Date;
+      original_name: string | null;
+      width_px: number | null;
+      height_px: number | null;
+      duration_ms: string | null;
+      media_title: string | null;
+      media_artist: string | null;
+      processing_status: 'pending' | 'ready' | 'failed' | 'not_required';
     }>(
-      `select key, thumb_key, content_type, size_bytes
+      `select key, thumb_key, poster_key, content_type, size_bytes, created_at,
+              original_name, width_px, height_px, duration_ms,
+              media_title, media_artist, processing_status
          from user_files
-        where user_id = $1
-          and album_id = $2
-          and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
-        order by created_at desc
-        limit 500`,
+        where ${where}
+        order by created_at desc, key desc
+        limit $${params.length}`,
+      params,
+    );
+
+    const hasMore = files.length > limit;
+    const pageFiles = hasMore ? files.slice(0, limit) : files;
+    const summary = await this.db.queryOne<{
+      total: string;
+      total_bytes: string;
+      image_count: string;
+      video_count: string;
+      audio_count: string;
+    }>(
+      `select count(*)::text as total,
+              coalesce(sum(size_bytes), 0)::text as total_bytes,
+              count(*) filter (where content_type like 'image/%')::text as image_count,
+              count(*) filter (where content_type like 'video/%')::text as video_count,
+              count(*) filter (where content_type like 'audio/%')::text as audio_count
+         from user_files
+        where user_id = $1 and album_id = $2
+          and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])`,
       [link.user_id, link.album_id, link.media_kinds],
     );
 
@@ -377,18 +444,22 @@ export class AlbumShareService {
     // because the download carries a signed Content-Disposition — the only
     // way to make a cross-origin link actually save instead of opening — and
     // that is part of what is signed, so it cannot be bolted on afterwards.
-    const names = files.map((f, i) => deliveryName(link.name, i, f.key));
-    const [urls, thumbUrls, downloadUrls] = await Promise.all([
+    const names = pageFiles.map((f, i) => deliveryName(link.name, i, f.key));
+    const [urls, thumbUrls, posterUrls, downloadUrls] = await Promise.all([
       this.storage.mediaUrls(
-        files.map((f) => f.key),
+        pageFiles.map((f) => f.key),
         PUBLISHED_URL_TTL_SECONDS,
       ),
       this.storage.mediaUrls(
-        files.map((f) => f.thumb_key),
+        pageFiles.map((f) => f.thumb_key),
         PUBLISHED_URL_TTL_SECONDS,
       ),
       this.storage.mediaUrls(
-        files.map((f) => f.key),
+        pageFiles.map((f) => f.poster_key),
+        PUBLISHED_URL_TTL_SECONDS,
+      ),
+      this.storage.mediaUrls(
+        pageFiles.map((f) => f.key),
         PUBLISHED_URL_TTL_SECONDS,
         names,
       ),
@@ -397,14 +468,32 @@ export class AlbumShareService {
     return {
       album: { name: link.name, description: link.description },
       kinds: link.media_kinds,
-      totalBytes: files.reduce((n, f) => n + Number(f.size_bytes), 0),
-      files: files.map((f, i) => ({
+      totalBytes: Number(summary?.total_bytes ?? 0),
+      total: Number(summary?.total ?? 0),
+      counts: {
+        image: Number(summary?.image_count ?? 0),
+        video: Number(summary?.video_count ?? 0),
+        audio: Number(summary?.audio_count ?? 0),
+      },
+      nextCursor:
+        hasMore && pageFiles.at(-1)
+          ? encodeFileCursor(pageFiles.at(-1)!.created_at, pageFiles.at(-1)!.key)
+          : null,
+      files: pageFiles.map((f, i) => ({
         url: urls[i],
         thumbUrl: thumbUrls[i],
+        posterUrl: posterUrls[i],
         downloadUrl: downloadUrls[i],
         downloadName: names[i],
         contentType: f.content_type,
         sizeBytes: Number(f.size_bytes),
+        originalName: f.original_name ?? f.key.split('/').pop() ?? f.key,
+        width: f.width_px,
+        height: f.height_px,
+        durationMs: f.duration_ms ? Number(f.duration_ms) : null,
+        mediaTitle: f.media_title,
+        mediaArtist: f.media_artist,
+        processingStatus: f.processing_status,
       })),
     };
   }
@@ -433,8 +522,7 @@ export class AlbumShareService {
         where user_id = $1
           and album_id = $2
           and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
-        order by created_at desc
-        limit 500`,
+        order by created_at desc, key desc`,
       [link.user_id, link.album_id, link.media_kinds],
     );
 

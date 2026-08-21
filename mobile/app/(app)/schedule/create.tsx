@@ -253,7 +253,7 @@ export default function CreateEventScreen() {
               const Icon = t.icon;
               return (
                 <Pressable key={t.key} onPress={() => setEventType(t.key)}
-                  className={`rounded-xl px-4 py-2.5 flex-row items-center gap-2 active:scale-[0.96] ${eventType === t.key ? 'bg-primary' : 'bg-card'}`}
+                  className={`rounded-xl px-4 py-2.5 flex-row items-center gap-2 active:scale-[0.96] ${eventType === t.key ? 'bg-action' : 'bg-card'}`}
                   style={eventType !== t.key ? { shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 } : undefined}>
                   <Icon size={14} className={eventType === t.key ? 'text-white' : 'text-foreground'} />
                   <Text className={`text-sm font-semibold ${eventType === t.key ? 'text-white' : 'text-foreground'}`}>{t.label}</Text>
@@ -398,7 +398,7 @@ export default function CreateEventScreen() {
           style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
           <Text className="text-foreground text-base font-semibold">Back</Text>
         </Pressable>
-        <Pressable onPress={() => canSave && (editing ? handleUpdate() : handleCreate())} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-primary' : 'bg-muted'}`} disabled={!canSave || saving}>
+        <Pressable onPress={() => canSave && (editing ? handleUpdate() : handleCreate())} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-action' : 'bg-muted'}`} disabled={!canSave || saving}>
           <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>
             {saving ? (editing ? 'Saving...' : 'Creating...') : editing ? 'Save Changes' : 'Create Event'}
           </Text>

@@ -1,90 +1,38 @@
 import type { PublicAlbumView } from './album-share.service';
 
-/**
- * Escapes text destined for HTML.
- *
- * The album name and description are user-supplied and land in the markup, so
- * they are escaped rather than interpolated raw — otherwise a photographer
- * could script the page their own client opens.
- */
 function esc(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-/** Palette and base rules, shared so both pages look like the same product. */
+function safeJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 const PAGE_STYLE = `
-  :root { color-scheme: light dark; --bg:#FFF8F4; --fg:#1E1B18; --muted:#847167; --card:#fff; --line:#F0E8E2; --accent:#B66A40; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#161311; --fg:#F2EDE8; --muted:#948278; --card:#1E1B18; --line:#2A2522; --accent:#C17745; }
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg);
-         font:16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  :root { color-scheme:light dark; --paper:#fbf7f2; --ink:#201c19; --muted:#806e62; --line:#ded3ca; --accent:#b66a40; --dark:#171411; --panel:#211d1a; }
+  @media (prefers-color-scheme:dark) { :root { --paper:#171411; --ink:#f2ede8; --muted:#a28f82; --line:#302a26; --accent:#c17745; } }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--paper); color:var(--ink); font:15px/1.5 ui-sans-serif,system-ui,sans-serif; }
+  button,input,select { font:inherit; }
+  button,a { -webkit-tap-highlight-color:transparent; }
+  button:focus-visible,a:focus-visible,input:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation:none!important; transition:none!important; } }
 `;
 
-/**
- * Shown when a token is unknown, revoked or expired.
- *
- * This route sets Content-Type: text/html, so letting Nest's exception filter
- * handle it served a JSON body under an HTML header — the client saw a raw
- * `{"message":...,"statusCode":403}` blob rendered as a page.
- *
- * Deliberately says nothing about which of the three it was: distinguishing
- * "never existed" from "revoked" would confirm to a stranger which tokens are
- * real.
- */
+const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>';
+
 export function renderLinkUnavailable(): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>Link unavailable</title>
-<style>
-${PAGE_STYLE}
-  main { min-height:100vh; display:flex; flex-direction:column; align-items:center;
-         justify-content:center; text-align:center; padding:32px 24px; }
-  .mark { width:56px; height:56px; border-radius:16px; background:var(--line);
-          display:flex; align-items:center; justify-content:center; margin-bottom:20px; }
-  .mark svg { width:26px; height:26px; stroke:var(--muted); fill:none;
-              stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
-  h1 { margin:0; font-size:22px; letter-spacing:-0.01em; }
-  p { color:var(--muted); font-size:15px; margin:10px 0 0; max-width:38ch; }
-  footer { color:var(--muted); font-size:12px; margin-top:28px; }
-</style>
-</head>
-<body>
-<main>
-  <div class="mark">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2z"/>
-    </svg>
-  </div>
-  <h1>This link is no longer available</h1>
-  <p>
-    It may have been turned off by the person who shared it, or replaced with a
-    newer one. Ask them for an up-to-date link.
-  </p>
-  <footer>Shared with Virgo</footer>
-</main>
-</body>
-</html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Link unavailable</title><style>${PAGE_STYLE}
+  main{min-height:100dvh;display:grid;place-items:center;padding:32px}.empty{text-align:center;max-width:34rem}.mark{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 22px;border-radius:22px;background:color-mix(in srgb,var(--line) 72%,transparent)}.mark svg{width:27px;fill:none;stroke:var(--muted);stroke-width:1.5}h1{margin:0;font-size:25px;letter-spacing:-.035em}p{margin:12px auto 0;color:var(--muted);max-width:42ch}footer{margin-top:30px;color:var(--muted);font-size:12px}
+  </style></head><body><main><div class="empty"><div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2z"/></svg></div><h1>This link is no longer available</h1><p>It may have been turned off or replaced. Ask the person who shared it for an up-to-date link.</p><footer>Shared with Virgo</footer></div></main></body></html>`;
 }
 
-/**
- * The page a client sees when they open a share link.
- *
- * Self-contained: no external CSS, fonts or scripts, so it renders on a hotel
- * wifi and cannot leak the viewer to a third party. Media is served from the
- * CDN, which is the only outbound request the page makes.
- */
-/** "1.4 GB", for the download button to be honest about what it will cost. */
 function bytesLabel(bytes: number): string {
   if (bytes <= 0) return '0 MB';
   const mb = bytes / 1024 ** 2;
@@ -92,200 +40,65 @@ function bytesLabel(bytes: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
-/** An inline download glyph. No icon font, no request. */
-const DL_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
-  '<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>';
-
-export function renderClientGallery(view: PublicAlbumView, token: string): string {
-  // `view.files` is already filtered to the link's scope by the query, so a
-  // section can only be non-empty if the link included that kind. Checking
-  // `kinds` as well keeps an in-scope but empty section from disappearing
-  // silently — the caption below says what the link covers.
-  const has = (kind: string) => view.kinds.includes(kind as never);
-  const images = has('image')
-    ? view.files.filter((f) => f.contentType?.startsWith('image/'))
-    : [];
-  const videos = has('video')
-    ? view.files.filter((f) => f.contentType?.startsWith('video/'))
-    : [];
-  const audio = has('audio')
-    ? view.files.filter((f) => f.contentType?.startsWith('audio/'))
-    : [];
-
-  /**
-   * A tile renders from the thumbnail and links to the original.
-   *
-   * The grid used to draw straight from the originals — 160px squares backed
-   * by 5 MB photographs, so a 200-image delivery pulled about a gigabyte
-   * before the client had looked at anything. `thumbUrl` is null for images
-   * uploaded before thumbnails existed, or ones sharp could not decode, so
-   * the original stays the fallback rather than the default.
-   *
-   * No width/height attributes: thumbnails keep their aspect ratio, so any
-   * fixed pair would be a lie for every photograph that is not square. The
-   * tile's own `aspect-ratio:1` is what reserves the space, so there is no
-   * layout shift to prevent.
-   */
-  const tiles = images
-    .filter((f) => f.url)
-    .map(
-      (f) =>
-        `<figure class="tile">` +
-        `<a href="${esc(f.url!)}" target="_blank" rel="noopener noreferrer">` +
-        `<img src="${esc(f.thumbUrl ?? f.url!)}" alt="" loading="lazy" ` +
-        `decoding="async"></a>` +
-        (f.downloadUrl
-          ? `<a class="tiledl" href="${esc(f.downloadUrl)}" ` +
-            `aria-label="Download ${esc(f.downloadName)}">${DL_ICON}</a>`
-          : '') +
-        `</figure>`,
-    )
-    .join('');
-
-  /**
-   * A video with layered fallbacks.
-   *
-   * `video/quicktime` (.mov, straight off an iPhone) is the common case and
-   * only Safari will play it — Chrome, Firefox and Edge reject the type
-   * outright, which showed as a dead player next to working photos.
-   *
-   * A .mov is usually H.264 in an ISO-BMFF container, which those browsers can
-   * decode perfectly well; they simply refuse based on the declared type. So
-   * the same URL is offered a second time as video/mp4, which they will
-   * attempt. HEVC recordings still cannot be decoded anywhere but Safari, so
-   * the element also carries a download link as its final fallback — a client
-   * can always get the file even when nothing can play it inline.
-   */
-  const videoBlock = (f: {
-    url: string | null;
-    downloadUrl: string | null;
-    contentType: string | null;
-  }) => {
-    const url = esc(f.url!);
-    const declared = f.contentType ?? 'video/mp4';
-    const alternates =
-      declared === 'video/quicktime' ? [declared, 'video/mp4'] : [declared];
-    const sources = alternates
-      .map((t) => `<source src="${url}" type="${esc(t)}">`)
-      .join('');
-
-    return (
-      `<div class="videowrap">` +
-      `<video class="video" controls playsinline preload="metadata">${sources}` +
-      `<p class="fallback">This video cannot be played in this browser.</p>` +
-      `</video>` +
-      // The signed URL, not the display one. `download` alone does nothing
-      // across origins; the disposition is baked into this signature.
-      (f.downloadUrl
-        ? `<a class="dl" href="${esc(f.downloadUrl)}">${DL_ICON}Download video</a>`
-        : '') +
-      `</div>`
-    );
-  };
-
-  const videoBlocks = videos.filter((f) => f.url).map(videoBlock).join('');
-
-  const audioBlocks = audio
-    .filter((f) => f.url)
-    .map(
-      (f) =>
-        `<div class="audiowrap">` +
-        `<audio class="audio" controls preload="none" src="${esc(f.url!)}"></audio>` +
-        (f.downloadUrl
-          ? `<a class="dl" href="${esc(f.downloadUrl)}">${DL_ICON}Download audio</a>`
-          : '') +
-        `</div>`,
-    )
-    .join('');
-
-  const count = view.files.length;
-  const isEmpty = count === 0;
-
-  // Says what the link covers, so a photos-only link does not read as an album
-  // that happens to contain no video.
-  const KIND_LABEL: Record<string, string> = {
-    image: 'photos',
-    video: 'videos',
-    audio: 'audio',
-  };
-  const scoped = view.kinds.length < 3;
-  const scopeNote = scoped
-    ? view.kinds.map((k) => KIND_LABEL[k] ?? k).join(' and ')
-    : '';
+export function renderClientGallery(view: PublicAlbumView, token: string, nonce: string): string {
+  const firstKind = view.kinds.find((kind) => view.counts[kind] > 0) ?? view.kinds[0] ?? 'image';
+  const tabs = view.kinds.map((kind) => `<button class="tab${kind === firstKind ? ' active' : ''}" data-tab="${kind}" type="button"><span>${kind === 'image' ? 'Photos' : kind === 'video' ? 'Films' : 'Audio'}</span><b>${view.counts[kind]}</b></button>`).join('');
 
   return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>${esc(view.album.name)}</title>
-<style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(view.album.name)}</title><style>
 ${PAGE_STYLE}
-  header { padding:32px 20px 20px; max-width:1100px; margin:0 auto; }
-  h1 { margin:0; font-size:28px; letter-spacing:-0.02em; }
-  .meta { color:var(--muted); font-size:14px; margin-top:6px; }
-  .desc { color:var(--muted); font-size:15px; margin-top:12px; max-width:60ch; }
-  main { max-width:1100px; margin:0 auto; padding:0 20px 64px; }
-  h2 { font-size:12px; text-transform:uppercase; letter-spacing:2px; color:var(--muted); margin:32px 0 12px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:6px; }
-  .tile { position:relative; margin:0; aspect-ratio:1; overflow:hidden; border-radius:6px; background:var(--line); }
-  .tile img { width:100%; height:100%; object-fit:cover; display:block; }
-  /* The per-photo download. Always visible on touch, where there is no hover
-     to reveal it — a control a phone user cannot discover is not a control. */
-  .tiledl { position:absolute; right:6px; bottom:6px; width:34px; height:34px;
-            display:flex; align-items:center; justify-content:center;
-            border-radius:8px; background:rgba(0,0,0,.55); backdrop-filter:blur(4px);
-            opacity:0; transition:opacity .15s; }
-  .tiledl svg { width:17px; height:17px; stroke:#fff; fill:none; stroke-width:2;
-                stroke-linecap:round; stroke-linejoin:round; }
-  .tile:hover .tiledl, .tiledl:focus-visible { opacity:1; }
-  @media (hover:none) { .tiledl { opacity:1; } }
-  .video, .audio { width:100%; border-radius:8px; background:#000; display:block; }
-  .audio { background:var(--card); margin-bottom:10px; }
-  .videowrap { margin-bottom:18px; }
-  .fallback { color:#fff; text-align:center; padding:28px 16px; margin:0; font-size:14px; }
-  .dl { display:inline-flex; align-items:center; gap:6px; margin-top:8px; min-height:44px;
-        font-size:13px; color:var(--accent); text-decoration:none; }
-  .dl svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:2;
-            stroke-linecap:round; stroke-linejoin:round; }
-  .audiowrap { margin-bottom:18px; }
-  /* Download all. The one control a client is looking for, so it sits in the
-     header rather than at the bottom of a gallery they have to scroll past. */
-  .grab { display:inline-flex; align-items:center; gap:8px; margin-top:16px;
-          min-height:44px; padding:0 18px; border-radius:10px; background:var(--accent);
-          color:#fff; font-size:14px; font-weight:600; text-decoration:none; }
-  .grab svg { width:17px; height:17px; stroke:currentColor; fill:none; stroke-width:2;
-              stroke-linecap:round; stroke-linejoin:round; }
-  .grabnote { color:var(--muted); font-size:12px; margin:8px 0 0; }
-  .empty { color:var(--muted); text-align:center; padding:64px 20px; }
-  footer { text-align:center; color:var(--muted); font-size:12px; padding:0 20px 40px; }
-</style>
-</head>
-<body>
-<header>
-  <h1>${esc(view.album.name)}</h1>
-  <div class="meta">${count} item${count === 1 ? '' : 's'}${
-    scoped ? ` &middot; ${esc(scopeNote)} only` : ''
-  }</div>
-  ${view.album.description ? `<p class="desc">${esc(view.album.description)}</p>` : ''}
-  ${
-    isEmpty
-      ? ''
-      : `<a class="grab" href="/s/${esc(token)}/download.zip">${DL_ICON}` +
-        `Download all &middot; ${bytesLabel(view.totalBytes)}</a>` +
-        `<p class="grabnote">One zip file. Large albums take a while to ` +
-        `start — leave the tab open.</p>`
+  .shell{max-width:1440px;margin:0 auto;padding:18px 16px 88px}.hero{position:relative;overflow:hidden;padding:6px;border-radius:32px;background:#201c19;box-shadow:0 28px 80px -48px rgba(62,39,26,.72)}.hero-in{position:relative;overflow:hidden;padding:30px 24px;border:1px solid rgba(255,255,255,.08);border-radius:26px;background:radial-gradient(circle at 78% 20%,rgba(193,119,69,.16),transparent 34%),#211d1a;color:#fff;box-shadow:inset 0 1px rgba(255,255,255,.08)}.eyebrow{margin:0;color:#d89566;font:10px/1.2 ui-monospace,monospace;letter-spacing:.22em;text-transform:uppercase}.hero h1{max-width:850px;margin:13px 0 0;font-size:clamp(38px,7vw,72px);line-height:.96;letter-spacing:-.055em}.desc{max-width:64ch;margin:18px 0 0;color:rgba(255,255,255,.52)}.summary{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;margin-top:26px;color:rgba(255,255,255,.45);font:11px ui-monospace,monospace}.grab{display:inline-flex;align-items:center;gap:9px;min-height:44px;padding:0 18px;border-radius:999px;background:var(--accent);color:#fff;text-decoration:none;font:600 13px ui-sans-serif,system-ui,sans-serif;transition:transform .3s cubic-bezier(.16,1,.3,1),background .3s cubic-bezier(.16,1,.3,1)}.grab:hover{background:#c77d4e;transform:translateY(-1px)}.grab:active{transform:scale(.98)}.grab svg,.download svg{width:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .tabs{display:flex;gap:2px;margin-top:28px;border-bottom:1px solid var(--line);overflow:auto}.tab{position:relative;display:flex;align-items:center;gap:9px;min-height:52px;padding:0 18px;border:0;background:none;color:var(--muted);cursor:pointer}.tab b{font:10px ui-monospace,monospace;opacity:.6}.tab::after{content:"";position:absolute;right:12px;bottom:0;left:12px;height:2px;border-radius:2px;background:var(--accent);opacity:0;transform:scaleX(.3);transition:transform .35s cubic-bezier(.16,1,.3,1),opacity .35s cubic-bezier(.16,1,.3,1)}.tab.active{color:var(--accent)}.tab.active::after{opacity:1;transform:scaleX(1)}
+  .room{padding-top:26px}.grid{columns:2;column-gap:9px}.photo{position:relative;display:block;width:100%;margin:0 0 9px;padding:0;overflow:hidden;break-inside:avoid;border:0;border-radius:15px;background:var(--line);cursor:zoom-in}.photo img{display:block;width:100%;height:auto;min-height:110px;object-fit:cover;transition:transform .7s cubic-bezier(.16,1,.3,1)}.photo:hover img{transform:scale(1.025)}.films{display:grid;gap:14px}.film{position:relative;overflow:hidden;min-height:220px;padding:0;border:0;border-radius:23px;background:#211d1a;color:#fff;text-align:left;cursor:pointer}.film img{display:block;width:100%;height:100%;aspect-ratio:16/9;object-fit:cover}.film::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 40%,rgba(20,18,16,.9))}.film-copy{position:absolute;z-index:1;right:18px;bottom:17px;left:18px;display:flex;align-items:center;gap:12px}.play{display:grid;flex:0 0 40px;height:40px;place-items:center;border-radius:50%;background:#fff;color:#211d1a}.film-copy strong,.track strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.film-copy small,.track small{display:block;margin-top:3px;color:rgba(255,255,255,.48);font:10px ui-monospace,monospace}.tracks{margin:0;padding:0;list-style:none}.track{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:14px;width:100%;padding:15px 2px;border:0;border-top:1px solid var(--line);background:none;color:var(--ink);text-align:left;cursor:pointer}.track:first-child{border-top:0}.track .play{background:color-mix(in srgb,var(--line) 78%,transparent);color:var(--muted)}.track small{color:var(--muted)}.track-time{color:var(--muted);font:11px ui-monospace,monospace}.more{display:block;min-height:44px;margin:34px auto 0;padding:0 20px;border:1px solid var(--line);border-radius:999px;background:none;color:var(--ink);cursor:pointer}.empty{padding:90px 20px;text-align:center;color:var(--muted)}
+  .overlay{position:fixed;z-index:60;inset:0;display:none;min-height:100dvh;background:#141210;color:#fff}.overlay.open{display:flex;flex-direction:column}.bar{position:relative;z-index:2;display:flex;align-items:center;gap:10px;padding:12px}.bar-title{min-width:0;flex:1}.bar-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.bar-title small{color:rgba(255,255,255,.4);font:10px ui-monospace,monospace}.round{display:grid;width:42px;height:42px;padding:0;place-items:center;border:0;border-radius:50%;background:rgba(255,255,255,.08);color:#fff;cursor:pointer}.download{display:grid;width:42px;height:42px;place-items:center;border-radius:50%;color:#fff;text-decoration:none}.stage{position:relative;display:grid;min-height:0;flex:1;place-items:center;overflow:hidden}.stage img{max-width:100%;max-height:100%;object-fit:contain;transform:translate3d(var(--x,0),var(--y,0),0) scale(var(--scale,1));transition:transform .36s cubic-bezier(.16,1,.3,1);will-change:transform}.stage.drag img{transition:none}.nav{position:absolute;top:50%;transform:translateY(-50%)}.prev{left:16px}.next{right:16px}.video{max-width:100%;max-height:100%;background:#141210}.audio-dock{position:fixed;z-index:45;right:12px;bottom:12px;left:12px;display:none;max-width:920px;margin:auto;padding:6px;border-radius:25px;background:rgba(27,24,22,.97);color:#fff;box-shadow:0 24px 70px -28px rgba(58,38,27,.8);backdrop-filter:blur(18px)}.audio-dock.open{display:block}.audio-in{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:10px;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:20px}.audio-meta{min-width:0}.audio-meta strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.audio-meta small{color:rgba(255,255,255,.42)}.range{width:100%;accent-color:#c17745}
+  @media(min-width:650px){.shell{padding:28px 28px 100px}.hero-in{padding:42px}.grid{columns:3}.films{grid-template-columns:repeat(2,minmax(0,1fr))}.audio-in{grid-template-columns:44px 44px minmax(0,1fr) 44px}.audio-prev{display:grid!important}}
+  @media(min-width:1000px){.grid{columns:5}.films{grid-template-columns:1.25fr .75fr}.film:nth-child(5n+1){grid-row:span 2}.hero-in{padding:54px}}
+</style></head><body>
+<div class="shell"><header class="hero"><div class="hero-in"><p class="eyebrow">Private delivery</p><h1>${esc(view.album.name)}</h1>${view.album.description ? `<p class="desc">${esc(view.album.description)}</p>` : ''}<div class="summary"><span>${view.total} item${view.total === 1 ? '' : 's'}</span><span>${bytesLabel(view.totalBytes)}</span>${view.total > 0 ? `<a class="grab" href="/s/${esc(token)}/download.zip">${DOWNLOAD_ICON}Download all</a>` : ''}</div></div></header><nav class="tabs" aria-label="Shared media">${tabs}</nav><main id="room" class="room"></main><button id="more" class="more" type="button" hidden>Load more</button></div>
+<div id="viewer" class="overlay" role="dialog" aria-modal="true" aria-label="Photo viewer"><div class="bar"><button id="viewerClose" class="round" aria-label="Close">&#10005;</button><div class="bar-title"><strong id="viewerName"></strong><small id="viewerCount"></small></div><button id="zoomOut" class="round" aria-label="Zoom out">&#8722;</button><button id="zoomIn" class="round" aria-label="Zoom in">+</button><a id="viewerDownload" class="download" aria-label="Download">${DOWNLOAD_ICON}</a></div><div id="photoStage" class="stage"><button id="photoPrev" class="round nav prev" aria-label="Previous">&#8592;</button><img id="viewerImage" alt=""><button id="photoNext" class="round nav next" aria-label="Next">&#8594;</button></div></div>
+<div id="videoViewer" class="overlay" role="dialog" aria-modal="true" aria-label="Video player"><div class="bar"><button id="videoClose" class="round" aria-label="Close">&#10005;</button><div class="bar-title"><strong id="videoName"></strong><small id="videoMeta"></small></div><a id="videoDownload" class="download" aria-label="Download">${DOWNLOAD_ICON}</a></div><div class="stage"><video id="video" class="video" controls playsinline></video></div></div>
+<div id="audioDock" class="audio-dock"><div class="audio-in"><button id="audioPrev" class="round audio-prev" aria-label="Previous track" style="display:none">&#9198;</button><button id="audioToggle" class="round" aria-label="Play">&#9654;</button><div class="audio-meta"><strong id="audioName"></strong><small id="audioClock">0:00 / 0:00</small><input id="audioRange" class="range" type="range" min="0" max="0" step=".1" value="0" aria-label="Audio position"></div><button id="audioNext" class="round" aria-label="Next track">&#9197;</button></div><audio id="audio"></audio></div>
+<script nonce="${esc(nonce)}">
+(() => {
+  'use strict';
+  const initial = ${safeJson(view)};
+  const token = ${safeJson(token)};
+  const byKind = { image: [], video: [], audio: [] };
+  initial.files.forEach(file => { const kind = (file.contentType || '').split('/')[0]; if (byKind[kind]) byKind[kind].push(file); });
+  const cursors = { image: initial.nextCursor, video: initial.nextCursor, audio: initial.nextCursor };
+  let active = ${safeJson(firstKind)};
+  let photoIndex = 0;
+  let audioIndex = -1;
+  let scale = 1, offsetX = 0, offsetY = 0, drag = null;
+  const room = document.getElementById('room'); const more = document.getElementById('more');
+  const el = id => document.getElementById(id);
+  const clock = seconds => { seconds = Number.isFinite(seconds) ? Math.floor(seconds) : 0; return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0'); };
+  const duration = ms => ms ? clock(ms / 1000) : '--:--';
+  function button(className, label) { const node = document.createElement('button'); node.type = 'button'; node.className = className; node.setAttribute('aria-label', label); return node; }
+  function render() {
+    room.replaceChildren(); const files = byKind[active];
+    if (!files.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = active === 'image' ? 'No photos have been shared here yet.' : active === 'video' ? 'No films have been shared here yet.' : 'No audio has been shared here yet.'; room.append(empty); }
+    else if (active === 'image') { const grid = document.createElement('div'); grid.className = 'grid'; files.forEach((file,index) => { const item = button('photo','View ' + file.originalName); const image = document.createElement('img'); image.src = file.thumbUrl || file.url || ''; image.alt = file.originalName; image.loading = 'lazy'; image.decoding = 'async'; item.append(image); item.addEventListener('click',() => openPhoto(index)); grid.append(item); }); room.append(grid); }
+    else if (active === 'video') { const grid = document.createElement('div'); grid.className = 'films'; files.forEach((file,index) => { const item = button('film','Play ' + file.originalName); if (file.posterUrl) { const image = document.createElement('img'); image.src = file.posterUrl; image.alt = 'Poster for ' + file.originalName; image.loading = 'lazy'; item.append(image); } const copy = document.createElement('span'); copy.className = 'film-copy'; const play = document.createElement('span'); play.className = 'play'; play.textContent = '▶'; const text = document.createElement('span'); const strong = document.createElement('strong'); strong.textContent = file.originalName; const small = document.createElement('small'); small.textContent = file.processingStatus === 'pending' ? 'Preparing poster' : duration(file.durationMs); text.append(strong,small); copy.append(play,text); item.append(copy); item.addEventListener('click',() => openVideo(index)); grid.append(item); }); room.append(grid); }
+    else { const list = document.createElement('ol'); list.className = 'tracks'; files.forEach((file,index) => { const li = document.createElement('li'); const item = button('track','Play ' + file.originalName); const play = document.createElement('span'); play.className = 'play'; play.textContent = audioIndex === index && !el('audio').paused ? 'Ⅱ' : '▶'; const text = document.createElement('span'); const strong = document.createElement('strong'); strong.textContent = file.mediaTitle || file.originalName; const small = document.createElement('small'); small.textContent = file.mediaArtist || ((file.contentType || 'audio').split('/')[1] || 'audio').toUpperCase(); text.append(strong,small); const time = document.createElement('span'); time.className = 'track-time'; time.textContent = duration(file.durationMs); item.append(play,text,time); item.addEventListener('click',() => playAudio(index)); li.append(item); list.append(li); }); room.append(list); }
+    more.hidden = files.length >= (initial.counts[active] || 0) || !cursors[active];
   }
-</header>
-<main>
-  ${isEmpty ? '<div class="empty">Nothing has been shared here yet.</div>' : ''}
-  ${images.length ? `<h2>Photos</h2><div class="grid">${tiles}</div>` : ''}
-  ${videos.length ? `<h2>Videos</h2>${videoBlocks}` : ''}
-  ${audio.length ? `<h2>Audio</h2>${audioBlocks}` : ''}
-</main>
-<footer>Shared with Virgo</footer>
-</body>
-</html>`;
+  document.querySelectorAll('[data-tab]').forEach(tab => tab.addEventListener('click',() => { document.querySelectorAll('[data-tab]').forEach(item => item.classList.toggle('active',item === tab)); active = tab.dataset.tab; render(); }));
+  more.addEventListener('click', async () => { if (!cursors[active]) return; more.disabled = true; more.textContent = 'Loading…'; try { const url = '/s/' + encodeURIComponent(token) + '/data?kind=' + active + '&limit=60&cursor=' + encodeURIComponent(cursors[active]); const response = await fetch(url,{credentials:'omit'}); if (!response.ok) throw new Error('load'); const page = await response.json(); byKind[active].push(...page.files); cursors[active] = page.nextCursor; render(); } catch { more.textContent = 'Could not load. Try again'; } finally { more.disabled = false; if (more.textContent !== 'Could not load. Try again') more.textContent = 'Load more'; } });
+  function resetPhoto() { scale = 1; offsetX = 0; offsetY = 0; applyPhoto(); }
+  function applyPhoto() { const image = el('viewerImage'); image.style.setProperty('--scale',String(scale)); image.style.setProperty('--x',offsetX + 'px'); image.style.setProperty('--y',offsetY + 'px'); }
+  function openPhoto(index) { photoIndex = index; const file = byKind.image[index]; if (!file) return; resetPhoto(); el('viewerImage').src = file.url || ''; el('viewerImage').alt = file.originalName; el('viewerName').textContent = file.originalName; el('viewerCount').textContent = (index + 1) + ' / ' + byKind.image.length; el('viewerDownload').href = file.downloadUrl || file.url || ''; el('viewer').classList.add('open'); document.body.style.overflow = 'hidden'; }
+  function closePhoto() { el('viewer').classList.remove('open'); document.body.style.overflow = ''; }
+  function stepPhoto(by) { if (scale > 1) return; photoIndex = (photoIndex + by + byKind.image.length) % byKind.image.length; openPhoto(photoIndex); }
+  el('viewerClose').addEventListener('click',closePhoto); el('photoPrev').addEventListener('click',() => stepPhoto(-1)); el('photoNext').addEventListener('click',() => stepPhoto(1)); el('zoomIn').addEventListener('click',() => { scale = Math.min(4,scale + .5); applyPhoto(); }); el('zoomOut').addEventListener('click',() => { scale = Math.max(1,scale - .5); if (scale === 1) { offsetX = 0; offsetY = 0; } applyPhoto(); });
+  el('viewerImage').addEventListener('dblclick',() => { scale = scale > 1 ? 1 : 2; if (scale === 1) { offsetX = 0; offsetY = 0; } applyPhoto(); }); el('photoStage').addEventListener('wheel',event => { event.preventDefault(); scale = Math.max(1,Math.min(4,scale + (event.deltaY < 0 ? .25 : -.25))); if (scale === 1) { offsetX = 0; offsetY = 0; } applyPhoto(); },{passive:false}); el('photoStage').addEventListener('pointerdown',event => { if (scale <= 1) return; drag = { x:event.clientX,y:event.clientY,ox:offsetX,oy:offsetY }; el('photoStage').setPointerCapture(event.pointerId); el('photoStage').classList.add('drag'); }); el('photoStage').addEventListener('pointermove',event => { if (!drag) return; offsetX = drag.ox + event.clientX - drag.x; offsetY = drag.oy + event.clientY - drag.y; applyPhoto(); }); el('photoStage').addEventListener('pointerup',() => { drag = null; el('photoStage').classList.remove('drag'); });
+  function openVideo(index) { const file = byKind.video[index]; const video = el('video'); video.replaceChildren(); const source = document.createElement('source'); source.src = file.url || ''; source.type = file.contentType || 'video/mp4'; video.append(source); if (file.contentType === 'video/quicktime') { const fallback = document.createElement('source'); fallback.src = file.url || ''; fallback.type = 'video/mp4'; video.append(fallback); } video.poster = file.posterUrl || ''; el('videoName').textContent = file.originalName; el('videoMeta').textContent = duration(file.durationMs); el('videoDownload').href = file.downloadUrl || file.url || ''; el('videoViewer').classList.add('open'); document.body.style.overflow = 'hidden'; video.load(); video.play().catch(() => {}); }
+  el('videoClose').addEventListener('click',() => { el('video').pause(); el('videoViewer').classList.remove('open'); document.body.style.overflow = ''; });
+  const audio = el('audio'); function playAudio(index) { const file = byKind.audio[index]; if (!file) return; if (audioIndex !== index) { audioIndex = index; audio.src = file.url || ''; el('audioName').textContent = file.mediaTitle || file.originalName; el('audioDock').classList.add('open'); } audio.paused ? audio.play().catch(() => {}) : audio.pause(); render(); if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({title:file.mediaTitle || file.originalName,artist:file.mediaArtist || undefined,album:initial.album.name}); }
+  function stepAudio(by) { if (!byKind.audio.length) return; playAudio((audioIndex + by + byKind.audio.length) % byKind.audio.length); }
+  el('audioToggle').addEventListener('click',() => audio.paused ? audio.play() : audio.pause()); el('audioPrev').addEventListener('click',() => stepAudio(-1)); el('audioNext').addEventListener('click',() => stepAudio(1)); audio.addEventListener('play',() => { el('audioToggle').textContent = 'Ⅱ'; render(); }); audio.addEventListener('pause',() => { el('audioToggle').textContent = '▶'; render(); }); audio.addEventListener('ended',() => stepAudio(1)); audio.addEventListener('durationchange',() => { el('audioRange').max = String(audio.duration || 0); }); audio.addEventListener('timeupdate',() => { el('audioRange').value = String(audio.currentTime); el('audioClock').textContent = clock(audio.currentTime) + ' / ' + clock(audio.duration); }); el('audioRange').addEventListener('input',event => { audio.currentTime = Number(event.target.value); });
+  document.addEventListener('keydown',event => { if (event.key === 'Escape') { closePhoto(); el('video').pause(); el('videoViewer').classList.remove('open'); document.body.style.overflow = ''; } if (el('viewer').classList.contains('open')) { if (event.key === 'ArrowLeft') stepPhoto(-1); if (event.key === 'ArrowRight') stepPhoto(1); if (event.key === '+') { scale = Math.min(4,scale + .5); applyPhoto(); } if (event.key === '-') { scale = Math.max(1,scale - .5); applyPhoto(); } if (event.key === '0') resetPhoto(); } });
+  render();
+})();
+</script></body></html>`;
 }

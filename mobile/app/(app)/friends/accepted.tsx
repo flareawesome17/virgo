@@ -41,7 +41,7 @@ export default function FriendRequestAcceptedScreen() {
         {/* Actions */}
         <View className="mt-8 w-full gap-3">
           <Pressable onPress={() => router.push('/friends')}
-            className="bg-primary rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97]"
+            className="bg-action rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <UsersIcon size={18} className="text-white" />
             <Text className="text-white text-base font-bold">View All Friends</Text>

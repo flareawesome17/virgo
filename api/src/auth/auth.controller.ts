@@ -5,6 +5,11 @@ import { CurrentUser } from './current-user.decorator';
 import {
   DeleteAccountDto,
   DisableAccountDto,
+  BeginTwoFactorSetupDto,
+  BeginTwoFactorSecurityActionDto,
+  CompleteTwoFactorLoginDto,
+  ConfirmTwoFactorSetupDto,
+  ResendTwoFactorCodeDto,
   ForgotPasswordDto,
   LoginDto,
   RefreshDto,
@@ -12,6 +17,7 @@ import {
   ResetPasswordDto,
   UpdateProfileDto,
   VerifyEmailDto,
+  TwoFactorSecurityActionDto,
 } from './dto/auth.dto';
 import { AccountService } from './account.service';
 import { AccountFlowsService } from './account-flows.service';
@@ -38,6 +44,20 @@ export class AuthController {
   @Get('roles')
   roles() {
     return { data: USER_ROLES, total: USER_ROLES.length };
+  }
+
+  @Throttle({ default: { limit: 3, ttl: 5 * 60_000 } })
+  @HttpCode(200)
+  @Post('2fa/security-code')
+  beginTwoFactorSecurityAction(
+    @CurrentUser('id') userId: string,
+    @Body() dto: BeginTwoFactorSecurityActionDto,
+  ) {
+    return this.auth.beginTwoFactorSecurityAction(
+      userId,
+      dto.password,
+      dto.action,
+    );
   }
 
   @Public()
@@ -137,6 +157,71 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('login/2fa')
+  completeTwoFactorLogin(@Body() dto: CompleteTwoFactorLoginDto) {
+    return this.auth.completeTwoFactorLogin(dto.challengeToken, dto.code);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 5 * 60_000 } })
+  @HttpCode(200)
+  @Post('2fa/resend')
+  resendTwoFactorCode(@Body() dto: ResendTwoFactorCodeDto) {
+    return this.auth.resendTwoFactorCode(dto.challengeToken);
+  }
+
+  @Get('2fa/status')
+  twoFactorStatus(@CurrentUser('id') userId: string) {
+    return this.auth.twoFactorStatus(userId);
+  }
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post('2fa/setup')
+  beginTwoFactorSetup(
+    @CurrentUser('id') userId: string,
+    @Body() dto: BeginTwoFactorSetupDto,
+  ) {
+    return this.auth.beginTwoFactorSetup(userId, dto.password);
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('2fa/confirm')
+  confirmTwoFactorSetup(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ConfirmTwoFactorSetupDto,
+  ) {
+    return this.auth.confirmTwoFactorSetup(
+      userId,
+      dto.challengeToken,
+      dto.code,
+    );
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Delete('2fa')
+  disableTwoFactor(
+    @CurrentUser('id') userId: string,
+    @Body() dto: TwoFactorSecurityActionDto,
+  ) {
+    return this.auth.disableTwoFactor(userId, dto.challengeToken, dto.code);
+  }
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post('2fa/recovery-codes')
+  regenerateTwoFactorRecoveryCodes(
+    @CurrentUser('id') userId: string,
+    @Body() dto: TwoFactorSecurityActionDto,
+  ) {
+    return this.auth.regenerateTwoFactorRecoveryCodes(
+      userId,
+      dto.challengeToken,
+      dto.code,
+    );
   }
 
   @Public()

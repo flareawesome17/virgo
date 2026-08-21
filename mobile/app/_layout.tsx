@@ -1,16 +1,16 @@
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import * as SplashScreen from 'expo-splash-screen';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useAuth, useOffline } from '../src/hooks';
-import '@/global.css';
-import { useEffect, type ReactNode } from 'react'
-import { QueryClientProvider } from '@tanstack/react-query'
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
-import { queryClient, persistOptions } from '@/src/lib/queryClient'
-import { ThemeProvider } from '@/src/providers/ThemeProvider'
-import { wireQueryFocusToAppState } from '@/src/lib/query-focus'
-
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import * as SplashScreen from "expo-splash-screen";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useAuth, useOffline } from "../src/hooks";
+import "@/global.css";
+import { useEffect, type ReactNode } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { queryClient, persistOptions } from "@/src/lib/queryClient";
+import { ThemeProvider } from "@/src/providers/ThemeProvider";
+import { wireQueryFocusToAppState } from "@/src/lib/query-focus";
 
 /**
  * `index` resolves the session and redirects, so it must be the first route.
@@ -18,7 +18,7 @@ import { wireQueryFocusToAppState } from '@/src/lib/query-focus'
  * gave way once auth resolved — the flash this replaces.
  */
 export const unstable_settings = {
-  initialRouteName: 'index',
+  initialRouteName: "index",
 };
 
 // Held until the session is known, so nothing is drawn before the destination
@@ -48,7 +48,7 @@ function RootLayoutNav() {
   );
 }
 
-const isDesigner = process.env.EXPO_PUBLIC_RAPIDNATIVE_MODE === 'designer';
+const isDesigner = process.env.EXPO_PUBLIC_RAPIDNATIVE_MODE === "designer";
 
 function QueryProvider({ children }: { children: ReactNode }) {
   // Once, app-wide. Without it `refetchOnWindowFocus` is inert on a phone —
@@ -57,22 +57,29 @@ function QueryProvider({ children }: { children: ReactNode }) {
   useEffect(() => wireQueryFocusToAppState(), []);
 
   if (isDesigner) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
   }
   return (
-    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={persistOptions}
+    >
       {children}
     </PersistQueryClientProvider>
-  )
+  );
 }
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <QueryProvider>
-          <RootLayoutNav />
-        </QueryProvider>
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <QueryProvider>
+            <RootLayoutNav />
+          </QueryProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

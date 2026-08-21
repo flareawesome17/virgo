@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
-import { storageApi, type StoredFile } from '@/src/api';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { storageApi, type StoredFile, type StoredMediaKind } from '@/src/api';
 
-export const albumFilesQueryKey = (albumId?: string) =>
-  ['storage', 'files', albumId ?? 'all'] as const;
+export const albumFilesQueryKey = (albumId?: string, kind?: StoredMediaKind) =>
+  ['storage', 'files', albumId ?? 'all', kind ?? 'all'] as const;
 
 export type MediaKind = 'image' | 'video' | 'audio' | 'other';
 
@@ -37,15 +37,27 @@ export function fileDate(createdAt: string): string {
 
 export function useAlbumFiles(
   albumId: string | undefined,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; kind?: StoredMediaKind } = {},
 ) {
-  const query = useQuery({
-    queryKey: albumFilesQueryKey(albumId),
-    queryFn: () => storageApi.listFiles({ albumId, limit: 200 }),
+  const query = useInfiniteQuery({
+    queryKey: albumFilesQueryKey(albumId, options.kind),
+    queryFn: ({ pageParam }) =>
+      storageApi.listFiles({
+        albumId,
+        kind: options.kind,
+        cursor: pageParam,
+        // New APIs clamp this to 100. Legacy APIs honour 500 and return one
+        // unpaged array, which lets the compatibility normalizer classify the
+        // complete legacy album rather than only its first mixed-media slice.
+        limit: 500,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: (options.enabled ?? true) && !!albumId,
   });
 
-  const files: StoredFile[] = query.data?.data ?? [];
+  const files: StoredFile[] = query.data?.pages.flatMap((page) => page.data) ?? [];
+  const first = query.data?.pages[0];
 
   return {
     ...query,
@@ -55,6 +67,7 @@ export function useAlbumFiles(
     images: files.filter((f) => kindOf(f.contentType) === 'image'),
     videos: files.filter((f) => kindOf(f.contentType) === 'video'),
     audio: files.filter((f) => kindOf(f.contentType) === 'audio'),
-    total: query.data?.total ?? 0,
+    total: first?.total ?? 0,
+    counts: first?.counts ?? { image: 0, video: 0, audio: 0, other: 0 },
   };
 }

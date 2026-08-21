@@ -308,7 +308,7 @@ export default function ProfileSettingsScreen() {
             <Pressable
               onPress={handleChangePhoto}
               disabled={busy}
-              className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-primary items-center justify-center active:scale-[0.90]"
+              className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-action items-center justify-center active:scale-[0.90]"
               style={{ shadowColor: '#B66A40', shadowOpacity: 0.3, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4 }}
             >
               <CameraIcon size={14} className="text-white" />
@@ -434,7 +434,7 @@ export default function ProfileSettingsScreen() {
           // trip than to bounce a save back with a validation error.
           disabled={busy || roles.length === 0 || addressMissing.length > 0}
           className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${
-            blocked ? 'bg-muted' : saved ? 'bg-[#6B8E4E]' : 'bg-primary'
+            blocked ? 'bg-muted' : saved ? 'bg-[#6B8E4E]' : 'bg-action'
           }`}
         >
           <Text

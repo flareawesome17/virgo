@@ -3,8 +3,12 @@ import { clearTokens, getRefreshToken, setTokens } from '../tokens';
 import type {
   AuthResult,
   AuthUser,
+  LoginResult,
   RegisterResult,
   UpdateProfileInput,
+  TwoFactorSetup,
+  TwoFactorSetupResult,
+  TwoFactorStatus,
 } from '../types';
 
 export interface Credentials {
@@ -121,13 +125,84 @@ export const authApi = {
     return api.post('/auth/request-verification', { body: { email }, anonymous: true });
   },
 
-  async login(credentials: Credentials): Promise<AuthResult> {
-    const result = await api.post<AuthResult>('/auth/login', {
+  async login(credentials: Credentials): Promise<LoginResult> {
+    const result = await api.post<LoginResult>('/auth/login', {
       body: credentials,
+      anonymous: true,
+    });
+    if (!('twoFactorRequired' in result)) {
+      await setTokens(result.accessToken, result.refreshToken);
+    }
+    return result;
+  },
+
+  async completeTwoFactorLogin(
+    challengeToken: string,
+    code: string,
+  ): Promise<AuthResult> {
+    const result = await api.post<AuthResult>('/auth/login/2fa', {
+      body: { challengeToken, code },
       anonymous: true,
     });
     await setTokens(result.accessToken, result.refreshToken);
     return result;
+  },
+
+  twoFactorStatus(): Promise<TwoFactorStatus> {
+    return api.get('/auth/2fa/status');
+  },
+
+  beginTwoFactorSetup(password: string): Promise<TwoFactorSetup> {
+    return api.post('/auth/2fa/setup', { body: { password } });
+  },
+
+  async confirmTwoFactorSetup(
+    challengeToken: string,
+    code: string,
+  ): Promise<TwoFactorSetupResult> {
+    const result = await api.post<TwoFactorSetupResult>('/auth/2fa/confirm', {
+      body: { challengeToken, code },
+    });
+    await setTokens(result.accessToken, result.refreshToken);
+    return result;
+  },
+
+  resendTwoFactorCode(
+    challengeToken: string,
+  ): Promise<{ sent: true; expiresIn: '10m'; email: string }> {
+    return api.post('/auth/2fa/resend', {
+      body: { challengeToken },
+      anonymous: true,
+    });
+  },
+
+  beginTwoFactorSecurityAction(
+    password: string,
+    action: 'disable' | 'recovery',
+  ): Promise<TwoFactorSetup> {
+    return api.post('/auth/2fa/security-code', {
+      body: { password, action },
+    });
+  },
+
+  async disableTwoFactor(
+    challengeToken: string,
+    code: string,
+  ): Promise<{ disabled: true; user: AuthUser }> {
+    const result = await api.delete<{ disabled: true; user: AuthUser }>('/auth/2fa', {
+      body: { challengeToken, code },
+    });
+    await clearTokens();
+    return result;
+  },
+
+  regenerateTwoFactorRecoveryCodes(
+    challengeToken: string,
+    code: string,
+  ): Promise<{ recoveryCodes: string[] }> {
+    return api.post('/auth/2fa/recovery-codes', {
+      body: { challengeToken, code },
+    });
   },
 
   async logout(): Promise<void> {

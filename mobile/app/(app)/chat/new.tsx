@@ -169,7 +169,7 @@ export default function NewChatScreen() {
               <LoadFailed what="your friends" onRetry={() => refetch()} compact />
             ) : chattable.length === 0 ? (
               <Pressable
-                onPress={() => router.push('/(app)/(tabs)/network')}
+                onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
                 className="bg-card rounded-2xl px-4 py-6 items-center active:scale-[0.98]"
               >
                 <Text className="text-foreground text-sm font-semibold">No friends yet</Text>
@@ -208,7 +208,7 @@ export default function NewChatScreen() {
                         ) : null}
                       </View>
                       {on && (
-                        <View className="w-6 h-6 rounded-full bg-primary items-center justify-center">
+                        <View className="w-6 h-6 rounded-full bg-action items-center justify-center">
                           <CheckIcon size={14} className="text-white" />
                         </View>
                       )}
@@ -226,7 +226,7 @@ export default function NewChatScreen() {
               onPress={start}
               disabled={selected.length === 0 || busy}
               className={`rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97] ${
-                selected.length > 0 ? 'bg-primary' : 'bg-muted'
+                selected.length > 0 ? 'bg-action' : 'bg-muted'
               }`}
             >
               {busy && <ActivityIndicator size="small" color="#FFFFFF" />}

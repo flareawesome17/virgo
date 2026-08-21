@@ -13,6 +13,7 @@
       "bundleIdentifier": "com.virgo.app"
     },
     "android": {
+      "playStoreUrl": "https://play.google.com/store/apps/details?id=com.virgo.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFF8F4"
@@ -95,14 +96,25 @@
           }
         }
       ],
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
       [
         "expo-notifications",
         {
           "color": "#B66A40"
         }
       ],
-      "expo-video",
+      [
+        "expo-video",
+        {
+          "supportsPictureInPicture": true
+        }
+      ],
       "expo-build-properties"
     ],
     "web": {

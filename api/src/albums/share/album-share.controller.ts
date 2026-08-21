@@ -10,13 +10,27 @@ import {
   Param,
   Req,
   Post,
+  Query,
   Res,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
+import { Type } from 'class-transformer';
 import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { Public } from '../../auth/public.decorator';
-import { ArrayMaxSize, ArrayUnique, IsArray, IsIn, IsOptional } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import {
   ALL_MEDIA_KINDS,
   AlbumShareService,
@@ -41,6 +55,24 @@ export class CreateShareLinkDto {
   @ArrayMaxSize(3)
   @IsIn(ALL_MEDIA_KINDS, { each: true })
   kinds?: MediaKind[];
+}
+
+export class PublicGalleryQueryDto {
+  @IsOptional()
+  @IsIn(ALL_MEDIA_KINDS)
+  kind?: MediaKind;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  cursor?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
 }
 
 /** Owner-facing: create, read and revoke an album's client link. */
@@ -97,10 +129,14 @@ export class PublicAlbumController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
+    const nonce = randomBytes(16).toString('base64url');
     // Overrides helmet's global policy, which allows images only from 'self'
     // and has no media-src — that blocked every CDN-hosted photo, video and
     // audio file on this page.
-    res.setHeader('Content-Security-Policy', this.share.contentSecurityPolicy());
+    res.setHeader(
+      'Content-Security-Policy',
+      this.share.contentSecurityPolicy(nonce),
+    );
     // Helmet also sets same-origin CORP globally. The CDN is a different
     // origin, so embedding its responses has to be permitted here.
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -143,7 +179,7 @@ export class PublicAlbumController {
         this.logger.warn(`Visit not recorded: ${String(err)}`),
       );
 
-    res.send(renderClientGallery(view, token));
+    res.send(renderClientGallery(view, token, nonce));
   }
 
   /**
@@ -221,7 +257,10 @@ export class PublicAlbumController {
   @Public()
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get(':token/data')
-  data(@Param('token') token: string) {
-    return this.share.resolve(token);
+  data(
+    @Param('token') token: string,
+    @Query() query: PublicGalleryQueryDto,
+  ) {
+    return this.share.resolve(token, query);
   }
 }

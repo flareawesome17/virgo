@@ -10,6 +10,7 @@ import {
   useReminders,
 } from '@/src/hooks';
 import { RolesRequiredSheet, VerifyEmailBanner } from '@/components';
+import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
@@ -51,7 +52,7 @@ export default function AppLayout() {
         </Text>
         <Pressable
           onPress={() => retrySession()}
-          className="mt-6 bg-primary rounded-2xl px-8 py-3.5 active:scale-[0.96]"
+          className="mt-6 bg-action rounded-2xl px-8 py-3.5 active:scale-[0.96]"
         >
           <Text className="text-white text-base font-bold">Retry</Text>
         </Pressable>
@@ -75,9 +76,11 @@ export default function AppLayout() {
           it takes the top safe area, and it zeroes that inset for the screens
           underneath so they do not pad for the notch a second time. Renders
           its children untouched once the address is confirmed. */}
-      <VerifyEmailBanner>
-        <Stack screenOptions={{ headerShown: false }} />
-      </VerifyEmailBanner>
+      <AlbumAudioProvider>
+        <VerifyEmailBanner>
+          <Stack screenOptions={{ headerShown: false }} />
+        </VerifyEmailBanner>
+      </AlbumAudioProvider>
     </>
   );
 }

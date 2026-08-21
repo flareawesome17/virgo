@@ -255,7 +255,7 @@ export default function CreateWorkspaceScreen() {
         <Pressable
           onPress={() => canSave && handleCreate()}
           className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${
-            canSave ? 'bg-primary' : 'bg-muted'
+            canSave ? 'bg-action' : 'bg-muted'
           }`}
           disabled={!canSave || createWorkspace.isPending}
         >

@@ -77,7 +77,7 @@ export default function CalendarScreen() {
             <Text className="text-foreground text-[22px] font-bold tracking-tight">Calendar</Text>
             <Text className="text-muted-foreground text-sm mt-0.5">{events.length} events scheduled</Text>
           </View>
-          <Pressable onPress={() => router.push('/schedule/create')} className="w-11 h-11 rounded-2xl bg-primary items-center justify-center active:scale-[0.94]"
+          <Pressable onPress={() => router.push('/schedule/create')} className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <PlusIcon size={20} className="text-white" />
           </Pressable>
@@ -116,7 +116,7 @@ export default function CalendarScreen() {
                 <Pressable key={key} onPress={() => setSelectedDate(key)}
                   style={{ flex: 1 }} className="items-center pt-1 pb-2">
                   <View className={`w-9 h-9 rounded-xl items-center justify-center mb-1 ${
-                    cell.isToday ? 'bg-primary' : isSel ? 'bg-primary/10' : ''}`}>
+                    cell.isToday ? 'bg-action' : isSel ? 'bg-primary/10' : ''}`}>
                     <Text className={`text-sm font-bold ${cell.isOutside ? 'text-muted-foreground/20' : cell.isToday ? 'text-white' : isSel ? 'text-primary' : 'text-foreground'}`}>
                       {cell.day}
                     </Text>
@@ -169,7 +169,7 @@ export default function CalendarScreen() {
                 <Text className="text-foreground text-base font-bold">No events</Text>
                 <Text className="text-muted-foreground text-sm text-center">This day is clear — tap + to schedule something</Text>
               </View>
-              <Pressable onPress={() => router.push(`/schedule/create?date=${selectedDate}`)} className="bg-primary rounded-xl px-5 py-3 flex-row items-center gap-2 active:scale-[0.96]">
+              <Pressable onPress={() => router.push(`/schedule/create?date=${selectedDate}`)} className="bg-action rounded-xl px-5 py-3 flex-row items-center gap-2 active:scale-[0.96]">
                 <PlusIcon size={16} className="text-white" />
                 <Text className="text-white text-sm font-semibold">Add Event</Text>
               </Pressable>

@@ -63,6 +63,15 @@ export {
   useDeleteReminder,
 } from '@/src/hooks/useReminders'
 export { useServerVersion } from '@/src/hooks/useVersion';
+export {
+  useTwoFactorStatus,
+  useBeginTwoFactorSetup,
+  useConfirmTwoFactorSetup,
+  useResendTwoFactorCode,
+  useBeginTwoFactorSecurityAction,
+  useDisableTwoFactor,
+  useRegenerateTwoFactorRecoveryCodes,
+} from '@/src/hooks/useTwoFactor';
 
 export {
   useFriends,

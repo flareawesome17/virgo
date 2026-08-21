@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { storageApi, type UploadScope } from '@/api';
-import { albumFilesQueryKey } from '@/hooks/useAlbumFiles';
 import { usageQueryKey } from '@/hooks/useUsage';
 import { queryKeys } from '@/api';
 
@@ -99,7 +98,9 @@ export function useUpload(options: { scope: UploadScope; albumId?: string }) {
       setIsUploading(false);
       // Storage and the album's file list both changed; the album row's
       // derived counts and cover come from the albums query.
-      queryClient.invalidateQueries({ queryKey: albumFilesQueryKey(options.albumId) });
+      queryClient.invalidateQueries({
+        queryKey: ['storage', 'files', options.albumId ?? 'all'],
+      });
       queryClient.invalidateQueries({ queryKey: usageQueryKey });
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
       queryClient.invalidateQueries({ queryKey: ['storage'] });

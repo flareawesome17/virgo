@@ -42,6 +42,23 @@ export function validateEnv(
     );
   }
 
+  if (config.TWO_FACTOR_ENCRYPTION_KEY) {
+    const twoFactorKey = String(config.TWO_FACTOR_ENCRYPTION_KEY);
+    if (twoFactorKey.length < MIN_SECRET_LENGTH) {
+      throw new Error(
+        `TWO_FACTOR_ENCRYPTION_KEY must be at least ${MIN_SECRET_LENGTH} characters.`,
+      );
+    }
+    if (
+      twoFactorKey === config.JWT_ACCESS_SECRET ||
+      twoFactorKey === config.JWT_REFRESH_SECRET
+    ) {
+      throw new Error(
+        'TWO_FACTOR_ENCRYPTION_KEY must be different from both JWT secrets.',
+      );
+    }
+  }
+
   /*
    * Production must name its allowed origins.
    *

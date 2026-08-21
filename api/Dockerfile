@@ -21,6 +21,11 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# ffprobe extracts duration/dimensions/tags; ffmpeg generates lightweight
+# poster frames for film tiles. Media bytes still move directly between B2
+# and the client during normal viewing.
+RUN apk add --no-cache ffmpeg
+
 # The release this image was built from, for GET /version. Runtime env
 # rather than an inlined constant: the API serves the value, it does not
 # ship a bundle.
