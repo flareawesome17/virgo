@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,31 +9,210 @@ import {
   Text,
   View,
   useWindowDimensions,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { router, useLocalSearchParams } from "expo-router";
-import { Image } from "expo-image";
-import * as FileSystem from "expo-file-system/legacy";
-import * as MediaLibrary from "expo-media-library";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  interpolate,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-} from "react-native-reanimated";
+  withTiming,
+} from 'react-native-reanimated';
 import {
   DownloadSimple,
   Info,
   ShareNetwork,
   Trash,
   X,
-} from "phosphor-react-native";
-import { useQueryClient } from "@tanstack/react-query";
-import { useAlbumFiles } from "@/src/hooks";
-import { formatBytes, storageApi } from "@/src/api";
+} from 'phosphor-react-native';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAlbumFiles } from '@/src/hooks';
+import { formatBytes, storageApi, type StoredFile } from '@/src/api';
 
-const spring = { damping: 22, stiffness: 220 };
+const SPRING = { damping: 22, stiffness: 220 };
+const MAX_SCALE = 4;
+/** Vertical travel that commits to closing. Below it, the photo springs back. */
+const DISMISS_AT = 130;
+const THUMB = 46;
+
+/**
+ * One photo, zoomable, inside a paged carousel.
+ *
+ * Its own component so each page owns its zoom state. The previous viewer had a
+ * single transformed view and swapped the source underneath it, which meant the
+ * neighbouring photos never existed: a swipe moved one image sideways and then
+ * a new one appeared in place. Real pages let the next photo come in from the
+ * edge, which is the whole feel of a photo viewer.
+ *
+ * Reports zoom upward so the carousel can stop scrolling horizontally while a
+ * photo is magnified. Otherwise panning a zoomed photo pages away from it.
+ */
+function ZoomablePhoto({
+  photo,
+  width,
+  height,
+  onZoomChange,
+  onTap,
+  onDismiss,
+}: {
+  photo: StoredFile;
+  width: number;
+  height: number;
+  onZoomChange: (zoomed: boolean) => void;
+  onTap: () => void;
+  onDismiss: () => void;
+}) {
+  const scale = useSharedValue(1);
+  const startScale = useSharedValue(1);
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+  const startX = useSharedValue(0);
+  const startY = useSharedValue(0);
+  const dismissY = useSharedValue(0);
+
+  const reset = () => {
+    'worklet';
+    scale.value = withSpring(1, SPRING);
+    x.value = withSpring(0, SPRING);
+    y.value = withSpring(0, SPRING);
+  };
+
+  const pinch = Gesture.Pinch()
+    .onStart(() => {
+      startScale.value = scale.value;
+    })
+    .onUpdate((event) => {
+      scale.value = Math.max(
+        1,
+        Math.min(MAX_SCALE, startScale.value * event.scale),
+      );
+    })
+    .onEnd(() => {
+      if (scale.value < 1.05) {
+        reset();
+        runOnJS(onZoomChange)(false);
+      } else {
+        runOnJS(onZoomChange)(true);
+      }
+    });
+
+  /** Only while zoomed. Unzoomed horizontal drags belong to the carousel. */
+  const panZoomed = Gesture.Pan()
+    .minDistance(2)
+    .onStart(() => {
+      startX.value = x.value;
+      startY.value = y.value;
+    })
+    .onUpdate((event) => {
+      if (scale.value <= 1.01) return;
+      const maxX = (width * (scale.value - 1)) / 2;
+      const maxY = (height * (scale.value - 1)) / 2;
+      x.value = Math.max(
+        -maxX,
+        Math.min(maxX, startX.value + event.translationX),
+      );
+      y.value = Math.max(
+        -maxY,
+        Math.min(maxY, startY.value + event.translationY),
+      );
+    });
+
+  /**
+   * Drag down to close, the way Photos does.
+   *
+   * `failOffsetX` hands sideways drags to the carousel, so the two gestures do
+   * not argue over the same finger. Only active at rest: while zoomed, a
+   * downward drag is panning the photo, not closing it.
+   */
+  const dragToDismiss = Gesture.Pan()
+    .activeOffsetY([-14, 14])
+    .failOffsetX([-18, 18])
+    .onUpdate((event) => {
+      if (scale.value > 1.01) return;
+      dismissY.value = event.translationY;
+    })
+    .onEnd((event) => {
+      if (scale.value > 1.01) return;
+      if (Math.abs(event.translationY) > DISMISS_AT || event.velocityY > 900) {
+        runOnJS(onDismiss)();
+      } else {
+        dismissY.value = withSpring(0, SPRING);
+      }
+    });
+
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd(() => {
+      if (scale.value > 1.01) {
+        reset();
+        runOnJS(onZoomChange)(false);
+      } else {
+        scale.value = withSpring(2.4, SPRING);
+        runOnJS(onZoomChange)(true);
+      }
+    });
+
+  const singleTap = Gesture.Tap()
+    .numberOfTaps(1)
+    .onEnd(() => runOnJS(onTap)());
+
+  const gesture = Gesture.Simultaneous(
+    pinch,
+    Gesture.Race(panZoomed, dragToDismiss),
+    Gesture.Exclusive(doubleTap, singleTap),
+  );
+
+  const style = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: x.value },
+      { translateY: y.value + dismissY.value },
+      // Shrinks as it is dragged away, so the gesture reads as putting the
+      // photo back rather than sliding it off an edge.
+      {
+        scale:
+          scale.value *
+          interpolate(
+            Math.abs(dismissY.value),
+            [0, 260],
+            [1, 0.82],
+            'clamp',
+          ),
+      },
+      // `as const` because RN's transform type is a union of single-key
+      // objects; without it TypeScript widens the array and rejects every
+      // member for missing the other eleven keys.
+    ] as const,
+  }));
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <Animated.View
+        style={{ width, height }}
+        className="items-center justify-center"
+      >
+        <Animated.View style={[{ width, height }, style]}>
+          <Image
+            source={{ uri: photo.url ?? photo.thumbnailUrl ?? undefined }}
+            placeholder={
+              photo.thumbnailUrl ? { uri: photo.thumbnailUrl } : undefined
+            }
+            style={{ width: '100%', height: '100%' }}
+            contentFit="contain"
+            transition={160}
+            recyclingKey={photo.key}
+          />
+        </Animated.View>
+      </Animated.View>
+    </GestureDetector>
+  );
+}
 
 export default function PhotoViewerScreen() {
   const { albumId, index: routeIndex } = useLocalSearchParams<{
@@ -44,350 +223,350 @@ export default function PhotoViewerScreen() {
   const queryClient = useQueryClient();
   const filesQuery = useAlbumFiles(albumId);
   const photos = filesQuery.images;
+
+  const pager = useRef<FlatList<StoredFile>>(null);
+  const strip = useRef<FlatList<StoredFile>>(null);
   const [currentIndex, setCurrentIndex] = useState(
     Math.max(0, Number(routeIndex) || 0),
   );
-  const [chrome, setChrome] = useState(true);
+  const [zoomed, setZoomed] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [saving, setSaving] = useState(false);
-  const scale = useSharedValue(1);
-  const startScale = useSharedValue(1);
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  const startX = useSharedValue(0);
-  const startY = useSharedValue(0);
+  const chrome = useSharedValue(1);
+
   const photo = photos[currentIndex] ?? photos[0];
 
-  const reset = () => {
-    scale.value = withSpring(1, spring);
-    translateX.value = withSpring(0, spring);
-    translateY.value = withSpring(0, spring);
-  };
-  const move = (direction: number) => {
-    const next = Math.max(
-      0,
-      Math.min(currentIndex + direction, photos.length - 1),
-    );
-    if (next === currentIndex) {
-      translateX.value = withSpring(0, spring);
-      return;
-    }
-    setCurrentIndex(next);
-    setShowInfo(false);
-    reset();
-    if (
-      next >= photos.length - 3 &&
-      filesQuery.hasNextPage &&
-      !filesQuery.isFetchingNextPage
-    )
-      filesQuery.fetchNextPage();
-  };
+  const toggleChrome = useCallback(() => {
+    chrome.value = withTiming(chrome.value > 0.5 ? 0 : 1, { duration: 180 });
+  }, [chrome]);
 
+  const chromeStyle = useAnimatedStyle(() => ({ opacity: chrome.value }));
+
+  /** Keeps the filmstrip centred on whatever the pager settled on. */
   useEffect(() => {
-    if (currentIndex >= photos.length && photos.length)
-      setCurrentIndex(photos.length - 1);
+    if (!photos.length) return;
+    strip.current?.scrollToIndex({
+      index: Math.min(currentIndex, photos.length - 1),
+      animated: true,
+      viewPosition: 0.5,
+    });
   }, [currentIndex, photos.length]);
 
-  const pinch = Gesture.Pinch()
-    .onStart(() => {
-      startScale.value = scale.value;
-    })
-    .onUpdate((event) => {
-      scale.value = Math.max(1, Math.min(4, startScale.value * event.scale));
-    })
-    .onEnd(() => {
-      if (scale.value < 1.05) {
-        scale.value = withSpring(1, spring);
-        translateX.value = withSpring(0, spring);
-        translateY.value = withSpring(0, spring);
-      }
-    });
-  const pan = Gesture.Pan()
-    .minDistance(4)
-    .onStart(() => {
-      startX.value = translateX.value;
-      startY.value = translateY.value;
-    })
-    .onUpdate((event) => {
-      if (scale.value > 1.01) {
-        const maxX = width * (scale.value - 1) * 0.5;
-        const maxY = height * (scale.value - 1) * 0.35;
-        translateX.value = Math.max(
-          -maxX,
-          Math.min(maxX, startX.value + event.translationX),
-        );
-        translateY.value = Math.max(
-          -maxY,
-          Math.min(maxY, startY.value + event.translationY),
-        );
-      } else {
-        translateX.value = event.translationX;
-      }
-    })
-    .onEnd((event) => {
-      if (scale.value <= 1.01) {
-        if (
-          Math.abs(event.translationX) > width * 0.2 ||
-          Math.abs(event.velocityX) > 700
-        )
-          runOnJS(move)(event.translationX < 0 ? 1 : -1);
-        else translateX.value = withSpring(0, spring);
-      }
-    });
-  const doubleTap = Gesture.Tap()
-    .numberOfTaps(2)
-    .onEnd(() => {
-      if (scale.value > 1.01) {
-        scale.value = withSpring(1, spring);
-        translateX.value = withSpring(0, spring);
-        translateY.value = withSpring(0, spring);
-      } else scale.value = withSpring(2.25, spring);
-    });
-  const singleTap = Gesture.Tap()
-    .numberOfTaps(1)
-    .onEnd(() => runOnJS(setChrome)(!chrome));
-  const gesture = Gesture.Simultaneous(
-    pan,
-    pinch,
-    Gesture.Exclusive(doubleTap, singleTap),
-  );
-  const imageStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { scale: scale.value },
-    ] as const,
-  }));
+  useEffect(() => {
+    if (currentIndex >= photos.length && photos.length) {
+      setCurrentIndex(photos.length - 1);
+    }
+  }, [currentIndex, photos.length]);
 
-  if (!photo)
-    return (
-      <View className="flex-1 bg-[#141210] items-center justify-center px-8">
-        <Text className="text-white text-lg font-semibold">No photos yet</Text>
-        <Pressable
-          onPress={() => router.back()}
-          className="mt-6 bg-white/10 rounded-full px-6 py-3"
-        >
-          <Text className="text-white font-semibold">Go back</Text>
-        </Pressable>
-      </View>
-    );
+  const goTo = useCallback((index: number) => {
+    setCurrentIndex(index);
+    setShowInfo(false);
+    pager.current?.scrollToIndex({ index, animated: true });
+  }, []);
 
   const sharePhoto = async () => {
-    if (!photo.url) return;
+    if (!photo?.url) return;
     try {
       await Share.share(
-        Platform.OS === "ios"
+        Platform.OS === 'ios'
           ? { url: photo.url, message: photo.originalName }
-          : { message: `${photo.originalName} — ${photo.url}` },
+          : { message: `${photo.originalName} - ${photo.url}` },
       );
-    } catch {}
+    } catch (error) {
+      // Cancelling the sheet rejects on some platforms, which is not a failure
+      // worth interrupting anybody over. A real one is.
+      if (error instanceof Error && !/cancel/i.test(error.message)) {
+        Alert.alert('Could not share', 'Please try again.');
+      }
+    }
   };
+
   const savePhoto = async () => {
-    const source = photo.downloadUrl ?? photo.url;
-    if (!source || saving || !photo.capabilities.download) return;
+    const source = photo?.downloadUrl ?? photo?.url;
+    if (!source || saving || !photo?.capabilities.download) return;
     setSaving(true);
     try {
       const permission = await MediaLibrary.requestPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("Permission needed", "Allow photo access to save images.");
+        Alert.alert('Permission needed', 'Allow photo access to save images.');
         return;
       }
-      const safeName = photo.originalName.replace(/[^a-z0-9._-]/gi, "_");
+      const safeName = photo.originalName.replace(/[^a-z0-9._-]/gi, '_');
       const target = `${FileSystem.cacheDirectory}${safeName}`;
       const result = await FileSystem.downloadAsync(source, target);
-      if (result.status < 200 || result.status >= 300)
-        throw new Error("The image could not be downloaded.");
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error('The image could not be downloaded.');
+      }
       await MediaLibrary.saveToLibraryAsync(result.uri);
       await FileSystem.deleteAsync(result.uri, { idempotent: true });
-      Alert.alert("Saved", "The photo is in your library.");
+      Alert.alert('Saved', 'The photo is in your library.');
     } catch (error) {
       Alert.alert(
-        "Could not save",
-        error instanceof Error ? error.message : "Please try again.",
+        'Could not save',
+        error instanceof Error ? error.message : 'Please try again.',
       );
     } finally {
       setSaving(false);
     }
   };
-  const deletePhoto = () =>
+
+  const deletePhoto = () => {
+    if (!photo) return;
     Alert.alert(
-      "Remove photo?",
-      "This permanently removes the original and its thumbnail.",
+      'Remove photo?',
+      'This permanently removes the original and its thumbnail.',
       [
-        { text: "Cancel", style: "cancel" },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: "Remove",
-          style: "destructive",
+          text: 'Remove',
+          style: 'destructive',
           onPress: async () => {
             try {
               await storageApi.remove(photo.key);
               await queryClient.invalidateQueries({
-                queryKey: ["storage", "files", albumId],
+                queryKey: ['storage', 'files', albumId],
               });
               if (photos.length <= 1) router.back();
-              else
-                setCurrentIndex((value) =>
-                  Math.max(0, value - (value === photos.length - 1 ? 1 : 0)),
-                );
+              else setCurrentIndex((value) => Math.max(0, value - 1));
             } catch (error) {
               Alert.alert(
-                "Could not remove photo",
-                error instanceof Error ? error.message : "Please try again.",
+                'Could not remove photo',
+                error instanceof Error ? error.message : 'Please try again.',
               );
             }
           },
         },
       ],
     );
+  };
+
+  if (!photo) {
+    return (
+      <View className="flex-1 bg-black items-center justify-center px-8">
+        <Text className="text-white text-lg font-semibold">No photos yet</Text>
+        <Pressable
+          onPress={() => router.back()}
+          className="mt-6 bg-white/10 rounded-full px-6 py-3 active:opacity-70"
+        >
+          <Text className="text-white font-semibold">Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
-    <View className="flex-1 bg-[#141210]">
-      <GestureDetector gesture={gesture}>
-        <Animated.View className="flex-1 items-center justify-center overflow-hidden">
-          <Animated.View style={[{ width, height: height * 0.78 }, imageStyle]}>
-            <Image
-              source={{ uri: photo.url ?? undefined }}
-              style={{ width: "100%", height: "100%" }}
-              contentFit="contain"
-              transition={180}
-            />
-          </Animated.View>
-        </Animated.View>
-      </GestureDetector>
-      {chrome && (
-        <>
-          <SafeAreaView
-            edges={["top"]}
-            className="absolute top-0 left-0 right-0"
-          >
-            <View className="px-4 pt-2 flex-row items-center gap-3">
-              <Pressable
-                onPress={() => router.back()}
-                className="w-11 h-11 rounded-full bg-black/50 items-center justify-center"
+    <View className="flex-1 bg-black">
+      <FlatList
+        ref={pager}
+        data={photos}
+        keyExtractor={(item) => item.key}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEnabled={!zoomed}
+        initialScrollIndex={Math.min(currentIndex, Math.max(photos.length - 1, 0))}
+        getItemLayout={(_, index) => ({
+          length: width,
+          offset: width * index,
+          index,
+        })}
+        onMomentumScrollEnd={(event) => {
+          const next = Math.round(event.nativeEvent.contentOffset.x / width);
+          if (next !== currentIndex) {
+            setCurrentIndex(next);
+            setShowInfo(false);
+          }
+          if (
+            next >= photos.length - 3 &&
+            filesQuery.hasNextPage &&
+            !filesQuery.isFetchingNextPage
+          ) {
+            filesQuery.fetchNextPage();
+          }
+        }}
+        renderItem={({ item }) => (
+          <ZoomablePhoto
+            photo={item}
+            width={width}
+            height={height}
+            onZoomChange={setZoomed}
+            onTap={toggleChrome}
+            onDismiss={() => router.back()}
+          />
+        )}
+      />
+
+      <Animated.View
+        style={chromeStyle}
+        pointerEvents={zoomed ? 'none' : 'box-none'}
+        className="absolute inset-0"
+      >
+        <LinearGradient
+          colors={['rgba(0,0,0,0.72)', 'rgba(0,0,0,0)']}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 160 }}
+          pointerEvents="none"
+        />
+        <LinearGradient
+          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.82)']}
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 260,
+          }}
+          pointerEvents="none"
+        />
+
+        <SafeAreaView edges={['top']} className="absolute top-0 left-0 right-0">
+          <View className="px-4 pt-2 flex-row items-center gap-3">
+            <Pressable
+              onPress={() => router.back()}
+              hitSlop={8}
+              className="w-10 h-10 rounded-full bg-black/45 items-center justify-center active:opacity-70"
+            >
+              <X size={19} color="#fff" weight="regular" />
+            </Pressable>
+            <View className="flex-1 min-w-0">
+              <Text
+                className="text-white text-[15px] font-semibold"
+                numberOfLines={1}
               >
-                <X size={20} color="#fff" weight="light" />
-              </Pressable>
-              <View className="flex-1 min-w-0">
-                <Text
-                  className="text-white text-sm font-semibold"
-                  numberOfLines={1}
-                >
-                  {photo.originalName}
-                </Text>
-                <Text className="text-white/45 text-[10px] font-mono mt-0.5">
-                  {currentIndex + 1} / {filesQuery.counts.image}
-                </Text>
-              </View>
+                {photo.originalName}
+              </Text>
+              <Text className="text-white/45 text-[11px] mt-0.5">
+                {currentIndex + 1} of {filesQuery.counts.image}
+              </Text>
             </View>
-          </SafeAreaView>
-          <SafeAreaView
-            edges={["bottom"]}
-            className="absolute bottom-0 left-0 right-0"
-          >
-            <View className="px-4 pb-4">
-              <FlatList
-                horizontal
-                data={photos.slice(
-                  Math.max(0, currentIndex - 4),
-                  currentIndex + 5,
-                )}
-                keyExtractor={(item) => item.key}
-                contentContainerStyle={{
-                  gap: 7,
-                  justifyContent: "center",
-                  flexGrow: 1,
-                }}
-                showsHorizontalScrollIndicator={false}
-                renderItem={({ item }) => {
-                  const absolute = photos.indexOf(item);
-                  return (
-                    <Pressable
-                      onPress={() => {
-                        setCurrentIndex(absolute);
-                        reset();
-                      }}
-                      className={`w-11 h-11 rounded-[10px] overflow-hidden ${absolute === currentIndex ? "border-2 border-[#C17745]" : "opacity-50"}`}
-                    >
-                      <Image
-                        source={{
-                          uri: item.thumbnailUrl ?? item.url ?? undefined,
-                        }}
-                        style={{ width: "100%", height: "100%" }}
-                        contentFit="cover"
-                      />
-                    </Pressable>
-                  );
-                }}
+          </View>
+        </SafeAreaView>
+
+        <SafeAreaView
+          edges={['bottom']}
+          className="absolute bottom-0 left-0 right-0"
+        >
+          {showInfo && (
+            <View className="mx-4 mb-3 rounded-2xl bg-black/55 px-4 py-3">
+              <InfoRow
+                label="Taken"
+                value={new Date(photo.createdAt).toLocaleDateString('en-GB', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric',
+                })}
               />
-              <View className="mt-3 bg-[#211D1A]/95 rounded-[22px] p-1.5">
-                <View className="border border-white/10 rounded-[18px] px-4 py-3 flex-row items-center gap-3">
-                  <Pressable
-                    onPress={sharePhoto}
-                    className="w-10 h-10 rounded-full bg-white/8 items-center justify-center"
-                  >
-                    <ShareNetwork size={18} color="#fff" weight="light" />
-                  </Pressable>
-                  {photo.capabilities.download && (
-                    <Pressable
-                      onPress={savePhoto}
-                      disabled={saving}
-                      className="w-10 h-10 rounded-full bg-white/8 items-center justify-center"
-                    >
-                      {saving ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <DownloadSimple size={18} color="#fff" weight="light" />
-                      )}
-                    </Pressable>
-                  )}
-                  <Pressable
-                    onPress={() => setShowInfo((value) => !value)}
-                    className={`w-10 h-10 rounded-full items-center justify-center ${showInfo ? "bg-white/15" : "bg-white/8"}`}
-                  >
-                    <Info size={18} color="#fff" weight="light" />
-                  </Pressable>
-                  {photo.capabilities.delete && (
-                    <Pressable
-                      onPress={deletePhoto}
-                      className="w-10 h-10 rounded-full items-center justify-center ml-auto"
-                    >
-                      <Trash size={18} color="#EFA79E" weight="light" />
-                    </Pressable>
-                  )}
-                </View>
-                {showInfo && (
-                  <View className="px-4 py-4">
-                    <InfoRow
-                      label="Date"
-                      value={new Date(photo.createdAt).toLocaleDateString()}
-                    />
-                    <InfoRow
-                      label="Size"
-                      value={formatBytes(photo.sizeBytes)}
-                    />
-                    <InfoRow
-                      label="Dimensions"
-                      value={
-                        photo.width && photo.height
-                          ? `${photo.width} × ${photo.height}`
-                          : "Not available"
-                      }
-                    />
-                  </View>
-                )}
-              </View>
+              <InfoRow label="Size" value={formatBytes(photo.sizeBytes)} />
+              <InfoRow
+                label="Dimensions"
+                value={
+                  photo.width && photo.height
+                    ? `${photo.width} x ${photo.height}`
+                    : 'Not available'
+                }
+              />
             </View>
-          </SafeAreaView>
-        </>
-      )}
+          )}
+
+          {/* One continuous strip, not a sliding window over a slice. It scrolls
+              with the pager and can be dragged independently. */}
+          <FlatList
+            ref={strip}
+            data={photos}
+            keyExtractor={(item) => `strip-${item.key}`}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 6 }}
+            getItemLayout={(_, index) => ({
+              length: THUMB + 6,
+              offset: (THUMB + 6) * index,
+              index,
+            })}
+            onScrollToIndexFailed={() => {}}
+            renderItem={({ item, index }) => (
+              <Pressable
+                onPress={() => goTo(index)}
+                style={{ width: THUMB, height: THUMB }}
+                className={
+                  index === currentIndex
+                    ? 'rounded-[9px] overflow-hidden border-2 border-white'
+                    : 'rounded-[9px] overflow-hidden opacity-45'
+                }
+              >
+                <Image
+                  source={{ uri: item.thumbnailUrl ?? item.url ?? undefined }}
+                  style={{ width: '100%', height: '100%' }}
+                  contentFit="cover"
+                  recyclingKey={item.key}
+                />
+              </Pressable>
+            )}
+          />
+
+          <View className="flex-row items-center gap-2 px-4 pt-4 pb-2">
+            <Action onPress={sharePhoto} label="Share">
+              <ShareNetwork size={19} color="#fff" weight="regular" />
+            </Action>
+            {photo.capabilities.download && (
+              <Action onPress={savePhoto} label="Save" disabled={saving}>
+                {saving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <DownloadSimple size={19} color="#fff" weight="regular" />
+                )}
+              </Action>
+            )}
+            <Action
+              onPress={() => setShowInfo((value) => !value)}
+              label="Info"
+              active={showInfo}
+            >
+              <Info size={19} color="#fff" weight="regular" />
+            </Action>
+            <View className="flex-1" />
+            {photo.capabilities.delete && (
+              <Action onPress={deletePhoto} label="Remove">
+                <Trash size={19} color="#F2A9A0" weight="regular" />
+              </Action>
+            )}
+          </View>
+        </SafeAreaView>
+      </Animated.View>
     </View>
+  );
+}
+
+function Action({
+  children,
+  onPress,
+  label,
+  disabled,
+  active,
+}: {
+  children: React.ReactNode;
+  onPress: () => void;
+  label: string;
+  disabled?: boolean;
+  active?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityLabel={label}
+      hitSlop={6}
+      className={`w-11 h-11 rounded-full items-center justify-center active:opacity-70 ${
+        active ? 'bg-white/25' : 'bg-white/10'
+      }`}
+    >
+      {children}
+    </Pressable>
   );
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row justify-between gap-4 py-1">
-      <Text className="text-white/40 text-xs">{label}</Text>
+      <Text className="text-white/45 text-xs">{label}</Text>
       <Text className="text-white text-xs font-medium">{value}</Text>
     </View>
   );

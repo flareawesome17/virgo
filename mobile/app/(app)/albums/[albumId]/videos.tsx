@@ -1,22 +1,34 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
-  FlatList,
   Modal,
   Pressable,
   RefreshControl,
+  SectionList,
   Text,
   View,
   useWindowDimensions,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { router, useLocalSearchParams } from "expo-router";
-import { Image } from "expo-image";
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
 import {
   useVideoPlayer,
   VideoView,
   type VideoView as VideoViewType,
-} from "expo-video";
+} from 'expo-video';
 import {
   ArrowLeft,
   ArrowsOut,
@@ -29,18 +41,36 @@ import {
   SpeakerSlash,
   UploadSimple,
   X,
-} from "phosphor-react-native";
-import { useAlbum, useAlbumFiles } from "@/src/hooks";
-import { formatBytes, type StoredFile } from "@/src/api";
+} from 'phosphor-react-native';
+import { useAlbum, useAlbumFiles } from '@/src/hooks';
+import { LoadFailed } from '@/components/LoadFailed';
+import { MediaScrubber } from '@/components/MediaScrubber';
+import {
+  CHROME_HEIGHT,
+  DEFAULT_DENSITY,
+  DENSITIES,
+  HAIRLINE,
+  clock,
+  toSections,
+  type MediaRow,
+} from '@/src/lib/media-grid';
+import { type StoredFile } from '@/src/api';
 
-const ACCENT = "#C17745";
+/** How far the skip buttons jump. Ten is the iOS figure and the muscle memory. */
+const SKIP = 10;
 
-function clock(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const value = Math.floor(seconds);
-  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`;
-}
-
+/**
+ * Full-screen playback.
+ *
+ * The video takes the whole screen and is fitted inside it, rather than being
+ * poured into a fixed 16:9 box in the middle. A portrait clip shot on a phone
+ * is the common case for this app, and the old player reduced one to a letterbox
+ * strip with black above and below it.
+ *
+ * Controls fade rather than appearing and vanishing, and they sit over the
+ * picture instead of below it, so nothing about the frame moves when they come
+ * and go.
+ */
 function VideoPlayer({
   file,
   onClose,
@@ -48,7 +78,7 @@ function VideoPlayer({
   file: StoredFile;
   onClose: () => void;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const viewRef = useRef<VideoViewType>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [playing, setPlaying] = useState(true);
@@ -57,34 +87,48 @@ function VideoPlayer({
     file.durationMs ? file.durationMs / 1000 : 0,
   );
   const [muted, setMuted] = useState(false);
-  const [showControls, setShowControls] = useState(true);
   const [failed, setFailed] = useState(false);
-  const [barWidth, setBarWidth] = useState(0);
-  const player = useVideoPlayer(file.url ?? "", (instance) => {
+  const [saving, setSaving] = useState(false);
+  const controls = useSharedValue(1);
+  const visible = useRef(true);
+
+  const player = useVideoPlayer(file.url ?? '', (instance) => {
     instance.timeUpdateEventInterval = 0.25;
     instance.play();
   });
 
-  const reveal = () => {
-    setShowControls(true);
+  const setControls = useCallback(
+    (next: boolean) => {
+      visible.current = next;
+      controls.value = withTiming(next ? 1 : 0, { duration: 180 });
+    },
+    [controls],
+  );
+
+  const reveal = useCallback(() => {
+    setControls(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    if (playing)
-      hideTimer.current = setTimeout(() => setShowControls(false), 2500);
-  };
+    if (playing) {
+      hideTimer.current = setTimeout(() => setControls(false), 2800);
+    }
+  }, [playing, setControls]);
 
   useEffect(() => {
-    const playingSub = player.addListener("playingChange", ({ isPlaying }) => {
+    const playingSub = player.addListener('playingChange', ({ isPlaying }) => {
       setPlaying(isPlaying);
-      if (!isPlaying) setShowControls(true);
+      // A paused video is a video somebody is looking at deliberately. Leave
+      // the controls up rather than timing them out from under them.
+      if (!isPlaying) setControls(true);
     });
-    const timeSub = player.addListener("timeUpdate", ({ currentTime }) => {
+    const timeSub = player.addListener('timeUpdate', ({ currentTime }) => {
       setPosition(currentTime);
-      setDuration(player.duration || duration);
+      // Read the player rather than closing over `duration`, which would be
+      // whatever it was when this listener was created.
+      if (player.duration > 0) setDuration(player.duration);
     });
-    const statusSub = player.addListener("statusChange", ({ status }) => {
-      if (status === "error") setFailed(true);
+    const statusSub = player.addListener('statusChange', ({ status }) => {
+      if (status === 'error') setFailed(true);
     });
-    reveal();
     return () => {
       playingSub.remove();
       timeSub.remove();
@@ -92,312 +136,460 @@ function VideoPlayer({
       if (hideTimer.current) clearTimeout(hideTimer.current);
       player.pause();
     };
-    // player is stable for this mounted viewer.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player]);
+  }, [player, setControls]);
 
-  const progress = duration > 0 ? Math.min(position / duration, 1) : 0;
+  useEffect(() => {
+    reveal();
+  }, [reveal]);
+
+  const skip = (seconds: number) => {
+    player.currentTime = Math.max(
+      0,
+      Math.min(player.currentTime + seconds, duration || player.duration || 0),
+    );
+    void Haptics.selectionAsync();
+    reveal();
+  };
+
+  const saveOriginal = async () => {
+    const source = file.downloadUrl ?? file.url;
+    if (!source || saving) return;
+    setSaving(true);
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Allow photo access to save videos.');
+        return;
+      }
+      const safeName = file.originalName.replace(/[^a-z0-9._-]/gi, '_');
+      const result = await FileSystem.downloadAsync(
+        source,
+        `${FileSystem.cacheDirectory}${safeName}`,
+      );
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error('The video could not be downloaded.');
+      }
+      await MediaLibrary.saveToLibraryAsync(result.uri);
+      await FileSystem.deleteAsync(result.uri, { idempotent: true });
+      Alert.alert('Saved', 'The video is in your library.');
+    } catch (error) {
+      Alert.alert(
+        'Could not save',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleControls = useCallback(() => {
+    if (visible.current) setControls(false);
+    else reveal();
+  }, [reveal, setControls]);
+
+  const tap = useMemo(
+    () => Gesture.Tap().onEnd(() => runOnJS(toggleControls)()),
+    [toggleControls],
+  );
+
+  const controlsStyle = useAnimatedStyle(() => ({ opacity: controls.value }));
+
   if (failed) {
     return (
       <SafeAreaView
-        edges={["top", "bottom"]}
-        className="flex-1 bg-[#141210] items-center justify-center px-8"
+        edges={['top', 'bottom']}
+        className="flex-1 bg-black items-center justify-center px-8"
       >
         <FilmSlate size={44} color="rgba(255,255,255,.3)" weight="light" />
         <Text className="text-white text-lg font-semibold text-center mt-5">
           This video cannot play on this device
         </Text>
-        <Text className="text-white/45 text-sm text-center mt-2">
+        <Text className="text-white/45 text-sm text-center mt-2 leading-5">
           The original codec may only be supported on the device that recorded
-          it.
+          it. You can still save the file and open it elsewhere.
         </Text>
-        {file.capabilities.download && file.downloadUrl && (
+        {file.capabilities.download && (
           <Pressable
-            onPress={() =>
-              Alert.alert("Download original", file.downloadUrl ?? "")
-            }
-            className="mt-7 bg-[#C17745] rounded-full px-6 py-3 flex-row items-center gap-2"
+            onPress={saveOriginal}
+            disabled={saving}
+            className="mt-7 bg-[#C17745] rounded-full px-6 py-3 flex-row items-center gap-2 active:opacity-85"
           >
-            <DownloadSimple size={17} color="#fff" weight="light" />
-            <Text className="text-white font-semibold">Download original</Text>
+            {saving ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <DownloadSimple size={17} color="#fff" weight="regular" />
+            )}
+            <Text className="text-white font-semibold">Save the original</Text>
           </Pressable>
         )}
         <Pressable
           onPress={onClose}
-          className="absolute top-12 left-4 w-11 h-11 rounded-full bg-white/10 items-center justify-center"
+          className="absolute top-12 left-4 w-10 h-10 rounded-full bg-white/10 items-center justify-center active:opacity-70"
         >
-          <X size={20} color="#fff" weight="light" />
+          <X size={19} color="#fff" weight="regular" />
         </Pressable>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-[#141210]">
-      <Pressable
-        className="flex-1 items-center justify-center"
-        onPress={() => (showControls ? setShowControls(false) : reveal())}
+    <View className="flex-1 bg-black">
+      <GestureDetector gesture={tap}>
+        <View className="flex-1">
+          <VideoView
+            ref={viewRef}
+            player={player}
+            style={{ width, height }}
+            contentFit="contain"
+            nativeControls={false}
+            allowsFullscreen
+            allowsPictureInPicture
+          />
+        </View>
+      </GestureDetector>
+
+      <Animated.View
+        style={controlsStyle}
+        pointerEvents="box-none"
+        className="absolute inset-0"
       >
-        <VideoView
-          ref={viewRef}
-          player={player}
-          style={{ width, aspectRatio: 16 / 9, backgroundColor: "#141210" }}
-          contentFit="contain"
-          nativeControls={false}
-          allowsFullscreen
-          allowsPictureInPicture
+        <LinearGradient
+          colors={['rgba(0,0,0,0.65)', 'rgba(0,0,0,0)']}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 150 }}
+          pointerEvents="none"
         />
-        {showControls && (
-          <>
-            <View className="absolute top-0 left-0 right-0 px-4 pt-2 flex-row items-center gap-3">
-              <Pressable
-                onPress={onClose}
-                className="w-11 h-11 rounded-full bg-black/45 items-center justify-center"
-              >
-                <X size={20} color="#fff" weight="light" />
-              </Pressable>
-              <View className="flex-1 min-w-0">
-                <Text
-                  className="text-white text-sm font-semibold"
-                  numberOfLines={1}
-                >
-                  {file.originalName}
-                </Text>
-                <Text className="text-white/45 text-[10px] font-mono mt-0.5">
-                  {formatBytes(file.sizeBytes)}
-                </Text>
-              </View>
-            </View>
+        <LinearGradient
+          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.78)']}
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 200,
+          }}
+          pointerEvents="none"
+        />
+
+        <SafeAreaView edges={['top']} className="absolute top-0 left-0 right-0">
+          <View className="px-4 pt-2 flex-row items-center gap-3">
             <Pressable
-              onPress={() => (playing ? player.pause() : player.play())}
-              className="absolute w-16 h-16 rounded-full bg-black/55 items-center justify-center active:scale-[.94]"
+              onPress={onClose}
+              hitSlop={8}
+              className="w-10 h-10 rounded-full bg-black/45 items-center justify-center active:opacity-70"
             >
-              {playing ? (
-                <Pause size={27} color="#fff" weight="fill" />
-              ) : (
-                <Play size={28} color="#fff" weight="fill" />
-              )}
+              <X size={19} color="#fff" weight="regular" />
             </Pressable>
-            <View className="absolute left-3 right-3 bottom-3 bg-[#211D1A]/95 rounded-[22px] p-1.5">
-              <View className="border border-white/10 rounded-[18px] px-4 py-3">
+            <Text
+              className="text-white text-[15px] font-semibold flex-1"
+              numberOfLines={1}
+            >
+              {file.mediaTitle || file.originalName}
+            </Text>
+          </View>
+        </SafeAreaView>
+
+        {/* Transport in the middle, where a thumb reaches without moving the
+            phone, and where iOS puts it. */}
+        <View className="flex-1 flex-row items-center justify-center gap-9">
+          <Pressable
+            onPress={() => skip(-SKIP)}
+            hitSlop={10}
+            accessibilityLabel={`Back ${SKIP} seconds`}
+            className="items-center active:opacity-70"
+          >
+            <ArrowLeft size={26} color="#fff" weight="regular" />
+            <Text className="text-white/70 text-[10px] font-mono mt-0.5">
+              {SKIP}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              if (playing) player.pause();
+              else player.play();
+              reveal();
+            }}
+            className="w-[72px] h-[72px] rounded-full bg-black/50 items-center justify-center active:opacity-70"
+          >
+            {playing ? (
+              <Pause size={30} color="#fff" weight="fill" />
+            ) : (
+              <Play size={30} color="#fff" weight="fill" />
+            )}
+          </Pressable>
+          <Pressable
+            onPress={() => skip(SKIP)}
+            hitSlop={10}
+            accessibilityLabel={`Forward ${SKIP} seconds`}
+            className="items-center active:opacity-70"
+          >
+            <ArrowLeft
+              size={26}
+              color="#fff"
+              weight="regular"
+              style={{ transform: [{ scaleX: -1 }] }}
+            />
+            <Text className="text-white/70 text-[10px] font-mono mt-0.5">
+              {SKIP}
+            </Text>
+          </Pressable>
+        </View>
+
+        <SafeAreaView
+          edges={['bottom']}
+          className="absolute bottom-0 left-0 right-0"
+        >
+          <View className="px-5 pb-2">
+            <MediaScrubber
+              position={position}
+              duration={duration}
+              onSeek={(seconds) => {
+                player.currentTime = seconds;
+                setPosition(seconds);
+                reveal();
+              }}
+            />
+            <View className="flex-row items-center gap-6 mt-2">
+              <Pressable
+                onPress={() => {
+                  const next = !muted;
+                  player.muted = next;
+                  setMuted(next);
+                  reveal();
+                }}
+                hitSlop={8}
+                accessibilityLabel={muted ? 'Unmute' : 'Mute'}
+                className="active:opacity-70"
+              >
+                {muted ? (
+                  <SpeakerSlash size={19} color="#fff" weight="regular" />
+                ) : (
+                  <SpeakerHigh size={19} color="#fff" weight="regular" />
+                )}
+              </Pressable>
+              <View className="flex-1" />
+              {file.capabilities.download && (
                 <Pressable
-                  onLayout={(event) =>
-                    setBarWidth(event.nativeEvent.layout.width)
-                  }
-                  onPress={(event) => {
-                    if (!duration) return;
-                    const next =
-                      Math.max(
-                        0,
-                        Math.min(
-                          event.nativeEvent.locationX / Math.max(barWidth, 1),
-                          1,
-                        ),
-                      ) * duration;
-                    player.currentTime = next;
-                    setPosition(next);
-                  }}
-                  className="h-6 justify-center"
+                  onPress={saveOriginal}
+                  disabled={saving}
+                  hitSlop={8}
+                  accessibilityLabel="Save to library"
+                  className="active:opacity-70"
                 >
-                  <View className="h-1 rounded-full bg-white/15 overflow-hidden">
-                    <View
-                      className="h-full bg-[#D89566] rounded-full"
-                      style={{ width: `${progress * 100}%` }}
-                    />
-                  </View>
+                  {saving ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <DownloadSimple size={19} color="#fff" weight="regular" />
+                  )}
                 </Pressable>
-                <View className="flex-row items-center gap-4 mt-2">
-                  <Pressable
-                    onPress={() => (playing ? player.pause() : player.play())}
-                  >
-                    {playing ? (
-                      <Pause size={18} color="#fff" weight="fill" />
-                    ) : (
-                      <Play size={18} color="#fff" weight="fill" />
-                    )}
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      const next = !muted;
-                      player.muted = next;
-                      setMuted(next);
-                    }}
-                  >
-                    {muted ? (
-                      <SpeakerSlash
-                        size={18}
-                        color="rgba(255,255,255,.65)"
-                        weight="light"
-                      />
-                    ) : (
-                      <SpeakerHigh
-                        size={18}
-                        color="rgba(255,255,255,.65)"
-                        weight="light"
-                      />
-                    )}
-                  </Pressable>
-                  <Text className="text-white/50 text-[10px] font-mono flex-1">
-                    {clock(position)} / {clock(duration)}
-                  </Text>
-                  <Pressable
-                    onPress={() => viewRef.current?.startPictureInPicture()}
-                  >
-                    <PictureInPicture
-                      size={18}
-                      color="rgba(255,255,255,.65)"
-                      weight="light"
-                    />
-                  </Pressable>
-                  <Pressable onPress={() => viewRef.current?.enterFullscreen()}>
-                    <ArrowsOut
-                      size={18}
-                      color="rgba(255,255,255,.65)"
-                      weight="light"
-                    />
-                  </Pressable>
-                </View>
-              </View>
+              )}
+              <Pressable
+                onPress={() => viewRef.current?.startPictureInPicture()}
+                hitSlop={8}
+                accessibilityLabel="Picture in picture"
+                className="active:opacity-70"
+              >
+                <PictureInPicture size={19} color="#fff" weight="regular" />
+              </Pressable>
+              <Pressable
+                onPress={() => viewRef.current?.enterFullscreen()}
+                hitSlop={8}
+                accessibilityLabel="Full screen"
+                className="active:opacity-70"
+              >
+                <ArrowsOut size={19} color="#fff" weight="regular" />
+              </Pressable>
             </View>
-          </>
-        )}
-      </Pressable>
-    </SafeAreaView>
+          </View>
+        </SafeAreaView>
+      </Animated.View>
+    </View>
   );
 }
 
 export default function VideosScreen() {
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
+  const { width } = useWindowDimensions();
   const [selected, setSelected] = useState<StoredFile | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [density, setDensity] = useState(DEFAULT_DENSITY);
   const { data: album, refetch: refetchAlbum } = useAlbum(albumId);
   const filesQuery = useAlbumFiles(albumId);
   const files = filesQuery.videos;
-  const refresh = async () => {
+
+  const columns = DENSITIES[density];
+  const tile = (width - HAIRLINE * (columns - 1)) / columns;
+  const sections = useMemo(() => toSections(files, columns), [files, columns]);
+
+  const refresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([refetchAlbum(), filesQuery.refetch()]);
     setRefreshing(false);
-  };
+  }, [refetchAlbum, filesQuery]);
 
-  return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-[#141210]">
-      <FlatList
-        data={files}
-        keyExtractor={(item) => item.key}
-        numColumns={2}
-        columnWrapperStyle={{ gap: 10 }}
-        contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 60 }}
-        onEndReached={() =>
-          filesQuery.hasNextPage &&
-          !filesQuery.isFetchingNextPage &&
-          filesQuery.fetchNextPage()
-        }
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refresh}
-            tintColor={ACCENT}
-          />
-        }
-        ListHeaderComponent={
-          <View className="pt-3 pb-6">
-            <View className="flex-row items-center gap-3">
-              <Pressable
-                onPress={() => router.back()}
-                className="w-11 h-11 rounded-full bg-white/10 items-center justify-center"
-              >
-                <ArrowLeft size={19} color="#fff" weight="light" />
-              </Pressable>
-              <View className="flex-1">
-                <Text
-                  className="text-white text-2xl font-semibold tracking-[-1px]"
-                  numberOfLines={1}
-                >
-                  {album?.name || "Films"}
-                </Text>
-                <Text className="text-white/40 text-xs mt-1">
-                  {filesQuery.counts.video} film
-                  {filesQuery.counts.video === 1 ? "" : "s"}
-                </Text>
-              </View>
-            </View>
-            <Text className="text-[#D89566] text-[10px] uppercase tracking-[2px] font-mono mt-8">
-              Film room
-            </Text>
-          </View>
-        }
-        renderItem={({ item, index }) => (
+  const changeDensity = useCallback((step: number) => {
+    setDensity((current) => {
+      const next = Math.min(Math.max(current + step, 0), DENSITIES.length - 1);
+      if (next !== current) void Haptics.selectionAsync();
+      return next;
+    });
+  }, []);
+
+  const pinch = useMemo(
+    () =>
+      Gesture.Pinch().onEnd((event) => {
+        const step = event.scale > 1.15 ? -1 : event.scale < 0.87 ? 1 : 0;
+        if (step !== 0) runOnJS(changeDensity)(step);
+      }),
+    [changeDensity],
+  );
+
+  const renderRow = useCallback(
+    ({ item: row }: { item: MediaRow }) => (
+      <View
+        className="flex-row"
+        style={{ gap: HAIRLINE, marginBottom: HAIRLINE }}
+      >
+        {row.items.map((file) => (
           <Pressable
-            onPress={() => setSelected(item)}
-            className="flex-1 mb-10 active:scale-[.985]"
-            style={{ marginRight: index % 2 === 0 ? 0 : undefined }}
+            key={file.key}
+            onPress={() => setSelected(file)}
+            style={{ width: tile, height: tile }}
+            className="bg-white/[0.04] active:opacity-75"
           >
-            <View className="aspect-video rounded-[18px] overflow-hidden bg-[#211D1A]">
-              {item.posterUrl ? (
-                <Image
-                  source={{ uri: item.posterUrl }}
-                  style={{ width: "100%", height: "100%" }}
-                  contentFit="cover"
-                  transition={250}
+            {file.posterUrl ? (
+              <Image
+                source={{ uri: file.posterUrl }}
+                style={{ width: '100%', height: '100%' }}
+                contentFit="cover"
+                transition={140}
+                recyclingKey={file.key}
+              />
+            ) : (
+              <View className="flex-1 items-center justify-center">
+                <FilmSlate
+                  size={24}
+                  color="rgba(255,255,255,.22)"
+                  weight="light"
                 />
-              ) : (
-                <View className="flex-1 items-center justify-center">
-                  <FilmSlate
-                    size={28}
-                    color="rgba(255,255,255,.22)"
-                    weight="light"
-                  />
-                </View>
-              )}
-              <View className="absolute inset-0 items-center justify-center">
-                <View className="w-10 h-10 rounded-full bg-black/55 items-center justify-center">
-                  <Play size={15} color="#fff" weight="fill" />
-                </View>
               </View>
-            </View>
-            <Text
-              className="text-white text-sm font-semibold mt-3"
-              numberOfLines={1}
-            >
-              {item.originalName}
-            </Text>
-            <Text className="text-white/35 text-[10px] font-mono mt-1">
-              {item.durationMs
-                ? clock(item.durationMs / 1000)
-                : item.processingStatus === "pending"
-                  ? "PREPARING"
-                  : formatBytes(item.sizeBytes)}
+            )}
+            {/* Duration bottom-right over a scrim, which is where every video
+                grid worth copying puts it, and the only metadata a thumbnail
+                actually needs. */}
+            <LinearGradient
+              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']}
+              style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 34,
+              }}
+              pointerEvents="none"
+            />
+            <Text className="absolute bottom-1 right-1.5 text-white text-[11px] font-medium">
+              {file.durationMs
+                ? clock(file.durationMs / 1000)
+                : file.processingStatus === 'pending'
+                  ? '...'
+                  : ''}
             </Text>
           </Pressable>
-        )}
-        ListEmptyComponent={
-          !filesQuery.isLoading ? (
-            <View className="items-center px-8 pt-24">
-              <FilmSlate
-                size={42}
-                color="rgba(255,255,255,.25)"
-                weight="light"
+        ))}
+        {row.items.length < columns &&
+          Array.from({ length: columns - row.items.length }).map((_, index) => (
+            <View key={`gap-${index}`} style={{ width: tile, height: tile }} />
+          ))}
+      </View>
+    ),
+    [columns, tile],
+  );
+
+  return (
+    <View className="flex-1 bg-[#0E0C0B]">
+      <GestureDetector gesture={pinch}>
+        <View className="flex-1">
+          <SectionList
+            sections={sections}
+            keyExtractor={(row) => `${columns}-${row.firstIndex}`}
+            renderItem={renderRow}
+            renderSectionHeader={({ section }) => (
+              <View className="bg-[#0E0C0B] px-4 pt-5 pb-2">
+                <Text className="text-white text-[15px] font-semibold tracking-[-0.2px]">
+                  {section.title}
+                </Text>
+              </View>
+            )}
+            stickySectionHeadersEnabled
+            contentContainerStyle={{
+              paddingTop: CHROME_HEIGHT,
+              paddingBottom: 40,
+            }}
+            onEndReachedThreshold={0.6}
+            onEndReached={() => {
+              if (filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) {
+                filesQuery.fetchNextPage();
+              }
+            }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={refresh}
+                tintColor="#C17745"
+                progressViewOffset={CHROME_HEIGHT}
               />
-              <Text className="text-white text-lg font-semibold mt-5">
-                No films yet
-              </Text>
-              <Text className="text-white/40 text-sm text-center mt-2">
-                Upload a video and Virgo will prepare its poster and playback
-                details.
-              </Text>
-              <Pressable
-                onPress={() =>
-                  router.push(`/albums/upload?albumId=${albumId}&kind=media`)
-                }
-                className="mt-7 bg-[#C17745] rounded-full px-6 py-3 flex-row items-center gap-2"
-              >
-                <UploadSimple size={17} color="#fff" weight="light" />
-                <Text className="text-white font-semibold">Upload video</Text>
-              </Pressable>
-            </View>
-          ) : null
-        }
-      />
+            }
+            ListEmptyComponent={
+              filesQuery.isLoading ? null : filesQuery.loadFailed ? (
+                <View className="px-6 pt-20">
+                  <LoadFailed
+                    what="these films"
+                    onRetry={() => filesQuery.refetch()}
+                  />
+                </View>
+              ) : (
+                <Empty albumId={albumId} />
+              )
+            }
+          />
+        </View>
+      </GestureDetector>
+
+      <SafeAreaView edges={['top']} className="absolute top-0 left-0 right-0">
+        <LinearGradient
+          colors={['rgba(14,12,11,0.94)', 'rgba(14,12,11,0)']}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 130,
+          }}
+          pointerEvents="none"
+        />
+        <View className="px-4 pt-2 pb-3 flex-row items-center gap-3">
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={8}
+            className="w-10 h-10 rounded-full bg-black/40 items-center justify-center active:opacity-70"
+          >
+            <ArrowLeft size={19} color="#fff" weight="regular" />
+          </Pressable>
+          <View className="flex-1 min-w-0">
+            <Text
+              className="text-white text-[17px] font-semibold tracking-[-0.3px]"
+              numberOfLines={1}
+            >
+              {album?.name || 'Films'}
+            </Text>
+            <Text className="text-white/45 text-[12px] mt-0.5">
+              {filesQuery.counts.video}{' '}
+              {filesQuery.counts.video === 1 ? 'film' : 'films'}
+            </Text>
+          </View>
+        </View>
+      </SafeAreaView>
+
       <Modal
         visible={!!selected}
         animationType="fade"
@@ -408,6 +600,29 @@ export default function VideosScreen() {
           <VideoPlayer file={selected} onClose={() => setSelected(null)} />
         )}
       </Modal>
-    </SafeAreaView>
+    </View>
+  );
+}
+
+function Empty({ albumId }: { albumId: string }) {
+  return (
+    <View className="items-center px-8 pt-24">
+      <FilmSlate size={40} color="rgba(255,255,255,.22)" weight="light" />
+      <Text className="text-white text-lg font-semibold mt-5">
+        No films yet
+      </Text>
+      <Text className="text-white/40 text-sm text-center mt-2 leading-5">
+        Upload a video and Virgo will prepare its poster and playback details.
+      </Text>
+      <Pressable
+        onPress={() =>
+          router.push(`/albums/upload?albumId=${albumId}&kind=media`)
+        }
+        className="mt-7 bg-[#C17745] rounded-full px-6 py-3 flex-row items-center gap-2 active:opacity-85"
+      >
+        <UploadSimple size={17} color="#fff" weight="regular" />
+        <Text className="text-white font-semibold">Upload video</Text>
+      </Pressable>
+    </View>
   );
 }

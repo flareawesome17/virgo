@@ -1,299 +1,802 @@
-import { useState } from "react";
-import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  Pressable,
+  RefreshControl,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  Extrapolation,
+  cancelAnimation,
+  interpolate,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import {
+  ArrowClockwise,
   ArrowCounterClockwise,
   ArrowLeft,
-  ArrowsClockwise,
+  CaretDown,
   MusicNotesSimple,
   Pause,
   Play,
+  Repeat,
+  RepeatOnce,
   Shuffle,
   SkipBack,
   SkipForward,
   UploadSimple,
-} from "phosphor-react-native";
-import { useAlbum, useAlbumFiles } from "@/src/hooks";
-import { formatBytes, type StoredFile } from "@/src/api";
-import { useAlbumAudio } from "@/src/providers/AlbumAudioProvider";
+} from 'phosphor-react-native';
+import { useAlbum, useAlbumFiles } from '@/src/hooks';
+import { useAlbumAudio } from '@/src/providers/AlbumAudioProvider';
+import { LoadFailed } from '@/components/LoadFailed';
+import { MediaScrubber } from '@/components/MediaScrubber';
+import { clock } from '@/src/lib/media-grid';
+import { type StoredFile } from '@/src/api';
 
-function clock(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const total = Math.floor(seconds);
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+const ACCENT = '#C17745';
+const ACCENT_LIGHT = '#D89566';
+const GROUND = '#0E0C0B';
+
+/**
+ * Created once, at module scope: `createAnimatedComponent` inside a render
+ * would hand React a new component type on every pass and remount the list.
+ */
+const TrackList = Animated.createAnimatedComponent(FlatList<StoredFile>);
+
+/** Playback speeds, cycled by the pill in the full player. */
+const RATES = [0.5, 1, 1.25, 1.5, 2];
+
+/** Scroll distance over which the artwork gives way to the compact title. */
+const COLLAPSE = 190;
+
+/** One bar of the equaliser, scaled from its base so it grows upward. */
+function Bar({
+  playing,
+  from,
+  duration,
+}: {
+  playing: boolean;
+  from: number;
+  duration: number;
+}) {
+  const height = useSharedValue(from);
+
+  useEffect(() => {
+    cancelAnimation(height);
+    height.value = playing
+      ? withRepeat(withTiming(1, { duration }), -1, true)
+      : withTiming(0.28, { duration: 160 });
+    return () => cancelAnimation(height);
+  }, [playing, duration, height]);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scaleY: height.value }],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: 2.5,
+          height: 14,
+          borderRadius: 2,
+          backgroundColor: ACCENT_LIGHT,
+          transformOrigin: 'bottom',
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+/**
+ * The three bars every music app shows beside the track that is playing.
+ *
+ * They stop when playback stops, which is the whole point of them — a row that
+ * is merely selected should not look like a row that is making sound. The old
+ * list drew the same filled circle for both and left you to guess.
+ */
+function PlayingBars({ playing }: { playing: boolean }) {
+  return (
+    <View className="flex-row items-end gap-[2px] h-3.5">
+      <Bar playing={playing} from={0.45} duration={460} />
+      <Bar playing={playing} from={1} duration={330} />
+      <Bar playing={playing} from={0.7} duration={570} />
+    </View>
+  );
+}
+
+/** Album art, or a tinted note when the album has no cover. */
+function Artwork({
+  uri,
+  size,
+  radius = 12,
+}: {
+  uri?: string | null;
+  size: number;
+  radius?: number;
+}) {
+  if (uri) {
+    return (
+      <Image
+        source={{ uri }}
+        style={{ width: size, height: size, borderRadius: radius }}
+        contentFit="cover"
+        transition={160}
+      />
+    );
+  }
+  return (
+    <View
+      style={{ width: size, height: size, borderRadius: radius }}
+      className="bg-[#2A2320] items-center justify-center"
+    >
+      <MusicNotesSimple
+        size={Math.max(16, size * 0.32)}
+        color={ACCENT_LIGHT}
+        weight="fill"
+      />
+    </View>
+  );
 }
 
 export default function AudioScreen() {
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
+  const { width } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
-  const [barWidth, setBarWidth] = useState(0);
+  const [expanded, setExpanded] = useState(false);
   const { data: album, refetch: refetchAlbum } = useAlbum(albumId);
   const filesQuery = useAlbumFiles(albumId);
   const files = filesQuery.audio;
   const audio = useAlbumAudio();
+  const scrollY = useSharedValue(0);
+
+  const cover = album?.cover_url ?? null;
+  const art = Math.min(width - 112, 250);
   const activeKey =
     audio.current?.albumId === albumId ? audio.current.key : null;
-  const progress =
-    audio.duration > 0 ? Math.min(audio.position / audio.duration, 1) : 0;
-  const select = (file: StoredFile, index: number) => {
-    if (activeKey === file.key) audio.toggle();
-    else
-      audio.playQueue(
-        files,
-        index,
-        album?.name ?? "Virgo album",
-        (album as { cover_url?: string | null } | undefined)?.cover_url,
-      );
-  };
-  const refresh = async () => {
+  const docked = !!activeKey && !!audio.current;
+
+  const minutes = useMemo(() => {
+    const ms = files.reduce((sum, file) => sum + (file.durationMs ?? 0), 0);
+    return ms > 0 ? Math.max(1, Math.round(ms / 60_000)) : 0;
+  }, [files]);
+
+  const play = useCallback(
+    (index: number) => {
+      audio.playQueue(files, index, album?.name ?? 'Virgo album', cover);
+    },
+    [audio, files, album?.name, cover],
+  );
+
+  const select = useCallback(
+    (file: StoredFile, index: number) => {
+      if (activeKey === file.key) audio.toggle();
+      else play(index);
+    },
+    [activeKey, audio, play],
+  );
+
+  const refresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([refetchAlbum(), filesQuery.refetch()]);
     setRefreshing(false);
-  };
-  const rates = [0.5, 1, 1.25, 1.5, 2];
-  const nextRate = () =>
-    audio.setRate(rates[(rates.indexOf(audio.rate) + 1) % rates.length]);
+  }, [refetchAlbum, filesQuery]);
+
+  const onScroll = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+  });
+
+  /** Artwork fades and settles as it leaves; it does not simply clip away. */
+  const artStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      scrollY.value,
+      [0, COLLAPSE],
+      [1, 0],
+      Extrapolation.CLAMP,
+    ),
+    transform: [
+      {
+        scale: interpolate(
+          scrollY.value,
+          [0, COLLAPSE],
+          [1, 0.86],
+          Extrapolation.CLAMP,
+        ),
+      },
+    ],
+  }));
+
+  /** The colour wash behind the art, which goes with it. */
+  const washStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      scrollY.value,
+      [0, COLLAPSE],
+      [1, 0],
+      Extrapolation.CLAMP,
+    ),
+  }));
+
+  /** The compact title, which arrives only once the big one has gone. */
+  const compactStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      scrollY.value,
+      [COLLAPSE * 0.7, COLLAPSE],
+      [0, 1],
+      Extrapolation.CLAMP,
+    ),
+  }));
+
+  const renderTrack = useCallback(
+    ({ item, index }: { item: StoredFile; index: number }) => {
+      const active = activeKey === item.key;
+      return (
+        <Pressable
+          onPress={() => select(item, index)}
+          className="flex-row items-center gap-3.5 py-2.5 active:opacity-60"
+        >
+          <View className="w-7 items-center">
+            {active ? (
+              <PlayingBars playing={audio.playing} />
+            ) : (
+              <Text className="text-white/30 text-[13px] font-mono">
+                {index + 1}
+              </Text>
+            )}
+          </View>
+          <View className="flex-1 min-w-0">
+            <Text
+              className={`text-[15px] ${active ? 'text-[#D89566] font-semibold' : 'text-white font-medium'}`}
+              numberOfLines={1}
+            >
+              {item.mediaTitle || item.originalName}
+            </Text>
+            <Text className="text-white/40 text-[12.5px] mt-0.5" numberOfLines={1}>
+              {item.mediaArtist || album?.name || 'Unknown artist'}
+            </Text>
+          </View>
+          <Text className="text-white/35 text-[12px] font-mono">
+            {item.durationMs
+              ? clock(item.durationMs / 1000)
+              : item.processingStatus === 'pending'
+                ? '· · ·'
+                : '--:--'}
+          </Text>
+        </Pressable>
+      );
+    },
+    [activeKey, album?.name, audio.playing, select],
+  );
 
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-[#141210]">
-      <FlatList
+    <View className="flex-1" style={{ backgroundColor: GROUND }}>
+      {/* A wash instead of a flat panel. Music apps put the record's colour
+          behind the record; without a native colour extractor the album accent
+          is the honest approximation, and it does the same job of making the
+          top of the screen feel like it belongs to this album. */}
+      <Animated.View
+        style={washStyle}
+        pointerEvents="none"
+        className="absolute top-0 left-0 right-0"
+      >
+        <LinearGradient
+          colors={['rgba(193,119,69,0.34)', 'rgba(193,119,69,0.08)', GROUND]}
+          style={{ height: 420 }}
+        />
+      </Animated.View>
+
+      <TrackList
         data={files}
         keyExtractor={(item) => item.key}
+        renderItem={renderTrack}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingBottom: activeKey ? 250 : 80,
+          paddingHorizontal: 18,
+          paddingTop: 104,
+          paddingBottom: docked ? 150 : 60,
         }}
-        onEndReached={() =>
-          filesQuery.hasNextPage &&
-          !filesQuery.isFetchingNextPage &&
-          filesQuery.fetchNextPage()
-        }
+        onEndReachedThreshold={0.6}
+        onEndReached={() => {
+          if (filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) {
+            filesQuery.fetchNextPage();
+          }
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={refresh}
-            tintColor="#C17745"
+            tintColor={ACCENT}
+            progressViewOffset={104}
           />
         }
         ListHeaderComponent={
-          <View className="pt-3 pb-7">
-            <View className="flex-row items-center gap-3">
-              <Pressable
-                onPress={() => router.back()}
-                className="w-11 h-11 rounded-full bg-white/10 items-center justify-center"
+          <View className="pb-3">
+            <Animated.View style={artStyle} className="items-center">
+              <View
+                style={{
+                  shadowColor: '#000',
+                  shadowOpacity: 0.55,
+                  shadowRadius: 26,
+                  shadowOffset: { width: 0, height: 14 },
+                  elevation: 14,
+                }}
               >
-                <ArrowLeft size={19} color="#fff" weight="light" />
-              </Pressable>
-              <View className="flex-1 min-w-0">
-                <Text
-                  className="text-white text-2xl font-semibold tracking-[-1px]"
-                  numberOfLines={1}
-                >
-                  {album?.name || "Audio"}
-                </Text>
-                <Text className="text-white/40 text-xs mt-1">
-                  {filesQuery.counts.audio} track
-                  {filesQuery.counts.audio === 1 ? "" : "s"}
-                </Text>
+                <Artwork uri={cover} size={art} radius={10} />
               </View>
-            </View>
-            <Text className="text-[#D89566] text-[10px] uppercase tracking-[2px] font-mono mt-8">
-              Listening room
+            </Animated.View>
+
+            <Text
+              className="text-white text-[28px] font-bold tracking-[-0.8px] mt-7"
+              numberOfLines={2}
+            >
+              {album?.name || 'Audio'}
             </Text>
+            <Text className="text-white/45 text-[13px] mt-1.5">
+              Virgo · {filesQuery.counts.audio}{' '}
+              {filesQuery.counts.audio === 1 ? 'track' : 'tracks'}
+              {minutes > 0 ? ` · ${minutes} min` : ''}
+            </Text>
+
+            {files.length > 0 && (
+              <View className="flex-row items-center mt-5 mb-2">
+                <Pressable
+                  onPress={() => {
+                    audio.setShuffle(!audio.shuffle);
+                    void Haptics.selectionAsync();
+                  }}
+                  hitSlop={10}
+                  accessibilityLabel="Shuffle"
+                  className="mr-5 active:opacity-60"
+                >
+                  <Shuffle
+                    size={22}
+                    color={audio.shuffle ? ACCENT_LIGHT : 'rgba(255,255,255,.5)'}
+                    weight={audio.shuffle ? 'fill' : 'regular'}
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    audio.cycleRepeat();
+                    void Haptics.selectionAsync();
+                  }}
+                  hitSlop={10}
+                  accessibilityLabel="Repeat"
+                  className="active:opacity-60"
+                >
+                  {audio.repeat === 'one' ? (
+                    <RepeatOnce size={22} color={ACCENT_LIGHT} weight="regular" />
+                  ) : (
+                    <Repeat
+                      size={22}
+                      color={
+                        audio.repeat === 'all'
+                          ? ACCENT_LIGHT
+                          : 'rgba(255,255,255,.5)'
+                      }
+                      weight="regular"
+                    />
+                  )}
+                </Pressable>
+                <View className="flex-1" />
+                {/* One large, unmissable play control, the way a playlist
+                    screen should open: press it and the album starts. */}
+                <Pressable
+                  onPress={() => {
+                    if (activeKey) audio.toggle();
+                    else play(0);
+                  }}
+                  accessibilityLabel={audio.playing ? 'Pause' : 'Play album'}
+                  style={{ backgroundColor: ACCENT }}
+                  className="w-14 h-14 rounded-full items-center justify-center active:scale-[0.94]"
+                >
+                  {activeKey && audio.playing ? (
+                    <Pause size={25} color="#fff" weight="fill" />
+                  ) : (
+                    <Play size={26} color="#fff" weight="fill" />
+                  )}
+                </Pressable>
+              </View>
+            )}
           </View>
         }
-        renderItem={({ item, index }) => {
-          const active = activeKey === item.key;
-          return (
-            <Pressable
-              onPress={() => select(item, index)}
-              className={`flex-row items-center gap-4 py-4 border-t border-white/[0.07] active:scale-[.99] ${index === 0 ? "border-t-0" : ""}`}
-            >
-              <View
-                className={`w-11 h-11 rounded-full items-center justify-center ${active ? "bg-[#C17745]" : "bg-white/[0.07]"}`}
-              >
-                {active && audio.playing ? (
-                  <Pause size={17} color="#fff" weight="fill" />
-                ) : (
-                  <Play
-                    size={17}
-                    color={active ? "#fff" : "rgba(255,255,255,.55)"}
-                    weight="fill"
-                  />
-                )}
-              </View>
-              <View className="flex-1 min-w-0">
-                <Text
-                  className={`text-sm font-semibold ${active ? "text-[#D89566]" : "text-white"}`}
-                  numberOfLines={1}
-                >
-                  {item.mediaTitle || item.originalName}
-                </Text>
-                <Text className="text-white/35 text-xs mt-1" numberOfLines={1}>
-                  {item.mediaArtist ||
-                    item.contentType?.split("/")[1]?.toUpperCase() ||
-                    "AUDIO"}
-                </Text>
-              </View>
-              <View className="items-end">
-                <Text className="text-white/40 text-[10px] font-mono">
-                  {item.durationMs
-                    ? clock(item.durationMs / 1000)
-                    : item.processingStatus === "pending"
-                      ? "INDEXING"
-                      : "--:--"}
-                </Text>
-                <Text className="text-white/20 text-[9px] mt-1">
-                  {formatBytes(item.sizeBytes)}
-                </Text>
-              </View>
-            </Pressable>
-          );
-        }}
-        ListEmptyComponent={
-          !filesQuery.isLoading ? (
-            <View className="items-center px-8 pt-24">
-              <MusicNotesSimple
-                size={42}
-                color="rgba(255,255,255,.25)"
-                weight="light"
-              />
-              <Text className="text-white text-lg font-semibold mt-5">
-                No audio yet
-              </Text>
-              <Text className="text-white/40 text-sm text-center mt-2">
-                Upload a recording or finished track to begin a listening queue.
-              </Text>
-              <Pressable
-                onPress={() =>
-                  router.push(`/albums/upload?albumId=${albumId}&kind=audio`)
-                }
-                className="mt-7 bg-[#C17745] rounded-full px-6 py-3 flex-row items-center gap-2"
-              >
-                <UploadSimple size={17} color="#fff" weight="light" />
-                <Text className="text-white font-semibold">Upload audio</Text>
-              </Pressable>
+        ListFooterComponent={
+          filesQuery.isFetchingNextPage ? (
+            <View className="py-8">
+              <ActivityIndicator size="small" color={ACCENT} />
             </View>
           ) : null
         }
-      />
-      {activeKey && audio.current && (
-        <SafeAreaView
-          edges={["bottom"]}
-          className="absolute bottom-0 left-0 right-0"
-        >
-          <View className="mx-3 mb-3 bg-[#1B1816] rounded-[26px] p-1.5">
-            <View className="border border-white/10 rounded-[21px] px-4 pt-4 pb-3">
-              <View className="flex-row items-center gap-3">
-                <View className="w-11 h-11 rounded-[14px] bg-[#C17745]/20 items-center justify-center">
-                  <MusicNotesSimple size={20} color="#D89566" weight="light" />
-                </View>
-                <View className="flex-1 min-w-0">
-                  <Text
-                    className="text-white text-sm font-semibold"
-                    numberOfLines={1}
-                  >
-                    {audio.current.mediaTitle || audio.current.originalName}
-                  </Text>
-                  <Text
-                    className="text-white/35 text-xs mt-0.5"
-                    numberOfLines={1}
-                  >
-                    {audio.current.mediaArtist || album?.name}
-                  </Text>
-                </View>
-                <Text className="text-white/35 text-[10px] font-mono">
-                  {clock(audio.position)} / {clock(audio.duration)}
-                </Text>
-              </View>
-              <Pressable
-                onLayout={(event) =>
-                  setBarWidth(event.nativeEvent.layout.width)
-                }
-                onPress={(event) =>
-                  audio.seekTo(
-                    (event.nativeEvent.locationX / Math.max(barWidth, 1)) *
-                      audio.duration,
-                  )
-                }
-                className="h-7 justify-center mt-1"
-              >
-                <View className="h-1 rounded-full bg-white/12 overflow-hidden">
-                  <View
-                    className="h-full bg-[#D89566] rounded-full"
-                    style={{ width: `${progress * 100}%` }}
-                  />
-                </View>
-              </Pressable>
-              <View className="flex-row items-center justify-between mt-2 px-1">
-                <Pressable
-                  onPress={() => audio.setShuffle(!audio.shuffle)}
-                  className={`w-9 h-9 items-center justify-center ${audio.shuffle ? "opacity-100" : "opacity-35"}`}
-                >
-                  <Shuffle size={17} color="#fff" weight="light" />
-                </Pressable>
-                <Pressable
-                  onPress={() => audio.seekBy(-15)}
-                  className="w-9 h-9 items-center justify-center"
-                >
-                  <ArrowCounterClockwise
-                    size={18}
-                    color="rgba(255,255,255,.65)"
-                    weight="light"
-                  />
-                </Pressable>
-                <Pressable
-                  onPress={audio.previous}
-                  className="w-9 h-9 items-center justify-center"
-                >
-                  <SkipBack size={20} color="#fff" weight="light" />
-                </Pressable>
-                <Pressable
-                  onPress={audio.toggle}
-                  className="w-14 h-14 rounded-full bg-[#C17745] items-center justify-center active:scale-[.94]"
-                >
-                  {audio.playing ? (
-                    <Pause size={23} color="#fff" weight="fill" />
-                  ) : (
-                    <Play size={24} color="#fff" weight="fill" />
-                  )}
-                </Pressable>
-                <Pressable
-                  onPress={audio.next}
-                  className="w-9 h-9 items-center justify-center"
-                >
-                  <SkipForward size={20} color="#fff" weight="light" />
-                </Pressable>
-                <Pressable
-                  onPress={() => audio.seekBy(15)}
-                  className="w-9 h-9 items-center justify-center"
-                >
-                  <ArrowsClockwise
-                    size={18}
-                    color="rgba(255,255,255,.65)"
-                    weight="light"
-                  />
-                </Pressable>
-                <Pressable
-                  onPress={audio.cycleRepeat}
-                  className={`w-9 h-9 items-center justify-center ${audio.repeat !== "off" ? "opacity-100" : "opacity-35"}`}
-                >
-                  <ArrowsClockwise size={17} color="#fff" weight="light" />
-                </Pressable>
-                <Pressable
-                  onPress={nextRate}
-                  className="absolute right-0 -top-11 bg-white/[0.07] rounded-full px-2 py-1"
-                >
-                  <Text className="text-white/60 text-[9px] font-mono">
-                    {audio.rate}×
-                  </Text>
-                </Pressable>
-              </View>
+        ListEmptyComponent={
+          filesQuery.isLoading ? null : filesQuery.loadFailed ? (
+            <View className="pt-10">
+              <LoadFailed
+                what="these tracks"
+                onRetry={() => filesQuery.refetch()}
+              />
             </View>
-          </View>
-        </SafeAreaView>
+          ) : (
+            <Empty albumId={albumId} />
+          )
+        }
+      />
+
+      {/* Compact header. Back is always here; the title arrives on scroll,
+          and brings its own opaque ground with it so the tracks passing
+          underneath do not read through the title. */}
+      <SafeAreaView edges={['top']} className="absolute top-0 left-0 right-0">
+        <Animated.View
+          style={[compactStyle, { backgroundColor: GROUND }]}
+          pointerEvents="none"
+          className="absolute inset-0"
+        />
+        <View className="px-4 pt-2 pb-3 flex-row items-center gap-3">
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={8}
+            className="w-10 h-10 rounded-full bg-black/35 items-center justify-center active:opacity-70"
+          >
+            <ArrowLeft size={19} color="#fff" weight="regular" />
+          </Pressable>
+          <Animated.View style={compactStyle} className="flex-1 min-w-0">
+            <Text
+              className="text-white text-[16px] font-semibold tracking-[-0.3px]"
+              numberOfLines={1}
+            >
+              {album?.name || 'Audio'}
+            </Text>
+          </Animated.View>
+        </View>
+      </SafeAreaView>
+
+      {docked && audio.current && (
+        <MiniBar
+          file={audio.current}
+          cover={cover}
+          albumName={album?.name}
+          playing={audio.playing}
+          progress={
+            audio.duration > 0
+              ? Math.min(audio.position / audio.duration, 1)
+              : 0
+          }
+          onToggle={audio.toggle}
+          onNext={audio.next}
+          onExpand={() => setExpanded(true)}
+        />
       )}
+
+      <Modal
+        visible={expanded && docked}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setExpanded(false)}
+      >
+        {audio.current && (
+          <NowPlaying
+            file={audio.current}
+            cover={cover}
+            albumName={album?.name}
+            onClose={() => setExpanded(false)}
+          />
+        )}
+      </Modal>
+    </View>
+  );
+}
+
+/**
+ * The strip that stays put while you browse the rest of the album.
+ *
+ * It is deliberately thin and carries only what you need at a glance: what is
+ * playing, a play/pause, a skip, and a hairline of progress. Everything else
+ * lives one tap away in the full player, which is the arrangement every music
+ * app has converged on because the list is what you are actually looking at.
+ */
+function MiniBar({
+  file,
+  cover,
+  albumName,
+  playing,
+  progress,
+  onToggle,
+  onNext,
+  onExpand,
+}: {
+  file: StoredFile;
+  cover: string | null;
+  albumName?: string;
+  playing: boolean;
+  progress: number;
+  onToggle: () => void;
+  onNext: () => void;
+  onExpand: () => void;
+}) {
+  return (
+    <SafeAreaView
+      edges={['bottom']}
+      className="absolute bottom-0 left-0 right-0"
+      pointerEvents="box-none"
+    >
+      <Pressable
+        onPress={onExpand}
+        className="mx-3 mb-2 rounded-2xl overflow-hidden bg-[#241E1A] active:opacity-90"
+      >
+        <View className="flex-row items-center gap-3 px-2.5 py-2.5">
+          <Artwork uri={cover} size={42} radius={7} />
+          <View className="flex-1 min-w-0">
+            <Text className="text-white text-[13.5px] font-semibold" numberOfLines={1}>
+              {file.mediaTitle || file.originalName}
+            </Text>
+            <Text className="text-white/40 text-[12px] mt-0.5" numberOfLines={1}>
+              {file.mediaArtist || albumName || 'Virgo'}
+            </Text>
+          </View>
+          <Pressable
+            onPress={onToggle}
+            hitSlop={10}
+            accessibilityLabel={playing ? 'Pause' : 'Play'}
+            className="w-9 h-9 items-center justify-center active:opacity-60"
+          >
+            {playing ? (
+              <Pause size={21} color="#fff" weight="fill" />
+            ) : (
+              <Play size={21} color="#fff" weight="fill" />
+            )}
+          </Pressable>
+          <Pressable
+            onPress={onNext}
+            hitSlop={10}
+            accessibilityLabel="Next track"
+            className="w-9 h-9 items-center justify-center active:opacity-60"
+          >
+            <SkipForward size={19} color="#fff" weight="fill" />
+          </Pressable>
+        </View>
+        <View className="h-[2px] bg-white/10">
+          <View
+            style={{
+              width: `${progress * 100}%`,
+              backgroundColor: ACCENT_LIGHT,
+            }}
+            className="h-full"
+          />
+        </View>
+      </Pressable>
     </SafeAreaView>
+  );
+}
+
+/**
+ * The full player.
+ *
+ * Everything the docked bar leaves out, laid out in rows rather than crowded
+ * into one: a scrubber you can drag, transport under it, and the secondary
+ * controls — skip back, speed, skip forward — on their own line. The speed pill
+ * used to be positioned over the progress bar and covered it.
+ */
+function NowPlaying({
+  file,
+  cover,
+  albumName,
+  onClose,
+}: {
+  file: StoredFile;
+  cover: string | null;
+  albumName?: string;
+  onClose: () => void;
+}) {
+  const { width } = useWindowDimensions();
+  const audio = useAlbumAudio();
+  const art = Math.min(width - 88, 330);
+
+  const nextRate = () =>
+    audio.setRate(RATES[(RATES.indexOf(audio.rate) + 1) % RATES.length]);
+
+  return (
+    <View className="flex-1" style={{ backgroundColor: GROUND }}>
+      <LinearGradient
+        colors={['rgba(193,119,69,0.30)', GROUND]}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 520 }}
+        pointerEvents="none"
+      />
+      <SafeAreaView edges={['top', 'bottom']} className="flex-1">
+        <View className="px-5 pt-2 flex-row items-center">
+          <Pressable
+            onPress={onClose}
+            hitSlop={10}
+            accessibilityLabel="Close player"
+            className="w-10 h-10 -ml-2 items-center justify-center active:opacity-60"
+          >
+            <CaretDown size={22} color="#fff" weight="regular" />
+          </Pressable>
+          <Text className="flex-1 text-center text-white/50 text-[11px] uppercase tracking-[1.6px]">
+            {albumName || 'Now playing'}
+          </Text>
+          <View className="w-10" />
+        </View>
+
+        <View className="flex-1 items-center justify-center px-6">
+          <View
+            style={{
+              shadowColor: '#000',
+              shadowOpacity: 0.6,
+              shadowRadius: 34,
+              shadowOffset: { width: 0, height: 18 },
+              elevation: 18,
+            }}
+          >
+            <Artwork uri={cover} size={art} radius={12} />
+          </View>
+        </View>
+
+        <View className="px-7 pb-4">
+          <Text
+            className="text-white text-[23px] font-bold tracking-[-0.5px]"
+            numberOfLines={1}
+          >
+            {file.mediaTitle || file.originalName}
+          </Text>
+          <Text className="text-white/45 text-[15px] mt-1" numberOfLines={1}>
+            {file.mediaArtist || albumName || 'Virgo'}
+          </Text>
+
+          <View className="mt-6">
+            <MediaScrubber
+              position={audio.position}
+              duration={audio.duration}
+              onSeek={audio.seekTo}
+              accent={ACCENT_LIGHT}
+            />
+          </View>
+
+          <View className="flex-row items-center justify-between mt-5">
+            <Pressable
+              onPress={() => {
+                audio.setShuffle(!audio.shuffle);
+                void Haptics.selectionAsync();
+              }}
+              hitSlop={10}
+              accessibilityLabel="Shuffle"
+              className="w-11 h-11 items-center justify-center active:opacity-60"
+            >
+              <Shuffle
+                size={20}
+                color={audio.shuffle ? ACCENT_LIGHT : 'rgba(255,255,255,.42)'}
+                weight={audio.shuffle ? 'fill' : 'regular'}
+              />
+            </Pressable>
+            <Pressable
+              onPress={audio.previous}
+              hitSlop={10}
+              accessibilityLabel="Previous track"
+              className="w-12 h-12 items-center justify-center active:opacity-60"
+            >
+              <SkipBack size={28} color="#fff" weight="fill" />
+            </Pressable>
+            <Pressable
+              onPress={audio.toggle}
+              accessibilityLabel={audio.playing ? 'Pause' : 'Play'}
+              style={{ backgroundColor: ACCENT }}
+              className="w-[68px] h-[68px] rounded-full items-center justify-center active:scale-[0.94]"
+            >
+              {audio.playing ? (
+                <Pause size={28} color="#fff" weight="fill" />
+              ) : (
+                <Play size={30} color="#fff" weight="fill" />
+              )}
+            </Pressable>
+            <Pressable
+              onPress={audio.next}
+              hitSlop={10}
+              accessibilityLabel="Next track"
+              className="w-12 h-12 items-center justify-center active:opacity-60"
+            >
+              <SkipForward size={28} color="#fff" weight="fill" />
+            </Pressable>
+            {/* Distinct glyphs for repeat and for skipping forward. The old
+                player drew the same arrow for both, so the two controls beside
+                each other did entirely different things. */}
+            <Pressable
+              onPress={() => {
+                audio.cycleRepeat();
+                void Haptics.selectionAsync();
+              }}
+              hitSlop={10}
+              accessibilityLabel="Repeat"
+              className="w-11 h-11 items-center justify-center active:opacity-60"
+            >
+              {audio.repeat === 'one' ? (
+                <RepeatOnce size={20} color={ACCENT_LIGHT} weight="regular" />
+              ) : (
+                <Repeat
+                  size={20}
+                  color={
+                    audio.repeat === 'all'
+                      ? ACCENT_LIGHT
+                      : 'rgba(255,255,255,.42)'
+                  }
+                  weight="regular"
+                />
+              )}
+            </Pressable>
+          </View>
+
+          <View className="flex-row items-center justify-center gap-9 mt-5">
+            <Pressable
+              onPress={() => audio.seekBy(-15)}
+              hitSlop={10}
+              accessibilityLabel="Back 15 seconds"
+              className="flex-row items-center gap-1.5 active:opacity-60"
+            >
+              <ArrowCounterClockwise
+                size={18}
+                color="rgba(255,255,255,.55)"
+                weight="regular"
+              />
+              <Text className="text-white/45 text-[12px] font-mono">15</Text>
+            </Pressable>
+            <Pressable
+              onPress={nextRate}
+              hitSlop={10}
+              accessibilityLabel="Playback speed"
+              className="bg-white/[0.08] rounded-full px-3 py-1.5 active:opacity-60"
+            >
+              <Text className="text-white/70 text-[12px] font-mono">
+                {audio.rate}×
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => audio.seekBy(15)}
+              hitSlop={10}
+              accessibilityLabel="Forward 15 seconds"
+              className="flex-row items-center gap-1.5 active:opacity-60"
+            >
+              <Text className="text-white/45 text-[12px] font-mono">15</Text>
+              <ArrowClockwise
+                size={18}
+                color="rgba(255,255,255,.55)"
+                weight="regular"
+              />
+            </Pressable>
+          </View>
+        </View>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+function Empty({ albumId }: { albumId: string }) {
+  return (
+    <View className="items-center px-4 pt-16">
+      <MusicNotesSimple size={40} color="rgba(255,255,255,.22)" weight="light" />
+      <Text className="text-white text-lg font-semibold mt-5">No audio yet</Text>
+      <Text className="text-white/40 text-sm text-center mt-2 leading-5">
+        Upload a recording or a finished track and it will queue up here.
+      </Text>
+      <Pressable
+        onPress={() =>
+          router.push(`/albums/upload?albumId=${albumId}&kind=audio`)
+        }
+        style={{ backgroundColor: ACCENT }}
+        className="mt-7 rounded-full px-6 py-3 flex-row items-center gap-2 active:opacity-85"
+      >
+        <UploadSimple size={17} color="#fff" weight="regular" />
+        <Text className="text-white font-semibold">Upload audio</Text>
+      </Pressable>
+    </View>
   );
 }
