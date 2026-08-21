@@ -27,6 +27,7 @@ import * as MediaLibrary from 'expo-media-library';
 import {
   useVideoPlayer,
   VideoView,
+  type VideoPlayerStatus,
   type VideoView as VideoViewType,
 } from 'expo-video';
 import {
@@ -60,6 +61,17 @@ import { type StoredFile } from '@/src/api';
 const SKIP = 10;
 
 /**
+ * How long a video may sit in `loading` before we call it.
+ *
+ * `statusChange` only reports `error` when playback actually fails. A file
+ * behind a slow link, or one whose presigned URL has quietly expired, stays in
+ * `loading` forever, and the screen sits black with working controls that do
+ * nothing. Twenty-five seconds is long enough for a large file on a poor
+ * connection and short enough that nobody is left guessing.
+ */
+const STALL_AFTER = 25_000;
+
+/**
  * Full-screen playback.
  *
  * The video takes the whole screen and is fitted inside it, rather than being
@@ -87,8 +99,10 @@ function VideoPlayer({
     file.durationMs ? file.durationMs / 1000 : 0,
   );
   const [muted, setMuted] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<'error' | 'stalled' | null>(null);
+  const [status, setStatus] = useState<VideoPlayerStatus>('loading');
   const [saving, setSaving] = useState(false);
+  const stallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controls = useSharedValue(1);
   const visible = useRef(true);
 
@@ -126,14 +140,24 @@ function VideoPlayer({
       // whatever it was when this listener was created.
       if (player.duration > 0) setDuration(player.duration);
     });
-    const statusSub = player.addListener('statusChange', ({ status }) => {
-      if (status === 'error') setFailed(true);
+    const statusSub = player.addListener('statusChange', ({ status: next }) => {
+      setStatus(next);
+      if (stallTimer.current) clearTimeout(stallTimer.current);
+      if (next === 'error') {
+        setFailed('error');
+      } else if (next === 'loading') {
+        stallTimer.current = setTimeout(
+          () => setFailed('stalled'),
+          STALL_AFTER,
+        );
+      }
     });
     return () => {
       playingSub.remove();
       timeSub.remove();
       statusSub.remove();
       if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (stallTimer.current) clearTimeout(stallTimer.current);
       player.pause();
     };
   }, [player, setControls]);
@@ -202,13 +226,31 @@ function VideoPlayer({
       >
         <FilmSlate size={44} color="rgba(255,255,255,.3)" weight="light" />
         <Text className="text-white text-lg font-semibold text-center mt-5">
-          This video cannot play on this device
+          {failed === 'stalled'
+            ? 'This video is not loading'
+            : 'This video cannot play on this device'}
         </Text>
         <Text className="text-white/45 text-sm text-center mt-2 leading-5">
-          The original codec may only be supported on the device that recorded
-          it. You can still save the file and open it elsewhere.
+          {failed === 'stalled'
+            ? 'It has been waiting a while without starting. Check your connection and try again.'
+            : 'The original codec may only be supported on the device that recorded it. You can still save the file and open it elsewhere.'}
         </Text>
-        {file.capabilities.download && (
+        {failed === 'stalled' && (
+          <Pressable
+            onPress={() => {
+              setFailed(null);
+              player.replace(file.url ?? '');
+              player.play();
+            }}
+            className="mt-7 bg-[#C17745] rounded-full px-6 py-3 active:opacity-85"
+          >
+            <Text className="text-white font-semibold">Try again</Text>
+          </Pressable>
+        )}
+        {/* Only for a codec failure. A file that never arrived over the network
+            will not arrive for the downloader either, so offering to save it is
+            offering a second way to fail. */}
+        {failed === 'error' && file.capabilities.download && (
           <Pressable
             onPress={saveOriginal}
             disabled={saving}
@@ -247,6 +289,17 @@ function VideoPlayer({
           />
         </View>
       </GestureDetector>
+
+      {/* Sits outside the fading chrome: whether the video is loading is not
+          something to hide after two seconds of inactivity. */}
+      {status === 'loading' && (
+        <View
+          pointerEvents="none"
+          className="absolute inset-0 items-center justify-center"
+        >
+          <ActivityIndicator size="large" color="#fff" />
+        </View>
+      )}
 
       <Animated.View
         style={controlsStyle}
@@ -289,8 +342,13 @@ function VideoPlayer({
         </SafeAreaView>
 
         {/* Transport in the middle, where a thumb reaches without moving the
-            phone, and where iOS puts it. */}
-        <View className="flex-1 flex-row items-center justify-center gap-9">
+            phone, and where iOS puts it. It steps aside while the video is
+            loading so the spinner has the centre to itself. */}
+        <View
+          className="flex-1 flex-row items-center justify-center gap-9"
+          pointerEvents={status === 'loading' ? 'none' : 'auto'}
+          style={{ opacity: status === 'loading' ? 0 : 1 }}
+        >
           <Pressable
             onPress={() => skip(-SKIP)}
             hitSlop={10}

@@ -249,7 +249,9 @@ export default function AudioScreen() {
           className="flex-row items-center gap-3.5 py-2.5 active:opacity-60"
         >
           <View className="w-7 items-center">
-            {active ? (
+            {active && audio.loading ? (
+              <ActivityIndicator size="small" color={ACCENT_LIGHT} />
+            ) : active ? (
               <PlayingBars playing={audio.playing} />
             ) : (
               <Text className="text-white/30 text-[13px] font-mono">
@@ -278,7 +280,7 @@ export default function AudioScreen() {
         </Pressable>
       );
     },
-    [activeKey, album?.name, audio.playing, select],
+    [activeKey, album?.name, audio.loading, audio.playing, select],
   );
 
   return (
@@ -403,7 +405,9 @@ export default function AudioScreen() {
                   style={{ backgroundColor: ACCENT }}
                   className="w-14 h-14 rounded-full items-center justify-center active:scale-[0.94]"
                 >
-                  {activeKey && audio.playing ? (
+                  {activeKey && audio.loading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : activeKey && audio.playing ? (
                     <Pause size={25} color="#fff" weight="fill" />
                   ) : (
                     <Play size={26} color="#fff" weight="fill" />
@@ -468,6 +472,7 @@ export default function AudioScreen() {
           cover={cover}
           albumName={album?.name}
           playing={audio.playing}
+          loading={audio.loading}
           progress={
             audio.duration > 0
               ? Math.min(audio.position / audio.duration, 1)
@@ -511,6 +516,7 @@ function MiniBar({
   cover,
   albumName,
   playing,
+  loading,
   progress,
   onToggle,
   onNext,
@@ -520,6 +526,7 @@ function MiniBar({
   cover: string | null;
   albumName?: string;
   playing: boolean;
+  loading: boolean;
   progress: number;
   onToggle: () => void;
   onNext: () => void;
@@ -551,7 +558,9 @@ function MiniBar({
             accessibilityLabel={playing ? 'Pause' : 'Play'}
             className="w-9 h-9 items-center justify-center active:opacity-60"
           >
-            {playing ? (
+            {loading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : playing ? (
               <Pause size={21} color="#fff" weight="fill" />
             ) : (
               <Play size={21} color="#fff" weight="fill" />
@@ -693,7 +702,9 @@ function NowPlaying({
               style={{ backgroundColor: ACCENT }}
               className="w-[68px] h-[68px] rounded-full items-center justify-center active:scale-[0.94]"
             >
-              {audio.playing ? (
+              {audio.loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : audio.playing ? (
                 <Pause size={28} color="#fff" weight="fill" />
               ) : (
                 <Play size={30} color="#fff" weight="fill" />
