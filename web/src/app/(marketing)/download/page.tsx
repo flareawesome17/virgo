@@ -6,6 +6,7 @@ import {
   type LatestRelease,
 } from '@/components/landing/download-panel';
 import { MacOsFirstRun } from '@/components/landing/macos-first-run';
+import { WindowsFirstRun } from '@/components/landing/windows-first-run';
 import { API_BASE_URL } from '@/api';
 
 export const metadata: Metadata = {
@@ -102,6 +103,7 @@ export default async function DownloadPage() {
               somebody reading this has a dialog open on the other monitor and
               is looking for the words they just saw. */}
           <MacOsFirstRun />
+          <WindowsFirstRun />
 
           {release && (
             <p className="mt-10 border-t border-white/8 pt-6 text-[12px] text-white/40">
