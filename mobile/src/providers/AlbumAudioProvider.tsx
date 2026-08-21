@@ -22,6 +22,13 @@ interface AlbumAudioContextValue {
   current: StoredFile | null;
   currentIndex: number;
   playing: boolean;
+  /**
+   * The track is chosen but not yet audible — still loading, or rebuffering
+   * after a stall. A screen that ignores this draws a playing state over
+   * silence, which reads as the app being broken rather than the network
+   * being slow.
+   */
+  loading: boolean;
   position: number;
   duration: number;
   shuffle: boolean;
@@ -221,6 +228,9 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
       current,
       currentIndex,
       playing: status.playing,
+      loading:
+        currentIndex >= 0 &&
+        (!status.isLoaded || (status.isBuffering && !status.playing)),
       position: status.currentTime,
       duration: status.duration,
       shuffle,
@@ -258,6 +268,8 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
       shuffle,
       status.currentTime,
       status.duration,
+      status.isBuffering,
+      status.isLoaded,
       status.playing,
       stop,
     ],
