@@ -201,6 +201,8 @@ export interface AuthUser {
   studioName: string | null;
   /** A handle, a page or a URL — whatever they actually use. */
   socialHandle: string | null;
+  /** Whether sign-in requires an emailed one-time code or recovery code. */
+  twoFactorEnabled: boolean;
   createdAt: string;
 }
 
@@ -259,6 +261,32 @@ export interface AuthResult {
   accessToken: string;
   refreshToken: string;
   expiresIn: string;
+}
+
+export interface TwoFactorLoginRequired {
+  twoFactorRequired: true;
+  challengeToken: string;
+  expiresIn: '10m';
+  email: string;
+}
+
+export type LoginResult = AuthResult | TwoFactorLoginRequired;
+
+export interface TwoFactorStatus {
+  enabled: boolean;
+  enabledAt: string | null;
+  recoveryCodesRemaining: number;
+  email: string;
+}
+
+export interface TwoFactorSetup {
+  challengeToken: string;
+  expiresIn: '10m';
+  email: string;
+}
+
+export interface TwoFactorSetupResult extends AuthResult {
+  recoveryCodes: string[];
 }
 
 /** Shared list query parameters accepted by every collection endpoint. */

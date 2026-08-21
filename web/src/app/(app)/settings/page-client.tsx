@@ -22,6 +22,7 @@ import {
   PauseCircle,
   Search,
   ShieldCheck,
+  ChevronRight,
   Sun,
   Trash2,
   UserX,
@@ -183,6 +184,37 @@ export default function SettingsPage() {
                 })}
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Security */}
+        <h2 className="mb-2 mt-8 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Security
+        </h2>
+        <Card className="py-0">
+          <CardContent className="p-0">
+            <Link
+              href="/settings/two-factor"
+              className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-accent/50"
+            >
+              <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+                <ShieldCheck className="size-4 text-muted-foreground" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Two-factor authentication</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {profile?.twoFactorEnabled
+                    ? 'On — a code is emailed to you when signing in'
+                    : 'A code sent to your email when signing in'}
+                </p>
+              </div>
+              {profile?.twoFactorEnabled && (
+                <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-primary">
+                  On
+                </span>
+              )}
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            </Link>
           </CardContent>
         </Card>
 

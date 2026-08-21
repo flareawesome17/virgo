@@ -139,8 +139,51 @@ export function useAuth() {
       }
     },
     onSuccess: (result) => {
+      // A challenge is not a session: the API issued no tokens, and the form
+      // still has a step to go. Seeding the cache here would report someone
+      // as signed in while holding nothing to sign requests with.
+      if ('twoFactorRequired' in result) return;
       queryClient.setQueryData(queryKeys.auth.session, result.user);
       track('signed_in');
+    },
+  });
+
+  /**
+   * Finishes a sign-in that came back as a 2FA challenge.
+   *
+   * Takes the code from either source the API accepts — the emailed six
+   * digits or a saved recovery code — because to this hook they are the same
+   * string in the same field.
+   */
+  const completeTwoFactorSignIn = useMutation({
+    mutationFn: async ({
+      challengeToken,
+      code,
+    }: {
+      challengeToken: string;
+      code: string;
+    }) => {
+      try {
+        return await authApi.completeTwoFactorLogin(challengeToken, code);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.auth.session, result.user);
+      // Counted here rather than at the password step: this is the point a
+      // 2FA account actually got in.
+      track('signed_in');
+    },
+  });
+
+  const resendTwoFactorCode = useMutation({
+    mutationFn: async (challengeToken: string) => {
+      try {
+        return await authApi.resendTwoFactorCode(challengeToken);
+      } catch (err) {
+        throw toAuthError(err);
+      }
     },
   });
 
@@ -229,6 +272,8 @@ export function useAuth() {
     isSessionError: sessionQuery.isError,
     retrySession: sessionQuery.refetch,
     signIn,
+    completeTwoFactorSignIn,
+    resendTwoFactorCode,
     signUp,
     signOut,
     updateProfile,
