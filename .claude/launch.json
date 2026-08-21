@@ -2,19 +2,26 @@
   "version": "0.0.1",
   "configurations": [
     {
+      // The dashboard container publishes 3002, so this entry only starts
+      // when the local stack is down.
       "name": "dashboard",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "dashboard"],
       "port": 3002
     },
     {
-      // 3002, not 3000: another project holds 3000 on this machine, and 3002
-      // is the one dev port the API already allows through CORS. The
-      // dashboard container uses 3002 internally but does not publish it.
+      // 3006 rather than 3000: 3000 belongs to another project on this
+      // machine, and 3002 and 3005 are taken by the dashboard and web
+      // containers whenever the local stack is up.
+      //
+      // Any port works now. The API runs with ALLOW_LAN_ORIGINS=true, which
+      // accepts any plain-http origin on this machine or the LAN — the named
+      // CORS_ORIGINS list is a floor, not a ceiling. (It used to have to be
+      // 3002, because 3002 was named in the list and nothing else was.)
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "web", "--", "--port", "3002"],
-      "port": 3002
+      "runtimeArgs": ["run", "dev", "--prefix", "web", "--", "--port", "3006"],
+      "port": 3006
     },
     {
       // Expo's web target, for looking at a screen without a device attached.
@@ -26,12 +33,11 @@
       // Expo CLI than the project is pinned to.
       "name": "mobile",
       "runtimeExecutable": "npm",
-      // 3002 for the same reason the web entry uses it: it is the one dev
-      // origin the API's CORS allow-list contains, and Expo's web build makes
-      // real browser requests that a device never would. Only one of the two
-      // can run at a time, which is fine — they are never both needed.
-      "runtimeArgs": ["run", "web", "--prefix", "mobile", "--", "--port", "3002"],
-      "port": 3002
+      // 3007, for the same reason web uses 3006 — see the note there. Both
+      // can run at once now that the port no longer has to be the one the
+      // CORS list names.
+      "runtimeArgs": ["run", "web", "--prefix", "mobile", "--", "--port", "3007"],
+      "port": 3007
     }
   ]
 }
