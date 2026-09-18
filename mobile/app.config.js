@@ -1,31 +1,28 @@
 /**
  * Layered on top of app.json, which stays the source of truth for everything
- * static. This file exists for the one thing that has to vary by build:
- * whether the app is allowed to talk to a plain-HTTP address.
- *
- * Expo merges the two — app.json arrives here as `config`, and what is
+ * static. Expo merges the two — app.json arrives here as `config`, and what is
  * returned is the final manifest.
+ *
+ * Nothing in here may depend on the environment. The evaluated config feeds
+ * the fingerprint that becomes the runtime version, and EAS compares the one
+ * computed on the machine that started a build with the one computed on its
+ * own builder; a mismatch fails the build. The first iOS build failed exactly
+ * that way: cleartext was keyed on EAS_BUILD_PROFILE, which the builder sets
+ * and the local calculation never sees. The same mismatch would also stop an
+ * `eas update` published from a laptop from reaching any build.
  */
 
 /**
- * Android 9 and later block cleartext HTTP by default, and the failure is
- * silent from the app's side: every request errors as if the network were
- * down. The development build points at an API on the LAN, which is
- * http://<ip>:3001 and cannot be anything else — there is no certificate for
- * a private address.
- *
- * So cleartext is granted to the profiles that genuinely need it, rather than
- * withheld from the one that obviously must not have it. Preview used to point
- * at the development tunnel and now points at https://api.virgo.ph, and an
- * allow-list is what keeps a change like that from quietly leaving a build
- * willing to be downgraded to plain HTTP months after it stopped needing to be.
- *
- * EAS sets EAS_BUILD_PROFILE from the --profile flag. Undefined locally, which
- * is permissive, and correct — a local run is development.
+ * Cleartext HTTP stays off in every build. Android 9 and later block it by
+ * default, and nothing needs it now: the development profile points at
+ * https://virgo-dev-api.virgo.ph, and Expo Go applies its own policy rather
+ * than this one. A local native build against a plain-HTTP API on the LAN can
+ * flip it for that build — never in a commit.
  */
-const profile = process.env.EAS_BUILD_PROFILE;
-const allowsCleartext = profile === undefined || profile === 'development';
-const iosAppStoreId = process.env.EXPO_PUBLIC_IOS_APP_STORE_ID;
+const USES_CLEARTEXT_TRAFFIC = false;
+
+/** The App Store listing, for the "Rate Virgo" row in Settings. */
+const APP_STORE_URL = 'https://apps.apple.com/app/id6813545420?action=write-review';
 
 module.exports = ({ config }) => ({
   ...config,
@@ -37,9 +34,7 @@ module.exports = ({ config }) => ({
         ...new Set([...(config.ios?.infoPlist?.UIBackgroundModes ?? []), 'audio']),
       ],
     },
-    ...(iosAppStoreId
-      ? { appStoreUrl: `https://apps.apple.com/app/id${iosAppStoreId}?action=write-review` }
-      : {}),
+    appStoreUrl: APP_STORE_URL,
   },
   plugins: [
     ...(config.plugins ?? []).filter((plugin) =>
@@ -51,7 +46,7 @@ module.exports = ({ config }) => ({
       'expo-build-properties',
       {
         android: {
-          usesCleartextTraffic: allowsCleartext,
+          usesCleartextTraffic: USES_CLEARTEXT_TRAFFIC,
         },
       },
     ],
