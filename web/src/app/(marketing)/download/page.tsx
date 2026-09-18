@@ -5,7 +5,6 @@ import {
   DownloadPanel,
   type LatestRelease,
 } from '@/components/landing/download-panel';
-import { MacOsFirstRun } from '@/components/landing/macos-first-run';
 import { WindowsFirstRun } from '@/components/landing/windows-first-run';
 import { API_BASE_URL } from '@/api';
 
@@ -101,8 +100,9 @@ export default async function DownloadPage() {
 
           {/* Directly under the buttons rather than at the foot of the page:
               somebody reading this has a dialog open on the other monitor and
-              is looking for the words they just saw. */}
-          <MacOsFirstRun />
+              is looking for the words they just saw. Windows only: the Mac
+              builds are signed and notarised, so macOS opens them without
+              asking. */}
           <WindowsFirstRun />
 
           {release && (
