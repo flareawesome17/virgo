@@ -10,7 +10,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.virgo.app"
+      "bundleIdentifier": "com.virgo.app",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "playStoreUrl": "https://play.google.com/store/apps/details?id=com.virgo.app",
@@ -124,6 +127,20 @@
             "photo",
             "video"
           ]
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Virgo opens your photo library so you can choose photos and videos to upload to an album, or a picture for your profile.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Virgo uses your location to show you creatives nearby, and to let people near you find you while you share it in Nearby."
         }
       ],
       "expo-build-properties"

@@ -21,10 +21,19 @@ not work either. Use the tunnel: `https://api.virgo.ph`.
 `node scripts/check-client-sync.mjs` from the repo root before pushing —
 changing one client without the other is the defect this repo has hit most.
 
-## Push notifications
+## Releasing
 
-Not working yet. `app.json` has no `extra.eas.projectId`, so `push_tokens` is
-empty and nothing can be delivered. Needs `eas init` and a development build —
-Expo Go cannot receive remote push on current SDKs.
+Builds run on EAS (project `flareawesome/virgo`), from this directory.
+
+- **Android:** `eas build -p android --profile preview` for a test APK.
+- **iOS:** `eas build -p ios --profile production`, then
+  `eas submit -p ios --latest` to send it to TestFlight. The first run signs in
+  to the Apple Developer account and lets EAS create the distribution
+  certificate, provisioning profile and push key.
+
+Plugins, permissions and the rest of `app.json` feed the runtime fingerprint,
+so changing them needs a new store build — an OTA update only reaches binaries
+with the same fingerprint. Remote push needs one of those builds too; Expo Go
+cannot receive it.
 
 See `CLAUDE.md` for conventions.
