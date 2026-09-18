@@ -66,6 +66,15 @@ const nextConfig: NextConfig = {
    * any cover_url stored before the change still resolve through it.
    */
   images: {
+    /**
+     * Off in the desktop build, where this server runs on the user's own
+     * machine. There the optimiser saves no bandwidth — it downloads the full
+     * original to resize it locally — and it would pull sharp's native
+     * binaries into the app bundle, where notarisation needs each one signed
+     * and the Intel build would carry the runner's arm64 copies.
+     * desktop/scripts/stage-web.mjs strips sharp out accordingly.
+     */
+    unoptimized: process.env.NEXT_PUBLIC_VIRGO_DESKTOP === '1',
     remotePatterns: [
       { protocol: 'https', hostname: 'cdn.virgo.ph' },
       // Virtual-host style: the bucket is a subdomain of the endpoint, so the

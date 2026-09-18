@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    For the bundled Node sidecar, which Tauri signs with these too.
+
+    Notarisation requires the hardened runtime, and the hardened runtime
+    refuses to map memory as executable. V8 compiles JavaScript to machine
+    code at runtime, so without these the server dies on launch and the
+    window never gets past the splash. Node's own release builds carry the
+    same pair; re-signing the binary with our identity replaces theirs.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>

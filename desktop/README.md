@@ -314,10 +314,13 @@ above, with no `\\?\`, is that fix working.
   AsyncStorage persistence is mobile-only — web has no equivalent.
 - **No desktop integration yet.** No tray, no native menu, no notifications, no
   deep links, no auto-update. Tauri supports all of them; none is wired.
-- **Signing.** macOS needs the Node sidecar covered by the same signature and a
-  notarisation pass; Windows needs the Authenticode certificate described above.
-  Unsigned builds warn on macOS and are refused outright on Windows machines
-  with Smart App Control enforced.
+- **Signing.** macOS signs and notarises in the release workflow once the six
+  `APPLE_*` repository secrets exist. The Node sidecar is signed with
+  `src-tauri/Entitlements.plist`, because V8 needs JIT under the hardened
+  runtime, and `stage-web.mjs` keeps sharp out of `resources/`, which Tauri
+  does not sign. Windows still needs the Authenticode certificate described
+  above; unsigned builds are refused outright on machines with Smart App
+  Control enforced.
 - **Build times.** A rebuild links over the existing `virgo-desktop.exe`, and
   Windows locks a running executable — the linker then retries for as long as
   the app is open. One rebuild here took 67 minutes for that reason instead of
