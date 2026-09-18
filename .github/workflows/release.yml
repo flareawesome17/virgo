@@ -10,6 +10,11 @@
 #
 # Mobile is deliberately absent. The Expo app ships through EAS and the native
 # app stores; there is no server to run it on and no image to build.
+#
+# Every action is pinned to a full commit SHA, with the release it came from in
+# a comment. A tag can be moved by whoever controls the action's repository and
+# a SHA cannot, and these jobs hold credentials that publish what people
+# install. Bump them on purpose, not by accident.
 
 name: Release
 
@@ -57,11 +62,17 @@ jobs:
             image: virgo-dashboard
 
     steps:
+      # The tag arrives through the environment, never pasted into the script.
+      # Whoever publishes a release types its name, git allows quotes, `$`, `;`
+      # and `|` in one, and an interpolated name would run as shell before the
+      # check below had the chance to reject it.
       - name: Resolve the release tag
         id: release
         shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag }}"
           if [ -z "$TAG" ]; then
             echo "::error::No release tag to build."
             exit 1
@@ -74,20 +85,24 @@ jobs:
           # GHCR paths must be lowercase; a repository owner with capitals
           # otherwise produces a push error that reads like a permissions
           # problem rather than a naming one.
-          echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          echo "owner=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       # The release tag, not the default branch. A release is a fixed commit,
       # and building anything else would make the image a lie.
+      #
+      # Nothing here pushes to git, so the token is not left in .git/config for
+      # later steps to find.
       - name: Check out the release commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ steps.release.outputs.tag }}
+          persist-credentials: false
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -98,7 +113,7 @@ jobs:
 
       - name: Build and push ${{ matrix.image }}
         id: image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ${{ matrix.context }}
           push: true
@@ -147,7 +162,7 @@ jobs:
         run: printf '%s\n' '${{ steps.image.outputs.digest }}' > '${{ matrix.image }}.digest'
 
       - name: Upload the image digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-digest-${{ matrix.image }}
           path: ${{ matrix.image }}.digest
@@ -172,11 +187,16 @@ jobs:
   # ships a Node runtime, and `stage-web.mjs` takes it from the runner it is
   # executing on. A universal app would carry a single-architecture sidecar and
   # fail on half the Macs that installed it.
+  #
+  # This job runs code from npm and crates.io, so it can read the repository
+  # and nothing more. It hands its installers to `publish-desktop` rather than
+  # uploading them itself: whatever a compromised dependency managed here, it
+  # could not replace what is on the release page.
   desktop:
     name: desktop (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
     permissions:
-      contents: write
+      contents: read
 
     strategy:
       # As above: an installer failing on one platform should not hide whether
@@ -206,11 +226,13 @@ jobs:
             target: x86_64-apple-darwin
 
     steps:
+      # Through the environment, for the reason given in `build`.
       - name: Resolve the release tag
         id: release
         shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag }}"
           if [ -z "$TAG" ]; then
             echo "::error::No release tag to build."
             exit 1
@@ -224,38 +246,51 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Check out the release commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ steps.release.outputs.tag }}
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       # `targets` installs the cross-compilation target's standard library.
-      # Empty for Windows, which builds for the host.
+      # Empty for Windows, which builds for the host. `toolchain` has to be
+      # named because the action is pinned by SHA: it otherwise reads the
+      # channel from the ref, and a SHA is not one.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       # Tauri pulls in several hundred crates. Without this every release
       # compiles them from scratch on three runners.
       - name: Cache the Rust build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: desktop/src-tauri
           key: ${{ matrix.name }}
 
+      # An exact version rather than `^2`: a new tauri-cli should reach the
+      # step that builds and signs the installers through a commit here, not
+      # on its own. `--locked` holds its dependencies to the ones it shipped
+      # with.
       - name: Install the Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+        run: cargo install tauri-cli --version 2.11.4 --locked
 
+      # --ignore-scripts: the only install scripts in web's lockfile are
+      # core-js's donation banner and unrs-resolver, which only ESLint uses.
+      # Skipping them means installing a package cannot run code in a job that
+      # is about to handle signing keys. `next build` still runs its
+      # dependencies' code, so this narrows that door rather than closing it.
       - name: Install web dependencies
         working-directory: web
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       # tauri.conf.json carries a version so that a local build has one, but a
       # release has to say what it actually is. Taken from the tag rather than
@@ -297,76 +332,62 @@ jobs:
           VIRGO_TARGET_TRIPLE: ${{ matrix.target }}
         run: node scripts/stage-web.mjs
 
-      # Exported here rather than declared on the build step, and that
-      # distinction is the whole point.
+      # Both signing identities exist in this step's environment and nowhere
+      # else in the job: the updater key that proves an update came from us,
+      # and, on the macOS legs only, the Developer ID credentials that sign and
+      # notarise the app.
       #
-      # Tauri decides whether to sign by whether APPLE_CERTIFICATE is *present*,
-      # not whether it holds anything. A GitHub secret that has never been set
-      # expands to an empty string, and an empty string is present — so naming
-      # these on the build step made an unsigned build try to sign, and fail
-      # after a perfectly good compile:
+      # The updater key is required, not optional like the Apple credentials:
+      # `createUpdaterArtifacts` is on in tauri.conf.json, so a build without it
+      # fails rather than quietly producing installers nobody can update from.
+      # That is the behaviour we want — an unsigned release would be invisible
+      # to every installed copy. It is a minisign keypair, not Authenticode; the
+      # public half is embedded in the app and checked before an update is ever
+      # run.
+      #
+      # Tauri signs with Apple whenever APPLE_CERTIFICATE is *set*, even to an
+      # empty string, and a secret that has never been configured expands to
+      # exactly that. It made unsigned builds fail after a perfectly good
+      # compile:
       #
       #   security: SecKeychainItemImport: One or more parameters ... not valid
       #   Error failed to bundle project: failed codesign application:
       #         failed to run command security import
       #
-      # Writing them to the environment only when there is a certificate means a
-      # repository with no Apple credentials produces an unsigned .dmg instead
-      # of no .dmg at all. Adding the secrets later needs no change here.
-      #
-      # Windows is unaffected either way: Authenticode is configured in
+      # So an empty certificate is removed from the environment before the
+      # build, and a repository without Apple credentials gets an unsigned .dmg
+      # instead of no .dmg at all. Adding the secrets later needs no change
+      # here. Windows is unaffected either way: Authenticode is configured in
       # tauri.conf.json under bundle.windows, not by environment.
-      - name: Prepare macOS signing
-        if: runner.os == 'macOS'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        shell: bash
-        run: |
-          if [ -z "$APPLE_CERTIFICATE" ]; then
-            echo "No Apple certificate configured — building unsigned."
-            echo "::notice::macOS build is unsigned; Gatekeeper will quarantine it."
-            exit 0
-          fi
-          echo "Apple certificate present — the build will sign and notarise."
-          {
-            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
-            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
-            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
-            echo "APPLE_ID=$APPLE_ID"
-            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
-            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
-          } >> "$GITHUB_ENV"
-
-      # The updater signing key is required, not optional like the Apple
-      # credentials above: `createUpdaterArtifacts` is on in tauri.conf.json, so
-      # a build without this key fails rather than quietly producing installers
-      # nobody can update from. That is the behaviour we want — an unsigned
-      # release would be invisible to every installed copy.
-      #
-      # Not Authenticode. This is a minisign keypair that proves an update came
-      # from us; the public half is embedded in the app and checked before an
-      # update is ever run.
       - name: Build the installers
         working-directory: desktop
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cargo tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            echo "Apple certificate present — the build will sign and notarise."
+          else
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+              APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            if [ "$RUNNER_OS" = macOS ]; then
+              echo "::notice::macOS build is unsigned; Gatekeeper will quarantine it."
+            fi
+          fi
+          cargo tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
 
       # `nullglob` so the patterns for the other platform expand to nothing
       # rather than to themselves — without it a Windows run would try to
-      # upload a file literally named '*.dmg'.
-      - name: Attach the installers to the release
+      # collect a file literally named '*.dmg'.
+      - name: Collect the installers
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.release.outputs.tag }}
         run: |
           shopt -s nullglob
           # `--target` moves the output under a directory named for the triple.
@@ -383,6 +404,55 @@ jobs:
                  "$BUNDLE"/nsis/*-setup.exe.sig "$BUNDLE"/msi/*.msi.sig)
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "::error::The build reported success but produced no installers."
+            exit 1
+          fi
+          mkdir -p installers
+          cp "${FILES[@]}" installers/
+          printf 'collected %s\n' "${FILES[@]}"
+
+      - name: Hand the installers to publish-desktop
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-installers-${{ matrix.name }}
+          path: installers/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Attaches what the desktop legs built to the release. Apart from `verify`,
+  # the only job that can write to it, and neither installs a package.
+  #
+  # `always()` keeps each platform shipping on its own, as it did when every
+  # leg uploaded for itself: a failed macOS build does not hold back the
+  # Windows installers. A cancelled run is left alone.
+  publish-desktop:
+    name: Attach the desktop installers
+    runs-on: ubuntu-latest
+    needs: desktop
+    if: always() && needs.desktop.result != 'cancelled'
+    permissions:
+      contents: write
+    steps:
+      - name: Download the installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: desktop-installers-*
+          merge-multiple: true
+          path: installers
+
+      - name: Attach them to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release tag must be vMAJOR.MINOR.PATCH; received '$TAG'."
+            exit 1
+          fi
+          shopt -s nullglob
+          FILES=(installers/*)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "::error::No desktop build produced installers to attach."
             exit 1
           fi
           printf 'uploading %s\n' "${FILES[@]}"
@@ -412,14 +482,16 @@ jobs:
       # requires this asset as proof that the all-images gate above completed;
       # image manifests are checked independently as a second guard.
       - name: Check out the deployment worker
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # Pin the package to the exact commit containing the workflow that
           # authorized it; the default branch could advance while images build.
           ref: ${{ github.workflow_sha }}
+          # The upload below authenticates with GH_TOKEN, not git.
+          persist-credentials: false
 
       - name: Download verified image digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: release-digest-*
           merge-multiple: true
