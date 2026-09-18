@@ -3,9 +3,9 @@ import { ShieldAlert } from 'lucide-react';
 /**
  * What to do when Windows refuses the installer.
  *
- * Same cause as the macOS section — the installers are unsigned — but Windows
- * has two protections that behave very differently, and conflating them would
- * give half of readers advice that cannot work.
+ * The Windows installers are not signed yet, and Windows has two protections
+ * that behave very differently; conflating them would give half of readers
+ * advice that cannot work.
  *
  * SmartScreen warns and offers a way through. Smart App Control does not — it
  * blocks unsigned software outright with no per-app exception, so the only
@@ -18,7 +18,7 @@ import { ShieldAlert } from 'lucide-react';
  */
 export function WindowsFirstRun() {
   return (
-    <details className="group mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+    <details className="group mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
       <summary className="flex cursor-pointer list-none items-center gap-2.5 text-[15px] font-semibold text-white">
         <ShieldAlert className="size-5 shrink-0 text-[#e0a173]" aria-hidden />
         Windows blocked the installer, or calls the publisher unknown
@@ -26,9 +26,9 @@ export function WindowsFirstRun() {
 
       <div className="mt-4 flex flex-col gap-5 border-t border-white/8 pt-5">
         <p className="text-[13px] leading-relaxed text-white/55">
-          Same reason as on a Mac: Virgo is in beta and its installers are not
-          signed yet, so Windows cannot tell who published them. Signing is
-          coming. Which message you get depends on how your machine is set up.
+          Virgo is in beta and its Windows installers are not signed yet, so
+          Windows cannot tell who published them. Signing is coming. Which
+          message you get depends on how your machine is set up.
         </p>
 
         <div className="flex flex-col gap-2.5">
