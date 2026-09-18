@@ -195,6 +195,11 @@ jobs:
   desktop:
     name: desktop (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
+    # A normal leg takes 10 to 40 minutes, notarisation included. The cap is for
+    # one that has stopped making progress: in the first signed release a Mac
+    # leg sat in notarisation for over two hours, billed at macOS rates, while
+    # every installer waited on it. GitHub's default is six hours.
+    timeout-minutes: 75
     permissions:
       contents: read
 
@@ -381,7 +386,26 @@ jobs:
               echo "::notice::macOS build is unsigned; Gatekeeper will quarantine it."
             fi
           fi
-          cargo tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+
+          # Notarisation keeps a connection open to Apple for as long as Apple
+          # takes, and the first signed release lost it partway through:
+          #
+          #   failed to notarize app: Error: HTTPError(... NSURLErrorDomain
+          #   Code=-1009 "The Internet connection appears to be offline." ...)
+          #
+          # That says nothing about the build, so it gets two more attempts. The
+          # Rust build is compiled by then, so each one repeats only bundling,
+          # signing and a fresh submission. Anything else, Apple rejecting the
+          # app included, fails at once.
+          for attempt in 1 2 3; do
+            if cargo tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }} 2>&1 | tee tauri-build.log; then
+              exit 0
+            fi
+            if [ "$attempt" = 3 ] || ! grep -qE 'failed to notarize.*(NSURLErrorDomain|HTTPError|timed out)' tauri-build.log; then
+              exit 1
+            fi
+            echo "::warning::Notarisation lost its connection to Apple on attempt $attempt; trying again."
+          done
 
       # `nullglob` so the patterns for the other platform expand to nothing
       # rather than to themselves — without it a Windows run would try to
