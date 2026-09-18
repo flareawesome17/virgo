@@ -25,6 +25,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -168,6 +169,13 @@ mkdirSync(RESOURCES, { recursive: true });
 // server.js, its package.json, and the traced subset of node_modules.
 cpSync(standalone, RESOURCES, { recursive: true });
 
+// sharp is traced in for next/image, which the desktop build switches off
+// (web/next.config.ts). Left in, its native binaries would be unsigned code in
+// a notarised app, and the runner's arm64 copies in the Intel one.
+for (const name of ['sharp', '@img']) {
+  rmSync(join(RESOURCES, 'node_modules', name), { recursive: true, force: true });
+}
+
 // Client chunks. Deliberately not part of the standalone bundle — Next expects
 // whatever is current to be dropped in beside it, so a stale copy here would
 // serve a hashed chunk the HTML never asks for.
@@ -178,6 +186,18 @@ cpSync(join(web, '.next', 'static'), join(RESOURCES, '.next', 'static'), {
 // Fonts, icons, and the notification sounds the chat screen plays.
 if (existsSync(join(web, 'public'))) {
   cpSync(join(web, 'public'), join(RESOURCES, 'public'), { recursive: true });
+}
+
+// Tauri signs the executables it bundles but nothing under resources/, and
+// notarisation rejects the whole app if any binary inside it is unsigned.
+// Named here so that failure, if it comes, is not a mystery in Apple's log.
+if (DESKTOP_OS === 'macos') {
+  const prefix = process.env.GITHUB_ACTIONS ? '::warning::' : 'warning: ';
+  for (const file of readdirSync(RESOURCES, { recursive: true }).map(String)) {
+    if (/\.(node|dylib)$/.test(file)) {
+      console.log(`${prefix}unsigned native binary will fail notarisation: ${file}`);
+    }
+  }
 }
 
 /* ----------------------------------------------------------- node runtime */
