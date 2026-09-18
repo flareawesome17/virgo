@@ -1,0 +1,47 @@
+# Asks Apple what became of recent notarisation submissions.
+#
+# The release workflow submits the Mac app for notarisation and, by default,
+# waits for the verdict. When Apple is slow, as it can be with an account's
+# first submissions, this answers the question without paying for a build to
+# sit and wait: it takes about a minute on a macOS runner and installs nothing.
+#
+# Give it a submission ID to also print Apple's log for that submission, which
+# is where the reasons are when one comes back Invalid.
+
+name: Notarisation status
+
+on:
+  workflow_dispatch:
+    inputs:
+      submission:
+        description: 'Optional: a submission ID whose log to show'
+        required: false
+        type: string
+
+# Nothing here touches the repository.
+permissions: {}
+
+jobs:
+  status:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ask Apple
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SUBMISSION: ${{ inputs.submission }}
+        run: |
+          AUTH=(--apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID")
+          xcrun notarytool history "${AUTH[@]}"
+          if [ -n "$SUBMISSION" ]; then
+            if [[ ! "$SUBMISSION" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+              echo "::error::'$SUBMISSION' is not a submission ID."
+              exit 1
+            fi
+            xcrun notarytool info "$SUBMISSION" "${AUTH[@]}"
+            xcrun notarytool log "$SUBMISSION" "${AUTH[@]}" ||
+              echo "No log yet: Apple has not finished with this submission."
+          fi
