@@ -1,14 +1,24 @@
 import type { NextConfig } from 'next';
 
 /**
- * The desktop build, which is a different product from the hosted one.
+ * The desktop build, which differs from the hosted one only in how images are
+ * handled — for now.
  *
- * On the server this app is rendered by Node. In the desktop app there is no
- * server worth having: every signed-in page is client-rendered and talks to
- * api.virgo.ph directly, so the Node process existed only to hand over files.
- * Shipping a runtime, a port and a child process to do that is what put a
- * second program in the user's Dock and gave the app something that can die
- * underneath it.
+ * The intent is that it stops shipping a Node runtime: every signed-in page is
+ * client-rendered and talks to api.virgo.ph directly, so the server exists only
+ * to hand over files. `output: 'export'` is how that would work, and the pages
+ * are ready for it — the groundwork is in this tree.
+ *
+ * It is not switched on, because the export still fails. robots.ts and
+ * sitemap.ts read the request host, since one deployment answers for both
+ * virgo.ph and web.virgo.ph and they want opposite answers, so neither can be
+ * prerendered — and export refuses a route handler it cannot prerender.
+ * `export const dynamic` must be a literal, so it cannot vary per build, and
+ * pageExtensions does not work for metadata routes. Excluding them needs a
+ * build step that does not exist yet.
+ *
+ * Turning this on before that exists breaks `npm run stage`, and with it every
+ * desktop installer.
  */
 const DESKTOP = process.env.NEXT_PUBLIC_VIRGO_DESKTOP === '1';
 
@@ -66,25 +76,21 @@ const nextConfig: NextConfig = {
    * image carries a fraction of node_modules. Required by the Dockerfile,
    * which copies `.next/standalone`.
    */
-  output: DESKTOP ? 'export' : 'standalone',
+  output: 'standalone',
 
   /**
-   * How a route is kept out of the desktop build.
+   * `web.tsx` is how a page is kept out of a static export.
    *
-   * `robots.web.ts` and `sitemap.web.ts` both read the request host — one
-   * deployment answers for virgo.ph and web.virgo.ph and they want opposite
-   * answers — so neither can be prerendered, and `output: export` refuses any
-   * route handler it cannot prerender. They are also meaningless in an app
-   * bundle, which has no hostname and nothing to crawl.
+   * The marketing landing and download pages are force-dynamic and cannot be
+   * exported, and mean nothing in an app bundle. Naming them `page.web.tsx`
+   * lets a future desktop build drop `web.tsx` from this list and stop seeing
+   * them as routes at all.
    *
-   * Next only treats a file as a route when its extension is in this list, so
-   * dropping `web.ts` makes those two ordinary modules the desktop build never
-   * looks at. The alternative was `export const dynamic`, which Next requires
-   * to be a literal and so cannot vary per build.
+   * Listed unconditionally today, so both builds include them — the desktop
+   * build is still `standalone` and renders them like any other page. This
+   * only starts to matter when the export does.
    */
-  pageExtensions: DESKTOP
-    ? ['tsx', 'ts']
-    : ['web.tsx', 'web.ts', 'tsx', 'ts'],
+  pageExtensions: ['web.tsx', 'web.ts', 'tsx', 'ts'],
 
   /**
    * Where media is fetched from. Listed explicitly rather than with a
