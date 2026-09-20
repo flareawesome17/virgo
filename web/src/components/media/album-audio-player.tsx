@@ -12,6 +12,7 @@ import {
   SkipForward,
   SpeakerHigh,
   SpeakerSlash,
+  X,
 } from '@phosphor-icons/react';
 import { formatBytes, type StoredFile } from '@/api';
 import { Button } from '@/components/ui/button';
@@ -69,6 +70,30 @@ export function AlbumAudioPlayer({
     if (currentIndex < files.length - 1) return currentIndex + 1;
     return repeat === 'all' ? 0 : -1;
   }, [currentIndex, files.length, repeat, shuffle]);
+
+  /**
+   * Puts the bar away.
+   *
+   * There was no way to do this. The bar appears the moment something plays
+   * and is rendered on `current`, which nothing ever cleared — so it sat over
+   * the bottom of the page for the rest of the visit, through every album and
+   * every tab, and the only way out was a reload.
+   *
+   * Pausing the element as well as clearing the track matters: React unmounts
+   * the `<audio>` on the next render, and an element that is removed while
+   * playing can go on producing sound until it is garbage collected.
+   */
+  const closePlayer = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    setPlaying(false);
+    setCurrentKey(null);
+    setPosition(0);
+    setDuration(0);
+  }, []);
 
   const skipNext = useCallback(() => {
     const next = nextIndex();
@@ -273,6 +298,19 @@ export function AlbumAudioPlayer({
               </select>
               <button onClick={() => setMuted((value) => !value)} aria-label={muted ? 'Unmute' : 'Mute'} className="hidden size-9 place-items-center text-white/55 md:grid">{muted ? <SpeakerSlash size={18} weight="light" /> : <SpeakerHigh size={18} weight="light" />}</button>
               <input type="range" min={0} max={1} step={0.01} value={volume} onChange={(event) => setVolume(Number(event.target.value))} aria-label="Volume" className="media-range hidden w-20 md:block" />
+
+              {/* The only control with no `hidden` on it. Every other one here
+                  drops away on a narrow screen because it is a refinement —
+                  shuffle, speed, volume. Closing is the way out of a bar that
+                  covers the bottom of the page, and a phone is exactly where
+                  that matters most. */}
+              <button
+                onClick={closePlayer}
+                aria-label="Close player"
+                className="ml-1 grid size-9 shrink-0 place-items-center rounded-full text-white/45 hover:bg-white/[0.08] hover:text-white"
+              >
+                <X size={17} weight="bold" />
+              </button>
             </div>
           </div>
         </aside>
