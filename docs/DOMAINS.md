@@ -5,9 +5,9 @@ redundant — the pairs that look like duplicates (`virgo.ph` / `web.virgo.ph`,
 `api.virgo.ph` / `client.virgo.ph`) serve different audiences, and collapsing
 either would break something.
 
-Nine of the ten reach this infrastructure through the Cloudflare Tunnel.
-`media.virgo.ph` is the exception and is routed straight at the host — the
-only inbound port in the entire deployment.
+All ten reach this infrastructure through the Cloudflare Tunnel. The
+production host still has **no inbound port and no public IP**, which is what
+makes the whole arrangement work behind a multi-WAN business router.
 
 Audited against the repository at `v1.0.0`. Where a row says "not referenced",
 that means a full-tree search found nothing outside comments and documentation.
@@ -152,33 +152,32 @@ Only the middle step is missing.
 
 ### `media.virgo.ph` — rendition delivery
 
-**The only hostname that does not go through the tunnel.**
-
 | | |
 |---|---|
-| **Purpose** | Web-playable film proxies, and later HLS ladders and image derivatives, served from a local volume |
+| **Purpose** | HLS ladders, film proxies and image derivatives, served from a local volume |
 | **Environment** | Production |
-| **Target** | `media` container (nginx), port 443 — **direct, not via `cloudflared`** |
+| **Target** | `media` container (nginx), port 80 |
 | **Referenced** | [deployment/media/nginx.conf.template](deployment/media/nginx.conf.template), [api/src/storage/media-link.service.ts](api/src/storage/media-link.service.ts), [scripts/sign-media-url.mjs](scripts/sign-media-url.mjs) |
-| **Variables** | `MEDIA_HOST`, `MEDIA_LINK_SECRET`, `MEDIA_ROOT`, `MEDIA_CERT_EMAIL` |
+| **Variables** | `MEDIA_HOST`, `MEDIA_LINK_SECRET`, `MEDIA_ROOT` |
 | **Required for v1.0.0** | No — leaving `MEDIA_HOST` empty turns the feature off and players fall back to presigned B2 URLs |
 | **Security** | Every path is signature-gated before a file is opened. No upstream, no database credential, no request body. Serving static bytes is all it can do. |
-| **Cloudflare action** | **An A record set to DNS-only — grey cloud, not orange.** Do not add a tunnel route. |
+| **Cloudflare action** | Add a published application route → `http://media:80`, exactly like the other seven. |
 
 This hostname exists because Backblaze has no Asia-Pacific region: a Manila
 viewer is ~200 ms from the bucket and ~10 ms from this machine. The full
-reasoning, and the trade involved in opening a port at all, is in
-[MEDIA_DELIVERY.md](MEDIA_DELIVERY.md).
+reasoning is in [MEDIA_DELIVERY.md](MEDIA_DELIVERY.md).
 
-Two things about it are deliberate and easy to undo by accident:
+**It was very nearly not a tunnel route.** An earlier design gave it its own
+inbound port on the host's public IP, to keep media off a CDN entirely. That
+IP turned out not to exist: the machine sits behind a business router doing
+multi-WAN, so the site egresses from more than one ISP and no single address
+describes it — and the consumer-grade link is carrier-NATed, where no forward
+is possible at all. `cloudflared` dials out, so none of that matters.
 
-- **Grey cloud, not orange.** Proxying the record puts media back behind a
-  CDN, which is the thing being avoided, and raises a terms question about
-  serving video that is not hosted on a Cloudflare service.
-- **It needs a port forward.** Every other hostname here works because
-  `cloudflared` dials *out*. This one needs 443 forwarded to the host from a
-  static WAN address. If the address is not static it needs DDNS, or the
-  hostname goes dark at the next lease renewal.
+The cost is recorded rather than hidden: video served through Cloudflare's CDN
+is not hosted on a Cloudflare service, which their CDN terms restrict. That
+trade was made knowingly, and it is the one thing about this hostname worth
+revisiting if a static IP ever becomes available.
 
 `CORS_ORIGINS` does not need an entry — nothing calls the API from this
 hostname. The reverse is true instead: the `map` in the nginx template lists
