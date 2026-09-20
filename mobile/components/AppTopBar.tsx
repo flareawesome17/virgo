@@ -5,8 +5,14 @@ import { router, usePathname } from 'expo-router';
 import { NotificationBell } from '@/components/NotificationBell';
 import { useMarkJobsSeen, useUnseenJobs } from '@/src/hooks';
 
-/** The app's own icon, so the bar cannot drift from the installed artwork. */
-const LOGO = require('@/assets/icon.png');
+/**
+ * The mark itself, transparent — not assets/icon.png, which is the store
+ * tile with a cream ground baked into it. Cropped to 28px that ground was the
+ * logo and the mark a speck inside it. The welcome screen shows this same
+ * asset bare for the same reason: the mark carries its own colour, and a
+ * container behind it only competes with it.
+ */
+const LOGO = require('@/assets/splash-icon.png');
 
 /**
  * The bar every tab screen wears.
@@ -41,8 +47,8 @@ export function AppTopBar() {
       >
         <Image
           source={LOGO}
-          style={{ width: 28, height: 28, borderRadius: 8 }}
-          contentFit="cover"
+          style={{ width: 32, height: 32 }}
+          contentFit="contain"
         />
         <Text className="text-foreground text-[17px] font-bold tracking-tight">
           Virgo
