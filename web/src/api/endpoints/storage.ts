@@ -21,6 +21,15 @@ export interface StoredFile {
   url: string | null;
   thumbnailUrl: string | null;
   posterUrl: string | null;
+  /**
+   * A web-playable H.264 copy on the media host, or null when there is none.
+   *
+   * Prefer it over `url` for playback. The original may be HEVC, 10-bit or
+   * ProRes — none of which a browser decodes — and is served from a bucket
+   * on the other side of the Pacific. Null means no proxy yet, so fall back
+   * to `url`, which is what every player did before this field existed.
+   */
+  proxyUrl: string | null;
   downloadUrl: string | null;
   originalName: string;
   width: number | null;
@@ -68,6 +77,7 @@ function storedFileFromUnknown(value: unknown): StoredFile | null {
       ? file.thumbnailUrl
       : typeof file.thumbUrl === 'string' ? file.thumbUrl : null,
     posterUrl: typeof file.posterUrl === 'string' ? file.posterUrl : null,
+    proxyUrl: typeof file.proxyUrl === 'string' ? file.proxyUrl : null,
     downloadUrl: typeof file.downloadUrl === 'string' ? file.downloadUrl : null,
     originalName: typeof file.originalName === 'string' && file.originalName.trim()
       ? file.originalName

@@ -1,0 +1,27 @@
+# Cloudflare DNS API token, for Let's Encrypt DNS-01 on media.virgo.ph.
+#
+# Copy to `cloudflare-dns.ini` NEXT TO docker-compose.prod.yml on the
+# production host and fill in the token. That filename is gitignored; this
+# example is the only version that belongs in the repository.
+#
+# DNS-01 rather than HTTP-01 for two reasons. Philippine consumer and some
+# business plans block inbound port 80, which would make HTTP-01 fail in a way
+# that looks like a firewall problem for a day; and DNS-01 needs no second
+# open port on a host whose whole security story is "only 443, only nginx".
+#
+# This is a DNS API token. It is not the CDN, and media.virgo.ph stays a
+# DNS-only record — see docs/MEDIA_DELIVERY.md.
+#
+# Create at https://dash.cloudflare.com/profile/api-tokens with exactly:
+#
+#   Permissions:     Zone → DNS → Edit
+#   Zone Resources:  Include → Specific zone → virgo.ph
+#
+# Nothing wider. A token that can edit DNS for every zone on the account is
+# not needed here and is a much worse thing to leak.
+#
+# Certbot warns if this file is group- or world-readable. On Windows that
+# check is advisory and it proceeds anyway, so keep the file out of any
+# synced or shared folder rather than relying on the warning.
+
+dns_cloudflare_api_token = REPLACE_ME

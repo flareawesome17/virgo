@@ -18,6 +18,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { MediaLinkService, proxyKeyFor } from './media-link.service';
 import {
   accessAllows,
   QuotaService,
@@ -75,6 +76,7 @@ export class StorageService {
   constructor(
     private readonly config: StorageConfig,
     private readonly quota: QuotaService,
+    private readonly mediaLink: MediaLinkService,
   ) {
     this.client = config.isConfigured
       ? new S3Client({
@@ -448,6 +450,11 @@ export class StorageService {
     // Free the space against the quota. Done after the delete succeeds so a
     // failed delete does not silently hand back allowance.
     await this.quota.forgetFile(userId, key);
+    // Renditions are not bucket objects, so the sweep above does not reach
+    // them. Last, and never fatal: a rendition left behind is wasted disk on
+    // one machine, and failing someone's delete over it would be a much worse
+    // trade than leaving it for the sweep.
+    await this.mediaLink.removeFor([key], proxyKeyFor);
   }
 
   /**
@@ -525,6 +532,11 @@ export class StorageService {
     await this.quota.forgetFiles(userId, deletedKeys);
     const after = await this.quota.storageUsed(userId);
 
+    // The user's whole media tree is going, so take the rendition subtree
+    // rather than deriving a name per key: it is one call instead of several
+    // thousand, and it also collects renditions whose row was never written.
+    await this.mediaLink.removeTree(`users/${userId}`);
+
     return { deleted: deletedKeys.length, failed, freedBytes: before - after };
   }
 
@@ -592,6 +604,11 @@ export class StorageService {
     }
 
     await this.quota.forgetFiles(userId, deletedKeys);
+    // Renditions live on the media volume rather than in a bucket, so nothing
+    // above touches them. Derived from the originals that were asked for, not
+    // from what came back deleted: a rendition whose source is already gone is
+    // the case that most needs collecting.
+    await this.mediaLink.removeFor(keys, proxyKeyFor);
     return { deleted: deletedKeys.length, failed };
   }
 
@@ -684,6 +701,11 @@ export class StorageService {
         url: urls[i],
         thumbnailUrl: thumbnailUrls[i],
         posterUrl: posterUrls[i],
+        // The web-playable copy on the media host, or null when there is not
+        // one yet — a film still encoding, an audio file, or a deployment
+        // with no media host configured. Players treat null as "use `url`",
+        // which is what they did before this existed.
+        proxyUrl: this.mediaLink.url(row.proxy_key),
         downloadUrl: downloadUrls[i],
         width: row.width_px,
         height: row.height_px,

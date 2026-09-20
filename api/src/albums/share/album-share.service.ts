@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service';
 import { PUBLISHED_URL_TTL_SECONDS } from '../../storage/storage.config';
+import { MediaLinkService } from '../../storage/media-link.service';
 import { StorageService } from '../../storage/storage.service';
 import {
   decodeFileCursor,
@@ -53,6 +54,14 @@ export interface PublicAlbumView {
      */
     thumbUrl: string | null;
     posterUrl: string | null;
+    /**
+     * The web-playable copy on the media host, or null when there is not one.
+     *
+     * Null is normal rather than an error — a film still encoding, an audio
+     * file, or a deployment with no media host configured. The page falls
+     * back to `url`, which is what it rendered before this existed.
+     */
+    proxyUrl: string | null;
     /** Same object, signed to save rather than open. */
     downloadUrl: string | null;
     /** What it saves as: "Album Name - 004.jpg". */
@@ -122,6 +131,7 @@ export class AlbumShareService {
   constructor(
     private readonly db: DatabaseService,
     private readonly storage: StorageService,
+    private readonly mediaLink: MediaLinkService,
     private readonly config: ConfigService,
   ) {}
 
@@ -167,10 +177,19 @@ export class AlbumShareService {
    * is not subject to these directives.
    *
    * Scoped to this one route rather than loosening the global policy, and
-   * still strict: no scripts at all, and only the storage origin is added.
+   * still strict: no scripts at all, and only the origins media actually
+   * resolves to are added.
+   *
+   * There are two of those now. Originals and posters are presigned URLs at
+   * the B2 endpoint; proxy renditions come from the media host, which is a
+   * different origin entirely. Listing only the first is how every film on
+   * the page renders a poster and then refuses to play.
    */
   contentSecurityPolicy(nonce?: string): string {
-    const media = this.storage.mediaOrigins();
+    const media = [
+      ...this.storage.mediaOrigins(),
+      this.mediaLink.origin(),
+    ].filter(Boolean);
     const sources = ["'self'", 'data:', ...media].filter(Boolean).join(' ');
     return [
       "default-src 'self'",
@@ -395,6 +414,7 @@ export class AlbumShareService {
       key: string;
       thumb_key: string | null;
       poster_key: string | null;
+      proxy_key: string | null;
       content_type: string | null;
       size_bytes: string;
       created_at: Date;
@@ -406,7 +426,7 @@ export class AlbumShareService {
       media_artist: string | null;
       processing_status: 'pending' | 'ready' | 'failed' | 'not_required';
     }>(
-      `select key, thumb_key, poster_key, content_type, size_bytes, created_at,
+      `select key, thumb_key, poster_key, proxy_key, content_type, size_bytes, created_at,
               original_name, width_px, height_px, duration_ms,
               media_title, media_artist, processing_status
          from user_files
@@ -483,6 +503,7 @@ export class AlbumShareService {
         url: urls[i],
         thumbUrl: thumbUrls[i],
         posterUrl: posterUrls[i],
+        proxyUrl: this.mediaLink.url(f.proxy_key, PUBLISHED_URL_TTL_SECONDS),
         downloadUrl: downloadUrls[i],
         downloadName: names[i],
         contentType: f.content_type,

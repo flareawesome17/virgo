@@ -106,7 +106,18 @@ function VideoPlayer({
   const controls = useSharedValue(1);
   const visible = useRef(true);
 
-  const player = useVideoPlayer(file.url ?? '', (instance) => {
+  /**
+   * The proxy when there is one, the original when there is not.
+   *
+   * The proxy is H.264/AAC with the moov atom at the front, served from the
+   * media host rather than from B2 — so it plays where a HEVC or 10-bit
+   * original cannot, and it starts without first fetching the end of the
+   * file. Null means it has not been encoded yet, and falling back to the
+   * original is exactly what this screen did before the field existed.
+   */
+  const playbackUrl = file.proxyUrl ?? file.url ?? '';
+
+  const player = useVideoPlayer(playbackUrl, (instance) => {
     instance.timeUpdateEventInterval = 0.25;
     instance.play();
   });
@@ -239,7 +250,7 @@ function VideoPlayer({
           <Pressable
             onPress={() => {
               setFailed(null);
-              player.replace(file.url ?? '');
+              player.replace(playbackUrl);
               player.play();
             }}
             className="mt-7 bg-[#C17745] rounded-full px-6 py-3 active:opacity-85"
