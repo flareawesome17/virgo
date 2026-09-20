@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ArrowLeft, DotsThree, FilmSlate, ImageSquare, LinkSimple, MusicNotesSimple, Play, Trash, UploadSimple } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -13,13 +13,14 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { UploadDropzone, openFilePicker } from '@/components/media/upload-dropzone';
 import { MediaViewer } from '@/components/media/media-viewer';
+import { useVideoPlayback } from '@/components/media/video-playback';
 import { AlbumAudioPlayer } from '@/components/media/album-audio-player';
 import { ShareDialog } from '@/components/media/share-dialog';
 import { useAlbum, useDeleteAlbum } from '@/hooks/useAlbums';
 import { useAlbumFiles } from '@/hooks/useAlbumFiles';
 import { useUpload } from '@/hooks/useUpload';
 import { useWorkspace } from '@/hooks/useWorkspaces';
-import { formatBytes, storageApi, type StoredFile, type StoredMediaKind } from '@/api';
+import { formatBytes, kindOf, storageApi, type StoredFile, type StoredMediaKind } from '@/api';
 
 type Room = Exclude<StoredMediaKind, 'other'>;
 const ROOMS: { value: Room; label: string; Icon: typeof ImageSquare }[] = [
@@ -50,6 +51,33 @@ export default function AlbumPage() {
     ? albumFilesQuery.images
     : room === 'video' ? albumFilesQuery.videos : albumFilesQuery.audio;
   const totalItems = counts.image + counts.video + counts.audio;
+
+  /**
+   * A film goes to the player; everything else goes to the lightbox.
+   *
+   * The lightbox is a modal owned by this page, so a film opened in it stops
+   * the moment you leave the album. The player is held above the app instead,
+   * which is what lets it carry on playing in the corner while you look at
+   * something else.
+   *
+   * The queue is the album's films, not all its media — stepping from one film
+   * to the next should not stop at every photograph in between.
+   */
+  const { open: openFilm } = useVideoPlayback();
+  const openAt = useCallback(
+    (index: number) => {
+      const file = files[index];
+      if (file && kindOf(file.contentType) === 'video') {
+        openFilm(
+          file,
+          files.filter((candidate) => kindOf(candidate.contentType) === 'video'),
+        );
+        return;
+      }
+      setViewerIndex(index);
+    },
+    [files, openFilm],
+  );
 
   const removeFile = async (file: StoredFile) => {
     try {
@@ -116,7 +144,7 @@ export default function AlbumPage() {
           </nav>
 
           <section className="pt-7">
-            {room !== 'audio' && <MediaRoom room={room} files={files} loading={albumFilesQuery.isLoading} failed={albumFilesQuery.loadFailed} onRetry={() => albumFilesQuery.refetch()} onOpen={setViewerIndex} hasMore={!!albumFilesQuery.hasNextPage} loadingMore={albumFilesQuery.isFetchingNextPage} onLoadMore={() => albumFilesQuery.fetchNextPage()} onUpload={() => openFilePicker()} />}
+            {room !== 'audio' && <MediaRoom room={room} files={files} loading={albumFilesQuery.isLoading} failed={albumFilesQuery.loadFailed} onRetry={() => albumFilesQuery.refetch()} onOpen={openAt} hasMore={!!albumFilesQuery.hasNextPage} loadingMore={albumFilesQuery.isFetchingNextPage} onLoadMore={() => albumFilesQuery.fetchNextPage()} onUpload={() => openFilePicker()} />}
             <AlbumAudioPlayer files={albumFilesQuery.audio} albumName={album?.name ?? 'Virgo album'} visible={room === 'audio'} isLoading={albumFilesQuery.isLoading} hasMore={!!albumFilesQuery.hasNextPage} loadingMore={albumFilesQuery.isFetchingNextPage} onLoadMore={() => albumFilesQuery.fetchNextPage()} />
           </section>
         </main>
