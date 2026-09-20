@@ -30,6 +30,22 @@ on:
         description: 'Existing release tag to build, e.g. v1.0.0'
         required: true
         type: string
+      # For when the release itself is fine and only its installers are not:
+      # rebuilds them without touching the images or the deployment marker,
+      # so the production host sees nothing new.
+      desktop_only:
+        description: 'Rebuild only the desktop installers'
+        type: boolean
+        default: false
+      # Submit the Mac app for notarisation without waiting for Apple's answer.
+      # Apple can hold an account's first submissions for hours, billed at
+      # macOS rates the whole time; once it has cleared one, answers usually
+      # take minutes. Gatekeeper checks online until a ticket is stapled, so
+      # the app opens normally as soon as Apple accepts it.
+      skip_stapling:
+        description: 'macOS: do not wait for notarisation to finish'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,6 +58,7 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    if: ${{ !inputs.desktop_only }}
 
     # One job per image so a failure names the thing that failed, and so the
     # three build in parallel rather than end to end.
@@ -195,6 +212,11 @@ jobs:
   desktop:
     name: desktop (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
+    # A normal leg takes 10 to 40 minutes, notarisation included. The cap is for
+    # one that has stopped making progress: in the first signed release a Mac
+    # leg sat in notarisation for over two hours, billed at macOS rates, while
+    # every installer waited on it. GitHub's default is six hours.
+    timeout-minutes: 75
     permissions:
       contents: read
 
@@ -381,7 +403,26 @@ jobs:
               echo "::notice::macOS build is unsigned; Gatekeeper will quarantine it."
             fi
           fi
-          cargo tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+
+          # Notarisation keeps a connection open to Apple for as long as Apple
+          # takes, and the first signed release lost it partway through:
+          #
+          #   failed to notarize app: Error: HTTPError(... NSURLErrorDomain
+          #   Code=-1009 "The Internet connection appears to be offline." ...)
+          #
+          # That says nothing about the build, so it gets two more attempts. The
+          # Rust build is compiled by then, so each one repeats only bundling,
+          # signing and a fresh submission. Anything else, Apple rejecting the
+          # app included, fails at once.
+          for attempt in 1 2 3; do
+            if cargo tauri build ${{ matrix.target && format('--target {0}', matrix.target) || '' }} ${{ runner.os == 'macOS' && inputs.skip_stapling && '--skip-stapling' || '' }} 2>&1 | tee tauri-build.log; then
+              exit 0
+            fi
+            if [ "$attempt" = 3 ] || ! grep -qE 'failed to notarize.*(NSURLErrorDomain|HTTPError|timed out)' tauri-build.log; then
+              exit 1
+            fi
+            echo "::warning::Notarisation lost its connection to Apple on attempt $attempt; trying again."
+          done
 
       # `nullglob` so the patterns for the other platform expand to nothing
       # rather than to themselves — without it a Windows run would try to
@@ -465,7 +506,7 @@ jobs:
     name: All images published
     runs-on: ubuntu-latest
     needs: build
-    if: always()
+    if: ${{ always() && !inputs.desktop_only }}
     permissions:
       contents: write
     steps:
