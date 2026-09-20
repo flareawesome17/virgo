@@ -5,9 +5,12 @@ reach one quickly.
 
 Everything here is self-hosted and open source. No Cloudflare Stream, no
 Cloudflare Images, no Mux, no Bunny, and no VPS. The production host already
-has everything the job needs — a public IP, a gigabit symmetric uplink, and a
-location inside the country most viewers are in. It is not currently being
-used for any of that.
+has what the job needs — a gigabit symmetric uplink and a location inside the
+country most viewers are in. It is not currently being used for any of that.
+
+Cloudflare stays in the picture as the *tunnel*, because the site has no
+usable public IP to serve from. That is a constraint discovered late and it is
+written up where it bites, under *Why not its own port*.
 
 Audited against the repository at `v1.0.0`.
 
@@ -37,9 +40,9 @@ one of them is the one people name:
 
 ## The asset nobody is using
 
-The production host is a Windows machine in the Philippines with a public IP
-and roughly a gigabit of symmetric bandwidth. Almost every viewer is also in
-the Philippines. That combination is worth more than a CDN subscription:
+The production host is a Windows machine in the Philippines with roughly a
+gigabit of symmetric bandwidth. Almost every viewer is also in the
+Philippines. That combination is worth more than a CDN subscription:
 
 | Origin | Round trip to a Manila viewer |
 |---|---|
@@ -61,15 +64,16 @@ the wrong call for media.
 ## The shape of the fix
 
 ```
-  ┌────────────────────────────────────────────────────────────┐
-  │  PRODUCTION HOST — Philippines, 1 Gbps symmetric            │
-  │                                                             │
-  │   api · web · dashboard · postgres ──► cloudflared ──► app  │
-  │                                         (unchanged)         │
-  │   ffmpeg worker  ──►  renditions on local disk              │
-  │   nginx + imgproxy ──────────────────► :443 ──► media       │
-  │                                     (direct, no tunnel)     │
-  └────────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────┐
+  │  PRODUCTION HOST — Philippines, 1 Gbps symmetric              │
+  │  no inbound port, no public IP                                │
+  │                                                               │
+  │   api · web · dashboard · postgres ──┐                        │
+  │                                      ├──► cloudflared ──►     │
+  │   ffmpeg workers ──► renditions ──►  │                        │
+  │                      (local disk)    │                        │
+  │                          └──► nginx ─┘  :80, never published  │
+  └──────────────────────────────────────────────────────────────┘
                               │
                               ▼
       hls.js (web) · native HLS (Safari/iOS) · expo-video (mobile)
@@ -77,21 +81,42 @@ the wrong call for media.
   B2 keeps the originals. Durable, cold, and off the playback path.
 ```
 
-Two planes, two routes in:
+**`media.virgo.ph` is an eighth tunnel route**, pointing at `http://media:80`.
+The application plane is untouched: same tunnel, same connector, one more
+hostname. nginx serves plain HTTP and only `cloudflared` can reach it, because
+nothing is published.
 
-- **The application plane is untouched.** `virgo.ph`, `web.virgo.ph`,
-  `api.virgo.ph`, `client.virgo.ph`, `console.virgo.ph` and `db.virgo.ph` keep
-  dialling out through `cloudflared` exactly as they do now. No route changes,
-  no new risk on the surfaces that hold the database and the sessions.
-- **The media plane gets its own hostname and its own door.** `media.virgo.ph`
-  resolves straight to the host's public IP, nginx terminates TLS, and it
-  serves static bytes and nothing else.
+### Why not its own port
 
-**Set the `media.virgo.ph` DNS record to DNS-only — grey cloud, not orange.**
-That one toggle is what keeps media out of Cloudflare's CDN entirely, which
-both satisfies the "no Cloudflare" requirement and removes the question of
-whether serving video through their CDN is permitted. Using Cloudflare for
-*DNS* is not using them for delivery; the record just points at our IP.
+The original design gave media its own door — an A record straight at the
+host's public IP, grey-clouded, with nginx terminating TLS on 443. That keeps
+media off a CDN entirely, which is the cleanest answer to both the latency
+problem and the terms question.
+
+**That public IP turned out not to exist.** The machine sits behind a business
+router doing multi-WAN, so the site egresses from more than one ISP — two
+different addresses observed minutes apart — and no single A record describes
+it. The consumer-grade link is carrier-NATed besides, where no port forward is
+possible at all. Even with a static IP on one link, multi-WAN adds asymmetric
+routing: inbound on WAN2 whose reply leaves by WAN1 fails silently.
+
+`cloudflared` dials *out*, so none of that applies. It needs no stable
+address, no forward, and no cooperation from the router.
+
+**What it costs, stated plainly:** video served through Cloudflare's CDN that
+is not hosted on a Cloudflare service is restricted by their CDN terms. The
+direct route existed to avoid exactly that, and this accepts it knowingly.
+Worth revisiting only if a static IP becomes available.
+
+**What it saves:** no port forward, no static IP, no certbot, no DNS-01, no
+Cloudflare API token, no certificate to renew or notice expiring. The origin
+IP stays hidden and DDoS absorption comes back. Cloudflare's edge also caches
+the immutable renditions, so repeat fetches stop crossing the uplink at all —
+which the direct design could not do.
+
+**Latency barely moves.** Cloudflare has a Manila PoP, so a viewer reaches it
+in-country and the tunnel carries the last hop. Still nothing like the ~200 ms
+to California, which was the point.
 
 ### Where renditions live
 
@@ -129,7 +154,7 @@ the existing `virgo_pgdata` volume already relies on.
 | Package HLS | **ffmpeg** `-f hls` | — | fMP4/CMAF segments. Shaka Packager or Bento4 only if we outgrow it |
 | Serve media | **nginx** | BSD-2 | Static files from the volume. `sendfile` and range requests, nothing clever |
 | Playback auth | **nginx** `ngx_http_secure_link_module` | BSD-2 | Ships in the official `nginx:` image — confirm with `nginx -V` |
-| TLS | **Certbot** / **acme.sh**, DNS-01 | Apache-2.0 / MIT | DNS-01 against the Cloudflare DNS API avoids opening port 80 |
+| TLS | — | — | Terminated at the edge by the tunnel. No certificate to hold, renew or notice expiring |
 | Image resize | **sharp** (libvips) | Apache-2.0 | Already a dependency. See *Images* below for why not imgproxy |
 | Web player | **hls.js** | Apache-2.0 | Attaches to a plain `<video>`; no player rewrite |
 | Mobile player | **expo-video** | MIT | Already a dependency. HLS is native on both platforms |
@@ -159,33 +184,24 @@ platforms use internally: ffmpeg, nginx, hls.js.
 
 ---
 
-## Opening port 443 — the honest trade
+## What still keeps the blast radius small
 
-This is the one genuine downside, and it should be a deliberate decision
-rather than a side effect.
+The host has no inbound ports and the media container publishes nothing, so
+most of the exposure the direct design had to argue about simply is not there.
+What remains is worth stating anyway, because it is what stands between a
+leaked URL and the whole library:
 
-Today the host has no inbound ports. The tunnel means the IP is not
-advertised, and Cloudflare absorbs anything hostile before it reaches the
-building. Pointing `media.virgo.ph` at the IP gives that up for the media
-plane: the address becomes public, and a volumetric attack arrives on the
-office uplink instead of on Cloudflare's network.
-
-What keeps the blast radius small:
-
-- **Only nginx listens.** No API, no Postgres, no pgAdmin. The application
-  plane keeps dialling out through the tunnel and gains no inbound exposure.
 - **nginx serves static files and nothing else.** No upstream, no database
-  credentials, no request body parsing beyond a signature check.
-- **Every path is signature-gated** before a file is opened — see below.
-- **Rate limits per IP** with `limit_req` and `limit_conn`, sized to a
-  plausible viewer rather than a plausible scraper.
-- **A confirmed static IP.** If the ISP assigns dynamically, the record needs
-  DDNS or the media host disappears at the next lease renewal. Worth
-  confirming before building on it.
-
-If a volumetric attack ever becomes a real problem, the fallback is to flip
-that one DNS record back to proxied and accept the CDN question, or to put a
-cheap relay in front. Neither requires redesigning anything below.
+  credential, no request body parsing beyond a signature check. It is not
+  reachable except from `cloudflared` on the compose network.
+- **Every path is signature-gated** before a file is opened.
+- **Rate limits per client**, sized to a plausible viewer rather than a
+  plausible scraper. Behind a tunnel this needs care: every request arrives
+  from `cloudflared`'s container address, so limiting on `$binary_remote_addr`
+  would put every viewer on earth in one bucket and throttle them together.
+  The zones key on `CF-Connecting-IP` instead, falling back to the socket
+  address when the header is absent — verified by driving one client into 503
+  and confirming a second was unaffected.
 
 Do not commit the IP address to this repository. It belongs in the DNS record
 and in the `.env`, not in a file that gets cloned.
@@ -508,92 +524,60 @@ same list.
 
 ## Phase 1 runbook — standing up the media host
 
-Built. What exists in the repository:
-
 | File | Role |
 |---|---|
 | [deployment/media/nginx.conf.template](deployment/media/nginx.conf.template) | The whole media host. Rendered by the official image's envsubst entrypoint |
-| [deployment/media/cloudflare-dns.ini.example](deployment/media/cloudflare-dns.ini.example) | Template for the certbot DNS-01 token |
-| [docker-compose.prod.yml](docker-compose.prod.yml) | `media` and `certbot` services, `virgo_media` and `virgo_certs` volumes |
-| [scripts/sign-media-url.mjs](scripts/sign-media-url.mjs) | Mints signed URLs. Verification tool now, reference implementation for the API later |
-| [.env.production.example](.env.production.example) | `MEDIA_HOST`, `MEDIA_LINK_SECRET`, `MEDIA_CERT_EMAIL` |
+| [docker-compose.prod.yml](docker-compose.prod.yml) | The `media` service and the `virgo_media` volume |
+| [scripts/sign-media-url.mjs](scripts/sign-media-url.mjs) | Mints signed URLs. Verification tool now, reference implementation for the API |
+| [.env.production.example](.env.production.example) | `MEDIA_HOST`, `MEDIA_LINK_SECRET`, `MEDIA_ROOT` |
 
-Nothing serves media yet — the volume is empty and no application code points
-at the hostname. That is the point of doing it first: the door gets proven
-before anything depends on it.
-
-### 1. DNS and the router
-
-Add an `A` record for `media.virgo.ph` pointing at the WAN address, **DNS-only
-— grey cloud, not orange**, and no tunnel route. Forward TCP 443 to the
-production machine.
-
-Confirm the record is not proxied before going further. A proxied record
-returns a Cloudflare certificate and the DNS-01 challenge still passes, so the
-mistake does not announce itself — it just quietly puts media back on a CDN.
-
-```powershell
-# Should print the WAN address, not a Cloudflare 104.x / 172.x address.
-Resolve-DnsName media.virgo.ph -Type A -Server 1.1.1.1 | Select-Object IPAddress
-```
-
-### 2. Secrets
+### 1. Secrets
 
 In the production `.env`:
 
 ```powershell
 MEDIA_HOST=media.virgo.ph
 MEDIA_LINK_SECRET=<openssl rand -base64 36>
-MEDIA_CERT_EMAIL=<a mailbox someone reads>
+MEDIA_ROOT=/srv/media
 ```
 
-Then the certbot token, which is a separate file because certbot wants an ini:
+`MEDIA_LINK_SECRET` is shared by the API, which mints URLs, and nginx, which
+verifies them. Changing it invalidates every URL already handed out — with a
+24-hour TTL, that is a day of broken galleries.
+
+### 2. Start it
 
 ```powershell
-Copy-Item deployment\media\cloudflare-dns.ini.example .\cloudflare-dns.ini
-# Fill in a token scoped to Zone → DNS → Edit on virgo.ph and nothing wider.
-```
-
-`cloudflare-dns.ini` is gitignored. It belongs beside `docker-compose.prod.yml`
-on the host, not in the repository.
-
-### 3. The first certificate
-
-A one-off, because nginx cannot start without a certificate and a container
-that cannot read one crash-loops rather than waiting. The `--entrypoint`
-override is needed because the `certbot` service replaces the image's
-entrypoint with a renewal loop.
-
-```powershell
-docker compose -f docker-compose.prod.yml run --rm --entrypoint certbot certbot `
-  certonly --dns-cloudflare `
-  --dns-cloudflare-credentials /run/secrets/cloudflare.ini `
-  --dns-cloudflare-propagation-seconds 30 `
-  -d media.virgo.ph `
-  --email $env:MEDIA_CERT_EMAIL --agree-tos --no-eff-email --non-interactive
-```
-
-Add `--dry-run` first. Let's Encrypt allows five duplicate certificates per
-week and a typo in the token burns an attempt.
-
-### 4. Start
-
-```powershell
-docker compose -f docker-compose.prod.yml up -d media certbot
+docker compose -f docker-compose.prod.yml up -d media
 ```
 
 ```powershell
 docker compose -f docker-compose.prod.yml logs --tail 40 media
 ```
 
-The envsubst entrypoint prints the template it rendered. If `${MEDIA_HOST}`
+The envsubst entrypoint prints the rendered template. If `${MEDIA_LINK_SECRET}`
 appears literally in that output, `NGINX_ENVSUBST_FILTER` is not matching and
-the config is broken in a way nginx will not complain about.
+every signature check will fail against the literal string.
 
-### 5. Prove it
+### 3. Add the tunnel route
 
-Drop a probe file into the volume. The compose project prefixes volume names
-with the directory name, so read the real name rather than assuming it:
+Cloudflare dashboard → the `virgo-api` tunnel → **Published application
+routes** → Add:
+
+| Field | Value |
+|---|---|
+| Hostname | `media.virgo.ph` |
+| Path | *(leave empty)* |
+| Service | `http://media:80` |
+
+`http`, not `https` — TLS is terminated at the edge and the hop to the
+container is inside the compose network. Cloudflare creates the proxied DNS
+record as part of adding the route; there is nothing to add by hand.
+
+### 4. Prove it
+
+Drop a probe into the volume. The compose project prefixes volume names with
+the directory name, so read the real name rather than assuming it:
 
 ```powershell
 $vol = docker volume ls --format '{{.Name}}' | Select-String 'virgo_media' | ForEach-Object { $_.ToString() }
@@ -601,7 +585,7 @@ docker run --rm -v "${vol}:/srv/media" alpine sh -c 'echo ok > /srv/media/probe.
 ```
 
 Mint a URL. Signing is offline, so this runs anywhere the repository and the
-secret are — the production host does not need a checkout:
+secret are — the production host needs no checkout:
 
 ```powershell
 $env:MEDIA_HOST = 'media.virgo.ph'
@@ -613,14 +597,10 @@ Four checks, and all four matter:
 
 | Request | Expected | Proves |
 |---|---|---|
-| The signed URL | `200 ok` | Certificate, routing, port forward, signature verification |
+| The signed URL | `200 ok` | Tunnel route, container, signature verification |
 | `https://media.virgo.ph/probe.txt` | `404` | Unsigned paths are not served |
-| The signed URL with one character of the signature changed | `403` | Signatures are actually checked, not merely parsed |
-| A URL signed with `ttl` of `-86400` | `410` | Expiry is enforced |
-
-```powershell
-curl.exe -sS -o NUL -w "%{http_code}`n" "<signed url>"
-```
+| The signed URL with one character of the signature changed | `403` | Signatures are checked, not merely parsed |
+| A URL signed with a `ttl` of `-86400` | `410` | Expiry is enforced |
 
 The 403 case is the one worth being fussy about. A misconfigured
 `secure_link_md5` expression fails open in exactly one direction — it can
@@ -949,9 +929,17 @@ first start. And the `types` block *merges* with the bundled `mime.types`
 rather than replacing it, so the defensive full list was redefining types
 nginx already had; only `.m4s` was genuinely missing.
 
-**Still unexercised:** everything that needs the production host or its
-credentials — certificate issuance, the DNS record, the port forward, the
-migrations, and the workers running against a real database and B2.
+A second round, after the move to the tunnel, caught one more. The official
+nginx image ships its own `default.conf` on port 80, `conf.d` is included
+alphabetically, and `_` is not a wildcard in nginx but a name nothing
+matches — so without `default_server` on our `listen`, that file won every
+request and the media host served the nginx welcome page. The same round
+confirmed the rate-limit zones key on `CF-Connecting-IP` rather than on
+`cloudflared`'s address, by driving one client into 503 and watching a second
+sail through.
+
+**Still unexercised:** everything that needs the production host — the tunnel
+route, the migrations, and the workers running against a real database and B2.
 
 ---
 
@@ -959,10 +947,9 @@ migrations, and the workers running against a real database and B2.
 
 Each phase is independently shippable and independently useful.
 
-1. **Stand up `media.virgo.ph`** — DNS-only record, nginx on 443 with
-   Let's Encrypt via DNS-01, `secure_link`, rate limits, serving an empty
-   volume. Proves the door works before anything depends on it. **Built —
-   see the runbook above.**
+1. **Stand up `media.virgo.ph`** — a tunnel route at `http://media:80`,
+   `secure_link`, rate limits, serving an empty volume. Proves the door works
+   before anything depends on it. **Built — see the runbook above.**
 2. **`+faststart` 720p proxy** per film, written by the existing worker to the
    volume. Retires the "cannot play in this browser" state and most
    buffering, and puts real traffic on the new host. **Built — see the

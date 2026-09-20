@@ -12,7 +12,3 @@ dist/
 # production host and is still caught by the glob above.
 !.env.production.example
 
-# The Cloudflare DNS API token certbot uses to answer DNS-01 for the media
-# host. Lives beside docker-compose.prod.yml on the production machine; the
-# committed version is deployment/media/cloudflare-dns.ini.example.
-cloudflare-dns.ini
