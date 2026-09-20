@@ -1,0 +1,252 @@
+# Virgo media host — media.virgo.ph
+#
+# Serves rendition bytes (HLS ladders, progressive proxies, image derivatives)
+# from a local volume, directly on :443. This is the ONLY inbound port on the
+# production machine and nginx is the only process listening on it — the
+# application plane keeps dialling out through cloudflared and gains no
+# inbound exposure. See docs/MEDIA_DELIVERY.md.
+#
+# Rendered by the official image's envsubst entrypoint. NGINX_ENVSUBST_FILTER
+# is set to `MEDIA_` in docker-compose.prod.yml so that only ${MEDIA_*} names
+# are substituted and nginx's own $variables survive intact. Without that
+# filter envsubst eats $uri, $key and friends and the config stops making
+# sense in ways that are tedious to debug.
+
+# ── shared zones ──────────────────────────────────────────────────────────────
+# 10m holds roughly 160,000 addresses. 30r/s with a burst of 60 is generous for
+# a player pulling 6-second segments and mean for anything walking the tree.
+limit_req_zone  $binary_remote_addr zone=media_req:10m rate=30r/s;
+limit_conn_zone $binary_remote_addr zone=media_conn:10m;
+
+# Echo back only origins we actually serve, never a bare `*`. hls.js reads
+# segments with fetch/XHR, which is a cross-origin request subject to CORS —
+# a plain <video src> is not, which is why a missing header here shows up as
+# "works in Safari, fails in Chrome" rather than as an obvious CORS error.
+map $http_origin $media_cors_origin {
+    default                   "";
+    "https://virgo.ph"        $http_origin;
+    "https://www.virgo.ph"    $http_origin;
+    "https://web.virgo.ph"    $http_origin;
+    "https://client.virgo.ph" $http_origin;
+}
+
+# The complete type map for this host, stated rather than inherited.
+#
+# nginx ships no type for fMP4 segments, and an .m4s served as
+# application/octet-stream is refused outright by some players — so something
+# has to be added. Whether a second `types` block at this level merges with
+# the bundled mime.types or replaces it is a question this config deliberately
+# does not depend on: every extension the media host can serve is listed here,
+# so the answer does not matter. This host serves renditions and nothing else,
+# which is what makes an exhaustive list practical.
+types {
+    application/vnd.apple.mpegurl  m3u8;
+    video/iso.segment              m4s;
+    video/mp4                      mp4 m4v;
+    audio/mp4                      m4a;
+    image/webp                     webp;
+    image/avif                     avif;
+    image/jpeg                     jpg jpeg;
+    image/png                      png;
+    image/gif                      gif;
+}
+default_type application/octet-stream;
+
+# ── health ────────────────────────────────────────────────────────────────────
+# Container loopback only — never published, so it needs neither TLS nor a
+# signature. The healthcheck in the compose file hits this.
+server {
+    listen      127.0.0.1:8080;
+    server_name _;
+    access_log  off;
+
+    location = /healthz { return 200 "ok\n"; }
+    location /          { return 404; }
+}
+
+# ── default server ────────────────────────────────────────────────────────────
+# Anything arriving on the bare IP rather than the hostname is a scanner.
+# Without an explicit default the first server block would answer for any Host
+# header, which is how a media host ends up indexed by address.
+server {
+    listen      443 ssl default_server;
+    http2       on;
+    server_name _;
+
+    ssl_certificate     /etc/letsencrypt/live/${MEDIA_HOST}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${MEDIA_HOST}/privkey.pem;
+
+    return 444;
+}
+
+# ── media ─────────────────────────────────────────────────────────────────────
+server {
+    listen      443 ssl;
+    http2       on;
+    server_name ${MEDIA_HOST};
+
+    ssl_certificate     /etc/letsencrypt/live/${MEDIA_HOST}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${MEDIA_HOST}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:media_ssl:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    root /srv/media;
+
+    # Static reads and nothing else. There is no upstream, no database
+    # credential and no request body to parse on this host, and every method
+    # that implies otherwise is a probe.
+    if ($request_method !~ ^(GET|HEAD|OPTIONS)$) { return 405; }
+
+    # Large files, served from disk: hand the copy to the kernel and fill
+    # whole packets. Deliberately stopping short of `aio threads`, which needs
+    # nginx built --with-threads — true of the official image, but an
+    # optimisation that fails closed by refusing to start is the wrong thing
+    # to find out about during a first deploy. Revisit once this is serving.
+    sendfile   on;
+    tcp_nopush on;
+
+    server_tokens off;
+
+    # stdout, not a file. A log file inside the container grows without bound
+    # and a full disk on this host takes Postgres down with it — the same
+    # reasoning as the json-file caps on the x-hardening anchor in
+    # docker-compose.prod.yml, which is what rotates this once it gets there.
+    # Buffered because a segment request is one line and a film is hundreds.
+    access_log /dev/stdout combined buffer=32k flush=5s;
+
+    # ── signed single files ───────────────────────────────────────────────────
+    #   /<expiry>/<signature>/<key…>
+    #
+    # The signature covers the WHOLE key, so this serves exactly one file per
+    # URL: a film proxy, a display copy of a photograph. Each is fetched
+    # directly by its own signed URL, so that is all it needs to do.
+    #
+    # It is deliberately NOT what HLS uses. A playlist's child URIs are
+    # relative, so a player asking for v1/0007.m4s would send a different
+    # $key under the master's signature and be refused — see the /h/ location
+    # below, which signs the ladder directory instead.
+    #
+    # 10 digits of unix time; 22 characters of base64url md5 (16 bytes, no
+    # padding). scripts/sign-media-url.mjs mints the matching URL.
+    location ~ "^/(?<expires>[0-9]{10})/(?<sig>[A-Za-z0-9_-]{22})/(?<key>.+)$" {
+
+        secure_link     $sig,$expires;
+        secure_link_md5 "$expires/$key ${MEDIA_LINK_SECRET}";
+
+        # The secret sits at the END of the expression deliberately: md5 with a
+        # leading secret is exposed to length extension, with a trailing one it
+        # is not.
+        if ($secure_link = "")  { return 403; }   # forged or malformed
+        if ($secure_link = "0") { return 410; }   # correctly signed, expired
+
+        # Belt and braces. nginx normalises and collapses `..` before location
+        # matching, so a traversal cannot reach here — but $key is `.+` and
+        # this costs one regex.
+        if ($key ~ "\.\.") { return 403; }
+
+        limit_req  zone=media_req burst=60 nodelay;
+        limit_conn media_conn 20;
+
+        # Preflight. Range is CORS-safelisted in current browsers so segment
+        # reads do not normally preflight, but older engines and any future
+        # custom header would, and a 405 here breaks playback silently.
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  $media_cors_origin always;
+            add_header Access-Control-Allow-Methods "GET, HEAD, OPTIONS"  always;
+            add_header Access-Control-Allow-Headers "Range"               always;
+            add_header Access-Control-Max-Age       86400                 always;
+            add_header Content-Length               0;
+            return 204;
+        }
+
+        # Every header this location needs is listed here, including the ones
+        # that look like they belong at server level. A location with any
+        # add_header of its own inherits NONE from its parent — nginx replaces
+        # the set rather than merging it, and headers quietly vanishing that
+        # way is a genuinely nasty afternoon.
+        add_header Access-Control-Allow-Origin    $media_cors_origin        always;
+        add_header Access-Control-Expose-Headers  "Content-Length,Content-Range" always;
+        add_header Vary                           Origin                    always;
+        add_header Cross-Origin-Resource-Policy   cross-origin              always;
+        add_header X-Content-Type-Options         nosniff                   always;
+        add_header Referrer-Policy                no-referrer               always;
+        add_header Strict-Transport-Security      "max-age=31536000"        always;
+        # Renditions are immutable: a new encode writes a new key. The URL
+        # changes when the signature window rolls, which is what keeps this
+        # honest.
+        add_header Cache-Control                  "public, max-age=31536000, immutable" always;
+
+        try_files /$key =404;
+    }
+
+    # ── signed HLS ladders ────────────────────────────────────────────────────
+    #   /h/<expiry>/<signature>/<…-hls>/<file under it>
+    #
+    # Here the signature covers only the ladder DIRECTORY, and that is the
+    # whole trick. A master playlist's child URIs are relative — `v1/playlist
+    # .m3u8`, then `0007.m4s`, then `init.mp4` from EXT-X-MAP — and no player
+    # propagates anything from the manifest URL to them. Not Safari, not
+    # ExoPlayer, not AVPlayer; hls.js can be made to with a custom loader, but
+    # the other two cannot and we have three playback surfaces.
+    #
+    # Because the token sits in the path ABOVE the directory, every relative
+    # URI beneath the master resolves under the same signed prefix by plain
+    # URL resolution, and nginx verifies all of them against the one $dir.
+    #
+    # `.+?-hls` is non-greedy so $dir stops at the ladder root. Keys are
+    # `users/<uuid>/albums/<yyyy>/<mm>/<uuid>-hls`, and `-hls` cannot occur
+    # inside a UUID — h, l and s are not hex — so the split is unambiguous.
+    location ~ "^/h/(?<expires>[0-9]{10})/(?<sig>[A-Za-z0-9_-]{22})/(?<dir>.+?-hls)/(?<rest>.+)$" {
+
+        secure_link     $sig,$expires;
+        secure_link_md5 "$expires/$dir ${MEDIA_LINK_SECRET}";
+
+        if ($secure_link = "")  { return 403; }
+        if ($secure_link = "0") { return 410; }
+        if ($dir ~ "\.\.")      { return 403; }
+        if ($rest ~ "\.\.")     { return 403; }
+
+        # Higher burst than the single-file location: one film at 6-second
+        # segments across three renditions is a lot of small requests, and a
+        # player buffering ahead sends them together.
+        limit_req  zone=media_req burst=200 nodelay;
+        limit_conn media_conn 20;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  $media_cors_origin always;
+            add_header Access-Control-Allow-Methods "GET, HEAD, OPTIONS"  always;
+            add_header Access-Control-Allow-Headers "Range"               always;
+            add_header Access-Control-Max-Age       86400                 always;
+            add_header Content-Length               0;
+            return 204;
+        }
+
+        # CORS matters more here than anywhere else on this host: hls.js reads
+        # segments with fetch/XHR rather than through the video element, so
+        # every one of them is a cross-origin request. Native HLS in Safari is
+        # not, which is how a missing header here presents as a Chrome-only
+        # bug. Same add_header-does-not-inherit rule as above.
+        add_header Access-Control-Allow-Origin    $media_cors_origin        always;
+        add_header Access-Control-Expose-Headers  "Content-Length,Content-Range" always;
+        add_header Vary                           Origin                    always;
+        add_header Cross-Origin-Resource-Policy   cross-origin              always;
+        add_header X-Content-Type-Options         nosniff                   always;
+        add_header Referrer-Policy                no-referrer               always;
+        add_header Strict-Transport-Security      "max-age=31536000"        always;
+        # A ladder is written once and never rewritten — a re-encode writes a
+        # new directory — so everything under it is immutable, playlists
+        # included.
+        add_header Cache-Control                  "public, max-age=31536000, immutable" always;
+
+        try_files /$dir/$rest =404;
+    }
+
+    # Unsigned, or a shape that is not a signed path. Nothing here is browsable.
+    location / {
+        add_header X-Content-Type-Options nosniff   always;
+        add_header Referrer-Policy        no-referrer always;
+        return 404;
+    }
+}

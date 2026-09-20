@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service';
 import { PUBLISHED_URL_TTL_SECONDS } from '../../storage/storage.config';
+import { HlsService } from '../../storage/hls.service';
+import { MediaLinkService } from '../../storage/media-link.service';
 import { StorageService } from '../../storage/storage.service';
 import {
   decodeFileCursor,
@@ -53,6 +55,30 @@ export interface PublicAlbumView {
      */
     thumbUrl: string | null;
     posterUrl: string | null;
+    /**
+     * The web-playable copy on the media host, or null when there is not one.
+     *
+     * Null is normal rather than an error — a film still encoding, an audio
+     * file, or a deployment with no media host configured. The page falls
+     * back to `url`, which is what it rendered before this existed.
+     */
+    proxyUrl: string | null;
+    /**
+     * Intermediate copies for viewing, narrowest first.
+     *
+     * Opening a photograph used to serve the original — a 6 MB camera JPEG,
+     * or a 40 MB TIFF, to fill a viewport about 1400 px wide. Empty means
+     * there are none and the page falls back to `url`.
+     */
+    displaySources: { width: number; url: string }[];
+    /**
+     * The adaptive ladder, or null when there is not one.
+     *
+     * Null until the album is shared — building one is what sharing pays for
+     * — and for films too small to be worth rungs. The page falls through to
+     * `proxyUrl` and then to `url`.
+     */
+    hlsUrl: string | null;
     /** Same object, signed to save rather than open. */
     downloadUrl: string | null;
     /** What it saves as: "Album Name - 004.jpg". */
@@ -122,6 +148,8 @@ export class AlbumShareService {
   constructor(
     private readonly db: DatabaseService,
     private readonly storage: StorageService,
+    private readonly mediaLink: MediaLinkService,
+    private readonly hls: HlsService,
     private readonly config: ConfigService,
   ) {}
 
@@ -167,10 +195,19 @@ export class AlbumShareService {
    * is not subject to these directives.
    *
    * Scoped to this one route rather than loosening the global policy, and
-   * still strict: no scripts at all, and only the storage origin is added.
+   * still strict: no scripts at all, and only the origins media actually
+   * resolves to are added.
+   *
+   * There are two of those now. Originals and posters are presigned URLs at
+   * the B2 endpoint; proxy renditions come from the media host, which is a
+   * different origin entirely. Listing only the first is how every film on
+   * the page renders a poster and then refuses to play.
    */
   contentSecurityPolicy(nonce?: string): string {
-    const media = this.storage.mediaOrigins();
+    const media = [
+      ...this.storage.mediaOrigins(),
+      this.mediaLink.origin(),
+    ].filter(Boolean);
     const sources = ["'self'", 'data:', ...media].filter(Boolean).join(' ');
     return [
       "default-src 'self'",
@@ -245,6 +282,13 @@ export class AlbumShareService {
         );
       }
 
+      // Re-scoping can bring films into a link that previously excluded them,
+      // and an album can gain films after it was first shared. Queueing here
+      // as well as on creation is what catches both; `enqueueAlbum` only
+      // touches films that have no ladder and have not failed, so calling it
+      // again is free.
+      void this.hls.enqueueAlbum(albumId);
+
       return {
         token: existing.token,
         url: this.urlFor(existing.token),
@@ -260,6 +304,12 @@ export class AlbumShareService {
        returning *`,
       [albumId, userId, token, wanted, purpose],
     );
+
+    // Sharing an album is what pays for its ladders. Deliberately not awaited:
+    // building them takes minutes and this call is a button press. The work is
+    // a database flag and a cron, so nothing is lost if this request ends
+    // first — and a queue failure must not cost the user their share link.
+    void this.hls.enqueueAlbum(albumId);
 
     return {
       token,
@@ -373,6 +423,16 @@ export class AlbumShareService {
       throw new ForbiddenException('This media is not included in the link');
     }
 
+    // Opening a gallery is the other thing that pays for a ladder, and it is
+    // what closes the loop the sweep opens: an evicted ladder comes back the
+    // next time somebody actually watches, rather than degrading to the proxy
+    // for good. Only on the first page of a link that includes film, so this
+    // is once per gallery open rather than once per scroll, and the
+    // `hls_status = 'none'` filter inside makes every later call a no-op.
+    if (!filter.cursor && link.media_kinds.includes('video')) {
+      void this.hls.enqueueAlbum(link.album_id);
+    }
+
     const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
     let where = `user_id = $1
           and album_id = $2
@@ -395,6 +455,9 @@ export class AlbumShareService {
       key: string;
       thumb_key: string | null;
       poster_key: string | null;
+      proxy_key: string | null;
+      display_widths: number[] | null;
+      hls_prefix: string | null;
       content_type: string | null;
       size_bytes: string;
       created_at: Date;
@@ -406,7 +469,8 @@ export class AlbumShareService {
       media_artist: string | null;
       processing_status: 'pending' | 'ready' | 'failed' | 'not_required';
     }>(
-      `select key, thumb_key, poster_key, content_type, size_bytes, created_at,
+      `select key, thumb_key, poster_key, proxy_key, display_widths, hls_prefix,
+              content_type, size_bytes, created_at,
               original_name, width_px, height_px, duration_ms,
               media_title, media_artist, processing_status
          from user_files
@@ -483,6 +547,13 @@ export class AlbumShareService {
         url: urls[i],
         thumbUrl: thumbUrls[i],
         posterUrl: posterUrls[i],
+        proxyUrl: this.mediaLink.url(f.proxy_key, PUBLISHED_URL_TTL_SECONDS),
+        displaySources: this.mediaLink.displaySources(
+          f.key,
+          f.display_widths,
+          PUBLISHED_URL_TTL_SECONDS,
+        ),
+        hlsUrl: this.mediaLink.hlsUrl(f.hls_prefix, PUBLISHED_URL_TTL_SECONDS),
         downloadUrl: downloadUrls[i],
         downloadName: names[i],
         contentType: f.content_type,

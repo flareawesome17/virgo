@@ -106,10 +106,29 @@ function VideoPlayer({
   const controls = useSharedValue(1);
   const visible = useRef(true);
 
-  const player = useVideoPlayer(file.url ?? '', (instance) => {
-    instance.timeUpdateEventInterval = 0.25;
-    instance.play();
-  });
+  /**
+   * The ladder, then the proxy, then the original.
+   *
+   * HLS is native on both platforms — AVPlayer and ExoPlayer — so this needs
+   * no player library, and it is the only one of the three that adapts to the
+   * connection rather than committing to one bitrate. It exists only for
+   * films in a shared album; the proxy covers everything else, and the
+   * original covers a film that has not been through the worker at all.
+   */
+  const playbackUrl = file.hlsUrl ?? file.proxyUrl ?? file.url ?? '';
+
+  const player = useVideoPlayer(
+    // iOS needs to be told when a URI it cannot read an extension from is
+    // HLS. Ours ends in .m3u8, but the contentType is what the platform
+    // actually keys off and stating it costs nothing.
+    file.hlsUrl
+      ? { uri: playbackUrl, contentType: 'hls' as const }
+      : playbackUrl,
+    (instance) => {
+      instance.timeUpdateEventInterval = 0.25;
+      instance.play();
+    },
+  );
 
   const setControls = useCallback(
     (next: boolean) => {
@@ -239,7 +258,7 @@ function VideoPlayer({
           <Pressable
             onPress={() => {
               setFailed(null);
-              player.replace(file.url ?? '');
+              player.replace(playbackUrl);
               player.play();
             }}
             className="mt-7 bg-[#C17745] rounded-full px-6 py-3 active:opacity-85"

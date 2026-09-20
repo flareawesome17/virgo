@@ -46,6 +46,16 @@ COPY migrations ./migrations
 # leaving them out of the image meant copying a file in before every use.
 COPY scripts ./scripts
 
+# The rendition volume's mount point, created before the drop to `node` so it
+# is owned by the user that has to write to it.
+#
+# This is load-bearing, not tidiness. Docker seeds an EMPTY named volume from
+# the image directory it is mounted over — contents and ownership both — so
+# creating this here is what makes the volume node-owned on first mount. A
+# root-owned volume and a process running as `node` is EACCES on every
+# rendition, reported only as a warning in the media worker.
+RUN mkdir -p /srv/media && chown node:node /srv/media
+
 # Drop root. The node image ships this user; copied files stay world-readable.
 USER node
 

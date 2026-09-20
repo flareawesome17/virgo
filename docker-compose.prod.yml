@@ -90,6 +90,20 @@ services:
       TRUST_PROXY: 'true'
     ports:
       - '127.0.0.1:${API_PORT:-3001}:3000'
+    volumes:
+      # Renditions, read-write: the media worker is the only writer and the
+      # nginx container mounts this same volume read-only.
+      #
+      # MEDIA_HOST, MEDIA_LINK_SECRET and MEDIA_ROOT arrive through env_file
+      # above, so they are not repeated here.
+      #
+      # Ownership: a named volume is created root-owned, and this image drops
+      # to `node`. The Dockerfile creates /srv/media owned by node so Docker
+      # seeds the empty volume with that ownership on first mount. A volume
+      # that already existed before that Dockerfile change keeps its old
+      # ownership — see the phase 2 notes in docs/MEDIA_DELIVERY.md for the
+      # one-line chown.
+      - virgo_media:/srv/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -161,9 +175,90 @@ services:
       postgres:
         condition: service_healthy
 
+  # ── media ──────────────────────────────────────────────────────────────────
+  # The one thing on this host that does NOT go through the tunnel.
+  #
+  # media.virgo.ph resolves straight to the machine's static IP and nginx
+  # answers on 443. That is a deliberate exception to the "no inbound port"
+  # rule below, taken because the alternative is sending Philippine viewers to
+  # a bucket in California: this box is ~10 ms from them and B2 is ~200 ms.
+  # The record must be DNS-only — grey cloud, not orange — which is what keeps
+  # media out of a CDN entirely.
+  #
+  # The blast radius is deliberately small. Only nginx listens. It serves
+  # static files from a volume, has no upstream, holds no database credential,
+  # parses no request body, and opens nothing without a valid signature. The
+  # API, Postgres and pgAdmin keep dialling out and gain no inbound exposure.
+  #
+  # See docs/MEDIA_DELIVERY.md.
+  media:
+    <<: *hardening
+    image: nginx:1.27-alpine
+    container_name: virgo-media
+    restart: unless-stopped
+    environment:
+      # Substituted into the template at start. The filter is what stops
+      # envsubst from also eating nginx's own $uri, $key and $secure_link.
+      NGINX_ENVSUBST_FILTER: 'MEDIA_'
+      MEDIA_HOST: ${MEDIA_HOST:?set MEDIA_HOST in .env, e.g. media.virgo.ph}
+      MEDIA_LINK_SECRET: ${MEDIA_LINK_SECRET:?set MEDIA_LINK_SECRET in .env — openssl rand -base64 36}
+    ports:
+      # The only published port on this machine that is not loopback. Needs a
+      # matching 443 forward on the router.
+      - '443:443'
+    volumes:
+      - ./deployment/media/nginx.conf.template:/etc/nginx/templates/media.conf.template:ro
+      # Read-only here on purpose: the API writes renditions, nginx only
+      # serves them, and there is no reason for a public-facing process to
+      # hold a writable handle on the thing it is serving.
+      - virgo_media:/srv/media:ro
+      - virgo_certs:/etc/letsencrypt:ro
+    command:
+      - /bin/sh
+      - -c
+      - |
+        # Reload twice a day so a renewed certificate is picked up without a
+        # restart. certbot writes into the shared volume; nginx only rereads
+        # it on reload, and a certificate that renewed but never loaded is
+        # indistinguishable from one that never renewed until the day it
+        # expires.
+        while :; do sleep 12h; nginx -s reload; done &
+        exec nginx -g 'daemon off;'
+    healthcheck:
+      # Container loopback, plain HTTP, never published — see the health
+      # server block in the template.
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/healthz || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Renews the media certificate. The FIRST issuance is a manual one-off —
+  # see docs/MEDIA_DELIVERY.md — because it needs to happen before nginx can
+  # start at all, and a container that cannot read its certificate crash-loops
+  # rather than waiting.
+  certbot:
+    <<: *hardening
+    image: certbot/dns-cloudflare:latest
+    container_name: virgo-certbot
+    restart: unless-stopped
+    volumes:
+      - virgo_certs:/etc/letsencrypt
+      - ./cloudflare-dns.ini:/run/secrets/cloudflare.ini:ro
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        # `renew` is a no-op until the certificate is inside its renewal
+        # window, so running it twice a day costs nothing and means a failed
+        # attempt gets 60 more tries before anything expires.
+        trap exit TERM
+        while :; do certbot renew --quiet; sleep 12h & wait $${!}; done
+
   # ── ingress ────────────────────────────────────────────────────────────────
   # Cloudflare Tunnel dials out, so this host needs no inbound port and no
-  # public IP. Routing lives in the Cloudflare dashboard, not in this file —
+  # public IP. (One exception now: the `media` service above publishes 443.
+  # Nothing in this section changes — no application hostname is affected.)
+  # Routing lives in the Cloudflare dashboard, not in this file —
   # all seven production hostnames, so nothing here is a surprise later:
   #
   #   virgo.ph         -> http://web:3000        public site, profiles, jobs
@@ -199,3 +294,17 @@ services:
 volumes:
   virgo_pgdata:
   virgo_pgadmin:
+  # Renditions — proxies now, HLS ladders later. A named volume rather than a
+  # bind mount to C:\ deliberately: Docker Desktop proxies bind-mounted
+  # Windows paths across the WSL2 boundary, and the I/O penalty on a tree of
+  # small media files is severe. This lives in the VM's ext4 filesystem, like
+  # virgo_pgdata.
+  #
+  # Everything in here is reproducible from the originals in B2. Losing it
+  # costs CPU, not customer work — so it is deliberately not in the backup
+  # set.
+  virgo_media:
+  # Let's Encrypt state for the media host: certificates, account key and the
+  # renewal configuration. Losing this means re-issuing, which is rate-limited
+  # — five duplicate certificates per week.
+  virgo_certs:

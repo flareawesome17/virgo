@@ -22,6 +22,34 @@ export interface StoredFile {
   url: string | null;
   thumbnailUrl: string | null;
   posterUrl: string | null;
+  /**
+   * A web-playable H.264 copy on the media host, or null when there is none.
+   *
+   * Prefer it over `url` for playback. The original may be HEVC, 10-bit or
+   * ProRes — none of which a browser decodes — and is served from a bucket
+   * on the other side of the Pacific. Null means no proxy yet, so fall back
+   * to `url`, which is what every player did before this field existed.
+   */
+  proxyUrl: string | null;
+  /**
+   * Intermediate copies of a photograph for viewing, narrowest first.
+   *
+   * Use these for anything larger than a grid tile. `url` is the original —
+   * a 6 MB camera JPEG, or a 40 MB TIFF, fetched from a bucket on the other
+   * side of the Pacific. Empty means there are none, so fall back to `url`.
+   */
+  displaySources: { width: number; url: string }[];
+  /**
+   * An HLS master playlist, or null when there is no ladder.
+   *
+   * Prefer it over `proxyUrl` for film: it adapts to the connection instead
+   * of committing to one bitrate. Built when an album is shared, so null is
+   * the normal state for unshared work — fall through to `proxyUrl`, then
+   * `url`.
+   *
+   * Safari and iOS play it natively. Everywhere else needs hls.js.
+   */
+  hlsUrl: string | null;
   downloadUrl: string | null;
   originalName: string;
   width: number | null;
@@ -49,6 +77,39 @@ function mediaKind(contentType: string | null): StoredMediaKind {
   return 'other';
 }
 
+/**
+ * Narrows the display-copy list, dropping anything malformed.
+ *
+ * An older API returns nothing here and a newer one could add a field, so
+ * this validates every entry rather than trusting the shape — a bad `width`
+ * would otherwise reach `srcset` and take the whole attribute down with it,
+ * costing the viewer the photograph rather than one size of it.
+ */
+function displaySourcesFromUnknown(value: unknown): StoredFile['displaySources'] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is { width: number; url: string } =>
+      !!entry &&
+      typeof entry === 'object' &&
+      typeof (entry as { url?: unknown }).url === 'string' &&
+      typeof (entry as { width?: unknown }).width === 'number' &&
+      Number.isFinite((entry as { width: number }).width) &&
+      (entry as { width: number }).width > 0)
+    .map((entry) => ({ width: entry.width, url: entry.url }))
+    .sort((a, b) => a.width - b.width);
+}
+
+/** The widest copy, or null when there are none. */
+export function largestDisplaySource(file: StoredFile): string | null {
+  return file.displaySources.at(-1)?.url ?? null;
+}
+
+/** A `srcset` value, or null when there is nothing to build one from. */
+export function displaySrcSet(file: StoredFile): string | null {
+  if (!file.displaySources.length) return null;
+  return file.displaySources.map((source) => `${source.url} ${source.width}w`).join(', ');
+}
+
 function storedFileFromUnknown(value: unknown): StoredFile | null {
   if (!value || typeof value !== 'object') return null;
   const file = value as Partial<StoredFile> & Record<string, unknown>;
@@ -69,6 +130,9 @@ function storedFileFromUnknown(value: unknown): StoredFile | null {
       ? file.thumbnailUrl
       : typeof file.thumbUrl === 'string' ? file.thumbUrl : null,
     posterUrl: typeof file.posterUrl === 'string' ? file.posterUrl : null,
+    proxyUrl: typeof file.proxyUrl === 'string' ? file.proxyUrl : null,
+    displaySources: displaySourcesFromUnknown(file.displaySources),
+    hlsUrl: typeof file.hlsUrl === 'string' ? file.hlsUrl : null,
     downloadUrl: typeof file.downloadUrl === 'string' ? file.downloadUrl : null,
     originalName: typeof file.originalName === 'string' && file.originalName.trim()
       ? file.originalName

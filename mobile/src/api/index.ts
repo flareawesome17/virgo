@@ -144,6 +144,8 @@ export {
 export {
   storageApi,
   contentTypeForAsset,
+  displaySrcSet,
+  largestDisplaySource,
   type UploadResult,
   type UploadScope,
   type UploadTicket,

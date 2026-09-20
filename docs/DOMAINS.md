@@ -1,9 +1,13 @@
 # Domain responsibilities
 
-Eight hostnames. Seven are production, one is development-only. None is
+Ten hostnames. Eight are production, two are development-only. None is
 redundant — the pairs that look like duplicates (`virgo.ph` / `web.virgo.ph`,
 `api.virgo.ph` / `client.virgo.ph`) serve different audiences, and collapsing
 either would break something.
+
+Nine of the ten reach this infrastructure through the Cloudflare Tunnel.
+`media.virgo.ph` is the exception and is routed straight at the host — the
+only inbound port in the entire deployment.
 
 Audited against the repository at `v1.0.0`. Where a row says "not referenced",
 that means a full-tree search found nothing outside comments and documentation.
@@ -145,6 +149,41 @@ Internet → Cloudflare → Cloudflare Access → pgAdmin login → PostgreSQL
 ```
 
 Only the middle step is missing.
+
+### `media.virgo.ph` — rendition delivery
+
+**The only hostname that does not go through the tunnel.**
+
+| | |
+|---|---|
+| **Purpose** | Web-playable film proxies, and later HLS ladders and image derivatives, served from a local volume |
+| **Environment** | Production |
+| **Target** | `media` container (nginx), port 443 — **direct, not via `cloudflared`** |
+| **Referenced** | [deployment/media/nginx.conf.template](deployment/media/nginx.conf.template), [api/src/storage/media-link.service.ts](api/src/storage/media-link.service.ts), [scripts/sign-media-url.mjs](scripts/sign-media-url.mjs) |
+| **Variables** | `MEDIA_HOST`, `MEDIA_LINK_SECRET`, `MEDIA_ROOT`, `MEDIA_CERT_EMAIL` |
+| **Required for v1.0.0** | No — leaving `MEDIA_HOST` empty turns the feature off and players fall back to presigned B2 URLs |
+| **Security** | Every path is signature-gated before a file is opened. No upstream, no database credential, no request body. Serving static bytes is all it can do. |
+| **Cloudflare action** | **An A record set to DNS-only — grey cloud, not orange.** Do not add a tunnel route. |
+
+This hostname exists because Backblaze has no Asia-Pacific region: a Manila
+viewer is ~200 ms from the bucket and ~10 ms from this machine. The full
+reasoning, and the trade involved in opening a port at all, is in
+[MEDIA_DELIVERY.md](MEDIA_DELIVERY.md).
+
+Two things about it are deliberate and easy to undo by accident:
+
+- **Grey cloud, not orange.** Proxying the record puts media back behind a
+  CDN, which is the thing being avoided, and raises a terms question about
+  serving video that is not hosted on a Cloudflare service.
+- **It needs a port forward.** Every other hostname here works because
+  `cloudflared` dials *out*. This one needs 443 forwarded to the host from a
+  static WAN address. If the address is not static it needs DDNS, or the
+  hostname goes dark at the next lease renewal.
+
+`CORS_ORIGINS` does not need an entry — nothing calls the API from this
+hostname. The reverse is true instead: the `map` in the nginx template lists
+the app origins allowed to *read* from it, and a new app hostname has to be
+added there.
 
 ### `mobile-dev.virgo.ph` — development bridge (development only)
 

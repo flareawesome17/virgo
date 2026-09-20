@@ -45,6 +45,10 @@ type LocalApi = {
   scheduleNotificationAsync: NotificationsModule['scheduleNotificationAsync'];
   getAllScheduledNotificationsAsync: NotificationsModule['getAllScheduledNotificationsAsync'];
   cancelScheduledNotificationAsync: NotificationsModule['cancelScheduledNotificationAsync'];
+  // Cancelling only removes something not yet shown. Taking a notification
+  // that is already in the drawer back out needs this one, which is what an
+  // upload finishing has to do to its own progress line.
+  dismissNotificationAsync: NotificationsModule['dismissNotificationAsync'];
   addNotificationResponseReceivedListener: NotificationsModule['addNotificationResponseReceivedListener'];
   getLastNotificationResponseAsync: NotificationsModule['getLastNotificationResponseAsync'];
   AndroidImportance: NotificationsModule['AndroidImportance'];
@@ -64,6 +68,7 @@ function loadNotifications(): LocalApi | null {
     const schedule = require('expo-notifications/build/scheduleNotificationAsync');
     const getAll = require('expo-notifications/build/getAllScheduledNotificationsAsync');
     const cancel = require('expo-notifications/build/cancelScheduledNotificationAsync');
+    const dismiss = require('expo-notifications/build/dismissNotificationAsync');
     const handler = require('expo-notifications/build/NotificationsHandler');
     const types = require('expo-notifications/build/Notifications.types');
     const channelTypes = require('expo-notifications/build/NotificationChannelManager.types');
@@ -79,6 +84,7 @@ function loadNotifications(): LocalApi | null {
       scheduleNotificationAsync: schedule.default,
       getAllScheduledNotificationsAsync: getAll.default,
       cancelScheduledNotificationAsync: cancel.default,
+      dismissNotificationAsync: dismiss.default,
       addNotificationResponseReceivedListener:
         emitter.addNotificationResponseReceivedListener,
       getLastNotificationResponseAsync: emitter.getLastNotificationResponseAsync,
