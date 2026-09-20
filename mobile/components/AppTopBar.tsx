@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { router, usePathname } from 'expo-router';
 import { NotificationBell } from '@/components/NotificationBell';
 import { UploadBar } from '@/components/UploadBar';
+import { UpdateBanner } from '@/components/UpdateBanner';
 import { useMarkJobsSeen, useUnseenJobs } from '@/src/hooks';
 
 /**
@@ -78,6 +79,7 @@ export function AppTopBar() {
       {/* Under the bar, not in it: an upload is a state the whole app is
           in, and the row above is a fixed set of destinations. Renders
           nothing when there is nothing uploading and nothing failed. */}
+      <UpdateBanner />
       <UploadBar />
     </>
   );

@@ -32,6 +32,22 @@ export class DownloadsController {
   }
 
   /**
+   * What the installed app asks to find out it is behind.
+   *
+   * Version only. What to do about it differs by platform — TestFlight or the
+   * App Store on iOS, the APK on Android — and that is the app's decision,
+   * not this endpoint's.
+   *
+   * Public like the rest of this controller: a version number is not a secret,
+   * and the app may well be asking before anyone has signed in on that device.
+   */
+  @Public()
+  @Get('mobile')
+  async mobile() {
+    return this.downloads.getMobileLatest();
+  }
+
+  /**
    * The Android app, which has no store listing to link to yet.
    *
    * Its own endpoint rather than a field on `latest`, because the two carry

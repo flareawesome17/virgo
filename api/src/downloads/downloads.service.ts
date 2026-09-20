@@ -409,6 +409,38 @@ export class DownloadsService {
   }
 
   /**
+   * The newest mobile release, whether or not it carries a file.
+   *
+   * This is what an installed app asks to find out it is out of date. Separate
+   * from `getAndroid` because that one requires an APK — correct for a
+   * download page, wrong here: an iOS-only release still means every Android
+   * and iOS copy in the wild is behind, and answering null would tell them all
+   * they were current.
+   *
+   * Only the version is needed. What the app does about it differs per
+   * platform — TestFlight or the App Store on iOS, the APK on Android — and
+   * that is the app's business, not this endpoint's.
+   */
+  async getMobileLatest(): Promise<{ version: string; tag: string } | null> {
+    const response = await this.github(
+      `/repos/${this.repository}/releases?per_page=20`,
+      'application/vnd.github+json',
+    );
+    if (!response.ok) return null;
+
+    const releases = (await response.json()) as GitHubRelease[];
+    for (const release of releases) {
+      if (release.draft || release.prerelease) continue;
+      if (!MOBILE_TAG_PATTERN.test(release.tag_name)) continue;
+      return {
+        version: release.tag_name.replace(/^mobile-v/, ''),
+        tag: release.tag_name,
+      };
+    }
+    return null;
+  }
+
+  /**
    * The Android APK from the newest mobile release, or null.
    *
    * Walks the list for the same reason `getLatest` does: a mobile release cut
