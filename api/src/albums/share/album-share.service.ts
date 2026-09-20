@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service';
 import { PUBLISHED_URL_TTL_SECONDS } from '../../storage/storage.config';
+import { HlsService } from '../../storage/hls.service';
 import { MediaLinkService } from '../../storage/media-link.service';
 import { StorageService } from '../../storage/storage.service';
 import {
@@ -70,6 +71,14 @@ export interface PublicAlbumView {
      * there are none and the page falls back to `url`.
      */
     displaySources: { width: number; url: string }[];
+    /**
+     * The adaptive ladder, or null when there is not one.
+     *
+     * Null until the album is shared — building one is what sharing pays for
+     * — and for films too small to be worth rungs. The page falls through to
+     * `proxyUrl` and then to `url`.
+     */
+    hlsUrl: string | null;
     /** Same object, signed to save rather than open. */
     downloadUrl: string | null;
     /** What it saves as: "Album Name - 004.jpg". */
@@ -140,6 +149,7 @@ export class AlbumShareService {
     private readonly db: DatabaseService,
     private readonly storage: StorageService,
     private readonly mediaLink: MediaLinkService,
+    private readonly hls: HlsService,
     private readonly config: ConfigService,
   ) {}
 
@@ -272,6 +282,13 @@ export class AlbumShareService {
         );
       }
 
+      // Re-scoping can bring films into a link that previously excluded them,
+      // and an album can gain films after it was first shared. Queueing here
+      // as well as on creation is what catches both; `enqueueAlbum` only
+      // touches films that have no ladder and have not failed, so calling it
+      // again is free.
+      void this.hls.enqueueAlbum(albumId);
+
       return {
         token: existing.token,
         url: this.urlFor(existing.token),
@@ -287,6 +304,12 @@ export class AlbumShareService {
        returning *`,
       [albumId, userId, token, wanted, purpose],
     );
+
+    // Sharing an album is what pays for its ladders. Deliberately not awaited:
+    // building them takes minutes and this call is a button press. The work is
+    // a database flag and a cron, so nothing is lost if this request ends
+    // first — and a queue failure must not cost the user their share link.
+    void this.hls.enqueueAlbum(albumId);
 
     return {
       token,
@@ -424,6 +447,7 @@ export class AlbumShareService {
       poster_key: string | null;
       proxy_key: string | null;
       display_widths: number[] | null;
+      hls_prefix: string | null;
       content_type: string | null;
       size_bytes: string;
       created_at: Date;
@@ -435,7 +459,7 @@ export class AlbumShareService {
       media_artist: string | null;
       processing_status: 'pending' | 'ready' | 'failed' | 'not_required';
     }>(
-      `select key, thumb_key, poster_key, proxy_key, display_widths,
+      `select key, thumb_key, poster_key, proxy_key, display_widths, hls_prefix,
               content_type, size_bytes, created_at,
               original_name, width_px, height_px, duration_ms,
               media_title, media_artist, processing_status
@@ -519,6 +543,7 @@ export class AlbumShareService {
           f.display_widths,
           PUBLISHED_URL_TTL_SECONDS,
         ),
+        hlsUrl: this.mediaLink.hlsUrl(f.hls_prefix, PUBLISHED_URL_TTL_SECONDS),
         downloadUrl: downloadUrls[i],
         downloadName: names[i],
         contentType: f.content_type,

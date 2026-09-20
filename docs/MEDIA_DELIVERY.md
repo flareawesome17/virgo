@@ -305,9 +305,30 @@ location ~ "^/(?<e>\d+)/(?<h>[\w-]+)/(?<key>.+)$" {
 survive.** A playlist's segment URIs are relative, and no player propagates
 the manifest's query string to them — not native Safari, not ExoPlayer, not
 AVPlayer. hls.js can be made to with a custom loader, but the other two
-cannot, and we have three playback surfaces. A signed *path prefix* is
-inherited automatically by every relative URI beneath it, so `v1/0007.m4s`
-resolves under the same signature with no player cooperation at all.
+cannot, and we have three playback surfaces.
+
+**There are two signing schemes, and the difference matters.** The location
+above signs the *whole key*, so one URL serves exactly one file. That is
+right for a proxy or a display copy, each of which is fetched directly by its
+own signed URL — and wrong for HLS, where the player derives child URLs the
+signature was never computed over.
+
+A first draft of this document claimed a signed prefix was inherited by
+everything beneath it. It is not, under that location: `$key` includes the
+whole path, so `v1/0007.m4s` produces a different digest from `master.m3u8`
+and is refused. Ladders therefore get their own location, `/h/`, whose
+expression signs only the directory:
+
+```nginx
+location ~ "^/h/(?<expires>[0-9]{10})/(?<sig>[A-Za-z0-9_-]{22})/(?<dir>.+?-hls)/(?<rest>.+)$" {
+    secure_link     $sig,$expires;
+    secure_link_md5 "$expires/$dir ${MEDIA_LINK_SECRET}";
+```
+
+With the token *above* the directory, every relative URI resolves under the
+same signed prefix by plain URL resolution, and all of them verify against
+the one `$dir`. That is what the earlier text described and this is what
+implements it.
 
 This is the same shape as the existing client-delivery model, where
 [the token is the credential](DOMAINS.md).
@@ -756,6 +777,83 @@ the film proxies, that is now the thing most likely to need attention first.
 
 ---
 
+## Phase 4 runbook — the adaptive ladder
+
+Built. This is the piece the whole document exists for: a film in a shared
+album gets three rungs, and the player picks one by how the connection is
+actually behaving.
+
+| File | Change |
+|---|---|
+| [deployment/media/nginx.conf.template](deployment/media/nginx.conf.template) | The `/h/` location, which signs the ladder directory |
+| [api/migrations/062_hls_ladders.sql](api/migrations/062_hls_ladders.sql) | `hls_prefix`, `hls_status`, its own queue columns and index |
+| [api/src/storage/hls.service.ts](api/src/storage/hls.service.ts) | `ladderFor`, `buildLadderArgs`, its own claim loop, `enqueueAlbum` |
+| [api/src/storage/media-link.service.ts](api/src/storage/media-link.service.ts) | `hlsPrefixFor`, `hlsUrl`, directory staging and swap |
+| [api/src/albums/share/album-share.service.ts](api/src/albums/share/album-share.service.ts) | Sharing an album queues its ladders |
+| web + mobile, the three players | hls.js on web, native everywhere else |
+
+Rungs are 360 / 720 / 1080 measured on the **short edge**, so a 1080×1920
+phone film gets 720×1280 at its middle rung rather than the 405×720 strip a
+height-based rung would produce. A source never gets a rung it would be
+enlarged into, and a source below 360 gets no ladder at all — the proxy from
+060 already serves it, and a one-rung ladder is a worse MP4.
+
+### It is paid for by sharing, not by uploading
+
+This is the only part of the pipeline that does not run on upload, and the
+reason is cost. Three simultaneous encodes is roughly three times what the
+proxy does. Most work here is uploaded, delivered once and never streamed
+again, so encoding a ladder for every film would spend most of that CPU on
+films nobody opens.
+
+`AlbumShareService.create` queues the album's films — on first share and on
+re-share, because an album can gain films after it was first sent.
+`enqueueAlbum` only touches films with `hls_status = 'none'`, so re-sharing
+costs nothing and never retries something that already failed three times.
+
+Migration 062 queues one narrow set on deploy: films in albums that already
+have a live share link. A broad requeue would put the whole back catalogue
+through a three-rung encode and is deliberately not done.
+
+### Concurrency, again
+
+`BATCH_SIZE` is **1** here, against 2 in the proxy worker. Both run on the
+machine that also runs Postgres, the API and two Next servers. One ladder and
+two proxies is already most of a box; more than that and an album upload and
+an album share at the same time take the app down between them.
+
+The lease is 90 minutes against a 60-minute job timeout, because a lease that
+expires mid-encode means a second tick claims a film that is still being
+written.
+
+### Playback order, on every surface
+
+`hlsUrl` → `proxyUrl` → `url`. Each step down is a real fallback, not a
+failure path:
+
+- **Mobile** needs no library — HLS is native to AVPlayer and ExoPlayer.
+- **Safari and iOS on the web** play it from a plain `<source>`.
+- **Everywhere else** loads hls.js dynamically, so the bundle only pays for it
+  when a film with a ladder is opened. If the import fails or the engine is
+  too old, `libraryFailed` puts the proxy sources back rather than showing an
+  error.
+- **The client gallery** gets a `<source type="application/vnd.apple.mpegurl">`
+  ahead of the proxy and **no JavaScript at all**. Safari and iOS take the
+  ladder; every other browser reports it cannot play that type and moves to
+  the next source by itself. That page is server-rendered under
+  `script-src 'nonce-…'` with no bundler, and it is worth keeping that way.
+
+### Still outstanding
+
+- **No LRU sweep.** A ladder is the largest rendition by far. Between it, the
+  proxies and two display copies per photograph, the volume now has three
+  kinds of growth and nothing bounding any of them. This is the next thing
+  that should be built.
+- **No 4K rung.** The 500 MB upload cap means sources are exports, so the
+  ceiling is 1080p. fMP4 segments mean adding one later needs no re-packaging.
+
+---
+
 ## Sequencing
 
 Each phase is independently shippable and independently useful.
@@ -772,6 +870,7 @@ Each phase is independently shippable and independently useful.
    runbook above.** Done with the existing `sharp` rather than imgproxy; the
    *Images* section has the reasoning.
 4. **The HLS ladder**, hls.js and expo-video. The adaptive-bitrate piece.
+   **Built — see the runbook above.**
 
 Phases 1 and 2 are most of what a viewer will notice. Phase 4 is the feature
 as originally framed and is worth doing, but it is the least urgent of the

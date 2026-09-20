@@ -60,6 +60,11 @@ export function displayKeyFor(key: string, width: number): string {
   return `${key.replace(/\.[^./]+$/, '')}-${width}.webp`;
 }
 
+/** `.../ceremony.mov` → `.../ceremony-hls` (a directory, not a file). */
+export function hlsPrefixFor(key: string): string {
+  return `${key.replace(/\.[^./]+$/, '')}-hls`;
+}
+
 /**
  * Every rendition path derived from one original.
  *
@@ -168,6 +173,45 @@ export class MediaLinkService {
       .filter((source): source is { width: number; url: string } => source.url !== null);
   }
 
+  /**
+   * A signed URL for an HLS master playlist.
+   *
+   * Signs the ladder DIRECTORY, not the file, and serves it under `/h/` —
+   * a different nginx location with a different signing expression. That is
+   * the only form that works: a playlist's child URIs are relative, and no
+   * player carries anything from the manifest URL down to them. With the
+   * token above the directory, every relative URI resolves under the same
+   * signed prefix by plain URL resolution.
+   *
+   * Signing the full key the way `url` does would refuse the first segment
+   * the player asked for, with a 403 and nothing in the log to explain it.
+   */
+  hlsUrl(
+    prefix: string | null | undefined,
+    ttlSeconds: number = PUBLISHED_URL_TTL_SECONDS,
+  ): string | null {
+    if (!prefix || !this.isConfigured) return null;
+
+    const dir = prefix.replace(/^\/+/, '').replace(/\/+$/, '');
+    if (!this.isSafeKey(dir) || !dir.endsWith('-hls')) {
+      this.logger.warn(`Refusing to sign an unsafe ladder prefix: ${prefix}`);
+      return null;
+    }
+
+    const expires =
+      Math.floor((Math.floor(Date.now() / 1000) + ttlSeconds) / MEDIA_URL_WINDOW_SECONDS) *
+      MEDIA_URL_WINDOW_SECONDS;
+
+    const signature = createHash('md5')
+      .update(`${expires}/${dir} ${this.secret}`)
+      .digest('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    return `https://${this.host}/h/${expires}/${signature}/${dir}/master.m3u8`;
+  }
+
   /** `url` for a batch, preserving order. Signing is a hash, not a call. */
   urls(
     keys: (string | null | undefined)[],
@@ -195,6 +239,48 @@ export class MediaLinkService {
     const final = this.pathFor(key);
     await mkdir(dirname(final), { recursive: true });
     return `${final}.part`;
+  }
+
+  /**
+   * Staging directory for a ladder, created empty.
+   *
+   * A ladder is hundreds of files that are only valid together, so it is
+   * staged and swapped as a whole rather than written in place. nginx serves
+   * this tree live and a master playlist pointing at segments that do not
+   * exist yet is worse than no ladder at all.
+   */
+  async stageDirFor(prefix: string): Promise<string> {
+    if (!this.isSafeKey(prefix)) throw new Error(`Unsafe ladder prefix: ${prefix}`);
+    const staged = `${this.pathFor(prefix)}.part`;
+    await rm(staged, { recursive: true, force: true });
+    await mkdir(staged, { recursive: true });
+    return staged;
+  }
+
+  /**
+   * Swaps a staged ladder into place.
+   *
+   * The old directory is removed first because rename onto a non-empty
+   * directory fails. That leaves a window of a few milliseconds with no
+   * ladder, which only matters on a re-encode — and a re-encode is rare
+   * enough to be worth the simplicity.
+   */
+  async publishDir(prefix: string): Promise<void> {
+    const final = this.pathFor(prefix);
+    await rm(final, { recursive: true, force: true });
+    await rename(`${final}.part`, final);
+  }
+
+  /** Creates a directory inside an already-staged tree. */
+  async makeDir(absolutePath: string): Promise<void> {
+    await mkdir(absolutePath, { recursive: true });
+  }
+
+  /** Throws away a staged ladder that will not be published. */
+  async discardDir(prefix: string): Promise<void> {
+    await rm(`${this.pathFor(prefix)}.part`, { recursive: true, force: true }).catch(
+      () => undefined,
+    );
   }
 
   /**
@@ -234,6 +320,9 @@ export class MediaLinkService {
   async removeFor(originalKeys: readonly string[]): Promise<void> {
     if (!this.root) return;
     for (const original of originalKeys) {
+      // The ladder is a directory of hundreds of segments, so it goes as a
+      // tree rather than as a name in the list below.
+      await this.removeTree(hlsPrefixFor(original));
       for (const key of renditionKeysFor(original)) {
         if (!this.isSafeKey(key)) continue;
         try {

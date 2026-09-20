@@ -15,6 +15,7 @@ export interface StoredFile {
   /** A path on the media volume, not a B2 object. See MediaLinkService. */
   proxy_key: string | null;
   display_widths: number[] | null;
+  hls_prefix: string | null;
   width_px: number | null;
   height_px: number | null;
   duration_ms: string | null;
@@ -431,7 +432,7 @@ export class QuotaService {
 
     const rows = await this.db.query<StoredFile>(
       `select key, size_bytes, content_type, scope, album_id, created_at,
-              original_name, thumb_key, poster_key, proxy_key, display_widths,
+              original_name, thumb_key, poster_key, proxy_key, display_widths, hls_prefix,
               width_px, height_px,
               duration_ms, media_title, media_artist, processing_status
          from user_files

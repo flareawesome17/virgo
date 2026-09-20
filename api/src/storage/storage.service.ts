@@ -710,6 +710,10 @@ export class StorageService {
         // for images small enough not to need one, and for a deployment with
         // no media host — in every case the client falls back to `url`.
         displaySources: this.mediaLink.displaySources(row.key, row.display_widths),
+        // The adaptive ladder, built when the album was shared. Null until
+        // then — and for a film too small to be worth rungs — so players fall
+        // through to `proxyUrl` and then to `url`.
+        hlsUrl: this.mediaLink.hlsUrl(row.hls_prefix),
         downloadUrl: downloadUrls[i],
         width: row.width_px,
         height: row.height_px,

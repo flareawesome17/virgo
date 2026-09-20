@@ -38,6 +38,17 @@ export interface StoredFile {
    * side of the Pacific. Empty means there are none, so fall back to `url`.
    */
   displaySources: { width: number; url: string }[];
+  /**
+   * An HLS master playlist, or null when there is no ladder.
+   *
+   * Prefer it over `proxyUrl` for film: it adapts to the connection instead
+   * of committing to one bitrate. Built when an album is shared, so null is
+   * the normal state for unshared work — fall through to `proxyUrl`, then
+   * `url`.
+   *
+   * Safari and iOS play it natively. Everywhere else needs hls.js.
+   */
+  hlsUrl: string | null;
   downloadUrl: string | null;
   originalName: string;
   width: number | null;
@@ -120,6 +131,7 @@ function storedFileFromUnknown(value: unknown): StoredFile | null {
     posterUrl: typeof file.posterUrl === 'string' ? file.posterUrl : null,
     proxyUrl: typeof file.proxyUrl === 'string' ? file.proxyUrl : null,
     displaySources: displaySourcesFromUnknown(file.displaySources),
+    hlsUrl: typeof file.hlsUrl === 'string' ? file.hlsUrl : null,
     downloadUrl: typeof file.downloadUrl === 'string' ? file.downloadUrl : null,
     originalName: typeof file.originalName === 'string' && file.originalName.trim()
       ? file.originalName

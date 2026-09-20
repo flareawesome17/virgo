@@ -107,20 +107,28 @@ function VideoPlayer({
   const visible = useRef(true);
 
   /**
-   * The proxy when there is one, the original when there is not.
+   * The ladder, then the proxy, then the original.
    *
-   * The proxy is H.264/AAC with the moov atom at the front, served from the
-   * media host rather than from B2 — so it plays where a HEVC or 10-bit
-   * original cannot, and it starts without first fetching the end of the
-   * file. Null means it has not been encoded yet, and falling back to the
-   * original is exactly what this screen did before the field existed.
+   * HLS is native on both platforms — AVPlayer and ExoPlayer — so this needs
+   * no player library, and it is the only one of the three that adapts to the
+   * connection rather than committing to one bitrate. It exists only for
+   * films in a shared album; the proxy covers everything else, and the
+   * original covers a film that has not been through the worker at all.
    */
-  const playbackUrl = file.proxyUrl ?? file.url ?? '';
+  const playbackUrl = file.hlsUrl ?? file.proxyUrl ?? file.url ?? '';
 
-  const player = useVideoPlayer(playbackUrl, (instance) => {
-    instance.timeUpdateEventInterval = 0.25;
-    instance.play();
-  });
+  const player = useVideoPlayer(
+    // iOS needs to be told when a URI it cannot read an extension from is
+    // HLS. Ours ends in .m3u8, but the contentType is what the platform
+    // actually keys off and stating it costs nothing.
+    file.hlsUrl
+      ? { uri: playbackUrl, contentType: 'hls' as const }
+      : playbackUrl,
+    (instance) => {
+      instance.timeUpdateEventInterval = 0.25;
+      instance.play();
+    },
+  );
 
   const setControls = useCallback(
     (next: boolean) => {

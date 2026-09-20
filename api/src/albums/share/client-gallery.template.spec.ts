@@ -14,6 +14,7 @@ const view: PublicAlbumView = {
     posterUrl: null,
     proxyUrl: null,
     displaySources: [],
+    hlsUrl: null,
     downloadUrl: 'https://media.example/download',
     downloadName: 'Album - 001.jpg',
     contentType: 'image/jpeg',

@@ -116,15 +116,17 @@ server {
     # Buffered because a segment request is one line and a film is hundreds.
     access_log /dev/stdout combined buffer=32k flush=5s;
 
-    # ── signed playback ───────────────────────────────────────────────────────
+    # ── signed single files ───────────────────────────────────────────────────
     #   /<expiry>/<signature>/<key…>
     #
-    # The token is a PATH PREFIX, not a query parameter, and that is the whole
-    # trick. A playlist's segment URIs are relative, and no player propagates
-    # the manifest's query string to them — not Safari, not ExoPlayer, not
-    # AVPlayer. A signed prefix is inherited automatically by every relative
-    # URI beneath it, so v1/0007.m4s resolves under the same signature with no
-    # player cooperation at all.
+    # The signature covers the WHOLE key, so this serves exactly one file per
+    # URL: a film proxy, a display copy of a photograph. Each is fetched
+    # directly by its own signed URL, so that is all it needs to do.
+    #
+    # It is deliberately NOT what HLS uses. A playlist's child URIs are
+    # relative, so a player asking for v1/0007.m4s would send a different
+    # $key under the master's signature and be refused — see the /h/ location
+    # below, which signs the ladder directory instead.
     #
     # 10 digits of unix time; 22 characters of base64url md5 (16 bytes, no
     # padding). scripts/sign-media-url.mjs mints the matching URL.
@@ -177,6 +179,68 @@ server {
         add_header Cache-Control                  "public, max-age=31536000, immutable" always;
 
         try_files /$key =404;
+    }
+
+    # ── signed HLS ladders ────────────────────────────────────────────────────
+    #   /h/<expiry>/<signature>/<…-hls>/<file under it>
+    #
+    # Here the signature covers only the ladder DIRECTORY, and that is the
+    # whole trick. A master playlist's child URIs are relative — `v1/playlist
+    # .m3u8`, then `0007.m4s`, then `init.mp4` from EXT-X-MAP — and no player
+    # propagates anything from the manifest URL to them. Not Safari, not
+    # ExoPlayer, not AVPlayer; hls.js can be made to with a custom loader, but
+    # the other two cannot and we have three playback surfaces.
+    #
+    # Because the token sits in the path ABOVE the directory, every relative
+    # URI beneath the master resolves under the same signed prefix by plain
+    # URL resolution, and nginx verifies all of them against the one $dir.
+    #
+    # `.+?-hls` is non-greedy so $dir stops at the ladder root. Keys are
+    # `users/<uuid>/albums/<yyyy>/<mm>/<uuid>-hls`, and `-hls` cannot occur
+    # inside a UUID — h, l and s are not hex — so the split is unambiguous.
+    location ~ "^/h/(?<expires>[0-9]{10})/(?<sig>[A-Za-z0-9_-]{22})/(?<dir>.+?-hls)/(?<rest>.+)$" {
+
+        secure_link     $sig,$expires;
+        secure_link_md5 "$expires/$dir ${MEDIA_LINK_SECRET}";
+
+        if ($secure_link = "")  { return 403; }
+        if ($secure_link = "0") { return 410; }
+        if ($dir ~ "\.\.")      { return 403; }
+        if ($rest ~ "\.\.")     { return 403; }
+
+        # Higher burst than the single-file location: one film at 6-second
+        # segments across three renditions is a lot of small requests, and a
+        # player buffering ahead sends them together.
+        limit_req  zone=media_req burst=200 nodelay;
+        limit_conn media_conn 20;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin  $media_cors_origin always;
+            add_header Access-Control-Allow-Methods "GET, HEAD, OPTIONS"  always;
+            add_header Access-Control-Allow-Headers "Range"               always;
+            add_header Access-Control-Max-Age       86400                 always;
+            add_header Content-Length               0;
+            return 204;
+        }
+
+        # CORS matters more here than anywhere else on this host: hls.js reads
+        # segments with fetch/XHR rather than through the video element, so
+        # every one of them is a cross-origin request. Native HLS in Safari is
+        # not, which is how a missing header here presents as a Chrome-only
+        # bug. Same add_header-does-not-inherit rule as above.
+        add_header Access-Control-Allow-Origin    $media_cors_origin        always;
+        add_header Access-Control-Expose-Headers  "Content-Length,Content-Range" always;
+        add_header Vary                           Origin                    always;
+        add_header Cross-Origin-Resource-Policy   cross-origin              always;
+        add_header X-Content-Type-Options         nosniff                   always;
+        add_header Referrer-Policy                no-referrer               always;
+        add_header Strict-Transport-Security      "max-age=31536000"        always;
+        # A ladder is written once and never rewritten — a re-encode writes a
+        # new directory — so everything under it is immutable, playlists
+        # included.
+        add_header Cache-Control                  "public, max-age=31536000, immutable" always;
+
+        try_files /$dir/$rest =404;
     }
 
     # Unsigned, or a shape that is not a signed path. Nothing here is browsable.

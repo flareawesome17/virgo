@@ -97,6 +97,70 @@ describe('MediaLinkService.url', () => {
   });
 });
 
+describe('MediaLinkService.hlsUrl', () => {
+  beforeEach(() => jest.spyOn(Date, 'now').mockReturnValue(FIXED_NOW));
+  afterEach(() => jest.restoreAllMocks());
+
+  /**
+   * The contract test for the /h/ location, verified the same way as the
+   * single-file one — `printf '%s' '1789973100/users/u/a/clip-hls secret123'`
+   * through md5, base64, `tr '+/' '-_'`, strip padding.
+   *
+   * The signature covers the DIRECTORY, not the playlist. That is the whole
+   * reason this method exists separately from `url`: a master playlist's
+   * child URIs are relative, so signing the full key would refuse the first
+   * segment the player asked for.
+   */
+  it('signs the ladder directory and serves it under /h/', () => {
+    expect(service(CONFIGURED).hlsUrl('users/u/a/clip-hls')).toBe(
+      'https://media.virgo.ph/h/1789973100/Ew8x3CADYFo19zaB7h-IqQ/users/u/a/clip-hls/master.m3u8',
+    );
+  });
+
+  it('signs the DIRECTORY, not the playlist inside it', () => {
+    // The whole mistake this method exists to avoid. Signing the full path
+    // to master.m3u8 would produce a token valid for that one file, and the
+    // first segment the player asked for — a different path, same token —
+    // would be refused with a 403 and nothing in the log to explain it.
+    const link = service(CONFIGURED);
+    const ladderSig = new URL(link.hlsUrl('users/u/a/clip-hls')!).pathname.split('/')[3];
+    const fileSig = new URL(
+      link.url('users/u/a/clip-hls/master.m3u8')!,
+    ).pathname.split('/')[2];
+    expect(ladderSig).not.toBe(fileSig);
+  });
+
+  it('produces the shape the /h/ location regex matches', () => {
+    const url = new URL(service(CONFIGURED).hlsUrl('users/u/a/clip-hls')!);
+    const [, h, expires, signature, ...rest] = url.pathname.split('/');
+    expect(h).toBe('h');
+    expect(expires).toHaveLength(10);
+    expect(signature).toHaveLength(22);
+    // The directory must still end in -hls after the token, or the
+    // non-greedy `.+?-hls` capture has nothing to stop at.
+    expect(rest.slice(0, -1).join('/')).toBe('users/u/a/clip-hls');
+    expect(rest.at(-1)).toBe('master.m3u8');
+  });
+
+  it('tolerates a trailing slash on the prefix', () => {
+    expect(service(CONFIGURED).hlsUrl('users/u/a/clip-hls/')).toBe(
+      service(CONFIGURED).hlsUrl('users/u/a/clip-hls'),
+    );
+  });
+
+  it('refuses a prefix that is not a ladder directory', () => {
+    // Anything not ending in -hls cannot be matched by the /h/ location, so
+    // signing it would hand out a URL that can only ever 404.
+    expect(service(CONFIGURED).hlsUrl('users/u/a/clip-web.mp4')).toBeNull();
+    expect(service(CONFIGURED).hlsUrl('users/u/../a-hls')).toBeNull();
+  });
+
+  it('returns null when there is no ladder or no media host', () => {
+    expect(service(CONFIGURED).hlsUrl(null)).toBeNull();
+    expect(service({}).hlsUrl('users/u/a/clip-hls')).toBeNull();
+  });
+});
+
 describe('MediaLinkService.origin', () => {
   it('is a bare origin, for a Content-Security-Policy source list', () => {
     expect(service(CONFIGURED).origin()).toBe('https://media.virgo.ph');
