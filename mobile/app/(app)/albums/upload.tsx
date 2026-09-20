@@ -19,7 +19,7 @@ import {
   ChevronDownIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { contentTypeForAsset, formatBytes } from '@/src/api';
+import { contentTypeForAsset, formatBytes, MAX_UPLOAD_BYTES } from '@/src/api';
 import { useUploadQueue } from '@/src/providers/UploadProvider';
 import { useAlbum, useAlbums, useUsage, useTheme } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
@@ -48,6 +48,25 @@ interface UploadItem {
   progress: number;
   status: ItemStatus;
   error?: string;
+}
+
+/**
+ * Splits a pick into what can be sent and what cannot.
+ *
+ * The size limit used to be the API's alone, so an oversized file was picked,
+ * listed, queued, and only then refused — with `contentLength must not be
+ * greater than 524288000`, which is a number nobody can act on. Checking here
+ * means the answer arrives before anything is queued, names the file, and is
+ * in the units the file was described in.
+ */
+function splitBySize(picked: UploadItem[]): {
+  ok: UploadItem[];
+  tooBig: UploadItem[];
+} {
+  return {
+    ok: picked.filter((item) => item.sizeBytes <= MAX_UPLOAD_BYTES),
+    tooBig: picked.filter((item) => item.sizeBytes > MAX_UPLOAD_BYTES),
+  };
 }
 
 function kindOf(mime: string): 'image' | 'video' | 'audio' | 'other' {
@@ -152,7 +171,15 @@ export default function UploadScreen() {
       });
     }
 
-    addPicked(picked);
+    const { ok, tooBig } = splitBySize(picked);
+    if (tooBig.length > 0) {
+      Alert.alert(
+        tooBig.length === 1 ? 'That file is too large' : 'Some files are too large',
+        `${tooBig.map((item) => `${item.name} (${formatBytes(item.sizeBytes)})`).join('\n')}\n\nThe limit is ${formatBytes(MAX_UPLOAD_BYTES)} per file.`,
+      );
+    }
+    addPicked(ok);
+
   };
 
   /**
@@ -181,7 +208,15 @@ export default function UploadScreen() {
       status: 'queued',
     }));
 
-    addPicked(picked);
+    const { ok, tooBig } = splitBySize(picked);
+    if (tooBig.length > 0) {
+      Alert.alert(
+        tooBig.length === 1 ? 'That file is too large' : 'Some files are too large',
+        `${tooBig.map((item) => `${item.name} (${formatBytes(item.sizeBytes)})`).join('\n')}\n\nThe limit is ${formatBytes(MAX_UPLOAD_BYTES)} per file.`,
+      );
+    }
+    addPicked(ok);
+
   };
 
   /**
