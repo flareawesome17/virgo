@@ -314,13 +314,45 @@ export const storageApi = {
     const contentType =
       options.contentType || file.type || contentTypeForName(file.name);
 
-    const ticket = await this.createUploadUrl({
-      contentType,
-      scope: options.scope,
-      contentLength,
-    });
+    /**
+     * One ticket and one attempt at sending it.
+     *
+     * Separated so it can be run twice. A presigned URL is good for fifteen
+     * minutes (UPLOAD_URL_TTL_SECONDS on the API), and a queue of large videos
+     * on a slow connection takes longer than that — so the ticket for the last
+     * file in a batch can expire while the first is still uploading. B2
+     * answers an expired signature with 403, which surfaced as "Upload failed.
+     * Please try again" on a file that had done nothing wrong and would fail
+     * the same way however many times it was retried, because the dead ticket
+     * was minted once and kept.
+     */
+    const attempt = async () => {
+      const ticket = await this.createUploadUrl({
+        contentType,
+        scope: options.scope,
+        contentLength,
+      });
 
-    await putToBucket(file, ticket, options.onProgress, options.signal);
+      await putToBucket(file, ticket, options.onProgress, options.signal);
+      return ticket;
+    };
+
+    let ticket: UploadTicket;
+    try {
+      ticket = await attempt();
+    } catch (error) {
+      // 403 and nothing else, once. An expired signature and one that never
+      // matched are indistinguishable from here, so a genuine rejection fails
+      // on the second attempt rather than looping. A cancelled upload rejects
+      // with status 0 and so is rethrown untouched — retrying something the
+      // user stopped would be worse than the bug.
+      if (!(error instanceof ApiError) || error.status !== 403) throw error;
+
+      // The bar jumps back to zero here, which is honest: the bytes from the
+      // first attempt were refused and are being sent again.
+      options.onProgress?.(0);
+      ticket = await attempt();
+    }
 
     // A 2xx from B2 is good evidence, but confirming via the API is what
     // guarantees a row never ends up pointing at a missing object.
