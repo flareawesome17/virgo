@@ -1,7 +1,6 @@
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  HomeIcon,
   FolderIcon,
   UsersIcon,
   CalendarIcon,
@@ -14,11 +13,9 @@ import {
   useIncomingFriendRequests,
   usePromoOffers,
   useUnreadCount,
-  useUnseenJobs,
 } from '@/src/hooks';
 import { PALETTES } from '@/theme';
 
-cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -41,11 +38,6 @@ export default function TabsLayout() {
   const { count: friendRequests } = useIncomingFriendRequests();
   // Invitations to somebody else's shoot, waiting on an answer.
   const { invitations: eventInvites } = useEventInvitations();
-  // Open postings not yet looked at, plus applications waiting on an answer.
-  // The Jobs board lives inside the Home screen rather than having a tab of
-  // its own, so this is the only place either can announce itself without the
-  // screen being open.
-  const { total: newJobs } = useUnseenJobs();
   // Rewards waiting to be claimed. Almost always an empty list, and the only
   // thing that says an offer arrived while the app was closed.
   const { offers: rewards } = usePromoOffers();
@@ -80,30 +72,14 @@ export default function TabsLayout() {
         },
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarBadge:
-            newJobs > 0 ? (newJobs > 99 ? '99+' : newJobs) : undefined,
-          tabBarBadgeStyle: {
-            backgroundColor: palette.action,
-            color: palette.actionForeground,
-            fontSize: 11,
-            fontWeight: '700',
-            minWidth: 17,
-            height: 17,
-            lineHeight: 13,
-          },
-          tabBarIcon: ({ focused, color }) => (
-            <HomeIcon
-              color={color}
-              size={22}
-              strokeWidth={focused ? 2.5 : 2}
-            />
-          ),
-        }}
-      />
+      {/* Feed is still the app's first screen, but not a bottom-bar entry.
+          The top bar carries Feed and Jobs, and listing Feed below as well
+          would be the same destination twice — the logo returns here from
+          wherever you are. Jobs is hidden for the same reason, and is a tab
+          route rather than a pushed screen so the bar stays put while you
+          are on it. */}
+      <Tabs.Screen name="index" options={{ href: null }} />
+      <Tabs.Screen name="jobs" options={{ href: null }} />
       <Tabs.Screen
         name="workspaces"
         options={{
