@@ -30,27 +30,21 @@ map $http_origin $media_cors_origin {
     "https://client.virgo.ph" $http_origin;
 }
 
-# The complete type map for this host, stated rather than inherited.
+# The one type the bundled mime.types does not carry.
 #
-# nginx ships no type for fMP4 segments, and an .m4s served as
-# application/octet-stream is refused outright by some players — so something
-# has to be added. Whether a second `types` block at this level merges with
-# the bundled mime.types or replaces it is a question this config deliberately
-# does not depend on: every extension the media host can serve is listed here,
-# so the answer does not matter. This host serves renditions and nothing else,
-# which is what makes an exhaustive list practical.
+# A second `types` block at this level MERGES with the one `nginx.conf`
+# includes rather than replacing it, and nginx warns on every extension
+# redefined here — which is how this list got down to one entry. Everything
+# else the media host serves, .m3u8 included, already resolves correctly.
+#
+# fMP4 segments do not. An .m4s served as application/octet-stream is refused
+# outright by some players.
+#
+# No `default_type` here: nginx.conf already sets it at this level, and a
+# second one is a duplicate-directive error that stops the server starting.
 types {
-    application/vnd.apple.mpegurl  m3u8;
-    video/iso.segment              m4s;
-    video/mp4                      mp4 m4v;
-    audio/mp4                      m4a;
-    image/webp                     webp;
-    image/avif                     avif;
-    image/jpeg                     jpg jpeg;
-    image/png                      png;
-    image/gif                      gif;
+    video/iso.segment m4s;
 }
-default_type application/octet-stream;
 
 # ── health ────────────────────────────────────────────────────────────────────
 # Container loopback only — never published, so it needs neither TLS nor a
@@ -186,7 +180,7 @@ server {
     #
     # Here the signature covers only the ladder DIRECTORY, and that is the
     # whole trick. A master playlist's child URIs are relative — `v1/playlist
-    # .m3u8`, then `0007.m4s`, then `init.mp4` from EXT-X-MAP — and no player
+    # .m3u8`, then `0007.m4s`, then `init_1.mp4` from EXT-X-MAP — and no player
     # propagates anything from the manifest URL to them. Not Safari, not
     # ExoPlayer, not AVPlayer; hls.js can be made to with a custom loader, but
     # the other two cannot and we have three playback surfaces.
