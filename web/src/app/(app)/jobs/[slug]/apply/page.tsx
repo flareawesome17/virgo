@@ -12,6 +12,18 @@ import PageClient from './page-client';
  */
 export const metadata: Metadata = { title: "Apply" };
 
-export default function Page(props: { params: Promise<{ slug: string }> }) {
-  return <PageClient {...props} />;
+
+/**
+ * One placeholder route, so the desktop build has a shell to serve.
+ *
+ * Same reason as the parent route: `output: export` refuses a dynamic segment
+ * it cannot enumerate, and job slugs are not ours to enumerate. The client
+ * component below takes the slug from the URL, so one shell serves them all.
+ */
+export function generateStaticParams() {
+  return [{ slug: 'placeholder' }];
+}
+
+export default function Page() {
+  return <PageClient />;
 }

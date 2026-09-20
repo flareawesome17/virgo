@@ -1,7 +1,7 @@
 'use client';
 
-import { use, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Banknote, BriefcaseBusiness, CalendarDays, Loader2, MapPin, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { track } from '@/lib/analytics';
@@ -33,12 +33,8 @@ function jobDate(value: string): string {
  * here, and the AuthGuard bounces a signed-out visitor through sign-in and
  * back to this exact URL.
  */
-export default function ApplyPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
-  const { slug } = use(params);
+export default function ApplyPage() {
+  const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
   const job = useJob(slug);
   const apply = useApplyToJob();

@@ -12,6 +12,22 @@ import PageClient from './page-client';
  */
 export const metadata: Metadata = { title: "Hire" };
 
-export default function Page(props: { params: Promise<{ handle: string }> }) {
-  return <PageClient {...props} />;
+
+/**
+ * One placeholder route, so the desktop build has a shell to serve.
+ *
+ * `output: export` refuses a dynamic segment it cannot enumerate, and these
+ * ids belong to the person using the app — there is no list to give it. The
+ * page does not read this value: everything below the title is a client
+ * component that takes the id from the URL with `useParams`, so the shell
+ * generated here works for any id the app navigates to.
+ *
+ * The hosted build ignores this entirely — it renders per request.
+ */
+export function generateStaticParams() {
+  return [{ handle: 'placeholder' }];
+}
+
+export default function Page() {
+  return <PageClient />;
 }

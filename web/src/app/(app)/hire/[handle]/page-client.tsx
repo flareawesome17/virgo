@@ -1,8 +1,8 @@
 'use client';
 
-import { use, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, MapPin, Send, UserSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
@@ -25,12 +25,8 @@ import { useSendEnquiry } from '@/hooks/useHire';
  * sending needs a session — and the AuthGuard on this route group already
  * bounces a signed-out visitor through sign-in and back to this exact URL.
  */
-export default function HirePage({
-  params,
-}: {
-  params: Promise<{ handle: string }>;
-}) {
-  const { handle } = use(params);
+export default function HirePage() {
+  const { handle } = useParams<{ handle: string }>();
   const router = useRouter();
   const send = useSendEnquiry();
 
