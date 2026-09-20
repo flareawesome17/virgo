@@ -23,7 +23,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   useMarkNotificationsRead,
   useNotifications,
@@ -160,7 +159,12 @@ export function NotificationBell() {
           )}
         </div>
 
-        <ScrollArea className="max-h-[24rem]">
+        {/* A plain scrolling box, not Radix's ScrollArea. That component's
+            viewport is `size-full`, which needs a height to resolve against —
+            given only a max-height it stays as tall as its contents, and a long
+            list ran straight out of the popover and down the page. The sidebar
+            friends list dropped it for the same reason. */}
+        <div className="max-h-[24rem] overflow-y-auto overscroll-contain">
           {isLoading ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
               Loading…
@@ -227,7 +231,7 @@ export function NotificationBell() {
               })}
             </ul>
           )}
-        </ScrollArea>
+        </div>
       </PopoverContent>
     </Popover>
   );
