@@ -34,7 +34,12 @@ import {
 } from 'phosphor-react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAlbumFiles } from '@/src/hooks';
-import { formatBytes, storageApi, type StoredFile } from '@/src/api';
+import {
+  formatBytes,
+  largestDisplaySource,
+  storageApi,
+  type StoredFile,
+} from '@/src/api';
 
 const SPRING = { damping: 22, stiffness: 220 };
 const MAX_SCALE = 4;
@@ -198,8 +203,17 @@ function ZoomablePhoto({
         className="items-center justify-center"
       >
         <Animated.View style={[{ width, height }, style]}>
+          {/* The widest display copy, not the original. `url` is the camera
+              file — a 6 MB JPEG or a 40 MB TIFF from a bucket in California —
+              and this screen draws it a few hundred points wide. */}
           <Image
-            source={{ uri: photo.url ?? photo.thumbnailUrl ?? undefined }}
+            source={{
+              uri:
+                largestDisplaySource(photo) ??
+                photo.url ??
+                photo.thumbnailUrl ??
+                undefined,
+            }}
             placeholder={
               photo.thumbnailUrl ? { uri: photo.thumbnailUrl } : undefined
             }

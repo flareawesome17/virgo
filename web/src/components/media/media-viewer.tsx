@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent } from 'react';
 import { ArrowLeft, ArrowRight, ArrowsOut, DownloadSimple, Info, MagnifyingGlassMinus, MagnifyingGlassPlus, Pause, PictureInPicture, Play, SpeakerHigh, SpeakerSlash, Trash, X } from '@phosphor-icons/react';
-import { formatBytes, kindOf, type StoredFile } from '@/api';
+import { displaySrcSet, formatBytes, kindOf, largestDisplaySource, type StoredFile } from '@/api';
 
 const motion = 'transition-[transform,opacity,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]';
 
@@ -61,10 +61,14 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
 
   useEffect(() => {
     for (const near of [files[index - 1], files[index + 1]]) {
-      if (near?.url && kindOf(near.contentType) === 'image') {
-        const image = new Image();
-        image.src = near.url;
-      }
+      if (!near || kindOf(near.contentType) !== 'image') continue;
+      // A display copy if there is one. Preloading `url` here meant fetching
+      // both neighbouring ORIGINALS on every step through an album — two
+      // camera files nobody had asked to see yet.
+      const source = largestDisplaySource(near) ?? near.url;
+      if (!source) continue;
+      const image = new Image();
+      image.src = source;
     }
   }, [files, index]);
 
@@ -100,7 +104,11 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
         {!file.url ? <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">This media URL has expired. Close the viewer and reload the album.</div> : kind === 'image' ? (
           <div className={`grid h-full select-none place-items-center overflow-hidden ${zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; setDragging(false); }} onPointerCancel={() => { drag.current = null; setDragging(false); }} onDoubleClick={() => zoom > 1 ? resetTransform() : setZoom(2)} onClick={() => zoom === 1 && setChrome((value) => !value)}>
             { }
-            <img src={file.url} alt={file.originalName} draggable={false} className="max-h-full max-w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)' }} />
+            {/* Display copies when there are any, the original when there are
+                not. `sizes` is 100vw because this is a full-screen viewer —
+                but only up to zoom 1; past that the browser is scaling what it
+                already has, which is the trade for not refetching on a pinch. */}
+            <img src={largestDisplaySource(file) ?? file.url} srcSet={displaySrcSet(file) ?? undefined} sizes={displaySrcSet(file) ? '100vw' : undefined} alt={file.originalName} draggable={false} className="max-h-full max-w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)' }} />
           </div>
         ) : kind === 'video' ? <VideoPlayer file={file} /> : <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">Open audio from the album track list to use the listening queue.</div>}
 

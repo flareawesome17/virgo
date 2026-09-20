@@ -62,6 +62,14 @@ export interface PublicAlbumView {
      * back to `url`, which is what it rendered before this existed.
      */
     proxyUrl: string | null;
+    /**
+     * Intermediate copies for viewing, narrowest first.
+     *
+     * Opening a photograph used to serve the original — a 6 MB camera JPEG,
+     * or a 40 MB TIFF, to fill a viewport about 1400 px wide. Empty means
+     * there are none and the page falls back to `url`.
+     */
+    displaySources: { width: number; url: string }[];
     /** Same object, signed to save rather than open. */
     downloadUrl: string | null;
     /** What it saves as: "Album Name - 004.jpg". */
@@ -415,6 +423,7 @@ export class AlbumShareService {
       thumb_key: string | null;
       poster_key: string | null;
       proxy_key: string | null;
+      display_widths: number[] | null;
       content_type: string | null;
       size_bytes: string;
       created_at: Date;
@@ -426,7 +435,8 @@ export class AlbumShareService {
       media_artist: string | null;
       processing_status: 'pending' | 'ready' | 'failed' | 'not_required';
     }>(
-      `select key, thumb_key, poster_key, proxy_key, content_type, size_bytes, created_at,
+      `select key, thumb_key, poster_key, proxy_key, display_widths,
+              content_type, size_bytes, created_at,
               original_name, width_px, height_px, duration_ms,
               media_title, media_artist, processing_status
          from user_files
@@ -504,6 +514,11 @@ export class AlbumShareService {
         thumbUrl: thumbUrls[i],
         posterUrl: posterUrls[i],
         proxyUrl: this.mediaLink.url(f.proxy_key, PUBLISHED_URL_TTL_SECONDS),
+        displaySources: this.mediaLink.displaySources(
+          f.key,
+          f.display_widths,
+          PUBLISHED_URL_TTL_SECONDS,
+        ),
         downloadUrl: downloadUrls[i],
         downloadName: names[i],
         contentType: f.content_type,

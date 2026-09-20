@@ -13,6 +13,7 @@ const view: PublicAlbumView = {
     thumbUrl: 'https://media.example/photo-thumb.webp',
     posterUrl: null,
     proxyUrl: null,
+    displaySources: [],
     downloadUrl: 'https://media.example/download',
     downloadName: 'Album - 001.jpg',
     contentType: 'image/jpeg',

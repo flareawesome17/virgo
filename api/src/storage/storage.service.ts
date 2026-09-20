@@ -18,7 +18,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { MediaLinkService, proxyKeyFor } from './media-link.service';
+import { MediaLinkService } from './media-link.service';
 import {
   accessAllows,
   QuotaService,
@@ -454,7 +454,7 @@ export class StorageService {
     // them. Last, and never fatal: a rendition left behind is wasted disk on
     // one machine, and failing someone's delete over it would be a much worse
     // trade than leaving it for the sweep.
-    await this.mediaLink.removeFor([key], proxyKeyFor);
+    await this.mediaLink.removeFor([key]);
   }
 
   /**
@@ -608,7 +608,7 @@ export class StorageService {
     // above touches them. Derived from the originals that were asked for, not
     // from what came back deleted: a rendition whose source is already gone is
     // the case that most needs collecting.
-    await this.mediaLink.removeFor(keys, proxyKeyFor);
+    await this.mediaLink.removeFor(keys);
     return { deleted: deletedKeys.length, failed };
   }
 
@@ -706,6 +706,10 @@ export class StorageService {
         // with no media host configured. Players treat null as "use `url`",
         // which is what they did before this existed.
         proxyUrl: this.mediaLink.url(row.proxy_key),
+        // Intermediate copies for viewing, narrowest first. Empty for videos,
+        // for images small enough not to need one, and for a deployment with
+        // no media host — in every case the client falls back to `url`.
+        displaySources: this.mediaLink.displaySources(row.key, row.display_widths),
         downloadUrl: downloadUrls[i],
         width: row.width_px,
         height: row.height_px,

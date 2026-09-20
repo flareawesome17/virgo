@@ -130,7 +130,7 @@ the existing `virgo_pgdata` volume already relies on.
 | Serve media | **nginx** | BSD-2 | Static files from the volume. `sendfile` and range requests, nothing clever |
 | Playback auth | **nginx** `ngx_http_secure_link_module` | BSD-2 | Ships in the official `nginx:` image — confirm with `nginx -V` |
 | TLS | **Certbot** / **acme.sh**, DNS-01 | Apache-2.0 / MIT | DNS-01 against the Cloudflare DNS API avoids opening port 80 |
-| Image resize | **imgproxy** | Apache-2.0 | Go + libvips, reads B2, caches to the same volume. Thumbor (MIT) is the alternative |
+| Image resize | **sharp** (libvips) | Apache-2.0 | Already a dependency. See *Images* below for why not imgproxy |
 | Web player | **hls.js** | Apache-2.0 | Attaches to a plain `<video>`; no player rewrite |
 | Mobile player | **expo-video** | MIT | Already a dependency. HLS is native on both platforms |
 
@@ -350,19 +350,43 @@ same queue.
 
 ## Images
 
-imgproxy on the same host gives us the Cloudflare Images feature: reads the
-original from B2 once, resizes with libvips, negotiates AVIF/WebP, and caches
-the result to the same volume nginx already serves from.
+We generate one fixed 640 px WebP (`THUMB_EDGE` in
+[thumbnails.service.ts](api/src/storage/thumbnails.service.ts)) for the grid,
+and then serve the **full original** the moment anybody opens one — a 6 MB
+camera JPEG, or a 40 MB TIFF, to fill a viewport about 1400 px wide, fetched
+from California. Intermediate copies fix that.
 
-Today we generate one fixed 640 px WebP (`THUMB_EDGE` in
-[thumbnails.service.ts](api/src/storage/thumbnails.service.ts)) and then serve
-the **full original** in the lightbox — a 6 MB JPEG, or a 40 MB TIFF, to fill
-a 1400 px viewport. imgproxy makes that a `?w=1600&fmt=avif` and lets every
-surface ask for the size it actually draws.
+### Not imgproxy, and the reason is specific to this codebase
 
-The cheaper interim, if the media host slips: add a resize route to the
-`sharp` already in the API. Less capable, no new container, and it keeps
-everything behind existing auth.
+The obvious answer is an on-demand resizer — imgproxy on the media host,
+reading B2, negotiating AVIF/WebP, any size on request. That was the plan
+here until phase 2 made the shape of the problem concrete.
+
+**`ThumbnailsService.generate` already reads the entire original out of B2, on
+the confirm path, into a buffer.** It has to: it is making the thumbnail. So
+at the exact moment a display copy is wanted, the bytes are already in memory
+and the expensive part is already paid. A resize from that buffer is noise
+next to the fetch that produced it.
+
+An on-demand resizer would throw that away and make the same trans-Pacific
+fetch again — per size, per cold cache miss, with somebody waiting. A
+200-photo gallery opened for the first time would pull 200 originals across
+the Pacific to produce a few hundred kilobytes each.
+
+So the copies are made where the source already is. The costs of that choice,
+stated plainly:
+
+- **The width set is fixed** (`DISPLAY_WIDTHS`), not arbitrary. Changing it
+  means re-running the backfill, not editing a URL.
+- **No format negotiation.** Everything is WebP. AVIF would save perhaps
+  another 30% and costs seconds per image to encode, which on a 200-photo
+  wedding is minutes added to a request somebody is waiting on.
+- **Storage instead of CPU.** Two extra files per photograph, on a volume
+  that still has no sweep.
+
+imgproxy remains the right answer if arbitrary sizes or AVIF ever matter more
+than those three. Nothing here blocks it — it would slot in behind the same
+signed paths.
 
 ---
 
@@ -679,6 +703,59 @@ had more than anyone would like.
 
 ---
 
+## Phase 3 runbook — responsive photographs
+
+Built. A photograph now gets up to two intermediate copies — 1024 and 2048 on
+the long edge, WebP — written to the media volume by the sharp pass that was
+already reading the original.
+
+| File | Change |
+|---|---|
+| [api/migrations/061_image_display_renditions.sql](api/migrations/061_image_display_renditions.sql) | `display_widths integer[]` |
+| [api/src/storage/media-link.service.ts](api/src/storage/media-link.service.ts) | `DISPLAY_WIDTHS`, `displayKeyFor`, `renditionKeysFor`, `displaySources`, `write` |
+| [api/src/storage/thumbnails.service.ts](api/src/storage/thumbnails.service.ts) | `createDisplayCopies`, off the buffer it already had |
+| [api/src/storage/storage.service.ts](api/src/storage/storage.service.ts), [album-share.service.ts](api/src/albums/share/album-share.service.ts) | `displaySources` on both list paths |
+| web + mobile `storage.ts` | `displaySources`, `displaySrcSet`, `largestDisplaySource` |
+| [media-viewer.tsx](web/src/components/media/media-viewer.tsx), [viewer.tsx](mobile/app/(app)/albums/[albumId]/viewer.tsx), [client-gallery.template.ts](api/src/albums/share/client-gallery.template.ts) | Real `srcset` on web and the gallery; widest copy on mobile |
+
+`DISPLAY_WIDTHS` is `[1024, 2048]`. Two, not a ladder: 1024 covers a phone
+lightbox and a grid tile at any density, 2048 covers a laptop at 1x and a
+phone at 3x, and anything between them is a rounding error the browser
+resolves by itself. A source is never enlarged, so a 900 px scan gets
+neither.
+
+### No requeue in the migration, unlike 060
+
+Display copies are made on the **confirm path**, not by the background queue.
+Generating them for an existing library means reading every original back out
+of B2 — a real egress bill and a long run — so it is an operator decision:
+
+```powershell
+docker compose -f docker-compose.prod.yml exec api node scripts/backfill-thumbnails.mjs
+```
+
+Until that runs, older photographs keep serving their original on open, which
+is exactly what they did before. Nothing breaks while it is pending.
+
+### One thing that was already true and is now load-bearing
+
+The web viewer preloaded the two neighbouring images on every step through an
+album, from `url` — the originals. That was two camera files nobody had asked
+to see yet, on every arrow-key press. It now preloads the display copy.
+
+### What it costs
+
+Two extra sharp passes on confirm, from a buffer that is already in memory.
+The B2 read dominates that request by an order of magnitude, so the added
+latency is small — but it is on a request somebody is waiting on, which is
+why the widths stop at two and the format stays WebP.
+
+Storage: roughly 150–400 KB per photograph for both copies, against originals
+measured in megabytes. **The volume still has no sweep.** Between this and
+the film proxies, that is now the thing most likely to need attention first.
+
+---
+
 ## Sequencing
 
 Each phase is independently shippable and independently useful.
@@ -691,7 +768,9 @@ Each phase is independently shippable and independently useful.
    volume. Retires the "cannot play in this browser" state and most
    buffering, and puts real traffic on the new host. **Built — see the
    runbook above.**
-3. **imgproxy**, and responsive sizes across the three surfaces.
+3. **Responsive image sizes** across the three surfaces. **Built — see the
+   runbook above.** Done with the existing `sharp` rather than imgproxy; the
+   *Images* section has the reasoning.
 4. **The HLS ladder**, hls.js and expo-video. The adaptive-bitrate piece.
 
 Phases 1 and 2 are most of what a viewer will notice. Phase 4 is the feature

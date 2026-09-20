@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
 import { DatabaseService } from '../database/database.service';
+import {
+  DISPLAY_WIDTHS,
+  MediaLinkService,
+  displayKeyFor,
+} from './media-link.service';
 import { StorageService } from './storage.service';
 
 /**
@@ -39,6 +44,17 @@ const AVATAR_EDGE = 512;
 /** Higher than a thumbnail's: this is the only copy, not a stand-in for one. */
 const AVATAR_QUALITY = 82;
 
+/**
+ * Quality for a display copy.
+ *
+ * Higher than the thumbnail's 72 because this one is looked AT rather than
+ * glanced at — it is what fills the viewer when somebody opens a photograph.
+ * Still WebP rather than AVIF: AVIF would save perhaps another 30% and costs
+ * seconds per image to encode, which on a 200-photo wedding is minutes added
+ * to the confirm path.
+ */
+const DISPLAY_QUALITY = 80;
+
 /** `.../abc.jpg` → `.../abc-thumb.webp`, beside the original. */
 export function thumbKeyFor(key: string): string {
   return `${key.replace(/\.[^./]+$/, '')}-thumb.webp`;
@@ -51,6 +67,7 @@ export class ThumbnailsService {
   constructor(
     private readonly storage: StorageService,
     private readonly db: DatabaseService,
+    private readonly mediaLink: MediaLinkService,
   ) {}
 
   /**
@@ -105,16 +122,22 @@ export class ThumbnailsService {
         }
       }
 
+      const displayWidths =
+        contentType === 'image/gif'
+          ? []
+          : await this.createDisplayCopies(key, source, width, height, sizeBytes);
+
       await this.db.query(
         `update user_files
             set thumb_key = coalesce($2, thumb_key),
                 width_px = $3,
                 height_px = $4,
+                display_widths = $5,
                 processing_status = 'ready',
                 next_processing_at = null,
                 processed_at = now()
           where key = $1`,
-        [key, thumbKey, width ?? null, height ?? null],
+        [key, thumbKey, width ?? null, height ?? null, displayWidths],
       );
       return thumbKey;
     } catch (err) {
@@ -130,6 +153,65 @@ export class ThumbnailsService {
       );
       return null;
     }
+  }
+
+  /**
+   * Intermediate copies for viewing, on the media volume.
+   *
+   * Opening a photograph has always served the ORIGINAL — a 6 MB camera JPEG,
+   * or a 40 MB TIFF, to fill a viewport about 1400 px wide, pulled from a
+   * bucket in California. These are what the viewer gets instead.
+   *
+   * Generated here rather than on demand because the expensive part is
+   * already paid: `generate` has just read the whole original out of B2 and
+   * `source` is that buffer. A resize from memory is noise next to the fetch
+   * that produced it, and an on-demand resizer would have to make that same
+   * trans-Pacific fetch again, per size, while somebody waited.
+   *
+   * Never throws. A missing display copy costs bandwidth; a thrown one would
+   * cost the upload, and the photograph is worth more than the optimisation.
+   * Returns the widths actually written, which may be fewer than asked for or
+   * none at all.
+   */
+  private async createDisplayCopies(
+    key: string,
+    source: Buffer,
+    width: number | undefined,
+    height: number | undefined,
+    sizeBytes: number,
+  ): Promise<number[]> {
+    if (!this.mediaLink.isConfigured) return [];
+
+    // Without dimensions there is no way to tell which widths would be an
+    // enlargement, and guessing produces a 2048 copy of a 900 px scan that is
+    // larger than the thing it replaces.
+    const longest = Math.max(width ?? 0, height ?? 0);
+    if (!longest) return [];
+
+    const written: number[] = [];
+    for (const target of DISPLAY_WIDTHS) {
+      // Nothing to gain from re-encoding a source that is already smaller.
+      if (longest <= target) continue;
+      try {
+        const body = await sharp(source, { failOn: 'none' })
+          .rotate()
+          .resize(target, target, { fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: DISPLAY_QUALITY })
+          .toBuffer();
+
+        // The same guard the thumbnail uses: a "smaller" copy that is not
+        // smaller is pure cost, and PNG screenshots hit this regularly.
+        if (body.length >= sizeBytes) continue;
+
+        await this.mediaLink.write(displayKeyFor(key, target), body);
+        written.push(target);
+      } catch (err) {
+        this.logger.warn(
+          `Display copy ${target} failed for ${key}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return written;
   }
 
   /**

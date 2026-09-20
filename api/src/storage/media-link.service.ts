@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, sep } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -40,6 +40,40 @@ const SAFE_KEY = /^[A-Za-z0-9._\-/]+$/;
  */
 export function proxyKeyFor(key: string): string {
   return `${key.replace(/\.[^./]+$/, '')}-web.mp4`;
+}
+
+/**
+ * Long-edge widths generated for photographs, narrowest first.
+ *
+ * Two, not a ladder. 1024 covers a phone lightbox and a grid tile at any
+ * density; 2048 covers a laptop at 1x and a phone at 3x. Anything larger is
+ * within a factor of two of the originals we are trying to stop sending, and
+ * anything between them is a rounding error the browser picks by itself.
+ *
+ * A source smaller than a width does not get that width — there is nothing to
+ * gain by re-encoding a 900 px scan at 1024.
+ */
+export const DISPLAY_WIDTHS = [1024, 2048] as const;
+
+/** `.../frame.jpg` → `.../frame-1024.webp`. */
+export function displayKeyFor(key: string, width: number): string {
+  return `${key.replace(/\.[^./]+$/, '')}-${width}.webp`;
+}
+
+/**
+ * Every rendition path derived from one original.
+ *
+ * Deletion works from this rather than from stored columns, so it still
+ * collects renditions belonging to an object whose `user_files` row was never
+ * written — of which the bucket has had more than anyone would like. It is
+ * deliberately generous: naming a path that was never created costs one
+ * `rm -f` that does nothing.
+ */
+export function renditionKeysFor(key: string): string[] {
+  return [
+    proxyKeyFor(key),
+    ...DISPLAY_WIDTHS.map((width) => displayKeyFor(key, width)),
+  ];
 }
 
 @Injectable()
@@ -114,6 +148,26 @@ export class MediaLinkService {
     return `https://${this.host}/${expires}/${signature}/${clean}`;
   }
 
+  /**
+   * Signed display copies for one photograph, narrowest first.
+   *
+   * Takes the widths that were actually written rather than DISPLAY_WIDTHS,
+   * so a source too small for 2048 — or a copy that failed to encode — does
+   * not produce a URL that 404s. Empty means the clients fall back to `url`.
+   */
+  displaySources(
+    key: string,
+    widths: readonly number[] | null | undefined,
+    ttlSeconds: number = PUBLISHED_URL_TTL_SECONDS,
+  ): { width: number; url: string }[] {
+    if (!widths?.length || !this.isConfigured) return [];
+    return widths
+      .slice()
+      .sort((a, b) => a - b)
+      .map((width) => ({ width, url: this.url(displayKeyFor(key, width), ttlSeconds) }))
+      .filter((source): source is { width: number; url: string } => source.url !== null);
+  }
+
   /** `url` for a batch, preserving order. Signing is a hash, not a call. */
   urls(
     keys: (string | null | undefined)[],
@@ -144,29 +198,52 @@ export class MediaLinkService {
   }
 
   /**
-   * Removes renditions for the given ORIGINAL keys.
+   * Writes a rendition that is already in memory.
+   *
+   * The counterpart to `stagePathFor` + `publish` for producers that hand
+   * over a buffer rather than writing a file — sharp returns one, ffmpeg does
+   * not. Staged and renamed for the same reason: nginx serves this directory
+   * live, and a half-written file is indistinguishable from a corrupt one.
+   */
+  async write(key: string, body: Buffer): Promise<void> {
+    if (!this.isSafeKey(key)) throw new Error(`Unsafe rendition key: ${key}`);
+    const staged = await this.stagePathFor(key);
+    try {
+      await writeFile(staged, body);
+      await this.publish(key);
+    } catch (error) {
+      await rm(staged, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /**
+   * Removes every rendition belonging to the given ORIGINAL keys.
    *
    * Takes originals rather than rendition keys because every rendition name
    * is derived from its source, so deletion needs no database round trip and
    * cannot be defeated by a row that was never written — of which there have
-   * historically been more than anyone would like.
+   * historically been more than anyone would like. It also means a rendition
+   * type added later is collected retroactively, as soon as it appears in
+   * `renditionKeysFor`.
    *
    * Never throws. A rendition that will not delete is wasted disk, and the
    * LRU sweep will get it; failing the user's delete over it would be a much
    * worse trade.
    */
-  async removeFor(originalKeys: readonly string[], derive: (key: string) => string): Promise<void> {
+  async removeFor(originalKeys: readonly string[]): Promise<void> {
     if (!this.root) return;
     for (const original of originalKeys) {
-      const key = derive(original);
-      if (!this.isSafeKey(key)) continue;
-      try {
-        await rm(this.pathFor(key), { force: true });
-        await rm(`${this.pathFor(key)}.part`, { force: true });
-      } catch (error) {
-        this.logger.warn(
-          `Could not remove rendition ${key}: ${error instanceof Error ? error.message : String(error)}`,
-        );
+      for (const key of renditionKeysFor(original)) {
+        if (!this.isSafeKey(key)) continue;
+        try {
+          await rm(this.pathFor(key), { force: true });
+          await rm(`${this.pathFor(key)}.part`, { force: true });
+        } catch (error) {
+          this.logger.warn(
+            `Could not remove rendition ${key}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       }
     }
   }
