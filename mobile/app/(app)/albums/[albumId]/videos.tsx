@@ -130,9 +130,19 @@ function VideoPlayer({
     },
   );
 
+  /**
+   * Whether the controls are up, as state rather than only as a ref.
+   *
+   * The ref is read synchronously by the tap handler and cannot drive a
+   * render; this can, and `pointerEvents` has to follow visibility or the
+   * overlay keeps swallowing taps while invisible. See the overlay below.
+   */
+  const [shown, setShown] = useState(true);
+
   const setControls = useCallback(
     (next: boolean) => {
       visible.current = next;
+      setShown(next);
       controls.value = withTiming(next ? 1 : 0, { duration: 180 });
     },
     [controls],
@@ -142,7 +152,7 @@ function VideoPlayer({
     setControls(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     if (playing) {
-      hideTimer.current = setTimeout(() => setControls(false), 2800);
+      hideTimer.current = setTimeout(() => setControls(false), 4500);
     }
   }, [playing, setControls]);
 
@@ -177,7 +187,22 @@ function VideoPlayer({
       statusSub.remove();
       if (hideTimer.current) clearTimeout(hideTimer.current);
       if (stallTimer.current) clearTimeout(stallTimer.current);
-      player.pause();
+
+      // Guarded, because this runs as the player is going away and there is
+      // no ordering guarantee between this cleanup and expo-video releasing
+      // the native instance underneath it. Calling a method on a released
+      // player raises from native, and an exception thrown in a cleanup
+      // function is not caught by anything — it takes the app with it.
+      //
+      // Closing a video and opening another is exactly the sequence that hits
+      // this, which is what "it crashed when I replay the video" describes.
+      // A pause that does not happen because the player is already gone has
+      // cost nothing; the player is gone.
+      try {
+        player.pause();
+      } catch {
+        // Already released.
+      }
     };
   }, [player, setControls]);
 
@@ -258,8 +283,15 @@ function VideoPlayer({
           <Pressable
             onPress={() => {
               setFailed(null);
-              player.replace(playbackUrl);
-              player.play();
+              // Same guard as the cleanup above: a source swap on a player
+              // that has gone away should leave the error on screen, not
+              // close the app.
+              try {
+                player.replace(playbackUrl);
+                player.play();
+              } catch {
+                setFailed('stalled');
+              }
             }}
             className="mt-7 bg-[#C17745] rounded-full px-6 py-3 active:opacity-85"
           >
@@ -320,9 +352,19 @@ function VideoPlayer({
         </View>
       )}
 
+      {/*
+        `none` while hidden, not `box-none`.
+
+        box-none stops this container capturing taps but leaves its children
+        capturing them, and opacity does not change that — so at opacity 0 the
+        transport row, which is `flex-1` across the middle of the screen, went
+        on swallowing every tap. Tapping the centre to bring the controls back
+        hit an invisible skip button instead of the gesture below, the controls
+        never returned, and the close button stayed unreachable behind them.
+      */}
       <Animated.View
         style={controlsStyle}
-        pointerEvents="box-none"
+        pointerEvents={shown ? 'box-none' : 'none'}
         className="absolute inset-0"
       >
         <LinearGradient
