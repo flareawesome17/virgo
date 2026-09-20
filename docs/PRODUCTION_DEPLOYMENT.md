@@ -31,6 +31,13 @@ every application rollback.
 **The mobile app is not here.** It ships through EAS to the app stores; there
 is no server to run it on.
 
+Both mobile builds subscribe to the **`production`** EAS channel: the App Store
+build from the `production` profile, and the sideload APK from the `preview`
+profile. They are two distribution routes to the same release, so one
+`eas update --channel production` reaches both. A build that listens on any
+other channel receives no over-the-air update at all, silently — nothing
+errors, the app simply never changes.
+
 ---
 
 ## What happens when you publish `v1.0.0`

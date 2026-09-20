@@ -25,7 +25,7 @@
         "EXPO_PUBLIC_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://api.virgo.ph"
       },
-      "channel": "preview"
+      "channel": "production"
     },
 
     "production": {
