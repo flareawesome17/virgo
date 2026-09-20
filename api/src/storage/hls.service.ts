@@ -147,6 +147,10 @@ export function buildLadderArgs(
     // wanted.
     '-hls_segment_type', 'fmp4',
     '-hls_flags', 'independent_segments',
+    // ffmpeg appends the variant index to this, so the files land as
+    // init_0.mp4, init_1.mp4, init_2.mp4 — one per rung, which is what each
+    // variant playlist's EXT-X-MAP then points at. Verified against a real
+    // three-rung encode; do not "fix" the name to match the argument.
     '-hls_fmp4_init_filename', 'init.mp4',
     '-hls_segment_filename', `${outDir}/v%v/%04d.m4s`,
     '-master_pl_name', 'master.m3u8',

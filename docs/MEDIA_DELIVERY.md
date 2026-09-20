@@ -201,9 +201,9 @@ lookup table:
 /var/virgo/media/
   users/<uid>/albums/<album>/ceremony-hls/
       master.m3u8
-      v0/init.mp4  v0/0001.m4s  …        360p
-      v1/init.mp4  v1/0001.m4s  …        720p
-      v2/init.mp4  v2/0001.m4s  …        1080p
+      v0/init_0.mp4  v0/0000.m4s  …      360p
+      v1/init_1.mp4  v1/0000.m4s  …      720p
+      v2/init_2.mp4  v2/0000.m4s  …      1080p
   users/<uid>/albums/<album>/ceremony-web.mp4     progressive fallback
   users/<uid>/albums/<album>/ceremony-poster.webp (today: B2)
 ```
@@ -272,8 +272,9 @@ Flag by flag, because most of these are load-bearing:
   the fix for the "cannot play in this browser" state.
 - **`-preset veryfast`** — the CPU trade. See *Capacity* below.
 - **`%v` must appear in the output path** for `-var_stream_map` to fan out.
-  Verify init-segment placement on the image's ffmpeg build the first time it
-  runs; the `v%v/` directory layout is what the master playlist assumes.
+  ffmpeg appends the variant index to `-hls_fmp4_init_filename`, so the init
+  segments land as `init_0.mp4`, `init_1.mp4`, `init_2.mp4` and each variant
+  playlist's `EXT-X-MAP` points at its own. Verified against a real encode.
 
 Produce a **progressive `+faststart` MP4 alongside the ladder** — the 720p
 rung with the moov atom at the front. It is the fallback for anything that
@@ -923,6 +924,34 @@ a minute if anyone opens that link again.
 - **Scale.** It walks every ladder directory to measure it. At a few thousand
   films that is fine nightly; well past that, sizes want recording in the row
   at encode time instead.
+
+---
+
+## What has actually been exercised
+
+Run against real containers on a development machine, not on the production
+host. Everything below was executed; everything not listed was not.
+
+| Verified | How |
+|---|---|
+| nginx config loads | `nginx -t` in `nginx:1.27-alpine` with the template and a self-signed cert |
+| Signed single file serves | 200 with `video/mp4` for a valid signature |
+| Signature is enforced | One character changed → **403**; correctly signed but expired → **410**; unsigned → **404** |
+| **HLS prefix inheritance** | A segment fetched under the *master's* token → **200**. This is the phase 1 defect, proven fixed |
+| Segment MIME | `.m4s` served as `video/iso.segment`, not `application/octet-stream` |
+| The ladder encodes | The real `buildLadderArgs` output run through ffmpeg on a 1080p clip: three rungs at 640×360, 1280×720, 1920×1080, `EXT-X-INDEPENDENT-SEGMENTS`, 6 s segments |
+| A player's walk | master → variant → `EXT-X-MAP` init → segment, all 200, top rung 3.4 MB against the bottom rung's 672 KB |
+| Signing agrees three ways | The service, `sign-media-url.mjs` and nginx all accept each other's output |
+
+Two defects were found this way and fixed. A duplicate `default_type` made
+the config fail to load at all — the media host would have crash-looped on
+first start. And the `types` block *merges* with the bundled `mime.types`
+rather than replacing it, so the defensive full list was redefining types
+nginx already had; only `.m4s` was genuinely missing.
+
+**Still unexercised:** everything that needs the production host or its
+credentials — certificate issuance, the DNS record, the port forward, the
+migrations, and the workers running against a real database and B2.
 
 ---
 
