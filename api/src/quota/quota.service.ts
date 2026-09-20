@@ -16,6 +16,8 @@ export interface StoredFile {
   proxy_key: string | null;
   display_widths: number[] | null;
   hls_prefix: string | null;
+  /** A ~300 byte `data:image/webp;base64,…` preview. See blur.ts. */
+  blur_data_url: string | null;
   width_px: number | null;
   height_px: number | null;
   duration_ms: string | null;
@@ -433,6 +435,7 @@ export class QuotaService {
     const rows = await this.db.query<StoredFile>(
       `select key, size_bytes, content_type, scope, album_id, created_at,
               original_name, thumb_key, poster_key, proxy_key, display_widths, hls_prefix,
+              blur_data_url,
               width_px, height_px,
               duration_ms, media_title, media_artist, processing_status
          from user_files

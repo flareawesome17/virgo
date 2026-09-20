@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
 import { DatabaseService } from '../database/database.service';
+import { blurDataUrl } from './blur';
 import {
   DISPLAY_WIDTHS,
   MediaLinkService,
@@ -127,17 +128,24 @@ export class ThumbnailsService {
           ? []
           : await this.createDisplayCopies(key, source, width, height, sizeBytes);
 
+      // From the same buffer, while it is still decoded and in hand. An
+      // animated GIF gets one too: a still first frame is a better stand-in
+      // than a grey box, and nobody sees it for long enough to notice it is
+      // not moving.
+      const blur = await blurDataUrl(source);
+
       await this.db.query(
         `update user_files
             set thumb_key = coalesce($2, thumb_key),
                 width_px = $3,
                 height_px = $4,
                 display_widths = $5,
+                blur_data_url = coalesce($6, blur_data_url),
                 processing_status = 'ready',
                 next_processing_at = null,
                 processed_at = now()
           where key = $1`,
-        [key, thumbKey, width ?? null, height ?? null, displayWidths],
+        [key, thumbKey, width ?? null, height ?? null, displayWidths, blur],
       );
       return thumbKey;
     } catch (err) {

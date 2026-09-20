@@ -49,6 +49,14 @@ export interface StoredFile {
    * Safari and iOS play it natively. Everywhere else needs hls.js.
    */
   hlsUrl: string | null;
+  /**
+   * A ~300 byte inline preview, safe to paint immediately.
+   *
+   * Arrives in the listing rather than being fetched, so a grid can render
+   * every tile before requesting a single thumbnail. Null means there is
+   * none — show the flat box, which is what shipped before this existed.
+   */
+  blurDataUrl: string | null;
   downloadUrl: string | null;
   originalName: string;
   width: number | null;
@@ -98,6 +106,22 @@ function displaySourcesFromUnknown(value: unknown): StoredFile['displaySources']
     .sort((a, b) => a.width - b.width);
 }
 
+/**
+ * Narrows the inline preview, refusing anything that is not an image.
+ *
+ * This string goes straight into an `src` or a CSS `url()`, so the media type
+ * is the whole security question — `data:text/html` in an `src` is a script
+ * execution. The API only ever produces `image/webp`, and this is the check
+ * that keeps that true at the boundary rather than by assumption.
+ */
+function blurDataUrlFromUnknown(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  if (!/^data:image\/(webp|png|jpeg|avif);base64,[A-Za-z0-9+/=]+$/.test(value)) return null;
+  // A preview that costs more than the thumbnail it stands in for has stopped
+  // being an optimisation, and this one rides in a listing of hundreds.
+  return value.length <= 4000 ? value : null;
+}
+
 /** The widest copy, or null when there are none. */
 export function largestDisplaySource(file: StoredFile): string | null {
   return file.displaySources.at(-1)?.url ?? null;
@@ -132,6 +156,7 @@ function storedFileFromUnknown(value: unknown): StoredFile | null {
     proxyUrl: typeof file.proxyUrl === 'string' ? file.proxyUrl : null,
     displaySources: displaySourcesFromUnknown(file.displaySources),
     hlsUrl: typeof file.hlsUrl === 'string' ? file.hlsUrl : null,
+    blurDataUrl: blurDataUrlFromUnknown(file.blurDataUrl),
     downloadUrl: typeof file.downloadUrl === 'string' ? file.downloadUrl : null,
     originalName: typeof file.originalName === 'string' && file.originalName.trim()
       ? file.originalName

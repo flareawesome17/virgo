@@ -79,6 +79,13 @@ export interface PublicAlbumView {
      * `proxyUrl` and then to `url`.
      */
     hlsUrl: string | null;
+    /**
+     * A ~300 byte inline preview, or null when there is not one.
+     *
+     * Rides in this response rather than being fetched, so the gallery paints
+     * completely before a single thumbnail is requested.
+     */
+    blurDataUrl: string | null;
     /** Same object, signed to save rather than open. */
     downloadUrl: string | null;
     /** What it saves as: "Album Name - 004.jpg". */
@@ -458,6 +465,7 @@ export class AlbumShareService {
       proxy_key: string | null;
       display_widths: number[] | null;
       hls_prefix: string | null;
+      blur_data_url: string | null;
       content_type: string | null;
       size_bytes: string;
       created_at: Date;
@@ -470,7 +478,7 @@ export class AlbumShareService {
       processing_status: 'pending' | 'ready' | 'failed' | 'not_required';
     }>(
       `select key, thumb_key, poster_key, proxy_key, display_widths, hls_prefix,
-              content_type, size_bytes, created_at,
+              blur_data_url, content_type, size_bytes, created_at,
               original_name, width_px, height_px, duration_ms,
               media_title, media_artist, processing_status
          from user_files
@@ -554,6 +562,7 @@ export class AlbumShareService {
           PUBLISHED_URL_TTL_SECONDS,
         ),
         hlsUrl: this.mediaLink.hlsUrl(f.hls_prefix, PUBLISHED_URL_TTL_SECONDS),
+        blurDataUrl: f.blur_data_url,
         downloadUrl: downloadUrls[i],
         downloadName: names[i],
         contentType: f.content_type,
