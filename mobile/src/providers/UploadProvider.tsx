@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useQueryClient } from '@tanstack/react-query';
 import { storageApi } from '@/src/api';
 import { usageQueryKey } from '@/src/hooks';
@@ -30,6 +32,15 @@ export interface UploadTask {
   /** 0–1, real bytes sent, from the upload task itself. */
   progress: number;
   error?: string;
+  /**
+   * The object key, once a ticket has been minted for this file.
+   *
+   * Recorded before any bytes are sent, because it is the only handle on an
+   * upload that outlives the process. The transfer runs in a native
+   * background session and can finish after the app is gone; the key is what
+   * lets the next launch ask the server whether it did.
+   */
+  key?: string;
 }
 
 /** What a caller hands over. Everything else is bookkeeping. */
@@ -79,6 +90,27 @@ const UploadContext = createContext<UploadContextValue>(FALLBACK);
 /** Only rewrite the drawer when the number visibly moved. */
 const NOTIFY_EVERY_PERCENT = 5;
 
+/** Where the queue survives a process that ended without being asked. */
+const QUEUE_STORAGE_KEY = 'virgo.upload.queue.v1';
+
+/**
+ * Reads the queue left behind by a previous launch.
+ *
+ * Anything unparseable is discarded rather than thrown: a queue we cannot read
+ * is not worth failing the app's startup over, and the objects it described are
+ * still recoverable by the server's own accounting.
+ */
+async function loadPersisted(): Promise<UploadTask[]> {
+  try {
+    const raw = await AsyncStorage.getItem(QUEUE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as UploadTask[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Uploads that outlive the screen that started them.
  *
@@ -117,6 +149,95 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     });
     return () => sub.remove();
   }, []);
+
+  /**
+   * Nothing runs until the previous launch's queue has been accounted for.
+   *
+   * Without this the runner would start on an empty list, and a file whose
+   * bytes are already in the bucket would be uploaded a second time.
+   */
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const saved = await loadPersisted();
+      if (cancelled) return;
+
+      // Settle each interrupted task against the server before the runner is
+      // allowed to touch the list. Sequential on purpose: this is a handful of
+      // rows at most, and it runs while the app is starting.
+      const settled: UploadTask[] = [];
+      for (const task of saved) {
+        if (task.status === 'done' || task.status === 'failed') {
+          settled.push(task);
+          continue;
+        }
+
+        // No key means no ticket was ever minted, so nothing was sent.
+        if (!task.key) {
+          settled.push({ ...task, status: 'queued', progress: 0 });
+          continue;
+        }
+
+        try {
+          // The server is the only authority on whether the object landed —
+          // the transfer finished in a process that no longer exists, so there
+          // is nothing local that knows. This is also what attaches it to its
+          // album, which is the step the dead process never reached.
+          const stat = await storageApi.confirm(task.key, task.albumId, task.name);
+          settled.push(
+            stat.exists
+              ? { ...task, status: 'done', progress: 1 }
+              : { ...task, status: 'queued', progress: 0, key: undefined },
+          );
+        } catch {
+          // Offline, or the API having a bad moment. Queue it rather than
+          // failing it: a retry costs an upload, and giving up costs the file.
+          settled.push({ ...task, status: 'queued', progress: 0, key: undefined });
+        }
+      }
+
+      // A file picked from the gallery lives in a cache directory the system
+      // may clear. Re-queueing one that is gone would fail on every attempt
+      // forever, so it is marked once, with a reason someone can act on.
+      const checked = await Promise.all(
+        settled.map(async (task) => {
+          if (task.status !== 'queued') return task;
+          const info = await FileSystem.getInfoAsync(task.uri).catch(() => null);
+          return info?.exists
+            ? task
+            : {
+                ...task,
+                status: 'failed' as const,
+                error: 'That file is no longer on this device.',
+              };
+        }),
+      );
+
+      if (!cancelled) {
+        setTasks(checked);
+        setHydrated(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Written on every change, so a process that ends without warning leaves
+  // behind whatever was true a moment ago. Finished rows are dropped: their
+  // only purpose was to be displayed, and a batch from last week should not
+  // greet somebody on launch.
+  useEffect(() => {
+    if (!hydrated) return;
+    const worth = tasks.filter((task) => task.status !== 'done');
+    void AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(worth)).catch(
+      () => {},
+    );
+  }, [tasks, hydrated]);
 
   const patch = useCallback((id: string, next: Partial<UploadTask>) => {
     setTasks((prev) =>
@@ -157,6 +278,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   // same uplink and make every bar crawl, which reads as broken rather than
   // busy.
   useEffect(() => {
+    // Not before the previous launch has been settled, or a file already in
+    // the bucket gets sent again.
+    if (!hydrated) return;
     if (running.current) return;
     const next = tasks.find((task) => task.status === 'queued');
     if (!next) return;
@@ -174,6 +298,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           // Without this the object is stored but attached to nothing, so it
           // uploads "successfully" and then appears in no album at all.
           albumId: next.albumId,
+          // Recorded before the first byte goes out, and not guarded by
+          // `cancelled`: if this process is about to end, the key is the only
+          // thing that makes the upload findable afterwards, so it has to be
+          // written even on the way out.
+          onTicket: (key) => patch(next.id, { key }),
           onProgress: (fraction) => {
             if (!cancelled) patch(next.id, { progress: fraction });
           },
@@ -209,7 +338,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [tasks, patch, queryClient]);
+    // `hydrated` belongs here as well as in the guard above: it flips false to
+    // true once, and this effect has to re-run on that flip to pick up a queue
+    // restored from the last launch. Without it a recovered upload would sit
+    // there until something else changed `tasks`.
+  }, [tasks, patch, queryClient, hydrated]);
 
   const pending = tasks.filter((task) => task.status !== 'done');
   const active = pending.some(

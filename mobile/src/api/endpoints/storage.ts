@@ -324,6 +324,17 @@ export const storageApi = {
       originalName?: string;
       /** Called with 0-1 as bytes reach B2. Real progress, not simulated. */
       onProgress?: (fraction: number) => void;
+      /**
+       * The object key, the moment it exists — before any bytes are sent.
+       *
+       * The upload survives this process: the transfer runs in a native
+       * background session, so it can finish after the app is gone and the
+       * `confirm` below never runs. Something that persists the queue needs
+       * the key to ask the server, on the next launch, whether the object
+       * landed. Without it an interrupted upload is unfindable: the bytes are
+       * in the bucket under a key only the dead process knew.
+       */
+      onTicket?: (key: string) => void;
     },
   ): Promise<UploadResult> {
     // `size` is returned on FileInfo whenever the file exists; it is not an
@@ -338,13 +349,29 @@ export const storageApi = {
       throw new ApiError(0, 'That file appears to be empty.');
     }
 
-    const ticket = await this.createUploadUrl({
-      contentType: options.contentType,
-      scope: options.scope,
-      contentLength,
-    });
+    /**
+     * One ticket and one attempt at sending it.
+     *
+     * Separated so it can be run twice. A presigned URL is good for fifteen
+     * minutes (UPLOAD_URL_TTL_SECONDS), and a queue of large videos on a slow
+     * connection takes longer than that — so the ticket for the last file in a
+     * batch can expire while the first is still going. B2 answers an expired
+     * signature with 403, which surfaced as "Upload failed. Please try again"
+     * on a file that had done nothing wrong and would fail the same way on
+     * every retry, because the dead ticket was minted once and kept.
+     */
+    const attempt = async () => {
+      const ticket = await this.createUploadUrl({
+        contentType: options.contentType,
+        scope: options.scope,
+        contentLength,
+      });
 
-    const uploadOptions = {
+      // Before the bytes, not after: an upload that outlives this process has
+      // to be findable, and the key is the only handle on it.
+      options.onTicket?.(ticket.key);
+
+      const uploadOptions = {
       httpMethod: 'PUT' as const,
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
       // The signed headers must go out exactly as issued — except
@@ -359,23 +386,36 @@ export const storageApi = {
       // web/src/api/endpoints/storage.ts drops it for the same reason — there
       // the browser refuses the assignment outright, which is why uploads work
       // on web and hung on Android.
-      headers: withoutContentLength(ticket.requiredHeaders),
+        headers: withoutContentLength(ticket.requiredHeaders),
+      };
+
+      // createUploadTask reports real bytes-sent; uploadAsync gives no progress.
+      const response = options.onProgress
+        ? await FileSystem.createUploadTask(
+            ticket.uploadUrl,
+            fileUri,
+            uploadOptions,
+            (data) => {
+              const total = data.totalBytesExpectedToSend || contentLength;
+              if (total > 0) {
+                options.onProgress?.(Math.min(data.totalBytesSent / total, 1));
+              }
+            },
+          ).uploadAsync()
+        : await FileSystem.uploadAsync(ticket.uploadUrl, fileUri, uploadOptions);
+
+      return { ticket, response };
     };
 
-    // createUploadTask reports real bytes-sent; uploadAsync gives no progress.
-    const response = options.onProgress
-      ? await FileSystem.createUploadTask(
-          ticket.uploadUrl,
-          fileUri,
-          uploadOptions,
-          (data) => {
-            const total = data.totalBytesExpectedToSend || contentLength;
-            if (total > 0) {
-              options.onProgress?.(Math.min(data.totalBytesSent / total, 1));
-            }
-          },
-        ).uploadAsync()
-      : await FileSystem.uploadAsync(ticket.uploadUrl, fileUri, uploadOptions);
+    let { ticket, response } = await attempt();
+
+    // 403 and nothing else. An expired signature and a signature that never
+    // matched are indistinguishable from here — both are 403 — so this retries
+    // once with a fresh ticket and lets a genuine rejection fail the second
+    // time, which costs one request rather than a silent loop.
+    if (response && response.status === 403) {
+      ({ ticket, response } = await attempt());
+    }
 
     if (!response) {
       throw new ApiError(0, 'Upload was cancelled.');
