@@ -6,12 +6,16 @@ import {
   type LatestRelease,
 } from '@/components/landing/download-panel';
 import { WindowsFirstRun } from '@/components/landing/windows-first-run';
+import {
+  AndroidDownload,
+  type AndroidBuild,
+} from '@/components/landing/android-download';
 import { API_BASE_URL } from '@/api';
 
 export const metadata: Metadata = {
   title: 'Download',
   description:
-    'Virgo for Windows and macOS — your shoots, albums and client delivery in a desktop app.',
+    'Virgo for Windows, macOS and Android — your shoots, albums and client delivery, in an app.',
 };
 
 /** How long a fetched release listing stays good for. */
@@ -56,6 +60,29 @@ async function fetchLatest(): Promise<LatestRelease | null> {
   }
 }
 
+/**
+ * The Android APK, from its own release.
+ *
+ * A second request rather than a field on the one above, because the two
+ * describe different products on different version lines. Failing softly for
+ * the same reason: no APK should cost the Android section, not the page.
+ */
+async function fetchAndroid(): Promise<AndroidBuild | null> {
+  const base = process.env.API_INTERNAL_URL || API_BASE_URL;
+
+  try {
+    const res = await fetch(`${base}/downloads/android`, {
+      next: { revalidate: RELEASE_TTL },
+    });
+    if (!res.ok) return null;
+    // The endpoint answers `null` until a mobile release exists, which parses
+    // to null rather than to an object with empty fields.
+    return (await res.json()) as AndroidBuild | null;
+  } catch {
+    return null;
+  }
+}
+
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
   const date = new Date(iso);
@@ -68,7 +95,10 @@ function formatDate(iso: string | null): string | null {
 }
 
 export default async function DownloadPage() {
-  const release = await fetchLatest();
+  // Together: two independent reads of the same API, and waiting for one
+  // before starting the other would double the page's time to first byte for
+  // no reason.
+  const [release, android] = await Promise.all([fetchLatest(), fetchAndroid()]);
   const released = formatDate(release?.publishedAt ?? null);
 
   return (
@@ -105,9 +135,17 @@ export default async function DownloadPage() {
               asking. */}
           <WindowsFirstRun />
 
+          {/* After the desktop installers and the Windows note, not between
+              them: those two are one thought, and the phone app is a different
+              one that should not interrupt it. */}
+          <AndroidDownload build={android} />
+
           {release && (
             <p className="mt-10 border-t border-white/8 pt-6 text-[12px] text-white/40">
-              Version {release.version}
+              {/* Named as the desktop version now that an Android build with
+                  its own number sits above it. Unqualified, this line read as
+                  the version of everything on the page. */}
+              Desktop version {release.version}
               {released && ` · released ${released}`}
             </p>
           )}
@@ -117,7 +155,7 @@ export default async function DownloadPage() {
               100 MB download, not after it. */}
           <p className="mt-3 text-[12px] leading-relaxed text-white/35">
             Windows 10 and 11, or macOS 10.15 and later. Virgo also runs in any
-            modern browser, and on iOS and Android.
+            modern browser, and on iOS through the App Store.
           </p>
         </div>
       </main>

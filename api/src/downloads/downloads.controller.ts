@@ -32,6 +32,23 @@ export class DownloadsController {
   }
 
   /**
+   * The Android app, which has no store listing to link to yet.
+   *
+   * Its own endpoint rather than a field on `latest`, because the two carry
+   * unrelated version numbers — the desktop app is on 1.12.x and the phone app
+   * on 1.3.x — and one response captioned with a single version would be
+   * wrong about one of them.
+   *
+   * Answers `null`, not 404, when there is no mobile release. The page draws
+   * nothing in that case, which is a state it should reach quietly.
+   */
+  @Public()
+  @Get('android')
+  async android() {
+    return this.downloads.getAndroid();
+  }
+
+  /**
    * What `tauri-plugin-updater` polls.
    *
    * Answers 204 when the caller is already current, which is how the plugin is

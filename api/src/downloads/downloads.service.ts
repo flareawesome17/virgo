@@ -54,6 +54,24 @@ export interface LatestRelease {
   assets: DownloadAsset[];
 }
 
+/**
+ * The Android app, as a file rather than a store listing.
+ *
+ * Virgo is not on Google Play yet, so the only way onto an Android phone is the
+ * APK. One build, not a list: EAS produces a single universal APK, so there is
+ * no architecture to choose between and nothing for a visitor to get wrong.
+ */
+export interface AndroidBuild {
+  /** The app's own version, 1.3.0 — not the desktop release's. */
+  version: string;
+  tag: string;
+  filename: string;
+  size: number;
+  /** Absolute, and on this API rather than on GitHub. */
+  url: string;
+  publishedAt: string | null;
+}
+
 interface GitHubAsset {
   id: number;
   name: string;
@@ -110,6 +128,20 @@ function isNewer(a: string, b: string): boolean {
 const TAG_PATTERN = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 
 /**
+ * A mobile release tag — the same shape, prefixed.
+ *
+ * Separate from TAG_PATTERN rather than folded into it, because the two name
+ * different products on different version lines: the desktop app is on 1.12.x
+ * while the phone app is on 1.3.x. Sharing a pattern would let a mobile release
+ * answer `/downloads/latest` and put an Android APK on a page headed "Virgo on
+ * your desktop", captioned with a version belonging to neither.
+ *
+ * Anchored for the same reason as the one above: it reaches a github.com URL.
+ */
+const MOBILE_TAG_PATTERN =
+  /^mobile-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+
+/**
  * How long the release listing is held.
  *
  * The listing changes a few times a month; the rate limit is 5,000 requests an
@@ -123,6 +155,12 @@ const CACHE_TTL_MS = 5 * 60_000;
 export class DownloadsService {
   private readonly logger = new Logger(DownloadsService.name);
   private cached: { at: number; release: LatestRelease } | null = null;
+  /**
+   * Cached separately, and caching `null` too: with no mobile release yet, an
+   * uncached miss would walk twenty releases on every visit to the download
+   * page for an answer that will not change for weeks.
+   */
+  private cachedAndroid: { at: number; build: AndroidBuild | null } | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -275,6 +313,19 @@ export class DownloadsService {
   }
 
   /**
+   * Recognises the Android APK.
+   *
+   * Kept apart from `classify` above rather than added as another branch,
+   * because that one's return type is what `/downloads/latest` lists and what
+   * decides whether a release counts as having installers. An APK answering
+   * true there would make a mobile release the "latest release with
+   * installers" and empty the desktop page.
+   */
+  private isAndroidApk(asset: GitHubAsset): boolean {
+    return asset.name.toLowerCase().endsWith('.apk');
+  }
+
+  /**
    * What a Tauri dynamic updater endpoint answers with.
    *
    * Field names are Tauri's, including the snake_case `pub_date` — this is
@@ -355,6 +406,61 @@ export class DownloadsService {
       return null;
     }
     return response.text();
+  }
+
+  /**
+   * The Android APK from the newest mobile release, or null.
+   *
+   * Walks the list for the same reason `getLatest` does: a mobile release cut
+   * without an APK attached should fall back to the previous one that has a
+   * file somebody can actually install, rather than advertising nothing.
+   *
+   * Null is an ordinary answer, not an error — it is what every deployment
+   * says until the first mobile release exists, and the page reads it as "no
+   * Android download yet" rather than as a failure.
+   */
+  async getAndroid(): Promise<AndroidBuild | null> {
+    if (this.cachedAndroid && Date.now() - this.cachedAndroid.at < CACHE_TTL_MS) {
+      return this.cachedAndroid.build;
+    }
+
+    const response = await this.github(
+      `/repos/${this.repository}/releases?per_page=20`,
+      'application/vnd.github+json',
+    );
+
+    if (!response.ok) {
+      this.logger.error(
+        `Listing releases for Android failed: ${response.status} ${response.statusText}`,
+      );
+      // Stale over empty, same as the desktop listing.
+      return this.cachedAndroid?.build ?? null;
+    }
+
+    const releases = (await response.json()) as GitHubRelease[];
+
+    for (const release of releases) {
+      if (release.draft || release.prerelease) continue;
+      if (!MOBILE_TAG_PATTERN.test(release.tag_name)) continue;
+
+      const apk = release.assets.find((asset) => this.isAndroidApk(asset));
+      if (!apk) continue;
+
+      const build: AndroidBuild = {
+        version: release.tag_name.replace(/^mobile-v/, ''),
+        tag: release.tag_name,
+        filename: apk.name,
+        size: apk.size,
+        url: `${this.publicApiUrl}/downloads/${release.tag_name}/${encodeURIComponent(apk.name)}`,
+        publishedAt: release.published_at,
+      };
+
+      this.cachedAndroid = { at: Date.now(), build };
+      return build;
+    }
+
+    this.cachedAndroid = { at: Date.now(), build: null };
+    return null;
   }
 
   /** The raw release behind `getLatest`, for callers that need its assets. */
@@ -470,7 +576,9 @@ export class DownloadsService {
     tag: string,
     filename: string,
   ): Promise<{ id: number; name: string; size: number }> {
-    if (!TAG_PATTERN.test(tag)) {
+    // Either product's tag. Both are anchored, so neither can carry a path
+    // segment into the github.com URL built below.
+    if (!TAG_PATTERN.test(tag) && !MOBILE_TAG_PATTERN.test(tag)) {
       throw new NotFoundException('No such download.');
     }
 
@@ -501,7 +609,7 @@ export class DownloadsService {
     // Only files this module is willing to describe are files it will serve.
     // Without this the deployment worker zip, which is on every release and is
     // not for end users, would be downloadable by name.
-    if (!asset || !this.classify(asset, tag)) {
+    if (!asset || !(this.classify(asset, tag) || this.isAndroidApk(asset))) {
       throw new NotFoundException('No such download.');
     }
 
