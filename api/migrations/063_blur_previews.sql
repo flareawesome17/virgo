@@ -1,0 +1,31 @@
+-- A tiny inline preview, painted before anything is fetched.
+--
+-- The grid already reserves the right box — `aspectRatio` comes from
+-- width_px/height_px, so nothing reflows — but until a thumbnail arrives that
+-- box is flat colour. On a phone on Philippine mobile data that is a screen of
+-- grey rectangles for a beat, which is the difference between a gallery that
+-- feels instant and one that feels like it is loading.
+--
+-- A ~300 byte `data:image/webp;base64,…` of a twenty-pixel version of the
+-- image. It rides in the album listing that already enumerates the files, so
+-- it costs no extra request: a two-hundred photograph gallery paints
+-- completely before a single thumbnail is fetched.
+--
+-- Text rather than bytea: it is consumed as a string by three clients and
+-- never manipulated, so storing it decoded would mean base64-encoding it on
+-- every read for nothing.
+alter table user_files
+  add column if not exists blur_data_url text;
+
+-- No requeue, for the same reason as 061.
+--
+-- Previews are made from the decoded source on the confirm path — by
+-- ThumbnailsService for photographs, and from the extracted frame for films —
+-- so filling them in for an existing library means reading every original
+-- back out of B2. That is an operator decision, not something a migration
+-- does on boot:
+--
+--   node api/scripts/backfill-thumbnails.mjs
+--
+-- Until it runs, older media keeps showing the flat box it shows today.
+-- Nothing breaks while it is pending; the clients treat null as "no preview".

@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DatabaseService } from '../database/database.service';
+import { blurDataUrl } from './blur';
 import { MediaLinkService, proxyKeyFor } from './media-link.service';
 import { StorageService } from './storage.service';
 
@@ -178,9 +179,12 @@ export class MediaProcessingService {
       const tags = { ...probe.format?.tags, ...audio?.tags };
 
       let posterKey: string | null = null;
+      let posterBlur: string | null = null;
       let proxyKey: string | null = null;
       if (video) {
-        posterKey = await this.createPoster(file.key, sourceUrl, durationMs);
+        const poster = await this.createPoster(file.key, sourceUrl, durationMs);
+        posterKey = poster?.key ?? null;
+        posterBlur = poster?.blur ?? null;
         proxyKey = await this.createProxy(file.key, sourceUrl, width, height);
       }
 
@@ -193,6 +197,7 @@ export class MediaProcessingService {
                 duration_ms = $6,
                 media_title = $7,
                 media_artist = $8,
+                blur_data_url = coalesce($9, blur_data_url),
                 processing_status = 'ready',
                 next_processing_at = null,
                 processed_at = now()
@@ -206,6 +211,7 @@ export class MediaProcessingService {
           durationMs,
           cleanTag(tags.title),
           cleanTag(tags.artist),
+          posterBlur,
         ],
       );
     } catch (error) {
@@ -216,11 +222,19 @@ export class MediaProcessingService {
     }
   }
 
+  /**
+   * The film tile's still, and the preview painted behind it.
+   *
+   * Returns both because the poster bytes are decoded here and nowhere else —
+   * fetching them back out of B2 to make a twenty-pixel copy would be absurd.
+   * Film tiles are the largest boxes in any gallery, so they are where a grey
+   * rectangle is most visible.
+   */
   private async createPoster(
     key: string,
     sourceUrl: string,
     durationMs: number | null,
-  ): Promise<string | null> {
+  ): Promise<{ key: string; blur: string | null } | null> {
     const folder = await mkdtemp(join(tmpdir(), 'virgo-poster-'));
     const output = join(folder, 'poster.webp');
     const atSeconds = Math.max(
@@ -251,7 +265,7 @@ export class MediaProcessingService {
       const body = await readFile(output);
       const posterKey = posterKeyFor(key);
       await this.storage.putDerived(posterKey, body, 'image/webp');
-      return posterKey;
+      return { key: posterKey, blur: await blurDataUrl(body) };
     } finally {
       await rm(folder, { recursive: true, force: true });
     }

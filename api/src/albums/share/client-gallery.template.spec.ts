@@ -15,6 +15,7 @@ const view: PublicAlbumView = {
     proxyUrl: null,
     displaySources: [],
     hlsUrl: null,
+    blurDataUrl: null,
     downloadUrl: 'https://media.example/download',
     downloadName: 'Album - 001.jpg',
     contentType: 'image/jpeg',

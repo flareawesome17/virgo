@@ -533,7 +533,7 @@ export default function AlbumDetailScreen() {
                     style={{ width: '25%', aspectRatio: 1 }}
                     className="active:opacity-70"
                   >
-                    <Image source={{ uri: file.thumbnailUrl ?? file.url ?? undefined }} style={{ width: '100%', height: '100%' }} />
+                    <Image source={{ uri: file.thumbnailUrl ?? file.url ?? undefined }} placeholder={file.blurDataUrl ? { uri: file.blurDataUrl } : undefined} placeholderContentFit="cover" transition={160} style={{ width: '100%', height: '100%' }} />
                   </Pressable>
                 ))}
               </View>

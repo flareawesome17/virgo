@@ -108,7 +108,11 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
                 not. `sizes` is 100vw because this is a full-screen viewer —
                 but only up to zoom 1; past that the browser is scaling what it
                 already has, which is the trade for not refetching on a pinch. */}
-            <img src={largestDisplaySource(file) ?? file.url} srcSet={displaySrcSet(file) ?? undefined} sizes={displaySrcSet(file) ? '100vw' : undefined} alt={file.originalName} draggable={false} className="max-h-full max-w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)' }} />
+            {/* The preview sits behind the image rather than in front of it:
+                it is 20px upscaled, so it only has to fill the frame until
+                the real one paints over it. No extra request — the string
+                arrived with the listing. */}
+            <img src={largestDisplaySource(file) ?? file.url} srcSet={displaySrcSet(file) ?? undefined} sizes={displaySrcSet(file) ? '100vw' : undefined} alt={file.originalName} draggable={false} className="max-h-full max-w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)', backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined, backgroundSize: 'cover', backgroundPosition: 'center' }} />
           </div>
         ) : kind === 'video' ? <VideoPlayer file={file} /> : <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">Open audio from the album track list to use the listening queue.</div>}
 

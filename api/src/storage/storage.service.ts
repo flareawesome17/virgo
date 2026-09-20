@@ -714,6 +714,8 @@ export class StorageService {
         // then — and for a film too small to be worth rungs — so players fall
         // through to `proxyUrl` and then to `url`.
         hlsUrl: this.mediaLink.hlsUrl(row.hls_prefix),
+        // Inline, so the grid paints before it fetches anything.
+        blurDataUrl: row.blur_data_url,
         downloadUrl: downloadUrls[i],
         width: row.width_px,
         height: row.height_px,

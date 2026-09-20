@@ -214,9 +214,18 @@ function ZoomablePhoto({
                 photo.thumbnailUrl ??
                 undefined,
             }}
+            // The thumbnail first — it is sharper and, coming from the grid
+            // this screen was opened from, almost always already cached. The
+            // inline preview is the fallback: less sharp, but it needs no
+            // fetch at all, so there is never nothing to show.
             placeholder={
-              photo.thumbnailUrl ? { uri: photo.thumbnailUrl } : undefined
+              photo.thumbnailUrl
+                ? { uri: photo.thumbnailUrl }
+                : photo.blurDataUrl
+                  ? { uri: photo.blurDataUrl }
+                  : undefined
             }
+            placeholderContentFit="contain"
             style={{ width: '100%', height: '100%' }}
             contentFit="contain"
             transition={160}
@@ -508,6 +517,10 @@ export default function PhotoViewerScreen() {
               >
                 <Image
                   source={{ uri: item.thumbnailUrl ?? item.url ?? undefined }}
+                  placeholder={
+                    item.blurDataUrl ? { uri: item.blurDataUrl } : undefined
+                  }
+                  placeholderContentFit="cover"
                   style={{ width: '100%', height: '100%' }}
                   contentFit="cover"
                   recyclingKey={item.key}
