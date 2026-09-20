@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { AttendeeSummary, EventInvitationsCard } from '@/components';
+import { AppTopBar, AttendeeSummary, EventInvitationsCard } from '@/components';
 import {
   DAY_DOT_SIZE,
   DAYS,
@@ -116,6 +116,7 @@ export default function ScheduleScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <AppTopBar />
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}>

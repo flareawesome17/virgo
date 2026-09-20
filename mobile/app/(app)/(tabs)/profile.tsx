@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, Pressable, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppTopBar } from '@/components';
 import {
   useAuth,
   useCollaborators,
@@ -114,6 +115,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <AppTopBar />
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}

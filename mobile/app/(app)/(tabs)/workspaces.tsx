@@ -1,5 +1,6 @@
 import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, Image, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppTopBar } from '@/components';
 import { useAuth, useCollaborators, useTheme, useWorkspaces,
   usePlanLimits,
 } from '@/src/hooks';
@@ -160,6 +161,7 @@ export default function WorkspacesScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <AppTopBar />
       <FlatList
         data={visible}
         keyExtractor={(item) => String(item.id)}

@@ -84,6 +84,16 @@ export const PALETTES: { light: Palette; dark: Palette } = {
  */
 const CHARTS_TAIL = ["#8B5E3C", "#6B8E4E", "#5B7B9A"];
 
+/**
+ * The same series, named, for screens that draw outside NativeWind's reach —
+ * an SVG stroke or a tile's accent takes a colour, not a class.
+ */
+export const CHART_COLORS = {
+  brown: CHARTS_TAIL[0],
+  green: CHARTS_TAIL[1],
+  blue: CHARTS_TAIL[2],
+} as const;
+
 /** NativeWind wants space-separated channels, not hex. */
 function channels(hex: string): string {
   const n = parseInt(hex.slice(1), 16);

@@ -7,6 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useAlbums,
   useAuth,
+  useBookings,
+  useFriends,
+  useMyJobs,
   useScheduleEvents,
   useTheme,
   useUsage,
@@ -15,11 +18,10 @@ import {
   useUnseenJobs,
   useMarkJobsSeen,
 } from '@/src/hooks';
-import { formatBytes, toGB } from '@/src/api';
+import { formatBytes } from '@/src/api';
 import { useState } from 'react';
 import { router } from 'expo-router';
 import {
-  HardDriveIcon,
   CalendarIcon,
   PlusIcon,
   UserPlusIcon,
@@ -29,11 +31,10 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
-import { JobsTabs, NotificationBell } from '@/components';
+import { AppTopBar, StorageRing } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
-import { PALETTES } from '@/theme';
+import { CHART_COLORS, PALETTES } from '@/theme';
 
-cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -67,18 +68,7 @@ function formatTime(timeStr: string | null): string {
   return `${h12}:${m} ${ampm}`;
 }
 
-function StorageBar({ used, total }: { used: number; total: number }) {
-  // total is 0 on an unlimited plan; dividing by it would render a full bar.
-  const pct = total > 0 ? Math.min((used / total) * 100, 100) : 0;
-  return (
-    <View className="h-2 bg-muted rounded-full overflow-hidden">
-      <View className="h-full rounded-full bg-action" style={{ width: `${pct}%` }} />
-    </View>
-  );
-}
-
-export default function HomeScreen() {
-  const [tab, setTab] = useState<'home' | 'jobs'>('home');
+export default function FeedScreen() {
   const { count: unseenJobs } = useUnseenJobs();
   const markSeen = useMarkJobsSeen();
 
@@ -138,6 +128,35 @@ export default function HomeScreen() {
     storageFraction,
   } = useUsage({ enabled: !!user?.id });
 
+  /*
+   * Accepted friendships only. A pending request is not a connection, and
+   * counting it would make the number fall when somebody declines. `limit: 1`
+   * because only the server's total is wanted here — the rows themselves are
+   * the Connect screen's business.
+   */
+  const { total: connections } = useFriends(
+    { status: 'accepted', limit: 1 },
+    enabled,
+  );
+
+  /** Posts this account has put up, whatever became of them. */
+  const { jobs: myJobs } = useMyJobs();
+
+  /*
+   * Work finished, counted from bookings rather than from posts, and from both
+   * sides: a job somebody hired you for counts the same as one you posted and
+   * filled. Finished means it was confirmed, was never cancelled, and its date
+   * has passed — bookings carry no status field of their own.
+   */
+  const { bookings } = useBookings(!!user?.id);
+  const finishedJobs = bookings.filter(
+    (b) =>
+      b.confirmed &&
+      !b.cancelledAt &&
+      b.eventDate != null &&
+      new Date(b.eventDate) < new Date(),
+  ).length;
+
   // Both of these had no time filter at all — `events[0]` and `slice(0, 3)`
   // over an ascending list meant the oldest events, past ones included.
   const upcomingEvents = events
@@ -146,59 +165,16 @@ export default function HomeScreen() {
 
   const nextEvent = upcomingEvents[0] ?? null;
   const laterEvents = upcomingEvents.slice(1);
-  const showStorageWarning = storageLimitBytes != null && storageFraction >= 0.8;
 
   const workspaceNameById = Object.fromEntries(workspaces.map((w) => [w.id, w.name]));
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      {/*
-        Two tabs, not two bottom-bar entries. The bar is already at six and a
-        seventh truncates its labels on a 360pt screen — see the note in
-        (tabs)/_layout.tsx.
+      {/* Brand, bell, and the Feed/Jobs pair — the same bar on every tab
+          screen. Jobs used to be half of this screen, behind a segmented
+          control; it has its own address now. */}
+      <AppTopBar />
 
-        Home at the left edge, Jobs at the right, the row holding them apart.
-        Sitting together on the left they read as a pair of buttons parked in a
-        corner, with the rest of the row saying nothing was there — when in
-        fact half this screen's content lives behind the second one.
-
-        Two other arrangements were tried and dropped. A full-width segmented
-        track sits directly above the Jobs panel's own underlined
-        Browse/Posted/Applications row, which made the header top-heavy and
-        blurred the two levels into one control. A smaller centred track was
-        better but still read as a single lump in the middle rather than as
-        the header belonging to both tabs.
-      */}
-      <View className="flex-row items-center justify-between px-5 pt-2 pb-1">
-        <Segment
-          label="Home"
-          active={tab === 'home'}
-          onPress={() => setTab('home')}
-        />
-        {/*
-          The bell goes in the gap the two tabs already hold open, rather than
-          beside one of them. It is not a third tab — it opens a screen and
-          comes back — and putting it at either end would read as one, next to
-          whichever label it sat against.
-        */}
-        <NotificationBell />
-        <Segment
-          label="Jobs"
-          active={tab === 'jobs'}
-          badge={unseenJobs}
-          onPress={() => {
-            setTab('jobs');
-            // Opening the tab is what "seen" means. Fires once per switch, and
-            // the hook zeroes the cached count so the badge does not flash
-            // back while the request is in flight.
-            if (unseenJobs > 0) markSeen.mutate();
-          }}
-        />
-      </View>
-
-      {tab === 'jobs' ? (
-        <JobsTabs bottomPadding={120} />
-      ) : (
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
@@ -251,6 +227,64 @@ export default function HomeScreen() {
               }}
             />
           </Pressable>
+        </View>
+
+        {/* ── Where the account stands ── */}
+        <View className="px-5 pt-5">
+          <View className="bg-card rounded-3xl border border-border/40 p-4 flex-row items-center gap-4">
+            {/* An unlimited plan reports no limit, and a ring with no ceiling
+                would draw a full one. It passes 0 and reads as empty. */}
+            <StorageRing
+              fraction={storageLimitBytes ? storageFraction : 0}
+              color={storageFraction >= 0.9 ? palette.destructive : palette.primary}
+              trackColor={palette.muted}
+            />
+            <View className="flex-1 gap-1.5">
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider">
+                Storage
+              </Text>
+              <Text className="text-foreground text-base font-bold">
+                {formatBytes(storageUsedBytes)}{' '}
+                <Text className="text-muted-foreground text-xs font-medium">used</Text>
+              </Text>
+              <Text className="text-foreground text-base font-bold">
+                {storageLimitBytes
+                  ? formatBytes(Math.max(storageLimitBytes - storageUsedBytes, 0))
+                  : 'Unlimited'}{' '}
+                <Text className="text-muted-foreground text-xs font-medium">left</Text>
+              </Text>
+              {storageFraction >= 0.9 && (
+                <Pressable
+                  onPress={() => router.push('/settings/storage/plans')}
+                  accessibilityRole="button"
+                  className="active:opacity-70"
+                >
+                  <Text className="text-primary text-xs font-semibold">Get more storage</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+
+          <View className="flex-row gap-2.5 mt-3">
+            <StatTile
+              value={connections}
+              label="Connections"
+              tint={palette.primary}
+              onPress={() => router.push('/(app)/(tabs)/connect')}
+            />
+            <StatTile
+              value={myJobs.length}
+              label="Jobs posted"
+              tint={palette.accent}
+              onPress={() => router.push('/jobs/mine')}
+            />
+            {/* Nothing lists finished work yet, so this one only reports. */}
+            <StatTile
+              value={finishedJobs}
+              label="Jobs finished"
+              tint={CHART_COLORS.green}
+            />
+          </View>
         </View>
 
         {/* ── Next up ── */}
@@ -329,7 +363,7 @@ export default function HomeScreen() {
           <View className="px-5 mb-5">
             <Pressable
               onPress={() => {
-                setTab('jobs');
+                router.push('/jobs');
                 markSeen.mutate();
               }}
               accessibilityRole="button"
@@ -344,25 +378,6 @@ export default function HomeScreen() {
               </View>
               <ChevronRightIcon size={17} className="text-primary" />
             </Pressable>
-          </View>
-        )}
-
-        {showStorageWarning && (
-          <View className="px-5 mb-5">
-            <View className="rounded-2xl border border-border/50 p-4">
-              <View className="flex-row items-center gap-3">
-                <HardDriveIcon size={18} className="text-primary" />
-                <View className="flex-1">
-                  <Text className="text-foreground text-sm font-semibold">Storage is {Math.round(storageFraction * 100)}% full</Text>
-                  <Text className="text-muted-foreground text-xs mt-0.5">
-                    {formatBytes(storageUsedBytes)} of {Math.round(toGB(storageLimitBytes))} GB used
-                  </Text>
-                </View>
-              </View>
-              <View className="mt-3">
-                <StorageBar used={storageUsedBytes} total={storageLimitBytes} />
-              </View>
-            </View>
           </View>
         )}
 
@@ -494,49 +509,44 @@ export default function HomeScreen() {
         </View>
 
       </ScrollView>
-      )}
     </SafeAreaView>
   );
 }
 
-/** One of the two home tabs, with an optional unread count. */
 /**
- * One end of the Home/Jobs switch.
+ * One of the three counts beside the storage ring.
  *
- * Sized to its own label rather than stretched: a pill is a pill, and the two
- * are held apart by the row rather than by their own width.
+ * A tile each rather than a row of numbers: they measure three different
+ * things, and the tint bar is what stops them reading as one figure split in
+ * three. Two lead somewhere; the third has nowhere to go yet, and says so by
+ * not responding to a press.
  */
-function Segment({
-  label, active, badge = 0, onPress,
+function StatTile({
+  value,
+  label,
+  tint,
+  onPress,
 }: {
+  value: number;
   label: string;
-  active: boolean;
-  badge?: number;
-  onPress: () => void;
+  tint: string;
+  onPress?: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={badge > 0 ? `${label}, ${badge} new` : label}
-      // Generous hit area without a bigger pill: the tappable region reaches
-      // past the border, which matters most for the one sitting on the edge.
-      hitSlop={{ top: 8, bottom: 8, left: 10, right: 10 }}
-      className={`min-h-11 flex-row items-center gap-1.5 rounded-full px-4 py-2 active:opacity-80 ${
-        active ? 'bg-action' : 'border border-primary/30'
-      }`}
+      disabled={!onPress}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={`${value} ${label.toLowerCase()}`}
+      className="flex-1 bg-card rounded-2xl border border-border/40 px-3 py-3 gap-1.5 active:opacity-80"
     >
-      <Text className={`text-[13px] font-bold ${active ? 'text-action-foreground' : 'text-primary'}`}>
+      <Text className="text-foreground text-[22px] font-bold tracking-tight">
+        {value > 999 ? '999+' : value}
+      </Text>
+      <Text className="text-muted-foreground text-[11px] leading-[14px] font-medium">
         {label}
       </Text>
-      {badge > 0 && (
-        <View className={`min-w-[18px] rounded-full px-1.5 ${active ? 'bg-action-foreground' : 'bg-action'}`}>
-          <Text className={`text-[11px] font-bold text-center ${active ? 'text-action' : 'text-action-foreground'}`}>
-            {badge > 99 ? '99+' : badge}
-          </Text>
-        </View>
-      )}
+      <View className="h-[3px] rounded-full" style={{ backgroundColor: tint }} />
     </Pressable>
   );
 }
