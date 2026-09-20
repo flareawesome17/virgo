@@ -20,6 +20,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -385,10 +386,142 @@ fn start_server(resources: PathBuf) -> Result<u16, String> {
 
 /// Stops the server. Safe to call more than once.
 fn stop_server() {
+    // Before the kill, so the watchdog reads it as a deliberate stop and does
+    // not race us to restart a server we are in the middle of shutting down.
+    SHUTTING_DOWN.store(true, Ordering::SeqCst);
+
     if let Some(mut child) = SERVER.lock().unwrap().take() {
         let _ = child.kill();
         let _ = child.wait();
     }
+}
+
+/// Set by `stop_server`, so the watchdog can tell a quit from a crash.
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// How often the watchdog asks whether the server is still there.
+///
+/// A second is far below what anyone notices and costs nothing — it is one
+/// non-blocking `try_wait` on a process handle.
+const WATCH_EVERY: Duration = Duration::from_secs(1);
+
+/// How many times a dead server is restarted before the app gives up.
+///
+/// Bounded because a server that cannot start will not start on the tenth
+/// attempt either, and a loop that keeps trying forever spends the user's
+/// battery showing them the same blank window.
+const MAX_RESTARTS: u32 = 3;
+
+/// Watches the server for the rest of the app's life.
+///
+/// Startup was already supervised — a 45-second timeout and an error on the
+/// splash. Nothing watched it afterwards. Once the webview had moved to the
+/// server, a Node process that died took the app with it silently: no error,
+/// no restart, just a window that loads forever. That is what killing the
+/// helper process by hand looked like, and it is also what an out-of-memory
+/// kill or a crashed render would look like.
+///
+/// The webview cannot be told about this through Tauri's event system. The app
+/// page is served from a loopback address, which the webview treats as remote,
+/// and Tauri injects its API only into its own pages — so `emit` reaches the
+/// splash and nothing else. `eval` does reach it, which is why recovery is
+/// driven by evaluating a reload rather than by asking the page to do anything.
+fn supervise(handle: tauri::AppHandle, resources: PathBuf, port: u16) {
+    thread::spawn(move || {
+        let mut restarts = 0u32;
+
+        loop {
+            thread::sleep(WATCH_EVERY);
+
+            if SHUTTING_DOWN.load(Ordering::SeqCst) {
+                return;
+            }
+
+            // The lock is held only for the poll itself. `wait()` would be
+            // simpler but would hold it for the life of the process, and
+            // `stop_server` needs it to quit.
+            let exited = {
+                let mut guard = SERVER.lock().unwrap();
+                match guard.as_mut() {
+                    Some(child) => child.try_wait().ok().flatten(),
+                    // Taken by stop_server between the check above and here.
+                    None => return,
+                }
+            };
+
+            let Some(status) = exited else { continue };
+
+            // Drop the handle before restarting, so `start_server` is not
+            // storing a child into a slot that still holds the dead one.
+            SERVER.lock().unwrap().take();
+
+            restarts += 1;
+            log(&format!(
+                "the server exited on its own with {status} — restart {restarts} of {MAX_RESTARTS}"
+            ));
+
+            if restarts > MAX_RESTARTS {
+                log("giving up on restarting the server");
+                report_lost(&handle);
+                return;
+            }
+
+            // The port was held by the process that just died, and the next
+            // thing `start_server` does is refuse to start if it is still
+            // taken. A moment's grace is cheaper than spending an attempt on
+            // the operating system not having caught up yet.
+            thread::sleep(Duration::from_millis(500));
+
+            match start_server(resources.clone()).and_then(|restarted| {
+                if wait_for_server(restarted, READY_TIMEOUT) {
+                    Ok(restarted)
+                } else {
+                    Err(format!("the restarted server did not answer on port {restarted}"))
+                }
+            }) {
+                Ok(_) => {
+                    log("server back up — reloading the webview");
+                    if let Some(window) = handle.get_webview_window("main") {
+                        // `replace`, not `reload`: a reload would replay
+                        // whatever request failed while the server was gone,
+                        // which for a POST means asking the browser to resend
+                        // it. The app is a client-rendered SPA, so landing on
+                        // the root costs a navigation and nothing else.
+                        let _ = window.eval(&format!(
+                            "window.location.replace('http://127.0.0.1:{port}/')"
+                        ));
+                    }
+                }
+                Err(message) => {
+                    log(&format!("restart failed: {message}"));
+                    // Round again: the count is what stops this, not this arm.
+                }
+            }
+        }
+    });
+}
+
+/// Tells the user the app is not coming back, in the window they are looking at.
+///
+/// Written straight into the document rather than navigated to, because the
+/// page in the webview is the dead server's and there is nothing left to serve
+/// a page from. Deliberately plain: no styling to load, no request to make.
+fn report_lost(handle: &tauri::AppHandle) {
+    let Some(window) = handle.get_webview_window("main") else {
+        return;
+    };
+
+    let _ = window.eval(
+        r#"document.documentElement.innerHTML =
+            '<body style="margin:0;display:grid;place-items:center;height:100vh;' +
+            'background:#161311;color:#f2ede8;font:15px system-ui,sans-serif;text-align:center">' +
+            '<div style="max-width:32rem;padding:0 1.5rem">' +
+            '<h1 style="font-size:19px;margin:0 0 .5rem">Virgo stopped responding</h1>' +
+            '<p style="margin:0;color:#948278;line-height:1.6">The part of the app that runs in the ' +
+            'background closed and could not be restarted. Quit Virgo and open it again. If it keeps ' +
+            'happening, the log is at virgo-desktop.log in your temporary files folder.</p>' +
+            '</div></body>';"#,
+    );
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -457,7 +590,9 @@ pub fn run() {
                     Err(message) => return fail(&handle, message),
                 };
 
-                let port = match start_server(resources) {
+                // Cloned: the watchdog below needs the same path to restart
+                // from, and `start_server` takes it by value.
+                let port = match start_server(resources.clone()) {
                     Ok(port) => {
                         log(&format!("node spawned, waiting on port {port}"));
                         port
@@ -481,6 +616,11 @@ pub fn run() {
                         let _ = window.eval(&format!(
                             "window.location.replace('http://127.0.0.1:{port}/')"
                         ));
+
+                        // From here the splash is gone and `startup-failed` can
+                        // no longer reach anybody, so the server needs watching
+                        // by something that does not depend on the page.
+                        supervise(handle.clone(), resources, port);
                     }
                     None => fail(&handle, "The main window was gone by the time the server was ready.".into()),
                 }
