@@ -9,7 +9,7 @@ import {
   useReminderNotifications,
   useReminders,
 } from '@/src/hooks';
-import { RolesRequiredSheet, VerifyEmailBanner } from '@/components';
+import { RolesRequiredSheet, UploadBar, VerifyEmailBanner } from '@/components';
 import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
 
 export const unstable_settings = {
@@ -78,7 +78,13 @@ export default function AppLayout() {
           its children untouched once the address is confirmed. */}
       <AlbumAudioProvider>
         <VerifyEmailBanner>
-          <Stack screenOptions={{ headerShown: false }} />
+          {/* Wraps the navigator, not AppTopBar, which renders on the six tab
+              screens only — and nobody uploads from a tab. Every route into
+              the upload screen is an album or a workspace, so this is the one
+              placement where the indicator is on screen while it runs. */}
+          <UploadBar>
+            <Stack screenOptions={{ headerShown: false }} />
+          </UploadBar>
         </VerifyEmailBanner>
       </AlbumAudioProvider>
     </>

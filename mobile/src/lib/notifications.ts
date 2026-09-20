@@ -220,6 +220,17 @@ export async function showUploadProgress(
 ): Promise<void> {
   const N = loadNotifications();
   if (!N) return;
+
+  // Neither of these was done, and both are required for anything to appear.
+  // Without permission nothing posts at all; without the channel Android
+  // accepts the call and drops the notification, silently — which is exactly
+  // what "no indicator, even in the drawer" looked like.
+  //
+  // ensurePermissions never re-prompts once answered, so this is a cheap
+  // check on every call rather than a dialog.
+  if (!(await ensurePermissions())) return;
+  await ensureChannels();
+
   try {
     await N.scheduleNotificationAsync({
       identifier: UPLOAD_NOTIFICATION_ID,
@@ -265,6 +276,17 @@ export async function showUploadFinished(
 ): Promise<void> {
   const N = loadNotifications();
   if (!N) return;
+
+  // Neither of these was done, and both are required for anything to appear.
+  // Without permission nothing posts at all; without the channel Android
+  // accepts the call and drops the notification, silently — which is exactly
+  // what "no indicator, even in the drawer" looked like.
+  //
+  // ensurePermissions never re-prompts once answered, so this is a cheap
+  // check on every call rather than a dialog.
+  if (!(await ensurePermissions())) return;
+  await ensureChannels();
+
   try {
     await N.scheduleNotificationAsync({
       content: {

@@ -241,6 +241,15 @@ export interface UploadResult {
  * The file goes from the device straight to B2 — it never passes through the
  * API server. The server only issues and validates the signature.
  */
+/**
+ * The largest single file the API will issue a ticket for.
+ *
+ * Mirrors MAX_UPLOAD_BYTES in api/src/storage/storage.config.ts. Duplicated
+ * rather than fetched because it is needed the moment a file is chosen, before
+ * any request is made.
+ */
+export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+
 export const storageApi = {
   /** Step 1: ask the server for a signed PUT URL. Keys are server-generated. */
   createUploadUrl(input: {
