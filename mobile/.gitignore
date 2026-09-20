@@ -9,3 +9,9 @@
 # machine that started the build and fails it.
 /ios
 /android
+
+# `eas update` exports here before uploading, and leaves it behind — 101 MB of
+# bundles and source maps after one publish. Untracked it would be committed by
+# a stray `git add -A`; un-ignored by .easignore it rode along in the next
+# build's archive, which is how a 5 MB upload became 24 MB.
+/dist

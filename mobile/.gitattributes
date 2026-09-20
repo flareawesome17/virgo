@@ -1,0 +1,40 @@
+# Line endings decide this app's runtime version.
+#
+# `runtimeVersion.policy` is "fingerprint", and @expo/fingerprint hashes some
+# of its inputs as raw bytes rather than as parsed content — .gitignore,
+# .easignore and eas.json among them. A checkout that writes CRLF produces a
+# different hash for the same file, and therefore a different runtime version.
+#
+# That failure is silent and total. EAS Update serves an update only to a build
+# whose runtime version matches it exactly; a mismatch is not an error anywhere,
+# it is an update that never arrives. It has already happened here: one release
+# was built from a working copy with .gitignore as LF and .easignore and
+# eas.json as CRLF, a state nothing in Git records, and reproducing it was the
+# only way to publish an update that binary would accept.
+#
+# So the working copy is pinned. With these rules the bytes on disk are the
+# bytes in the object store, on every machine and after every checkout, and the
+# fingerprint depends on the project rather than on who cloned it.
+#
+# Adding a file that feeds the fingerprint? The rule below already covers it.
+# Removing this file re-opens the whole problem.
+
+* text=auto eol=lf
+
+# Never translated, and never diffed as text. The icon and the splash mark are
+# fingerprint inputs too, by content hash — a byte changed in one of these
+# would move the runtime version as surely as a line ending.
+*.png binary
+*.mp3 binary
+*.jpg binary
+*.ico binary
+*.ttf binary
+*.otf binary
+
+# Named explicitly although `* text=auto eol=lf` already covers them. These
+# three are the raw-byte inputs to the fingerprint, and someone narrowing the
+# rule above should have to delete these lines deliberately rather than
+# discover the consequence in a release that quietly stops updating.
+.gitignore text eol=lf
+.easignore text eol=lf
+eas.json   text eol=lf

@@ -19,3 +19,7 @@ ios/
 .env
 .env.*
 !.env.example
+
+# The `eas update` export. Nothing in a build needs it, and it is larger than
+# everything that does.
+dist/

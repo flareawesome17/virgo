@@ -32,6 +32,7 @@ mobile/.expo/
 mobile/android/
 mobile/ios/
 mobile/*.log
+mobile/dist/
 
 # Values come from the `env` block of the chosen profile in eas.json, not from
 # a file — the CLI says so as it starts: "Environment variables loaded from the
