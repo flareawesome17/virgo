@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -19,9 +19,9 @@ import {
   ChevronDownIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { contentTypeForAsset, formatBytes, storageApi } from '@/src/api';
-import { albumFilesQueryKey, useAlbum, useAlbums, useUsage, useTheme } from '@/src/hooks';
-import { useQueryClient } from '@tanstack/react-query';
+import { contentTypeForAsset, formatBytes } from '@/src/api';
+import { useUploadQueue } from '@/src/providers/UploadProvider';
+import { useAlbum, useAlbums, useUsage, useTheme } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -91,7 +91,15 @@ export default function UploadScreen() {
   }>();
 
   const [items, setItems] = useState<UploadItem[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
+  // The queue that outlives this screen. `active` stands in for the local
+  // isUploading this screen used to keep: coming back here mid-upload should
+  // find the picker disabled, and that fact now lives in the provider.
+  const {
+    enqueue,
+    tasks: queueTasks,
+    active: isUploading,
+    overall: queueOverall,
+  } = useUploadQueue();
   // Chosen on this screen when we did not arrive from inside an album — the
   // home and workspace quick actions both land here with no album. Previously
   // this screen only warned about that, so those uploads stored fine and then
@@ -101,7 +109,6 @@ export default function UploadScreen() {
 
   const albumId = routeAlbumId ?? pickedAlbumId ?? undefined;
 
-  const queryClient = useQueryClient();
   const { data: album } = useAlbum(albumId);
   // Only needed for the picker, so it is not fetched when an album is already
   // fixed by the route.
@@ -109,11 +116,7 @@ export default function UploadScreen() {
     { orderBy: 'created_at', direction: 'desc', limit: 100 },
     { enabled: !routeAlbumId },
   );
-  const { usage, storageLimitBytes, storageUsedBytes, refetch: refetchUsage } = useUsage();
-
-  const patch = useCallback((id: string, next: Partial<UploadItem>) => {
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...next } : it)));
-  }, []);
+  const { usage, storageLimitBytes, storageUsedBytes } = useUsage();
 
   const addPicked = (picked: UploadItem[]) =>
     setItems((prev) => [...prev, ...picked]);
@@ -209,57 +212,55 @@ export default function UploadScreen() {
   const wouldExceed =
     storageLimitBytes != null && storageUsedBytes + queuedBytes > storageLimitBytes;
 
-  const startUpload = async () => {
-    if (queued.length === 0 || isUploading) return;
-    setIsUploading(true);
+  /**
+   * Hands the files over and gets out of the way.
+   *
+   * This used to run the upload loop itself, which is why the app was
+   * unusable for the length of it: the queue, the progress and the loop were
+   * all state on this screen, so leaving took them with it and staying meant
+   * watching a progress bar. The provider owns all three now.
+   *
+   * So this screen's job ends at "these files, that album", and it returns
+   * you to whatever you were doing. The bar under the top bar reports the
+   * rest from wherever you happen to be, and taps back here.
+   *
+   * Invalidating album and usage queries moved with the loop — it belongs
+   * wherever the upload finishes, which is no longer here.
+   */
+  const startUpload = () => {
+    if (queued.length === 0 || !albumId) return;
 
-    let succeeded = 0;
-    // Sequential rather than parallel: several large videos at once compete for
-    // bandwidth and make every progress bar crawl.
-    for (const item of queued) {
-      patch(item.id, { status: 'uploading', progress: 0, error: undefined });
-      try {
-        await storageApi.uploadFile(item.uri, {
-          contentType: item.mimeType,
-          scope: 'albums',
-          originalName: item.name,
-          // Without this the object is stored but linked to no album, so it
-          // uploads "successfully" and then appears nowhere.
-          albumId,
-          onProgress: (fraction) => patch(item.id, { progress: fraction }),
-        });
-        patch(item.id, { status: 'done', progress: 1 });
-        succeeded++;
-      } catch (err) {
-        patch(item.id, {
-          status: 'failed',
-          error: err instanceof Error ? err.message : 'Upload failed',
-        });
-      }
-    }
+    enqueue(
+      queued.map((item) => ({
+        uri: item.uri,
+        name: item.name,
+        mimeType: item.mimeType,
+        sizeBytes: item.sizeBytes,
+        albumId,
+      })),
+    );
 
-    setIsUploading(false);
-    await refetchUsage();
-
-    // The album screens read a cached file list; without this the gallery keeps
-    // showing the pre-upload state until it happens to refetch.
-    if (succeeded > 0) {
-      await queryClient.invalidateQueries({
-        queryKey: albumFilesQueryKey(albumId),
-      });
-    }
-
-    // item_count is no longer incremented here: the API now derives it by
-    // counting the files attached to the album, so a counter maintained from
-    // the client could only drift away from the truth.
-    if (succeeded > 0) {
-      await queryClient.invalidateQueries({ queryKey: ['albums'] });
-    }
+    // Cleared rather than left showing 'queued' forever: these rows are now
+    // the provider's, and two lists of the same files would disagree the
+    // moment one of them progressed.
+    setItems([]);
+    router.back();
   };
 
   // An album is required. Uploading without one is what produced files that
   // consumed quota but showed up in no album.
-  const canUpload = !isUploading && queued.length > 0 && !wouldExceed && !!albumId;
+  // The queue's numbers stand in when nothing is picked, so arriving from the
+  // upload bar shows what is running rather than an empty screen.
+  const showingQueue = items.length === 0 && queueTasks.length > 0;
+  const cardTotal = showingQueue ? queueTasks.length : items.length;
+  const cardDone = showingQueue
+    ? queueTasks.filter((task) => task.status === 'done').length
+    : completed.length;
+  const cardFraction = showingQueue ? queueOverall : overall;
+
+  // `isUploading` no longer blocks this: the queue runs elsewhere, so picking
+  // more files while one batch uploads is a reasonable thing to do.
+  const canUpload = queued.length > 0 && !wouldExceed && !!albumId;
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -287,21 +288,25 @@ export default function UploadScreen() {
           </View>
         </View>
 
-        {/* Overall progress */}
-        {items.length > 0 && (
+        {/* Overall progress. Reports the running queue when nothing has been
+            picked yet, which is the state you arrive in when you get here by
+            tapping the upload bar rather than by choosing to upload. */}
+        {(items.length > 0 || showingQueue) && (
           <View
             className="mx-5 mt-4 bg-card rounded-2xl p-4"
             style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}
           >
             <View className="flex-row items-center justify-between mb-2">
               <Text className="text-foreground text-sm font-bold">
-                {completed.length} of {items.length} uploaded
+                {cardDone} of {cardTotal} uploaded
               </Text>
               <Text className="text-muted-foreground text-xs font-semibold">
-                {formatBytes(sentBytes)} / {formatBytes(totalBytes)}
+                {showingQueue
+                  ? `${Math.round(cardFraction * 100)}%`
+                  : `${formatBytes(sentBytes)} / ${formatBytes(totalBytes)}`}
               </Text>
             </View>
-            <ProgressBar fraction={overall} status={isUploading ? 'uploading' : 'queued'} />
+            <ProgressBar fraction={cardFraction} status={isUploading ? 'uploading' : 'queued'} />
           </View>
         )}
 

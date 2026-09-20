@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { router, usePathname } from 'expo-router';
 import { NotificationBell } from '@/components/NotificationBell';
+import { UploadBar } from '@/components/UploadBar';
 import { useMarkJobsSeen, useUnseenJobs } from '@/src/hooks';
 
 /**
@@ -37,42 +38,48 @@ export function AppTopBar() {
   const onJobs = pathname.startsWith('/jobs');
 
   return (
-    <View className="flex-row items-center justify-between border-b border-border/40 bg-background px-4 py-2">
-      <Pressable
-        onPress={() => router.navigate('/')}
-        accessibilityRole="button"
-        accessibilityLabel="Virgo, back to Feed"
-        hitSlop={8}
-        className="flex-row items-center gap-2 active:opacity-70"
-      >
-        <Image
-          source={LOGO}
-          style={{ width: 32, height: 32 }}
-          contentFit="contain"
-        />
-        <Text className="text-foreground text-[17px] font-bold tracking-tight">
-          Virgo
-        </Text>
-      </Pressable>
+    <>
+      <View className="flex-row items-center justify-between border-b border-border/40 bg-background px-4 py-2">
+        <Pressable
+          onPress={() => router.navigate('/')}
+          accessibilityRole="button"
+          accessibilityLabel="Virgo, back to Feed"
+          hitSlop={8}
+          className="flex-row items-center gap-2 active:opacity-70"
+        >
+          <Image
+            source={LOGO}
+            style={{ width: 32, height: 32 }}
+            contentFit="contain"
+          />
+          <Text className="text-foreground text-[17px] font-bold tracking-tight">
+            Virgo
+          </Text>
+        </Pressable>
 
-      <View className="flex-row items-center">
-        {/* Not a third tab: it opens a screen and comes back, so it keeps the
-            icon shape rather than taking a label beside the two that switch. */}
-        <NotificationBell />
-        <TopTab label="Feed" active={onFeed} onPress={() => router.navigate('/')} />
-        <TopTab
-          label="Jobs"
-          active={onJobs}
-          badge={unseenJobs}
-          onPress={() => {
-            router.navigate('/jobs');
-            // Opening the tab is what "seen" means. The hook zeroes the cached
-            // count so the badge does not flash back mid-request.
-            if (unseenJobs > 0) markSeen.mutate();
-          }}
-        />
+        <View className="flex-row items-center">
+          {/* Not a third tab: it opens a screen and comes back, so it keeps the
+              icon shape rather than taking a label beside the two that switch. */}
+          <NotificationBell />
+          <TopTab label="Feed" active={onFeed} onPress={() => router.navigate('/')} />
+          <TopTab
+            label="Jobs"
+            active={onJobs}
+            badge={unseenJobs}
+            onPress={() => {
+              router.navigate('/jobs');
+              // Opening the tab is what "seen" means. The hook zeroes the cached
+              // count so the badge does not flash back mid-request.
+              if (unseenJobs > 0) markSeen.mutate();
+            }}
+          />
+        </View>
       </View>
-    </View>
+      {/* Under the bar, not in it: an upload is a state the whole app is
+          in, and the row above is a fixed set of destinations. Renders
+          nothing when there is nothing uploading and nothing failed. */}
+      <UploadBar />
+    </>
   );
 }
 

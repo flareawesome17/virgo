@@ -12,6 +12,7 @@ import { queryClient, persistOptions } from "@/src/lib/queryClient";
 import { ThemeProvider } from "@/src/providers/ThemeProvider";
 import { wireQueryFocusToAppState } from "@/src/lib/query-focus";
 import { wireOtaUpdates } from "@/src/lib/ota-updates";
+import { UploadProvider } from "@/src/providers/UploadProvider";
 
 /**
  * `index` resolves the session and redirects, so it must be the first route.
@@ -82,7 +83,12 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ThemeProvider>
           <QueryProvider>
-            <RootLayoutNav />
+            {/* Inside QueryProvider, because the queue invalidates album and
+                usage queries as files land — and above the navigator, so an
+                upload started on one screen is not owned by it. */}
+            <UploadProvider>
+              <RootLayoutNav />
+            </UploadProvider>
           </QueryProvider>
         </ThemeProvider>
       </SafeAreaProvider>

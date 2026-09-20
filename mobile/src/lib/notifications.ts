@@ -185,6 +185,98 @@ export async function ensureChannels(): Promise<void> {
     lightColor: '#B66A40',
     lockscreenVisibility: N.AndroidNotificationVisibility.PRIVATE,
   });
+
+  // Deliberately the quietest channel in the app. This one rewrites itself
+  // every few percent while an upload runs, and a sound or a buzz on each of
+  // those would be unbearable. LOW keeps it in the drawer without it ever
+  // appearing as a banner over what someone is doing.
+  await N.setNotificationChannelAsync('uploads', {
+    name: 'Uploads',
+    importance: N.AndroidImportance.LOW,
+    sound: null,
+    vibrationPattern: null,
+    lightColor: '#B66A40',
+  });
+}
+
+/** The one notification the upload queue owns, replaced rather than stacked. */
+const UPLOAD_NOTIFICATION_ID = 'virgo-upload-progress';
+
+/**
+ * Writes the upload queue's line in the notification drawer.
+ *
+ * Re-scheduling under the same identifier replaces the previous one, so this
+ * reads as a single line that keeps changing rather than one notification per
+ * percent. The caller decides how often to call it; the channel above is what
+ * makes a rewrite silent.
+ *
+ * Failure is swallowed. An upload should not stop because the drawer could not
+ * be written to — the in-app progress is the real surface, and this is the copy
+ * of it for when the app is not on screen.
+ */
+export async function showUploadProgress(
+  title: string,
+  body: string,
+): Promise<void> {
+  const N = loadNotifications();
+  if (!N) return;
+  try {
+    await N.scheduleNotificationAsync({
+      identifier: UPLOAD_NOTIFICATION_ID,
+      content: {
+        title,
+        body,
+        sound: null,
+        // Android only. Keeps it out of the way of a swipe-to-dismiss while
+        // the transfer is still going, the way a file manager's does.
+        sticky: true,
+        ...(Platform.OS === 'android' ? { channelId: 'uploads' } : {}),
+      },
+      trigger: null,
+    });
+  } catch {
+    // See above.
+  }
+}
+
+/** Takes the upload line back out of the drawer. */
+export async function clearUploadProgress(): Promise<void> {
+  const N = loadNotifications();
+  if (!N) return;
+  try {
+    // Both: one for a notification already shown, one for a scheduled write
+    // that has not landed yet. Either alone leaves the line behind in a race.
+    await N.dismissNotificationAsync(UPLOAD_NOTIFICATION_ID);
+    await N.cancelScheduledNotificationAsync(UPLOAD_NOTIFICATION_ID);
+  } catch {
+    // See above.
+  }
+}
+
+/**
+ * Says how a finished batch went, once, after the progress line is gone.
+ *
+ * Its own identifier rather than the progress one: this should survive in the
+ * drawer after the upload line is dismissed, which is the whole point of it.
+ */
+export async function showUploadFinished(
+  title: string,
+  body: string,
+): Promise<void> {
+  const N = loadNotifications();
+  if (!N) return;
+  try {
+    await N.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        ...(Platform.OS === 'android' ? { channelId: 'uploads' } : {}),
+      },
+      trigger: null,
+    });
+  } catch {
+    // See above.
+  }
 }
 
 /**
