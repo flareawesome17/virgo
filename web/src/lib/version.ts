@@ -22,3 +22,27 @@ export const APP_VERSION = (process.env.NEXT_PUBLIC_APP_VERSION || '').trim() ||
 /** Short SHA of the commit the release was cut from, when the build supplied one. */
 export const APP_COMMIT =
   (process.env.NEXT_PUBLIC_APP_COMMIT || '').trim().slice(0, 7) || null;
+
+/**
+ * The version the desktop bundle was staged with.
+ *
+ * `desktop/scripts/stage-web.mjs` reads it out of tauri.conf.json, which the
+ * release workflow stamps from the tag, so it is by construction the number the
+ * installer carries. It is the only version the desktop app can state: that
+ * bundle is built by the desktop job, not by `docker build`, so APP_VERSION
+ * above is empty there — which is why the app showed no version at all.
+ */
+export const DESKTOP_VERSION =
+  (process.env.NEXT_PUBLIC_DESKTOP_VERSION || '').trim() || null;
+
+/**
+ * What this build calls itself, whichever way it is running.
+ *
+ * The desktop number is prefixed so the two read alike: the image is stamped
+ * with the tag (`v1.12.0`) and tauri.conf.json carries the bare version
+ * (`1.12.0`). Null on a local build of either, which is deliberate — a local
+ * build is not a release, and labelling it with one would be a small lie told
+ * on every screen.
+ */
+export const RELEASE_LABEL =
+  APP_VERSION ?? (DESKTOP_VERSION ? `v${DESKTOP_VERSION}` : null);
