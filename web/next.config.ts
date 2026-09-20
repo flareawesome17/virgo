@@ -1,5 +1,17 @@
 import type { NextConfig } from 'next';
 
+/**
+ * The desktop build, which is a different product from the hosted one.
+ *
+ * On the server this app is rendered by Node. In the desktop app there is no
+ * server worth having: every signed-in page is client-rendered and talks to
+ * api.virgo.ph directly, so the Node process existed only to hand over files.
+ * Shipping a runtime, a port and a child process to do that is what put a
+ * second program in the user's Dock and gave the app something that can die
+ * underneath it.
+ */
+const DESKTOP = process.env.NEXT_PUBLIC_VIRGO_DESKTOP === '1';
+
 const nextConfig: NextConfig = {
   /**
    * Stops the response announcing `x-powered-by: Next.js`.
@@ -54,7 +66,25 @@ const nextConfig: NextConfig = {
    * image carries a fraction of node_modules. Required by the Dockerfile,
    * which copies `.next/standalone`.
    */
-  output: 'standalone',
+  output: DESKTOP ? 'export' : 'standalone',
+
+  /**
+   * How a route is kept out of the desktop build.
+   *
+   * `robots.web.ts` and `sitemap.web.ts` both read the request host — one
+   * deployment answers for virgo.ph and web.virgo.ph and they want opposite
+   * answers — so neither can be prerendered, and `output: export` refuses any
+   * route handler it cannot prerender. They are also meaningless in an app
+   * bundle, which has no hostname and nothing to crawl.
+   *
+   * Next only treats a file as a route when its extension is in this list, so
+   * dropping `web.ts` makes those two ordinary modules the desktop build never
+   * looks at. The alternative was `export const dynamic`, which Next requires
+   * to be a literal and so cannot vary per build.
+   */
+  pageExtensions: DESKTOP
+    ? ['tsx', 'ts']
+    : ['web.tsx', 'web.ts', 'tsx', 'ts'],
 
   /**
    * Where media is fetched from. Listed explicitly rather than with a
@@ -74,7 +104,7 @@ const nextConfig: NextConfig = {
      * and the Intel build would carry the runner's arm64 copies.
      * desktop/scripts/stage-web.mjs strips sharp out accordingly.
      */
-    unoptimized: process.env.NEXT_PUBLIC_VIRGO_DESKTOP === '1',
+    unoptimized: DESKTOP,
     remotePatterns: [
       { protocol: 'https', hostname: 'cdn.virgo.ph' },
       // Virtual-host style: the bucket is a subdomain of the endpoint, so the

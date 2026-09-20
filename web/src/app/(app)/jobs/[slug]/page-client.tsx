@@ -1,8 +1,8 @@
 'use client';
 
-import { use, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Banknote,
@@ -81,12 +81,8 @@ const REPORT_REASONS: { value: ReportReason; label: string }[] = [
  * signed-in reader gets natively — rather than the app throwing its own users
  * onto a marketing page in a new tab.
  */
-export default function JobPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
-  const { slug } = use(params);
+export default function JobPage() {
+  const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
   const job = useJob(slug);
   const report = useReportJob();

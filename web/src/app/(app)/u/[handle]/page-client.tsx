@@ -1,9 +1,8 @@
 'use client';
 
-import { use } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -40,12 +39,8 @@ const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
  * the reader happens to be signed in. Facebook's arrangement, and for the same
  * reason.
  */
-export default function AppProfilePage({
-  params,
-}: {
-  params: Promise<{ handle: string }>;
-}) {
-  const { handle } = use(params);
+export default function AppProfilePage() {
+  const { handle } = useParams<{ handle: string }>();
   const router = useRouter();
 
   const profile = useQuery({

@@ -12,6 +12,15 @@ import { ImageResponse } from 'next/og';
  * No remote fonts or images — the whole thing is text and colour, so it
  * cannot fail on a network fetch at build time.
  */
+/**
+ * Generated at build time rather than per request.
+ *
+ * Required by the desktop build, which is a static export and cannot run a
+ * route handler at all. Correct for the hosted build too: as the note above
+ * says, this card is text and colour with no remote fetch, so there is
+ * nothing about it that needs a request to resolve.
+ */
+export const dynamic = 'force-static';
 export const runtime = 'nodejs';
 export const alt =
   'Virgo — hire photographers, videographers, editors and HMUAs in the Philippines';

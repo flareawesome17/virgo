@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useState } from 'react';
+import { useState } from 'react';
+import { useParams } from 'next/navigation';
 import { ArrowLeft, Check, MessageCircle, Pencil, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { track } from '@/lib/analytics';
@@ -30,12 +31,8 @@ import { Textarea } from '@/components/ui/textarea';
  * reasonably assume more legal weight than there is, and the honest framing
  * costs one line.
  */
-export default function BookingPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
+export default function BookingPage() {
+  const { id } = useParams<{ id: string }>();
   const { booking, isLoading, loadFailed } = useBooking(id);
   const [editing, setEditing] = useState(false);
 
