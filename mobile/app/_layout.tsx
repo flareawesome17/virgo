@@ -11,6 +11,7 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { queryClient, persistOptions } from "@/src/lib/queryClient";
 import { ThemeProvider } from "@/src/providers/ThemeProvider";
 import { wireQueryFocusToAppState } from "@/src/lib/query-focus";
+import { wireOtaUpdates } from "@/src/lib/ota-updates";
 
 /**
  * `index` resolves the session and redirects, so it must be the first route.
@@ -35,6 +36,11 @@ function RootLayoutNav() {
   useEffect(() => {
     if (!isLoading) SplashScreen.hideAsync().catch(() => {});
   }, [isLoading]);
+
+  // Here rather than in QueryProvider: this is about the app's own code being
+  // current, not about its data. A no-op in Expo Go and development builds,
+  // where the bundle comes from Metro.
+  useEffect(() => wireOtaUpdates(), []);
 
   return (
     <>
