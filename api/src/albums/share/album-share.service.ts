@@ -423,6 +423,16 @@ export class AlbumShareService {
       throw new ForbiddenException('This media is not included in the link');
     }
 
+    // Opening a gallery is the other thing that pays for a ladder, and it is
+    // what closes the loop the sweep opens: an evicted ladder comes back the
+    // next time somebody actually watches, rather than degrading to the proxy
+    // for good. Only on the first page of a link that includes film, so this
+    // is once per gallery open rather than once per scroll, and the
+    // `hls_status = 'none'` filter inside makes every later call a no-op.
+    if (!filter.cursor && link.media_kinds.includes('video')) {
+      void this.hls.enqueueAlbum(link.album_id);
+    }
+
     const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
     let where = `user_id = $1
           and album_id = $2

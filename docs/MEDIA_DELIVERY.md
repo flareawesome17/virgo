@@ -109,9 +109,9 @@ and losing it costs CPU rather than customer work.
 | On the playback path | No — download only | Yes |
 | Counts against customer quota | Yes | No |
 
-Sizing: roughly 300 MB of ladder per film, so ~300 GB per thousand films. An
-LRU sweep that drops ladders for albums unshared for N months bounds the
-growth; a dropped ladder costs one re-transcode, not a lost file.
+Sizing: roughly 300 MB of ladder per film, so ~300 GB per thousand films.
+*The sweep*, below, is what bounds that: a dropped ladder costs one
+re-transcode, not a lost file.
 
 **Use a Docker named volume, not a bind mount to `C:\`.** Docker Desktop on
 Windows proxies bind-mounted paths across the WSL2 boundary, and the I/O
@@ -402,8 +402,8 @@ stated plainly:
 - **No format negotiation.** Everything is WebP. AVIF would save perhaps
   another 30% and costs seconds per image to encode, which on a 200-photo
   wedding is minutes added to a request somebody is waiting on.
-- **Storage instead of CPU.** Two extra files per photograph, on a volume
-  that still has no sweep.
+- **Storage instead of CPU.** Two extra files per photograph, bounded by
+  *the sweep* rather than by not being written.
 
 imgproxy remains the right answer if arbitrary sizes or AVIF ever matter more
 than those three. Nothing here blocks it — it would slot in behind the same
@@ -478,8 +478,8 @@ frees the CPU entirely — but GPU passthrough into Docker Desktop on Windows
 needs WSL2 with the CUDA runtime, which is enough friction to treat as a later
 optimisation rather than part of the first build.
 
-**Disk.** ~300 MB per film. Watch the volume, and add the LRU sweep before it
-matters rather than after.
+**Disk.** ~300 MB per film, bounded by *the sweep* once a budget is set.
+Until one is, the nightly log line is the only thing watching.
 
 **B2 egress falls, it does not rise.** Originals are pulled once per transcode
 instead of once per view. Streaming stops touching B2 entirely.
@@ -717,8 +717,6 @@ had more than anyone would like.
 
 ### Still outstanding
 
-- **No LRU sweep yet.** Nothing bounds the volume. `proxy_key` plus
-  `processed_at` is enough to write one; until then, watch the disk.
 - **Audio gets no proxy**, deliberately — there is nothing worth re-encoding
   for a player that already handles mp3, aac and flac.
 
@@ -772,8 +770,8 @@ latency is small — but it is on a request somebody is waiting on, which is
 why the widths stop at two and the format stays WebP.
 
 Storage: roughly 150–400 KB per photograph for both copies, against originals
-measured in megabytes. **The volume still has no sweep.** Between this and
-the film proxies, that is now the thing most likely to need attention first.
+measured in megabytes. Bounded by *the sweep*, which evicts display copies as
+a set — half a `srcset` on disk would hand a client a URL that 404s.
 
 ---
 
@@ -845,12 +843,86 @@ failure path:
 
 ### Still outstanding
 
-- **No LRU sweep.** A ladder is the largest rendition by far. Between it, the
-  proxies and two display copies per photograph, the volume now has three
-  kinds of growth and nothing bounding any of them. This is the next thing
-  that should be built.
+- **Disk.** A ladder is the largest rendition by far. Between it, the proxies
+  and two display copies per photograph, the volume has three kinds of growth
+  — bounded by *the sweep*, below, once a budget is set.
 - **No 4K rung.** The 500 MB upload cap means sources are exports, so the
   ceiling is 1080p. fMP4 segments mean adding one later needs no re-packaging.
+
+---
+
+## The sweep
+
+Built. Three phases produced three kinds of growth — ladders, proxies, two
+display copies per photograph — and nothing bounded any of them. This does.
+
+[api/src/storage/media-sweep.service.ts](api/src/storage/media-sweep.service.ts)
+runs nightly at 03:00: it measures every rendition, reports the total, and
+once a budget is set, evicts the coldest until the volume is back under it.
+
+**Eviction is safe because the volume is a cache, not data.** Every rendition
+is reproducible from the original in B2, and every player already falls
+`hlsUrl` → `proxyUrl` → `url`. Losing an entry costs CPU and a worse stream,
+never somebody's work.
+
+### Why access time
+
+nginx serves renditions directly, so the API never sees a read and has no view
+count to sort by. The obvious alternative — recording which gallery was opened
+— is deliberately unavailable: the share controller records a visit with the
+token **stripped**, because that token is the credential to the gallery and
+must never be stored. That constraint is worth more than a better eviction
+signal.
+
+The filesystem does know. `atime` is what nginx touched, updated at most once
+a day under `relatime` — far finer than the month-scale windows here. `mtime`
+is a floor, so a rendition written minutes ago is never cold even on a
+`noatime` mount; on such a mount this degrades to eviction by age rather than
+by use, which is worse but not wrong.
+
+### Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MEDIA_CACHE_MAX_BYTES` | `0` | Budget in bytes. **0 means unbounded** and the sweep only reports |
+| `MEDIA_CACHE_MIN_AGE_DAYS` | `30` | Never evict anything used more recently, even when over budget |
+
+**It ships doing nothing but reporting, and that is deliberate.** There is no
+safe budget to guess — it depends on a disk this repository cannot see.
+Leave it at 0 for a week, read the nightly line out of the API log, then set
+it comfortably under the free space:
+
+```
+Renditions: 42.3 GB across 1184 item(s), no budget set
+```
+
+When over budget with nothing outside the grace window, the sweep evicts
+nothing and warns. Refusing to delete a film somebody is watching is the right
+call, but it means the disk is not actually bounded, so it says so loudly.
+
+### The loop it closes
+
+Eviction on its own is one-way: a ladder deleted from a still-shared album
+would never return, and delivery would quietly degrade to the proxy forever.
+So `hls_status` goes back to `'none'` rather than `'failed'`, and **opening a
+gallery re-queues** — on the first page of a link that includes film, so once
+per open rather than once per scroll.
+
+The result is a cache that behaves like one. A film watched last week keeps
+its ladder; a film delivered two years ago loses it, and gets it back within
+a minute if anyone opens that link again.
+
+### What it does not cover
+
+- **Orphans.** The sweep is driven from `user_files`, because a rendition path
+  cannot be reversed to its source — `clip-web.mp4` does not say whether it
+  came from `clip.mov` or `clip.mp4`, and the row has to be found to be reset.
+  A rendition whose row is gone is therefore invisible to it. `removeFor` and
+  `removeTree` are what prevent those; abandoned `*.part` staging is swept
+  separately, after 24 hours.
+- **Scale.** It walks every ladder directory to measure it. At a few thousand
+  films that is fine nightly; well past that, sizes want recording in the row
+  at encode time instead.
 
 ---
 

@@ -6,6 +6,7 @@ import { ThumbnailsService } from './thumbnails.service';
 import { HlsService } from './hls.service';
 import { MediaLinkService } from './media-link.service';
 import { MediaProcessingService } from './media-processing.service';
+import { MediaSweepService } from './media-sweep.service';
 
 @Module({
   controllers: [StorageController],
@@ -16,6 +17,7 @@ import { MediaProcessingService } from './media-processing.service';
     MediaLinkService,
     MediaProcessingService,
     HlsService,
+    MediaSweepService,
   ],
   // StorageConfig is exported so other modules can turn an object key into a
   // public URL without depending on the whole storage service. MediaLinkService
