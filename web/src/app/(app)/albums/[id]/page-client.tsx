@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
-import { ArrowLeft, DotsThree, FilmSlate, ImageSquare, LinkSimple, MusicNotesSimple, Play, Trash, UploadSimple } from '@phosphor-icons/react';
+import { ArrowLeft, Film, ImageIcon, Link2, MoreHorizontal, Music, Play, Trash2, Upload, type LucideIcon } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppShell } from '@/components/app-shell';
@@ -23,10 +23,10 @@ import { useWorkspace } from '@/hooks/useWorkspaces';
 import { formatBytes, kindOf, storageApi, type StoredFile, type StoredMediaKind } from '@/api';
 
 type Room = Exclude<StoredMediaKind, 'other'>;
-const ROOMS: { value: Room; label: string; Icon: typeof ImageSquare }[] = [
-  { value: 'image', label: 'Photos', Icon: ImageSquare },
-  { value: 'video', label: 'Films', Icon: FilmSlate },
-  { value: 'audio', label: 'Audio', Icon: MusicNotesSimple },
+const ROOMS: { value: Room; label: string; Icon: LucideIcon }[] = [
+  { value: 'image', label: 'Photos', Icon: ImageIcon },
+  { value: 'video', label: 'Films', Icon: Film },
+  { value: 'audio', label: 'Audio', Icon: Music },
 ];
 
 export default function AlbumPage() {
@@ -103,7 +103,7 @@ export default function AlbumPage() {
               <div aria-hidden className="pointer-events-none absolute inset-0 opacity-60 [background:radial-gradient(circle_at_78%_20%,rgba(193,119,69,0.16),transparent_35%),radial-gradient(circle_at_10%_110%,rgba(193,119,69,0.10),transparent_34%)]" />
               <div className="relative grid gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(22rem,0.6fr)] lg:items-end">
                 <div>
-                  <Link href={album?.workspace_id ? `/workspaces/${album.workspace_id}` : '/workspaces'} className="inline-flex items-center gap-2 text-xs font-medium text-white/46 transition-colors hover:text-white"><ArrowLeft size={15} weight="light" />Back to {workspace?.name ?? 'workspace'}</Link>
+                  <Link href={album?.workspace_id ? `/workspaces/${album.workspace_id}` : '/workspaces'} className="inline-flex items-center gap-2 text-xs font-medium text-white/46 transition-colors hover:text-white"><ArrowLeft size={15} strokeWidth={1.5} />Back to {workspace?.name ?? 'workspace'}</Link>
                   <p className="mt-8 font-mono text-[10px] uppercase tracking-[0.22em] text-[#d89566]">Album archive</p>
                   <h1 className="mt-3 max-w-3xl text-balance text-4xl font-semibold leading-[0.96] tracking-[-0.055em] sm:text-5xl lg:text-6xl">{album?.name ?? (loadingAlbum ? 'Opening album…' : 'Album')}</h1>
                   {album?.description && <p className="mt-5 max-w-[62ch] text-sm leading-6 text-white/52">{album.description}</p>}
@@ -116,15 +116,15 @@ export default function AlbumPage() {
                     <Stat label="Audio" value={counts.audio} />
                   </dl>
                   <div className="mt-6 flex flex-wrap items-center gap-2">
-                    <Button variant="outline" onClick={() => setSharing(true)} className="rounded-full border-white/[0.12] bg-white/[0.04] text-white hover:bg-white/[0.1] hover:text-white"><LinkSimple size={16} weight="light" />Client link</Button>
-                    <Button onClick={() => openFilePicker()} className="group rounded-full bg-[#c17745] text-white hover:bg-[#ce8554]"><UploadSimple size={16} weight="light" />Upload media</Button>
+                    <Button variant="outline" onClick={() => setSharing(true)} className="rounded-full border-white/[0.12] bg-white/[0.04] text-white hover:bg-white/[0.1] hover:text-white"><Link2 size={16} strokeWidth={1.5} />Client link</Button>
+                    <Button onClick={() => openFilePicker()} className="group rounded-full bg-[#c17745] text-white hover:bg-[#ce8554]"><Upload size={16} strokeWidth={1.5} />Upload media</Button>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Album actions" className="rounded-full text-white/65 hover:bg-white/[0.08] hover:text-white"><DotsThree size={20} weight="light" /></Button></DropdownMenuTrigger>
+                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Album actions" className="rounded-full text-white/65 hover:bg-white/[0.08] hover:text-white"><MoreHorizontal size={20} strokeWidth={1.5} /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => setSharing(true)}><LinkSimple size={16} weight="light" />Client link</DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => openFilePicker()}><UploadSimple size={16} weight="light" />Upload files</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setSharing(true)}><Link2 size={16} strokeWidth={1.5} />Client link</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => openFilePicker()}><Upload size={16} strokeWidth={1.5} />Upload files</DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onSelect={() => setConfirmingDelete(true)}><Trash size={16} weight="light" />Delete album</DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive" onSelect={() => setConfirmingDelete(true)}><Trash2 size={16} strokeWidth={1.5} />Delete album</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -137,7 +137,7 @@ export default function AlbumPage() {
             <div className="flex min-w-0 gap-1 overflow-x-auto no-scrollbar">
               {ROOMS.map(({ value, label, Icon }) => {
                 const selected = room === value;
-                return <button key={value} onClick={() => { setRoom(value); setViewerIndex(null); }} aria-current={selected ? 'page' : undefined} className={`relative flex min-h-12 shrink-0 items-center gap-2 px-4 text-sm font-semibold transition-colors ${selected ? 'text-[#9e5431] dark:text-[#d89566]' : 'text-[#78675c] hover:text-foreground dark:text-white/45 dark:hover:text-white'}`}><Icon size={17} weight="light" />{label}<span className="font-mono text-[10px] tabular-nums opacity-55">{counts[value]}</span>{selected && <span className="absolute inset-x-3 bottom-0 h-0.5 origin-center rounded-full bg-[#b66a40]" />}</button>;
+                return <button key={value} onClick={() => { setRoom(value); setViewerIndex(null); }} aria-current={selected ? 'page' : undefined} className={`relative flex min-h-12 shrink-0 items-center gap-2 px-4 text-sm font-semibold transition-colors ${selected ? 'text-[#9e5431] dark:text-[#d89566]' : 'text-[#78675c] hover:text-foreground dark:text-white/45 dark:hover:text-white'}`}><Icon size={17} strokeWidth={1.5} />{label}<span className="font-mono text-[10px] tabular-nums opacity-55">{counts[value]}</span>{selected && <span className="absolute inset-x-3 bottom-0 h-0.5 origin-center rounded-full bg-[#b66a40]" />}</button>;
               })}
             </div>
             <p className="hidden shrink-0 text-xs text-muted-foreground sm:block">{totalItems} item{totalItems === 1 ? '' : 's'}</p>
@@ -167,17 +167,17 @@ function MediaRoom({ room, files, loading, failed, onRetry, onOpen, hasMore, loa
   room: 'image' | 'video'; files: StoredFile[]; loading: boolean; failed: boolean; onRetry: () => void; onOpen: (index: number) => void; hasMore: boolean; loadingMore: boolean; onLoadMore: () => void; onUpload: () => void;
 }) {
   if (loading && files.length === 0) return <GallerySkeleton room={room} />;
-  if (failed && files.length === 0) return <RoomState Icon={room === 'image' ? ImageSquare : FilmSlate} title="This room could not be loaded" description="Your media is still safe. Check the connection and try again." action={<Button variant="outline" onClick={onRetry}>Try again</Button>} />;
-  if (files.length === 0) return <RoomState Icon={room === 'image' ? ImageSquare : FilmSlate} title={room === 'image' ? 'The contact sheet is empty' : 'No films have been added'} description={room === 'image' ? 'Upload photographs to begin arranging this album.' : 'Upload a video and Virgo will prepare its poster and playback details.'} action={<Button onClick={onUpload} className="rounded-full"><UploadSimple size={16} weight="light" />Choose files</Button>} />;
+  if (failed && files.length === 0) return <RoomState Icon={room === 'image' ? ImageIcon : Film} title="This room could not be loaded" description="Your media is still safe. Check the connection and try again." action={<Button variant="outline" onClick={onRetry}>Try again</Button>} />;
+  if (files.length === 0) return <RoomState Icon={room === 'image' ? ImageIcon : Film} title={room === 'image' ? 'The contact sheet is empty' : 'No films have been added'} description={room === 'image' ? 'Upload photographs to begin arranging this album.' : 'Upload a video and Virgo will prepare its poster and playback details.'} action={<Button onClick={onUpload} className="rounded-full"><Upload size={16} strokeWidth={1.5} />Choose files</Button>} />;
 
   return <>
-    {room === 'image' ? <div className="columns-2 gap-2.5 sm:columns-3 lg:columns-4 xl:columns-5">{files.map((file, index) => <button key={file.key} onClick={() => onOpen(index)} className="group relative mb-2.5 block w-full break-inside-avoid overflow-hidden rounded-[1rem] bg-[#e8ded6] bg-cover bg-center text-left dark:bg-white/[0.05]" style={{ aspectRatio: file.width && file.height ? `${file.width}/${file.height}` : '1/1', backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined }}>{ }<img src={file.thumbnailUrl ?? file.url ?? ''} alt={file.originalName} loading="lazy" className="size-full object-cover transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.025]" /><span className="absolute inset-x-0 bottom-0 translate-y-2 bg-gradient-to-t from-[#141210]/80 to-transparent px-3 pb-3 pt-10 text-xs font-medium text-white opacity-0 transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:translate-y-0 group-hover:opacity-100">{file.originalName}</span>{file.processingStatus === 'pending' && <span className="absolute left-2 top-2 rounded-full bg-[#211d1a]/82 px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-white/70 backdrop-blur-md">Indexing</span>}</button>)}</div> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.25fr_0.75fr]">{files.map((file, index) => <button key={file.key} onClick={() => onOpen(index)} className={`group relative overflow-hidden rounded-[1.5rem] bg-[#201c19] text-left ${index % 5 === 0 ? 'md:row-span-2' : ''}`}><div className="aspect-video size-full min-h-52 bg-cover bg-center" style={{ backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined }}>{file.posterUrl ? <>{ }<img src={file.posterUrl} alt={`Poster for ${file.originalName}`} loading="lazy" className="size-full object-cover transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.025]" /></> :<div className="grid size-full place-items-center bg-[radial-gradient(circle_at_35%_20%,rgba(193,119,69,.2),transparent_42%),#211d1a]"><FilmSlate size={34} weight="light" className="text-white/25" /></div>}</div><span className="absolute inset-0 bg-gradient-to-t from-[#141210]/90 via-transparent to-transparent" /><span className="absolute bottom-0 left-0 right-0 flex items-end gap-3 p-4"><span className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-[#211d1a] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105"><Play size={15} weight="fill" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-white">{file.originalName}</span><span className="mt-1 block font-mono text-[10px] text-white/45">{file.durationMs ? durationLabel(file.durationMs) : file.processingStatus === 'pending' ? 'Preparing poster' : formatBytes(file.sizeBytes)}</span></span></span></button>)}</div>}
+    {room === 'image' ? <div className="columns-2 gap-2.5 sm:columns-3 lg:columns-4 xl:columns-5">{files.map((file, index) => <button key={file.key} onClick={() => onOpen(index)} className="group relative mb-2.5 block w-full break-inside-avoid overflow-hidden rounded-[1rem] bg-[#e8ded6] bg-cover bg-center text-left dark:bg-white/[0.05]" style={{ aspectRatio: file.width && file.height ? `${file.width}/${file.height}` : '1/1', backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined }}>{ }<img src={file.thumbnailUrl ?? file.url ?? ''} alt={file.originalName} loading="lazy" className="size-full object-cover transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.025]" /><span className="absolute inset-x-0 bottom-0 translate-y-2 bg-gradient-to-t from-[#141210]/80 to-transparent px-3 pb-3 pt-10 text-xs font-medium text-white opacity-0 transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:translate-y-0 group-hover:opacity-100">{file.originalName}</span>{file.processingStatus === 'pending' && <span className="absolute left-2 top-2 rounded-full bg-[#211d1a]/82 px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-white/70 backdrop-blur-md">Indexing</span>}</button>)}</div> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.25fr_0.75fr]">{files.map((file, index) => <button key={file.key} onClick={() => onOpen(index)} className={`group relative overflow-hidden rounded-[1.5rem] bg-[#201c19] text-left ${index % 5 === 0 ? 'md:row-span-2' : ''}`}><div className="aspect-video size-full min-h-52 bg-cover bg-center" style={{ backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined }}>{file.posterUrl ? <>{ }<img src={file.posterUrl} alt={`Poster for ${file.originalName}`} loading="lazy" className="size-full object-cover transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.025]" /></> :<div className="grid size-full place-items-center bg-[radial-gradient(circle_at_35%_20%,rgba(193,119,69,.2),transparent_42%),#211d1a]"><Film size={34} strokeWidth={1.5} className="text-white/25" /></div>}</div><span className="absolute inset-0 bg-gradient-to-t from-[#141210]/90 via-transparent to-transparent" /><span className="absolute bottom-0 left-0 right-0 flex items-end gap-3 p-4"><span className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-[#211d1a] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105"><Play size={15} fill="currentColor" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-white">{file.originalName}</span><span className="mt-1 block font-mono text-[10px] text-white/45">{file.durationMs ? durationLabel(file.durationMs) : file.processingStatus === 'pending' ? 'Preparing poster' : formatBytes(file.sizeBytes)}</span></span></span></button>)}</div>}
     {hasMore && <div className="mt-10 text-center"><Button variant="outline" disabled={loadingMore} onClick={onLoadMore} className="rounded-full">{loadingMore ? 'Loading…' : `Load more ${room === 'image' ? 'photos' : 'films'}`}</Button></div>}
   </>;
 }
 
-function RoomState({ Icon, title, description, action }: { Icon: typeof ImageSquare; title: string; description: string; action: React.ReactNode }) {
-  return <div className="py-24 text-center"><span className="mx-auto grid size-16 place-items-center rounded-[1.4rem] bg-[#e9dfd7] text-[#8b7669] dark:bg-white/[0.06] dark:text-white/35"><Icon size={28} weight="light" /></span><h2 className="mt-6 text-xl font-semibold tracking-[-0.025em]">{title}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">{description}</p><div className="mt-6">{action}</div></div>;
+function RoomState({ Icon, title, description, action }: { Icon: LucideIcon; title: string; description: string; action: React.ReactNode }) {
+  return <div className="py-24 text-center"><span className="mx-auto grid size-16 place-items-center rounded-[1.4rem] bg-[#e9dfd7] text-[#8b7669] dark:bg-white/[0.06] dark:text-white/35"><Icon size={28} strokeWidth={1.5} /></span><h2 className="mt-6 text-xl font-semibold tracking-[-0.025em]">{title}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">{description}</p><div className="mt-6">{action}</div></div>;
 }
 
 function GallerySkeleton({ room }: { room: 'image' | 'video' }) {

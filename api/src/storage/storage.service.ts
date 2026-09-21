@@ -23,6 +23,7 @@ import {
   accessAllows,
   QuotaService,
   type MediaAccess,
+  type ResolvedAccess,
   type StoredMediaKind,
 } from '../quota/quota.service';
 import {
@@ -474,6 +475,81 @@ export class StorageService {
   }
 
   /**
+   * Deletes a selection in one request.
+   *
+   * Authorised exactly as a single delete is — 'manage' on each file's album,
+   * or the row being the caller's own — and all-or-nothing on that check: a
+   * selection holding one file the caller may not delete is refused whole
+   * rather than half done. Past the check it is best effort per object, and
+   * only what the bucket confirms gone is forgotten, so a partial failure
+   * leaves the rest counted rather than handing back allowance for files that
+   * still exist.
+   *
+   * Never by key prefix: a collaborator's upload into your album carries
+   * THEIR prefix, so an owner culling their own album would be refused on the
+   * second shooter's frames. The retention sweep comes through here for the
+   * same reason, acting as each album's owner.
+   */
+  async deleteMany(
+    userId: string,
+    keys: readonly string[],
+  ): Promise<{ deleted: number; failed: number }> {
+    if (keys.length === 0) return { deleted: 0, failed: 0 };
+    const client = this.requireClient();
+    for (const key of keys) this.assertSafeKey(key);
+
+    const rows = await this.quota.fileOwnership(keys);
+    const albumAccess = new Map<string, ResolvedAccess>();
+    for (const row of rows) {
+      if (row.user_id === userId) continue;
+      if (!row.album_id) {
+        throw new ForbiddenException('You cannot delete some of these files');
+      }
+      if (!albumAccess.has(row.album_id)) {
+        albumAccess.set(row.album_id, await this.quota.accessForAlbum(userId, row.album_id));
+      }
+      if (!accessAllows(albumAccess.get(row.album_id) ?? null, 'manage')) {
+        throw new ForbiddenException('You cannot delete some of these files');
+      }
+    }
+
+    const known = rows.map((row) => row.key);
+    const targets = await this.quota.objectAndDerivedKeys(known);
+    const gone = new Set<string>();
+    for (let i = 0; i < targets.length; i += 1000) {
+      const byBucket = new Map<string, string[]>();
+      for (const key of targets.slice(i, i + 1000)) {
+        const bucket = this.config.bucketForKey(key);
+        byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), key]);
+      }
+      try {
+        const results = await Promise.all(
+          [...byBucket].map(([Bucket, batch]) =>
+            client.send(
+              new DeleteObjectsCommand({
+                Bucket,
+                Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: false },
+              }),
+            ),
+          ),
+        );
+        for (const result of results) {
+          for (const item of result.Deleted ?? []) if (item.Key) gone.add(item.Key);
+        }
+      } catch (err) {
+        // One bad batch must not strand the rest.
+        this.logger.error(`deleteMany batch failed for ${userId}: ${String(err)}`);
+      }
+    }
+
+    const deleted = known.filter((key) => gone.has(key));
+    await this.quota.forgetKeys(deleted);
+    // Renditions are not bucket objects; see deleteObject.
+    await this.mediaLink.removeFor(known);
+    return { deleted: deleted.length, failed: keys.length - deleted.length };
+  }
+
+  /**
    * Deletes every object this user has stored, across all albums.
    *
    * "Stored" as the quota counts it: every file billed to this user, which
@@ -601,78 +677,6 @@ export class StorageService {
     }
 
     return { deleted: deletedKeys.length, failed, freedBytes: before - after };
-  }
-
-  /**
-   * Deletes a specific set of the user's objects.
-   *
-   * The shared engine behind wipeAll and the retention sweep. Only keys the
-   * bucket confirms deleted are forgotten, so a partial failure leaves the
-   * rest still counted against the quota rather than handing back allowance
-   * for objects that are still sitting there.
-   */
-  async deleteKeys(
-    userId: string,
-    keys: readonly string[],
-  ): Promise<{ deleted: number; failed: number }> {
-    if (keys.length === 0) return { deleted: 0, failed: 0 };
-    const client = this.requireClient();
-    const targetKeys = await this.quota.objectAndDerivedKeys(keys);
-
-    const deletedKeys: string[] = [];
-    let failed = 0;
-
-    // 1000 is the DeleteObjects maximum.
-    for (let i = 0; i < targetKeys.length; i += 1000) {
-      const batch = targetKeys.slice(i, i + 1000);
-      // Defence in depth: these came from the user's own rows, but the prefix
-      // check is what actually guarantees bucket-level scope.
-      for (const key of batch) this.assertOwned(userId, key);
-
-      try {
-        // A batch can straddle both buckets — avatars live in the public one,
-        // everything else in the private one — and DeleteObjects takes exactly
-        // one bucket, so the batch is split by where each key actually is.
-        const byBucket = new Map<string, string[]>();
-        for (const key of batch) {
-          const b = this.config.bucketForKey(key);
-          const list = byBucket.get(b) ?? [];
-          list.push(key);
-          byBucket.set(b, list);
-        }
-
-        const results = await Promise.all(
-          [...byBucket].map(([Bucket, keys]) =>
-            client.send(
-              new DeleteObjectsCommand({
-                Bucket,
-                Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
-              }),
-            ),
-          ),
-        );
-        const res = {
-          Deleted: results.flatMap((r) => r.Deleted ?? []),
-          Errors: results.flatMap((r) => r.Errors ?? []),
-        };
-        for (const d of res.Deleted ?? []) {
-          if (d.Key) deletedKeys.push(d.Key);
-        }
-        failed += (res.Errors ?? []).length;
-      } catch (err) {
-        // One bad batch must not strand the rest.
-        failed += batch.length;
-        this.logger.error(`deleteKeys batch failed for ${userId}: ${String(err)}`);
-      }
-    }
-
-    await this.quota.forgetFiles(userId, deletedKeys);
-    // Renditions live on the media volume rather than in a bucket, so nothing
-    // above touches them. Derived from the originals that were asked for, not
-    // from what came back deleted: a rendition whose source is already gone is
-    // the case that most needs collecting.
-    await this.mediaLink.removeFor(keys);
-    return { deleted: deletedKeys.length, failed };
   }
 
   /** Points already-stored objects at one of the caller's albums. */

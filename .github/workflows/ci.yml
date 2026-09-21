@@ -14,11 +14,18 @@
 # in a comment — same rule as release.yml. A tag can be moved by whoever
 # controls the action's repository and a SHA cannot.
 #
-# What is deliberately NOT here: `npm run lint`. The web workspace currently
-# reports 25 eslint errors, all pre-existing, so gating on it would make every
-# pull request red for reasons unrelated to its change — which is how a
-# required check gets ignored, and then gets removed. Worth fixing on its own
-# branch and adding here afterwards.
+# Web is linted against a baseline. web/eslint-suppressions.json records the
+# errors that were already there when lint was added — all from the React
+# Compiler rules — so a pull request goes red for an error it introduces, not
+# one it inherited. Gating on the raw output would make every pull request red
+# for reasons unrelated to its change, which is how a required check gets
+# ignored, and then gets removed.
+#
+# The baseline only shrinks. Fixing one of those errors fails the check until
+# `npx eslint src --prune-suppressions` is run in web/ and the smaller file is
+# committed with the fix; otherwise the file would keep room for a new error
+# of the same kind in the same file. Never regenerate it with --suppress-all
+# to get a branch through — that suppresses the new error along with the old.
 
 name: CI
 
@@ -72,20 +79,25 @@ jobs:
         working-directory: api
 
   # ── the three client packages ───────────────────────────────────────────────
-  # No tests to run, so this is a typecheck. It is not a formality: `web` and
-  # `mobile` share a duplicated transport layer, and a field added to one
-  # StoredFile and not the other is exactly the kind of drift that compiles on
-  # one platform and fails at runtime on the other.
+  # No tests to run, so this is a typecheck, plus lint for web. The typecheck
+  # is not a formality: `web` and `mobile` share a duplicated transport layer,
+  # and a field added to one StoredFile and not the other is exactly the kind
+  # of drift that compiles on one platform and fails at runtime on the other.
   #
   # A matrix rather than three jobs so adding a fourth package is one line, and
   # fail-fast off so one package's breakage does not hide another's.
   clients:
-    name: ${{ matrix.package }} — typecheck
+    name: ${{ matrix.package }} — ${{ matrix.lint && 'typecheck and lint' || 'typecheck' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         package: [web, mobile, dashboard]
+        # Only web is linted. `include` adds the flag to the existing web
+        # entry; it does not add a fourth job.
+        include:
+          - package: web
+            lint: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -105,6 +117,13 @@ jobs:
       # this job is where it will show up first.
       - name: Typecheck
         run: npx tsc --noEmit
+        working-directory: ${{ matrix.package }}
+
+      # Against the baseline in web/eslint-suppressions.json; see the top of
+      # this file.
+      - name: Lint
+        if: matrix.lint
+        run: npx eslint src
         working-directory: ${{ matrix.package }}
 
   # ── the shared contract ─────────────────────────────────────────────────────

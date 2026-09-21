@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowsOut,
-  DownloadSimple,
+  Download,
+  Maximize2,
   Pause,
-  PictureInPicture,
+  PictureInPicture2,
   Play,
-  SpeakerHigh,
-  SpeakerSlash,
-} from '@phosphor-icons/react';
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { type StoredFile } from '@/api';
 
 const motion =
@@ -174,7 +174,7 @@ export function VideoPlayer({
 
   const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 
-  if (failed) return <div className="grid h-full place-items-center px-6 text-center"><div><p className="text-lg font-semibold">This video cannot play in this browser</p><p className="mt-2 max-w-md text-sm text-white/45">The original codec may only be supported on the device that recorded it.</p>{file.capabilities.download && file.downloadUrl && <a href={file.downloadUrl} className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#c17745] px-5 text-sm font-semibold"><DownloadSimple size={17} weight="light" />Download original</a>}</div></div>;
+  if (failed) return <div className="grid h-full place-items-center px-6 text-center"><div><p className="text-lg font-semibold">This video cannot play in this browser</p><p className="mt-2 max-w-md text-sm text-white/45">The original codec may only be supported on the device that recorded it.</p>{file.capabilities.download && file.downloadUrl && <a href={file.downloadUrl} className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#c17745] px-5 text-sm font-semibold"><Download size={17} strokeWidth={1.5} />Download original</a>}</div></div>;
 
   return <div ref={frameRef} className="relative grid h-full place-items-center bg-[#141210]" onMouseMove={showControls} onClick={showControls}>
     {/* The proxy when there is one, the original when there is not. The proxy is
@@ -182,7 +182,7 @@ export function VideoPlayer({
         so it both plays where the original cannot and starts without fetching
         the end of the file first. */}
     <video ref={videoRef} key={file.key} autoPlay playsInline poster={file.posterUrl ?? undefined} className="max-h-full max-w-full" onPlay={() => { setPlaying(true); showControls(); }} onPause={() => { setPlaying(false); setControls(true); }} onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)} onDurationChange={(event) => setDuration(event.currentTarget.duration || duration)} onError={() => setFailed(true)}>{hlsNative ? <source src={file.hlsUrl!} type="application/vnd.apple.mpegurl" /> : hlsViaLibrary ? null : file.proxyUrl ? <source src={file.proxyUrl} type="video/mp4" /> : <><source src={file.url ?? ''} type={file.contentType ?? 'video/mp4'} />{file.contentType === 'video/quicktime' && <source src={file.url ?? ''} type="video/mp4" />}</>}</video>
-    {!compact && <div className={`absolute inset-x-4 bottom-4 mx-auto max-w-4xl rounded-[1.35rem] bg-[#211d1a]/92 p-1.5 backdrop-blur-xl ${motion} ${controls ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'}`}><div className="rounded-[1rem] border border-white/[0.08] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"><input type="range" min={0} max={Math.max(duration, 0)} step={0.1} value={Math.min(time, duration || 0)} onChange={(event) => { const next = Number(event.target.value); if (videoRef.current) videoRef.current.currentTime = next; setTime(next); }} aria-label="Video position" className="media-range w-full" /><div className="mt-2 flex items-center gap-2"><button onClick={() => videoRef.current?.paused ? videoRef.current.play() : videoRef.current?.pause()} aria-label={playing ? 'Pause' : 'Play'} className="grid size-9 place-items-center rounded-full bg-white text-[#211d1a]">{playing ? <Pause size={16} weight="fill" /> : <Play size={16} weight="fill" />}</button><button onClick={() => setMuted((value) => !value)} aria-label={muted ? 'Unmute' : 'Mute'} className="grid size-9 place-items-center text-white/65">{muted ? <SpeakerSlash size={18} weight="light" /> : <SpeakerHigh size={18} weight="light" />}</button><input type="range" min={0} max={1} step={0.01} value={volume} onChange={(event) => setVolume(Number(event.target.value))} aria-label="Volume" className="media-range hidden w-20 sm:block" /><span className="font-mono text-[10px] tabular-nums text-white/45">{clock(time)} / {clock(duration)}</span><span className="flex-1" /><select value={rate} onChange={(event) => setRate(Number(event.target.value))} aria-label="Playback speed" className="rounded-full bg-white/[0.07] px-2 py-1 text-xs text-white outline-none">{[0.5, 1, 1.25, 1.5, 2].map((value) => <option key={value} value={value} className="bg-[#211d1a]">{value}×</option>)}</select>{'pictureInPictureEnabled' in document && <button onClick={() => { const video = videoRef.current as HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }; video.requestPictureInPicture?.(); }} aria-label="Picture in picture" className="grid size-9 place-items-center text-white/65"><PictureInPicture size={18} weight="light" /></button>}{/* Saving the original.
+    {!compact && <div className={`absolute inset-x-4 bottom-4 mx-auto max-w-4xl rounded-[1.35rem] bg-[#211d1a]/92 p-1.5 backdrop-blur-xl ${motion} ${controls ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'}`}><div className="rounded-[1rem] border border-white/[0.08] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"><input type="range" min={0} max={Math.max(duration, 0)} step={0.1} value={Math.min(time, duration || 0)} onChange={(event) => { const next = Number(event.target.value); if (videoRef.current) videoRef.current.currentTime = next; setTime(next); }} aria-label="Video position" className="media-range w-full" /><div className="mt-2 flex items-center gap-2"><button onClick={() => videoRef.current?.paused ? videoRef.current.play() : videoRef.current?.pause()} aria-label={playing ? 'Pause' : 'Play'} className="grid size-9 place-items-center rounded-full bg-white text-[#211d1a]">{playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}</button><button onClick={() => setMuted((value) => !value)} aria-label={muted ? 'Unmute' : 'Mute'} className="grid size-9 place-items-center text-white/65">{muted ? <VolumeX size={18} strokeWidth={1.5} /> : <Volume2 size={18} strokeWidth={1.5} />}</button><input type="range" min={0} max={1} step={0.01} value={volume} onChange={(event) => setVolume(Number(event.target.value))} aria-label="Volume" className="media-range hidden w-20 sm:block" /><span className="font-mono text-[10px] tabular-nums text-white/45">{clock(time)} / {clock(duration)}</span><span className="flex-1" /><select value={rate} onChange={(event) => setRate(Number(event.target.value))} aria-label="Playback speed" className="rounded-full bg-white/[0.07] px-2 py-1 text-xs text-white outline-none">{[0.5, 1, 1.25, 1.5, 2].map((value) => <option key={value} value={value} className="bg-[#211d1a]">{value}×</option>)}</select>{'pictureInPictureEnabled' in document && <button onClick={() => { const video = videoRef.current as HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }; video.requestPictureInPicture?.(); }} aria-label="Picture in picture" className="grid size-9 place-items-center text-white/65"><PictureInPicture2 size={18} strokeWidth={1.5} /></button>}{/* Saving the original.
                  *
                  * This used to be in the lightbox chrome, which is what a film
                  * opened into before VideoSurface existed. Moving playback out
@@ -193,6 +193,6 @@ export function VideoPlayer({
                  *
                  * Same guard as everywhere else: a collaborator with view-only
                  * access is given no `downloadUrl` to offer. */}
-                {file.capabilities.download && file.downloadUrl && <a href={file.downloadUrl} aria-label="Download original" className="grid size-9 place-items-center text-white/65 hover:text-white"><DownloadSimple size={18} weight="light" /></a>}<button onClick={() => frameRef.current?.requestFullscreen()} aria-label="Fullscreen" className="grid size-9 place-items-center text-white/65"><ArrowsOut size={18} weight="light" /></button></div></div></div>}
+                {file.capabilities.download && file.downloadUrl && <a href={file.downloadUrl} aria-label="Download original" className="grid size-9 place-items-center text-white/65 hover:text-white"><Download size={18} strokeWidth={1.5} /></a>}<button onClick={() => frameRef.current?.requestFullscreen()} aria-label="Fullscreen" className="grid size-9 place-items-center text-white/65"><Maximize2 size={18} strokeWidth={1.5} /></button></div></div></div>}
   </div>;
 }

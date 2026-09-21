@@ -25,8 +25,11 @@ const THUMB_EDGE = 640;
  * A thumbnail is a nicety and the original always works as a fallback. Pulling
  * a 100 MB TIFF into memory to make one is how a confirm request takes the
  * container down with it.
+ *
+ * Exported for scripts/backfill-thumbnails.mjs, which has to leave the same
+ * files alone and used to do it with its own copy of this number.
  */
-const MAX_SOURCE_BYTES = 40 * 1024 * 1024;
+export const MAX_SOURCE_BYTES = 40 * 1024 * 1024;
 
 /** WebP everywhere: ~30% smaller than JPEG at the same quality, and universal. */
 const THUMB_CONTENT_TYPE = 'image/webp';
@@ -61,6 +64,19 @@ export function thumbKeyFor(key: string): string {
   return `${key.replace(/\.[^./]+$/, '')}-thumb.webp`;
 }
 
+/**
+ * What a stored photograph already has.
+ *
+ * Nothing, for an upload being confirmed. The backfill passes the row, so a
+ * photograph from before display copies or previews existed gets the ones it
+ * is missing without its thumbnail being made and uploaded a second time.
+ */
+export interface ExistingDerivatives {
+  thumbKey?: string | null;
+  displayWidths?: readonly number[] | null;
+  blurDataUrl?: string | null;
+}
+
 @Injectable()
 export class ThumbnailsService {
   private readonly logger = new Logger(ThumbnailsService.name);
@@ -79,12 +95,19 @@ export class ThumbnailsService {
    * upload succeeded and the gallery falling back to the original. Losing the
    * thumbnail costs bandwidth; losing the upload costs the photograph.
    *
+   * Anything in `existing` is kept rather than made again. Display copies
+   * count only when there is at least one: an empty list is also what a
+   * photograph confirmed before the media host was configured was left with,
+   * and with the source already in memory, trying again costs a resize rather
+   * than a read.
+   *
    * Returns the key it wrote, or null if it declined or failed.
    */
   async generate(
     key: string,
     contentType: string | null,
     sizeBytes: number,
+    existing: ExistingDerivatives = {},
   ): Promise<string | null> {
     if (!contentType?.startsWith('image/')) return null;
     if (sizeBytes > MAX_SOURCE_BYTES) {
@@ -107,7 +130,7 @@ export class ThumbnailsService {
       let thumbKey: string | null = null;
 
       // An animated GIF thumbnail would silently turn motion into a still.
-      if (contentType !== 'image/gif') {
+      if (contentType !== 'image/gif' && !existing.thumbKey) {
         const body = await sharp(source, { failOn: 'none' })
           .rotate()
           .resize(THUMB_EDGE, THUMB_EDGE, {
@@ -123,23 +146,27 @@ export class ThumbnailsService {
         }
       }
 
-      const displayWidths =
-        contentType === 'image/gif'
-          ? []
-          : await this.createDisplayCopies(key, source, width, height, sizeBytes);
+      // Null leaves the recorded widths as they are.
+      let displayWidths: number[] | null = null;
+      if (!existing.displayWidths?.length) {
+        displayWidths =
+          contentType === 'image/gif'
+            ? []
+            : await this.createDisplayCopies(key, source, width, height, sizeBytes);
+      }
 
       // From the same buffer, while it is still decoded and in hand. An
       // animated GIF gets one too: a still first frame is a better stand-in
       // than a grey box, and nobody sees it for long enough to notice it is
       // not moving.
-      const blur = await blurDataUrl(source);
+      const blur = existing.blurDataUrl ? null : await blurDataUrl(source);
 
       await this.db.query(
         `update user_files
             set thumb_key = coalesce($2, thumb_key),
                 width_px = $3,
                 height_px = $4,
-                display_widths = $5,
+                display_widths = coalesce($5, display_widths),
                 blur_data_url = coalesce($6, blur_data_url),
                 processing_status = 'ready',
                 next_processing_at = null,

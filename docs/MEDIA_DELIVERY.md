@@ -693,7 +693,7 @@ had more than anyone would like.
 | Path | Cleanup |
 |---|---|
 | `deleteObject` | `removeFor([key])` |
-| `deleteKeys` | `removeFor(keys)` — from what was asked for, not what came back deleted |
+| `deleteMany` | `removeFor(known)` — every requested key with a row, not only what came back deleted |
 | `wipeAll` | `removeTree('users/<id>')` — one call, and it collects orphans too — plus `removeFor` for collaborators' uploads into the user's albums, which live under the collaborator's prefix |
 | `wipeAll`, when the user has uploads in someone else's album | `removeFor` on every original it wiped, and no tree: those uploads are billed to that album's owner and outlive the wipe, and their renditions share the tree. Orphans under the prefix are left behind |
 
@@ -729,11 +729,21 @@ neither.
 
 Display copies are made on the **confirm path**, not by the background queue.
 Generating them for an existing library means reading every original back out
-of B2 — a real egress bill and a long run — so it is an operator decision:
+of B2 — a real egress bill and a long run — so it is an operator decision.
+The backfill runs `ThumbnailsService.generate` itself, so it also fills in a
+missing thumbnail or blur preview from the same read. Look before paying for
+it: the dry run reads nothing and totals the download.
 
 ```powershell
-docker compose -f docker-compose.prod.yml exec api node scripts/backfill-thumbnails.mjs
+docker compose -f docker-compose.prod.yml exec api node scripts/backfill-thumbnails.mjs --dry-run
+docker compose -f docker-compose.prod.yml exec api node scripts/backfill-thumbnails.mjs --limit 500
 ```
+
+Repeat the second line until a run reports `previews=0`. Each run carries on
+where the last one stopped, and what is left at the end is files that will not
+decode, which every run retries last. It refuses to start if the media host or
+the volume is not ready, rather than record photographs as done without their
+copies.
 
 Until that runs, older photographs keep serving their original on open, which
 is exactly what they did before. Nothing breaks while it is pending.

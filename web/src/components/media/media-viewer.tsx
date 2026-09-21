@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent } from 'react';
-import { ArrowLeft, ArrowRight, DownloadSimple, Info, MagnifyingGlassMinus, MagnifyingGlassPlus, Trash, X } from '@phosphor-icons/react';
+import { ArrowLeft, ArrowRight, Download, Info, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { displaySrcSet, formatBytes, kindOf, largestDisplaySource, type StoredFile } from '@/api';
 import { VideoPlayer } from '@/components/media/video-player';
 
@@ -93,12 +93,12 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
   return (
     <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={file.originalName} className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col overflow-hidden bg-[#141210] text-white outline-none" onPointerMove={() => setChrome(true)}>
       <header className={`relative z-20 flex items-center gap-3 px-4 py-3 ${motion} ${chrome ? 'translate-y-0 opacity-100' : '-translate-y-3 opacity-0'}`}>
-        <button onClick={onClose} aria-label="Close viewer" className="grid size-10 place-items-center rounded-full bg-white/[0.08] text-white/80 hover:bg-white/[0.14] hover:text-white"><X size={19} weight="light" /></button>
+        <button onClick={onClose} aria-label="Close viewer" className="grid size-10 place-items-center rounded-full bg-white/[0.08] text-white/80 hover:bg-white/[0.14] hover:text-white"><X size={19} strokeWidth={1.5} /></button>
         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold tracking-[-0.015em]">{file.originalName}</p><p className="mt-0.5 font-mono text-[10px] tabular-nums text-white/40">{index + 1} / {files.length} · {formatBytes(file.sizeBytes)}</p></div>
-        {kind === 'image' && <div className="hidden items-center gap-1 sm:flex"><ViewerButton label="Zoom out" onClick={() => setZoom((value) => Math.max(1, value - 0.25))}><MagnifyingGlassMinus size={18} weight="light" /></ViewerButton><button onClick={resetTransform} className="min-w-14 rounded-full px-3 py-2 font-mono text-[10px] tabular-nums text-white/60 hover:bg-white/[0.08]">{Math.round(zoom * 100)}%</button><ViewerButton label="Zoom in" onClick={() => setZoom((value) => Math.min(4, value + 0.25))}><MagnifyingGlassPlus size={18} weight="light" /></ViewerButton></div>}
-        <ViewerButton label="File information" onClick={() => setShowInfo((value) => !value)}><Info size={18} weight="light" /></ViewerButton>
-        {file.capabilities.download && file.downloadUrl && <a href={file.downloadUrl} aria-label="Download original" className="grid size-10 place-items-center rounded-full text-white/65 hover:bg-white/[0.08] hover:text-white"><DownloadSimple size={18} weight="light" /></a>}
-        {file.capabilities.delete && onDelete && <ViewerButton label="Delete file" onClick={() => onDelete(file)} danger><Trash size={18} weight="light" /></ViewerButton>}
+        {kind === 'image' && <div className="hidden items-center gap-1 sm:flex"><ViewerButton label="Zoom out" onClick={() => setZoom((value) => Math.max(1, value - 0.25))}><ZoomOut size={18} strokeWidth={1.5} /></ViewerButton><button onClick={resetTransform} className="min-w-14 rounded-full px-3 py-2 font-mono text-[10px] tabular-nums text-white/60 hover:bg-white/[0.08]">{Math.round(zoom * 100)}%</button><ViewerButton label="Zoom in" onClick={() => setZoom((value) => Math.min(4, value + 0.25))}><ZoomIn size={18} strokeWidth={1.5} /></ViewerButton></div>}
+        <ViewerButton label="File information" onClick={() => setShowInfo((value) => !value)}><Info size={18} strokeWidth={1.5} /></ViewerButton>
+        {file.capabilities.download && file.downloadUrl && <a href={file.downloadUrl} aria-label="Download original" className="grid size-10 place-items-center rounded-full text-white/65 hover:bg-white/[0.08] hover:text-white"><Download size={18} strokeWidth={1.5} /></a>}
+        {file.capabilities.delete && onDelete && <ViewerButton label="Delete file" onClick={() => onDelete(file)} danger><Trash2 size={18} strokeWidth={1.5} /></ViewerButton>}
       </header>
 
       <main className="relative min-h-0 flex-1">
@@ -117,7 +117,7 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
           </div>
         ) : kind === 'video' ? <VideoPlayer file={file} /> : <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">Open audio from the album track list to use the listening queue.</div>}
 
-        {files.length > 1 && zoom === 1 && <><button onClick={() => step(-1)} aria-label="Previous item" className={`absolute left-4 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-[#211d1a]/88 text-white/75 backdrop-blur-md hover:text-white ${motion} ${chrome ? 'opacity-100' : 'opacity-0'}`}><ArrowLeft size={19} weight="light" /></button><button onClick={() => step(1)} aria-label="Next item" className={`absolute right-4 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-[#211d1a]/88 text-white/75 backdrop-blur-md hover:text-white ${motion} ${chrome ? 'opacity-100' : 'opacity-0'}`}><ArrowRight size={19} weight="light" /></button></>}
+        {files.length > 1 && zoom === 1 && <><button onClick={() => step(-1)} aria-label="Previous item" className={`absolute left-4 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-[#211d1a]/88 text-white/75 backdrop-blur-md hover:text-white ${motion} ${chrome ? 'opacity-100' : 'opacity-0'}`}><ArrowLeft size={19} strokeWidth={1.5} /></button><button onClick={() => step(1)} aria-label="Next item" className={`absolute right-4 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-[#211d1a]/88 text-white/75 backdrop-blur-md hover:text-white ${motion} ${chrome ? 'opacity-100' : 'opacity-0'}`}><ArrowRight size={19} strokeWidth={1.5} /></button></>}
 
         {showInfo && <aside className="absolute bottom-20 right-4 z-20 w-[min(22rem,calc(100%-2rem))] rounded-[1.5rem] bg-[#211d1a]/96 p-1.5 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)] backdrop-blur-xl"><div className="rounded-[1.15rem] border border-white/[0.08] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/40">File information</p><dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-white/40">Name</dt><dd className="truncate text-right">{file.originalName}</dd><dt className="text-white/40">Type</dt><dd className="text-right">{file.contentType ?? 'Unknown'}</dd><dt className="text-white/40">Size</dt><dd className="text-right">{formatBytes(file.sizeBytes)}</dd><dt className="text-white/40">Dimensions</dt><dd className="text-right">{file.width && file.height ? `${file.width} × ${file.height}` : 'Not available'}</dd></dl></div></aside>}
       </main>

@@ -5,7 +5,7 @@ import { NotifyService } from '../notifications/notify.service';
 import { StorageService } from '../storage/storage.service';
 
 interface ExpiringFile {
-  user_id: string;
+  owner_id: string;
   album_id: string;
   album_name: string;
   key: string;
@@ -62,13 +62,20 @@ export class AlbumRetentionService {
   /**
    * Removes every file past its album's retention window.
    *
-   * Batched by owner because the storage layer scopes deletes per user — the
-   * key-prefix check that keeps one account from deleting another's objects
-   * needs a user to check against.
+   * Deleted album by album, as the album's owner. As the owner because the
+   * setting is theirs: the sweep gets exactly the authority they have over
+   * their own album and no more. Album by album so a receipt counts what that
+   * album actually lost, and so one album that fails cannot take the others
+   * down with it.
+   *
+   * Through `deleteMany`, which authorises each file by its row and album,
+   * not by key prefix. The prefix says who uploaded a file, and a
+   * collaborator's upload keeps the collaborator's: checking it against the
+   * owner refused those files and aborted the entire sweep.
    */
   async deleteExpired(): Promise<{ albums: number; deleted: number; failed: number }> {
     const expiring = await this.db.query<ExpiringFile>(
-      `select f.user_id, f.album_id, a.name as album_name, f.key
+      `select a.user_id as owner_id, f.album_id, a.name as album_name, f.key
          from user_files f
          join albums a on a.id = f.album_id
         where a.retention_days is not null
@@ -82,30 +89,37 @@ export class AlbumRetentionService {
 
     if (expiring.length === 0) return { albums: 0, deleted: 0, failed: 0 };
 
-    const byUser = new Map<string, string[]>();
-    const albums = new Map<string, { userId: string; name: string; count: number }>();
+    const albums = new Map<
+      string,
+      { ownerId: string; name: string; keys: string[]; removed: number }
+    >();
 
     for (const row of expiring) {
-      const keys = byUser.get(row.user_id) ?? [];
-      keys.push(row.key);
-      byUser.set(row.user_id, keys);
-
       const album = albums.get(row.album_id) ?? {
-        userId: row.user_id,
+        ownerId: row.owner_id,
         name: row.album_name,
-        count: 0,
+        keys: [],
+        removed: 0,
       };
-      album.count += 1;
+      album.keys.push(row.key);
       albums.set(row.album_id, album);
     }
 
     let deleted = 0;
     let failed = 0;
 
-    for (const [userId, keys] of byUser) {
-      const result = await this.storage.deleteKeys(userId, keys);
-      deleted += result.deleted;
-      failed += result.failed;
+    for (const [albumId, album] of albums) {
+      try {
+        const result = await this.storage.deleteMany(album.ownerId, album.keys);
+        album.removed = result.deleted;
+        deleted += result.deleted;
+        failed += result.failed;
+      } catch (err) {
+        // One album must not stop the rest, or their receipts. Its rows are
+        // left as they were, so the next sweep tries it again.
+        failed += album.keys.length;
+        this.logger.error(`Retention failed for album ${albumId}: ${String(err)}`);
+      }
     }
 
     this.logger.log(
@@ -117,11 +131,14 @@ export class AlbumRetentionService {
     // the setting is not having to think about it. This is a receipt, not a
     // decision to make.
     for (const [, album] of albums) {
+      // What the bucket confirmed gone, not what was due: a receipt for files
+      // that are still there is worse than none.
+      if (album.removed === 0) continue;
       await this.notifier
-        .notify([album.userId], {
+        .notify([album.ownerId], {
           topic: 'retention',
           title: 'Delivered files cleaned up',
-          body: `${album.count} file${album.count === 1 ? '' : 's'} removed from “${album.name}” as scheduled.`,
+          body: `${album.removed} file${album.removed === 1 ? '' : 's'} removed from “${album.name}” as scheduled.`,
           data: { type: 'retention' },
         })
         .catch(() => {
