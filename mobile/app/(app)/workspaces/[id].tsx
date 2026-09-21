@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { eventColor, eventTypeLabel, isEventUpcoming } from '@/src/lib/calendar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -346,7 +347,7 @@ export default function WorkspaceDetailScreen() {
                       : undefined
                   }
                 >
-                  <Image
+                  <RemoteImage
                     source={{
                       uri:
                         collab.avatar_url ||
@@ -444,7 +445,7 @@ export default function WorkspaceDetailScreen() {
                       elevation: 3,
                     }}
                   >
-                    <Image
+                    <RemoteImage
                       source={{
                         uri:
                           album.cover_url ||

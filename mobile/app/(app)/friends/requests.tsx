@@ -1,4 +1,5 @@
-import { View, Text, FlatList, RefreshControl, Pressable, Image } from 'react-native';
+import { View, Text, FlatList, RefreshControl, Pressable } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useFriends, useRespondToFriendRequest, useTheme } from '@/src/hooks';
 import { useState } from 'react';
@@ -83,7 +84,7 @@ export default function FriendRequestsScreen() {
                 {received.map((f, i) => (
                   <View key={f.id} className="bg-card rounded-2xl p-4 flex-row items-center gap-4 mb-2"
                     style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-                    <Image source={{ uri: f.friend_avatar_url || PLACEHOLDER_IMAGE }}
+                    <RemoteImage source={{ uri: f.friend_avatar_url || PLACEHOLDER_IMAGE }}
                       style={{ width: 46, height: 46, borderRadius: 23 }} />
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-bold">{f.friend_name}</Text>
@@ -106,7 +107,7 @@ export default function FriendRequestsScreen() {
                 {sent.map((f, i) => (
                   <View key={f.id} className="bg-card rounded-2xl p-4 flex-row items-center gap-4 mb-2"
                     style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-                    <Image source={{ uri: f.friend_avatar_url || PLACEHOLDER_IMAGE }}
+                    <RemoteImage source={{ uri: f.friend_avatar_url || PLACEHOLDER_IMAGE }}
                       style={{ width: 46, height: 46, borderRadius: 23 }} />
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-bold">{f.friend_name}</Text>

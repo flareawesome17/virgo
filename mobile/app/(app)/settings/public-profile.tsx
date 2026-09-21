@@ -1,7 +1,8 @@
 import {
-  View, Text, ScrollView, Pressable, TextInput, Image, Switch,
+  View, Text, ScrollView, Pressable, TextInput, Switch,
   ActivityIndicator, Alert, Modal, KeyboardAvoidingView, Platform, Share,
 } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -203,12 +204,12 @@ export default function PublicProfileScreen() {
               {items.map((item, index) => (
                 <View key={item.id} className="bg-card rounded-2xl p-2.5 flex-row items-center gap-3">
                   {item.kind === 'image' ? (
-                    <Image
+                    <RemoteImage
                       source={{ uri: item.url }}
                       style={{ width: 44, height: 44, borderRadius: 8 }}
                     />
                   ) : item.coverUrl ? (
-                    <Image
+                    <RemoteImage
                       source={{ uri: item.coverUrl }}
                       style={{ width: 44, height: 44, borderRadius: 8 }}
                     />
@@ -473,7 +474,7 @@ function PickerModal({
                       borderWidth: 2, borderColor: isOn ? '#B66A40' : 'transparent',
                     }}
                   >
-                    <Image source={{ uri: file.url as string }} style={{ flex: 1 }} />
+                    <RemoteImage source={{ uri: file.url as string }} style={{ flex: 1 }} />
                     {isOn && (
                       <View
                         style={{

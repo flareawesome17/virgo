@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, Pressable, TextInput, Image, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -292,7 +293,7 @@ export default function ProfileSettingsScreen() {
         <View className="items-center mt-6 mb-6">
           <View className="relative">
             {profile?.avatarUrl ? (
-              <Image
+              <RemoteImage
                 source={{ uri: profile.avatarUrl }}
                 style={{ width: 88, height: 88, borderRadius: 44 }}
               />

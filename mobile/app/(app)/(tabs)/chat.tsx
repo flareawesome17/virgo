@@ -4,10 +4,10 @@ import {
   FlatList,
   RefreshControl,
   Pressable,
-  Image,
   TextInput,
   ActivityIndicator,
 } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -199,7 +199,7 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
               // Wrapped so the presence dot has something to anchor to.
               <View style={{ position: 'relative' }}>
                 {item.avatarUrl ? (
-                  <Image
+                  <RemoteImage
                     source={{ uri: item.avatarUrl }}
                     style={{ width: 48, height: 48, borderRadius: 24 }}
                   />

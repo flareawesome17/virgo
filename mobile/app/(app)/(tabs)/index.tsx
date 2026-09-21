@@ -2,7 +2,7 @@ import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native'
 import { eventColor, eventTypeLabel, isEventUpcoming } from '@/src/lib/calendar';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useAlbums,
@@ -202,7 +202,7 @@ export default function FeedScreen() {
             className="active:scale-[0.96]"
           >
             {profile?.avatarUrl ? (
-              <Image
+              <RemoteImage
                 source={{ uri: profile.avatarUrl }}
                 style={{ width: 44, height: 44, borderRadius: 22 }}
               />
@@ -431,7 +431,7 @@ export default function FeedScreen() {
               accessibilityLabel={`Open album ${albums[0].name}`}
               className="bg-card rounded-3xl overflow-hidden border border-border/30 mb-3 active:scale-[0.99]"
             >
-              <Image
+              <RemoteImage
                 source={{ uri: albums[0].cover_url || PLACEHOLDER_COVER }}
                 style={{ width: '100%', height: 148 }}
                 contentFit="cover"

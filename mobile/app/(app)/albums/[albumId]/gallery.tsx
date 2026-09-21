@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
@@ -88,7 +88,7 @@ export default function GalleryScreen() {
             style={{ width: tile, height: tile }}
             className="bg-white/[0.04] active:opacity-75"
           >
-            <Image
+            <RemoteImage
               source={{ uri: photo.thumbnailUrl ?? photo.url ?? undefined }}
               style={{ width: '100%', height: '100%' }}
               contentFit="cover"

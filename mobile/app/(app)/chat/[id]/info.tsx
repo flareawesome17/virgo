@@ -6,11 +6,11 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  Image,
   Modal,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -211,7 +211,7 @@ export default function ConversationInfoScreen() {
               <UsersIcon size={32} color="#5B7B9A" />
             </View>
           ) : others[0]?.avatar_url ? (
-            <Image
+            <RemoteImage
               source={{ uri: others[0].avatar_url }}
               style={{ width: 80, height: 80, borderRadius: 40 }}
             />
@@ -349,7 +349,7 @@ export default function ConversationInfoScreen() {
                   style={i < participants.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
                 >
                   {p.avatar_url ? (
-                    <Image source={{ uri: p.avatar_url }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+                    <RemoteImage source={{ uri: p.avatar_url }} style={{ width: 40, height: 40, borderRadius: 20 }} />
                   ) : (
                     <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
                       <Text style={{ color: '#B66A40', fontWeight: '700' }}>

@@ -3,12 +3,12 @@ import {
   Text,
   ScrollView,
   Pressable,
-  Image,
   Alert,
   ActivityIndicator,
   RefreshControl,
   Switch,
 } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -207,7 +207,7 @@ export default function NearbyScreen() {
       }
     >
       {person.avatarUrl ? (
-        <Image
+        <RemoteImage
           source={{ uri: person.avatarUrl }}
           style={{ width: 44, height: 44, borderRadius: 22 }}
         />

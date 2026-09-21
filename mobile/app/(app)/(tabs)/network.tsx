@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, Image, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Modal } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useAuth,
@@ -319,7 +320,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                     style={i < people.length - 1 ? { borderBottomWidth: 1, borderBottomColor: palette.border } : undefined}
                   >
                     {p.avatarUrl ? (
-                      <Image source={{ uri: p.avatarUrl }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+                      <RemoteImage source={{ uri: p.avatarUrl }} style={{ width: 40, height: 40, borderRadius: 20 }} />
                     ) : (
                       <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: `${palette.primary}18` }}>
                         <Text style={{ color: palette.primary, fontWeight: '700' }}>
@@ -491,7 +492,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                           : undefined
                       }
                     >
-                      <Image
+                      <RemoteImage
                         source={{
                           uri:
                             collab.avatar_url ||
@@ -712,7 +713,7 @@ function FriendRow({
     >
       <View>
         {friend.friend_avatar_url ? (
-          <Image
+          <RemoteImage
             source={{ uri: friend.friend_avatar_url }}
             style={{ width: 40, height: 40, borderRadius: 20 }}
           />
