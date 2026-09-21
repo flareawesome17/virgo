@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { Apple, Check, Monitor } from 'lucide-react';
+import { useHydrated } from '@/lib/hydration';
 import { cn } from '@/lib/utils';
 
 /**
@@ -115,12 +115,11 @@ function DownloadButton({
  * release that failed to produce an installer cannot be advertised.
  */
 export function DownloadPanel({ release }: { release: LatestRelease | null }) {
-  // Starts 'unknown' and is filled in after mount, so the server and the first
-  // client render agree. Deciding during render instead would mean the HTML
-  // says Windows to everybody and React replaces it, which hydration reports
-  // as a mismatch.
-  const [os, setOs] = useState<DetectedOs>('unknown');
-  useEffect(() => setOs(detectOs()), []);
+  // 'unknown' until hydrated, so the server and the hydrating render agree.
+  // Deciding in the server render instead would mean the HTML says Windows to
+  // everybody and React replaces it, which hydration reports as a mismatch.
+  const hydrated = useHydrated();
+  const os: DetectedOs = hydrated ? detectOs() : 'unknown';
 
   if (!release || release.assets.length === 0) {
     return (
@@ -138,7 +137,7 @@ export function DownloadPanel({ release }: { release: LatestRelease | null }) {
   const windows = release.assets.filter((a) => a.platform === 'windows');
   const macos = release.assets.filter((a) => a.platform === 'macos');
 
-  // 'unknown' — the first paint, before the effect runs — falls through to the
+  // 'unknown' — the server's paint, before hydration — falls through to the
   // documented order rather than flashing one platform and swapping to another.
   const showWindowsFirst = os !== 'macos';
 

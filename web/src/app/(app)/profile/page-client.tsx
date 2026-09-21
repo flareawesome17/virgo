@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   CalendarDays,
   Camera,
@@ -141,14 +141,16 @@ export default function ProfilePage() {
    * Whether the Title field is still tracking the roles.
    *
    * True until somebody types their own, and re-decided when the profile
-   * loads — see the seed effect below.
+   * loads — see the seeding below.
    */
   const [titleFollowsRoles, setTitleFollowsRoles] = useState(true);
 
   // Seeded once the profile lands, not on every render: re-seeding would wipe
   // whatever the user was midway through typing on a background refetch.
-  useEffect(() => {
-    if (seeded || !profile) return;
+  // During render rather than in an effect, so a profile that has already
+  // arrived is never painted as a row of empty fields first.
+  if (!seeded && profile) {
+    setSeeded(true);
     setForm({
       displayName: profile.displayName ?? '',
       title: profile.title ?? '',
@@ -179,17 +181,37 @@ export default function ProfilePage() {
     setTitleFollowsRoles(
       saved === '' || saved === titleFromRoles(profile.roles ?? []),
     );
-
-    setSeeded(true);
-  }, [profile, seeded]);
+  }
 
   const set = (key: keyof typeof EMPTY) => (value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
 
+  /** The title the chosen roles imply — "Photographer & Videographer". */
+  const derivedTitle = titleFromRoles(roles);
+
+  /*
+   * The title follows the roles until somebody writes their own.
+   *
+   * Leaving it blank is the common case, and a profile with no title reads as
+   * unfinished when the person has already said exactly what they do one field
+   * below. So picking Photographer and Videographer fills in "Photographer &
+   * Videographer", and changing the roles updates it.
+   *
+   * It stops following the moment the text is anything other than a title the
+   * roles would have produced — including empty, which is somebody deliberately
+   * clearing it. Overwriting a hand-written title because a role was added
+   * would be worse than leaving it blank in the first place.
+   *
+   * Derived here rather than written into the form by an effect, so the field
+   * never shows a title the roles have already moved on from. `values` is the
+   * form as it reads on screen, and what is compared and saved.
+   */
+  const values = titleFollowsRoles ? { ...form, title: derivedTitle } : form;
+
   const dirty =
     seeded &&
     ((Object.keys(EMPTY) as (keyof typeof EMPTY)[]).some(
-      (k) => form[k] !== (profile?.[k] ?? ''),
+      (k) => values[k] !== (profile?.[k] ?? ''),
     ) ||
       roles.join(',') !== (profile?.roles ?? []).join(','));
 
@@ -220,38 +242,12 @@ export default function ProfilePage() {
         address.addressCountry.length !== 2 && 'a two-letter country code',
       ].filter(Boolean as unknown as (v: unknown) => v is string);
 
-  /**
-   * The title the chosen roles imply — "Photographer & Videographer".
-   *
-   * Declared here rather than beside the other state because it reads `roles`,
-   * which is set further up.
-   */
-  const derivedTitle = titleFromRoles(roles);
-
-  /*
-   * The title follows the roles until somebody writes their own.
-   *
-   * Leaving it blank is the common case, and a profile with no title reads as
-   * unfinished when the person has already said exactly what they do one field
-   * below. So picking Photographer and Videographer fills in "Photographer &
-   * Videographer", and changing the roles updates it.
-   *
-   * It stops following the moment the text is anything other than a title the
-   * roles would have produced — including empty, which is somebody deliberately
-   * clearing it. Overwriting a hand-written title because a role was added
-   * would be worse than leaving it blank in the first place.
-   */
-  useEffect(() => {
-    if (!titleFollowsRoles) return;
-    setForm((f) => (f.title === derivedTitle ? f : { ...f, title: derivedTitle }));
-  }, [derivedTitle, titleFollowsRoles]);
-
   const save = () => {
     updateProfile.mutate(
       {
         // Empty means cleared, which the API models as null rather than "".
         displayName: form.displayName.trim() || null,
-        title: form.title.trim() || null,
+        title: values.title.trim() || null,
         phone: form.phone.trim() || null,
         website: form.website.trim() || null,
         location: form.location.trim() || null,
@@ -393,7 +389,7 @@ export default function ProfilePage() {
                   <Label htmlFor="title">Title</Label>
                   <Input
                     id="title"
-                    value={form.title}
+                    value={values.title}
                     onChange={(e) => {
                       // Typing takes ownership of the field; it stops tracking
                       // the roles from here on.

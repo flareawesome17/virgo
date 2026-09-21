@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useState } from 'react';
 import { ArrowDownToLine, Loader2, RotateCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -105,9 +105,8 @@ export function DesktopUpdateBanner() {
 
   // Read by the recurring check, which is set up once and would otherwise close
   // over the phase as it was at mount — and so would happily re-check in the
-  // middle of a download.
-  const phaseRef = useRef<Phase>('idle');
-  phaseRef.current = phase;
+  // middle of a download. An effect event always sees the latest phase.
+  const isIdle = useEffectEvent(() => phase === 'idle');
 
   useEffect(() => {
     if (!IS_DESKTOP) return;
@@ -124,7 +123,7 @@ export function DesktopUpdateBanner() {
       // Never interrupt a download or a finished one waiting to restart: a
       // fresh `check()` would replace the Update object mid-flight and the
       // progress bar would jump back to the start.
-      if (cancelled || phaseRef.current !== 'idle') return;
+      if (cancelled || !isIdle()) return;
 
       void check()
         .then((found) => {

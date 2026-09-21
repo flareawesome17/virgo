@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useTheme } from 'next-themes';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useHydrated } from '@/lib/hydration';
 import { cn } from '@/lib/utils';
 
 const OPTIONS = [
@@ -21,17 +21,15 @@ const OPTIONS = [
 /**
  * Light / dark / follow-the-device.
  *
- * Renders a neutral placeholder until mounted: the resolved theme is only
+ * Renders a neutral placeholder until hydrated: the resolved theme is only
  * known on the client, and rendering the real icon during SSR guarantees a
  * hydration mismatch for anyone whose choice differs from the default.
  */
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const hydrated = useHydrated();
 
-  useEffect(() => setMounted(true), []);
-
-  const Icon = !mounted ? Sun : resolvedTheme === 'dark' ? Moon : Sun;
+  const Icon = !hydrated ? Sun : resolvedTheme === 'dark' ? Moon : Sun;
 
   return (
     <DropdownMenu>
@@ -40,7 +38,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           variant="ghost"
           size="icon"
           aria-label="Change theme"
-          className={cn(className, !mounted && 'opacity-0')}
+          className={cn(className, !hydrated && 'opacity-0')}
         >
           <Icon className="size-4" />
         </Button>
