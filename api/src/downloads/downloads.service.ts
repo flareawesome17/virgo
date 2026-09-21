@@ -326,6 +326,24 @@ export class DownloadsService {
   }
 
   /**
+   * Recognises the macOS updater payload.
+   *
+   * Tauri's updater replaces the running `.app` from a tarball; a `.dmg` is a
+   * disk image and cannot be applied as an update. So a release carries both:
+   * the `.dmg` a person downloads once, and this, which only the updater ever
+   * asks for.
+   *
+   * Deliberately not part of `classify`, for the same reason as the APK above
+   * — the download page lists what `classify` returns, and a Mac user offered
+   * a `.tar.gz` beside the `.dmg` would reasonably wonder which one they are
+   * supposed to want. It still has to be served, though, because the manifest
+   * points the updater at `/downloads/<tag>/<name>`.
+   */
+  private isMacUpdaterArchive(asset: GitHubAsset): boolean {
+    return asset.name.toLowerCase().endsWith('.app.tar.gz');
+  }
+
+  /**
    * What a Tauri dynamic updater endpoint answers with.
    *
    * Field names are Tauri's, including the snake_case `pub_date` — this is
@@ -336,11 +354,9 @@ export class DownloadsService {
     arch: string,
     currentVersion: string,
   ): Promise<UpdateManifest | null> {
-    // Only Windows for now. macOS updates need the app packaged as a tarball
-    // rather than the .dmg the download page serves, which is a separate build
-    // target and a platform this has never run on — so it is added
-    // deliberately rather than by leaving a guess in here.
-    if (target !== 'windows') return null;
+    // `target` is the plugin's own word for the platform: `windows` or
+    // `darwin`. Anything else has never been built here.
+    if (target !== 'windows' && target !== 'darwin') return null;
 
     const release = await this.newestReleaseWithInstallers();
     if (!release) return null;
@@ -348,20 +364,40 @@ export class DownloadsService {
     const version = release.tag_name.replace(/^v/, '');
     if (!isNewer(version, currentVersion)) return null;
 
-    // The NSIS installer is what the updater runs, and the .sig beside it is
-    // what proves the download is ours. Both come from the same build; a
-    // release carrying one without the other is not offered at all, because
-    // the plugin would download the installer and then refuse it.
-    const installer = release.assets.find((asset) =>
-      asset.name.toLowerCase().endsWith('-setup.exe'),
-    );
+    // What the updater actually applies. On Windows that is the NSIS
+    // installer; on macOS it is the .app tarball, never the .dmg, which is a
+    // disk image the updater has no way to unpack over a running app.
+    //
+    // macOS also has to match the architecture, because a release carries both
+    // and handing an Intel Mac the Apple Silicon build would install something
+    // that cannot run. The plugin sends `aarch64` or `x86_64`; the release
+    // names them `aarch64` and `x64`, following the .dmg names.
+    let installer: GitHubAsset | undefined;
+    if (target === 'windows') {
+      installer = release.assets.find((asset) =>
+        asset.name.toLowerCase().endsWith('-setup.exe'),
+      );
+    } else {
+      const suffix =
+        arch === 'aarch64' || arch === 'arm64'
+          ? '_aarch64.app.tar.gz'
+          : '_x64.app.tar.gz';
+      installer = release.assets.find((asset) =>
+        asset.name.toLowerCase().endsWith(suffix),
+      );
+    }
+
+    // The .sig beside it is what proves the download is ours. Both come from
+    // the same build; a release carrying one without the other is not offered
+    // at all, because the plugin would download the installer and then refuse
+    // it.
     const signatureAsset = installer
       ? release.assets.find((asset) => asset.name === `${installer.name}.sig`)
       : undefined;
 
     if (!installer || !signatureAsset) {
       this.logger.warn(
-        `${release.tag_name} has no signed Windows installer — not offering an update.`,
+        `${release.tag_name} has no signed ${target === 'windows' ? 'Windows installer' : `macOS ${arch} build`} — not offering an update.`,
       );
       return null;
     }
@@ -641,7 +677,14 @@ export class DownloadsService {
     // Only files this module is willing to describe are files it will serve.
     // Without this the deployment worker zip, which is on every release and is
     // not for end users, would be downloadable by name.
-    if (!asset || !(this.classify(asset, tag) || this.isAndroidApk(asset))) {
+    if (
+      !asset ||
+      !(
+        this.classify(asset, tag) ||
+        this.isAndroidApk(asset) ||
+        this.isMacUpdaterArchive(asset)
+      )
+    ) {
       throw new NotFoundException('No such download.');
     }
 
