@@ -47,6 +47,73 @@ export interface AppNotification {
 }
 
 /**
+ * The kinds of notification someone can filter the list by and switch off in
+ * settings. Mirrors NOTIFICATION_CATEGORIES in the API's
+ * `notification-categories.ts`, in the same order: the order settings list
+ * them in.
+ */
+export const NOTIFICATION_CATEGORIES = [
+  'bookings',
+  'albums',
+  'jobs',
+  'hire',
+  'network',
+  'schedule',
+  'billing',
+  'updates',
+  'offers',
+  'support',
+] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+/** Where a notification can reach someone besides the list. */
+export type NotificationChannel = 'push' | 'email' | 'desktop';
+
+/** Which kind each topic is. Mirrors CATEGORY_OF_TOPIC in the API. */
+export const CATEGORY_OF_TOPIC: Record<NotificationTopic, NotificationCategory> = {
+  booking: 'bookings',
+  'client-picks': 'albums',
+  retention: 'albums',
+  'job-application': 'jobs',
+  'job-response': 'jobs',
+  'hire-enquiry': 'hire',
+  'hire-response': 'hire',
+  'friend-request': 'network',
+  'friend-accepted': 'network',
+  'collaborator-invite': 'network',
+  'collaborator-response': 'network',
+  'event-invite': 'schedule',
+  'event-response': 'schedule',
+  'event-updated': 'schedule',
+  reminder: 'schedule',
+  billing: 'billing',
+  'app-update': 'updates',
+  promo: 'offers',
+  support: 'support',
+};
+
+/**
+ * One row of notification settings. `null` where a kind never travels on that
+ * channel (nothing about a booking is emailed), and `locked` where it always
+ * reaches you (support replies).
+ */
+export interface NotificationSetting {
+  category: NotificationCategory;
+  push: boolean | null;
+  email: boolean | null;
+  desktop: boolean | null;
+  locked: boolean;
+}
+
+export interface NotificationListParams {
+  limit?: number;
+  /** Everything older than this `createdAt` — the next page. */
+  before?: string;
+  unread?: boolean;
+  category?: NotificationCategory | null;
+}
+
+/**
  * The notification list.
  *
  * These used to be a socket frame and an email and nothing else: if the app
@@ -75,14 +142,26 @@ function withClient(q: URLSearchParams = new URLSearchParams()): URLSearchParams
 }
 
 export const notificationsApi = {
-  list(params: { limit?: number; before?: string } = {}): Promise<{
+  list(params: NotificationListParams = {}): Promise<{
     data: AppNotification[];
     unread: number;
   }> {
     const q = withClient();
     if (params.limit) q.set('limit', String(params.limit));
     if (params.before) q.set('before', params.before);
+    if (params.unread) q.set('unread', '1');
+    if (params.category) q.set('category', params.category);
     return api.get(`/notifications?${q.toString()}`);
+  },
+
+  /**
+   * One of them, for the detail view. It says which client is asking because
+   * an announcement is only found by the platform it was meant for.
+   */
+  get(id: string): Promise<AppNotification> {
+    return api.get(
+      `/notifications/${encodeURIComponent(id)}?${withClient().toString()}`,
+    );
   },
 
   unreadCount(): Promise<{ count: number }> {
@@ -94,5 +173,27 @@ export const notificationsApi = {
     return api.post(`/notifications/read?${withClient().toString()}`, {
       body: ids ? { ids } : {},
     });
+  },
+
+  markUnread(ids: string[]): Promise<{ updated: number }> {
+    return api.post('/notifications/unread', { body: { ids } });
+  },
+
+  /** From this account's list only; what it was about is untouched. */
+  remove(ids: string[]): Promise<{ deleted: number }> {
+    return api.post('/notifications/delete', { body: { ids } });
+  },
+
+  settings(): Promise<{ data: NotificationSetting[] }> {
+    return api.get('/notifications/settings');
+  },
+
+  /** One switch. Answers with every row, as saved. */
+  updateSetting(change: {
+    category: NotificationCategory;
+    channel: NotificationChannel;
+    enabled: boolean;
+  }): Promise<{ data: NotificationSetting[] }> {
+    return api.patch('/notifications/settings', { body: change });
   },
 };

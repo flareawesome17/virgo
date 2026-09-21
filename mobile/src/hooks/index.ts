@@ -191,8 +191,15 @@ export {
 
 export {
   useNotifications,
+  useNotificationFeed,
+  useNotification,
   useUnreadNotifications,
   useMarkNotificationsRead,
+  useMarkNotificationsUnread,
+  useDeleteNotifications,
+  useNotificationSettings,
+  useUpdateNotificationSetting,
+  type NotificationFilter,
 } from './useNotifications';
 
 export {
