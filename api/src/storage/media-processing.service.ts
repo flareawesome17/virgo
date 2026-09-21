@@ -55,12 +55,39 @@ interface PendingMedia {
 
 interface ProbeStream {
   codec_type?: string;
+  codec_name?: string;
   width?: number;
   height?: number;
   duration?: string;
   tags?: Record<string, string>;
   side_data_list?: { rotation?: number }[];
 }
+
+/**
+ * Codecs that are a picture, whatever ffprobe calls the stream.
+ *
+ * ffprobe reports a JPEG as `codec_type: video` — one mjpeg frame is still a
+ * video stream by its reckoning — so the stream type cannot be used to tell a
+ * photograph from a film. The codec can: no camera records in mjpeg or png,
+ * and no photograph arrives as h264, hevc or prores.
+ *
+ * Listed as stills rather than listing the film codecs, so an unfamiliar
+ * codec is treated as a film. That is the safe direction: a film wrongly
+ * skipped loses playback in the browser, while a still wrongly processed
+ * costs one failed ffmpeg run.
+ */
+const STILL_IMAGE_CODECS = new Set([
+  'mjpeg',
+  'png',
+  'bmp',
+  'tiff',
+  'webp',
+  'heif',
+  'jpegls',
+  'jpeg2000',
+  'ppm',
+  'pgm',
+]);
 
 interface ProbeResult {
   streams?: ProbeStream[];
@@ -160,7 +187,7 @@ export class MediaProcessingService {
           '-v',
           'error',
           '-show_entries',
-          'stream=codec_type,width,height,duration:stream_tags=title,artist:stream_side_data=rotation:format=duration:format_tags=title,artist',
+          'stream=codec_type,codec_name,width,height,duration:stream_tags=title,artist:stream_side_data=rotation:format=duration:format_tags=title,artist',
           '-of',
           'json',
           sourceUrl,
@@ -182,28 +209,37 @@ export class MediaProcessingService {
       let posterBlur: string | null = null;
       let proxyKey: string | null = null;
       /**
-       * A still photograph is a video stream, as far as ffprobe is concerned.
+       * A photograph is not a film, whatever ffprobe says.
        *
        * A JPEG decodes as one mjpeg frame, and mjpeg's `codec_type` is
-       * `video` — so `video` above is truthy for every photograph anyone
-       * uploads, and both calls below used to run on one. Seeking a second
-       * into a single frame is what produced this, three times per image,
-       * before the file was finally marked failed:
+       * `video`, so `video` above is truthy for every photograph anyone
+       * uploads. Both calls below used to run on one. Seeking a second into a
+       * single frame is what produced this, three times per image, before the
+       * file was finally marked failed:
        *
        *     Media processing failed for …/avatars/…jpg: Command failed:
        *     ffmpeg -v error -ss 1.00 -i https://…
        *
-       * The declared content type is the thing that actually knows. ffprobe
-       * describes the bytes; only the upload knows what they were meant to be.
+       * Two independent signals, because either one alone has a gap. The
+       * declared type is what the upload meant, but it can be absent or
+       * `application/octet-stream`; the codec is what the bytes are, but an
+       * unfamiliar one should not be guessed at.
+       *
+       * Deliberately phrased as "skip stills" rather than "only films". An
+       * unrecognised codec then keeps the old behaviour and still gets its
+       * proxy. Requiring `video/*` would have been the other way round, and
+       * would silently stop proxying every film whose stored content type is
+       * something other than what we expect — losing browser playback to fix
+       * a wasted encode, which is a bad trade.
        *
        * The probe still runs for photographs, and should: `width_px` and
        * `height_px` come from it, and the grid uses them to reserve the right
-       * space before an image loads. It is the poster and the proxy that are
-       * meaningless here — no frame to seek to, and nothing to transcode into
-       * a format the browser already displays.
+       * space before an image loads.
        */
-      const isVideoFile = (file.content_type ?? '').toLowerCase().startsWith('video/');
-      if (video && isVideoFile) {
+      const isStill =
+        (file.content_type ?? '').toLowerCase().startsWith('image/') ||
+        STILL_IMAGE_CODECS.has((video?.codec_name ?? '').toLowerCase());
+      if (video && !isStill) {
         const poster = await this.createPoster(file.key, sourceUrl, durationMs);
         posterKey = poster?.key ?? null;
         posterBlur = poster?.blur ?? null;
@@ -317,7 +353,18 @@ export class MediaProcessingService {
     width: number | undefined,
     height: number | undefined,
   ): Promise<string | null> {
-    if (!this.mediaLink.isConfigured) return null;
+    // Said out loud, because the silence was the whole problem. A deployment
+    // without a media host marked every film `ready` with no proxy and no
+    // line anywhere — not a failure, so never retried, and indistinguishable
+    // afterwards from a film that simply had not been uploaded yet. Searching
+    // the logs for why playback fell back to the original found nothing at
+    // all, which is worse than finding bad news.
+    if (!this.mediaLink.isConfigured) {
+      this.logger.warn(
+        `No proxy for ${key}: media host is not configured — playback will fall back to the original`,
+      );
+      return null;
+    }
     if (!width || !height) {
       this.logger.warn(`No proxy for ${key}: ffprobe reported no dimensions`);
       return null;
