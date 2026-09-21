@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DatabaseService } from '../database/database.service';
 import type { NotificationTopic } from '../realtime/realtime.gateway';
+import type { Client } from './app-update-targeting';
+import { AppUpdatesService } from './app-updates.service';
 
 /** One stored notification, as the clients see it. */
 export interface FeedItem {
@@ -48,7 +50,10 @@ const MAX_PER_USER = 200;
 export class NotificationFeedService {
   private readonly logger = new Logger(NotificationFeedService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly updates: AppUpdatesService,
+  ) {}
 
   /**
    * The list, newest first.
@@ -56,34 +61,53 @@ export class NotificationFeedService {
    * Keyset paginated on `created_at` rather than by offset — an offset page
    * shifts under you every time something new arrives, which on this list is
    * exactly when someone is looking at it.
+   *
+   * With a `client`, update announcements for that platform and version are
+   * merged in. Each source is read up to the same cursor and the two are cut
+   * to one page together, so anything older from either lands on the next
+   * page rather than being skipped. Without one — an app too old to say what
+   * it is — the list is exactly what it always was.
    */
   async list(
     userId: string,
-    params: { limit?: number; before?: string } = {},
+    params: { limit?: number; before?: string; client?: Client | null } = {},
   ): Promise<{ data: FeedItem[]; unread: number }> {
     const limit = Math.min(Math.max(params.limit ?? 30, 1), 100);
-    const before = params.before ? new Date(params.before) : null;
+    const parsed = params.before ? new Date(params.before) : null;
+    const before = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+    const client = params.client ?? null;
 
-    const rows = await this.db.query<FeedRow>(
-      `select id, topic, title, body, data, read_at, created_at
-         from notifications
-        where user_id = $1
-          and ($3::timestamptz is null or created_at < $3)
-        order by created_at desc
-        limit $2`,
-      [userId, limit, before && !Number.isNaN(before.getTime()) ? before : null],
-    );
+    const [rows, announcements] = await Promise.all([
+      this.db.query<FeedRow>(
+        `select id, topic, title, body, data, read_at, created_at
+           from notifications
+          where user_id = $1
+            and ($3::timestamptz is null or created_at < $3)
+          order by created_at desc
+          limit $2`,
+        [userId, limit, before],
+      ),
+      client ? this.updates.visibleTo(userId, client, before) : Promise.resolve([]),
+    ]);
 
-    return { data: rows.map(present), unread: await this.unreadCount(userId) };
+    const data = [...rows.map(present), ...announcements]
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .slice(0, limit);
+
+    return { data, unread: await this.unreadCount(userId, client) };
   }
 
-  async unreadCount(userId: string): Promise<number> {
-    const row = await this.db.queryOne<{ count: string }>(
-      `select count(*)::text as count from notifications
-        where user_id = $1 and read_at is null`,
-      [userId],
-    );
-    return Number(row?.count ?? 0);
+  /** Unread notifications, plus unread announcements for this client. */
+  async unreadCount(userId: string, client: Client | null = null): Promise<number> {
+    const [row, announcements] = await Promise.all([
+      this.db.queryOne<{ count: string }>(
+        `select count(*)::text as count from notifications
+          where user_id = $1 and read_at is null`,
+        [userId],
+      ),
+      client ? this.updates.unreadCount(userId, client) : Promise.resolve(0),
+    ]);
+    return Number(row?.count ?? 0) + announcements;
   }
 
   /**
@@ -97,16 +121,25 @@ export class NotificationFeedService {
    * it cannot act on; the useful side-effect is that this endpoint cannot be
    * used to find out whether a notification exists.
    */
-  async markRead(userId: string, ids?: readonly string[]): Promise<number> {
-    const rows = await this.db.query<{ id: string }>(
-      `update notifications set read_at = now()
-        where user_id = $1
-          and read_at is null
-          and ($2::uuid[] is null or id = any($2::uuid[]))
-        returning id`,
-      [userId, ids?.length ? [...ids] : null],
-    );
-    return rows.length;
+  async markRead(
+    userId: string,
+    ids?: readonly string[],
+    client: Client | null = null,
+  ): Promise<number> {
+    const [rows, announcements] = await Promise.all([
+      this.db.query<{ id: string }>(
+        `update notifications set read_at = now()
+          where user_id = $1
+            and read_at is null
+            and ($2::uuid[] is null or id = any($2::uuid[]))
+          returning id`,
+        [userId, ids?.length ? [...ids] : null],
+      ),
+      // The same ids name announcements as well as notifications; each side
+      // marks only the ones that are its own.
+      this.updates.markRead(userId, client, ids),
+    ]);
+    return rows.length + announcements;
   }
 
   /**

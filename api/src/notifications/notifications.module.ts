@@ -1,4 +1,6 @@
 import { Global, Module } from '@nestjs/common';
+import { AppUpdatesController } from './app-updates.controller';
+import { AppUpdatesService } from './app-updates.service';
 import { NotificationFeedService } from './notification-feed.service';
 import { NotificationsController } from './notifications.controller';
 import { NotifyService } from './notify.service';
@@ -14,12 +16,16 @@ import { ReminderDispatcherService } from './reminder-dispatcher.service';
  */
 @Global()
 @Module({
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, AppUpdatesController],
   providers: [
     PushService,
     NotifyService,
     ReminderDispatcherService,
     NotificationFeedService,
+    // Here rather than in a module of its own: the feed reads it and it pushes
+    // through PushService, so a separate module would import this one while
+    // this one imported it.
+    AppUpdatesService,
   ],
   // The feed is deliberately not exported. Every feature in the app can reach
   // this module, and none of them has any business reading someone's list.

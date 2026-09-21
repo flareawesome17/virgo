@@ -1,5 +1,6 @@
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -19,6 +20,7 @@ import {
   GiftIcon,
   LifeBuoyIcon,
   MessageCircleIcon,
+  SparklesIcon,
   Trash2Icon,
   UserPlusIcon,
   UsersIcon,
@@ -41,6 +43,7 @@ cssInterop(FileTextIcon, interop);
 cssInterop(GiftIcon, interop);
 cssInterop(LifeBuoyIcon, interop);
 cssInterop(MessageCircleIcon, interop);
+cssInterop(SparklesIcon, interop);
 cssInterop(Trash2Icon, interop);
 cssInterop(UserPlusIcon, interop);
 cssInterop(UsersIcon, interop);
@@ -85,6 +88,12 @@ const TOPICS: Record<
   retention: { icon: Trash2Icon, href: '/albums' },
   support: { icon: LifeBuoyIcon, href: '/support' },
   promo: { icon: GiftIcon, href: '/rewards' },
+  // An announcement opens its link when it has one — a new build's download
+  // page, say — and otherwise has said what it needs to in the list.
+  'app-update': {
+    icon: SparklesIcon,
+    href: (d) => (typeof d.url === 'string' ? d.url : ''),
+  },
 };
 
 /** "4m", "3h", "2d" — a list this dense has no room for a sentence. */
@@ -125,7 +134,11 @@ export default function NotificationsScreen() {
     const topic = TOPICS[n.topic];
     if (!topic) return;
     const href = typeof topic.href === 'function' ? topic.href(n.data) : topic.href;
-    router.push(href as never);
+    if (!href) return;
+    // A link outside the app goes to the system browser; everything else is a
+    // route inside it.
+    if (/^https:\/\//.test(href)) void Linking.openURL(href).catch(() => undefined);
+    else router.push(href as never);
   };
 
   // 'top' as well as 'bottom'. The stack runs headerShown:false, so nothing

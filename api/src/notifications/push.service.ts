@@ -53,15 +53,19 @@ export class PushService {
     userId: string,
     token: string,
     platform: 'ios' | 'android' | 'web',
+    appVersion?: string,
   ): Promise<void> {
+    // `coalesce` so a build that sends no version — one from before versions
+    // were reported — does not wipe a version a newer build already recorded.
     await this.db.query(
-      `insert into push_tokens (user_id, token, platform)
-       values ($1, $2, $3)
+      `insert into push_tokens (user_id, token, platform, app_version)
+       values ($1, $2, $3, $4)
        on conflict (token) do update
          set user_id = excluded.user_id,
              platform = excluded.platform,
+             app_version = coalesce(excluded.app_version, push_tokens.app_version),
              disabled_at = null`,
-      [userId, token, platform],
+      [userId, token, platform, appVersion?.replace(/^v/i, '') ?? null],
     );
   }
 
