@@ -27,23 +27,8 @@
       "count": 1
     }
   },
-  "src/components/desktop-title-bar.tsx": {
-    "react-hooks/set-state-in-effect": {
-      "count": 1
-    }
-  },
   "src/components/desktop-update-banner.tsx": {
     "react-hooks/refs": {
-      "count": 1
-    }
-  },
-  "src/components/landing/download-panel.tsx": {
-    "react-hooks/set-state-in-effect": {
-      "count": 1
-    }
-  },
-  "src/components/landing/reveal.tsx": {
-    "react-hooks/set-state-in-effect": {
       "count": 1
     }
   },
@@ -57,19 +42,9 @@
       "count": 2
     }
   },
-  "src/components/theme-toggle.tsx": {
-    "react-hooks/set-state-in-effect": {
-      "count": 1
-    }
-  },
   "src/hooks/useChat.ts": {
     "react-hooks/refs": {
       "count": 7
-    }
-  },
-  "src/hooks/useOnline.ts": {
-    "react-hooks/set-state-in-effect": {
-      "count": 1
     }
   }
 }
