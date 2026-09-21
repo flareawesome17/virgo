@@ -181,7 +181,29 @@ export class MediaProcessingService {
       let posterKey: string | null = null;
       let posterBlur: string | null = null;
       let proxyKey: string | null = null;
-      if (video) {
+      /**
+       * A still photograph is a video stream, as far as ffprobe is concerned.
+       *
+       * A JPEG decodes as one mjpeg frame, and mjpeg's `codec_type` is
+       * `video` — so `video` above is truthy for every photograph anyone
+       * uploads, and both calls below used to run on one. Seeking a second
+       * into a single frame is what produced this, three times per image,
+       * before the file was finally marked failed:
+       *
+       *     Media processing failed for …/avatars/…jpg: Command failed:
+       *     ffmpeg -v error -ss 1.00 -i https://…
+       *
+       * The declared content type is the thing that actually knows. ffprobe
+       * describes the bytes; only the upload knows what they were meant to be.
+       *
+       * The probe still runs for photographs, and should: `width_px` and
+       * `height_px` come from it, and the grid uses them to reserve the right
+       * space before an image loads. It is the poster and the proxy that are
+       * meaningless here — no frame to seek to, and nothing to transcode into
+       * a format the browser already displays.
+       */
+      const isVideoFile = (file.content_type ?? '').toLowerCase().startsWith('video/');
+      if (video && isVideoFile) {
         const poster = await this.createPoster(file.key, sourceUrl, durationMs);
         posterKey = poster?.key ?? null;
         posterBlur = poster?.blur ?? null;
