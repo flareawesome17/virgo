@@ -14,18 +14,16 @@
 # in a comment — same rule as release.yml. A tag can be moved by whoever
 # controls the action's repository and a SHA cannot.
 #
-# Web is linted against a baseline. web/eslint-suppressions.json records the
-# errors that were already there when lint was added — all from the React
-# Compiler rules — so a pull request goes red for an error it introduces, not
-# one it inherited. Gating on the raw output would make every pull request red
-# for reasons unrelated to its change, which is how a required check gets
-# ignored, and then gets removed.
+# Web is linted, and has to stay at zero errors. Lint was first added against
+# a baseline, web/eslint-suppressions.json, holding the errors that were
+# already there — all from the React Compiler rules. Every one has since been
+# fixed, and the file is gone.
 #
-# The baseline only shrinks. Fixing one of those errors fails the check until
-# `npx eslint src --prune-suppressions` is run in web/ and the smaller file is
-# committed with the fix; otherwise the file would keep room for a new error
-# of the same kind in the same file. Never regenerate it with --suppress-all
-# to get a branch through — that suppresses the new error along with the old.
+# If a dependency upgrade brings a wave of new errors, a baseline can come
+# back: `npx eslint src --suppress-all` in web/, committed on its own so its
+# diff shows exactly what it hides, then shrunk with --prune-suppressions as
+# each is fixed. Never regenerate one to get a branch through — that
+# suppresses the branch's new error along with the old ones.
 
 name: CI
 
@@ -119,8 +117,7 @@ jobs:
         run: npx tsc --noEmit
         working-directory: ${{ matrix.package }}
 
-      # Against the baseline in web/eslint-suppressions.json; see the top of
-      # this file.
+      # Zero errors, no baseline; see the top of this file.
       - name: Lint
         if: matrix.lint
         run: npx eslint src
