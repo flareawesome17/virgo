@@ -90,6 +90,10 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   // Usage too: an offer is not a reward yet, but the Rewards screen shows both
   // what is waiting and what the account currently gets.
   promo: [queryKeys.promos.all, ['usage']],
+  // Never arrives over the socket: announcements are aimed at a platform and
+  // version, and a frame reaches every session an account has open. Listed
+  // so the table stays complete; it reaches the list through the feed.
+  'app-update': [],
 };
 
 function applyNotification(
