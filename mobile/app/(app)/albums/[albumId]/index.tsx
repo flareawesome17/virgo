@@ -17,7 +17,7 @@ import {
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
 import { RemoteImage } from '@/components/RemoteImage';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
@@ -197,6 +197,8 @@ export default function AlbumScreen() {
   const [selecting, setSelecting] = useState(false);
   const [moving, setMoving] = useState(false);
   const [naming, setNaming] = useState<{ id?: string; initial: string } | null>(null);
+  // "New section…" in the move sheet, waiting for that sheet to finish closing.
+  const [nameAfterMove, setNameAfterMove] = useState(false);
   const [saving, setSaving] = useState<{ done: number; total: number } | null>(null);
 
   const deleteFiles = useDeleteFiles(albumId);
@@ -998,7 +1000,16 @@ export default function AlbumScreen() {
       )}
 
       {/* ── Move to section ── */}
-      <Sheet visible={moving} onClose={() => setMoving(false)} title={`Move ${plural(selection.count, 'file', 'files')} to`}>
+      <Sheet
+        visible={moving}
+        onClose={() => setMoving(false)}
+        onDismiss={() => {
+          if (!nameAfterMove) return;
+          setNameAfterMove(false);
+          setNaming({ initial: '' });
+        }}
+        title={`Move ${plural(selection.count, 'file', 'files')} to`}
+      >
         <View className="gap-2">
           {sectionsQuery.sections.map((s) => (
             <Pressable
@@ -1021,7 +1032,12 @@ export default function AlbumScreen() {
           <Pressable
             onPress={() => {
               setMoving(false);
-              setNaming({ initial: '' });
+              // iOS presents a modal from the same place this sheet is leaving
+              // from, and refuses to while it is still sliding away — the name
+              // sheet would never appear. So it waits for onDismiss, which
+              // only iOS sends; Android has no such limit.
+              if (Platform.OS === 'ios') setNameAfterMove(true);
+              else setNaming({ initial: '' });
             }}
             className="flex-row items-center gap-2 rounded-2xl border border-dashed border-border px-4 py-3.5 active:opacity-70"
           >
@@ -1243,16 +1259,19 @@ function BulkButton({
 function Sheet({
   visible,
   onClose,
+  onDismiss,
   title,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
+  /** Once it has finished closing. iOS only — Android never calls it. */
+  onDismiss?: () => void;
   title: string;
   children: ReactNode;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
       <Pressable className="flex-1 bg-foreground/40" onPress={onClose} accessibilityLabel="Close" />
       <SafeAreaView edges={['bottom']} className="bg-card rounded-t-3xl">
         <View className="px-5 pt-5 pb-4">
@@ -1269,6 +1288,13 @@ function Sheet({
 /**
  * A name, typed. Alert.prompt would do, but it exists on iOS only — on
  * Android there is no prompt at all, so this is the one way that works on both.
+ *
+ * A card at the top of the screen, not a bottom sheet like the others. The
+ * field focuses as it opens, and the keyboard comes up over the bottom of the
+ * screen: a bottom sheet ended up entirely behind it, leaving nothing but a
+ * keyboard and no way to reach Cancel. A modal doesn't move out of the
+ * keyboard's way on either platform — on iOS it never resizes, and on Android
+ * the app runs edge to edge, so the dialog window isn't resized either.
  */
 function NameSheet({
   visible,
@@ -1286,34 +1312,46 @@ function NameSheet({
   onSave: (name: string) => void;
 }) {
   const [value, setValue] = useState(initial);
+  const insets = useSafeAreaInsets();
   const ready = value.trim().length > 0;
 
   return (
-    <Sheet visible={visible} onClose={onCancel} title={title}>
-      <TextInput
-        value={value}
-        onChangeText={setValue}
-        autoFocus
-        maxLength={60}
-        placeholder="Ceremony"
-        returnKeyType="done"
-        onSubmitEditing={() => ready && onSave(value)}
-        accessibilityLabel="Section name"
-        className="rounded-2xl border border-input bg-background px-4 py-3.5 text-foreground text-base"
-      />
-      {hint ? <Text className="text-muted-foreground text-xs mt-2 ml-1">{hint}</Text> : null}
-      <View className="flex-row gap-3 mt-5">
-        <Pressable onPress={onCancel} className="flex-1 bg-muted rounded-2xl py-3.5 items-center active:opacity-70">
-          <Text className="text-foreground text-base font-semibold">Cancel</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => ready && onSave(value)}
-          disabled={!ready}
-          className={`flex-[2] rounded-2xl py-3.5 items-center ${ready ? 'bg-action active:opacity-85' : 'bg-muted'}`}
-        >
-          <Text className={`text-base font-bold ${ready ? 'text-action-foreground' : 'text-muted-foreground'}`}>Save</Text>
-        </Pressable>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onCancel}>
+      <View className="flex-1">
+        <Pressable className="absolute inset-0 bg-foreground/40" onPress={onCancel} accessibilityLabel="Cancel" />
+        {/* box-none: a tap beside the card falls through to the scrim and closes it. */}
+        <View pointerEvents="box-none" className="px-4" style={{ paddingTop: insets.top + 24 }}>
+          <View className="bg-card rounded-3xl px-5 pt-5 pb-4">
+            <Text className="text-foreground text-lg font-bold mb-4" accessibilityRole="header">
+              {title}
+            </Text>
+            <TextInput
+              value={value}
+              onChangeText={setValue}
+              autoFocus
+              maxLength={60}
+              placeholder="Ceremony"
+              returnKeyType="done"
+              onSubmitEditing={() => ready && onSave(value)}
+              accessibilityLabel="Section name"
+              className="rounded-2xl border border-input bg-background px-4 py-3.5 text-foreground text-base"
+            />
+            {hint ? <Text className="text-muted-foreground text-xs mt-2 ml-1">{hint}</Text> : null}
+            <View className="flex-row gap-3 mt-5">
+              <Pressable onPress={onCancel} className="flex-1 bg-muted rounded-2xl py-3.5 items-center active:opacity-70">
+                <Text className="text-foreground text-base font-semibold">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => ready && onSave(value)}
+                disabled={!ready}
+                className={`flex-[2] rounded-2xl py-3.5 items-center ${ready ? 'bg-action active:opacity-85' : 'bg-muted'}`}
+              >
+                <Text className={`text-base font-bold ${ready ? 'text-action-foreground' : 'text-muted-foreground'}`}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </View>
-    </Sheet>
+    </Modal>
   );
 }
