@@ -56,10 +56,28 @@ interface ItemRow {
   album_id: string | null;
   caption: string | null;
   album_name: string | null;
+  /** A cover stored as a URL, from before covers were chosen by key. */
   album_cover_url: string | null;
   album_item_count: number | null;
   share_token: string | null;
+  /** The photograph chosen as the cover, while it is still in the album. */
+  chosen_cover_key: string | null;
+  chosen_cover_thumb_key: string | null;
+  /** The album's newest photograph, which stands in when none was chosen. */
   derived_cover_key: string | null;
+  derived_cover_thumb_key: string | null;
+}
+
+/**
+ * What a card draws for a photograph: its thumbnail, or the original while
+ * there is none — still being processed, or too large to thumbnail.
+ *
+ * The same rule as the app's album cards (`shownKey` in albums.repository.ts).
+ * Signing the original sent a stranger a whole camera file for every card on
+ * a public profile, where the thumbnail is 640 px of WebP.
+ */
+function shownKey(key: string | null, thumbKey: string | null): string | null {
+  return thumbKey ?? key;
 }
 
 @Injectable()
@@ -79,6 +97,14 @@ export class PortfolioService {
    * longer qualifies simply does not come back. Filtering in TypeScript after
    * the fetch would work until someone forgets, and the failure mode is a
    * public page showing media its owner no longer has any claim to.
+   *
+   * Album covers follow the app's album cards (`withDerivedFields` in
+   * albums.repository.ts), and the two have to keep agreeing. Both candidates
+   * come back from here: the photograph the owner chose, and the album's
+   * newest. The chosen one is re-checked as still being in the album — one
+   * moved out of it is a stale reference like any other. Being in this user's
+   * album is the ownership check for both, because an album's files are
+   * billed to its owner, whoever uploaded them.
    */
   async list(
     userId: string,
@@ -90,12 +116,10 @@ export class PortfolioService {
               a.cover_url   as album_cover_url,
               a.item_count  as album_item_count,
               l.token       as share_token,
-              (select f2.key
-                 from user_files f2
-                where f2.album_id = a.id
-                  and f2.content_type like 'image/%'
-                order by f2.created_at
-                limit 1) as derived_cover_key
+              c.key         as chosen_cover_key,
+              c.thumb_key   as chosen_cover_thumb_key,
+              d.key         as derived_cover_key,
+              d.thumb_key   as derived_cover_thumb_key
          from portfolio_items p
          left join user_files f
                 on p.kind = 'image'
@@ -110,6 +134,17 @@ export class PortfolioService {
                 on l.album_id = a.id
                and l.purpose = 'portfolio'
                and l.revoked_at is null
+         left join user_files c
+                on c.key = a.cover_key
+               and c.album_id = a.id
+               and c.content_type like 'image/%'
+         left join lateral (
+               select f2.key, f2.thumb_key
+                 from user_files f2
+                where f2.album_id = a.id
+                  and f2.content_type like 'image/%'
+                order by f2.created_at desc
+                limit 1) d on true
         where p.user_id = $1
           and ((p.kind = 'image' and f.key is not null)
             or (p.kind = 'album' and a.id is not null))
@@ -131,6 +166,10 @@ export class PortfolioService {
    */
   private async present(row: ItemRow, forOwner: boolean): Promise<PortfolioItem> {
     if (row.kind === 'image') {
+      // The original, unlike an album's cover below. On a high-density screen
+      // the web profile's tiles are wider than a thumbnail's short side, so
+      // portrait work would draw soft, and the first photograph is also the
+      // profile's full-width banner.
       return {
         id: row.id,
         kind: 'image',
@@ -147,10 +186,16 @@ export class PortfolioService {
       kind: 'album',
       name: row.album_name ?? 'Album',
       caption: row.caption,
+      // The app's order: the photograph its owner chose, then a cover stored
+      // as a URL before covers were chosen by key, then the newest photograph.
       coverUrl:
+        (await this.storage.mediaUrl(
+          shownKey(row.chosen_cover_key, row.chosen_cover_thumb_key),
+          PUBLISHED_URL_TTL_SECONDS,
+        )) ??
         row.album_cover_url ??
         (await this.storage.mediaUrl(
-          row.derived_cover_key,
+          shownKey(row.derived_cover_key, row.derived_cover_thumb_key),
           PUBLISHED_URL_TTL_SECONDS,
         )),
       itemCount: row.album_item_count ?? 0,
