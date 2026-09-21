@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { CalendarIcon, FileTextIcon, MapPinIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useBookings, useTheme } from '@/src/hooks';
 import { rateLabel, type Booking } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
+import { RemoteImage } from '@/components/RemoteImage';
 import { PALETTES } from '@/theme';
 
 const interop = { className: { target: 'style', nativeStyleToProp: { color: true } } } as const;
@@ -107,7 +108,10 @@ export function BookingsList({ bottomPadding = 40 }: { bottomPadding?: number })
           >
             <View className="flex-row items-center gap-3">
               {booking.otherParty.avatarUrl ? (
-                <Image source={{ uri: booking.otherParty.avatarUrl }} className="w-10 h-10 rounded-full bg-muted" />
+                <RemoteImage
+                  source={{ uri: booking.otherParty.avatarUrl }}
+                  style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: palette.muted }}
+                />
               ) : (
                 <View className="w-10 h-10 rounded-full bg-primary/15 items-center justify-center">
                   <Text className="text-primary text-sm font-bold">

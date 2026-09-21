@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OwnedRepository, type ListOptions } from '../common/owned.repository';
 import { DatabaseService } from '../database/database.service';
+import { DISPLAY_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
 
 export type AlbumStatus = 'draft' | 'review' | 'delivered';
@@ -102,9 +103,20 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     // Signed rather than public: the bucket is not world-readable, so a cover
     // is a time-limited URL like every other object. A chosen photograph
     // first, then the newest image.
+    //
+    // Display-length, as the thumbnails inside the album are. A cover is only
+    // ever shown, and under the one-hour default its URL changed every five
+    // minutes, so coming back to the album list a little later downloaded
+    // every card again.
     const [chosenUrls, coverUrls] = await Promise.all([
-      this.storage.mediaUrls(rows.map((row) => row.cover_key)),
-      this.storage.mediaUrls(rows.map((row) => coverById.get(row.id) ?? null)),
+      this.storage.mediaUrls(
+        rows.map((row) => row.cover_key),
+        DISPLAY_URL_TTL_SECONDS,
+      ),
+      this.storage.mediaUrls(
+        rows.map((row) => coverById.get(row.id) ?? null),
+        DISPLAY_URL_TTL_SECONDS,
+      ),
     ]);
 
     return rows.map((row, i) => ({
