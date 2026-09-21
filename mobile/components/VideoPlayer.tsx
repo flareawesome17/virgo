@@ -26,20 +26,30 @@ import {
   type VideoView as VideoViewType,
 } from 'expo-video';
 import {
-  ArrowLeft,
-  ArrowsOut,
-  CaretDown,
-  DownloadSimple,
-  FilmSlate,
-  Pause,
-  PictureInPicture,
-  Play,
-  SpeakerHigh,
-  SpeakerSlash,
-  X,
-} from 'phosphor-react-native';
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ChevronDownIcon,
+  DownloadIcon,
+  FilmIcon,
+  Maximize2Icon,
+  PauseIcon,
+  PictureInPicture2Icon,
+  PlayIcon,
+  Volume2Icon,
+  VolumeXIcon,
+  XIcon,
+} from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
 import { MediaScrubber } from '@/components/MediaScrubber';
 import { type StoredFile } from '@/src/api';
+
+for (const Icon of [
+  ArrowLeftIcon, ArrowRightIcon, ChevronDownIcon, DownloadIcon, FilmIcon,
+  Maximize2Icon, PauseIcon, PictureInPicture2Icon, PlayIcon, Volume2Icon,
+  VolumeXIcon, XIcon,
+]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 /**
  * The film player.
@@ -315,7 +325,7 @@ export function VideoPlayer({
         edges={['top', 'bottom']}
         className="flex-1 bg-black items-center justify-center px-8"
       >
-        <FilmSlate size={44} color="rgba(255,255,255,.3)" weight="light" />
+        <FilmIcon size={44} color="rgba(255,255,255,.3)" strokeWidth={1.5} />
         <Text className="text-white text-lg font-semibold text-center mt-5">
           {failed === 'stalled'
             ? 'This video is not loading'
@@ -357,7 +367,7 @@ export function VideoPlayer({
             {saving ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <DownloadSimple size={17} color="#fff" weight="regular" />
+              <DownloadIcon size={17} color="#fff" />
             )}
             <Text className="text-white font-semibold">Save the original</Text>
           </Pressable>
@@ -366,7 +376,7 @@ export function VideoPlayer({
           onPress={onClose}
           className="absolute top-12 left-4 w-10 h-10 rounded-full bg-white/10 items-center justify-center active:opacity-70"
         >
-          <X size={19} color="#fff" weight="regular" />
+          <XIcon size={19} color="#fff" />
         </Pressable>
       </SafeAreaView>
     );
@@ -425,10 +435,12 @@ export function VideoPlayer({
           accessibilityLabel={playing ? 'Pause' : 'Play'}
           className="active:opacity-70"
         >
+          {/* `fill` repeats the colour: lucide-react-native gives `color` to
+              the stroke alone, so currentColor would come out hollow. */}
           {playing ? (
-            <Pause size={18} color="#fff" weight="fill" />
+            <PauseIcon size={18} color="#fff" fill="#fff" />
           ) : (
-            <Play size={18} color="#fff" weight="fill" />
+            <PlayIcon size={18} color="#fff" fill="#fff" />
           )}
         </Pressable>
 
@@ -438,7 +450,7 @@ export function VideoPlayer({
           accessibilityLabel="Stop playing"
           className="active:opacity-70"
         >
-          <X size={17} color="rgba(255,255,255,.55)" weight="regular" />
+          <XIcon size={17} color="rgba(255,255,255,.55)" />
         </Pressable>
 
         {/* The only progress a strip this size has room for. */}
@@ -524,7 +536,7 @@ export function VideoPlayer({
               accessibilityLabel={onMinimise ? 'Minimise' : 'Close'}
               className="w-10 h-10 rounded-full bg-black/45 items-center justify-center active:opacity-70"
             >
-              <CaretDown size={20} color="#fff" weight="regular" />
+              <ChevronDownIcon size={20} color="#fff" />
             </Pressable>
             <Text
               className="text-white text-[15px] font-semibold flex-1"
@@ -549,7 +561,7 @@ export function VideoPlayer({
             accessibilityLabel={`Back ${SKIP} seconds`}
             className="items-center active:opacity-70"
           >
-            <ArrowLeft size={26} color="#fff" weight="regular" />
+            <ArrowLeftIcon size={26} color="#fff" />
             <Text className="text-white/70 text-[10px] font-mono mt-0.5">
               {SKIP}
             </Text>
@@ -563,9 +575,9 @@ export function VideoPlayer({
             className="w-[72px] h-[72px] rounded-full bg-black/50 items-center justify-center active:opacity-70"
           >
             {playing ? (
-              <Pause size={30} color="#fff" weight="fill" />
+              <PauseIcon size={30} color="#fff" fill="#fff" />
             ) : (
-              <Play size={30} color="#fff" weight="fill" />
+              <PlayIcon size={30} color="#fff" fill="#fff" />
             )}
           </Pressable>
           <Pressable
@@ -574,12 +586,7 @@ export function VideoPlayer({
             accessibilityLabel={`Forward ${SKIP} seconds`}
             className="items-center active:opacity-70"
           >
-            <ArrowLeft
-              size={26}
-              color="#fff"
-              weight="regular"
-              style={{ transform: [{ scaleX: -1 }] }}
-            />
+            <ArrowRightIcon size={26} color="#fff" />
             <Text className="text-white/70 text-[10px] font-mono mt-0.5">
               {SKIP}
             </Text>
@@ -613,9 +620,9 @@ export function VideoPlayer({
                 className="active:opacity-70"
               >
                 {muted ? (
-                  <SpeakerSlash size={19} color="#fff" weight="regular" />
+                  <VolumeXIcon size={19} color="#fff" />
                 ) : (
-                  <SpeakerHigh size={19} color="#fff" weight="regular" />
+                  <Volume2Icon size={19} color="#fff" />
                 )}
               </Pressable>
               <View className="flex-1" />
@@ -630,7 +637,7 @@ export function VideoPlayer({
                   {saving ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <DownloadSimple size={19} color="#fff" weight="regular" />
+                    <DownloadIcon size={19} color="#fff" />
                   )}
                 </Pressable>
               )}
@@ -640,7 +647,7 @@ export function VideoPlayer({
                 accessibilityLabel="Picture in picture"
                 className="active:opacity-70"
               >
-                <PictureInPicture size={19} color="#fff" weight="regular" />
+                <PictureInPicture2Icon size={19} color="#fff" />
               </Pressable>
               <Pressable
                 onPress={() => viewRef.current?.enterFullscreen()}
@@ -648,7 +655,7 @@ export function VideoPlayer({
                 accessibilityLabel="Full screen"
                 className="active:opacity-70"
               >
-                <ArrowsOut size={19} color="#fff" weight="regular" />
+                <Maximize2Icon size={19} color="#fff" />
               </Pressable>
             </View>
           </View>

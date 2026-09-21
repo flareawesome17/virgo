@@ -62,7 +62,6 @@
     "expo-web-browser": "~15.0.11",
     "lucide-react-native": "0.511.0",
     "nativewind": "4.2.1",
-    "phosphor-react-native": "^3.0.6",
     "react": "19.1.0",
     "react-aria": "3.44.0",
     "react-dom": "19.1.0",
