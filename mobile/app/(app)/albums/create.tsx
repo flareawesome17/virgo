@@ -83,7 +83,6 @@ export default function CreateAlbumScreen() {
         description: description.trim() || null,
         workspace_id: selectedWorkspaceId,
         retention_days: getRetentionDays(),
-        item_count: 0,
         status: 'draft',
       },
       {

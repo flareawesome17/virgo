@@ -38,6 +38,20 @@ export class CreateAlbumDto {
   @MaxLength(2048)
   cover_url?: string;
 
+  /**
+   * Accepted and ignored.
+   *
+   * The count is derived from the album's files on every read, and it is not
+   * on the repository's writableColumns, so anything sent here is dropped.
+   * The field stays on purpose: `forbidNonWhitelisted` is on, and mobile
+   * bundles already installed post `item_count: 0` from their create screen.
+   * Removing it would turn that into a 400 and break album creation on every
+   * phone that has not updated.
+   *
+   * Safe to delete once those builds are gone. Update never had a sender —
+   * the apps stopped writing the count when they moved to this API — so it
+   * refuses the field outright.
+   */
   @IsOptional()
   @IsInt()
   @Min(0)
@@ -84,11 +98,6 @@ export class UpdateAlbumDto {
   @IsString()
   @MaxLength(1024)
   cover_key?: string | null;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  item_count?: number;
 
   @IsOptional()
   @IsIn(STATUSES)

@@ -14,7 +14,6 @@ export interface CreateAlbumInput {
   name: string;
   description?: string | null;
   cover_url?: string | null;
-  item_count?: number;
   status?: AlbumStatus;
   retention_days?: number | null;
 }

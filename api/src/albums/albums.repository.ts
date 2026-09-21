@@ -35,6 +35,11 @@ export interface AlbumRow {
   cover_url: string | null;
   /** A photograph in the album chosen as its cover, signed on every read. */
   cover_key: string | null;
+  /**
+   * Derived: every file in the album, counted on every read. The column of
+   * the same name is a leftover that nothing writes, so nothing should read
+   * it either (see `withDerivedFields`).
+   */
   item_count: number;
   /** Derived: what the album holds, by kind, so a card can say "312 · 2 films". */
   counts?: { image: number; video: number; audio: number };
@@ -48,6 +53,9 @@ export interface AlbumRow {
 export class AlbumsRepository extends OwnedRepository<AlbumRow> {
   protected readonly table = 'albums';
 
+  // Not `item_count`. It is counted from the album's files on every read, and
+  // leaving it writable let a client store a number that every reader of the
+  // column then repeated: mobile's create screen still posts `item_count: 0`.
   protected readonly writableColumns = [
     'id',
     'workspace_id',
@@ -55,7 +63,6 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     'description',
     'cover_url',
     'cover_key',
-    'item_count',
     'status',
     'retention_days',
   ];
@@ -73,7 +80,9 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
    * `item_count` was a counter the client incremented after each upload, so it
    * drifted the moment anything failed, was deleted, or uploaded without an
    * album — one album read 24 items while holding 5 files. Counting rows
-   * cannot drift.
+   * cannot drift. The clients stopped incrementing it when this took over and
+   * nothing else ever did, so the column reads 0 for every album made since.
+   * Anything that shows how much an album holds counts the files, as here.
    *
    * `cover_url` is only ever set if the user picks a cover explicitly, so
    * every album started life with a blank card. When it is null the newest
@@ -260,6 +269,29 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     );
     if (!row) return null;
     return (await this.withDerivedFields([row]))[0];
+  }
+
+  /**
+   * Create and update answer with the album as a read would.
+   *
+   * The base returns the row as stored (`returning *`): the unused column's
+   * count, 0 for any album made since August 2026, no `counts`, and a null
+   * cover straight after a photograph was chosen. Both apps put an edited album
+   * straight into their cache. And once the column is dropped, the stored row
+   * has no `item_count` at all.
+   */
+  async create(userId: string, data: Record<string, unknown>): Promise<AlbumRow> {
+    const [created] = await this.withDerivedFields([await super.create(userId, data)]);
+    return created;
+  }
+
+  async update(
+    userId: string,
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<AlbumRow | null> {
+    const updated = await super.update(userId, id, data);
+    return updated && (await this.withDerivedFields([updated]))[0];
   }
 
   /**
