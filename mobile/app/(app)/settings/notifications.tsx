@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable, Switch } from 'react-native';
+import { View, Text, ScrollView, Pressable, Switch, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -18,6 +18,15 @@ import {
   setSoundEnabled,
   type AlertSound,
 } from '@/src/lib/sounds';
+import {
+  useNotificationSettings,
+  useUpdateNotificationSetting,
+} from '@/src/hooks';
+import type { NotificationSetting } from '@/src/api';
+import {
+  CATEGORY_DESCRIPTIONS,
+  CATEGORY_LABELS,
+} from '@/src/lib/notification-categories';
 
 for (const Icon of [
   ArrowLeftIcon, Volume2Icon, VolumeXIcon, MessageCircleIcon,
@@ -59,6 +68,114 @@ const SOUNDS: { key: AlertSound; icon: typeof BellIcon; label: string; detail: s
   },
 ];
 
+/**
+ * One cell of the table: a switch, "Always" where it cannot be turned off, or
+ * a dash where that kind never travels on that channel — a switch there would
+ * do nothing, and one that does nothing is a lie.
+ */
+function ChannelCell({
+  row,
+  channel,
+  onChange,
+}: {
+  row: NotificationSetting;
+  channel: 'push' | 'email';
+  onChange: (enabled: boolean) => void;
+}) {
+  const value = row[channel];
+  return (
+    <View style={{ width: 56, alignItems: 'center' }}>
+      {value === null ? (
+        <Text className="text-muted-foreground text-sm" accessibilityLabel="Not sent">—</Text>
+      ) : row.locked ? (
+        <Text className="text-muted-foreground text-[11px] font-semibold">Always</Text>
+      ) : (
+        <Switch
+          value={value}
+          onValueChange={onChange}
+          trackColor={{ false: '#D9C2B7', true: '#B66A40' }}
+          thumbColor="#FFFFFF"
+          accessibilityLabel={`${CATEGORY_LABELS[row.category]} by ${channel === 'push' ? 'push' : 'email'}`}
+        />
+      )}
+    </View>
+  );
+}
+
+/**
+ * Which kinds of notification reach this phone and your inbox. Stored on the
+ * account, so the web app's settings show the same switches.
+ */
+function WhatReachesYou() {
+  const { settings, isLoading, loadFailed, refetch } = useNotificationSettings();
+  const update = useUpdateNotificationSetting();
+
+  const change = (row: NotificationSetting, channel: 'push' | 'email', next: boolean) =>
+    update.mutate(
+      { category: row.category, channel, enabled: next },
+      { onError: () => Alert.alert('Could not save that', 'Check your connection and try again.') },
+    );
+
+  return (
+    <>
+      <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mt-6 mb-2 ml-6">
+        What reaches you
+      </Text>
+      <View className="px-5">
+        <View
+          className="bg-card rounded-2xl overflow-hidden"
+          style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+        >
+          {isLoading ? (
+            <ActivityIndicator color="#B66A40" style={{ paddingVertical: 24 }} />
+          ) : loadFailed ? (
+            <Pressable onPress={() => refetch()} className="px-4 py-5">
+              <Text className="text-foreground text-sm font-semibold">Could not load your settings</Text>
+              <Text className="text-muted-foreground text-xs mt-0.5">Tap to try again.</Text>
+            </Pressable>
+          ) : (
+            <>
+              <View className="flex-row items-center px-4 pt-3 pb-1">
+                <Text className="flex-1 text-muted-foreground text-[11px] font-bold uppercase tracking-[1px]">
+                  Kind
+                </Text>
+                <Text style={{ width: 56 }} className="text-center text-muted-foreground text-[11px] font-bold uppercase tracking-[1px]">
+                  Push
+                </Text>
+                <Text style={{ width: 56 }} className="text-center text-muted-foreground text-[11px] font-bold uppercase tracking-[1px]">
+                  Email
+                </Text>
+              </View>
+              {settings.map((row, index) => (
+                <View
+                  key={row.category}
+                  className="flex-row items-center px-4 py-2.5"
+                  style={index > 0 ? { borderTopWidth: 1, borderTopColor: '#D9C2B733' } : undefined}
+                >
+                  <View className="flex-1 pr-2">
+                    <Text className="text-foreground text-[14px] font-semibold">
+                      {CATEGORY_LABELS[row.category]}
+                    </Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5 leading-4">
+                      {CATEGORY_DESCRIPTIONS[row.category]}
+                    </Text>
+                  </View>
+                  <ChannelCell row={row} channel="push" onChange={(next) => change(row, 'push', next)} />
+                  <ChannelCell row={row} channel="email" onChange={(next) => change(row, 'email', next)} />
+                </View>
+              ))}
+            </>
+          )}
+        </View>
+        <Text className="text-muted-foreground text-xs mt-3 ml-1 leading-5">
+          Your notification list keeps everything for 90 days, whatever you switch
+          off here. Only invitations, applications and enquiries are ever emailed.
+        </Text>
+      </View>
+    </>
+  );
+}
+
 export default function NotificationSettingsScreen() {
   const [enabled, setEnabled] = useState(true);
   const [ready, setReady] = useState(false);
@@ -99,7 +216,13 @@ export default function NotificationSettingsScreen() {
           </Text>
         </View>
 
-        <View className="px-5 mt-5">
+        <WhatReachesYou />
+
+        <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mt-8 mb-2 ml-6">
+          Sound
+        </Text>
+
+        <View className="px-5">
           <View
             className="bg-card rounded-2xl px-4 py-4 flex-row items-center gap-3"
             style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
