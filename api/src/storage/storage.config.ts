@@ -94,6 +94,75 @@ export const MEDIA_URL_WINDOW_SECONDS = 5 * 60;
  */
 export const PUBLISHED_URL_TTL_SECONDS = 24 * 60 * 60;
 
+/**
+ * For media shown inside the app — thumbnails, posters, the photo in the
+ * lightbox. Not downloads, which keep DOWNLOAD_URL_TTL_SECONDS.
+ *
+ * Twelve hours, so that DISPLAY_URL_WINDOW_SECONDS below can be six and a URL
+ * still has at least six hours left on the moment it is handed out.
+ */
+export const DISPLAY_URL_TTL_SECONDS = 12 * 60 * 60;
+
+/**
+ * How long a long-lived display URL stays byte-identical.
+ *
+ * Five minutes was right for the one-hour links it was chosen for, and wrong
+ * for everything else. The same thumbnail came back under a new URL every five
+ * minutes, and every cache between here and the screen — the browser's, the
+ * phone's, Cloudflare's — keys on the URL. Reopening the app after a coffee
+ * downloaded every picture again. Six hours is a working session.
+ *
+ * The cost is on the other side of the trade: a display link that leaks keeps
+ * working for up to DISPLAY_URL_TTL_SECONDS rather than an hour. Published
+ * shares already allow twenty-four.
+ */
+export const DISPLAY_URL_WINDOW_SECONDS = 6 * 60 * 60;
+
+/**
+ * The window a URL with this lifetime is pinned to.
+ *
+ * Tied to the lifetime rather than chosen per call site, because the two are
+ * only safe together: a URL is handed out anywhere within its window, so it
+ * has at least `ttl - window` left when it arrives. A six-hour window on a
+ * one-hour link would hand out links that had already expired.
+ *
+ * So downloads, processing sources and anything else short-lived keep the
+ * five-minute window they always had, and only links built to last half a day
+ * or more move to six hours. Every tier keeps at least half its lifetime.
+ */
+export function signingWindowFor(ttlSeconds: number): number {
+  return ttlSeconds >= DISPLAY_URL_TTL_SECONDS
+    ? DISPLAY_URL_WINDOW_SECONDS
+    : MEDIA_URL_WINDOW_SECONDS;
+}
+
+/**
+ * For derived objects, whose bytes are fixed by the time anyone can see them.
+ *
+ * Every upload gets a fresh key, and a thumbnail or poster is written under a
+ * key derived from it. That is what makes `immutable` true, and it is what
+ * lets a browser, a phone and Cloudflare keep a picture for good instead of
+ * asking again.
+ *
+ * One write does replace bytes under an existing key: avatar normalisation
+ * rewrites the uploaded original as a small WebP, in place. It is safe here
+ * only because it happens inside the confirm request, which the client waits
+ * on before it saves the new avatar to the profile — so no cache can have
+ * fetched the original under that key first. Anything that rewrites a
+ * displayed key after the fact must not use this.
+ *
+ * Reprocessing does rewrite thumbnails and posters under their existing keys
+ * (migrations 064 and 065 re-queue files to do exactly that). It is only
+ * truthful because the same source through the same settings produces the
+ * same bytes. **Changing how a derivative is made — its size, quality or the
+ * frame a poster is taken from — must change its key as well**, or every cache
+ * that holds the old one keeps showing it for a year.
+ *
+ * Nothing Virgo stored carried a Cache-Control header before this, so every
+ * cache fell back to its own guess — which for most of them was not to keep it.
+ */
+export const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
 @Injectable()
 export class StorageConfig {
   private readonly logger = new Logger(StorageConfig.name);

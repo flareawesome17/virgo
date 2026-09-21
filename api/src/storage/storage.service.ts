@@ -27,10 +27,12 @@ import {
 } from '../quota/quota.service';
 import {
   ALLOWED_CONTENT_TYPES,
+  DISPLAY_URL_TTL_SECONDS,
   DOWNLOAD_URL_TTL_SECONDS,
   EXTENSION_BY_CONTENT_TYPE,
+  IMMUTABLE_CACHE_CONTROL,
   MAX_UPLOAD_BYTES,
-  MEDIA_URL_WINDOW_SECONDS,
+  signingWindowFor,
   StorageConfig,
   UPLOAD_URL_TTL_SECONDS,
   type UploadScope,
@@ -298,7 +300,9 @@ export class StorageService {
   ): Promise<string | null> {
     if (!key || !this.client) return null;
 
-    const windowMs = MEDIA_URL_WINDOW_SECONDS * 1000;
+    // Pinned to a window sized for this URL's lifetime: five minutes for a
+    // one-hour download, six hours for a display link. See signingWindowFor.
+    const windowMs = signingWindowFor(ttlSeconds) * 1000;
     const signingDate = new Date(Math.floor(Date.now() / windowMs) * windowMs);
 
     return getSignedUrl(
@@ -350,6 +354,11 @@ export class StorageService {
         Key: key,
         Body: body,
         ContentType: contentType,
+        // Thumbnails, posters and normalised avatars. Without this B2 sends
+        // no caching instruction at all, and every client falls back to its
+        // own guess — which for React Native's Image and most browsers was
+        // to fetch the picture again next time.
+        CacheControl: IMMUTABLE_CACHE_CONTROL,
       }),
     );
   }
@@ -678,10 +687,13 @@ export class StorageService {
     const mayDownload = accessAllows(access, 'download');
     const mayManage = accessAllows(access, 'manage');
     const names = page.rows.map((row) => storedDisplayName(row.original_name, row.key));
+    // What is shown gets display-length links, which hold one URL for six
+    // hours so the browser and the phone can keep the picture; the download
+    // link keeps its one hour, since that is the one that hands over the file.
     const [urls, thumbnailUrls, posterUrls, downloadUrls] = await Promise.all([
-      this.mediaUrls(page.rows.map((row) => row.key)),
-      this.mediaUrls(page.rows.map((row) => row.thumb_key)),
-      this.mediaUrls(page.rows.map((row) => row.poster_key)),
+      this.mediaUrls(page.rows.map((row) => row.key), DISPLAY_URL_TTL_SECONDS),
+      this.mediaUrls(page.rows.map((row) => row.thumb_key), DISPLAY_URL_TTL_SECONDS),
+      this.mediaUrls(page.rows.map((row) => row.poster_key), DISPLAY_URL_TTL_SECONDS),
       mayDownload
         ? this.mediaUrls(
             page.rows.map((row) => row.key),
