@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   Extrapolation,
@@ -131,7 +131,7 @@ function Artwork({
 }) {
   if (uri) {
     return (
-      <Image
+      <RemoteImage
         source={{ uri }}
         style={{ width: size, height: size, borderRadius: radius }}
         contentFit="cover"

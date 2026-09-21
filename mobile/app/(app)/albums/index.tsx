@@ -1,7 +1,7 @@
 import { View, Text, FlatList, ScrollView, RefreshControl, Pressable } from 'react-native';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAlbums, useAuth, useTheme, useWorkspaces,
   usePlanLimits,
@@ -261,7 +261,7 @@ export default function AlbumsListScreen() {
               }}
             >
               {/* Cover */}
-              <Image
+              <RemoteImage
                 source={{
                   uri:
                     item.cover_url ||

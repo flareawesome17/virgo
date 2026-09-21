@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
@@ -206,7 +206,7 @@ function ZoomablePhoto({
           {/* The widest display copy, not the original. `url` is the camera
               file — a 6 MB JPEG or a 40 MB TIFF from a bucket in California —
               and this screen draws it a few hundred points wide. */}
-          <Image
+          <RemoteImage
             source={{
               uri:
                 largestDisplaySource(photo) ??
@@ -515,7 +515,7 @@ export default function PhotoViewerScreen() {
                     : 'rounded-[9px] overflow-hidden opacity-45'
                 }
               >
-                <Image
+                <RemoteImage
                   source={{ uri: item.thumbnailUrl ?? item.url ?? undefined }}
                   placeholder={
                     item.blurDataUrl ? { uri: item.blurDataUrl } : undefined

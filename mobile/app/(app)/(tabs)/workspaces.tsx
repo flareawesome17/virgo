@@ -1,4 +1,5 @@
-import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, Image, TextInput } from 'react-native';
+import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, TextInput } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppTopBar } from '@/components';
 import { useAuth, useCollaborators, useTheme, useWorkspaces,
@@ -50,7 +51,7 @@ function AvatarStack({ urls, count, borderColor, fillColor }: { urls: string[]; 
   return (
     <View className="flex-row">
       {display.map((url, i) => (
-        <Image
+        <RemoteImage
           key={i}
           source={{ uri: url }}
           style={{

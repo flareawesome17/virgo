@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, Alert, ActivityIndicator, Share, Platform, Modal } from 'react-native';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -376,7 +376,7 @@ export default function AlbumDetailScreen() {
       >
         {/* ── Hero Cover ── */}
         <View className="relative">
-          <Image
+          <RemoteImage
             source={{
               uri:
                 album.cover_url ||
@@ -533,7 +533,7 @@ export default function AlbumDetailScreen() {
                     style={{ width: '25%', aspectRatio: 1 }}
                     className="active:opacity-70"
                   >
-                    <Image source={{ uri: file.thumbnailUrl ?? file.url ?? undefined }} placeholder={file.blurDataUrl ? { uri: file.blurDataUrl } : undefined} placeholderContentFit="cover" transition={160} style={{ width: '100%', height: '100%' }} />
+                    <RemoteImage source={{ uri: file.thumbnailUrl ?? file.url ?? undefined }} placeholder={file.blurDataUrl ? { uri: file.blurDataUrl } : undefined} placeholderContentFit="cover" transition={160} style={{ width: '100%', height: '100%' }} />
                   </Pressable>
                 ))}
               </View>
@@ -547,7 +547,7 @@ export default function AlbumDetailScreen() {
                   >
                     <View className="w-10 h-10 rounded-xl bg-muted items-center justify-center overflow-hidden">
                       {activeTab === 'videos' && file.posterUrl ? (
-                        <Image source={{ uri: file.posterUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                        <RemoteImage source={{ uri: file.posterUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
                       ) : (
                         <ActiveIcon size={16} className="text-muted-foreground" />
                       )}

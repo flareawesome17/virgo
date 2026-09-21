@@ -1,7 +1,8 @@
 import {
-  View, Text, ScrollView, Pressable, Image, ActivityIndicator,
+  View, Text, ScrollView, Pressable, ActivityIndicator,
   Share, useWindowDimensions,
 } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -106,13 +107,13 @@ export default function ProfileScreen() {
         {/* Their own work as the banner. */}
         <View style={{ height: 130, backgroundColor: '#B66A4014' }}>
           {cover && (
-            <Image source={{ uri: cover }} style={{ flex: 1, opacity: 0.5 }} blurRadius={3} />
+            <RemoteImage source={{ uri: cover }} style={{ flex: 1, opacity: 0.5 }} blurRadius={3} />
           )}
         </View>
 
         <View className="px-5">
           <View className="flex-row items-end gap-3" style={{ marginTop: -44 }}>
-            <Image
+            <RemoteImage
               source={{ uri: person.avatarUrl ?? PLACEHOLDER_IMAGE }}
               style={{
                 width: 88, height: 88, borderRadius: 44,
@@ -202,7 +203,7 @@ export default function ProfileScreen() {
             </Text>
             <View className="flex-row flex-wrap" style={{ gap: 2 }}>
               {images.map((item) => (
-                <Image
+                <RemoteImage
                   key={item.id}
                   source={{ uri: item.url }}
                   style={{ width: tile, height: tile }}
@@ -224,7 +225,7 @@ export default function ProfileScreen() {
                 onPress={() => album.url && Linking.openURL(album.url)}
               >
                 {album.coverUrl ? (
-                  <Image source={{ uri: album.coverUrl }} style={{ width: '100%', height: 140 }} />
+                  <RemoteImage source={{ uri: album.coverUrl }} style={{ width: '100%', height: 140 }} />
                 ) : (
                   <View style={{ height: 140, backgroundColor: '#B66A4014' }}
                     className="items-center justify-center">

@@ -1,6 +1,7 @@
 import {
-  View, Text, ScrollView, Pressable, Image, RefreshControl, Alert, ActivityIndicator,
+  View, Text, ScrollView, Pressable, RefreshControl, Alert, ActivityIndicator,
 } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -145,7 +146,7 @@ function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
   return (
     <View className="bg-card rounded-2xl p-4 gap-3">
       <View className="flex-row items-start gap-3">
-        <Image
+        <RemoteImage
           source={{ uri: enquiry.personAvatarUrl ?? PLACEHOLDER_IMAGE }}
           style={{ width: 40, height: 40, borderRadius: 20 }}
         />
