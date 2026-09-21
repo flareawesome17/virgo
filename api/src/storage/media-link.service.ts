@@ -3,10 +3,7 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, sep } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  MEDIA_URL_WINDOW_SECONDS,
-  PUBLISHED_URL_TTL_SECONDS,
-} from './storage.config';
+import { PUBLISHED_URL_TTL_SECONDS, signingWindowFor } from './storage.config';
 
 /**
  * Renditions live on a local volume, not in B2, and are reached through
@@ -115,6 +112,24 @@ export class MediaLinkService {
   }
 
   /**
+   * The expiry to sign: `ttlSeconds` from now, rounded DOWN to its window.
+   *
+   * Rounding down is what makes the URL the same for everyone who asks within
+   * a window, so a browser, a phone or Cloudflare can serve a rendition they
+   * already hold. It also means a URL handed out late in a window has less
+   * than `ttlSeconds` left — at least `ttl - window`, which signingWindowFor
+   * keeps to half the lifetime or more.
+   *
+   * These links already lived twenty-four hours but were re-signed every five
+   * minutes, so the `immutable` header nginx sends on every rendition never
+   * got the chance to matter: by the next visit the URL had changed.
+   */
+  private expiryFor(ttlSeconds: number): number {
+    const window = signingWindowFor(ttlSeconds);
+    return Math.floor((Math.floor(Date.now() / 1000) + ttlSeconds) / window) * window;
+  }
+
+  /**
    * A signed URL for a rendition, or null when the media host is not set up.
    *
    * Null is the graceful path, not an error: every caller already handles a
@@ -122,9 +137,8 @@ export class MediaLinkService {
    * deployment did before this existed.
    *
    * Expiry is rounded DOWN to a window so repeated renders inside it return a
-   * byte-identical URL and the browser can reuse what it has — the same
-   * reasoning, and the same trade, as `mediaUrl` and MEDIA_URL_WINDOW_SECONDS
-   * in storage.config.ts.
+   * byte-identical URL and the browser can reuse what it has — see
+   * `expiryFor` below, and signingWindowFor in storage.config.ts.
    */
   url(
     key: string | null | undefined,
@@ -138,9 +152,7 @@ export class MediaLinkService {
       return null;
     }
 
-    const expires =
-      Math.floor((Math.floor(Date.now() / 1000) + ttlSeconds) / MEDIA_URL_WINDOW_SECONDS) *
-      MEDIA_URL_WINDOW_SECONDS;
+    const expires = this.expiryFor(ttlSeconds);
 
     const signature = createHash('md5')
       .update(`${expires}/${clean} ${this.secret}`)
@@ -198,9 +210,7 @@ export class MediaLinkService {
       return null;
     }
 
-    const expires =
-      Math.floor((Math.floor(Date.now() / 1000) + ttlSeconds) / MEDIA_URL_WINDOW_SECONDS) *
-      MEDIA_URL_WINDOW_SECONDS;
+    const expires = this.expiryFor(ttlSeconds);
 
     const signature = createHash('md5')
       .update(`${expires}/${dir} ${this.secret}`)

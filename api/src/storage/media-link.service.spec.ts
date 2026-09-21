@@ -1,5 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
 import { MediaLinkService, proxyKeyFor } from './media-link.service';
+import { PUBLISHED_URL_TTL_SECONDS, signingWindowFor } from './storage.config';
 
 function service(values: Record<string, string>): MediaLinkService {
   const config = {
@@ -15,8 +16,9 @@ const CONFIGURED = {
 };
 
 /**
- * Chosen so the 24h TTL rounds down to exactly 1789973100, which is the
- * expiry the pinned signature below was generated against.
+ * With the 24h TTL on its six-hour window this rounds down to exactly
+ * 1789970400, which is the expiry the pinned signatures below were generated
+ * against. (Under the old five-minute window it was 1789973100.)
  */
 const FIXED_NOW = 1_789_886_700_000;
 
@@ -28,7 +30,7 @@ describe('MediaLinkService.url', () => {
    * The contract test. This exact string is what nginx's `secure_link_md5`
    * computes for the same inputs, verified against the canonical recipe:
    *
-   *   printf '%s' '1789973100/probe.txt secret123' \
+   *   printf '%s' '1789970400/probe.txt secret123' \
    *     | openssl md5 -binary | openssl base64 | tr '+/' '-_' | tr -d '='
    *
    * Three implementations have to agree on it — this service,
@@ -38,7 +40,7 @@ describe('MediaLinkService.url', () => {
    */
   it('matches the signature nginx computes', () => {
     expect(service(CONFIGURED).url('probe.txt')).toBe(
-      'https://media.virgo.ph/1789973100/oia-pXM5NkN922WEJ3KEpQ/probe.txt',
+      'https://media.virgo.ph/1789970400/_JGhNVQjgwPpAma3JwHFEQ/probe.txt',
     );
   });
 
@@ -67,10 +69,23 @@ describe('MediaLinkService.url', () => {
     expect(link.url('probe.txt')).toBe(first);
   });
 
+  /**
+   * The point of the six-hour window. Under five minutes the same rendition
+   * came back under a new URL on every visit, so the `immutable` header nginx
+   * sends never got to matter — no cache ever saw the same URL twice.
+   */
+  it('still hands out the same URL hours later, within its window', () => {
+    const link = service(CONFIGURED);
+    const first = link.url('probe.txt');
+    jest.spyOn(Date, 'now').mockReturnValue(FIXED_NOW + 5 * 60 * 60_000);
+    expect(link.url('probe.txt')).toBe(first);
+  });
+
   it('changes once the window rolls', () => {
     const link = service(CONFIGURED);
     const first = link.url('probe.txt');
-    jest.spyOn(Date, 'now').mockReturnValue(FIXED_NOW + 5 * 60_000);
+    const window = signingWindowFor(PUBLISHED_URL_TTL_SECONDS) * 1000;
+    jest.spyOn(Date, 'now').mockReturnValue(FIXED_NOW + window);
     expect(link.url('probe.txt')).not.toBe(first);
   });
 
@@ -113,7 +128,7 @@ describe('MediaLinkService.hlsUrl', () => {
    */
   it('signs the ladder directory and serves it under /h/', () => {
     expect(service(CONFIGURED).hlsUrl('users/u/a/clip-hls')).toBe(
-      'https://media.virgo.ph/h/1789973100/Ew8x3CADYFo19zaB7h-IqQ/users/u/a/clip-hls/master.m3u8',
+      'https://media.virgo.ph/h/1789970400/Pa4Pv1h31Rmw5gqZU8YcXQ/users/u/a/clip-hls/master.m3u8',
     );
   });
 
