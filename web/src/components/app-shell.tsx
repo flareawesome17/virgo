@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useState, type ComponentType, type ReactNode } from 'react';
 import {
+  Bell,
   BriefcaseBusiness,
   FileText,
   Gift,
@@ -42,6 +43,7 @@ import { SidebarFriends } from '@/components/sidebar-friends';
 import { useEventInvitations } from '@/hooks/useScheduleEvents';
 import { useUnseenJobs } from '@/hooks/useJobs';
 import { usePromoOffers } from '@/hooks/usePromos';
+import { useUnreadNotifications } from '@/hooks/useNotifications';
 import { NotificationBell } from '@/components/notification-bell';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
@@ -62,7 +64,8 @@ interface NavItem {
     | 'friendRequests'
     | 'eventInvites'
     | 'newJobs'
-    | 'rewards';
+    | 'rewards'
+    | 'notifications';
 }
 
 const NAV: { heading?: string; items: NavItem[] }[] = [
@@ -85,6 +88,10 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
       { href: '/jobs/mine', label: 'Jobs', icon: BriefcaseBusiness, badge: 'newJobs' },
       // Beside Jobs, because a booking is where a job ends up.
       { href: '/bookings', label: 'Bookings', icon: FileText },
+      // In the sidebar as well as behind the bell. The page used to be reachable
+      // only from a small link at the foot of the bell's popover, and people
+      // looking for somewhere to read their notifications did not find it.
+      { href: '/notifications', label: 'Notifications', icon: Bell, badge: 'notifications' },
     ],
   },
   {
@@ -126,6 +133,8 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   // Rewards waiting to be claimed. Cheap — the list is almost always empty,
   // and it is the only surface that says an offer arrived.
   const { offers: rewards } = usePromoOffers();
+  // The same count as the bell's badge — one query, shared through the cache.
+  const { count: notifications } = useUnreadNotifications();
 
   return (
     <nav className="flex flex-col gap-6 px-3 py-2">
@@ -189,6 +198,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 {item.badge === 'invitations' && invitations.length > 0 && (
                   <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
                     {invitations.length > 99 ? '99+' : invitations.length}
+                  </Badge>
+                )}
+                {item.badge === 'notifications' && notifications > 0 && (
+                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
+                    {notifications > 99 ? '99+' : notifications}
                   </Badge>
                 )}
               </Link>

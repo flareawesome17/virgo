@@ -353,6 +353,21 @@ export default function SettingsPage() {
                 aria-label="Notification sound"
               />
             </SettingRow>
+
+            {/* Everything above is this device; this is the account — which
+                kinds of notification follow you to your phone and inbox. */}
+            <SettingRow
+              icon={Bell}
+              title="What reaches you"
+              detail="Choose which kinds of notification reach your phone and your inbox."
+            >
+              <Button asChild size="sm" variant="outline">
+                <Link href="/settings/notifications">
+                  Choose
+                  <ChevronRight className="size-4" />
+                </Link>
+              </Button>
+            </SettingRow>
           </CardContent>
         </Card>
 
