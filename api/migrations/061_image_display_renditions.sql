@@ -22,8 +22,20 @@ alter table user_files
 -- Display copies are made by ThumbnailsService on the confirm path, not by the
 -- background queue, and generating them for an existing library means reading
 -- every original back out of B2. That is a real egress bill and a long run, so
--- it is an operator decision rather than something a migration does on boot:
+-- it is an operator decision rather than something a migration does on boot.
 --
---   node api/scripts/backfill-thumbnails.mjs
+-- The backfill makes them through ThumbnailsService itself, along with the
+-- thumbnail and the blur preview (063) where those are missing too, all from
+-- one read of each original. It writes to the media volume, so it runs inside
+-- the API container:
+--
+--   docker exec virgo-api node scripts/backfill-thumbnails.mjs --dry-run
+--   docker exec virgo-api node scripts/backfill-thumbnails.mjs
+--
+-- The dry run reads nothing and totals what a real run would download. Both
+-- are safe to repeat, and --limit N bounds a run; the next picks up where it
+-- stopped. It refuses to start without the media host (MEDIA_HOST,
+-- MEDIA_LINK_SECRET) and a writable volume, because it would otherwise record
+-- each photograph as done with no display copies to show for it.
 --
 -- Until it runs, older photographs simply keep serving their original on open.
