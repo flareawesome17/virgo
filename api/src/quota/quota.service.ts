@@ -611,6 +611,34 @@ export class QuotaService {
     );
   }
 
+  /** Who each key's row belongs to and which album it is in. Unknown keys are absent. */
+  async fileOwnership(
+    keys: readonly string[],
+  ): Promise<{ key: string; user_id: string; album_id: string | null }[]> {
+    if (keys.length === 0) return [];
+    return this.db.query(
+      'select key, user_id, album_id from user_files where key = any($1::text[])',
+      [keys],
+    );
+  }
+
+  /**
+   * Drops accounting rows by key alone.
+   *
+   * For deletes whose access was resolved per album: a collaborator with
+   * manage access removes rows billed to the album's owner, so scoping this to
+   * the caller — as `forgetFiles` does — would leave those rows counting
+   * against the owner's quota for objects that no longer exist.
+   */
+  async forgetKeys(keys: readonly string[]): Promise<number> {
+    if (keys.length === 0) return 0;
+    const rows = await this.db.query<{ key: string }>(
+      'delete from user_files where key = any($1::text[]) returning key',
+      [keys],
+    );
+    return rows.length;
+  }
+
   /** Original keys plus any thumbnail/poster objects stored beside them. */
   async objectAndDerivedKeys(keys: readonly string[]): Promise<string[]> {
     if (keys.length === 0) return [];
