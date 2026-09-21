@@ -1,9 +1,4 @@
 {
-  "src/app/(app)/profile/page-client.tsx": {
-    "react-hooks/set-state-in-effect": {
-      "count": 2
-    }
-  },
   "src/components/desktop-update-banner.tsx": {
     "react-hooks/refs": {
       "count": 1
