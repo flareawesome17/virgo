@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -164,12 +164,27 @@ function Artwork({
 }
 
 export default function AudioScreen() {
-  const { albumId } = useLocalSearchParams<{ albumId: string }>();
+  const params = useLocalSearchParams<{
+    albumId: string;
+    /** A track to start straight away — the one tapped in the album grid. */
+    key?: string;
+    section?: string;
+    order?: string;
+    picked?: string;
+  }>();
+  const { albumId } = params;
   const { width } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const { data: album, refetch: refetchAlbum } = useAlbum(albumId);
-  const filesQuery = useAlbumFiles(albumId);
+  // Sound files only, filtered by the server rather than picked out of the
+  // whole album after fetching all of it.
+  const filesQuery = useAlbumFiles(albumId, {
+    kind: 'audio',
+    section: params.section || undefined,
+    order: params.order === 'oldest' ? 'oldest' : undefined,
+    picked: params.picked === '1' ? true : undefined,
+  });
   const files = filesQuery.audio;
   const audio = useAlbumAudio();
   const scrollY = useSharedValue(0);
@@ -199,6 +214,16 @@ export default function AudioScreen() {
     },
     [activeKey, audio, play],
   );
+
+  // Arriving from a tapped track means "play this", once.
+  const startedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!params.key || startedKey.current === params.key) return;
+    const index = files.findIndex((file) => file.key === params.key);
+    if (index < 0) return;
+    startedKey.current = params.key;
+    if (activeKey !== params.key) play(index);
+  }, [files, params.key, activeKey, play]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   albumsApi,
   queryKeys,
@@ -26,6 +26,41 @@ export function useAlbums(
     loadFailed: query.isError || query.isPaused,
     albums: query.data?.data ?? ([] as Album[]),
     total: query.data?.total ?? 0,
+  };
+}
+
+/** How many albums a page of the list asks for — the API's ceiling. */
+const ALBUM_PAGE = 100;
+
+/**
+ * Every album, a page at a time.
+ *
+ * `useAlbums` asks for one page, and the albums screen asked for 100 — so a
+ * working photographer's hundred-and-first album simply was not there, with
+ * nothing on screen to say the list had stopped.
+ */
+export function useInfiniteAlbums(
+  params: Omit<ListAlbumsParams, 'limit' | 'offset'> = {},
+  options: QueryOptions = {},
+) {
+  const query = useInfiniteQuery({
+    queryKey: queryKeys.albums.list({ ...params, paged: true }),
+    queryFn: ({ pageParam }) =>
+      albumsApi.list({ ...params, limit: ALBUM_PAGE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((sum, page) => sum + page.data.length, 0);
+      return last.data.length > 0 && loaded < last.total ? loaded : undefined;
+    },
+    enabled: options.enabled ?? true,
+  });
+
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    albums: query.data?.pages.flatMap((page) => page.data) ?? ([] as Album[]),
+    total: query.data?.pages[0]?.total ?? 0,
   };
 }
 

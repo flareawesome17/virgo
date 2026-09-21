@@ -11,10 +11,14 @@ import { PUBLISHED_URL_TTL_SECONDS } from '../../storage/storage.config';
 import { HlsService } from '../../storage/hls.service';
 import { MediaLinkService } from '../../storage/media-link.service';
 import { StorageService } from '../../storage/storage.service';
+import { NotifyService } from '../../notifications/notify.service';
 import {
   decodeFileCursor,
   encodeFileCursor,
+  SORT_AT_TEXT_SQL,
+  TAKEN_AT_TEXT_SQL,
 } from '../../quota/quota.service';
+import { SORT_AT_SQL } from '../../storage/capture-time';
 
 export interface ShareLinkRow {
   id: string;
@@ -26,6 +30,7 @@ export interface ShareLinkRow {
   revoked_at: Date | null;
   purpose: SharePurpose;
   created_at: Date;
+  picks_sent_at: Date | null;
 }
 
 /**
@@ -45,6 +50,12 @@ export const ALL_MEDIA_KINDS: MediaKind[] = ['image', 'video', 'audio'];
 export interface PublicAlbumView {
   album: { name: string; description: string | null };
   files: {
+    /**
+     * An opaque id for the file, for picking it. Deliberately not the object
+     * key: a key begins `users/<owner id>/`, and this page promises no owner
+     * identity. The row's own random id says nothing about anyone.
+     */
+    id: string;
     /** Full-size, for viewing and playback. */
     url: string | null;
     /**
@@ -90,6 +101,10 @@ export interface PublicAlbumView {
     downloadUrl: string | null;
     /** What it saves as: "Album Name - 004.jpg". */
     downloadName: string;
+    /** The camera's wall clock, `2026-03-14T16:42:05`, or null when unknown. */
+    takenAt: string | null;
+    /** When it was uploaded, for grouping a file with no `takenAt`. */
+    createdAt: string;
     contentType: string | null;
     sizeBytes: number;
     originalName: string;
@@ -99,9 +114,24 @@ export interface PublicAlbumView {
     mediaTitle: string | null;
     mediaArtist: string | null;
     processingStatus: 'pending' | 'ready' | 'failed' | 'not_required';
+    /** The album section it is filed under, or null. */
+    sectionId: string | null;
+    /** Whether the client has picked it. Always false on a portfolio link. */
+    picked: boolean;
   }[];
   /** Sections the link is scoped to, so the page renders only those. */
   kinds: MediaKind[];
+  /**
+   * The album's sections that hold something this link shows, in the
+   * photographer's order — the page's chapters. Empty when the album has
+   * none, and the page then shows no chapter row at all.
+   */
+  sections: { id: string; name: string; count: number }[];
+  /**
+   * Picking is for the client a delivery was made for. A portfolio link is
+   * public, so on one `enabled` is false and nothing can be marked.
+   */
+  picks: { enabled: boolean; count: number; sentAt: string | null };
   /** Every byte the link covers, for the "Download all" button to declare. */
   totalBytes: number;
   total: number;
@@ -109,30 +139,23 @@ export interface PublicAlbumView {
   counts: Record<MediaKind, number>;
 }
 
-/**
- * Strips what a filesystem will not take, so a download never lands as
- * "Reyes/Santos — Wedding.zip" and silently becomes a folder.
- */
-export function safeFileStem(name: string): string {
-  return (
-    name
-      // Includes the backslash: a Windows client unzipping "A\B - 001.jpg"
-      // gets a folder called A, not a file.
-      .replace(/[/\\?%*:|"<>]/g, '-')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 80) || 'Album'
-  );
-}
+// Moved beside the zip streamer, which every download now shares; re-exported
+// so the name keeps resolving where it always has.
+export { safeFileStem } from '../../storage/download-names';
+import { safeFileStem } from '../../storage/download-names';
 
 /**
  * Sequential names for delivered files: "Reyes Wedding - 007.jpg".
  *
- * `user_files` stores no original filename — only a UUID key — so there is
- * nothing to preserve. Sequential numbering is what a delivery gallery wants
- * anyway: a client who downloads 200 photos gets them in the order they were
- * shown, rather than a pile of IMG_4821.JPG, and the album name is on every
- * file once it leaves the zip.
+ * Sequential numbering is what a delivery gallery wants: a client who
+ * downloads 200 photos gets them in the order they were shown, rather than a
+ * pile of IMG_4821.JPG, and the album name is on every file once it leaves the
+ * zip.
+ *
+ * `index` is the file's place in the whole link, oldest first — never its
+ * place on a page. Numbering per page named the first photograph of every
+ * page "- 001", so two downloads from one gallery overwrote each other and
+ * neither matched the name the same file had inside the zip.
  */
 export function deliveryName(
   albumName: string,
@@ -158,6 +181,7 @@ export class AlbumShareService {
     private readonly mediaLink: MediaLinkService,
     private readonly hls: HlsService,
     private readonly config: ConfigService,
+    private readonly notify: NotifyService,
   ) {}
 
   /** base64url of 32 random bytes — 256 bits, not enumerable. */
@@ -259,6 +283,7 @@ export class AlbumShareService {
     url: string;
     createdAt: Date;
     kinds: MediaKind[];
+    picksSentAt: Date | null;
   }> {
     await this.assertOwnsAlbum(userId, albumId);
 
@@ -301,6 +326,7 @@ export class AlbumShareService {
         url: this.urlFor(existing.token),
         createdAt: existing.created_at,
         kinds: wanted,
+        picksSentAt: existing.picks_sent_at,
       };
     }
 
@@ -323,6 +349,7 @@ export class AlbumShareService {
       url: this.urlFor(token),
       createdAt: row?.created_at ?? new Date(),
       kinds: wanted,
+      picksSentAt: null,
     };
   }
 
@@ -336,6 +363,7 @@ export class AlbumShareService {
     url: string;
     createdAt: Date;
     kinds: MediaKind[];
+    picksSentAt: Date | null;
   } | null> {
     await this.assertOwnsAlbum(userId, albumId);
     const row = await this.db.queryOne<ShareLinkRow>(
@@ -350,6 +378,7 @@ export class AlbumShareService {
           url: this.urlFor(row.token),
           createdAt: row.created_at,
           kinds: row.media_kinds,
+          picksSentAt: row.picks_sent_at,
         }
       : null;
   }
@@ -392,20 +421,27 @@ export class AlbumShareService {
    * chances for the expiry rule to drift.
    */
   private async linkFor(token: string): Promise<{
+    id: string;
     album_id: string;
     user_id: string;
     name: string;
     description: string | null;
     media_kinds: MediaKind[];
+    purpose: SharePurpose;
+    picks_sent_at: Date | null;
   }> {
     const link = await this.db.queryOne<{
+      id: string;
       album_id: string;
       user_id: string;
       name: string;
       description: string | null;
       media_kinds: MediaKind[];
+      purpose: SharePurpose;
+      picks_sent_at: Date | null;
     }>(
-      `select l.album_id, l.user_id, l.media_kinds, a.name, a.description
+      `select l.id, l.album_id, l.user_id, l.media_kinds, l.purpose, l.picks_sent_at,
+              a.name, a.description
          from album_share_links l
          join albums a on a.id = l.album_id
         where l.token = $1
@@ -422,7 +458,15 @@ export class AlbumShareService {
 
   async resolve(
     token: string,
-    filter: { kind?: MediaKind; cursor?: string; limit?: number } = {},
+    filter: {
+      kind?: MediaKind;
+      cursor?: string;
+      limit?: number;
+      /** A section id: one chapter. */
+      section?: string;
+      /** Only what the client has picked. */
+      picked?: boolean;
+    } = {},
   ): Promise<PublicAlbumView> {
     const link = await this.linkFor(token);
 
@@ -440,18 +484,25 @@ export class AlbumShareService {
       void this.hls.enqueueAlbum(link.album_id);
     }
 
+    // Oldest first: a delivered album is read as the day went, prep before
+    // ceremony before reception. It used to open on whatever was uploaded
+    // last, which put the album in the order it came off the photographer's
+    // laptop rather than the order it happened in.
     const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
-    let where = `user_id = $1
-          and album_id = $2
-          and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])`;
+    let where = 'true';
     if (filter.kind) {
       params.push(filter.kind);
       where += ` and split_part(coalesce(content_type, ''), '/', 1) = $${params.length}`;
     }
+    if (filter.section) {
+      params.push(filter.section);
+      where += ` and section_id = $${params.length}`;
+    }
+    if (filter.picked) where += ' and picked';
     if (filter.cursor) {
-      const cursor = decodeFileCursor(filter.cursor);
-      params.push(cursor.createdAt, cursor.key);
-      where += ` and (created_at, key) < ($${params.length - 1}::timestamptz, $${params.length}::text)`;
+      const cursor = decodeFileCursor(filter.cursor, 'oldest');
+      params.push(cursor.sortAt, cursor.key);
+      where += ` and (sort_ts, key) > ($${params.length - 1}::timestamp, $${params.length}::text)`;
     }
     const limit = Math.min(Math.max(filter.limit ?? 60, 1), 100);
     params.push(limit + 1);
@@ -459,6 +510,7 @@ export class AlbumShareService {
     // Filtered in SQL, not after fetching: a photos-only link must not put
     // video URLs on the wire at all, or the scope would be cosmetic.
     const files = await this.db.query<{
+      id: string;
       key: string;
       thumb_key: string | null;
       poster_key: string | null;
@@ -476,35 +528,85 @@ export class AlbumShareService {
       media_title: string | null;
       media_artist: string | null;
       processing_status: 'pending' | 'ready' | 'failed' | 'not_required';
+      taken_at: string | null;
+      sort_at: string;
+      position: string;
+      section_id: string | null;
+      picked: boolean;
     }>(
-      `select key, thumb_key, poster_key, proxy_key, display_widths, hls_prefix,
-              blur_data_url, content_type, size_bytes, created_at,
-              original_name, width_px, height_px, duration_ms,
-              media_title, media_artist, processing_status
-         from user_files
+      // Numbered across everything the link shows before any filter or page
+      // is applied, so a file's delivery name is the same on every tab, every
+      // page and inside the zip.
+      `with scoped as (
+         select id, key, thumb_key, poster_key, proxy_key, display_widths, hls_prefix,
+                blur_data_url, content_type, size_bytes, created_at,
+                original_name, width_px, height_px, duration_ms,
+                media_title, media_artist, processing_status,
+                ${TAKEN_AT_TEXT_SQL} as taken_at,
+                ${SORT_AT_TEXT_SQL} as sort_at,
+                ${SORT_AT_SQL} as sort_ts,
+                row_number() over (order by ${SORT_AT_SQL}, key) as position,
+                section_id,
+                exists (
+                  select 1 from album_picks p
+                   where p.album_id = user_files.album_id and p.file_key = user_files.key
+                ) as picked
+           from user_files
+          where user_id = $1
+            and album_id = $2
+            and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
+       )
+       select * from scoped
         where ${where}
-        order by created_at desc, key desc
+        order by sort_ts, key
         limit $${params.length}`,
       params,
     );
 
     const hasMore = files.length > limit;
     const pageFiles = hasMore ? files.slice(0, limit) : files;
+
+    // The kind counts follow the chapter and the picks filter, so each tab
+    // counts what is on screen. The totals are the whole link: they are what
+    // "Download all" is about to hand over.
+    const scope: unknown[] = [link.user_id, link.album_id, link.media_kinds];
+    let inScope = '';
+    if (filter.section) {
+      scope.push(filter.section);
+      inScope += ` and f.section_id = $${scope.length}`;
+    }
+    if (filter.picked) inScope += ' and p.file_key is not null';
     const summary = await this.db.queryOne<{
       total: string;
       total_bytes: string;
       image_count: string;
       video_count: string;
       audio_count: string;
+      picked_count: string;
     }>(
       `select count(*)::text as total,
-              coalesce(sum(size_bytes), 0)::text as total_bytes,
-              count(*) filter (where content_type like 'image/%')::text as image_count,
-              count(*) filter (where content_type like 'video/%')::text as video_count,
-              count(*) filter (where content_type like 'audio/%')::text as audio_count
-         from user_files
-        where user_id = $1 and album_id = $2
-          and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])`,
+              coalesce(sum(f.size_bytes), 0)::text as total_bytes,
+              count(*) filter (where f.content_type like 'image/%'${inScope})::text as image_count,
+              count(*) filter (where f.content_type like 'video/%'${inScope})::text as video_count,
+              count(*) filter (where f.content_type like 'audio/%'${inScope})::text as audio_count,
+              count(p.file_key)::text as picked_count
+         from user_files f
+         left join album_picks p on p.album_id = f.album_id and p.file_key = f.key
+        where f.user_id = $1 and f.album_id = $2
+          and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])`,
+      scope,
+    );
+
+    // Only chapters with something in them for THIS link: a photos-only link
+    // must not offer a "Speeches" chapter that opens on nothing.
+    const sections = await this.db.query<{ id: string; name: string; count: string }>(
+      `select s.id, s.name, count(*)::text as count
+         from album_sections s
+         join user_files f on f.section_id = s.id and f.album_id = s.album_id
+        where s.album_id = $2 and f.user_id = $1
+          and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])
+        group by s.id
+        order by s.position, s.created_at`,
       [link.user_id, link.album_id, link.media_kinds],
     );
 
@@ -516,7 +618,9 @@ export class AlbumShareService {
     // because the download carries a signed Content-Disposition — the only
     // way to make a cross-origin link actually save instead of opening — and
     // that is part of what is signed, so it cannot be bolted on afterwards.
-    const names = pageFiles.map((f, i) => deliveryName(link.name, i, f.key));
+    const names = pageFiles.map((f) =>
+      deliveryName(link.name, Number(f.position) - 1, f.key),
+    );
     const [urls, thumbUrls, posterUrls, downloadUrls] = await Promise.all([
       this.storage.mediaUrls(
         pageFiles.map((f) => f.key),
@@ -540,6 +644,12 @@ export class AlbumShareService {
     return {
       album: { name: link.name, description: link.description },
       kinds: link.media_kinds,
+      sections: sections.map((s) => ({ id: s.id, name: s.name, count: Number(s.count) })),
+      picks: {
+        enabled: link.purpose === 'client',
+        count: Number(summary?.picked_count ?? 0),
+        sentAt: link.picks_sent_at ? link.picks_sent_at.toISOString() : null,
+      },
       totalBytes: Number(summary?.total_bytes ?? 0),
       total: Number(summary?.total ?? 0),
       counts: {
@@ -549,9 +659,10 @@ export class AlbumShareService {
       },
       nextCursor:
         hasMore && pageFiles.at(-1)
-          ? encodeFileCursor(pageFiles.at(-1)!.created_at, pageFiles.at(-1)!.key)
+          ? encodeFileCursor(pageFiles.at(-1)!.sort_at, pageFiles.at(-1)!.key, 'oldest')
           : null,
       files: pageFiles.map((f, i) => ({
+        id: f.id,
         url: urls[i],
         thumbUrl: thumbUrls[i],
         posterUrl: posterUrls[i],
@@ -565,6 +676,8 @@ export class AlbumShareService {
         blurDataUrl: f.blur_data_url,
         downloadUrl: downloadUrls[i],
         downloadName: names[i],
+        takenAt: f.taken_at,
+        createdAt: f.created_at.toISOString(),
         contentType: f.content_type,
         sizeBytes: Number(f.size_bytes),
         originalName: f.original_name ?? f.key.split('/').pop() ?? f.key,
@@ -574,8 +687,141 @@ export class AlbumShareService {
         mediaTitle: f.media_title,
         mediaArtist: f.media_artist,
         processingStatus: f.processing_status,
+        sectionId: f.section_id,
+        picked: link.purpose === 'client' && f.picked,
       })),
     };
+  }
+
+  /**
+   * Marks or unmarks one file as picked, through a client link.
+   *
+   * The token is the whole credential here, exactly as it is for viewing:
+   * anyone who can open the delivery can choose from it. What it cannot do is
+   * pick a file the link does not show — another album's, or a film on a
+   * photos-only link — which is checked against the link rather than trusted
+   * from the request.
+   *
+   * Returns the new state and the total, so the page's counter never has to
+   * guess after a tap that raced another.
+   */
+  async setPick(
+    token: string,
+    fileId: string,
+    picked: boolean,
+  ): Promise<{ picked: boolean; count: number }> {
+    const link = await this.linkFor(token);
+    if (link.purpose !== 'client') {
+      throw new ForbiddenException('Picking is only available on a client link');
+    }
+    const file = await this.db.queryOne<{ key: string }>(
+      `select key from user_files
+        where id = $1 and user_id = $2 and album_id = $3
+          and split_part(coalesce(content_type, ''), '/', 1) = any($4::text[])`,
+      [fileId, link.user_id, link.album_id, link.media_kinds],
+    );
+    if (!file) throw new NotFoundException('That file is not in this delivery');
+    const key = file.key;
+
+    if (picked) {
+      await this.db.query(
+        `insert into album_picks (album_id, file_key, link_id)
+         values ($1, $2, $3)
+         on conflict (album_id, file_key) do nothing`,
+        [link.album_id, key, link.id],
+      );
+    } else {
+      await this.db.query(
+        'delete from album_picks where album_id = $1 and file_key = $2',
+        [link.album_id, key],
+      );
+    }
+    return { picked, count: await this.pickCount(link) };
+  }
+
+  /**
+   * The client saying "these are the ones" — tells the photographer.
+   *
+   * Picks are saved as they are made, so this sends nothing the server does
+   * not already have. What it adds is the moment: a selection someone is
+   * still scrolling through and one they have finished look identical in the
+   * table, and only the client knows which it is.
+   */
+  async sendPicks(token: string): Promise<{ count: number; sentAt: string }> {
+    const link = await this.linkFor(token);
+    if (link.purpose !== 'client') {
+      throw new ForbiddenException('Picking is only available on a client link');
+    }
+    const count = await this.pickCount(link);
+    if (count === 0) throw new BadRequestException('Pick at least one file first');
+
+    const row = await this.db.queryOne<{ picks_sent_at: Date }>(
+      'update album_share_links set picks_sent_at = now() where id = $1 returning picks_sent_at',
+      [link.id],
+    );
+
+    await this.notify
+      .notify([link.user_id], {
+        topic: 'client-picks',
+        title: 'Your client sent their picks',
+        body: `${count} file${count === 1 ? '' : 's'} chosen from “${link.name}”.`,
+        data: { type: 'client_picks', albumId: link.album_id },
+      })
+      .catch(() => {
+        // The picks are saved either way; a missed alert must not tell the
+        // client their choice failed.
+      });
+
+    return { count, sentAt: row!.picks_sent_at.toISOString() };
+  }
+
+  /** The picked files, named as they are everywhere else in the delivery. */
+  async picksForDownload(token: string): Promise<{
+    albumName: string;
+    files: { key: string; name: string }[];
+  }> {
+    const link = await this.linkFor(token);
+    if (link.purpose !== 'client') {
+      throw new ForbiddenException('Picking is only available on a client link');
+    }
+    const files = await this.db.query<{ key: string; position: string }>(
+      `with scoped as (
+         select key, album_id,
+                row_number() over (order by ${SORT_AT_SQL}, key) as position,
+                ${SORT_AT_SQL} as sort_ts
+           from user_files
+          where user_id = $1 and album_id = $2
+            and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
+       )
+       select s.key, s.position
+         from scoped s
+         join album_picks p on p.album_id = s.album_id and p.file_key = s.key
+        order by s.sort_ts, s.key`,
+      [link.user_id, link.album_id, link.media_kinds],
+    );
+    return {
+      albumName: `${link.name} - picks`,
+      files: files.map((f) => ({
+        key: f.key,
+        name: deliveryName(link.name, Number(f.position) - 1, f.key),
+      })),
+    };
+  }
+
+  private async pickCount(link: {
+    user_id: string;
+    album_id: string;
+    media_kinds: MediaKind[];
+  }): Promise<number> {
+    const row = await this.db.queryOne<{ count: string }>(
+      `select count(*)::text as count
+         from album_picks p
+         join user_files f on f.key = p.file_key and f.album_id = p.album_id
+        where p.album_id = $2 and f.user_id = $1
+          and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])`,
+      [link.user_id, link.album_id, link.media_kinds],
+    );
+    return Number(row?.count ?? 0);
   }
 
   /** Raw bytes of one object, for the zip to append. */
@@ -602,7 +848,7 @@ export class AlbumShareService {
         where user_id = $1
           and album_id = $2
           and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
-        order by created_at desc, key desc`,
+        order by ${SORT_AT_SQL}, key`,
       [link.user_id, link.album_id, link.media_kinds],
     );
 

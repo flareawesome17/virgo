@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -14,6 +15,7 @@ import {
   MessageCircle,
   Sparkles,
   Trash2,
+  Heart,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -69,8 +71,14 @@ const TOPICS: Record<
       typeof d.bookingId === 'string' ? `/bookings/${d.bookingId}` : '/bookings',
   },
   reminder: { icon: Calendar, href: '/schedule' },
-  billing: { icon: CreditCard, href: '/settings/billing' },
+  // There is no /settings/billing; plans and what you are paying live here.
+  billing: { icon: CreditCard, href: '/settings/plans' },
   retention: { icon: Trash2, href: '/albums' },
+  'client-picks': {
+    icon: Heart,
+    href: (d) =>
+      typeof d.albumId === 'string' ? `/albums/${d.albumId}?picked=1` : '/albums',
+  },
   support: { icon: LifeBuoy, href: '/support' },
   promo: { icon: Gift, href: '/rewards' },
   // An announcement opens its link when it has one, and otherwise has said all
@@ -90,7 +98,7 @@ const TOPICS: Record<
  * to for api.virgo.ph — so a page cannot send somebody to an address of its
  * choosing. A link it refuses simply does not open.
  */
-function openExternal(url: string): void {
+export function openExternal(url: string): void {
   const opener = (
     window as { __TAURI_PLUGIN_OPENER__?: { openUrl?: (url: string) => Promise<void> } }
   ).__TAURI_PLUGIN_OPENER__;
@@ -114,10 +122,57 @@ function ago(iso: string): string {
   });
 }
 
-function destination(n: AppNotification): string | null {
+export function destination(n: AppNotification): string | null {
   const topic = TOPICS[n.topic];
   if (!topic) return null;
   return typeof topic.href === 'function' ? topic.href(n.data) : topic.href;
+}
+
+/**
+ * One notification, as the popover and the notifications page both draw it.
+ * Shared so the two cannot come to disagree about what a notification looks like.
+ */
+export function NotificationRow({
+  notification: n,
+  onOpen,
+  roomy = false,
+}: {
+  notification: AppNotification;
+  onOpen: (n: AppNotification) => void;
+  /** The page has room for the whole body; the popover clamps it. */
+  roomy?: boolean;
+}) {
+  const Icon = TOPICS[n.topic]?.icon ?? Bell;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(n)}
+      className={cn(
+        'flex w-full items-start gap-3 text-left transition-colors hover:bg-accent/60',
+        roomy ? 'px-5 py-4' : 'px-4 py-3',
+        !n.readAt && 'bg-primary/[0.04]',
+      )}
+    >
+      <span
+        className={cn(
+          'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full',
+          n.readAt ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary',
+        )}
+      >
+        <Icon className="size-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{n.title}</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{ago(n.createdAt)}</span>
+        </span>
+        <span className={cn('mt-0.5 block text-xs leading-relaxed text-muted-foreground', !roomy && 'line-clamp-2')}>
+          {n.body}
+        </span>
+      </span>
+      {!n.readAt && <span aria-label="Unread" className="mt-2 size-1.5 shrink-0 rounded-full bg-primary" />}
+    </button>
+  );
 }
 
 /**
@@ -213,53 +268,24 @@ export function NotificationBell() {
             </div>
           ) : (
             <ul className="divide-y">
-              {notifications.map((n) => {
-                const Icon = TOPICS[n.topic]?.icon ?? Bell;
-                return (
-                  <li key={n.id}>
-                    <button
-                      type="button"
-                      onClick={() => openNotification(n)}
-                      className={cn(
-                        'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/60',
-                        !n.readAt && 'bg-primary/[0.04]',
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full',
-                          n.readAt
-                            ? 'bg-muted text-muted-foreground'
-                            : 'bg-primary/10 text-primary',
-                        )}
-                      >
-                        <Icon className="size-3.5" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-baseline gap-2">
-                          <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                            {n.title}
-                          </span>
-                          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                            {ago(n.createdAt)}
-                          </span>
-                        </span>
-                        <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-muted-foreground">
-                          {n.body}
-                        </span>
-                      </span>
-                      {!n.readAt && (
-                        <span
-                          aria-hidden
-                          className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
-                        />
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
+              {notifications.map((n) => (
+                <li key={n.id}>
+                  <NotificationRow notification={n} onOpen={openNotification} />
+                </li>
+              ))}
             </ul>
           )}
+        </div>
+        {/* The popover shows thirty. Everything older used to be unreachable
+            once it scrolled off the bottom. */}
+        <div className="border-t px-4 py-2 text-center">
+          <Link
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            See all notifications
+          </Link>
         </div>
       </PopoverContent>
     </Popover>

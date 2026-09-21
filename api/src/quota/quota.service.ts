@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { SORT_AT_SQL } from '../storage/capture-time';
 import { limitsFor, toJsonLimit, type PlanLimits } from './quota.config';
 
 export interface StoredFile {
@@ -24,9 +25,42 @@ export interface StoredFile {
   media_title: string | null;
   media_artist: string | null;
   processing_status: 'pending' | 'ready' | 'failed' | 'not_required';
+  /** The camera's wall clock, `2026-03-14T16:42:05`, or null when unknown. */
+  taken_at: string | null;
+  /** What the row sorted by, to microseconds, for the next page's cursor. */
+  sort_at: string;
+  section_id: string | null;
+  /** The client picked this one through the album's delivery link. */
+  picked: boolean;
 }
 
 export type StoredMediaKind = 'image' | 'video' | 'audio' | 'other';
+
+/**
+ * Which end of an album a listing starts from, by when things were taken.
+ *
+ * Newest first is the working view — what just came off the card is on top.
+ * Oldest first is the story, and what a delivered album reads as.
+ */
+export type FileOrder = 'newest' | 'oldest';
+
+/**
+ * Columns every media listing selects, beyond the file's own.
+ *
+ * Both are printed by Postgres rather than returned as timestamps: node-pg
+ * would turn them into Dates in the server's zone and at millisecond
+ * precision, and the first shifts a wall clock that has no zone while the
+ * second makes a cursor skip rows confirmed within the same millisecond.
+ */
+export const TAKEN_AT_TEXT_SQL = `to_char(taken_at, 'YYYY-MM-DD"T"HH24:MI:SS')`;
+export const SORT_AT_TEXT_SQL = `to_char(${SORT_AT_SQL}, 'YYYY-MM-DD"T"HH24:MI:SS.US')`;
+
+/** `order by` and the cursor comparison for one direction. */
+export function fileOrderSql(order: FileOrder): { direction: string; after: string } {
+  return order === 'oldest'
+    ? { direction: 'asc', after: '>' }
+    : { direction: 'desc', after: '<' };
+}
 
 export interface StoredFilePage {
   rows: StoredFile[];
@@ -401,8 +435,15 @@ export class QuotaService {
       limit?: number;
       cursor?: string;
       kind?: StoredMediaKind;
+      order?: FileOrder;
+      /** A section id, or 'none' for files in no section. Albums only. */
+      section?: string;
+      /** Only what the client picked. Albums only. */
+      picked?: boolean;
     } = {},
   ): Promise<StoredFilePage> {
+    const order = filter.order ?? 'newest';
+    const { direction, after } = fileOrderSql(order);
     // Built as one or the other, never both: an album query must not also
     // carry `userId`, or $1 goes unreferenced and Postgres refuses the
     // statement outright with "could not determine data type of parameter $1".
@@ -417,16 +458,29 @@ export class QuotaService {
       where = `user_id = $${params.length}`;
     }
 
+    // Section and picks narrow the scope the kind counts are taken over, so
+    // the Photos / Films / Audio chips count what is actually on screen.
+    if (filter.albumId && filter.section === 'none') {
+      where += ' and section_id is null';
+    } else if (filter.albumId && filter.section) {
+      params.push(filter.section);
+      where += ` and section_id = $${params.length}`;
+    }
+    if (filter.albumId && filter.picked) {
+      where += ` and ${PICKED_SQL}`;
+    }
+
     const scopeWhere = where;
+    const scopeParams = [...params];
     if (filter.kind) {
       params.push(filter.kind);
       where += ` and ${mediaKindSql('content_type')} = $${params.length}`;
     }
 
     if (filter.cursor) {
-      const cursor = decodeFileCursor(filter.cursor);
-      params.push(cursor.createdAt, cursor.key);
-      where += ` and (created_at, key) < ($${params.length - 1}::timestamptz, $${params.length}::text)`;
+      const cursor = decodeFileCursor(filter.cursor, order);
+      params.push(cursor.sortAt, cursor.key);
+      where += ` and (${SORT_AT_SQL}, key) ${after} ($${params.length - 1}::timestamp, $${params.length}::text)`;
     }
 
     const limit = Math.min(Math.max(filter.limit ?? 60, 1), 100);
@@ -437,15 +491,18 @@ export class QuotaService {
               original_name, thumb_key, poster_key, proxy_key, display_widths, hls_prefix,
               blur_data_url,
               width_px, height_px,
-              duration_ms, media_title, media_artist, processing_status
+              duration_ms, media_title, media_artist, processing_status,
+              ${TAKEN_AT_TEXT_SQL} as taken_at,
+              ${SORT_AT_TEXT_SQL} as sort_at,
+              section_id,
+              ${PICKED_SQL} as picked
          from user_files
         where ${where}
-        order by created_at desc, key desc
+        order by ${SORT_AT_SQL} ${direction}, key ${direction}
         limit $${params.length}`,
       params,
     );
 
-    const countParams: unknown[] = filter.albumId ? [filter.albumId] : [userId];
     const summary = await this.db.queryOne<{
       total: string;
       image_count: string;
@@ -460,7 +517,7 @@ export class QuotaService {
               count(*) filter (where ${mediaKindSql('content_type')} = 'other')::text as other_count
          from user_files
         where ${scopeWhere}`,
-      countParams,
+      scopeParams,
     );
 
     const hasMore = rows.length > limit;
@@ -484,7 +541,7 @@ export class QuotaService {
         other: Number(summary?.other_count ?? 0),
       },
       nextCursor:
-        hasMore && last ? encodeFileCursor(last.created_at, last.key) : null,
+        hasMore && last ? encodeFileCursor(last.sort_at, last.key, order) : null,
     };
   }
 
@@ -639,6 +696,55 @@ export class QuotaService {
     return rows.length;
   }
 
+  /** Records a zip ticket and clears out any that have lapsed. */
+  async createZipTicket(ticket: {
+    token: string;
+    userId: string;
+    albumId: string;
+    keys: readonly string[];
+    ttlSeconds: number;
+  }): Promise<Date> {
+    await this.db.query('delete from media_zip_tickets where expires_at < now()');
+    const row = await this.db.queryOne<{ expires_at: Date }>(
+      `insert into media_zip_tickets (token, user_id, album_id, keys, expires_at)
+       values ($1, $2, $3, $4, now() + ($5 * interval '1 second'))
+       returning expires_at`,
+      [ticket.token, ticket.userId, ticket.albumId, ticket.keys, ticket.ttlSeconds],
+    );
+    return row!.expires_at;
+  }
+
+  /** A live ticket, with its album's name, or null. */
+  async zipTicket(token: string): Promise<{
+    user_id: string;
+    album_id: string;
+    album_name: string;
+    keys: string[];
+  } | null> {
+    return this.db.queryOne(
+      `select t.user_id, t.album_id, a.name as album_name, t.keys
+         from media_zip_tickets t
+         join albums a on a.id = t.album_id
+        where t.token = $1 and t.expires_at > now()`,
+      [token],
+    );
+  }
+
+  /** Which of `keys` are in the album, in story order, with their names. */
+  async albumFilesByKey(
+    albumId: string,
+    keys: readonly string[],
+  ): Promise<{ key: string; original_name: string | null }[]> {
+    if (keys.length === 0) return [];
+    return this.db.query(
+      `select key, original_name
+         from user_files
+        where album_id = $1 and key = any($2::text[])
+        order by ${SORT_AT_SQL}, key`,
+      [albumId, keys],
+    );
+  }
+
   /** Original keys plus any thumbnail/poster objects stored beside them. */
   async objectAndDerivedKeys(keys: readonly string[]): Promise<string[]> {
     if (keys.length === 0) return [];
@@ -718,6 +824,12 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(0)} KB`;
 }
 
+/** Whether the client picked this row through the album's delivery link. */
+const PICKED_SQL = `exists (
+  select 1 from album_picks p
+   where p.album_id = user_files.album_id and p.file_key = user_files.key
+)`;
+
 function mediaKindSql(column: string): string {
   return `case
     when coalesce(${column}, '') like 'image/%' then 'image'
@@ -727,29 +839,46 @@ function mediaKindSql(column: string): string {
   end`;
 }
 
-export function encodeFileCursor(createdAt: Date, key: string): string {
-  return Buffer.from(
-    JSON.stringify({ createdAt: createdAt.toISOString(), key }),
-    'utf8',
-  ).toString('base64url');
+/** `2026-03-14T16:42:05.123456`, as SORT_AT_TEXT_SQL prints it. */
+const SORT_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?$/;
+
+/**
+ * Where the next page starts: the last row's sort key and object key.
+ *
+ * Carries its direction so a cursor from one order cannot be replayed against
+ * the other, which would silently return the wrong half of the album.
+ */
+export function encodeFileCursor(
+  sortAt: string,
+  key: string,
+  order: FileOrder = 'newest',
+): string {
+  return Buffer.from(JSON.stringify({ sortAt, key, order }), 'utf8').toString(
+    'base64url',
+  );
 }
 
-export function decodeFileCursor(value: string): { createdAt: string; key: string } {
+export function decodeFileCursor(
+  value: string,
+  order: FileOrder = 'newest',
+): { sortAt: string; key: string } {
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as {
-      createdAt?: unknown;
+      sortAt?: unknown;
       key?: unknown;
+      order?: unknown;
     };
     if (
-      typeof parsed.createdAt !== 'string' ||
-      !Number.isFinite(Date.parse(parsed.createdAt)) ||
+      typeof parsed.sortAt !== 'string' ||
+      !SORT_AT_PATTERN.test(parsed.sortAt) ||
       typeof parsed.key !== 'string' ||
       parsed.key.length === 0 ||
-      parsed.key.length > 1024
+      parsed.key.length > 1024 ||
+      parsed.order !== order
     ) {
       throw new Error('Invalid cursor fields');
     }
-    return { createdAt: parsed.createdAt, key: parsed.key };
+    return { sortAt: parsed.sortAt, key: parsed.key };
   } catch {
     throw new BadRequestException('Invalid file cursor');
   }

@@ -25,6 +25,7 @@ export const queryKeys = {
     all: ['albums'] as const,
     list: (params?: unknown) => ['albums', 'list', params ?? {}] as const,
     detail: (id: string) => ['albums', 'detail', id] as const,
+    sections: (id: string) => ['albums', 'sections', id] as const,
   },
   scheduleEvents: {
     all: ['schedule-events'] as const,

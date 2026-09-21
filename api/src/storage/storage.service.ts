@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
 import type { Readable } from 'node:stream';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
@@ -7,6 +7,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
@@ -19,9 +20,11 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MediaLinkService } from './media-link.service';
+import { contentDisposition, safeFileStem, uniqueNames } from './download-names';
 import {
   accessAllows,
   QuotaService,
+  type FileOrder,
   type MediaAccess,
   type ResolvedAccess,
   type StoredMediaKind,
@@ -39,6 +42,9 @@ import {
   type UploadScope,
 } from './storage.config';
 
+/** Long enough to click the link, short enough to be useless if it leaks. */
+const ZIP_TICKET_TTL_SECONDS = 10 * 60;
+
 export interface UploadTicket {
   key: string;
   uploadUrl: string;
@@ -48,20 +54,9 @@ export interface UploadTicket {
   expiresAt: string;
 }
 
-/**
- * `Content-Disposition` for a download, safe for any filename.
- *
- * Two forms on purpose: a stripped ASCII `filename` that every client can
- * read, and RFC 5987 `filename*` carrying the real one. Album names are
- * user-supplied and Filipino ones routinely contain accents — sending those
- * raw produces a header a browser either mangles or rejects outright.
- */
-export function contentDisposition(name: string): string {
-  // Printable ASCII only for the plain form, and neither of the two
-  // characters that would end the quoted string early.
-  const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
-}
+// Lives beside the zip streamer, which needs it and must not import this file
+// back; re-exported so it resolves where it always has.
+export { contentDisposition } from './download-names';
 
 /**
  * Backblaze B2 via its S3-compatible API.
@@ -343,6 +338,29 @@ export class StorageService {
   }
 
   /**
+   * The first `bytes` of an object, for reading its header without the rest.
+   *
+   * A ranged GET, so an original too large to decode still gives up its EXIF
+   * for the cost of a quarter of a megabyte rather than all of it.
+   */
+  async readHead(key: string, bytes: number): Promise<Buffer> {
+    const client = this.requireClient();
+    this.assertSafeKey(key);
+    const res = await client.send(
+      new GetObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        Range: `bytes=0-${Math.max(0, bytes - 1)}`,
+      }),
+    );
+    const chunks: Buffer[] = [];
+    for await (const chunk of res.Body as Readable) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  /**
    * Writes a derived object — today only thumbnails.
    *
    * Goes to the same bucket as its source so it inherits the same lifecycle:
@@ -550,6 +568,64 @@ export class StorageService {
   }
 
   /**
+   * A short-lived ticket for downloading a selection as one zip.
+   *
+   * The app authenticates with a bearer header that a browser does not send
+   * on a navigation, and a navigation is the only way to put a multi-gigabyte
+   * zip in the browser's download manager instead of in JavaScript memory. So
+   * the ticket is asked for over the authenticated channel and carried by the
+   * navigation. See migration 065.
+   */
+  async issueZipTicket(
+    userId: string,
+    albumId: string,
+    keys: readonly string[],
+  ): Promise<{ path: string; expiresAt: Date; files: number }> {
+    const access = await this.quota.accessForAlbum(userId, albumId);
+    // 'download', the same line a single original is held to.
+    if (!accessAllows(access, 'download')) {
+      throw new ForbiddenException('You cannot download from this album');
+    }
+    const files = await this.quota.albumFilesByKey(albumId, keys);
+    if (files.length === 0) throw new BadRequestException('Nothing to download');
+
+    const token = randomBytes(24).toString('base64url');
+    const expiresAt = await this.quota.createZipTicket({
+      token,
+      userId,
+      albumId,
+      keys: files.map((file) => file.key),
+      ttlSeconds: ZIP_TICKET_TTL_SECONDS,
+    });
+    return { path: `/storage/zip/${token}`, expiresAt, files: files.length };
+  }
+
+  /**
+   * What a ticket downloads, re-authorised at the moment it is used.
+   *
+   * Access is checked again rather than trusted from issue time: ten minutes
+   * is long enough for a collaborator to be removed, and a ticket must not
+   * outlive the permission it was issued on.
+   */
+  async redeemZipTicket(
+    token: string,
+  ): Promise<{ zipName: string; files: { key: string; name: string }[] }> {
+    const ticket = await this.quota.zipTicket(token);
+    if (!ticket) throw new NotFoundException('This download has expired');
+    const access = await this.quota.accessForAlbum(ticket.user_id, ticket.album_id);
+    if (!accessAllows(access, 'download')) {
+      throw new NotFoundException('This download has expired');
+    }
+    const rows = await this.quota.albumFilesByKey(ticket.album_id, ticket.keys);
+    const names = uniqueNames(rows.map((row) => storedDisplayName(row.original_name, row.key)));
+    const count = `${rows.length} file${rows.length === 1 ? '' : 's'}`;
+    return {
+      zipName: `${safeFileStem(ticket.album_name)} - ${count}.zip`,
+      files: rows.map((row, i) => ({ key: row.key, name: names[i] })),
+    };
+  }
+
+  /**
    * Deletes every object this user has stored, across all albums.
    *
    * "Stored" as the quota counts it: every file billed to this user, which
@@ -727,6 +803,9 @@ export class StorageService {
       limit?: number;
       cursor?: string;
       kind?: StoredMediaKind;
+      order?: FileOrder;
+      section?: string;
+      picked?: boolean;
     } = {},
   ) {
     // `QuotaService.listFiles` returns an album's contents without checking
@@ -767,6 +846,11 @@ export class StorageService {
         contentType: row.content_type,
         albumId: row.album_id,
         createdAt: row.created_at,
+        // The camera's wall clock with no zone, or null when unknown. Group
+        // by its date as written; fall back to `createdAt` in local time.
+        takenAt: row.taken_at,
+        sectionId: row.section_id,
+        picked: row.picked,
         originalName: names[i],
         url: urls[i],
         thumbnailUrl: thumbnailUrls[i],

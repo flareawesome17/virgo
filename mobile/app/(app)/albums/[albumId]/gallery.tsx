@@ -38,7 +38,10 @@ export default function GalleryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [density, setDensity] = useState(DEFAULT_DENSITY);
   const { data: album, refetch: refetchAlbum } = useAlbum(albumId);
-  const filesQuery = useAlbumFiles(albumId);
+  // Photographs only, filtered by the server. This loaded the whole mixed
+  // album and kept the photographs, so every film and sound file in it was
+  // fetched, signed and thrown away on the way to drawing a photo grid.
+  const filesQuery = useAlbumFiles(albumId, { kind: 'image' });
   const photos = filesQuery.images;
 
   const columns = DENSITIES[density];
@@ -87,9 +90,11 @@ export default function GalleryScreen() {
             key={photo.key}
             onPress={() =>
               router.push(
-                `/albums/${albumId}/viewer?index=${row.firstIndex + column}`,
+                `/albums/${albumId}/viewer?kind=image&key=${encodeURIComponent(photo.key)}`,
               )
             }
+            accessibilityRole="imagebutton"
+            accessibilityLabel={`Photograph ${row.firstIndex + column + 1}, ${photo.originalName}`}
             style={{ width: tile, height: tile }}
             className="bg-white/[0.04] active:opacity-75"
           >

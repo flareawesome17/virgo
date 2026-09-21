@@ -115,6 +115,8 @@ export default function CreateAlbumScreen() {
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
           <Pressable
             onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
             className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{
               shadowColor: '#000',
@@ -146,6 +148,7 @@ export default function CreateAlbumScreen() {
             </Text>
             <Pressable
               onPress={() => router.push('/settings/storage/plans')}
+              accessibilityRole="button"
               className="mt-3 rounded-xl py-2.5 items-center active:scale-[0.97]"
               style={{ backgroundColor: '#C76B4A' }}
             >
@@ -163,6 +166,9 @@ export default function CreateAlbumScreen() {
             </Text>
             <Pressable
               onPress={() => setShowWorkspacePicker(!showWorkspacePicker)}
+              accessibilityRole="button"
+              accessibilityHint="Choose which workspace the album belongs to"
+              accessibilityState={{ expanded: showWorkspacePicker }}
               className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:scale-[0.98]"
               style={{
                 shadowColor: '#000',
@@ -208,6 +214,8 @@ export default function CreateAlbumScreen() {
                 {workspaces.map((w, i) => (
                   <Pressable
                     key={w.id}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selectedWorkspaceId === w.id }}
                     onPress={() => {
                       setSelectedWorkspaceId(w.id);
                       setShowWorkspacePicker(false);
@@ -299,6 +307,8 @@ export default function CreateAlbumScreen() {
             {RETENTION_OPTIONS.map((opt, i) => (
               <Pressable
                 key={opt.key}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: retentionKey === opt.key }}
                 onPress={() => {
                   setRetentionKey(opt.key);
                   if (opt.key !== 'custom') setShowCustomPicker(false);
@@ -346,6 +356,9 @@ export default function CreateAlbumScreen() {
                   <Pressable
                     key={days}
                     onPress={() => setCustomDays(days)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: customDays === days }}
+                    accessibilityLabel={`${days} days`}
                     className={`rounded-xl px-3.5 py-2 active:scale-[0.96] ${
                       customDays === days ? 'bg-action' : 'bg-muted'
                     }`}
@@ -369,6 +382,7 @@ export default function CreateAlbumScreen() {
       <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background flex-row gap-3" style={{ paddingBottom: insets.bottom + 16 }}>
         <Pressable
           onPress={() => router.back()}
+          accessibilityRole="button"
           className="flex-1 bg-card rounded-2xl py-3.5 items-center active:scale-[0.97]"
           style={{
             shadowColor: '#000',
@@ -382,6 +396,8 @@ export default function CreateAlbumScreen() {
         </Pressable>
         <Pressable
           onPress={() => canCreate && handleCreate()}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !canCreate || createAlbum.isPending }}
           className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${
             canCreate ? 'bg-action' : 'bg-muted'
           }`}

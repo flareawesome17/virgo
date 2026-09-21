@@ -23,6 +23,8 @@ export type NotificationTopic =
   | 'reminder'
   | 'billing'
   | 'retention'
+  /** A client finished choosing from a delivery and sent their picks. */
+  | 'client-picks'
   | 'support'
   | 'booking'
   | 'promo'

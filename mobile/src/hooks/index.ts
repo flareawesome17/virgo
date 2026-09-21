@@ -21,6 +21,7 @@ export {
 
 export {
   useAlbums,
+  useInfiniteAlbums,
   useAlbum,
   useCreateAlbum,
   useUpdateAlbum,
@@ -88,7 +89,17 @@ export {
 
 export { useUpload, useDeleteUpload, type UploadInput } from '@/src/hooks/useUpload'
 export { useUsage, usePlans, usageQueryKey, plansQueryKey } from '@/src/hooks/useUsage'
-export { useAlbumFiles, albumFilesQueryKey, kindOf, fileNameFromKey, fileDate, type MediaKind } from '@/src/hooks/useAlbumFiles'
+export { useAlbumFiles, albumFilesQueryKey, kindOf, fileNameFromKey, fileDate, type MediaKind, type AlbumFilesFilter } from '@/src/hooks/useAlbumFiles'
+
+export {
+  useAlbumSections,
+  useCreateSection,
+  useRenameSection,
+  useReorderSections,
+  useDeleteSection,
+  useAssignSection,
+} from '@/src/hooks/useAlbumSections'
+export { useSelection, useDeleteFiles } from '@/src/hooks/useMediaSelection'
 
 export {
   useStorageBreakdown,

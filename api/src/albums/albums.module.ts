@@ -5,16 +5,24 @@ import { AlbumRetentionService } from './album-retention.service';
 import { AlbumsController } from './albums.controller';
 import { AlbumsRepository } from './albums.repository';
 import { AlbumsService } from './albums.service';
+import { AlbumSectionsController } from './sections/album-sections.controller';
+import { AlbumSectionsService } from './sections/album-sections.service';
 import { AlbumShareController, PublicAlbumController } from './share/album-share.controller';
 import { AlbumShareService } from './share/album-share.service';
 import { VisitsModule } from '../visits/visits.module';
 
 @Module({
   imports: [WorkspacesModule, StorageModule, VisitsModule],
-  controllers: [AlbumsController, AlbumShareController, PublicAlbumController],
+  controllers: [
+    AlbumsController,
+    AlbumSectionsController,
+    AlbumShareController,
+    PublicAlbumController,
+  ],
   providers: [
     AlbumsService,
     AlbumsRepository,
+    AlbumSectionsService,
     AlbumShareService,
     AlbumRetentionService,
   ],

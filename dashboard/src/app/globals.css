@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./tokens.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -39,6 +40,9 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-action-foreground: var(--action-foreground);
+  --color-action: var(--action);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -56,92 +60,9 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
-  /**
-   * The Virgo palette, mapped onto shadcn's token names.
-   *
-   * Same values as mobile/theme.ts — one product should not be two different
-   * shades of itself. Mapping onto shadcn's names rather than adding a parallel
-   * set means every component picks the brand up for free.
-   */
-  --background: #fff8f4;
-  --foreground: #1e1b18;
-  --card: #ffffff;
-  --card-foreground: #1e1b18;
-  --popover: #ffffff;
-  --popover-foreground: #1e1b18;
-  --primary: #b66a40;
-  --primary-foreground: #ffffff;
-  --secondary: #faf2ec;
-  --secondary-foreground: #54433c;
-  --muted: #f5eee8;
-  --muted-foreground: #847167;
-  /* shadcn uses --accent for hover surfaces, not as a brand colour, so it
-     takes the app's `secondary` tone. The brand accent is --brand-accent. */
-  --accent: #f5eee8;
-  --accent-foreground: #54433c;
-  --brand-accent: #c17745;
-  --destructive: #b44632;
-  --border: #d9c2b7;
-  --input: #d9c2b7;
-  --ring: #b66a40;
-  --chart-1: #b66a40;
-  --chart-2: #c17745;
-  --chart-3: #8b5e3c;
-  --chart-4: #6b8e4e;
-  --chart-5: #5b7b9a;
-  --radius: 0.75rem;
-  --success: #6b8e4e;
-  --info: #5b7b9a;
-  --warning: #c17745;
-  --sidebar: #faf2ec;
-  --sidebar-foreground: #1e1b18;
-  --sidebar-primary: #b66a40;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f5eee8;
-  --sidebar-accent-foreground: #54433c;
-  --sidebar-border: #d9c2b7;
-  --sidebar-ring: #b66a40;
-}
-
-.dark {
-  --background: #161311;
-  --foreground: #f2ede8;
-  --card: #1e1b18;
-  --card-foreground: #f2ede8;
-  --popover: #1e1b18;
-  --popover-foreground: #f2ede8;
-  --primary: #c17745;
-  --primary-foreground: #ffffff;
-  --secondary: #26221f;
-  --secondary-foreground: #bcada3;
-  --muted: #2a2522;
-  --muted-foreground: #948278;
-  --accent: #2a2522;
-  --accent-foreground: #f2ede8;
-  --brand-accent: #b66a40;
-  --destructive: #c8503c;
-  --border: #362f2b;
-  --input: #362f2b;
-  --ring: #c17745;
-  /* Dark leads with its own primary, matching the app. */
-  --chart-1: #c17745;
-  --chart-2: #b66a40;
-  --chart-3: #8b5e3c;
-  --chart-4: #6b8e4e;
-  --chart-5: #5b7b9a;
-  --success: #7da55c;
-  --info: #6d90b1;
-  --warning: #c17745;
-  --sidebar: #1a1715;
-  --sidebar-foreground: #f2ede8;
-  --sidebar-primary: #c17745;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #2a2522;
-  --sidebar-accent-foreground: #f2ede8;
-  --sidebar-border: #362f2b;
-  --sidebar-ring: #c17745;
-}
+/* The palette itself — :root and .dark — is generated from design/tokens.json
+   into tokens.css, imported above. It used to be written out here by hand,
+   under a comment claiming it matched the phone app, which it did not. */
 
 @layer base {
   * {

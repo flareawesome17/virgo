@@ -4,6 +4,8 @@ import type { Album, AlbumStatus, ListParams, ListResponse } from '../types';
 export interface ListAlbumsParams extends ListParams {
   workspace_id?: string;
   status?: AlbumStatus;
+  /** Matches the album's name, description, or its workspace's name. */
+  search?: string;
 }
 
 export interface CreateAlbumInput {
@@ -17,7 +19,10 @@ export interface CreateAlbumInput {
   retention_days?: number | null;
 }
 
-export type UpdateAlbumInput = Partial<Omit<CreateAlbumInput, 'id'>>;
+export type UpdateAlbumInput = Partial<Omit<CreateAlbumInput, 'id'>> & {
+  /** A photograph already in the album, or null for the newest image. */
+  cover_key?: string | null;
+};
 
 export const albumsApi = {
   list(params: ListAlbumsParams = {}): Promise<ListResponse<Album>> {

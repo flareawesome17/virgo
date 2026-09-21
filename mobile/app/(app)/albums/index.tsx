@@ -1,61 +1,67 @@
-import { View, Text, FlatList, ScrollView, RefreshControl, Pressable } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  SectionList,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAlbums, useAuth, useTheme, useWorkspaces,
-  usePlanLimits,
-} from '@/src/hooks';
-import { useMemo, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
-  SearchIcon,
-  PlusIcon,
-  LayersIcon,
-  ImageIcon,
-  VideoIcon,
-  MusicIcon,
   ArrowLeftIcon,
-  FilterIcon,
-  ClockIcon,
+  ImageIcon,
+  LayersIcon,
+  MusicIcon,
+  PlusIcon,
+  SearchIcon,
+  VideoIcon,
+  XIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
+import {
+  useAuth,
+  useInfiniteAlbums,
+  usePlanLimits,
+  useTheme,
+  useWorkspaces,
+} from '@/src/hooks';
+import type { Album, AlbumStatus } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
+import { PALETTES } from '@/theme';
 
-cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(VideoIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MusicIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(FilterIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+const interop = { className: { target: 'style', nativeStyleToProp: { color: true } } } as const;
+cssInterop(ArrowLeftIcon, interop);
+cssInterop(ImageIcon, interop);
+cssInterop(LayersIcon, interop);
+cssInterop(MusicIcon, interop);
+cssInterop(PlusIcon, interop);
+cssInterop(SearchIcon, interop);
+cssInterop(VideoIcon, interop);
+cssInterop(XIcon, interop);
 
-const STATUS_CHIPS = ['All', 'Draft', 'Review', 'Delivered'];
+const STATUSES: { key: AlbumStatus | 'all'; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'draft', label: 'Draft' },
+  { key: 'review', label: 'In review' },
+  { key: 'delivered', label: 'Delivered' },
+];
 
-const STATUS_BADGES: Record<string, { bg: string; text: string; label: string }> = {
-  draft: { bg: '#A8948920', text: '#8B7355', label: 'Draft' },
-  review: { bg: '#C1774520', text: '#C17745', label: 'In Review' },
-  delivered: { bg: '#6B8E4E20', text: '#4A6B3A', label: 'Delivered' },
+/** The same tokens the album screen uses, so a status reads the same everywhere. */
+const STATUS_PILL: Record<AlbumStatus, { label: string; className: string; text: string }> = {
+  draft: { label: 'Draft', className: 'bg-card/90', text: 'text-muted-foreground' },
+  review: { label: 'In review', className: 'bg-card/90', text: 'text-warning' },
+  delivered: { label: 'Delivered', className: 'bg-card/90', text: 'text-success' },
 };
-
-const RETENTION_LABELS: Record<number, string> = {
-  7: '7 days',
-  30: '30 days',
-};
-
-function retentionLabel(days: number | null): string {
-  if (days === null || days === undefined) return 'No expiration';
-  return RETENTION_LABELS[days] || `${days} days`;
-}
 
 function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diff = now - then;
-  const mins = Math.floor(diff / 60000);
+  const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
   if (mins < 1) return 'Just now';
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
@@ -65,262 +71,319 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(days / 7)}w ago`;
 }
 
+type Row = { key: string; albums: Album[] };
+type Group = { key: string; title: string | null; count: number; data: Row[] };
+
+/**
+ * Every album, grouped under the workspace it belongs to.
+ *
+ * Grouped because a photographer thinks "Reyes Studio's albums" long before
+ * "the album I touched fourth most recently", and a flat grid of two hundred
+ * cards gave them no other way to find one. Searchable for the same reason,
+ * and paged, because the old list asked for a hundred and stopped there with
+ * nothing on screen to say so.
+ */
 export default function AlbumsListScreen() {
   const { guardAlbumCreate } = usePlanLimits();
   const { user } = useAuth();
   const { isDark } = useTheme();
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeStatus, setActiveStatus] = useState('All');
-
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { workspaceId } = useLocalSearchParams<{ workspaceId?: string }>();
 
-  // The optional workspace filter is a query parameter now; undefined is
-  // dropped from the query string rather than sent as an empty value.
-  const { albums, refetch: refetchAlbums, loadFailed } = useAlbums(
+  const [status, setStatus] = useState<AlbumStatus | 'all'>('all');
+  const [typed, setTyped] = useState('');
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  // A request per settled word, not per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(typed.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [typed]);
+
+  const albumsQuery = useInfiniteAlbums(
     {
       workspace_id: workspaceId,
-      orderBy: 'created_at',
+      status: status === 'all' ? undefined : status,
+      search: search || undefined,
+      orderBy: 'updated_at',
       direction: 'desc',
-      limit: 100,
     },
     { enabled: !!user?.id },
   );
-
-  const { workspaces, refetch: refetchWorkspaces } = useWorkspaces(
-    { limit: 100 },
-    { enabled: !!user?.id },
+  const { workspaces, refetch: refetchWorkspaces } = useWorkspaces({ limit: 100 }, { enabled: !!user?.id });
+  const workspaceName = useMemo(
+    () => new Map(workspaces.map((w) => [w.id, w.name])),
+    [workspaces],
   );
 
-  const workspaceMap = useMemo(
-    () => Object.fromEntries(workspaces.map((w) => [w.id, w])),
-    [workspaces]
-  );
+  const groups = useMemo<Group[]>(() => {
+    const pairs = (list: Album[]): Row[] => {
+      const rows: Row[] = [];
+      for (let i = 0; i < list.length; i += 2) {
+        rows.push({ key: list[i].id, albums: list.slice(i, i + 2) });
+      }
+      return rows;
+    };
+    // Inside one workspace there is nothing to group by.
+    if (workspaceId) {
+      return [{ key: 'only', title: null, count: albumsQuery.albums.length, data: pairs(albumsQuery.albums) }];
+    }
+    // Buckets in order of each workspace's most recent album, which is the
+    // order the server sent them in.
+    const buckets = new Map<string, Album[]>();
+    for (const album of albumsQuery.albums) {
+      const list = buckets.get(album.workspace_id) ?? [];
+      list.push(album);
+      buckets.set(album.workspace_id, list);
+    }
+    return [...buckets].map(([id, list]) => ({
+      key: id,
+      title: workspaceName.get(id) ?? 'Shared with you',
+      count: list.length,
+      data: pairs(list),
+    }));
+  }, [albumsQuery.albums, workspaceId, workspaceName]);
 
-  const filtered =
-    activeStatus === 'All'
-      ? albums
-      : albums.filter((a) => a.status === activeStatus.toLowerCase());
-
-  const onRefresh = async () => {
+  const refresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refetchAlbums(), refetchWorkspaces()]);
+    await Promise.all([albumsQuery.refetch(), refetchWorkspaces()]);
     setRefreshing(false);
-  };
+  }, [albumsQuery, refetchWorkspaces]);
 
-  const totalItems = filtered.reduce((s, a) => s + (a.item_count || 0), 0);
+  const create = guardAlbumCreate(() =>
+    router.push(`/albums/create${workspaceId ? `?workspaceId=${workspaceId}` : ''}`),
+  );
+
+  const renderRow = useCallback(
+    ({ item }: { item: Row }) => (
+      <View className="flex-row gap-3 px-5 mb-3">
+        {item.albums.map((album) => (
+          <AlbumCard key={album.id} album={album} />
+        ))}
+        {item.albums.length === 1 && <View className="flex-1" />}
+      </View>
+    ),
+    [],
+  );
+
+  const renderGroup = useCallback(
+    ({ section }: { section: Group }) =>
+      section.title ? (
+        <View className="bg-background px-5 pt-3 pb-2 flex-row items-baseline gap-2">
+          <View className="w-1.5 h-1.5 rounded-full bg-primary self-center" />
+          <Text className="text-foreground text-xs font-bold uppercase tracking-widest" accessibilityRole="header">
+            {section.title}
+          </Text>
+          <Text className="text-muted-foreground text-xs">
+            {section.count} album{section.count === 1 ? '' : 's'}
+          </Text>
+        </View>
+      ) : null,
+    [],
+  );
+
+  const shown = albumsQuery.albums.length;
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => String(item.id)}
-        numColumns={2}
-        columnWrapperStyle={{ gap: 12, paddingHorizontal: 20 }}
-        contentContainerStyle={{ gap: 12, paddingBottom: 120 }}
+      <SectionList
+        sections={groups}
+        keyExtractor={(row) => row.key}
+        renderItem={renderRow}
+        renderSectionHeader={renderGroup}
+        stickySectionHeadersEnabled
+        contentContainerStyle={{ paddingBottom: 120 }}
+        onEndReachedThreshold={0.5}
+        onEndReached={() => {
+          if (albumsQuery.hasNextPage && !albumsQuery.isFetchingNextPage) {
+            void albumsQuery.fetchNextPage();
+          }
+        }}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={isDark ? '#C17745' : '#B66A40'}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />
         }
         ListHeaderComponent={
-          <View>
-            {/* Header */}
-            <View className="px-5 pt-4 pb-1 flex-row items-center justify-between">
-              <View className="flex-row items-center gap-3">
+          <View className="gap-3 pt-4 pb-1">
+            <View className="px-5 flex-row items-start justify-between gap-3">
+              <View className="flex-row items-center gap-3 flex-1 min-w-0">
                 {workspaceId && (
                   <Pressable
                     onPress={() => router.back()}
-                    className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-                    style={{
-                      shadowColor: '#000',
-                      shadowOpacity: 0.04,
-                      shadowRadius: 8,
-                      shadowOffset: { width: 0, height: 2 },
-                      elevation: 2,
-                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back"
+                    className="w-10 h-10 rounded-2xl bg-card border border-border items-center justify-center active:opacity-70"
                   >
                     <ArrowLeftIcon size={18} className="text-foreground" />
                   </Pressable>
                 )}
-                <View>
-                  <Text className="text-foreground text-[28px] font-bold tracking-tight">
+                <View className="flex-1 min-w-0">
+                  <Text className="text-foreground text-[28px] font-bold tracking-tight" accessibilityRole="header">
                     Albums
                   </Text>
-                  <Text className="text-muted-foreground text-sm mt-1">
-                    {filtered.length} albums · {totalItems} items
+                  <Text className="text-muted-foreground text-sm mt-0.5" numberOfLines={1}>
+                    {albumsQuery.total.toLocaleString()} album{albumsQuery.total === 1 ? '' : 's'}
+                    {!workspaceId && groups.length > 1 ? ` · ${groups.length} workspaces` : ''}
                   </Text>
                 </View>
               </View>
               <Pressable
-                onPress={guardAlbumCreate(() =>
-                  router.push(
-                    `/albums/create${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
-                  )
-                )}
-                className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
-                style={{
-                  shadowColor: '#B66A40',
-                  shadowOpacity: 0.25,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 3 },
-                  elevation: 4,
-                }}
+                onPress={create}
+                accessibilityRole="button"
+                accessibilityLabel="Create an album"
+                className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:opacity-85"
               >
-                <PlusIcon size={20} className="text-white" />
+                <PlusIcon size={20} className="text-action-foreground" />
               </Pressable>
             </View>
 
-            {/* Status filter chips */}
+            <View className="px-5">
+              <View className="flex-row items-center gap-2 rounded-2xl border border-border bg-card px-3.5 h-11">
+                <SearchIcon size={16} className="text-muted-foreground" />
+                <TextInput
+                  value={typed}
+                  onChangeText={setTyped}
+                  placeholder="Album, client or workspace"
+                  placeholderTextColor={palette.mutedForeground}
+                  returnKeyType="search"
+                  autoCorrect={false}
+                  accessibilityLabel="Search albums"
+                  className="flex-1 text-foreground text-[15px]"
+                />
+                {typed.length > 0 && (
+                  <Pressable onPress={() => setTyped('')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear search">
+                    <XIcon size={16} className="text-muted-foreground" />
+                  </Pressable>
+                )}
+              </View>
+            </View>
+
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{
-                gap: 8,
-                paddingHorizontal: 20,
-                paddingVertical: 12,
-              }}
+              contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingBottom: 4 }}
             >
-              {STATUS_CHIPS.map((chip) => (
-                <Pressable
-                  key={chip}
-                  onPress={() => setActiveStatus(chip)}
-                  className={`rounded-full px-4 py-2 active:scale-[0.96] ${
-                    chip === activeStatus ? 'bg-action' : 'bg-card'
-                  }`}
-                  style={
-                    chip !== activeStatus
-                      ? {
-                          shadowColor: '#000',
-                          shadowOpacity: 0.03,
-                          shadowRadius: 4,
-                          shadowOffset: { width: 0, height: 1 },
-                          elevation: 1,
-                        }
-                      : undefined
-                  }
-                >
-                  <Text
-                    className={`text-sm font-semibold ${
-                      chip === activeStatus ? 'text-white' : 'text-foreground'
-                    }`}
+              {STATUSES.map((option) => {
+                const active = status === option.key;
+                return (
+                  <Pressable
+                    key={option.key}
+                    onPress={() => setStatus(option.key)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    className={`rounded-full px-4 py-2 ${active ? 'bg-foreground' : 'bg-card border border-border'}`}
                   >
-                    {chip}
-                  </Text>
-                </Pressable>
-              ))}
+                    <Text className={`text-sm font-semibold ${active ? 'text-background' : 'text-foreground'}`}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           </View>
         }
+        ListFooterComponent={
+          albumsQuery.isFetchingNextPage ? (
+            <View className="py-6">
+              <ActivityIndicator color={palette.primary} />
+            </View>
+          ) : shown > 0 && !albumsQuery.hasNextPage && albumsQuery.total > 100 ? (
+            <Text className="text-muted-foreground text-xs text-center py-4">
+              All {albumsQuery.total.toLocaleString()} albums
+            </Text>
+          ) : null
+        }
         ListEmptyComponent={
-          // Never claim someone has no albums because the request failed.
-          loadFailed ? (
+          albumsQuery.isLoading ? (
+            <View className="py-16">
+              <ActivityIndicator color={palette.primary} />
+            </View>
+          ) : albumsQuery.loadFailed ? (
+            // Never claim someone has no albums because the request failed.
             <View className="pt-12">
-              <LoadFailed what="your albums" onRetry={() => refetchAlbums()} compact />
+              <LoadFailed what="your albums" onRetry={() => void albumsQuery.refetch()} compact />
             </View>
-          ) : (
-          <View className="px-5 pt-12 items-center gap-4">
-            <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
-              <LayersIcon size={28} className="text-muted-foreground" />
-            </View>
-            <View className="items-center gap-1">
-              <Text className="text-foreground text-lg font-bold">No albums yet</Text>
-              <Text className="text-muted-foreground text-sm text-center px-8">
-                Create your first album to organize and deliver your creative work
+          ) : search || status !== 'all' ? (
+            <View className="px-10 pt-12 items-center">
+              <Text className="text-foreground text-base font-semibold">No albums match</Text>
+              <Text className="text-muted-foreground text-sm text-center mt-1">
+                {search ? `Nothing called or described as “${search}”.` : 'Try another status.'}
               </Text>
             </View>
-            <Pressable
-              onPress={guardAlbumCreate(() =>
-                router.push(
-                  `/albums/create${workspaceId ? `?workspaceId=${workspaceId}` : ''}`
-                )
-              )}
-              className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
-            >
-              <PlusIcon size={18} className="text-white" />
-              <Text className="text-white text-sm font-semibold">Create Album</Text>
-            </Pressable>
-          </View>
+          ) : (
+            <View className="px-5 pt-12 items-center gap-4">
+              <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
+                <LayersIcon size={28} className="text-muted-foreground" />
+              </View>
+              <View className="items-center gap-1">
+                <Text className="text-foreground text-lg font-bold">No albums yet</Text>
+                <Text className="text-muted-foreground text-sm text-center px-8">
+                  Create your first album to organise and deliver your work.
+                </Text>
+              </View>
+              <Pressable
+                onPress={create}
+                className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:opacity-85"
+              >
+                <PlusIcon size={18} className="text-action-foreground" />
+                <Text className="text-action-foreground text-sm font-semibold">Create album</Text>
+              </Pressable>
+            </View>
           )
         }
-        renderItem={({ item }) => {
-          const badge = STATUS_BADGES[item.status] || STATUS_BADGES.draft;
-          const ws = workspaceMap[item.workspace_id];
-          return (
-            <Pressable
-              onPress={() => router.push(`/albums/${item.id}`)}
-              className="flex-1 bg-card rounded-2xl overflow-hidden active:scale-[0.97]"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.05,
-                shadowRadius: 10,
-                shadowOffset: { width: 0, height: 3 },
-                elevation: 3,
-                maxWidth: '48%',
-              }}
-            >
-              {/* Cover */}
-              <RemoteImage
-                source={{
-                  uri:
-                    item.cover_url ||
-                    PLACEHOLDER_COVER,
-                }}
-                style={{ width: '100%', aspectRatio: 4 / 3 }}
-              />
-              {/* Info */}
-              <View className="p-3 gap-1">
-                <Text className="text-foreground text-sm font-bold" numberOfLines={1}>
-                  {item.name}
-                </Text>
-                {ws ? (
-                  <Text className="text-muted-foreground text-[11px]" numberOfLines={1}>
-                    {ws.name}
-                  </Text>
-                ) : null}
-                <View className="flex-row items-center justify-between mt-2">
-                  <View
-                    style={{
-                      paddingHorizontal: 6,
-                      paddingVertical: 2,
-                      borderRadius: 5,
-                      backgroundColor: badge.bg,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: badge.text,
-                        fontSize: 9,
-                        fontWeight: '600',
-                      }}
-                    >
-                      {badge.label}
-                    </Text>
-                  </View>
-                  <View className="flex-row items-center gap-1">
-                    <ClockIcon size={9} className="text-muted-foreground" />
-                    <Text className="text-muted-foreground text-[10px]">
-                      {timeAgo(item.updated_at)}
-                    </Text>
-                  </View>
-                </View>
-                <View className="flex-row items-center gap-2 mt-1">
-                  <View className="flex-row items-center gap-1">
-                    <ImageIcon size={9} className="text-muted-foreground" />
-                    <Text className="text-muted-foreground text-[10px] font-medium">
-                      {item.item_count}
-                    </Text>
-                  </View>
-                  <Text className="text-muted-foreground text-[10px]">
-                    · {retentionLabel(item.retention_days)}
-                  </Text>
-                </View>
-              </View>
-            </Pressable>
-          );
-        }}
       />
     </SafeAreaView>
+  );
+}
+
+function AlbumCard({ album }: { album: Album }) {
+  const pill = STATUS_PILL[album.status] ?? STATUS_PILL.draft;
+  // Older APIs send only the total; show it as photographs, which is what it
+  // said before counts by kind existed.
+  const counts = album.counts ?? { image: album.item_count, video: 0, audio: 0 };
+  const parts = [
+    { n: counts.image, Icon: ImageIcon, label: 'photos' },
+    { n: counts.video, Icon: VideoIcon, label: 'films' },
+    { n: counts.audio, Icon: MusicIcon, label: 'recordings' },
+  ].filter((part) => part.n > 0);
+
+  return (
+    <Pressable
+      onPress={() => router.push(`/albums/${album.id}`)}
+      accessibilityRole="button"
+      accessibilityLabel={`${album.name}, ${pill.label}, ${parts.map((p) => `${p.n} ${p.label}`).join(', ') || 'empty'}`}
+      className="flex-1 bg-card rounded-2xl overflow-hidden border border-border active:opacity-85"
+    >
+      <View style={{ width: '100%', aspectRatio: 4 / 3 }} className="bg-muted">
+        {album.cover_url ? (
+          <RemoteImage source={{ uri: album.cover_url }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={150} />
+        ) : (
+          <View className="flex-1 items-center justify-center">
+            <ImageIcon size={22} className="text-muted-foreground" />
+          </View>
+        )}
+        <View className={`absolute left-2 top-2 rounded-md px-1.5 py-0.5 ${pill.className}`}>
+          <Text className={`text-[10px] font-bold uppercase tracking-wide ${pill.text}`}>{pill.label}</Text>
+        </View>
+      </View>
+      <View className="p-3 gap-1.5">
+        <Text className="text-foreground text-sm font-bold" numberOfLines={1}>
+          {album.name}
+        </Text>
+        <View className="flex-row items-center gap-2.5 flex-wrap">
+          {parts.length > 0 ? (
+            parts.map(({ n, Icon, label }) => (
+              <View key={label} className="flex-row items-center gap-1">
+                <Icon size={11} className="text-muted-foreground" />
+                <Text className="text-muted-foreground text-[11px] font-medium">{n.toLocaleString()}</Text>
+              </View>
+            ))
+          ) : (
+            <Text className="text-muted-foreground text-[11px]">Empty</Text>
+          )}
+          <Text className="text-muted-foreground text-[11px] ml-auto">{timeAgo(album.updated_at)}</Text>
+        </View>
+      </View>
+    </Pressable>
   );
 }

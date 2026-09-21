@@ -1,17 +1,32 @@
-import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Logger,
+  Param,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Public } from '../auth/public.decorator';
 import {
   AttachToAlbumDto,
   ConfirmUploadDto,
   CreateUploadUrlDto,
   ListFilesDto,
   ObjectKeyDto,
+  ObjectKeysDto,
   WipeStorageDto,
+  ZipSelectionDto,
 } from './dto/storage.dto';
 import { StorageConfig } from './storage.config';
 import { StorageService } from './storage.service';
 import { ThumbnailsService } from './thumbnails.service';
+import { streamZip } from './zip';
 
 /**
  * Object storage (Backblaze B2).
@@ -25,6 +40,8 @@ import { ThumbnailsService } from './thumbnails.service';
  */
 @Controller('storage')
 export class StorageController {
+  private readonly logger = new Logger(StorageController.name);
+
   constructor(
     private readonly storage: StorageService,
     private readonly thumbs: ThumbnailsService,
@@ -112,6 +129,9 @@ export class StorageController {
       limit: query.limit,
       cursor: query.cursor,
       kind: query.kind,
+      order: query.order,
+      section: query.section,
+      picked: query.picked,
     });
   }
 
@@ -162,5 +182,55 @@ export class StorageController {
     @Body() dto: ObjectKeyDto,
   ): Promise<void> {
     await this.storage.deleteObject(userId, dto.key);
+  }
+
+  /**
+   * Deletes a selection. One request and one answer, rather than a client
+   * firing two hundred deletes and reconciling two hundred results.
+   */
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('delete-many')
+  removeMany(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ObjectKeysDto,
+  ) {
+    return this.storage.deleteMany(userId, dto.keys);
+  }
+
+  /** Issues a ticket for downloading a selection as one zip. */
+  @HttpCode(200)
+  @Post('zip')
+  zipTicket(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ZipSelectionDto,
+  ) {
+    return this.storage.issueZipTicket(userId, dto.albumId, dto.keys);
+  }
+
+  /**
+   * The zip a ticket names. Public because it is reached by navigation, which
+   * carries no bearer header — the ticket is the credential, and it is short
+   * lived, bound to its keys, and re-authorised against the album here.
+   */
+  @Public()
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  @Get('zip/:token')
+  async zip(@Param('token') token: string, @Res() res: Response): Promise<void> {
+    let download: Awaited<ReturnType<StorageService['redeemZipTicket']>>;
+    try {
+      download = await this.storage.redeemZipTicket(token);
+    } catch {
+      // A navigation, so a sentence rather than a JSON error body.
+      res.status(404).type('text/plain').send('This download has expired. Start it again from the album.');
+      return;
+    }
+    await streamZip(
+      res,
+      download.zipName,
+      download.files,
+      (key) => this.storage.readStream(key),
+      this.logger,
+    );
   }
 }

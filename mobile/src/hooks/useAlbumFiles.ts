@@ -1,8 +1,38 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { storageApi, type StoredFile, type StoredMediaKind } from '@/src/api';
+import { storageApi, type FileOrder, type StoredFile, type StoredMediaKind } from '@/src/api';
 
-export const albumFilesQueryKey = (albumId?: string, kind?: StoredMediaKind) =>
-  ['storage', 'files', albumId ?? 'all', kind ?? 'all'] as const;
+/**
+ * What a gallery can ask the server to narrow to.
+ *
+ * Every one of these is applied in SQL. The album screens used to load the
+ * whole mixed album and split it by kind in the browser, so the Films tab of a
+ * three-thousand-photo wedding showed nothing until enough pages of
+ * photographs had been fetched to happen across a film.
+ */
+export interface AlbumFilesFilter {
+  kind?: StoredMediaKind;
+  /** By capture time. Newest first when omitted. */
+  order?: FileOrder;
+  /** A section id, or 'none' for files in no section. */
+  section?: string;
+  /** Only what the client picked. */
+  picked?: boolean;
+}
+
+/**
+ * Starts with `['storage', 'files', albumId]` so a change to an album can be
+ * invalidated by that prefix without knowing which filters are on screen.
+ */
+export const albumFilesQueryKey = (albumId?: string, filter: AlbumFilesFilter = {}) =>
+  [
+    'storage',
+    'files',
+    albumId ?? 'all',
+    filter.kind ?? 'all',
+    filter.order ?? 'newest',
+    filter.section ?? 'all',
+    filter.picked ? 'picked' : 'any',
+  ] as const;
 
 export type MediaKind = 'image' | 'video' | 'audio' | 'other';
 
@@ -37,14 +67,18 @@ export function fileDate(createdAt: string): string {
 
 export function useAlbumFiles(
   albumId: string | undefined,
-  options: { enabled?: boolean; kind?: StoredMediaKind } = {},
+  options: AlbumFilesFilter & { enabled?: boolean } = {},
 ) {
+  const { enabled, ...filter } = options;
   const query = useInfiniteQuery({
-    queryKey: albumFilesQueryKey(albumId, options.kind),
+    queryKey: albumFilesQueryKey(albumId, filter),
     queryFn: ({ pageParam }) =>
       storageApi.listFiles({
         albumId,
-        kind: options.kind,
+        kind: filter.kind,
+        order: filter.order,
+        section: filter.section,
+        picked: filter.picked,
         cursor: pageParam,
         // New APIs clamp this to 100. Legacy APIs honour 500 and return one
         // unpaged array, which lets the compatibility normalizer classify the
@@ -53,7 +87,7 @@ export function useAlbumFiles(
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: (options.enabled ?? true) && !!albumId,
+    enabled: (enabled ?? true) && !!albumId,
   });
 
   const files: StoredFile[] = query.data?.pages.flatMap((page) => page.data) ?? [];

@@ -488,10 +488,12 @@ export interface NotificationPayload {
     | 'hire_response'
     | 'job_application'
     | 'job_response'
+    | 'client_picks'
     /** An update announcement for this app. */
     | 'app-update'
     | string;
   conversationId?: string;
+  albumId?: string;
   reminderId?: string;
   eventId?: string;
   workspaceId?: string;

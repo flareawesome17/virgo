@@ -243,20 +243,52 @@ function ZoomablePhoto({
 }
 
 export default function PhotoViewerScreen() {
-  const { albumId, index: routeIndex } = useLocalSearchParams<{
+  const params = useLocalSearchParams<{
     albumId: string;
     index?: string;
+    /** The photograph that was tapped. Preferred over `index`. */
+    key?: string;
+    /** The grid's filter, so this reads the same cached pages it drew from. */
+    kind?: string;
+    section?: string;
+    order?: string;
+    picked?: string;
   }>();
+  const { albumId, index: routeIndex } = params;
   const { width, height } = useWindowDimensions();
   const queryClient = useQueryClient();
-  const filesQuery = useAlbumFiles(albumId);
+  // The same filter as the grid that opened this, which is what makes it the
+  // same query: the viewer then holds every page the grid had already loaded,
+  // rather than starting over at page one and not containing the photograph
+  // that was tapped.
+  const filesQuery = useAlbumFiles(albumId, {
+    kind: params.kind === 'image' ? 'image' : undefined,
+    section: params.section || undefined,
+    order: params.order === 'oldest' ? 'oldest' : undefined,
+    picked: params.picked === '1' ? true : undefined,
+  });
   const photos = filesQuery.images;
 
   const pager = useRef<FlatList<StoredFile>>(null);
   const strip = useRef<FlatList<StoredFile>>(null);
-  const [currentIndex, setCurrentIndex] = useState(
-    Math.max(0, Number(routeIndex) || 0),
-  );
+  // Opened by key: an index means nothing to a grid that mixes photographs
+  // with films, and it silently shifts when a page loads above it.
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    const at = params.key ? photos.findIndex((p) => p.key === params.key) : -1;
+    return at >= 0 ? at : Math.max(0, Number(routeIndex) || 0);
+  });
+  const openedOnKey = useRef(!params.key || photos.some((p) => p.key === params.key));
+
+  // A deep link arrives with nothing cached, so the photograph is found when
+  // its page does.
+  useEffect(() => {
+    if (openedOnKey.current || !params.key) return;
+    const at = photos.findIndex((p) => p.key === params.key);
+    if (at < 0) return;
+    openedOnKey.current = true;
+    setCurrentIndex(at);
+    pager.current?.scrollToIndex({ index: at, animated: false });
+  }, [photos, params.key]);
   const [zoomed, setZoomed] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [saving, setSaving] = useState(false);

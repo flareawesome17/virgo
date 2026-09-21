@@ -12,7 +12,11 @@ export interface AlbumRow {
   name: string;
   description: string | null;
   cover_url: string | null;
+  /** A photograph in the album chosen as its cover, signed on every read. */
+  cover_key: string | null;
   item_count: number;
+  /** Derived: what the album holds, by kind, so a card can say "312 · 2 films". */
+  counts?: { image: number; video: number; audio: number };
   status: AlbumStatus;
   retention_days: number | null;
   created_at: Date;
@@ -29,6 +33,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     'name',
     'description',
     'cover_url',
+    'cover_key',
     'item_count',
     'status',
     'retention_days',
@@ -56,15 +61,28 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
   private async withDerivedFields(rows: AlbumRow[]): Promise<AlbumRow[]> {
     if (rows.length === 0) return rows;
 
-    const userId = rows[0].user_id;
     const ids = rows.map((r) => r.id);
 
-    const counts = await this.db.query<{ album_id: string; count: string }>(
-      `select album_id, count(*)::text as count
+    // By album alone. These used to be scoped to the FIRST row's owner, which
+    // is only right while every row has the same one — a list holding your
+    // albums and one shared with you counted the shared album as empty and
+    // gave it no cover. An album's files are all billed to its owner, so the
+    // album id is already the whole question.
+    const counts = await this.db.query<{
+      album_id: string;
+      count: string;
+      image: string;
+      video: string;
+      audio: string;
+    }>(
+      `select album_id, count(*)::text as count,
+              count(*) filter (where content_type like 'image/%')::text as image,
+              count(*) filter (where content_type like 'video/%')::text as video,
+              count(*) filter (where content_type like 'audio/%')::text as audio
          from user_files
-        where user_id = $1 and album_id = any($2::text[])
+        where album_id = any($1::text[])
         group by album_id`,
-      [userId, ids],
+      [ids],
     );
 
     // distinct on picks the first row of each album_id group given the order
@@ -72,28 +90,44 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     const covers = await this.db.query<{ album_id: string; key: string }>(
       `select distinct on (album_id) album_id, key
          from user_files
-        where user_id = $1
-          and album_id = any($2::text[])
+        where album_id = any($1::text[])
           and content_type like 'image/%'
         order by album_id, created_at desc`,
-      [userId, ids],
+      [ids],
     );
 
-    const countById = new Map(counts.map((c) => [c.album_id, Number(c.count)]));
+    const countById = new Map(counts.map((c) => [c.album_id, c]));
     const coverById = new Map(covers.map((c) => [c.album_id, c.key]));
 
     // Signed rather than public: the bucket is not world-readable, so a cover
-    // is a time-limited URL like every other object.
-    const coverUrls = await this.storage.mediaUrls(
-      rows.map((row) => coverById.get(row.id) ?? null),
-    );
+    // is a time-limited URL like every other object. A chosen photograph
+    // first, then the newest image.
+    const [chosenUrls, coverUrls] = await Promise.all([
+      this.storage.mediaUrls(rows.map((row) => row.cover_key)),
+      this.storage.mediaUrls(rows.map((row) => coverById.get(row.id) ?? null)),
+    ]);
 
     return rows.map((row, i) => ({
       ...row,
-      item_count: countById.get(row.id) ?? 0,
+      item_count: Number(countById.get(row.id)?.count ?? 0),
+      counts: {
+        image: Number(countById.get(row.id)?.image ?? 0),
+        video: Number(countById.get(row.id)?.video ?? 0),
+        audio: Number(countById.get(row.id)?.audio ?? 0),
+      },
       // An explicitly chosen cover always wins over the derived one.
-      cover_url: row.cover_url ?? coverUrls[i],
+      cover_url: chosenUrls[i] ?? row.cover_url ?? coverUrls[i],
     }));
+  }
+
+  /** Whether `key` is a photograph in this album — the only thing a cover can be. */
+  async isAlbumImage(albumId: string, key: string): Promise<boolean> {
+    const row = await this.db.queryOne<{ key: string }>(
+      `select key from user_files
+        where key = $1 and album_id = $2 and content_type like 'image/%'`,
+      [key, albumId],
+    );
+    return !!row;
   }
 
   /**
@@ -123,6 +157,24 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     )`;
   }
 
+  /**
+   * Matches the album's name or description, or its workspace's name — the
+   * three things someone looking for "the Reyes one" might remember.
+   *
+   * The term is bound, and its LIKE wildcards escaped, so typing a percent
+   * sign searches for a percent sign.
+   */
+  private searchClause(term: unknown, params: unknown[]): string {
+    if (typeof term !== 'string' || !term.trim()) return '';
+    params.push(`%${term.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+    const p = `$${params.length}`;
+    return ` and (
+      name ilike ${p}
+      or coalesce(description, '') ilike ${p}
+      or workspace_id in (select w.id from workspaces w where w.name ilike ${p})
+    )`;
+  }
+
   async findAll(userId: string, options: ListOptions = {}): Promise<AlbumRow[]> {
     const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
     const offset = Math.max(options.offset ?? 0, 0);
@@ -141,6 +193,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
       params.push(value);
       where += ` and ${column} = $${params.length}`;
     }
+    where += this.searchClause(options.filters?.search, params);
 
     params.push(limit, offset);
 
@@ -176,6 +229,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
   ): Promise<number> {
     const params: unknown[] = [userId];
     let where = this.sharedClause(1);
+    where += this.searchClause(filters.search, params);
 
     for (const column of ['workspace_id', 'status'] as const) {
       const value = filters[column];
