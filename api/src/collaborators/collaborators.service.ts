@@ -229,6 +229,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     {
       id: string;
       name: string;
+      /** Every file in the album, counted. */
       item_count: number;
       shared: boolean;
       media_access: MediaAccess | null;
@@ -240,8 +241,16 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     );
     if (!row) throw new NotFoundException('Collaborator not found');
 
+    // Every file in the album, because a grant covers every file in it. It
+    // read `albums.item_count`, a counter nothing maintains, so the picker
+    // showed 0 beside every album made since August 2026. By album alone:
+    // these are the owner's albums, and an album's files are billed to its
+    // owner, whoever uploaded them.
     return this.db.query(
-      `select a.id, a.name, a.item_count, (ca.album_id is not null) as shared,
+      `select a.id, a.name,
+              (select count(*) from user_files f where f.album_id = a.id)::int
+                as item_count,
+              (ca.album_id is not null) as shared,
               ca.media_access
          from albums a
          left join collaborator_albums ca

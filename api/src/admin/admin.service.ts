@@ -182,8 +182,14 @@ export class AdminService {
         `select id, name, created_at from workspaces where user_id = $1 order by created_at`,
         [id],
       ),
+      // Items are the album's files, counted like the storage figure above.
+      // `albums.item_count` is a counter nothing maintains, and it read 0 for
+      // every album made since August 2026.
       this.db.query(
-        `select a.id, a.name, a.status, a.item_count, a.retention_days, a.created_at,
+        `select a.id, a.name, a.status,
+                (select count(*) from user_files f where f.album_id = a.id)::int
+                  as item_count,
+                a.retention_days, a.created_at,
                 (select count(*) from album_share_links l
                   where l.album_id = a.id and l.revoked_at is null)::int as share_links
            from albums a where a.user_id = $1 order by a.created_at desc`,
@@ -279,8 +285,13 @@ export class AdminService {
     const offset = Math.max(params.offset ?? 0, 0);
     const q = params.q?.trim() ? `%${params.q.trim()}%` : null;
 
+    // Items counted from the same files the size is summed from, rather than
+    // read from `albums.item_count`, a counter nothing maintains.
     const rows = await this.db.query(
-      `select a.id, a.name, a.status, a.item_count, a.retention_days, a.created_at,
+      `select a.id, a.name, a.status,
+              (select count(*) from user_files f where f.album_id = a.id)::int
+                as item_count,
+              a.retention_days, a.created_at,
               u.id as owner_id, u.email as owner_email, u.display_name as owner_name,
               (select count(*) from album_share_links l
                 where l.album_id = a.id and l.revoked_at is null)::int as share_links,

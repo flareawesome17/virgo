@@ -19,11 +19,12 @@ import { AlbumsRepository, type AlbumRow } from './albums.repository';
 
 const OWNER = 'owner-1';
 
-/** A `user_files` row, as much of one as a cover reads. */
+/** A `user_files` row, as much of one as a cover or a count reads. */
 interface FileRow {
   album_id: string;
   key: string;
   thumb_key: string | null;
+  content_type: string;
 }
 
 function photo(albumId: string, name: string, { thumbnail = true } = {}): FileRow {
@@ -32,6 +33,17 @@ function photo(albumId: string, name: string, { thumbnail = true } = {}): FileRo
     album_id: albumId,
     key: `${stem}.jpg`,
     thumb_key: thumbnail ? `${stem}-thumb.webp` : null,
+    content_type: 'image/jpeg',
+  };
+}
+
+/** Something an album holds that is not a photograph: a film or a track. */
+function media(albumId: string, key: string, contentType: string): FileRow {
+  return {
+    album_id: albumId,
+    key: `users/${OWNER}/albums/2026/09/${key}`,
+    thumb_key: null,
+    content_type: contentType,
   };
 }
 
@@ -58,16 +70,41 @@ const shown = (key: string | null) =>
 
 /**
  * A repository over these albums and files. Files are listed newest first,
- * the order the derived-cover query asks for.
+ * the order the derived-cover query asks for. An insert or an update hands
+ * back the first album, as `returning *` hands back the row as stored.
  */
 function repositoryOf(albums: AlbumRow[], files: FileRow[]) {
   const query = jest.fn(async (sql: string, params: unknown[] = []) => {
+    if (/^\s*(insert into|update) albums\b/.test(sql)) return albums.slice(0, 1);
     if (sql.includes('from albums')) return albums;
+    if (sql.includes('group by album_id')) {
+      const ids = params[0] as string[];
+      return ids.flatMap((id) => {
+        const held = files.filter((file) => file.album_id === id);
+        const of = (kind: string) =>
+          String(held.filter((file) => file.content_type.startsWith(`${kind}/`)).length);
+        return held.length === 0
+          ? []
+          : [
+              {
+                album_id: id,
+                count: String(held.length),
+                image: of('image'),
+                video: of('video'),
+                audio: of('audio'),
+              },
+            ];
+      });
+    }
     if (sql.includes('distinct on (album_id)')) {
       const ids = params[0] as string[];
       const newest = new Map<string, FileRow>();
       for (const file of files) {
-        if (ids.includes(file.album_id) && !newest.has(file.album_id)) {
+        if (
+          ids.includes(file.album_id) &&
+          file.content_type.startsWith('image/') &&
+          !newest.has(file.album_id)
+        ) {
           newest.set(file.album_id, file);
         }
       }
@@ -77,7 +114,6 @@ function repositoryOf(albums: AlbumRow[], files: FileRow[]) {
       const keys = params[0] as string[];
       return files.filter((file) => keys.includes(file.key));
     }
-    // The per-kind counts. Not what this is about.
     return [];
   });
   const db = {
@@ -95,7 +131,7 @@ function repositoryOf(albums: AlbumRow[], files: FileRow[]) {
   );
   const storage = { mediaUrls } as unknown as StorageService;
 
-  return { repository: new AlbumsRepository(db, storage), mediaUrls };
+  return { repository: new AlbumsRepository(db, storage), mediaUrls, query };
 }
 
 describe('AlbumsRepository covers', () => {
@@ -138,6 +174,88 @@ describe('AlbumsRepository covers', () => {
     expect(mediaUrls).toHaveBeenCalled();
     for (const [, ttl] of mediaUrls.mock.calls) {
       expect(ttl).toBe(DISPLAY_URL_TTL_SECONDS);
+    }
+  });
+});
+
+/**
+ * How much an album holds, which only its files can say.
+ *
+ * `albums.item_count` was a counter the apps bumped after each upload. They
+ * stopped when the API began counting, nothing else ever wrote it, and it has
+ * read 0 for every album made since, while an older album read 24 holding 5
+ * files. These fail if an answer goes back to the column — including the ones
+ * create and update give, which both apps put straight into their cache — or
+ * if a client can write it again.
+ */
+
+/** The album that read 24 while it held five files, not all of them photographs. */
+const DRIFTED: AlbumRow = { ...album('drifted'), item_count: 24 };
+const FIVE_FILES = [
+  photo('drifted', 'first-dance'),
+  photo('drifted', 'toast'),
+  photo('drifted', 'vows'),
+  media('drifted', 'highlights.mp4', 'video/mp4'),
+  media('drifted', 'vows.m4a', 'audio/mp4'),
+];
+
+/** An album as `returning *` hands it back once the column is dropped. */
+function withoutColumn(row: AlbumRow): AlbumRow {
+  const stored: Partial<AlbumRow> = { ...row };
+  delete stored.item_count;
+  return stored as AlbumRow;
+}
+
+describe('AlbumsRepository item_count', () => {
+  it('counts every file in the album, whatever the column says', async () => {
+    const { repository } = repositoryOf([DRIFTED, album('empty')], FIVE_FILES);
+
+    const albums = await repository.findAll(OWNER);
+
+    expect(albums.map((a) => a.item_count)).toEqual([5, 0]);
+    expect(albums[0].counts).toEqual({ image: 3, video: 1, audio: 1 });
+  });
+
+  it('answers an edit with the count, not the row as stored', async () => {
+    const { repository } = repositoryOf([DRIFTED], FIVE_FILES);
+
+    const updated = await repository.update(OWNER, 'drifted', { name: 'Reyes wedding' });
+
+    expect(updated?.item_count).toBe(5);
+    expect(updated?.counts).toEqual({ image: 3, video: 1, audio: 1 });
+  });
+
+  it('answers a new album with a count once the column is gone', async () => {
+    // Installed apps read `item_count` off every album they are given, and
+    // after the drop the stored row has none to hand back.
+    const { repository } = repositoryOf([withoutColumn(album('fresh'))], []);
+
+    const created = await repository.create(OWNER, {
+      id: 'fresh',
+      workspace_id: 'workspace-1',
+      name: 'fresh',
+    });
+
+    expect(created.item_count).toBe(0);
+  });
+
+  it('never writes a count a client sends', async () => {
+    // Installed phones post `item_count: 0` with every album they create.
+    const { repository, query } = repositoryOf([album('fresh')], []);
+
+    await repository.create(OWNER, {
+      id: 'fresh',
+      workspace_id: 'workspace-1',
+      name: 'fresh',
+      item_count: 7,
+    });
+    await repository.update(OWNER, 'fresh', { name: 'renamed', item_count: 7 });
+
+    const writes = query.mock.calls.filter(([sql]) => /^\s*(insert|update)\b/.test(sql));
+    expect(writes).toHaveLength(2);
+    for (const [sql, params] of writes) {
+      expect(sql).not.toMatch(/item_count/);
+      expect(params).not.toContain(7);
     }
   });
 });
