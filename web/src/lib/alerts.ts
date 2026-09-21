@@ -81,10 +81,21 @@ export async function requestNotificationPermission(): Promise<boolean> {
 }
 
 /**
- * Announces a new message.
+ * True inside the desktop app. There the Notification API is the notification
+ * plugin's stand-in, which hands the alert to the system's notification centre.
+ */
+function inDesktopApp(): boolean {
+  return typeof window !== 'undefined' && '__TAURI__' in window;
+}
+
+/**
+ * Announces a new message, or any other notification, as a system alert.
  *
- * Silent when the tab is focused — the message is already on screen, and a
- * notification for something you are looking at is just noise.
+ * Silent only while someone is actually looking: the page visible *and* its
+ * window focused. A window behind others still counts as visible to the page,
+ * and that is the usual state of the desktop app while its owner works in
+ * something else — exactly when an alert is worth having. For something you
+ * are looking at, it is just noise.
  */
 export function notifyMessage(options: {
   title: string;
@@ -93,14 +104,22 @@ export function notifyMessage(options: {
   tag?: string;
   onClick?: () => void;
 }): void {
-  if (typeof document !== 'undefined' && document.visibilityState === 'visible') return;
+  if (
+    typeof document !== 'undefined' &&
+    document.visibilityState === 'visible' &&
+    document.hasFocus()
+  ) {
+    return;
+  }
   if (!canNotify()) return;
 
   try {
     const notification = new Notification(options.title, {
       body: options.body,
       tag: options.tag,
-      icon: '/icon.png',
+      // The desktop app's alerts carry the app's own icon. A path like this
+      // one would be taken there as a file on disk, not a page on the site.
+      ...(inDesktopApp() ? {} : { icon: '/icon.png' }),
     });
     notification.onclick = () => {
       window.focus();

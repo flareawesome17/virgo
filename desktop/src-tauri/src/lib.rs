@@ -537,6 +537,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Desktop alerts: a notification that arrives while the window is behind
+        // others shows in the system's notification centre. The web client asks
+        // through the standard Notification API, which this plugin provides.
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // Windows draws a title bar the app replaces with its own, so the
             // system one is turned off before the window is ever shown.

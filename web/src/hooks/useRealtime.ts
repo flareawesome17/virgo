@@ -3,10 +3,13 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   API_BASE_URL,
+  CATEGORY_OF_TOPIC,
   getAccessToken,
   hydrateTokens,
+  notificationsApi,
   queryKeys,
   type ConversationMessage,
+  type NotificationSetting,
   type Thread,
 } from '@/api';
 import { chatKeys, getOpenConversation } from '@/hooks/useChat';
@@ -155,6 +158,21 @@ const TOPICS: Record<
 };
 
 /**
+ * Whether this kind of notification is switched on for desktop alerts.
+ *
+ * Read from the settings the socket prefetches when it starts. Not loaded yet
+ * counts as on — the server's default too — because a missed alert is worse
+ * than one the person had not got round to switching off.
+ */
+function wantsDesktopAlert(queryClient: QueryClient, topic: NotificationTopic): boolean {
+  const settings = queryClient.getQueryData<{ data: NotificationSetting[] }>(
+    queryKeys.notifications.settings,
+  );
+  const row = settings?.data.find((r) => r.category === CATEGORY_OF_TOPIC[topic]);
+  return row?.desktop !== false;
+}
+
+/**
  * Shows a notification and refreshes whatever it invalidated.
  *
  * Both surfaces, deliberately: a toast for someone looking at the tab, and an
@@ -191,16 +209,20 @@ function applyNotification(
   // by ear, you know whether to look now without looking at all.
   playAlert(event.topic === 'reminder' ? 'event' : 'global');
   buzzForMessage();
-  notifyMessage({
-    title: event.title,
-    body: event.body,
-    // Keyed by topic so a run of invitations replaces itself rather than
-    // stacking seven notifications the user has to dismiss one at a time.
-    tag: event.topic,
-    onClick: () => {
-      if (href) window.location.href = href;
-    },
-  });
+  // The system alert follows the person's desktop switch for this kind. The
+  // toast and the sound above do not: they are for someone already looking.
+  if (wantsDesktopAlert(queryClient, event.topic)) {
+    notifyMessage({
+      title: event.title,
+      body: event.body,
+      // Keyed by topic so a run of invitations replaces itself rather than
+      // stacking seven notifications the user has to dismiss one at a time.
+      tag: event.topic,
+      onClick: () => {
+        if (href) window.location.href = href;
+      },
+    });
+  }
 }
 
 /** http(s) -> ws(s), same host. */
@@ -235,6 +257,13 @@ export function useRealtime(enabled: boolean): void {
     // silence the first notification of every session, the one most likely to
     // matter.
     const unprime = primeSounds();
+
+    // Which kinds this account wants as desktop alerts, fetched as the socket
+    // starts so the first frame is already checked against them.
+    void queryClient.prefetchQuery({
+      queryKey: queryKeys.notifications.settings,
+      queryFn: () => notificationsApi.settings(),
+    });
 
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;

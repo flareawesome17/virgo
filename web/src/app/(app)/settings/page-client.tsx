@@ -298,10 +298,10 @@ export default function SettingsPage() {
                 permission === 'unsupported'
                   ? 'This browser does not support notifications.'
                   : permission === 'granted'
-                    ? 'New messages notify you when this tab is in the background.'
+                    ? 'Alerts show on this computer while Virgo is in the background.'
                     : permission === 'denied'
                       ? 'Blocked for this site. Allow it in your browser settings.'
-                      : 'Get notified about new messages while this tab is behind others.'
+                      : 'Get alerts on this computer while Virgo is in the background.'
               }
             >
               {permission === 'granted' ? (

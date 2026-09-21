@@ -17,10 +17,15 @@ import {
   CATEGORY_LABELS,
 } from '@/lib/notification-categories';
 
-const CHANNELS: { key: Exclude<NotificationChannel, 'desktop'>; label: string }[] = [
-  { key: 'push', label: 'Phone' },
-  { key: 'email', label: 'Email' },
+const CHANNELS: { key: NotificationChannel; label: string; spoken: string }[] = [
+  { key: 'push', label: 'Phone', spoken: 'on your phone' },
+  { key: 'email', label: 'Email', spoken: 'by email' },
+  { key: 'desktop', label: 'Desktop', spoken: 'as desktop alerts' },
 ];
+
+/** Kind, then In the app (from `sm` up), then one column per channel. */
+const ROW_GRID =
+  'grid grid-cols-[minmax(0,1fr)_repeat(3,4rem)] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_repeat(4,5.5rem)]';
 
 /**
  * One cell: a switch, "Always" where it cannot be turned off, or a dash
@@ -33,10 +38,10 @@ function Cell({
   onChange,
 }: {
   row: NotificationSetting;
-  channel: Exclude<NotificationChannel, 'desktop'>;
+  channel: (typeof CHANNELS)[number];
   onChange: (enabled: boolean) => void;
 }) {
-  const value = row[channel];
+  const value = row[channel.key];
   if (value === null) {
     return <span className="text-center text-sm text-muted-foreground" aria-label="Not sent">—</span>;
   }
@@ -48,7 +53,7 @@ function Cell({
       <Switch
         checked={value}
         onCheckedChange={onChange}
-        aria-label={`${CATEGORY_LABELS[row.category]} by ${channel === 'push' ? 'phone' : 'email'}`}
+        aria-label={`${CATEGORY_LABELS[row.category]} ${channel.spoken}`}
       />
     </span>
   );
@@ -58,14 +63,14 @@ function Cell({
  * Which kinds of notification reach you, and where.
  *
  * The notification list keeps everything whatever is switched off here: these
- * choose only what follows you out of the app — to your phone, to your inbox.
- * Each switch saves as it moves.
+ * choose only what follows you out of the app — to your phone, to your inbox,
+ * to this computer's notification centre. Each switch saves as it moves.
  */
 export default function NotificationSettingsPage() {
   const { settings, isLoading, loadFailed, refetch } = useNotificationSettings();
   const update = useUpdateNotificationSetting();
 
-  const change = (row: NotificationSetting, channel: 'push' | 'email', enabled: boolean) =>
+  const change = (row: NotificationSetting, channel: NotificationChannel, enabled: boolean) =>
     update.mutate(
       { category: row.category, channel, enabled },
       { onError: () => toast.error('Could not save that. Try again.') },
@@ -84,7 +89,7 @@ export default function NotificationSettingsPage() {
             Notifications
           </span>
         }
-        description="Choose which kinds reach your phone and your inbox"
+        description="Choose which kinds reach your phone, your inbox and this computer"
       />
 
       <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
@@ -101,9 +106,9 @@ export default function NotificationSettingsPage() {
         ) : (
           <>
             <div className="overflow-hidden rounded-xl border bg-card">
-              <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,4.5rem)] items-center gap-2 border-b bg-secondary/60 px-4 py-3 text-xs font-semibold text-muted-foreground sm:grid-cols-[minmax(0,1fr)_repeat(3,6rem)] sm:px-5">
+              <div className={`${ROW_GRID} border-b bg-secondary/60 px-4 py-3 text-xs font-semibold text-muted-foreground sm:px-5`}>
                 <span>Kind</span>
-                <span className="text-center">In the app</span>
+                <span className="hidden text-center sm:block">In the app</span>
                 {CHANNELS.map((c) => (
                   <span key={c.key} className="text-center">
                     {c.label}
@@ -112,10 +117,7 @@ export default function NotificationSettingsPage() {
               </div>
               <ul className="divide-y">
                 {settings.map((row) => (
-                  <li
-                    key={row.category}
-                    className="grid grid-cols-[minmax(0,1fr)_repeat(3,4.5rem)] items-center gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_repeat(3,6rem)] sm:px-5"
-                  >
+                  <li key={row.category} className={`${ROW_GRID} px-4 py-3 sm:px-5`}>
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold">
                         {CATEGORY_LABELS[row.category]}
@@ -124,12 +126,14 @@ export default function NotificationSettingsPage() {
                         {CATEGORY_DESCRIPTIONS[row.category]}
                       </span>
                     </span>
-                    <span className="text-center text-xs text-muted-foreground">Always</span>
+                    <span className="hidden text-center text-xs text-muted-foreground sm:block">
+                      Always
+                    </span>
                     {CHANNELS.map((c) => (
                       <Cell
                         key={c.key}
                         row={row}
-                        channel={c.key}
+                        channel={c}
                         onChange={(enabled) => change(row, c.key, enabled)}
                       />
                     ))}
@@ -140,7 +144,9 @@ export default function NotificationSettingsPage() {
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
               Your notification list keeps everything for 90 days, whatever is switched
               off here. Phone notifications need the Virgo app on your phone. Only
-              invitations, applications and enquiries are ever emailed.
+              invitations, applications and enquiries are ever emailed. Desktop alerts
+              show on this computer while Virgo is in the background — in the desktop
+              app, or in a browser once Desktop notifications is on in Settings.
             </p>
           </>
         )}
