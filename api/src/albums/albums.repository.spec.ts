@@ -7,25 +7,35 @@ import type { StorageService } from '../storage/storage.service';
 import { AlbumsRepository, type AlbumRow } from './albums.repository';
 
 /**
- * Album covers are signed for display, not with the download default.
+ * What an album card is given to draw.
  *
- * `mediaUrls` falls back to the one-hour download lifetime when no lifetime
- * is passed, and a one-hour link is re-signed every five minutes. Covers were
- * left on it when thumbnails moved to display-length links, so the album list
- * handed out a new URL for every card each time it was fetched a few minutes
- * later, and every cover was downloaded again. Leaving the argument off is an
- * easy mistake to make twice.
+ * Two mistakes this guards against. Covers were signed with `mediaUrls`'
+ * one-hour download default, which is re-signed every five minutes, so the
+ * album list handed out new URLs a few minutes later and every card was
+ * fetched again — and the argument that prevents it is easy to leave off.
+ * And they were signed from the original photograph, so a list of a dozen
+ * albums downloaded a dozen whole photographs to fill a dozen cards.
  */
 
 const OWNER = 'owner-1';
-const PICKED = 'users/owner-1/albums/2026/09/pick.jpg';
-const NEWEST = 'users/owner-1/albums/2026/09/newest.jpg';
 
-/** What the fake signer below returns for a display-length link. */
-const shown = (key: string) =>
-  `https://media.test/${key}?ttl=${DISPLAY_URL_TTL_SECONDS}`;
+/** A `user_files` row, as much of one as a cover reads. */
+interface FileRow {
+  album_id: string;
+  key: string;
+  thumb_key: string | null;
+}
 
-function album(id: string, coverKey: string | null): AlbumRow {
+function photo(albumId: string, name: string, { thumbnail = true } = {}): FileRow {
+  const stem = `users/${OWNER}/albums/2026/09/${name}`;
+  return {
+    album_id: albumId,
+    key: `${stem}.jpg`,
+    thumb_key: thumbnail ? `${stem}-thumb.webp` : null,
+  };
+}
+
+function album(id: string, coverKey: string | null = null): AlbumRow {
   return {
     id,
     user_id: OWNER,
@@ -42,19 +52,39 @@ function album(id: string, coverKey: string | null): AlbumRow {
   };
 }
 
-/** A repository over these albums, whose newest image is `newest[albumId]`. */
-function repositoryOf(albums: AlbumRow[], newest: Record<string, string>) {
-  const query = jest.fn(async (sql: string) => {
+/** What the fake signer below returns for a display-length link. */
+const shown = (key: string | null) =>
+  `https://media.test/${key}?ttl=${DISPLAY_URL_TTL_SECONDS}`;
+
+/**
+ * A repository over these albums and files. Files are listed newest first,
+ * the order the derived-cover query asks for.
+ */
+function repositoryOf(albums: AlbumRow[], files: FileRow[]) {
+  const query = jest.fn(async (sql: string, params: unknown[] = []) => {
     if (sql.includes('from albums')) return albums;
     if (sql.includes('distinct on (album_id)')) {
-      return Object.entries(newest).map(([album_id, key]) => ({ album_id, key }));
+      const ids = params[0] as string[];
+      const newest = new Map<string, FileRow>();
+      for (const file of files) {
+        if (ids.includes(file.album_id) && !newest.has(file.album_id)) {
+          newest.set(file.album_id, file);
+        }
+      }
+      return [...newest.values()];
+    }
+    if (sql.includes('where key = any')) {
+      const keys = params[0] as string[];
+      return files.filter((file) => keys.includes(file.key));
     }
     // The per-kind counts. Not what this is about.
     return [];
   });
   const db = {
     query,
-    queryOne: jest.fn(async (sql: string) => (await query(sql))[0] ?? null),
+    queryOne: jest.fn(
+      async (sql: string, params?: unknown[]) => (await query(sql, params))[0] ?? null,
+    ),
   } as unknown as DatabaseService;
 
   const mediaUrls = jest.fn(
@@ -69,32 +99,45 @@ function repositoryOf(albums: AlbumRow[], newest: Record<string, string>) {
 }
 
 describe('AlbumsRepository covers', () => {
-  it('signs a chosen cover and a derived one for display on the album list', async () => {
-    const { repository, mediaUrls } = repositoryOf(
-      [album('chosen', PICKED), album('derived', null)],
-      { derived: NEWEST },
+  it('draws a chosen cover and a derived one from their thumbnails', async () => {
+    const picked = photo('chosen', 'pick');
+    const newest = photo('derived', 'newest');
+    const { repository } = repositoryOf(
+      [album('chosen', picked.key), album('derived')],
+      [picked, newest],
     );
 
     const albums = await repository.findAll(OWNER);
 
-    expect(mediaUrls).toHaveBeenCalled();
-    for (const [, ttl] of mediaUrls.mock.calls) {
-      expect(ttl).toBe(DISPLAY_URL_TTL_SECONDS);
-    }
-    expect(albums.map((a) => a.cover_url)).toEqual([shown(PICKED), shown(NEWEST)]);
+    expect(albums.map((a) => a.cover_url)).toEqual([
+      shown(picked.thumb_key),
+      shown(newest.thumb_key),
+    ]);
   });
 
-  it('signs the cover of a single album for display too', async () => {
-    const { repository, mediaUrls } = repositoryOf([album('one', null)], {
-      one: NEWEST,
-    });
+  it('falls back to the original while a photograph has no thumbnail', async () => {
+    const fresh = photo('fresh', 'just-uploaded', { thumbnail: false });
+    const { repository } = repositoryOf([album('fresh', fresh.key)], [fresh]);
 
-    const found = await repository.findOne(OWNER, 'one');
+    const found = await repository.findOne(OWNER, 'fresh');
+
+    expect(found?.cover_url).toBe(shown(fresh.key));
+  });
+
+  it('signs every cover for display, not with the download default', async () => {
+    const picked = photo('chosen', 'pick');
+    const newest = photo('derived', 'newest');
+    const { repository, mediaUrls } = repositoryOf(
+      [album('chosen', picked.key), album('derived')],
+      [picked, newest],
+    );
+
+    await repository.findAll(OWNER);
+    await repository.findOne(OWNER, 'chosen');
 
     expect(mediaUrls).toHaveBeenCalled();
     for (const [, ttl] of mediaUrls.mock.calls) {
       expect(ttl).toBe(DISPLAY_URL_TTL_SECONDS);
     }
-    expect(found?.cover_url).toBe(shown(NEWEST));
   });
 });

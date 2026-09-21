@@ -6,6 +6,26 @@ import { StorageService } from '../storage/storage.service';
 
 export type AlbumStatus = 'draft' | 'review' | 'delivered';
 
+/** A photograph that could be an album's cover. */
+interface CoverFile {
+  key: string;
+  thumb_key: string | null;
+}
+
+/**
+ * What a card draws for a cover: the photograph's thumbnail, or the original
+ * while there is none — still being processed, or too large to thumbnail.
+ *
+ * Covers were drawn from the original, several megabytes from a camera, so the
+ * album list downloaded a dozen whole photographs to fill a dozen cards. The
+ * thumbnail is 640 px of WebP, tens of kilobytes. The price is paid where a
+ * cover is drawn much wider than a card — the phone's home banner and its
+ * audio player's artwork — which 640 px fills a little soft.
+ */
+function shownKey(file: CoverFile): string {
+  return file.thumb_key ?? file.key;
+}
+
 export interface AlbumRow {
   id: string;
   user_id: string;
@@ -88,8 +108,8 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
 
     // distinct on picks the first row of each album_id group given the order
     // below, i.e. the newest image — one query rather than one per album.
-    const covers = await this.db.query<{ album_id: string; key: string }>(
-      `select distinct on (album_id) album_id, key
+    const covers = await this.db.query<CoverFile & { album_id: string }>(
+      `select distinct on (album_id) album_id, key, thumb_key
          from user_files
         where album_id = any($1::text[])
           and content_type like 'image/%'
@@ -97,8 +117,19 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
       [ids],
     );
 
+    // A chosen cover is stored as the photograph's own key, so its thumbnail
+    // has to be looked up. The foreign key on cover_key means the row exists.
+    const chosenKeys = rows.flatMap((row) => (row.cover_key ? [row.cover_key] : []));
+    const chosen = chosenKeys.length
+      ? await this.db.query<CoverFile>(
+          `select key, thumb_key from user_files where key = any($1::text[])`,
+          [chosenKeys],
+        )
+      : [];
+
     const countById = new Map(counts.map((c) => [c.album_id, c]));
-    const coverById = new Map(covers.map((c) => [c.album_id, c.key]));
+    const coverById = new Map(covers.map((c) => [c.album_id, shownKey(c)]));
+    const chosenByKey = new Map(chosen.map((c) => [c.key, shownKey(c)]));
 
     // Signed rather than public: the bucket is not world-readable, so a cover
     // is a time-limited URL like every other object. A chosen photograph
@@ -110,7 +141,9 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     // every card again.
     const [chosenUrls, coverUrls] = await Promise.all([
       this.storage.mediaUrls(
-        rows.map((row) => row.cover_key),
+        rows.map((row) =>
+          row.cover_key ? (chosenByKey.get(row.cover_key) ?? row.cover_key) : null,
+        ),
         DISPLAY_URL_TTL_SECONDS,
       ),
       this.storage.mediaUrls(
