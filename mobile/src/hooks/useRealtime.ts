@@ -87,6 +87,9 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   // arrived without refreshing anything.
   billing: [['usage'], ['plans']],
   retention: [queryKeys.albums.all],
+  // The picks are on each file's row, so the album's grids are stale as well
+  // as its counts.
+  'client-picks': [queryKeys.albums.all, ['storage', 'files']],
   // Usage too: an offer is not a reward yet, but the Rewards screen shows both
   // what is waiting and what the account currently gets.
   promo: [queryKeys.promos.all, ['usage']],

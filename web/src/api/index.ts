@@ -159,6 +159,7 @@ export {
   type StoredFilesPage,
   type StorageBreakdown,
   type WipeResult,
+  type FileOrder,
 } from './endpoints/storage';
 
 export {
@@ -167,6 +168,13 @@ export {
   type ShareLink,
   type ShareMediaKind,
 } from './endpoints/albumShare';
+
+export {
+  albumSectionsApi,
+  type AlbumSection,
+  type AlbumSectionList,
+  type KindCounts,
+} from './endpoints/albumSections';
 
 export {
   chatApi,

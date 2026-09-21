@@ -17,6 +17,7 @@ import {
   CreditCardIcon,
   FileTextIcon,
   GiftIcon,
+  HeartIcon,
   LifeBuoyIcon,
   MessageCircleIcon,
   Trash2Icon,
@@ -39,6 +40,7 @@ cssInterop(CheckCheckIcon, interop);
 cssInterop(CreditCardIcon, interop);
 cssInterop(FileTextIcon, interop);
 cssInterop(GiftIcon, interop);
+cssInterop(HeartIcon, interop);
 cssInterop(LifeBuoyIcon, interop);
 cssInterop(MessageCircleIcon, interop);
 cssInterop(Trash2Icon, interop);
@@ -81,8 +83,14 @@ const TOPICS: Record<
       typeof d.bookingId === 'string' ? `/bookings/${d.bookingId}` : '/bookings',
   },
   reminder: { icon: CalendarIcon, href: '/schedule' },
-  billing: { icon: CreditCardIcon, href: '/settings/billing' },
+  // There is no /settings/billing; plans and what you are paying live here.
+  billing: { icon: CreditCardIcon, href: '/settings/storage/plans' },
   retention: { icon: Trash2Icon, href: '/albums' },
+  'client-picks': {
+    icon: HeartIcon,
+    href: (d) =>
+      typeof d.albumId === 'string' ? `/albums/${d.albumId}?picked=1` : '/albums',
+  },
   support: { icon: LifeBuoyIcon, href: '/support' },
   promo: { icon: GiftIcon, href: '/rewards' },
 };

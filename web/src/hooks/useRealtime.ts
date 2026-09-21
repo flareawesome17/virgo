@@ -135,8 +135,16 @@ const TOPICS: Record<
   reminder: { keys: [queryKeys.reminders.all], href: '/schedule' },
   // These two exist on the server and were missing here, so their notifications
   // arrived without refreshing anything.
-  billing: { keys: [['usage'], ['plans']], href: '/settings/billing' },
+  // There is no /settings/billing; plans and what you are paying live here.
+  billing: { keys: [['usage'], ['plans']], href: '/settings/plans' },
   retention: { keys: [queryKeys.albums.all], href: '/albums' },
+  // The picks are on each file's row, so the album's grids are stale as well
+  // as its counts.
+  'client-picks': {
+    keys: [queryKeys.albums.all, ['storage', 'files']],
+    href: (data) =>
+      typeof data?.albumId === 'string' ? `/albums/${data.albumId}?picked=1` : '/albums',
+  },
   // Usage too: an offer is not a reward yet, but the Rewards page shows both
   // what is waiting and what the account currently gets.
   promo: { keys: [queryKeys.promos.all, ['usage']], href: '/rewards' },

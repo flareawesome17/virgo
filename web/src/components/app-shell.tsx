@@ -12,6 +12,7 @@ import {
   CalendarDays,
   FolderOpen,
   Home,
+  Images,
   LogOut,
   MapPin,
   MessageCircle,
@@ -46,6 +47,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
 import { DesktopUpdateBanner } from '@/components/desktop-update-banner';
 import { OfflineBanner } from '@/components/offline-banner';
+import { UploadDock } from '@/components/upload/upload-dock';
 
 import { DesktopTitleBar } from '@/components/desktop-title-bar';
 
@@ -68,6 +70,9 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
     items: [
       { href: '/', label: 'Home', icon: Home },
       { href: '/workspaces', label: 'Workspaces', icon: FolderOpen, badge: 'invitations' },
+      // Every album across every workspace. There was no way to reach an album
+      // on the web without first remembering which workspace it was in.
+      { href: '/albums', label: 'Albums', icon: Images },
       { href: '/schedule', label: 'Schedule', icon: CalendarDays, badge: 'eventInvites' },
     ],
   },
@@ -426,6 +431,8 @@ export function AppShell({
           </main>
         </div>
       </div>
+      {/* On every signed-in page: uploads keep reporting wherever you go. */}
+      <UploadDock />
     </div>
   );
 }

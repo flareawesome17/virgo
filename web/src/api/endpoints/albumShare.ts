@@ -12,6 +12,11 @@ export interface ShareLink {
   createdAt: string;
   /** What the link shows. A subset means the rest is not served at all. */
   kinds: ShareMediaKind[];
+  /**
+   * When the client last pressed "Send picks", or null if they have not.
+   * Picks are saved as they are made; this is the client saying they are done.
+   */
+  picksSentAt: string | null;
 }
 
 /**

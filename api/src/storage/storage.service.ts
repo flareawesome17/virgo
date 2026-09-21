@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
 import type { Readable } from 'node:stream';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
@@ -7,6 +7,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
@@ -19,10 +20,13 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MediaLinkService } from './media-link.service';
+import { contentDisposition, safeFileStem, uniqueNames } from './download-names';
 import {
   accessAllows,
   QuotaService,
+  type FileOrder,
   type MediaAccess,
+  type ResolvedAccess,
   type StoredMediaKind,
 } from '../quota/quota.service';
 import {
@@ -36,6 +40,9 @@ import {
   type UploadScope,
 } from './storage.config';
 
+/** Long enough to click the link, short enough to be useless if it leaks. */
+const ZIP_TICKET_TTL_SECONDS = 10 * 60;
+
 export interface UploadTicket {
   key: string;
   uploadUrl: string;
@@ -45,20 +52,9 @@ export interface UploadTicket {
   expiresAt: string;
 }
 
-/**
- * `Content-Disposition` for a download, safe for any filename.
- *
- * Two forms on purpose: a stripped ASCII `filename` that every client can
- * read, and RFC 5987 `filename*` carrying the real one. Album names are
- * user-supplied and Filipino ones routinely contain accents — sending those
- * raw produces a header a browser either mangles or rejects outright.
- */
-export function contentDisposition(name: string): string {
-  // Printable ASCII only for the plain form, and neither of the two
-  // characters that would end the quoted string early.
-  const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
-}
+// Lives beside the zip streamer, which needs it and must not import this file
+// back; re-exported so it resolves where it always has.
+export { contentDisposition } from './download-names';
 
 /**
  * Backblaze B2 via its S3-compatible API.
@@ -163,11 +159,13 @@ export class StorageService {
   /**
    * Rejects any key that is not inside the caller's own prefix.
    *
-   * Still the right check for operations that only ever touch the caller's own
-   * rows — wiping their library, retention sweeps, filing their own uploads.
-   * Anything reachable through a *shared* album must use `assertCanAccess`
-   * instead, because there the prefix answers the wrong question: it says who
-   * uploaded the object, not who is allowed to read it.
+   * Still the right check for keys the caller minted themselves — confirming
+   * and filing their own uploads. Not for rows merely billed to them: a
+   * collaborator's upload into their album is billed to the owner but keeps
+   * the collaborator's prefix. Anything reachable through a *shared* album
+   * must use `assertCanAccess` instead, because there the prefix answers the
+   * wrong question: it says who uploaded the object, not who is allowed to
+   * read it.
    */
   private assertOwned(userId: string, key: string): void {
     this.assertSafeKey(key);
@@ -331,6 +329,29 @@ export class StorageService {
   }
 
   /**
+   * The first `bytes` of an object, for reading its header without the rest.
+   *
+   * A ranged GET, so an original too large to decode still gives up its EXIF
+   * for the cost of a quarter of a megabyte rather than all of it.
+   */
+  async readHead(key: string, bytes: number): Promise<Buffer> {
+    const client = this.requireClient();
+    this.assertSafeKey(key);
+    const res = await client.send(
+      new GetObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        Range: `bytes=0-${Math.max(0, bytes - 1)}`,
+      }),
+    );
+    const chunks: Buffer[] = [];
+    for await (const chunk of res.Body as Readable) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  /**
    * Writes a derived object — today only thumbnails.
    *
    * Goes to the same bucket as its source so it inherits the same lifecycle:
@@ -458,6 +479,139 @@ export class StorageService {
   }
 
   /**
+   * Deletes a selection in one request.
+   *
+   * Authorised exactly as a single delete is — 'manage' on each file's album,
+   * or the row being the caller's own — and all-or-nothing on that check: a
+   * selection holding one file the caller may not delete is refused whole
+   * rather than half done. Past the check it is best effort per object, and
+   * only what the bucket confirms gone is forgotten, so a partial failure
+   * leaves the rest counted rather than handing back allowance for files that
+   * still exist.
+   *
+   * Never by key prefix: a collaborator's upload into your album carries
+   * THEIR prefix, so an owner culling their own album would be refused on the
+   * second shooter's frames. The retention sweep comes through here for the
+   * same reason, acting as each album's owner.
+   */
+  async deleteMany(
+    userId: string,
+    keys: readonly string[],
+  ): Promise<{ deleted: number; failed: number }> {
+    if (keys.length === 0) return { deleted: 0, failed: 0 };
+    const client = this.requireClient();
+    for (const key of keys) this.assertSafeKey(key);
+
+    const rows = await this.quota.fileOwnership(keys);
+    const albumAccess = new Map<string, ResolvedAccess>();
+    for (const row of rows) {
+      if (row.user_id === userId) continue;
+      if (!row.album_id) {
+        throw new ForbiddenException('You cannot delete some of these files');
+      }
+      if (!albumAccess.has(row.album_id)) {
+        albumAccess.set(row.album_id, await this.quota.accessForAlbum(userId, row.album_id));
+      }
+      if (!accessAllows(albumAccess.get(row.album_id) ?? null, 'manage')) {
+        throw new ForbiddenException('You cannot delete some of these files');
+      }
+    }
+
+    const known = rows.map((row) => row.key);
+    const targets = await this.quota.objectAndDerivedKeys(known);
+    const gone = new Set<string>();
+    for (let i = 0; i < targets.length; i += 1000) {
+      const byBucket = new Map<string, string[]>();
+      for (const key of targets.slice(i, i + 1000)) {
+        const bucket = this.config.bucketForKey(key);
+        byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), key]);
+      }
+      try {
+        const results = await Promise.all(
+          [...byBucket].map(([Bucket, batch]) =>
+            client.send(
+              new DeleteObjectsCommand({
+                Bucket,
+                Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: false },
+              }),
+            ),
+          ),
+        );
+        for (const result of results) {
+          for (const item of result.Deleted ?? []) if (item.Key) gone.add(item.Key);
+        }
+      } catch (err) {
+        // One bad batch must not strand the rest.
+        this.logger.error(`deleteMany batch failed for ${userId}: ${String(err)}`);
+      }
+    }
+
+    const deleted = known.filter((key) => gone.has(key));
+    await this.quota.forgetKeys(deleted);
+    // Renditions are not bucket objects; see deleteObject.
+    await this.mediaLink.removeFor(known);
+    return { deleted: deleted.length, failed: keys.length - deleted.length };
+  }
+
+  /**
+   * A short-lived ticket for downloading a selection as one zip.
+   *
+   * The app authenticates with a bearer header that a browser does not send
+   * on a navigation, and a navigation is the only way to put a multi-gigabyte
+   * zip in the browser's download manager instead of in JavaScript memory. So
+   * the ticket is asked for over the authenticated channel and carried by the
+   * navigation. See migration 065.
+   */
+  async issueZipTicket(
+    userId: string,
+    albumId: string,
+    keys: readonly string[],
+  ): Promise<{ path: string; expiresAt: Date; files: number }> {
+    const access = await this.quota.accessForAlbum(userId, albumId);
+    // 'download', the same line a single original is held to.
+    if (!accessAllows(access, 'download')) {
+      throw new ForbiddenException('You cannot download from this album');
+    }
+    const files = await this.quota.albumFilesByKey(albumId, keys);
+    if (files.length === 0) throw new BadRequestException('Nothing to download');
+
+    const token = randomBytes(24).toString('base64url');
+    const expiresAt = await this.quota.createZipTicket({
+      token,
+      userId,
+      albumId,
+      keys: files.map((file) => file.key),
+      ttlSeconds: ZIP_TICKET_TTL_SECONDS,
+    });
+    return { path: `/storage/zip/${token}`, expiresAt, files: files.length };
+  }
+
+  /**
+   * What a ticket downloads, re-authorised at the moment it is used.
+   *
+   * Access is checked again rather than trusted from issue time: ten minutes
+   * is long enough for a collaborator to be removed, and a ticket must not
+   * outlive the permission it was issued on.
+   */
+  async redeemZipTicket(
+    token: string,
+  ): Promise<{ zipName: string; files: { key: string; name: string }[] }> {
+    const ticket = await this.quota.zipTicket(token);
+    if (!ticket) throw new NotFoundException('This download has expired');
+    const access = await this.quota.accessForAlbum(ticket.user_id, ticket.album_id);
+    if (!accessAllows(access, 'download')) {
+      throw new NotFoundException('This download has expired');
+    }
+    const rows = await this.quota.albumFilesByKey(ticket.album_id, ticket.keys);
+    const names = uniqueNames(rows.map((row) => storedDisplayName(row.original_name, row.key)));
+    const count = `${rows.length} file${rows.length === 1 ? '' : 's'}`;
+    return {
+      zipName: `${safeFileStem(ticket.album_name)} - ${count}.zip`,
+      files: rows.map((row, i) => ({ key: row.key, name: names[i] })),
+    };
+  }
+
+  /**
    * Deletes every object this user has stored, across all albums.
    *
    * Irreversible, and deliberately not exposed as a DELETE on a collection
@@ -540,78 +694,6 @@ export class StorageService {
     return { deleted: deletedKeys.length, failed, freedBytes: before - after };
   }
 
-  /**
-   * Deletes a specific set of the user's objects.
-   *
-   * The shared engine behind wipeAll and the retention sweep. Only keys the
-   * bucket confirms deleted are forgotten, so a partial failure leaves the
-   * rest still counted against the quota rather than handing back allowance
-   * for objects that are still sitting there.
-   */
-  async deleteKeys(
-    userId: string,
-    keys: readonly string[],
-  ): Promise<{ deleted: number; failed: number }> {
-    if (keys.length === 0) return { deleted: 0, failed: 0 };
-    const client = this.requireClient();
-    const targetKeys = await this.quota.objectAndDerivedKeys(keys);
-
-    const deletedKeys: string[] = [];
-    let failed = 0;
-
-    // 1000 is the DeleteObjects maximum.
-    for (let i = 0; i < targetKeys.length; i += 1000) {
-      const batch = targetKeys.slice(i, i + 1000);
-      // Defence in depth: these came from the user's own rows, but the prefix
-      // check is what actually guarantees bucket-level scope.
-      for (const key of batch) this.assertOwned(userId, key);
-
-      try {
-        // A batch can straddle both buckets — avatars live in the public one,
-        // everything else in the private one — and DeleteObjects takes exactly
-        // one bucket, so the batch is split by where each key actually is.
-        const byBucket = new Map<string, string[]>();
-        for (const key of batch) {
-          const b = this.config.bucketForKey(key);
-          const list = byBucket.get(b) ?? [];
-          list.push(key);
-          byBucket.set(b, list);
-        }
-
-        const results = await Promise.all(
-          [...byBucket].map(([Bucket, keys]) =>
-            client.send(
-              new DeleteObjectsCommand({
-                Bucket,
-                Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
-              }),
-            ),
-          ),
-        );
-        const res = {
-          Deleted: results.flatMap((r) => r.Deleted ?? []),
-          Errors: results.flatMap((r) => r.Errors ?? []),
-        };
-        for (const d of res.Deleted ?? []) {
-          if (d.Key) deletedKeys.push(d.Key);
-        }
-        failed += (res.Errors ?? []).length;
-      } catch (err) {
-        // One bad batch must not strand the rest.
-        failed += batch.length;
-        this.logger.error(`deleteKeys batch failed for ${userId}: ${String(err)}`);
-      }
-    }
-
-    await this.quota.forgetFiles(userId, deletedKeys);
-    // Renditions live on the media volume rather than in a bucket, so nothing
-    // above touches them. Derived from the originals that were asked for, not
-    // from what came back deleted: a rendition whose source is already gone is
-    // the case that most needs collecting.
-    await this.mediaLink.removeFor(keys);
-    return { deleted: deletedKeys.length, failed };
-  }
-
   /** Points already-stored objects at one of the caller's albums. */
   async attachToAlbum(
     userId: string,
@@ -660,6 +742,9 @@ export class StorageService {
       limit?: number;
       cursor?: string;
       kind?: StoredMediaKind;
+      order?: FileOrder;
+      section?: string;
+      picked?: boolean;
     } = {},
   ) {
     // `QuotaService.listFiles` returns an album's contents without checking
@@ -697,6 +782,11 @@ export class StorageService {
         contentType: row.content_type,
         albumId: row.album_id,
         createdAt: row.created_at,
+        // The camera's wall clock with no zone, or null when unknown. Group
+        // by its date as written; fall back to `createdAt` in local time.
+        takenAt: row.taken_at,
+        sectionId: row.section_id,
+        picked: row.picked,
         originalName: names[i],
         url: urls[i],
         thumbnailUrl: thumbnailUrls[i],

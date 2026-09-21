@@ -1,4 +1,5 @@
 import type { StoredFile } from '@/src/api';
+import { dayKey, dayTitle } from '@/src/lib/media-days';
 
 /**
  * Shared shape for the photo and film grids.
@@ -29,33 +30,22 @@ export const HAIRLINE = 2;
 export const CHROME_HEIGHT = 96;
 
 export type MediaRow = { items: StoredFile[]; firstIndex: number };
-export type MediaSection = { title: string; data: MediaRow[] };
-
-/** "Today", "Yesterday", "14 March", and the year too when it is not this one. */
-export function dayLabel(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return 'Undated';
-
-  const midnight = (value: Date) =>
-    new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
-  const days = Math.round((midnight(new Date()) - midnight(date)) / 86_400_000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    ...(date.getFullYear() === new Date().getFullYear()
-      ? {}
-      : { year: 'numeric' }),
-  });
-}
+export type MediaSection = {
+  /** `2026-03-14`, stable across renders, for keys and "select this day". */
+  key: string;
+  title: string;
+  data: MediaRow[];
+};
 
 /**
  * Files grouped by the day they were taken, then chunked into grid rows.
  *
  * The dates are the point: an album is shot over days, and an undifferentiated
  * wall of squares makes you scroll hunting for a boundary that was never drawn.
+ * They are the days the photographs were TAKEN — `dayKey` reads the capture
+ * time and only falls back to the upload. Grouping by `createdAt`, as this
+ * did, put a three-day wedding uploaded in one evening under one heading
+ * called "Today".
  *
  * Each row carries the absolute index of its first item, so a tap can open the
  * viewer at the right file without searching the array for it. The grid this
@@ -68,12 +58,13 @@ export function toSections(
 ): MediaSection[] {
   const sections: MediaSection[] = [];
   let absolute = 0;
+  const now = new Date();
 
   for (const file of files) {
-    const title = dayLabel(file.createdAt);
+    const key = dayKey(file);
     let section = sections[sections.length - 1];
-    if (!section || section.title !== title) {
-      section = { title, data: [] };
+    if (!section || section.key !== key) {
+      section = { key, title: dayTitle(key, now), data: [] };
       sections.push(section);
     }
     const lastRow = section.data[section.data.length - 1];

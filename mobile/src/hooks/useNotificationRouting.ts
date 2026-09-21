@@ -65,6 +65,11 @@ export function useNotificationRouting(enabled: boolean): void {
         case 'job_application':
           router.push('/jobs/mine');
           return;
+
+        // Straight to what they chose, not to the album's front page.
+        case 'client_picks':
+          if (payload.albumId) router.push(`/albums/${payload.albumId}?picked=1`);
+          return;
         case 'job_response':
           if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
           // Their applications, not their own postings — this is the

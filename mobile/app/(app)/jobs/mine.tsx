@@ -21,6 +21,7 @@ const TAB_ALIASES: Record<string, JobsTab> = {
   posted: 'posted',
   applied: 'applied',
   applications: 'applied',
+  bookings: 'bookings',
 };
 
 /**

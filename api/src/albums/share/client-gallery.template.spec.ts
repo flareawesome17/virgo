@@ -4,11 +4,14 @@ import type { PublicAlbumView } from './album-share.service';
 const view: PublicAlbumView = {
   album: { name: 'Reyes <script>alert(1)</script>', description: 'Private & ready' },
   kinds: ['image', 'video', 'audio'],
+  sections: [{ id: 'sec-1', name: 'Ceremony <b>', count: 1 }],
+  picks: { enabled: true, count: 0, sentAt: null },
   total: 1,
   totalBytes: 1024,
   nextCursor: null,
   counts: { image: 1, video: 0, audio: 0 },
   files: [{
+    id: '5b3c1c1e-6a2b-4c8e-9a51-2f6f0d0c7e11',
     url: 'https://media.example/photo.jpg',
     thumbUrl: 'https://media.example/photo-thumb.webp',
     posterUrl: null,
@@ -18,6 +21,8 @@ const view: PublicAlbumView = {
     blurDataUrl: null,
     downloadUrl: 'https://media.example/download',
     downloadName: 'Album - 001.jpg',
+    takenAt: '2026-03-14T16:42:05',
+    createdAt: '2026-03-19T13:08:00.000Z',
     contentType: 'image/jpeg',
     sizeBytes: 1024,
     originalName: 'IMG_1042.jpg',
@@ -27,6 +32,8 @@ const view: PublicAlbumView = {
     mediaTitle: null,
     mediaArtist: null,
     processingStatus: 'ready',
+    sectionId: 'sec-1',
+    picked: false,
   }],
 };
 
@@ -44,5 +51,38 @@ describe('client gallery template', () => {
     expect(html).not.toMatch(/<script[^>]+src=/);
     expect(html).not.toContain('innerHTML');
     expect(html).not.toContain('eval(');
+  });
+
+  it('never puts a section name into the markup, only into escaped data', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    const bs = String.fromCharCode(92);
+    expect(html).not.toContain('Ceremony <b>');
+    expect(html).toContain('Ceremony ' + bs + 'u003cb' + bs + 'u003e');
+    expect(html).toContain('id="chapters"');
+  });
+
+  it('offers chapters only when the album has sections', () => {
+    const html = renderClientGallery({ ...view, sections: [] }, 'token-value', 'nonce-value');
+    expect(html).not.toContain('id="chapters"');
+  });
+
+  it('never exposes an object key, which would name the owner', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    expect(html).not.toContain('"key"');
+    expect(html).not.toContain('users/');
+  });
+
+  it('wires picking to the picks endpoints, relative to the page', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    expect(html).toContain("base + '/picks'");
+    expect(html).toContain("base + '/picks/send'");
+    expect(html).toContain('href="/s/token-value/picks.zip"');
+  });
+
+  it('keeps secondary text on the dark panel at a readable contrast', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    // The old page drew these at 40–52% white: 3.2–4.0 : 1 on the panel.
+    expect(html).not.toMatch(/rgba\(255,255,255,\.(4\d|5[0-9])\)/);
+    expect(html).toContain('--panel-muted:rgba(255,255,255,0.74)');
   });
 });

@@ -31,8 +31,13 @@ export interface Album {
   workspace_id: string;
   name: string;
   description: string | null;
+  /** What to draw: the chosen photograph, an uploaded cover, or the newest image. */
   cover_url: string | null;
+  /** The photograph in the album chosen as its cover, if one was. */
+  cover_key?: string | null;
   item_count: number;
+  /** What it holds by kind. Absent from an API older than the album list redesign. */
+  counts?: { image: number; video: number; audio: number };
   status: AlbumStatus;
   retention_days: number | null;
   created_at: string;

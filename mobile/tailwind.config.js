@@ -13,7 +13,7 @@ module.exports = {
   safelist: [
     {
       pattern:
-        /(bg|border|text|stroke|fill)-(background|foreground|card|card-foreground|popover|popover-foreground|primary|primary-foreground|action|action-foreground|secondary|secondary-foreground|muted|muted-foreground|accent|accent-foreground|destructive|border|input|ring|chart-1|chart-2|chart-3|chart-4|chart-5|sidebar|sidebar-foreground|sidebar-primary|sidebar-primary-foreground|sidebar-accent|sidebar-accent-foreground|sidebar-border|sidebar-ring)/,
+        /(bg|border|text|stroke|fill)-(background|foreground|card|card-foreground|popover|popover-foreground|primary|primary-foreground|action|action-foreground|secondary|secondary-foreground|muted|muted-foreground|accent|accent-foreground|destructive|destructive-foreground|success|warning|info|border|input|ring|chart-1|chart-2|chart-3|chart-4|chart-5|sidebar|sidebar-foreground|sidebar-primary|sidebar-primary-foreground|sidebar-accent|sidebar-accent-foreground|sidebar-border|sidebar-ring)/,
     },
   ],
   theme: {
@@ -66,7 +66,15 @@ module.exports = {
 
         destructive: {
           DEFAULT: 'rgb(var(--destructive) / <alpha-value>)',
+          foreground: 'rgb(var(--destructive-foreground) / <alpha-value>)',
         },
+
+        // Status, as text on the app's own surfaces — each clears 4.5:1 there
+        // (design/tokens.json). Tint a background with /15 rather than using
+        // these as fills.
+        success: 'rgb(var(--success) / <alpha-value>)',
+        warning: 'rgb(var(--warning) / <alpha-value>)',
+        info: 'rgb(var(--info) / <alpha-value>)',
 
         border: 'rgb(var(--border) / <alpha-value>)',
         input: 'rgb(var(--input) / <alpha-value>)',

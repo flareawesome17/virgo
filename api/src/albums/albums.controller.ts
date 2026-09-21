@@ -38,7 +38,11 @@ export class AlbumsController {
 
   @Get()
   async list(@CurrentUser('id') userId: string, @Query() query: ListAlbumsDto) {
-    const filters = { workspace_id: query.workspace_id, status: query.status };
+    const filters = {
+      workspace_id: query.workspace_id,
+      status: query.status,
+      search: query.search,
+    };
     const [data, total] = await Promise.all([
       this.albums.list(userId, { ...query, filters }),
       this.albums.count(userId, filters),

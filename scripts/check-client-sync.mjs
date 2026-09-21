@@ -21,6 +21,7 @@
  *
  *   node scripts/check-client-sync.mjs
  */
+import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +82,9 @@ const PLATFORM_SPECIFIC = {
 const SHARED_LIB = [
   'calendar.ts',
   'job-form.ts',
+  // Which day a photograph belongs under. Both galleries group by it, and a
+  // difference here puts the same frame under different days on each.
+  'media-days.ts',
   'ph-locations.ts',
   'presence-store.ts',
   'queryClient.ts',
@@ -162,3 +166,14 @@ if (missing.length || drifted.length) {
 }
 
 console.log('web and mobile agree on every shared file.');
+
+// The palette is shared the same way, through a generator rather than by
+// copying: every client's colours come from design/tokens.json, and this is
+// the check that none of the generated copies was edited by hand.
+try {
+  execFileSync(process.execPath, [join(root, 'scripts', 'build-tokens.mjs'), '--check'], {
+    stdio: 'inherit',
+  });
+} catch {
+  process.exit(1);
+}

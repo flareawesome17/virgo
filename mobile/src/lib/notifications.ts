@@ -432,8 +432,10 @@ export interface NotificationPayload {
     | 'hire_response'
     | 'job_application'
     | 'job_response'
+    | 'client_picks'
     | string;
   conversationId?: string;
+  albumId?: string;
   reminderId?: string;
   eventId?: string;
   workspaceId?: string;

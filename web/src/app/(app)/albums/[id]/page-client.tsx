@@ -1,162 +1,750 @@
 'use client';
-/* eslint-disable @next/next/no-img-element */
 
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { ArrowLeft, DotsThree, FilmSlate, ImageSquare, LinkSimple, MusicNotesSimple, Play, Trash, UploadSimple } from '@phosphor-icons/react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowDownUp,
+  CheckSquare,
+  ChevronDown,
+  Download,
+  FolderInput,
+  FolderUp,
+  Heart,
+  ImageIcon,
+  LayoutGrid,
+  Link2,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell } from '@/components/app-shell';
+import { NotificationBell } from '@/components/notification-bell';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { UploadDropzone, openFilePicker } from '@/components/media/upload-dropzone';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { UploadDropzone, openFilePicker, openFolderPicker } from '@/components/media/upload-dropzone';
 import { MediaViewer } from '@/components/media/media-viewer';
 import { AlbumAudioPlayer } from '@/components/media/album-audio-player';
 import { ShareDialog } from '@/components/media/share-dialog';
-import { useAlbum, useDeleteAlbum } from '@/hooks/useAlbums';
+import { AlbumGrid, type Density } from '@/components/media/album-grid';
+import { AlbumSections, NameDialog, type SectionFilter } from '@/components/media/album-sections';
+import { useAlbum, useDeleteAlbum, useUpdateAlbum } from '@/hooks/useAlbums';
 import { useAlbumFiles } from '@/hooks/useAlbumFiles';
-import { useUpload } from '@/hooks/useUpload';
+import { useAlbumSections, useAssignSection, useCreateSection } from '@/hooks/useAlbumSections';
+import { useDeleteFiles, useSelection } from '@/hooks/useMediaSelection';
+import { useAuth } from '@/hooks/useAuth';
 import { useWorkspace } from '@/hooks/useWorkspaces';
-import { formatBytes, storageApi, type StoredFile, type StoredMediaKind } from '@/api';
+import { kindOf, storageApi, type AlbumStatus, type StoredFile } from '@/api';
+import { cn } from '@/lib/utils';
 
-type Room = Exclude<StoredMediaKind, 'other'>;
-const ROOMS: { value: Room; label: string; Icon: typeof ImageSquare }[] = [
-  { value: 'image', label: 'Photos', Icon: ImageSquare },
-  { value: 'video', label: 'Films', Icon: FilmSlate },
-  { value: 'audio', label: 'Audio', Icon: MusicNotesSimple },
+type KindFilter = 'all' | 'image' | 'video' | 'audio';
+
+const KINDS: { key: KindFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'image', label: 'Photos' },
+  { key: 'video', label: 'Films' },
+  { key: 'audio', label: 'Audio' },
 ];
 
+const STATUS: Record<AlbumStatus, { label: string; className: string }> = {
+  draft: { label: 'Draft', className: 'bg-muted text-muted-foreground' },
+  review: { label: 'In review', className: 'bg-warning/15 text-warning' },
+  delivered: { label: 'Delivered', className: 'bg-success/15 text-success' },
+};
+
+function problem(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : 'Please try again.';
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n.toLocaleString()} ${n === 1 ? one : many}`;
+}
+
+/** Hands a signed download to the browser's own download manager. */
+function startDownload(url: string) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+/*
+ * `useSearchParams` needs a Suspense boundary in the app router, or the whole
+ * route opts out of static rendering — which the desktop build cannot do.
+ */
 export default function AlbumPage() {
+  return (
+    <Suspense fallback={null}>
+      <AlbumWorkspace />
+    </Suspense>
+  );
+}
+
+/**
+ * One album, as a place to work in.
+ *
+ * Sections down the side, the media under the days it was taken, kind as a
+ * filter rather than three separate rooms, and a selection that can be filed,
+ * downloaded as one zip, or deleted in one go. It used to be a dark
+ * presentation header over a masonry wall with no dates, drawn in colours
+ * typed in by hand — handsome, and nowhere to do the work.
+ */
+function AlbumWorkspace() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const search = useSearchParams();
+  const { user } = useAuth();
   const { data: album, isLoading: loadingAlbum } = useAlbum(id);
   const { data: workspace } = useWorkspace(album?.workspace_id ?? undefined);
-  const removeAlbum = useDeleteAlbum();
-  const upload = useUpload({ scope: 'albums', albumId: id });
-  const [room, setRoom] = useState<Room>('image');
-  // Reuse the unfiltered album response across all media rooms. The album
-  // overview already proves this response contains and classifies the files.
-  const albumFilesQuery = useAlbumFiles(id);
-  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const sectionsQuery = useAlbumSections(id);
+
+  // A "your client sent their picks" notification lands with ?picked=1.
+  const [chosenSection, setSection] = useState<SectionFilter>(search.get('picked') ? 'picked' : 'all');
+  // A section deleted while it was on screen falls back to everything, rather
+  // than leaving the grid filtered to something that no longer exists.
+  const section: SectionFilter =
+    chosenSection === 'all' ||
+    chosenSection === 'none' ||
+    chosenSection === 'picked' ||
+    !sectionsQuery.isSuccess ||
+    sectionsQuery.sections.some((s) => s.id === chosenSection)
+      ? chosenSection
+      : 'all';
+  const [kind, setKind] = useState<KindFilter>('all');
+  const [order, setOrder] = useState<'newest' | 'oldest'>('newest');
+  const [density, setDensity] = useState<Density>('comfortable');
+
+  const filter = {
+    kind: kind === 'all' ? undefined : kind,
+    order: order === 'oldest' ? ('oldest' as const) : undefined,
+    section: section === 'all' || section === 'picked' ? undefined : section,
+    picked: section === 'picked' ? true : undefined,
+  };
+  const filesQuery = useAlbumFiles(id, filter);
+  const files = filesQuery.files;
+  const counts = filesQuery.counts;
+
+  const selection = useSelection();
+  const [selecting, setSelecting] = useState(false);
+  const selectionMode = selecting || selection.active;
+
+  const [viewerKey, setViewerKey] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [deletingFile, setDeletingFile] = useState<StoredFile | null>(null);
+  const [confirmingAlbumDelete, setConfirmingAlbumDelete] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState<string[] | null>(null);
+  const [namingForMove, setNamingForMove] = useState(false);
+  const [zipping, setZipping] = useState(false);
 
-  const counts = albumFilesQuery.counts;
-  const files = room === 'image'
-    ? albumFilesQuery.images
-    : room === 'video' ? albumFilesQuery.videos : albumFilesQuery.audio;
-  const totalItems = counts.image + counts.video + counts.audio;
+  const updateAlbum = useUpdateAlbum();
+  const removeAlbum = useDeleteAlbum();
+  const deleteFiles = useDeleteFiles(id);
+  const assign = useAssignSection(id);
+  const createSection = useCreateSection(id);
 
-  const removeFile = async (file: StoredFile) => {
+  const isOwner = !!album && !!user && album.user_id === user.id;
+  const canManage = isOwner || files.some((file) => file.capabilities.manage);
+  const canDownload = isOwner || files.some((file) => file.capabilities.download);
+
+  // Keep the selection to what is on screen, so a change of filter can never
+  // leave invisible files chosen and waiting to be deleted.
+  const keepOnly = selection.keepOnly;
+  useEffect(() => {
+    keepOnly(files.map((file) => file.key));
+  }, [files, keepOnly]);
+
+
+  const clearSelection = useCallback(() => {
+    selection.clear();
+    setSelecting(false);
+  }, [selection]);
+
+  // Escape leaves selection; ⌘/Ctrl-A takes everything loaded — unless the
+  // keyboard is in a field, or the viewer (which has its own keys) is open.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (viewerKey || target?.closest('input, textarea, [contenteditable="true"], [role="dialog"], [role="menu"]')) return;
+      if (event.key === 'Escape' && selectionMode) {
+        event.preventDefault();
+        clearSelection();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a' && files.length > 0) {
+        event.preventDefault();
+        setSelecting(true);
+        selection.setMany(files.map((file) => file.key), true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [viewerKey, selectionMode, clearSelection, files, selection]);
+
+  // Pages in as the end of the grid comes into view.
+  const sentinel = useRef<HTMLDivElement>(null);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = filesQuery;
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || !hasNextPage) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !isFetchingNextPage) void fetchNextPage();
+      },
+      { rootMargin: '800px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const viewable = useMemo(
+    () => files.filter((file) => ['image', 'video'].includes(kindOf(file.contentType))),
+    [files],
+  );
+  const viewerIndex = viewerKey ? viewable.findIndex((file) => file.key === viewerKey) : -1;
+
+  const openFile = useCallback((file: StoredFile) => {
+    const fileKind = kindOf(file.contentType);
+    if (fileKind === 'audio') {
+      // The player lives on the Audio filter, with the album's whole set.
+      setKind('audio');
+      return;
+    }
+    if (fileKind === 'other') {
+      if (file.url) window.open(file.url, '_blank', 'noopener');
+      return;
+    }
+    setViewerKey(file.key);
+  }, []);
+
+  const selected = useMemo(() => files.filter((file) => selection.has(file.key)), [files, selection]);
+  const oneImage = selected.length === 1 && kindOf(selected[0].contentType) === 'image';
+
+  const moveTo = (sectionId: string | null, keys: string[] = selection.keys()) => {
+    assign.mutate(
+      { keys, sectionId },
+      {
+        onSuccess: ({ moved }) => {
+          const name = sectionId ? sectionsQuery.sections.find((s) => s.id === sectionId)?.name ?? 'the section' : 'no section';
+          toast.success(`Moved ${plural(moved, 'file', 'files')} to ${name}`);
+          clearSelection();
+        },
+        onError: (error) => toast.error('Could not move', { description: problem(error) }),
+      },
+    );
+  };
+
+  const downloadSelection = async () => {
+    setZipping(true);
     try {
-      await storageApi.remove(file.key);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['storage', 'files', id] }),
-        queryClient.invalidateQueries({ queryKey: ['me', 'usage'] }),
-      ]);
-      setDeletingFile(null);
-      setViewerIndex(null);
-      toast.success('File removed');
+      startDownload(await storageApi.zipUrl(id, selection.keys()));
+      toast.success(`Preparing ${plural(selection.count, 'file', 'files')} as a zip`, {
+        description: 'Your browser takes it from here — large albums can take a while to start.',
+      });
     } catch (error) {
-      toast.error('Could not remove file', { description: error instanceof Error ? error.message : undefined });
+      toast.error('Could not start the download', { description: problem(error) });
+    } finally {
+      setZipping(false);
     }
   };
 
+  const setCover = () => {
+    const photo = selected[0];
+    if (!photo) return;
+    updateAlbum.mutate(
+      { id, cover_key: photo.key },
+      {
+        onSuccess: () => {
+          toast.success('Cover set');
+          clearSelection();
+        },
+        onError: (error) => toast.error('Could not set the cover', { description: problem(error) }),
+      },
+    );
+  };
+
+  const deleteNow = (keys: string[]) => {
+    setConfirmingDelete(null);
+    deleteFiles.mutate(keys, {
+      onSuccess: ({ deleted, failed }) => {
+        if (failed > 0) {
+          toast.error(`${plural(failed, 'file was', 'files were')} not deleted`, {
+            description: `${plural(deleted, 'file was', 'files were')} deleted. Try the rest again.`,
+          });
+        } else {
+          toast.success(`Deleted ${plural(deleted, 'file', 'files')}`);
+        }
+        clearSelection();
+        if (viewerKey && keys.includes(viewerKey)) setViewerKey(null);
+      },
+      onError: (error) => toast.error('Could not delete', { description: problem(error) }),
+    });
+  };
+
+  const status = album ? STATUS[album.status] ?? STATUS.draft : null;
+  const albumCounts = sectionsQuery.counts;
+  const empty = !filesQuery.isLoading && !filesQuery.loadFailed && files.length === 0;
+  const busy = assign.isPending || deleteFiles.isPending || zipping;
+
   return (
     <AppShell title={album?.name ?? 'Album'}>
-      <UploadDropzone onFiles={upload.upload} items={upload.items} onCancel={upload.cancel} onClearFinished={upload.clearFinished} accept="image/*,video/*,audio/*" className="min-h-full bg-[#fbf7f2] dark:bg-[#171411]">
-        <main className="mx-auto w-full max-w-[1440px] px-4 pb-28 pt-5 sm:px-7 lg:px-10 lg:pt-8">
-          <section className="relative overflow-hidden rounded-[2rem] bg-[#201c19] p-1.5 text-white shadow-[0_28px_80px_-48px_rgba(62,39,26,0.72)]">
-            <div className="relative overflow-hidden rounded-[1.65rem] border border-white/[0.08] bg-[#211d1a] px-5 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:px-8 sm:py-8 lg:px-10 lg:py-10">
-              <div aria-hidden className="pointer-events-none absolute inset-0 opacity-60 [background:radial-gradient(circle_at_78%_20%,rgba(193,119,69,0.16),transparent_35%),radial-gradient(circle_at_10%_110%,rgba(193,119,69,0.10),transparent_34%)]" />
-              <div className="relative grid gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(22rem,0.6fr)] lg:items-end">
-                <div>
-                  <Link href={album?.workspace_id ? `/workspaces/${album.workspace_id}` : '/workspaces'} className="inline-flex items-center gap-2 text-xs font-medium text-white/46 transition-colors hover:text-white"><ArrowLeft size={15} weight="light" />Back to {workspace?.name ?? 'workspace'}</Link>
-                  <p className="mt-8 font-mono text-[10px] uppercase tracking-[0.22em] text-[#d89566]">Album archive</p>
-                  <h1 className="mt-3 max-w-3xl text-balance text-4xl font-semibold leading-[0.96] tracking-[-0.055em] sm:text-5xl lg:text-6xl">{album?.name ?? (loadingAlbum ? 'Opening album…' : 'Album')}</h1>
-                  {album?.description && <p className="mt-5 max-w-[62ch] text-sm leading-6 text-white/52">{album.description}</p>}
+      <UploadDropzone target={{ scope: 'albums', albumId: id, albumName: album?.name }} className="min-h-full">
+        {/* ── The album ── */}
+        <header className="border-b bg-card/40">
+          <div className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+            <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Link href="/albums" className="hover:text-foreground">Albums</Link>
+              {workspace && (
+                <>
+                  <span aria-hidden>/</span>
+                  <Link href={`/workspaces/${workspace.id}`} className="truncate hover:text-foreground">
+                    {workspace.name}
+                  </Link>
+                </>
+              )}
+            </nav>
+            <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+              <div className="min-w-0">
+                <h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">
+                  {album?.name ?? (loadingAlbum ? 'Opening album…' : 'Album')}
+                </h1>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
+                  {status && (
+                    <span className={cn('rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide', status.className)}>
+                      {status.label}
+                    </span>
+                  )}
+                  <span className="tabular-nums">
+                    {[
+                      albumCounts.image ? plural(albumCounts.image, 'photo', 'photos') : null,
+                      albumCounts.video ? plural(albumCounts.video, 'film', 'films') : null,
+                      albumCounts.audio ? plural(albumCounts.audio, 'recording', 'recordings') : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || 'Empty'}
+                  </span>
+                  {sectionsQuery.picked > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSection('picked')}
+                      className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 font-medium text-primary hover:bg-primary/10"
+                    >
+                      <Heart className="size-3.5 fill-current" aria-hidden />
+                      {plural(sectionsQuery.picked, 'client pick', 'client picks')}
+                    </button>
+                  )}
                 </div>
+                {album?.description && (
+                  <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-muted-foreground">{album.description}</p>
+                )}
+              </div>
 
-                <div className="lg:justify-self-end">
-                  <dl className="grid grid-cols-3 gap-5 border-t border-white/[0.09] pt-5 lg:min-w-[25rem]">
-                    <Stat label="Photos" value={counts.image} />
-                    <Stat label="Films" value={counts.video} />
-                    <Stat label="Audio" value={counts.audio} />
-                  </dl>
-                  <div className="mt-6 flex flex-wrap items-center gap-2">
-                    <Button variant="outline" onClick={() => setSharing(true)} className="rounded-full border-white/[0.12] bg-white/[0.04] text-white hover:bg-white/[0.1] hover:text-white"><LinkSimple size={16} weight="light" />Client link</Button>
-                    <Button onClick={() => openFilePicker()} className="group rounded-full bg-[#c17745] text-white hover:bg-[#ce8554]"><UploadSimple size={16} weight="light" />Upload media</Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Album actions" className="rounded-full text-white/65 hover:bg-white/[0.08] hover:text-white"><DotsThree size={20} weight="light" /></Button></DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => setSharing(true)}><LinkSimple size={16} weight="light" />Client link</DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => openFilePicker()}><UploadSimple size={16} weight="light" />Upload files</DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onSelect={() => setConfirmingDelete(true)}><Trash size={16} weight="light" />Delete album</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
+              <div className="flex items-center gap-2">
+                {isOwner && (
+                  <Button variant="outline" onClick={() => setSharing(true)}>
+                    <Link2 className="size-4" />
+                    Client link
+                  </Button>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button>
+                      <Upload className="size-4" />
+                      Upload
+                      <ChevronDown className="size-3.5 opacity-70" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => openFilePicker()}>
+                      <Upload className="size-4" />
+                      Files…
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => openFolderPicker()}>
+                      <FolderUp className="size-4" />
+                      A whole folder…
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      Or drop files or folders anywhere here
+                    </DropdownMenuLabel>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {isOwner && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label="Album options">
+                        <MoreHorizontal className="size-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Status</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={album?.status}
+                        onValueChange={(value) =>
+                          updateAlbum.mutate(
+                            { id, status: value as AlbumStatus },
+                            { onError: (error) => toast.error('Could not update the album', { description: problem(error) }) },
+                          )
+                        }
+                      >
+                        {(Object.keys(STATUS) as AlbumStatus[]).map((key) => (
+                          <DropdownMenuRadioItem key={key} value={key}>
+                            {STATUS[key].label}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem variant="destructive" onSelect={() => setConfirmingAlbumDelete(true)}>
+                        <Trash2 className="size-4" />
+                        Delete album
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                {/* The shell's own bar carries these under lg; up here they
+                    would otherwise be missing from this page at desktop size. */}
+                <span className="hidden lg:inline-flex">
+                  <NotificationBell />
+                  <ThemeToggle />
+                </span>
               </div>
             </div>
-          </section>
+          </div>
+        </header>
 
-          <nav aria-label="Album media" className="mt-8 flex items-center justify-between gap-4 border-b border-[#ded3ca] dark:border-white/[0.08]">
-            <div className="flex min-w-0 gap-1 overflow-x-auto no-scrollbar">
-              {ROOMS.map(({ value, label, Icon }) => {
-                const selected = room === value;
-                return <button key={value} onClick={() => { setRoom(value); setViewerIndex(null); }} aria-current={selected ? 'page' : undefined} className={`relative flex min-h-12 shrink-0 items-center gap-2 px-4 text-sm font-semibold transition-colors ${selected ? 'text-[#9e5431] dark:text-[#d89566]' : 'text-[#78675c] hover:text-foreground dark:text-white/45 dark:hover:text-white'}`}><Icon size={17} weight="light" />{label}<span className="font-mono text-[10px] tabular-nums opacity-55">{counts[value]}</span>{selected && <span className="absolute inset-x-3 bottom-0 h-0.5 origin-center rounded-full bg-[#b66a40]" />}</button>;
-              })}
+        <div className="mx-auto w-full max-w-[1440px] px-4 pb-28 pt-5 sm:px-6 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:gap-8 lg:px-8 lg:pt-6">
+          <aside className="hidden lg:block">
+            <div className="sticky top-6">
+              <AlbumSections
+                albumId={id}
+                layout="rail"
+                counts={sectionsQuery}
+                value={section}
+                onChange={setSection}
+                canManage={canManage}
+                onDropFiles={(keys, sectionId) => moveTo(sectionId, keys)}
+              />
             </div>
-            <p className="hidden shrink-0 text-xs text-muted-foreground sm:block">{totalItems} item{totalItems === 1 ? '' : 's'}</p>
-          </nav>
+          </aside>
 
-          <section className="pt-7">
-            {room !== 'audio' && <MediaRoom room={room} files={files} loading={albumFilesQuery.isLoading} failed={albumFilesQuery.loadFailed} onRetry={() => albumFilesQuery.refetch()} onOpen={setViewerIndex} hasMore={!!albumFilesQuery.hasNextPage} loadingMore={albumFilesQuery.isFetchingNextPage} onLoadMore={() => albumFilesQuery.fetchNextPage()} onUpload={() => openFilePicker()} />}
-            <AlbumAudioPlayer files={albumFilesQuery.audio} albumName={album?.name ?? 'Virgo album'} visible={room === 'audio'} isLoading={albumFilesQuery.isLoading} hasMore={!!albumFilesQuery.hasNextPage} loadingMore={albumFilesQuery.isFetchingNextPage} onLoadMore={() => albumFilesQuery.fetchNextPage()} />
-          </section>
-        </main>
+          <div className="min-w-0">
+            <div className="mb-3 lg:hidden">
+              <AlbumSections
+                albumId={id}
+                layout="chips"
+                counts={sectionsQuery}
+                value={section}
+                onChange={setSection}
+                canManage={canManage}
+                onDropFiles={(keys, sectionId) => moveTo(sectionId, keys)}
+              />
+            </div>
+
+            {/* ── What is on screen, or what is chosen ── */}
+            <div className="sticky top-0 z-20 -mx-4 mb-5 border-b bg-background/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0">
+              {selectionMode ? (
+                <div role="toolbar" aria-label="Selection" className="flex flex-wrap items-center gap-2">
+                  <Button variant="ghost" size="icon" className="size-8" onClick={clearSelection} aria-label="Clear selection">
+                    <X className="size-4" />
+                  </Button>
+                  <p className="text-sm font-semibold tabular-nums" aria-live="polite">
+                    {selection.count === 0 ? 'Select files' : `${selection.count.toLocaleString()} selected`}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground"
+                    onClick={() => selection.setMany(files.map((file) => file.key), true)}
+                  >
+                    Select all{hasNextPage ? ' loaded' : ''}
+                  </Button>
+                  <span className="flex-1" />
+                  {selection.count > 0 && (
+                    <>
+                      {canManage && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" disabled={busy}>
+                              <FolderInput className="size-4" />
+                              Move to
+                              <ChevronDown className="size-3.5 opacity-70" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            {sectionsQuery.sections.map((s) => (
+                              <DropdownMenuItem key={s.id} onSelect={() => moveTo(s.id)}>
+                                <span className="flex-1 truncate">{s.name}</span>
+                                <span className="text-xs tabular-nums text-muted-foreground">{s.count}</span>
+                              </DropdownMenuItem>
+                            ))}
+                            {sectionsQuery.sections.length > 0 && (
+                              <>
+                                <DropdownMenuItem onSelect={() => moveTo(null)}>No section</DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
+                            <DropdownMenuItem onSelect={() => setNamingForMove(true)}>
+                              <Plus className="size-4" />
+                              New section…
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                      {canDownload && (
+                        <Button variant="outline" size="sm" disabled={busy} onClick={() => void downloadSelection()}>
+                          {zipping ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                          Download
+                        </Button>
+                      )}
+                      {isOwner && oneImage && (
+                        <Button variant="outline" size="sm" disabled={busy} onClick={setCover}>
+                          <ImageIcon className="size-4" />
+                          Set as cover
+                        </Button>
+                      )}
+                      {canManage && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setConfirmingDelete(selection.keys())}
+                        >
+                          <Trash2 className="size-4" />
+                          Delete
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <div role="tablist" aria-label="Kind" className="inline-flex rounded-lg bg-muted p-0.5">
+                    {KINDS.map((option) => {
+                      const active = kind === option.key;
+                      const n = option.key === 'all' ? counts.image + counts.video + counts.audio + counts.other : counts[option.key];
+                      return (
+                        <button
+                          key={option.key}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => setKind(option.key)}
+                          className={cn(
+                            'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+                            active ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          {option.label}
+                          <span className="text-xs tabular-nums opacity-60">{n.toLocaleString()}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <span className="flex-1" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setOrder((value) => (value === 'newest' ? 'oldest' : 'newest'))}
+                    aria-label={order === 'newest' ? 'Newest first. Switch to oldest first' : 'Oldest first. Switch to newest first'}
+                  >
+                    <ArrowDownUp className="size-4" />
+                    {order === 'newest' ? 'Newest first' : 'Oldest first'}
+                  </Button>
+                  {kind !== 'audio' && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="size-8"
+                      onClick={() => setDensity((value) => (value === 'comfortable' ? 'compact' : 'comfortable'))}
+                      aria-pressed={density === 'compact'}
+                      aria-label={density === 'compact' ? 'Larger tiles' : 'Smaller tiles'}
+                    >
+                      <LayoutGrid className="size-4" />
+                    </Button>
+                  )}
+                  {files.length > 0 && kind !== 'audio' && (
+                    <Button variant="outline" size="sm" onClick={() => setSelecting(true)}>
+                      <CheckSquare className="size-4" />
+                      Select
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── The media ── */}
+            {kind === 'audio' ? (
+              <AlbumAudioPlayer
+                files={filesQuery.audio}
+                albumName={album?.name ?? 'Virgo album'}
+                visible
+                isLoading={filesQuery.isLoading}
+                hasMore={!!hasNextPage}
+                loadingMore={isFetchingNextPage}
+                onLoadMore={() => void fetchNextPage()}
+              />
+            ) : filesQuery.isLoading ? (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-2" aria-label="Loading">
+                {Array.from({ length: 12 }).map((_, index) => (
+                  <div key={index} className="aspect-square animate-pulse rounded-lg bg-muted" />
+                ))}
+              </div>
+            ) : filesQuery.loadFailed && files.length === 0 ? (
+              <div className="rounded-xl border border-dashed py-16 text-center">
+                <p className="text-sm font-medium">This album could not be loaded</p>
+                <p className="mt-1 text-xs text-muted-foreground">Your media is safe. This is a connection problem, not an empty album.</p>
+                <Button size="sm" variant="outline" className="mt-4" onClick={() => void filesQuery.refetch()}>
+                  Try again
+                </Button>
+              </div>
+            ) : empty ? (
+              <EmptyState
+                albumEmpty={sectionsQuery.total === 0}
+                section={section}
+                kind={kind}
+              />
+            ) : (
+              <AlbumGrid
+                files={files}
+                selection={selection}
+                selecting={selectionMode}
+                density={density}
+                canDrag={canManage}
+                onOpen={openFile}
+              />
+            )}
+
+            <div ref={sentinel} aria-hidden />
+            {isFetchingNextPage && (
+              <div className="flex justify-center py-8">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" aria-label="Loading more" />
+              </div>
+            )}
+          </div>
+        </div>
       </UploadDropzone>
 
-      {viewerIndex !== null && files[viewerIndex] && <MediaViewer files={files} index={viewerIndex} onIndexChange={setViewerIndex} onClose={() => setViewerIndex(null)} onDelete={files[viewerIndex].capabilities.delete ? setDeletingFile : undefined} />}
+      {viewerIndex >= 0 && (
+        <MediaViewer
+          files={viewable}
+          index={viewerIndex}
+          onIndexChange={(index) => setViewerKey(viewable[index]?.key ?? null)}
+          onClose={() => setViewerKey(null)}
+          onDelete={viewable[viewerIndex].capabilities.delete ? (file) => setConfirmingDelete([file.key]) : undefined}
+        />
+      )}
+
       <ShareDialog albumId={id} albumName={album?.name ?? 'this album'} open={sharing} onOpenChange={setSharing} />
 
-      <AlertDialog open={!!deletingFile} onOpenChange={(open) => !open && setDeletingFile(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Remove this file?</AlertDialogTitle><AlertDialogDescription>{deletingFile?.originalName} will be permanently removed from storage.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => deletingFile && removeFile(deletingFile)}>Remove file</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete this album?</AlertDialogTitle><AlertDialogDescription>{album?.name} and everything in it will be permanently removed. Keep a separate backup of anything you cannot lose.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => removeAlbum.mutate(id, { onSuccess: () => router.replace(album?.workspace_id ? `/workspaces/${album.workspace_id}` : '/workspaces'), onError: (error: Error) => toast.error('Could not delete album', { description: error.message }) })}>Delete album</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <NameDialog
+        open={namingForMove}
+        initial=""
+        title="New section"
+        onCancel={() => setNamingForMove(false)}
+        onSave={(name) => {
+          setNamingForMove(false);
+          createSection.mutate(name, {
+            onSuccess: (created) => moveTo(created.id),
+            onError: (error) => toast.error('Could not add the section', { description: problem(error) }),
+          });
+        }}
+      />
+
+      <AlertDialog open={!!confirmingDelete} onOpenChange={(open) => !open && setConfirmingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {confirmingDelete && confirmingDelete.length > 1 ? plural(confirmingDelete.length, 'file', 'files') : 'this file'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmingDelete && confirmingDelete.length > 1 ? 'They are' : 'It is'} removed from storage for good, with {confirmingDelete && confirmingDelete.length > 1 ? 'their' : 'its'} previews. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => confirmingDelete && deleteNow(confirmingDelete)}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmingAlbumDelete} onOpenChange={setConfirmingAlbumDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this album?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {album?.name} will be removed. Its uploaded files stay in your storage and can be filed into another album.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                removeAlbum.mutate(id, {
+                  onSuccess: () => router.replace(album?.workspace_id ? `/workspaces/${album.workspace_id}` : '/albums'),
+                  onError: (error: Error) => toast.error('Could not delete the album', { description: problem(error) }),
+                })
+              }
+            >
+              Delete album
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return <div><dt className="text-[10px] uppercase tracking-[0.16em] text-white/35">{label}</dt><dd className="mt-1 font-mono text-xl tabular-nums text-white/86">{value}</dd></div>;
-}
-
-function MediaRoom({ room, files, loading, failed, onRetry, onOpen, hasMore, loadingMore, onLoadMore, onUpload }: {
-  room: 'image' | 'video'; files: StoredFile[]; loading: boolean; failed: boolean; onRetry: () => void; onOpen: (index: number) => void; hasMore: boolean; loadingMore: boolean; onLoadMore: () => void; onUpload: () => void;
-}) {
-  if (loading && files.length === 0) return <GallerySkeleton room={room} />;
-  if (failed && files.length === 0) return <RoomState Icon={room === 'image' ? ImageSquare : FilmSlate} title="This room could not be loaded" description="Your media is still safe. Check the connection and try again." action={<Button variant="outline" onClick={onRetry}>Try again</Button>} />;
-  if (files.length === 0) return <RoomState Icon={room === 'image' ? ImageSquare : FilmSlate} title={room === 'image' ? 'The contact sheet is empty' : 'No films have been added'} description={room === 'image' ? 'Upload photographs to begin arranging this album.' : 'Upload a video and Virgo will prepare its poster and playback details.'} action={<Button onClick={onUpload} className="rounded-full"><UploadSimple size={16} weight="light" />Choose files</Button>} />;
-
-  return <>
-    {room === 'image' ? <div className="columns-2 gap-2.5 sm:columns-3 lg:columns-4 xl:columns-5">{files.map((file, index) => <button key={file.key} onClick={() => onOpen(index)} className="group relative mb-2.5 block w-full break-inside-avoid overflow-hidden rounded-[1rem] bg-[#e8ded6] bg-cover bg-center text-left dark:bg-white/[0.05]" style={{ aspectRatio: file.width && file.height ? `${file.width}/${file.height}` : '1/1', backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined }}>{ }<img src={file.thumbnailUrl ?? file.url ?? ''} alt={file.originalName} loading="lazy" className="size-full object-cover transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.025]" /><span className="absolute inset-x-0 bottom-0 translate-y-2 bg-gradient-to-t from-[#141210]/80 to-transparent px-3 pb-3 pt-10 text-xs font-medium text-white opacity-0 transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:translate-y-0 group-hover:opacity-100">{file.originalName}</span>{file.processingStatus === 'pending' && <span className="absolute left-2 top-2 rounded-full bg-[#211d1a]/82 px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-white/70 backdrop-blur-md">Indexing</span>}</button>)}</div> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.25fr_0.75fr]">{files.map((file, index) => <button key={file.key} onClick={() => onOpen(index)} className={`group relative overflow-hidden rounded-[1.5rem] bg-[#201c19] text-left ${index % 5 === 0 ? 'md:row-span-2' : ''}`}><div className="aspect-video size-full min-h-52 bg-cover bg-center" style={{ backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined }}>{file.posterUrl ? <>{ }<img src={file.posterUrl} alt={`Poster for ${file.originalName}`} loading="lazy" className="size-full object-cover transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.025]" /></> :<div className="grid size-full place-items-center bg-[radial-gradient(circle_at_35%_20%,rgba(193,119,69,.2),transparent_42%),#211d1a]"><FilmSlate size={34} weight="light" className="text-white/25" /></div>}</div><span className="absolute inset-0 bg-gradient-to-t from-[#141210]/90 via-transparent to-transparent" /><span className="absolute bottom-0 left-0 right-0 flex items-end gap-3 p-4"><span className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-[#211d1a] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105"><Play size={15} weight="fill" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-white">{file.originalName}</span><span className="mt-1 block font-mono text-[10px] text-white/45">{file.durationMs ? durationLabel(file.durationMs) : file.processingStatus === 'pending' ? 'Preparing poster' : formatBytes(file.sizeBytes)}</span></span></span></button>)}</div>}
-    {hasMore && <div className="mt-10 text-center"><Button variant="outline" disabled={loadingMore} onClick={onLoadMore} className="rounded-full">{loadingMore ? 'Loading…' : `Load more ${room === 'image' ? 'photos' : 'films'}`}</Button></div>}
-  </>;
-}
-
-function RoomState({ Icon, title, description, action }: { Icon: typeof ImageSquare; title: string; description: string; action: React.ReactNode }) {
-  return <div className="py-24 text-center"><span className="mx-auto grid size-16 place-items-center rounded-[1.4rem] bg-[#e9dfd7] text-[#8b7669] dark:bg-white/[0.06] dark:text-white/35"><Icon size={28} weight="light" /></span><h2 className="mt-6 text-xl font-semibold tracking-[-0.025em]">{title}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">{description}</p><div className="mt-6">{action}</div></div>;
-}
-
-function GallerySkeleton({ room }: { room: 'image' | 'video' }) {
-  return <div aria-label={`Loading ${room === 'image' ? 'photos' : 'films'}`} className={room === 'image' ? 'columns-2 gap-2.5 sm:columns-3 lg:columns-4 xl:columns-5' : 'grid gap-4 md:grid-cols-2'}>{Array.from({ length: 8 }).map((_, index) => <div key={index} className={`mb-2.5 animate-pulse break-inside-avoid rounded-[1.2rem] bg-[#e9dfd7]/80 dark:bg-white/[0.05] ${room === 'image' ? (index % 3 === 0 ? 'aspect-[4/5]' : index % 3 === 1 ? 'aspect-[3/2]' : 'aspect-square') : 'aspect-video'}`} />)}</div>;
-}
-
-function durationLabel(durationMs: number) {
-  const total = Math.floor(durationMs / 1000);
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+function EmptyState({ albumEmpty, section, kind }: { albumEmpty: boolean; section: SectionFilter; kind: KindFilter }) {
+  if (albumEmpty) {
+    return (
+      <div className="rounded-xl border border-dashed px-6 py-20 text-center">
+        <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-muted text-muted-foreground">
+          <Upload className="size-6" aria-hidden />
+        </span>
+        <h2 className="mt-5 text-lg font-semibold tracking-tight">Nothing here yet</h2>
+        <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
+          Drop the shoot’s folder anywhere on this page. It sorts itself by the day each frame was taken.
+        </p>
+        <div className="mt-6 flex justify-center gap-2">
+          <Button onClick={() => openFolderPicker()}>
+            <FolderUp className="size-4" />
+            Choose a folder
+          </Button>
+          <Button variant="outline" onClick={() => openFilePicker()}>
+            Choose files
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  const message =
+    section === 'picked'
+      ? 'Nothing picked yet. When your client chooses from the delivery link, their picks appear here.'
+      : section !== 'all'
+        ? 'Nothing here yet. Select files under All media and choose Move to — or drag them onto the section.'
+        : `No ${KINDS.find((k) => k.key === kind)?.label.toLowerCase() ?? 'files'} in this album.`;
+  return <p className="rounded-xl border border-dashed px-6 py-16 text-center text-sm text-muted-foreground">{message}</p>;
 }

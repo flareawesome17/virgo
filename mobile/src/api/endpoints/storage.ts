@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { api } from '../client';
+import { API_BASE_URL } from '../config';
 import { ApiError } from '../errors';
 
 export type UploadScope = 'albums' | 'avatars' | 'workspaces' | 'misc';
@@ -66,8 +67,22 @@ export interface StoredFile {
   mediaTitle: string | null;
   mediaArtist: string | null;
   processingStatus: 'pending' | 'ready' | 'failed' | 'not_required';
+  /**
+   * When it was taken, as the camera's wall clock — `2026-03-14T16:42:05`,
+   * no zone. Group by its date exactly as written; do not parse it into a
+   * Date and back, which moves late-night frames to the next day for anyone
+   * outside the zone it was shot in. Null means unknown: use `createdAt`.
+   */
+  takenAt: string | null;
+  /** The album section it is filed under, or null for unsorted. */
+  sectionId: string | null;
+  /** The client picked it from the delivery link. */
+  picked: boolean;
   capabilities: { download: boolean; delete: boolean; manage: boolean };
 }
+
+/** Which end of an album a listing starts from, by capture time. */
+export type FileOrder = 'newest' | 'oldest';
 
 export type StoredMediaKind = 'image' | 'video' | 'audio' | 'other';
 
@@ -166,6 +181,12 @@ function storedFileFromUnknown(value: unknown): StoredFile | null {
     durationMs: typeof file.durationMs === 'number' ? file.durationMs : null,
     mediaTitle: typeof file.mediaTitle === 'string' ? file.mediaTitle : null,
     mediaArtist: typeof file.mediaArtist === 'string' ? file.mediaArtist : null,
+    takenAt: typeof file.takenAt === 'string'
+      && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(file.takenAt)
+      ? file.takenAt
+      : null,
+    sectionId: typeof file.sectionId === 'string' ? file.sectionId : null,
+    picked: file.picked === true,
     processingStatus: ['pending', 'ready', 'failed', 'not_required'].includes(String(file.processingStatus))
       ? file.processingStatus as StoredFile['processingStatus']
       : contentType && mediaKind(contentType) !== 'other' ? 'ready' : 'not_required',
@@ -285,13 +306,23 @@ export const storageApi = {
   },
 
   /** Objects the user has stored, optionally narrowed to one album. */
-  async listFiles(params: {
-    albumId?: string;
-    limit?: number;
-    cursor?: string;
-    kind?: StoredMediaKind;
-  } = {}): Promise<StoredFilesPage> {
-    const response = await api.get<unknown>('/storage/files', { query: params });
+  async listFiles(
+    params: {
+      albumId?: string;
+      limit?: number;
+      cursor?: string;
+      kind?: StoredMediaKind;
+      /** By capture time. Newest first when omitted. */
+      order?: FileOrder;
+      /** A section id, or 'none' for unsorted. Needs `albumId`. */
+      section?: string;
+      /** Only what the client picked. Needs `albumId`. */
+      picked?: boolean;
+    } = {},
+  ): Promise<StoredFilesPage> {
+    const response = await api.get<unknown>('/storage/files', {
+      query: { ...params, picked: params.picked ? 'true' : undefined },
+    });
     return normalizeStoredFilesResponse(response, params.kind);
   },
 
@@ -330,6 +361,27 @@ export const storageApi = {
 
   remove(key: string): Promise<void> {
     return api.post<void>('/storage/delete', { body: { key } });
+  },
+
+  /**
+   * Deletes a selection in one request. All-or-nothing on permission: if any
+   * file may not be deleted by this account, nothing is.
+   */
+  removeMany(keys: string[]): Promise<{ deleted: number; failed: number }> {
+    return api.post('/storage/delete-many', { body: { keys } });
+  },
+
+  /**
+   * A short-lived URL that downloads the selection as one zip.
+   *
+   * Open it by navigation, not fetch: the point is that the browser's own
+   * download manager takes the stream, however large, instead of memory.
+   */
+  async zipUrl(albumId: string, keys: string[]): Promise<string> {
+    const { path } = await api.post<{ path: string }>('/storage/zip', {
+      body: { albumId, keys },
+    });
+    return `${API_BASE_URL}${path}`;
   },
 
   /**

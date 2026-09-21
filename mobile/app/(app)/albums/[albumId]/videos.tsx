@@ -484,14 +484,39 @@ function VideoPlayer({
 }
 
 export default function VideosScreen() {
-  const { albumId } = useLocalSearchParams<{ albumId: string }>();
+  const params = useLocalSearchParams<{
+    albumId: string;
+    /** A film to open straight away — the one tapped in the album grid. */
+    key?: string;
+    section?: string;
+    order?: string;
+    picked?: string;
+  }>();
+  const { albumId } = params;
   const { width } = useWindowDimensions();
   const [selected, setSelected] = useState<StoredFile | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [density, setDensity] = useState(DEFAULT_DENSITY);
   const { data: album, refetch: refetchAlbum } = useAlbum(albumId);
-  const filesQuery = useAlbumFiles(albumId);
+  // Films only, filtered by the server. Taken from the whole mixed album
+  // before, the Films room of a wedding stayed empty until enough pages of
+  // photographs had loaded to reach the first film.
+  const filesQuery = useAlbumFiles(albumId, {
+    kind: 'video',
+    section: params.section || undefined,
+    order: params.order === 'oldest' ? 'oldest' : undefined,
+    picked: params.picked === '1' ? true : undefined,
+  });
   const files = filesQuery.videos;
+
+  const openedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!params.key || openedKey.current === params.key) return;
+    const film = files.find((file) => file.key === params.key);
+    if (!film) return;
+    openedKey.current = params.key;
+    setSelected(film);
+  }, [files, params.key]);
 
   const columns = DENSITIES[density];
   const tile = (width - HAIRLINE * (columns - 1)) / columns;
@@ -532,6 +557,8 @@ export default function VideosScreen() {
             onPress={() => setSelected(file)}
             style={{ width: tile, height: tile }}
             className="bg-white/[0.04] active:opacity-75"
+            accessibilityRole="button"
+            accessibilityLabel={`Play ${file.originalName}`}
           >
             {file.posterUrl ? (
               <Image

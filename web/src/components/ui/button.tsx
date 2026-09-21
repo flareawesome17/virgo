@@ -9,7 +9,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        // `action`, not `primary`: the phone app's filled buttons have always
+        // used it, and in dark mode `primary` is the lighter tint meant for
+        // text and icons on dark surfaces.
+        default: "bg-action text-action-foreground hover:bg-action/85",
         outline:
           "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:

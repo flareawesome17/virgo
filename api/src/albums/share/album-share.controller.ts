@@ -1,4 +1,3 @@
-import { ZipArchive } from 'archiver';
 import {
   Body,
   Controller,
@@ -14,7 +13,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../auth/current-user.decorator';
@@ -23,10 +22,12 @@ import {
   ArrayMaxSize,
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -37,7 +38,7 @@ import {
   type MediaKind,
   safeFileStem,
 } from './album-share.service';
-import { contentDisposition } from '../../storage/storage.service';
+import { streamZip } from '../../storage/zip';
 import { VisitsService } from '../../visits/visits.service';
 import {
   renderClientGallery,
@@ -73,6 +74,27 @@ export class PublicGalleryQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  /** One chapter: a section id. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  section?: string;
+
+  /** `true` for only the client's picks. */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  picked?: boolean;
+}
+
+export class SetPickDto {
+  /** The file's id from the page — never its object key, which names the owner. */
+  @IsUUID()
+  id!: string;
+
+  @IsBoolean()
+  picked!: boolean;
 }
 
 /** Owner-facing: create, read and revoke an album's client link. */
@@ -212,45 +234,61 @@ export class PublicAlbumController {
       return;
     }
 
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader(
-      'Content-Disposition',
-      contentDisposition(`${safeFileStem(albumName)}.zip`),
+    await streamZip(
+      res,
+      `${safeFileStem(albumName)}.zip`,
+      files,
+      (key) => this.share.streamFor(key),
+      this.logger,
     );
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  }
 
-    // archiver v8 dropped the callable default in favour of the classes.
-    // `store` skips deflate: JPEG, H.264 and AAC are already compressed, so
-    // it would burn CPU per byte to save approximately none.
-    const archive = new ZipArchive({ store: true });
+  /**
+   * Only what the client picked, as one zip — the whole album is often tens
+   * of gigabytes on mobile data, and the picks are the part they came for.
+   */
+  @Public()
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  @Get(':token/picks.zip')
+  async downloadPicks(@Param('token') token: string, @Res() res: Response) {
+    const { albumName, files } = await this.share.picksForDownload(token);
 
-    // A failure mid-stream cannot become a 500: headers are long gone and the
-    // client is already receiving zip bytes. Destroying the socket is what
-    // makes their download fail visibly as a truncated file rather than
-    // completing as a silently incomplete one.
-    archive.on('error', (err: Error) => {
-      this.logger.error(`Zip failed for album "${albumName}": ${err.message}`);
-      res.destroy(err);
-    });
-    // A client who cancels mid-download leaves us pulling the rest of the
-    // album from B2 for nobody.
-    res.on('close', () => {
-      if (!res.writableEnded) archive.abort();
-    });
-
-    archive.pipe(res);
-
-    for (const file of files) {
-      try {
-        archive.append(await this.share.streamFor(file.key), { name: file.name });
-      } catch (err) {
-        // One unreadable object should not cost the client the other 199.
-        this.logger.warn(`Skipped ${file.key} in zip: ${String(err)}`);
-      }
+    if (files.length === 0) {
+      res.status(404).json({ message: 'Nothing picked yet' });
+      return;
     }
 
-    await archive.finalize();
+    await streamZip(
+      res,
+      `${safeFileStem(albumName)}.zip`,
+      files,
+      (key) => this.share.streamFor(key),
+      this.logger,
+    );
+  }
+
+  /**
+   * Marks or unmarks one file. Generous, because it is a tap per photograph
+   * and somebody working through a wedding taps quickly.
+   */
+  @Public()
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post(':token/picks')
+  setPick(@Param('token') token: string, @Body() dto: SetPickDto) {
+    return this.share.setPick(token, dto.id, dto.picked);
+  }
+
+  /**
+   * Tells the photographer the selection is done. Tight: it sends a
+   * notification, and a button held down should not send twenty.
+   */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 600_000 } })
+  @HttpCode(200)
+  @Post(':token/picks/send')
+  sendPicks(@Param('token') token: string) {
+    return this.share.sendPicks(token);
   }
 
   /** JSON form of the same view, for anything that wants to render its own UI. */

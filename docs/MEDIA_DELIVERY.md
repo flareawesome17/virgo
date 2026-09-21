@@ -693,7 +693,7 @@ had more than anyone would like.
 | Path | Cleanup |
 |---|---|
 | `deleteObject` | `removeFor([key])` |
-| `deleteKeys` | `removeFor(keys)` — from what was asked for, not what came back deleted |
+| `deleteMany` | `removeFor(known)` — every requested key with a row, not only what came back deleted |
 | `wipeAll` | `removeTree('users/<id>')` — one call, and it collects orphans too |
 
 ### Still outstanding

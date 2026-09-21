@@ -1,7 +1,9 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -56,6 +58,23 @@ export class ConfirmUploadDto extends ObjectKeyDto {
   originalName?: string;
 }
 
+/** Several objects at once — deleting a selection. */
+export class ObjectKeysDto {
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  @MaxLength(1024, { each: true })
+  keys!: string[];
+}
+
+/** A selection from one album, to download as a zip. */
+export class ZipSelectionDto extends ObjectKeysDto {
+  @IsString()
+  @MaxLength(64)
+  albumId!: string;
+}
+
 export class AttachToAlbumDto {
   @IsArray()
   @ArrayMaxSize(500)
@@ -86,6 +105,23 @@ export class ListFilesDto {
   @IsOptional()
   @IsIn(['image', 'video', 'audio', 'other'])
   kind?: 'image' | 'video' | 'audio' | 'other';
+
+  /** By capture time. Newest first when omitted, which is what it always was. */
+  @IsOptional()
+  @IsIn(['newest', 'oldest'])
+  order?: 'newest' | 'oldest';
+
+  /** A section id, or `none` for files in no section. Needs `albumId`. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  section?: string;
+
+  /** `true` for only what the client picked. Needs `albumId`. */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  picked?: boolean;
 
   @IsOptional()
   @IsString()

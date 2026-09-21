@@ -1,97 +1,24 @@
 import { vars } from "nativewind";
+import { CHART_TAIL, PALETTES, RADIUS, type Palette } from "./theme.tokens";
 
 /**
  * The palettes, as plain hex.
  *
- * These are the source: the CSS variables below are generated from them, so a
- * screen that needs a literal colour — the appearance preview, chart series,
- * anything drawing outside NativeWind's reach — cannot drift from what the app
- * actually renders.
+ * Generated from design/tokens.json into theme.tokens.ts — edit the palette
+ * there, never here. Re-exported so a screen that needs a literal colour (the
+ * appearance preview, chart series, anything drawing outside NativeWind's
+ * reach) cannot drift from what the app actually renders.
  */
-export interface Palette {
-  background: string;
-  foreground: string;
-  card: string;
-  cardForeground: string;
-  popover: string;
-  popoverForeground: string;
-  primary: string;
-  primaryForeground: string;
-  action: string;
-  actionForeground: string;
-  secondary: string;
-  secondaryForeground: string;
-  muted: string;
-  mutedForeground: string;
-  accent: string;
-  accentForeground: string;
-  destructive: string;
-  border: string;
-  input: string;
-  ring: string;
-}
-
-export const PALETTES: { light: Palette; dark: Palette } = {
-  light: {
-    background: "#FFF8F4",
-    foreground: "#1E1B18",
-    card: "#FFFFFF",
-    cardForeground: "#1E1B18",
-    popover: "#FFFFFF",
-    popoverForeground: "#1E1B18",
-    primary: "#A85D35",
-    primaryForeground: "#FFFFFF",
-    action: "#A85D35",
-    actionForeground: "#FFFFFF",
-    secondary: "#FAF2EC",
-    secondaryForeground: "#54433C",
-    muted: "#F5EEE8",
-    mutedForeground: "#7E6A60",
-    accent: "#C17745",
-    accentForeground: "#FFFFFF",
-    destructive: "#B44632",
-    border: "#D9C2B7",
-    input: "#D9C2B7",
-    ring: "#B66A40",
-  },
-  dark: {
-    background: "#161311",
-    foreground: "#F2EDE8",
-    card: "#1E1B18",
-    cardForeground: "#F2EDE8",
-    popover: "#1E1B18",
-    popoverForeground: "#F2EDE8",
-    primary: "#D18A5A",
-    primaryForeground: "#161311",
-    action: "#A85D35",
-    actionForeground: "#FFFFFF",
-    secondary: "#26221F",
-    secondaryForeground: "#BCADA3",
-    muted: "#2A2522",
-    mutedForeground: "#948278",
-    accent: "#B66A40",
-    accentForeground: "#FFFFFF",
-    destructive: "#C8503C",
-    border: "#362F2B",
-    input: "#362F2B",
-    ring: "#C17745",
-  },
-};
-
-/**
- * Chart series past the first two, which are the palette's own primary and
- * accent — so a chart leads with the colour the rest of that mode is built on.
- */
-const CHARTS_TAIL = ["#8B5E3C", "#6B8E4E", "#5B7B9A"];
+export { PALETTES, type Palette };
 
 /**
  * The same series, named, for screens that draw outside NativeWind's reach —
  * an SVG stroke or a tile's accent takes a colour, not a class.
  */
 export const CHART_COLORS = {
-  brown: CHARTS_TAIL[0],
-  green: CHARTS_TAIL[1],
-  blue: CHARTS_TAIL[2],
+  brown: CHART_TAIL[0],
+  green: CHART_TAIL[1],
+  blue: CHART_TAIL[2],
 } as const;
 
 /** NativeWind wants space-separated channels, not hex. */
@@ -102,7 +29,7 @@ function channels(hex: string): string {
 
 function cssVars(palette: Palette) {
   return {
-    "--radius": "14",
+    "--radius": String(RADIUS),
     "--background": channels(palette.background),
     "--foreground": channels(palette.foreground),
     "--card": channels(palette.card),
@@ -120,13 +47,17 @@ function cssVars(palette: Palette) {
     "--accent": channels(palette.accent),
     "--accent-foreground": channels(palette.accentForeground),
     "--destructive": channels(palette.destructive),
+    "--destructive-foreground": channels(palette.destructiveForeground),
+    "--success": channels(palette.success),
+    "--warning": channels(palette.warning),
+    "--info": channels(palette.info),
     "--border": channels(palette.border),
     "--input": channels(palette.input),
     "--ring": channels(palette.ring),
     "--chart-1": channels(palette.primary),
     "--chart-2": channels(palette.accent),
     ...Object.fromEntries(
-      CHARTS_TAIL.map((hex, i) => [`--chart-${i + 3}`, channels(hex)]),
+      CHART_TAIL.map((hex, i) => [`--chart-${i + 3}`, channels(hex)]),
     ),
   };
 }

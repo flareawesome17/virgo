@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
 import { DatabaseService } from '../database/database.service';
 import { blurDataUrl } from './blur';
+import { takenAtFromExif, takenAtFromHead } from './capture-time';
 import {
   DISPLAY_WIDTHS,
   MediaLinkService,
@@ -27,6 +28,15 @@ const THUMB_EDGE = 640;
  * container down with it.
  */
 const MAX_SOURCE_BYTES = 40 * 1024 * 1024;
+
+/**
+ * How much of an oversized original to read for its capture date.
+ *
+ * A JPEG's EXIF is in the first segments of the file and a TIFF's is linked
+ * from its first directory; a quarter of a megabyte clears both with room to
+ * spare, where the whole file is what MAX_SOURCE_BYTES exists to refuse.
+ */
+const EXIF_HEAD_BYTES = 256 * 1024;
 
 /** WebP everywhere: ~30% smaller than JPEG at the same quality, and universal. */
 const THUMB_CONTENT_TYPE = 'image/webp';
@@ -88,12 +98,19 @@ export class ThumbnailsService {
   ): Promise<string | null> {
     if (!contentType?.startsWith('image/')) return null;
     if (sizeBytes > MAX_SOURCE_BYTES) {
+      // Too big to decode, but not too big to date: the grid still needs to
+      // know which day it belongs under.
+      const takenAt = await this.storage
+        .readHead(key, EXIF_HEAD_BYTES)
+        .then((head) => takenAtFromHead(head))
+        .catch(() => null);
       await this.db.query(
         `update user_files
             set processing_status = 'ready', next_processing_at = null,
+                taken_at = coalesce($2::timestamp, taken_at),
                 processed_at = now()
           where key = $1`,
-        [key],
+        [key, takenAt],
       );
       return null;
     }
@@ -104,6 +121,9 @@ export class ThumbnailsService {
       const rotated = (metadata.orientation ?? 1) >= 5;
       const width = rotated ? metadata.height : metadata.width;
       const height = rotated ? metadata.width : metadata.height;
+      // sharp reports EXIF for most formats; a TIFF keeps it in its own
+      // directories instead, which the header reader covers.
+      const takenAt = takenAtFromExif(metadata.exif) ?? takenAtFromHead(source);
       let thumbKey: string | null = null;
 
       // An animated GIF thumbnail would silently turn motion into a still.
@@ -141,11 +161,12 @@ export class ThumbnailsService {
                 height_px = $4,
                 display_widths = $5,
                 blur_data_url = coalesce($6, blur_data_url),
+                taken_at = coalesce($7::timestamp, taken_at),
                 processing_status = 'ready',
                 next_processing_at = null,
                 processed_at = now()
           where key = $1`,
-        [key, thumbKey, width ?? null, height ?? null, displayWidths, blur],
+        [key, thumbKey, width ?? null, height ?? null, displayWidths, blur, takenAt],
       );
       return thumbKey;
     } catch (err) {

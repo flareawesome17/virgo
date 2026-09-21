@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { AuthGuard } from '@/components/auth-guard';
 import { VisitBeacon } from '@/components/visit-beacon';
+import { UploadProvider } from '@/components/upload/upload-provider';
 
 /**
  * Everything behind the sign-in wall.
@@ -16,7 +17,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       {/* Inside the guard, so a signed-out visitor bouncing off a deep link
           does not register as having used the screen they never saw. */}
       <VisitBeacon />
-      {children}
+      {/* Above every page, so an upload outlives the page it started on. */}
+      <UploadProvider>{children}</UploadProvider>
     </AuthGuard>
   );
 }

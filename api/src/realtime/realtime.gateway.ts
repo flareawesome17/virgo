@@ -37,6 +37,8 @@ export type NotificationTopic =
   | 'billing'
   /** Delivered files removed by an album's retention setting. */
   | 'retention'
+  /** A client finished choosing from a delivery and sent their picks. */
+  | 'client-picks'
   /** Support answered a ticket this account opened. */
   | 'support'
   /** A booking was created, changed, agreed or cancelled. */

@@ -273,6 +273,8 @@ export default function UploadScreen() {
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
           <Pressable
             onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
             className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
           >
@@ -319,6 +321,9 @@ export default function UploadScreen() {
             </Text>
             <Pressable
               onPress={() => setShowAlbumPicker((v) => !v)}
+              accessibilityRole="button"
+              accessibilityHint="Choose which album the files go into"
+              accessibilityState={{ expanded: showAlbumPicker, disabled: isUploading }}
               disabled={isUploading}
               className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:scale-[0.98]"
               style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
@@ -339,6 +344,7 @@ export default function UploadScreen() {
                 ) : albums.length === 0 ? (
                   <Pressable
                     onPress={() => { setShowAlbumPicker(false); router.push('/albums/create'); }}
+                    accessibilityRole="button"
                     className="px-4 py-3.5 active:bg-muted/30 flex-row items-center gap-2"
                   >
                     <PlusIcon size={14} className="text-primary" />
@@ -349,6 +355,8 @@ export default function UploadScreen() {
                     <Pressable
                       key={a.id}
                       onPress={() => { setPickedAlbumId(a.id); setShowAlbumPicker(false); }}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: pickedAlbumId === a.id }}
                       className="px-4 py-3 active:bg-muted/30 flex-row items-center gap-3"
                       style={i < albums.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
                     >
@@ -405,6 +413,7 @@ export default function UploadScreen() {
               {kind !== 'audio' && (
                 <Pressable
                   onPress={pickMedia}
+                  accessibilityRole="button"
                   className="bg-action rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.96]"
                   style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}
                 >
@@ -415,6 +424,7 @@ export default function UploadScreen() {
               {kind !== 'media' && (
                 <Pressable
                   onPress={pickAudio}
+                  accessibilityRole="button"
                   className={`rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.96] ${kind === 'audio' ? 'bg-action' : 'bg-card'}`}
                   style={kind === 'audio'
                     ? { shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }
@@ -464,6 +474,9 @@ export default function UploadScreen() {
                     ) : (
                       <Pressable
                         onPress={() => removeItem(item.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${item.name}`}
+                        hitSlop={8}
                         className="w-7 h-7 rounded-full bg-muted items-center justify-center active:scale-[0.9]"
                       >
                         <XIcon size={13} className="text-muted-foreground" />
@@ -484,6 +497,7 @@ export default function UploadScreen() {
               {kind !== 'audio' && (
                 <Pressable
                   onPress={pickMedia}
+                  accessibilityRole="button"
                   disabled={isUploading}
                   className="flex-1 rounded-2xl py-3 items-center active:scale-[0.98]"
                   style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: '#D9C2B7' }}
@@ -494,6 +508,7 @@ export default function UploadScreen() {
               {kind !== 'media' && (
                 <Pressable
                   onPress={pickAudio}
+                  accessibilityRole="button"
                   disabled={isUploading}
                   className="flex-1 rounded-2xl py-3 items-center active:scale-[0.98]"
                   style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: '#D9C2B7' }}
@@ -514,6 +529,8 @@ export default function UploadScreen() {
           <Pressable
             onPress={() => router.back()}
             disabled={isUploading}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isUploading }}
             className="flex-1 rounded-2xl py-3.5 items-center bg-card active:scale-[0.97]"
           >
             <Text className="text-foreground text-base font-bold">
@@ -523,6 +540,8 @@ export default function UploadScreen() {
           <Pressable
             onPress={startUpload}
             disabled={!canUpload}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canUpload }}
             className={`flex-[2] rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97] ${canUpload ? 'bg-action' : 'bg-muted'}`}
           >
             {isUploading && <ActivityIndicator size="small" color="#FFFFFF" />}

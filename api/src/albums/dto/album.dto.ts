@@ -7,6 +7,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { ListQueryDto } from '../../common/dto/list-query.dto';
 
@@ -74,6 +75,16 @@ export class UpdateAlbumDto {
   @MaxLength(2048)
   cover_url?: string;
 
+  /**
+   * A photograph already in the album, by key, or null to go back to the
+   * newest image. Checked against the album on the server.
+   */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(1024)
+  cover_key?: string | null;
+
   @IsOptional()
   @IsInt()
   @Min(0)
@@ -94,6 +105,12 @@ export class ListAlbumsDto extends ListQueryDto {
   @IsString()
   @MaxLength(64)
   workspace_id?: string;
+
+  /** Matches the album's name, description, or its workspace's name. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
 
   @IsOptional()
   @IsIn(STATUSES)

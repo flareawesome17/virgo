@@ -7,6 +7,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DatabaseService } from '../database/database.service';
 import { blurDataUrl } from './blur';
+import { takenAtFromVideoTags } from './capture-time';
 import { MediaLinkService, proxyKeyFor } from './media-link.service';
 import { StorageService } from './storage.service';
 
@@ -160,7 +161,11 @@ export class MediaProcessingService {
           '-v',
           'error',
           '-show_entries',
-          'stream=codec_type,width,height,duration:stream_tags=title,artist:stream_side_data=rotation:format=duration:format_tags=title,artist',
+          // Every format tag rather than a list: the capture date lives under
+          // a different name per recorder (`creation_time`, Apple's
+          // `com.apple.quicktime.creationdate`), and naming a dotted key in
+          // -show_entries is a parsing gamble not worth taking for a few bytes.
+          'stream=codec_type,width,height,duration:stream_tags=title,artist:stream_side_data=rotation:format=duration:format_tags',
           '-of',
           'json',
           sourceUrl,
@@ -177,6 +182,9 @@ export class MediaProcessingService {
         video?.duration ?? audio?.duration ?? probe.format?.duration ?? '0';
       const durationMs = Math.max(0, Math.round(Number(rawDuration) * 1000)) || null;
       const tags = { ...probe.format?.tags, ...audio?.tags };
+      // A film is dated from its container; a sound file's tags hold a year
+      // at best, so audio keeps sorting by when it arrived.
+      const takenAt = video ? takenAtFromVideoTags(probe.format?.tags) : null;
 
       let posterKey: string | null = null;
       let posterBlur: string | null = null;
@@ -198,6 +206,7 @@ export class MediaProcessingService {
                 media_title = $7,
                 media_artist = $8,
                 blur_data_url = coalesce($9, blur_data_url),
+                taken_at = coalesce($10::timestamp, taken_at),
                 processing_status = 'ready',
                 next_processing_at = null,
                 processed_at = now()
@@ -212,6 +221,7 @@ export class MediaProcessingService {
           cleanTag(tags.title),
           cleanTag(tags.artist),
           posterBlur,
+          takenAt,
         ],
       );
     } catch (error) {
