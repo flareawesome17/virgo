@@ -45,6 +45,22 @@ export function notificationPermission(): NotificationPermission | 'unsupported'
   return Notification.permission;
 }
 
+const permissionListeners = new Set<() => void>();
+
+/**
+ * Subscribes to `notificationPermission()`, for useSyncExternalStore.
+ *
+ * Announces the answer to `requestNotificationPermission`. A change made in
+ * the browser's own site settings is not announced; it shows the next time
+ * the page renders.
+ */
+export function subscribeToNotificationPermission(onChange: () => void): () => void {
+  permissionListeners.add(onChange);
+  return () => {
+    permissionListeners.delete(onChange);
+  };
+}
+
 /**
  * Asks for notification permission.
  *
@@ -59,6 +75,8 @@ export async function requestNotificationPermission(): Promise<boolean> {
     return (await Notification.requestPermission()) === 'granted';
   } catch {
     return false;
+  } finally {
+    for (const listener of permissionListeners) listener();
   }
 }
 

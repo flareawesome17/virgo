@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import {
@@ -46,7 +46,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
-import { playAlert, setSoundEnabled, soundEnabled } from '@/lib/sounds';
+import {
+  playAlert,
+  setSoundEnabled,
+  soundEnabled,
+  subscribeToSoundEnabled,
+} from '@/lib/sounds';
 import { useAuth } from '@/hooks/useAuth';
 import { useUsage } from '@/hooks/useUsage';
 import { useLocationSharing, useShareLocation, useStopSharingLocation } from '@/hooks/useNearby';
@@ -54,7 +59,9 @@ import { useWipeStorage } from '@/hooks/useStorageAdmin';
 import {
   notificationPermission,
   requestNotificationPermission,
+  subscribeToNotificationPermission,
 } from '@/lib/alerts';
+import { useHydrated } from '@/lib/hydration';
 import { formatBytes } from '@/api';
 
 const THEME_OPTIONS = [
@@ -68,6 +75,14 @@ const CONFIRM_WORD = 'DELETE';
 
 /** Offered pause lengths. A free-text field invites typos on a one-way door. */
 const PAUSE_OPTIONS = [7, 14, 30, 90] as const;
+
+/*
+ * What the server render and the hydrating render show for the two settings
+ * only the browser knows. Neither Notification nor localStorage exists on the
+ * server, so the real values arrive in the render straight after hydration.
+ */
+const permissionOnServer = () => 'default' as const;
+const soundOnServer = () => true;
 
 function SettingRow({
   icon: Icon,
@@ -105,8 +120,12 @@ export default function SettingsPage() {
   const stopSharing = useStopSharingLocation();
   const wipe = useWipeStorage();
 
-  const [mounted, setMounted] = useState(false);
-  const [permission, setPermission] = useState<string>('default');
+  const hydrated = useHydrated();
+  const permission = useSyncExternalStore(
+    subscribeToNotificationPermission,
+    notificationPermission,
+    permissionOnServer,
+  );
   const [confirmingWipe, setConfirmingWipe] = useState(false);
   const [confirmText, setConfirmText] = useState('');
 
@@ -115,6 +134,12 @@ export default function SettingsPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [pauseDays, setPauseDays] = useState<number>(30);
+  /**
+   * When the pause dialog opened, which "comes back on" counts from. Taken in
+   * the click: Date.now() during render would give a different answer on
+   * every render.
+   */
+  const [pauseFrom, setPauseFrom] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState('');
 
   const dismissClosing = () => {
@@ -124,15 +149,10 @@ export default function SettingsPage() {
     setDeleteConfirm('');
   };
 
-  // Read in an effect, not in useState: localStorage does not exist during
-  // the server render, and reading it inline would mismatch on hydration.
-  const [sound, setSound] = useState(true);
-
-  useEffect(() => {
-    setMounted(true);
-    setPermission(notificationPermission());
-    setSound(soundEnabled());
-  }, []);
+  // Through useSyncExternalStore rather than useState: localStorage does not
+  // exist during the server render, and reading it inline would mismatch on
+  // hydration.
+  const sound = useSyncExternalStore(subscribeToSoundEnabled, soundEnabled, soundOnServer);
 
   const discoverable = profile?.discoverable ?? true;
 
@@ -158,7 +178,7 @@ export default function SettingsPage() {
               <div className="mt-3 grid grid-cols-3 gap-2">
                 {THEME_OPTIONS.map((option) => {
                   const Icon = option.icon;
-                  const active = mounted && theme === option.value;
+                  const active = hydrated && theme === option.value;
                   return (
                     <button
                       key={option.value}
@@ -292,8 +312,9 @@ export default function SettingsPage() {
                   variant="outline"
                   disabled={permission === 'denied' || permission === 'unsupported'}
                   onClick={async () => {
+                    // Nothing to store: asking announces the answer, and
+                    // `permission` above reads it.
                     const granted = await requestNotificationPermission();
-                    setPermission(notificationPermission());
                     if (!granted) {
                       toast.error('Not enabled', {
                         description: 'Your browser did not grant permission.',
@@ -323,7 +344,6 @@ export default function SettingsPage() {
               <Switch
                 checked={sound}
                 onCheckedChange={(next) => {
-                  setSound(next);
                   setSoundEnabled(next);
                   // Plays the sound being switched on, because the only way to
                   // judge a notification tone is to hear it. Nothing on switching
@@ -449,7 +469,14 @@ export default function SettingsPage() {
               title="Pause my account"
               detail="Sign out everywhere for a set number of days. Nothing is deleted, and it comes back on its own."
             >
-              <Button variant="outline" size="sm" onClick={() => setClosing('pause')}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setPauseFrom(Date.now());
+                  setClosing('pause');
+                }}
+              >
                 Pause
               </Button>
             </SettingRow>
@@ -507,7 +534,7 @@ export default function SettingsPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Comes back on{' '}
-                  {new Date(Date.now() + pauseDays * 86400000)
+                  {new Date(pauseFrom + pauseDays * 86400000)
                     .toISOString()
                     .slice(0, 10)}
                   .

@@ -41,12 +41,24 @@ let playing: HTMLAudioElement | null = null;
 const players = new Map<AlertSound, HTMLAudioElement>();
 
 /**
+ * The choice storage would not keep.
+ *
+ * Null while storage works, which is almost always. When a write is refused
+ * the choice is held here for the rest of the visit instead, so the switch
+ * goes on showing it and `playAlert` goes on obeying it.
+ */
+let unsaved: boolean | null = null;
+
+const listeners = new Set<() => void>();
+
+/**
  * Whether sounds are on. Defaults to on, and stored per browser rather than
  * on the account: whether this room wants noise is a property of where you
  * are sitting, not of who you are.
  */
 export function soundEnabled(): boolean {
   if (typeof window === 'undefined') return false;
+  if (unsaved !== null) return unsaved;
   try {
     return window.localStorage.getItem(STORAGE_KEY) !== 'off';
   } catch {
@@ -59,10 +71,24 @@ export function setSoundEnabled(on: boolean): void {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(STORAGE_KEY, on ? 'on' : 'off');
+    unsaved = null;
   } catch {
     // Not persisting a preference is survivable; failing to set it is not
     // worth an error in front of somebody who just flipped a switch.
+    unsaved = on;
   }
+  for (const listener of listeners) listener();
+}
+
+/**
+ * Subscribes to `soundEnabled()`, for useSyncExternalStore. Announces every
+ * change made through `setSoundEnabled`.
+ */
+export function subscribeToSoundEnabled(onChange: () => void): () => void {
+  listeners.add(onChange);
+  return () => {
+    listeners.delete(onChange);
+  };
 }
 
 function playerFor(sound: AlertSound): HTMLAudioElement | null {

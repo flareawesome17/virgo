@@ -14,14 +14,6 @@
       "count": 2
     }
   },
-  "src/app/(app)/settings/page-client.tsx": {
-    "react-hooks/purity": {
-      "count": 1
-    },
-    "react-hooks/set-state-in-effect": {
-      "count": 1
-    }
-  },
   "src/app/(app)/workspaces/page-client.tsx": {
     "react-hooks/set-state-in-effect": {
       "count": 1
