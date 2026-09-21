@@ -1,12 +1,2 @@
 {
-  "src/components/desktop-update-banner.tsx": {
-    "react-hooks/refs": {
-      "count": 1
-    }
-  },
-  "src/hooks/useChat.ts": {
-    "react-hooks/refs": {
-      "count": 7
-    }
-  }
 }
