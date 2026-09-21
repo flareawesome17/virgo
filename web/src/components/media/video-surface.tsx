@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { CaretDown, X } from '@phosphor-icons/react';
+import { ChevronDown, X } from 'lucide-react';
 import { VideoPlayer } from '@/components/media/video-player';
 import { useVideoPlayback } from '@/components/media/video-playback';
 
@@ -77,9 +77,8 @@ export function VideoSurface() {
           aria-label={full ? 'Minimise' : 'Expand'}
           className="grid size-9 shrink-0 place-items-center rounded-full bg-black/45 text-white/80 hover:text-white"
         >
-          <CaretDown
+          <ChevronDown
             size={18}
-            weight="regular"
             className={full ? '' : 'rotate-180'}
           />
         </button>
@@ -95,7 +94,7 @@ export function VideoSurface() {
           aria-label="Stop playing"
           className="grid size-9 shrink-0 place-items-center rounded-full bg-black/45 text-white/55 hover:text-white"
         >
-          <X size={16} weight="regular" />
+          <X size={16} />
         </button>
       </div>
     </div>

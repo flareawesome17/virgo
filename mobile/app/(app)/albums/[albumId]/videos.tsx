@@ -17,10 +17,11 @@ import {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import {
-  ArrowLeft,
-  FilmSlate,
-  UploadSimple,
-} from 'phosphor-react-native';
+  ArrowLeftIcon,
+  FilmIcon,
+  UploadIcon,
+} from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
 import { useAlbum, useAlbumFiles } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
 import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
@@ -33,6 +34,10 @@ import {
   toSections,
   type MediaRow,
 } from '@/src/lib/media-grid';
+
+for (const Icon of [ArrowLeftIcon, FilmIcon, UploadIcon]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 /** How far the skip buttons jump. Ten is the iOS figure and the muscle memory. */
 
@@ -98,10 +103,10 @@ export default function VideosScreen() {
               />
             ) : (
               <View className="flex-1 items-center justify-center">
-                <FilmSlate
+                <FilmIcon
                   size={24}
                   color="rgba(255,255,255,.22)"
-                  weight="light"
+                  strokeWidth={1.5}
                 />
               </View>
             )}
@@ -205,7 +210,7 @@ export default function VideosScreen() {
             hitSlop={8}
             className="w-10 h-10 rounded-full bg-black/40 items-center justify-center active:opacity-70"
           >
-            <ArrowLeft size={19} color="#fff" weight="regular" />
+            <ArrowLeftIcon size={19} color="#fff" />
           </Pressable>
           <View className="flex-1 min-w-0">
             <Text
@@ -228,7 +233,7 @@ export default function VideosScreen() {
 function Empty({ albumId }: { albumId: string }) {
   return (
     <View className="items-center px-8 pt-24">
-      <FilmSlate size={40} color="rgba(255,255,255,.22)" weight="light" />
+      <FilmIcon size={40} color="rgba(255,255,255,.22)" strokeWidth={1.5} />
       <Text className="text-white text-lg font-semibold mt-5">
         No films yet
       </Text>
@@ -241,7 +246,7 @@ function Empty({ albumId }: { albumId: string }) {
         }
         className="mt-7 bg-[#C17745] rounded-full px-6 py-3 flex-row items-center gap-2 active:opacity-85"
       >
-        <UploadSimple size={17} color="#fff" weight="regular" />
+        <UploadIcon size={17} color="#fff" />
         <Text className="text-white font-semibold">Upload video</Text>
       </Pressable>
     </View>

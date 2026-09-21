@@ -26,12 +26,13 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import {
-  DownloadSimple,
-  Info,
-  ShareNetwork,
-  Trash,
-  X,
-} from 'phosphor-react-native';
+  DownloadIcon,
+  InfoIcon,
+  Share2Icon,
+  Trash2Icon,
+  XIcon,
+} from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAlbumFiles } from '@/src/hooks';
 import {
@@ -40,6 +41,10 @@ import {
   storageApi,
   type StoredFile,
 } from '@/src/api';
+
+for (const Icon of [DownloadIcon, InfoIcon, Share2Icon, Trash2Icon, XIcon]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 const SPRING = { damping: 22, stiffness: 220 };
 const MAX_SCALE = 4;
@@ -448,7 +453,7 @@ export default function PhotoViewerScreen() {
               hitSlop={8}
               className="w-10 h-10 rounded-full bg-black/45 items-center justify-center active:opacity-70"
             >
-              <X size={19} color="#fff" weight="regular" />
+              <XIcon size={19} color="#fff" />
             </Pressable>
             <View className="flex-1 min-w-0">
               <Text
@@ -531,14 +536,14 @@ export default function PhotoViewerScreen() {
 
           <View className="flex-row items-center gap-2 px-4 pt-4 pb-2">
             <Action onPress={sharePhoto} label="Share">
-              <ShareNetwork size={19} color="#fff" weight="regular" />
+              <Share2Icon size={19} color="#fff" />
             </Action>
             {photo.capabilities.download && (
               <Action onPress={savePhoto} label="Save" disabled={saving}>
                 {saving ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <DownloadSimple size={19} color="#fff" weight="regular" />
+                  <DownloadIcon size={19} color="#fff" />
                 )}
               </Action>
             )}
@@ -547,12 +552,12 @@ export default function PhotoViewerScreen() {
               label="Info"
               active={showInfo}
             >
-              <Info size={19} color="#fff" weight="regular" />
+              <InfoIcon size={19} color="#fff" />
             </Action>
             <View className="flex-1" />
             {photo.capabilities.delete && (
               <Action onPress={deletePhoto} label="Remove">
-                <Trash size={19} color="#F2A9A0" weight="regular" />
+                <Trash2Icon size={19} color="#F2A9A0" />
               </Action>
             )}
           </View>
