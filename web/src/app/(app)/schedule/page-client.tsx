@@ -101,6 +101,16 @@ const EVENT_TYPES: { value: EventType; label: string }[] = [
 /** Tab values that ?tab= may name. Anything else is ignored. */
 const TABS = ['day', 'upcoming', 'invites', 'reminders'];
 
+/**
+ * An event's time the way the time input wants it.
+ *
+ * Postgres `time` comes back as HH:MM:SS; <input type="time"> wants HH:MM and
+ * silently renders empty otherwise.
+ */
+function timeInputValue(event: ScheduleEvent | undefined): string {
+  return event?.event_time ? event.event_time.slice(0, 5) : '';
+}
+
 function EventDialog({
   open,
   onOpenChange,
@@ -120,38 +130,45 @@ function EventDialog({
   /** Editing something somebody else created. Undefined means just-created. */
   const guestEdit = editing && event?.is_owner === false;
   const pending = editing ? update.isPending : create.isPending;
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [date, setDate] = useState(defaultDate);
-  const [time, setTime] = useState('');
-  const [type, setType] = useState<EventType>('event');
-  const [otherLabel, setOtherLabel] = useState('');
-  const [location, setLocation] = useState('');
+  const [title, setTitle] = useState(event?.title ?? '');
+  const [description, setDescription] = useState(event?.description ?? '');
+  const [date, setDate] = useState(event?.event_date ?? defaultDate);
+  const [time, setTime] = useState(timeInputValue(event));
+  const [type, setType] = useState<EventType>(
+    (event?.event_type as EventType | undefined) ?? 'event',
+  );
+  const [otherLabel, setOtherLabel] = useState(event?.event_type_other ?? '');
+  const [location, setLocation] = useState(event?.location ?? '');
   const [guests, setGuests] = useState<string[]>([]);
 
   // An "other" event is only half-described until it is named, so the save
   // button waits for the name the same way it waits for the title.
   const needsLabel = type === 'other' && !otherLabel.trim();
 
-  // Refilled on every open, not just mount: one dialog instance serves
-  // whichever event the pencil was pressed on, so without this you would be
-  // editing the previous event's values.
-  useEffect(() => {
-    if (!open) return;
-    if (event) {
+  // Refilled on every open, not just mount: the New event dialog stays mounted
+  // between uses, so without this it would open on the day it was last opened
+  // for — and any instance handed a different event would go on showing the
+  // previous one's values. Adjusted during render rather than in an effect, so
+  // the first frame of the dialog already shows them.
+  const [filledFor, setFilledFor] = useState({ open, event, defaultDate });
+  if (
+    open !== filledFor.open ||
+    event !== filledFor.event ||
+    defaultDate !== filledFor.defaultDate
+  ) {
+    setFilledFor({ open, event, defaultDate });
+    if (open && event) {
       setTitle(event.title);
       setDescription(event.description ?? '');
       setDate(event.event_date);
-      // Postgres `time` comes back as HH:MM:SS; <input type="time"> wants HH:MM
-      // and silently renders empty otherwise.
-      setTime(event.event_time ? event.event_time.slice(0, 5) : '');
+      setTime(timeInputValue(event));
       setType(event.event_type as EventType);
       setOtherLabel(event.event_type_other ?? '');
       setLocation(event.location ?? '');
-    } else {
+    } else if (open) {
       setDate(defaultDate);
     }
-  }, [open, event, defaultDate]);
+  }
 
   const submit = () => {
     const trimmed = title.trim();
@@ -573,8 +590,12 @@ function ScheduleContent() {
   const [tab, setTab] = useState('day');
 
   // ?new=1 and ?date=… let links from anywhere land on the right day, already
-  // open. Cleared afterwards so a refresh does not reopen the dialog.
-  useEffect(() => {
+  // open. Applied during render whenever the query changes, rather than in an
+  // effect, so the page never paints today first and then jumps.
+  const linkQuery = searchParams.toString();
+  const [appliedQuery, setAppliedQuery] = useState('');
+  if (linkQuery !== appliedQuery) {
+    setAppliedQuery(linkQuery);
     const date = searchParams.get('date');
     if (date) {
       setSelected(date);
@@ -585,7 +606,13 @@ function ScheduleContent() {
     // lands on the decision rather than on the calendar.
     const wanted = searchParams.get('tab');
     if (wanted && TABS.includes(wanted)) setTab(wanted);
-    if (date || searchParams.get('new') || wanted) router.replace('/schedule');
+  }
+
+  // Cleared afterwards so a refresh does not reopen the dialog.
+  useEffect(() => {
+    if (searchParams.get('date') || searchParams.get('new') || searchParams.get('tab')) {
+      router.replace('/schedule');
+    }
   }, [searchParams, router]);
 
   const { events, isLoading } = useScheduleEvents({ limit: 100 });

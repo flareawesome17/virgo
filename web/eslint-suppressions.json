@@ -4,16 +4,6 @@
       "count": 2
     }
   },
-  "src/app/(app)/schedule/page-client.tsx": {
-    "react-hooks/set-state-in-effect": {
-      "count": 2
-    }
-  },
-  "src/app/(app)/workspaces/page-client.tsx": {
-    "react-hooks/set-state-in-effect": {
-      "count": 1
-    }
-  },
   "src/components/desktop-update-banner.tsx": {
     "react-hooks/refs": {
       "count": 1

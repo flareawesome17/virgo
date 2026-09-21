@@ -118,13 +118,19 @@ function WorkspacesContent() {
   const { atWorkspaceLimit, usage } = useUsage();
 
   // ?new=1 opens the dialog, so "New workspace" links from anywhere land here
-  // already open rather than needing a second click.
+  // already open rather than needing a second click. Applied during render
+  // when the link arrives, rather than in an effect; the effect only takes it
+  // back out of the URL, so a refresh does not reopen the dialog.
+  const linkedNew = searchParams.get('new') === '1';
+  const [appliedNew, setAppliedNew] = useState(false);
+  if (linkedNew !== appliedNew) {
+    setAppliedNew(linkedNew);
+    if (linkedNew) setCreating(true);
+  }
+
   useEffect(() => {
-    if (searchParams.get('new') === '1') {
-      setCreating(true);
-      router.replace('/workspaces');
-    }
-  }, [searchParams, router]);
+    if (linkedNew) router.replace('/workspaces');
+  }, [linkedNew, router]);
 
   const query = search.trim().toLowerCase();
   const filtered = query
