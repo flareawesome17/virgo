@@ -466,6 +466,48 @@ jobs:
           cp "${FILES[@]}" installers/
           printf 'collected %s\n' "${FILES[@]}"
 
+          # The macOS updater payload.
+          #
+          # A .dmg cannot carry an update. Tauri's updater replaces the running
+          # .app from a tarball, so the thing to sign and ship is
+          # `bundle/macos/<app>.app.tar.gz` — the .dmg stays what the download
+          # page serves for a first install. Both are produced by the same
+          # build; only the .dmg was ever collected, which is why no Mac has
+          # ever been offered an update.
+          #
+          # Tauri names the tarball after the app alone, so Apple Silicon and
+          # Intel both emit `Virgo.app.tar.gz`. `publish-desktop` merges every
+          # leg into one directory, where two files of the same name are one
+          # file — so they are renamed by architecture here, matching what the
+          # .dmg names already do. Minisign signs the bytes, not the filename,
+          # so a pair renamed together stays valid.
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin) MAC_ARCH=aarch64 ;;
+            x86_64-apple-darwin)  MAC_ARCH=x64 ;;
+            *)                    MAC_ARCH= ;;
+          esac
+          if [ -n "$MAC_ARCH" ]; then
+            FOUND=0
+            for TARBALL in "$BUNDLE"/macos/*.app.tar.gz; do
+              FOUND=1
+              BASE="$(basename "$TARBALL" .app.tar.gz)"
+              # No signature means the updater would download this and then
+              # refuse it, so a missing .sig fails the build rather than
+              # shipping a release that looks complete and cannot update.
+              if [ ! -f "$TARBALL.sig" ]; then
+                echo "::error::$TARBALL has no .sig; bundle.createUpdaterArtifacts must be on."
+                exit 1
+              fi
+              cp "$TARBALL" "installers/${BASE}_${MAC_ARCH}.app.tar.gz"
+              cp "$TARBALL.sig" "installers/${BASE}_${MAC_ARCH}.app.tar.gz.sig"
+              echo "collected ${BASE}_${MAC_ARCH}.app.tar.gz (+ .sig)"
+            done
+            if [ "$FOUND" -eq 0 ]; then
+              echo "::error::No .app.tar.gz in $BUNDLE/macos — the 'app' bundle target is required for updates."
+              exit 1
+            fi
+          fi
+
       - name: Hand the installers to publish-desktop
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
