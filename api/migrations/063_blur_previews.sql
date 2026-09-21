@@ -19,13 +19,20 @@ alter table user_files
 
 -- No requeue, for the same reason as 061.
 --
--- Previews are made from the decoded source on the confirm path — by
--- ThumbnailsService for photographs, and from the extracted frame for films —
--- so filling them in for an existing library means reading every original
--- back out of B2. That is an operator decision, not something a migration
--- does on boot:
+-- A photograph's preview is made on the confirm path by ThumbnailsService,
+-- from the decoded original. A film's is made by the media worker, from the
+-- poster frame it extracts. Filling them in for an existing library means
+-- reading every photograph back out of B2, which is an operator decision, not
+-- something a migration does on boot. The backfill from 061 does it, inside
+-- the API container:
 --
---   node api/scripts/backfill-thumbnails.mjs
+--   docker exec virgo-api node scripts/backfill-thumbnails.mjs --dry-run
+--   docker exec virgo-api node scripts/backfill-thumbnails.mjs
+--
+-- A photograph's preview comes from the same read that makes any display
+-- copies or thumbnail it still lacks. A film's comes from its poster, a small
+-- WebP rather than the film; a film with no poster has nothing to make one
+-- from and is skipped.
 --
 -- Until it runs, older media keeps showing the flat box it shows today.
 -- Nothing breaks while it is pending; the clients treat null as "no preview".
