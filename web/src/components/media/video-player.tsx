@@ -68,13 +68,22 @@ export function VideoPlayer({
    * useMemo over an effect so there is no first paint with the wrong source:
    * this viewer only ever mounts on a click, so `document` is always there.
    */
-  const hlsNative = useMemo(
+  const enginePlaysHls = useMemo(
     () =>
       typeof document !== 'undefined' &&
       !!document.createElement('video').canPlayType('application/vnd.apple.mpegurl'),
     [],
   );
-  const hlsViaLibrary = !!file.hlsUrl && !hlsNative && !libraryFailed;
+  /**
+   * Both of these require a ladder to exist, which is the part that was
+   * missing. A ladder is only built when an album is shared, so most films do
+   * not have one — and Safari was being handed `<source src={undefined}>` for
+   * every one of them. The element then failed immediately, the proxy and the
+   * original below were never reached, and the viewer showed "this video
+   * cannot play in this browser" for a film that plays perfectly well.
+   */
+  const hlsNative = enginePlaysHls && !!file.hlsUrl;
+  const hlsViaLibrary = !!file.hlsUrl && !enginePlaysHls && !libraryFailed;
 
   const showControls = useCallback(() => {
     setControls(true);
