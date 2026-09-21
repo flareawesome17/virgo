@@ -5,6 +5,7 @@ import { CheckCircle2, ChevronDown, ChevronUp, Loader2, RotateCcw, X, XCircle } 
 import { formatBytes } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { MINI_PLAYER_OFFSET_VAR } from '@/components/media/video-surface';
 import { useUploadQueue, type UploadItem } from './upload-provider';
 
 /** Rows drawn at most per group: a wedding is hundreds of files and the dock is a summary. */
@@ -79,7 +80,11 @@ export function UploadDock() {
   return (
     <section
       aria-label="Uploads"
-      className="fixed right-4 bottom-4 z-40 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover shadow-lg"
+      className="fixed right-4 z-40 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover shadow-lg transition-[bottom] duration-200 motion-reduce:transition-none"
+      // The minimised film player docks in this same corner at this same width,
+      // one layer up. While one is there, sit above it rather than under it —
+      // otherwise a film minimised during an upload hides the upload entirely.
+      style={{ bottom: `calc(1rem + var(${MINI_PLAYER_OFFSET_VAR}, 0px))` }}
     >
       <p className="sr-only" role="status" aria-live="polite">
         {announcement}

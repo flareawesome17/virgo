@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bell, CheckCheck } from 'lucide-react';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { NotificationRow, destination } from '@/components/notification-bell';
+import { NotificationRow, destination, openExternal } from '@/components/notification-bell';
 import { Button } from '@/components/ui/button';
 import { useMarkNotificationsRead, useNotifications } from '@/hooks/useNotifications';
 import type { AppNotification } from '@/api';
@@ -56,7 +56,12 @@ export default function NotificationsPage() {
   const open = (n: AppNotification) => {
     if (!n.readAt) markRead.mutate([n.id]);
     const href = destination(n);
-    if (href) router.push(href);
+    if (!href) return;
+    // An update announcement can link outside the app. Pushed through the
+    // router it would navigate the whole tab away — and in the desktop app,
+    // take the window out of Virgo with no way back. Same rule as the bell.
+    if (/^https:\/\//.test(href)) openExternal(href);
+    else router.push(href);
   };
 
   return (

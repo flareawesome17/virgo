@@ -98,7 +98,7 @@ const TOPICS: Record<
  * to for api.virgo.ph — so a page cannot send somebody to an address of its
  * choosing. A link it refuses simply does not open.
  */
-function openExternal(url: string): void {
+export function openExternal(url: string): void {
   const opener = (
     window as { __TAURI_PLUGIN_OPENER__?: { openUrl?: (url: string) => Promise<void> } }
   ).__TAURI_PLUGIN_OPENER__;

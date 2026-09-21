@@ -1,9 +1,25 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { VideoPlayer } from '@/components/media/video-player';
 import { useVideoPlayback } from '@/components/media/video-playback';
+
+/**
+ * How far anything else docked in the bottom-right corner must sit above the
+ * corner so the mini player does not cover it — the player's own height plus
+ * a gap, or unset when no film is docked.
+ *
+ * The upload dock lives in the same corner at the same width, one layer
+ * lower, and without this a film minimised during an upload sat exactly on
+ * top of the upload's progress. A CSS variable rather than shared state, so
+ * neither component has to know the other exists: anything docked there adds
+ * `var(--mini-player-offset, 0px)` to its bottom offset.
+ */
+export const MINI_PLAYER_OFFSET_VAR = '--mini-player-offset';
+
+/** Space between the mini player and whatever is stacked above it. */
+const STACK_GAP_PX = 12;
 
 /**
  * Where a film is drawn, whatever page you are on.
@@ -49,12 +65,32 @@ export function VideoSurface() {
     };
   }, [current, mode]);
 
+  // Published while docked, measured rather than computed: the card is a 16:9
+  // frame plus a title bar, and narrows with the window, so no fixed number in
+  // another component would stay right. See MINI_PLAYER_OFFSET_VAR.
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    const card = cardRef.current;
+    if (!current || mode !== 'mini' || !card) return;
+    const publish = () =>
+      root.style.setProperty(MINI_PLAYER_OFFSET_VAR, `${card.offsetHeight + STACK_GAP_PX}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(card);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty(MINI_PLAYER_OFFSET_VAR);
+    };
+  }, [current, mode]);
+
   if (!current) return null;
 
   const full = mode === 'full';
 
   return (
     <div
+      ref={cardRef}
       className={
         full
           ? 'fixed inset-0 z-50 bg-black'
