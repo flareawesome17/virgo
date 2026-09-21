@@ -151,25 +151,32 @@ export class StorageService {
    * cannot slip past a prefix comparison further down.
    */
   private assertSafeKey(key: string): void {
-    if (
-      !key ||
-      key.includes('..') ||
-      key.startsWith('/') ||
-      key.includes('//') ||
-      key.includes('\\')
-    ) {
+    if (!this.isSafeKey(key)) {
       throw new BadRequestException('Invalid object key');
     }
+  }
+
+  /** `assertSafeKey` as a test, for a caller that skips a bad key rather than failing. */
+  private isSafeKey(key: string): boolean {
+    return (
+      !!key &&
+      !key.includes('..') &&
+      !key.startsWith('/') &&
+      !key.includes('//') &&
+      !key.includes('\\')
+    );
   }
 
   /**
    * Rejects any key that is not inside the caller's own prefix.
    *
-   * Still the right check for operations that only ever touch the caller's own
-   * rows — wiping their library, retention sweeps, filing their own uploads.
-   * Anything reachable through a *shared* album must use `assertCanAccess`
-   * instead, because there the prefix answers the wrong question: it says who
-   * uploaded the object, not who is allowed to read it.
+   * Still the right check for keys the caller minted themselves — confirming
+   * and filing their own uploads. Not for rows merely billed to them: a
+   * collaborator's upload into their album is billed to the owner but keeps
+   * the collaborator's prefix. Anything reachable through a *shared* album
+   * must use `assertCanAccess` instead, because there the prefix answers the
+   * wrong question: it says who uploaded the object, not who is allowed to
+   * read it.
    */
   private assertOwned(userId: string, key: string): void {
     this.assertSafeKey(key);
@@ -469,6 +476,11 @@ export class StorageService {
   /**
    * Deletes every object this user has stored, across all albums.
    *
+   * "Stored" as the quota counts it: every file billed to this user, which
+   * includes what collaborators uploaded into their albums. Those keep the
+   * collaborator's key prefix, so here the rows are the authority and the
+   * prefix is deliberately not checked — see `assertOwned`.
+   *
    * Irreversible, and deliberately not exposed as a DELETE on a collection
    * route — it is a named action so it cannot be reached by accident.
    *
@@ -482,18 +494,39 @@ export class StorageService {
   ): Promise<{ deleted: number; failed: number; freedBytes: number }> {
     const client = this.requireClient();
 
-    const keys = await this.quota.allKeys(userId);
-    if (keys.length === 0) return { deleted: 0, failed: 0, freedBytes: 0 };
+    const files = await this.quota.allFiles(userId);
+    if (files.length === 0) return { deleted: 0, failed: 0, freedBytes: 0 };
 
     const before = await this.quota.storageUsed(userId);
+    // For the renditions at the end. Asked now so that if it fails, it fails
+    // before anything has been deleted.
+    const keepTree = await this.quota.hasUploadsBilledToOthers(userId);
+
+    // No prefix check. Every key came from a row billed to this user, and a
+    // collaborator's upload into their album is one of those rows while
+    // carrying the collaborator's prefix. The prefix check that used to run
+    // here refused it — and it ran between batches, outside the error
+    // handling, so it threw after earlier batches were already gone from the
+    // bucket and before a single row had been forgotten.
+    //
+    // Malformed keys are still refused, as defence in depth, but counted and
+    // skipped rather than thrown: one bad row must not end the wipe halfway.
+    const objects = [
+      ...new Set(
+        files
+          .flatMap((file) => [file.key, file.thumb_key, file.poster_key])
+          .filter((key): key is string => !!key),
+      ),
+    ];
+    const keys = objects.filter((key) => this.isSafeKey(key));
+    let failed = objects.length - keys.length;
+    if (failed > 0) {
+      this.logger.warn(`wipeAll: skipped ${failed} malformed key(s) for ${userId}`);
+    }
     const deletedKeys: string[] = [];
-    let failed = 0;
 
     for (let i = 0; i < keys.length; i += 1000) {
       const batch = keys.slice(i, i + 1000);
-      // Defence in depth: every key came from this user's own rows, but the
-      // prefix check is what actually guarantees the bucket-level scope.
-      for (const key of batch) this.assertOwned(userId, key);
 
       try {
         // A batch can straddle both buckets — avatars live in the public one,
@@ -541,10 +574,31 @@ export class StorageService {
     await this.quota.forgetFiles(userId, deletedKeys);
     const after = await this.quota.storageUsed(userId);
 
-    // The user's whole media tree is going, so take the rendition subtree
-    // rather than deriving a name per key: it is one call instead of several
-    // thousand, and it also collects renditions whose row was never written.
-    await this.mediaLink.removeTree(`users/${userId}`);
+    // Renditions are not bucket objects, so nothing above touched them. Each
+    // sits beside its original, under the prefix of whoever UPLOADED it, and
+    // that is not always this user — in either direction. Every original the
+    // wipe covered loses its renditions, not only those the bucket confirmed
+    // gone, which is what taking the tree has always meant.
+    const originals = files
+      .map((file) => file.key)
+      .filter((key) => this.isSafeKey(key));
+    if (keepTree) {
+      // Some of this user's own uploads went into somebody else's album. They
+      // are billed to that album's owner, so they outlive this wipe, and their
+      // renditions share this user's tree: removing the tree would break
+      // playback in an album this user does not own. File by file instead.
+      await this.mediaLink.removeFor(originals);
+    } else {
+      // Nothing under this user's prefix outlives the wipe, so take the
+      // rendition subtree rather than deriving names per key: one call instead
+      // of several thousand, and it also collects renditions whose row was
+      // never written. It cannot reach a collaborator's upload into this
+      // user's albums, whose renditions sit under the collaborator's prefix.
+      await this.mediaLink.removeTree(`users/${userId}`);
+      await this.mediaLink.removeFor(
+        originals.filter((key) => !key.startsWith(`users/${userId}/`)),
+      );
+    }
 
     return { deleted: deletedKeys.length, failed, freedBytes: before - after };
   }
