@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { chatApi, type SendMessageInput, type Thread } from '@/src/api';
 import { seedPresence } from '@/src/lib/presence-store';
@@ -112,11 +112,16 @@ export function useThread(conversationId: string | undefined) {
    * to now on the very next poll. Keeping the value from the first load is
    * what lets the "new messages" divider stay put while you read, instead of
    * vanishing eight seconds in.
+   *
+   * State set during render, not a ref: a ref written during render survives
+   * a render React throws away, and state does not.
    */
-  const dividerAt = useRef<{ id: string; at: string | null } | null>(null);
-  const serverLastRead = query.data?.lastReadAt ?? null;
-  if (query.data && dividerAt.current?.id !== conversationId) {
-    dividerAt.current = { id: conversationId ?? '', at: serverLastRead };
+  const [dividerAt, setDividerAt] = useState<{
+    id: string | undefined;
+    at: string | null;
+  } | null>(null);
+  if (query.data && dividerAt?.id !== conversationId) {
+    setDividerAt({ id: conversationId, at: query.data.lastReadAt ?? null });
   }
 
   return {
@@ -124,7 +129,7 @@ export function useThread(conversationId: string | undefined) {
     /** Failed *or* paused — an offline device never reaches `isError`. */
     loadFailed: query.isError || query.isPaused,
     messages: query.data?.data ?? [],
-    lastReadAt: dividerAt.current?.at ?? null,
+    lastReadAt: dividerAt?.at ?? null,
   };
 }
 

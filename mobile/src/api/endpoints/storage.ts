@@ -286,6 +286,20 @@ function withoutContentLength(
   );
 }
 
+/**
+ * The largest single file the API will issue a ticket for.
+ *
+ * Mirrors MAX_UPLOAD_BYTES in api/src/storage/storage.config.ts. Duplicated
+ * rather than fetched because it is needed the moment a file is picked, before
+ * any request — and a picker that has to ask the server how big a file may be
+ * is a picker that cannot answer while offline.
+ *
+ * Checked here as well as there so the answer is "that file is too large",
+ * named and in megabytes, rather than a 400 carrying `contentLength must not
+ * be greater than 524288000` after the file has been chosen and queued.
+ */
+export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+
 export const storageApi = {
   /** Step 1: ask the server for a signed PUT URL. Keys are server-generated. */
   createUploadUrl(input: {

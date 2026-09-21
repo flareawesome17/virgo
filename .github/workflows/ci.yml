@@ -1,0 +1,142 @@
+# Runs on every pull request, and on main.
+#
+# This exists because it did not. Release builds images; notary-status asks
+# Apple a question. Neither runs on a pull request, so nothing checked a
+# branch before it merged — and PR #54 landed an nginx config with a duplicate
+# `default_type`, which is an [emerg] that stops the server starting. The
+# tests were there and green the whole time; nobody ran them.
+#
+# It also runs on pushes to main, deliberately. A branch can be merged from
+# the GitHub UI without its checks having finished, or an admin can override
+# them. Running here as well means main is never green by assumption.
+#
+# Every action is pinned to a full commit SHA, with the release it came from
+# in a comment — same rule as release.yml. A tag can be moved by whoever
+# controls the action's repository and a SHA cannot.
+#
+# Web is linted, and has to stay at zero errors. Lint was first added against
+# a baseline, web/eslint-suppressions.json, holding the errors that were
+# already there — all from the React Compiler rules. Every one has since been
+# fixed, and the file is gone.
+#
+# If a dependency upgrade brings a wave of new errors, a baseline can come
+# back: `npx eslint src --suppress-all` in web/, committed on its own so its
+# diff shows exactly what it hides, then shrunk with --prune-suppressions as
+# each is fixed. Never regenerate one to get a branch through — that
+# suppresses the branch's new error along with the old ones.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push to the same branch makes the first run pointless. Cancelling
+# it keeps the queue short on a repository with this many active branches.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Nothing here publishes anything or needs a token beyond reading the code.
+permissions:
+  contents: read
+
+jobs:
+  # ── the API ─────────────────────────────────────────────────────────────────
+  # The only package with tests. 71 of them, covering the parts of the media
+  # pipeline that are pure functions: the URL signing that nginx, the API and
+  # scripts/sign-media-url.mjs all have to agree on, the ladder maths, and the
+  # sweep's eviction policy.
+  api:
+    name: api — typecheck and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          # Matches the node:22-alpine every Dockerfile in this repository
+          # builds on. A CI that passes on a different major than production
+          # runs is a CI that can lie.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci
+        working-directory: api
+
+      # `nest build` would catch this too, but far more slowly and with the
+      # failure buried in a bundler's output.
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: api
+
+      - name: Tests
+        run: npm test -- --ci
+        working-directory: api
+
+  # ── the three client packages ───────────────────────────────────────────────
+  # No tests to run, so this is a typecheck, plus lint for web. The typecheck
+  # is not a formality: `web` and `mobile` share a duplicated transport layer,
+  # and a field added to one StoredFile and not the other is exactly the kind
+  # of drift that compiles on one platform and fails at runtime on the other.
+  #
+  # A matrix rather than three jobs so adding a fourth package is one line, and
+  # fail-fast off so one package's breakage does not hide another's.
+  clients:
+    name: ${{ matrix.package }} — ${{ matrix.lint && 'typecheck and lint' || 'typecheck' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [web, mobile, dashboard]
+        # Only web is linted. `include` adds the flag to the existing web
+        # entry; it does not add a fourth job.
+        include:
+          - package: web
+            lint: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+
+      - run: npm ci
+        working-directory: ${{ matrix.package }}
+
+      # `mobile` typechecks without Expo's generated types — expo-env.d.ts and
+      # .expo/types are both gitignored and neither exists in a fresh checkout.
+      # It works because tsconfig.json includes the committed
+      # nativewind-env.d.ts and nothing else generated. If that ever changes,
+      # this job is where it will show up first.
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: ${{ matrix.package }}
+
+      # Zero errors, no baseline; see the top of this file.
+      - name: Lint
+        if: matrix.lint
+        run: npx eslint src
+        working-directory: ${{ matrix.package }}
+
+  # ── the shared contract ─────────────────────────────────────────────────────
+  # `src/api/**` and `src/hooks/**` are duplicated byte-for-byte between web
+  # and mobile. The README calls shipping a fix to one client only "the most
+  # common defect this project has had", and this is the check that catches it.
+  #
+  # No install: the script only reads files.
+  contract:
+    name: web and mobile agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - run: node scripts/check-client-sync.mjs

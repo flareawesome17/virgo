@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { router, usePathname } from 'expo-router';
 import { NotificationBell } from '@/components/NotificationBell';
-import { UploadBar } from '@/components/UploadBar';
+import { UpdateBanner } from '@/components/UpdateBanner';
 import { useMarkJobsSeen, useUnseenJobs } from '@/src/hooks';
 
 /**
@@ -75,10 +75,12 @@ export function AppTopBar() {
           />
         </View>
       </View>
-      {/* Under the bar, not in it: an upload is a state the whole app is
-          in, and the row above is a fixed set of destinations. Renders
-          nothing when there is nothing uploading and nothing failed. */}
-      <UploadBar />
+      {/* Under the bar, not in it: the row above is a fixed set of
+          destinations, and this is news. Here rather than wrapping the
+          navigator — unlike an upload, which starts from an album, a new
+          build is something you are told about on landing, and the app
+          opens on a tab. Renders nothing the rest of the time. */}
+      <UpdateBanner />
     </>
   );
 }

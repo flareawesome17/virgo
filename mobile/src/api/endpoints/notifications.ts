@@ -1,4 +1,5 @@
 import { api } from '../client';
+import { clientIdentity } from '../client-identity';
 
 /**
  * Every kind of notification the server sends.
@@ -26,7 +27,13 @@ export type NotificationTopic =
   | 'client-picks'
   | 'support'
   | 'booking'
-  | 'promo';
+  | 'promo'
+  /**
+   * A new version of the app this client is running. Targeted at a platform
+   * and version on the server, so a phone and a browser signed in to the same
+   * account each see only the updates that concern them.
+   */
+  | 'app-update';
 
 export interface AppNotification {
   id: string;
@@ -51,24 +58,41 @@ export interface AppNotification {
  * top — an offset page shifts under you exactly when something new arrives,
  * which is when people are looking at it.
  */
+/**
+ * `platform=…&version=…` for whichever app is asking.
+ *
+ * Update announcements are aimed at a platform and a version range, and only
+ * the client knows which it is — so every read of the list says so, and the
+ * server returns the announcements meant for this app alongside the ordinary
+ * notifications. Marking all read carries it too, so clearing the list on one
+ * device does not clear another device's announcements unseen.
+ */
+function withClient(q: URLSearchParams = new URLSearchParams()): URLSearchParams {
+  const { platform, version } = clientIdentity();
+  q.set('platform', platform);
+  if (version) q.set('version', version);
+  return q;
+}
+
 export const notificationsApi = {
   list(params: { limit?: number; before?: string } = {}): Promise<{
     data: AppNotification[];
     unread: number;
   }> {
-    const q = new URLSearchParams();
+    const q = withClient();
     if (params.limit) q.set('limit', String(params.limit));
     if (params.before) q.set('before', params.before);
-    const qs = q.toString();
-    return api.get(`/notifications${qs ? `?${qs}` : ''}`);
+    return api.get(`/notifications?${q.toString()}`);
   },
 
   unreadCount(): Promise<{ count: number }> {
-    return api.get('/notifications/unread-count');
+    return api.get(`/notifications/unread-count?${withClient().toString()}`);
   },
 
   /** Some of them, or — with no ids — all of them. */
   markRead(ids?: string[]): Promise<{ updated: number }> {
-    return api.post('/notifications/read', { body: ids ? { ids } : {} });
+    return api.post(`/notifications/read?${withClient().toString()}`, {
+      body: ids ? { ids } : {},
+    });
   },
 };

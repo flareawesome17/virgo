@@ -155,6 +155,7 @@ export {
   type StorageBreakdown,
   type WipeResult,
   type FileOrder,
+  MAX_UPLOAD_BYTES,
 } from './endpoints/storage';
 
 export {

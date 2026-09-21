@@ -143,6 +143,41 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const lastNotifiedPercent = useRef(-1);
 
+  /**
+   * Whether this provider is still on screen.
+   *
+   * The runner used to decide that with a `cancelled` flag closed over by its
+   * effect and set in the effect's cleanup. That flag was tripped by the
+   * runner's own first action: marking a task `uploading` writes to `tasks`,
+   * `tasks` is a dependency, so React tore the effect down and `cancelled`
+   * went true while the upload was still in flight — every time, within a
+   * tick of starting.
+   *
+   * Everything behind the flag was then dropped: no progress was ever
+   * recorded, so the bar sat at 0%, and the task was never marked `done`, so
+   * the bar never went away and the finished notification never fired. The
+   * bytes still went to B2 and the album still refreshed, because neither of
+   * those was behind the flag — which is exactly why it looked like a display
+   * bug rather than a dead guard.
+   *
+   * A ref set once, on unmount, is what the guard was always meant to be: it
+   * cannot be reset by a state update, because it does not depend on one.
+   */
+  const mounted = useRef(true);
+  useEffect(() => () => {
+    mounted.current = false;
+  }, []);
+
+  /**
+   * The last whole percent written for the running task.
+   *
+   * The native uploader reports bytes far more often than a bar can show. This
+   * provider sits above the navigator, so every patch re-renders the app; at
+   * one render per callback a large file would spend the upload janking. One
+   * per percent is all the bar can draw anyway.
+   */
+  const lastPatchedPercent = useRef(-1);
+
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       appState.current = next;
@@ -286,9 +321,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     if (!next) return;
 
     running.current = true;
-    let cancelled = false;
 
     (async () => {
+      lastPatchedPercent.current = -1;
       patch(next.id, { status: 'uploading', progress: 0, error: undefined });
       try {
         await storageApi.uploadFile(next.uri, {
@@ -304,10 +339,14 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           // written even on the way out.
           onTicket: (key) => patch(next.id, { key }),
           onProgress: (fraction) => {
-            if (!cancelled) patch(next.id, { progress: fraction });
+            if (!mounted.current) return;
+            const percent = Math.round(fraction * 100);
+            if (percent === lastPatchedPercent.current) return;
+            lastPatchedPercent.current = percent;
+            patch(next.id, { progress: fraction });
           },
         });
-        if (!cancelled) patch(next.id, { status: 'done', progress: 1 });
+        if (mounted.current) patch(next.id, { status: 'done', progress: 1 });
 
         // Per file, not per batch: twenty photographs should appear in the
         // album as they land, not all at the end.
@@ -320,7 +359,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           queryKey: ['storage', 'files', next.albumId],
         });
       } catch (error) {
-        if (!cancelled) {
+        if (mounted.current) {
           patch(next.id, {
             status: 'failed',
             error: error instanceof Error ? error.message : 'Upload failed',
@@ -335,10 +374,13 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-    // `hydrated` belongs here as well as in the guard above: it flips false to
+    // No cleanup. This effect re-runs constantly — every progress patch writes
+    // to `tasks`, which is a dependency — and a cleanup that stopped the
+    // running upload would therefore stop it immediately. `running` guards
+    // against a second one starting; `mounted` guards against writing state
+    // after teardown. Neither belongs in a cleanup here.
+    //
+    // `hydrated` belongs in the deps as well as in the guard above: it flips false to
     // true once, and this effect has to re-run on that flip to pick up a queue
     // restored from the last launch. Without it a recovered upload would sit
     // there until something else changed `tasks`.
@@ -349,12 +391,23 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     (task) => task.status === 'queued' || task.status === 'uploading',
   );
 
+  // Weighted by size, so one large video does not race to 100% alongside the
+  // thumbnails queued behind it.
+  //
+  // Falling back to a flat average matters more than it looks. Both pickers
+  // can report a size of 0 — `getInfoAsync` on an asset it cannot stat,
+  // DocumentPicker on a provider that omits it — and a queue of those sums to
+  // zero bytes, which pinned the bar at 0% for the whole upload no matter how
+  // much real progress had been reported. An unweighted average is less
+  // truthful about the remaining time; it is not silently wrong.
   const totalBytes = tasks.reduce((sum, task) => sum + task.sizeBytes, 0);
-  const sentBytes = tasks.reduce(
-    (sum, task) => sum + task.sizeBytes * task.progress,
-    0,
-  );
-  const overall = totalBytes > 0 ? sentBytes / totalBytes : 0;
+  const overall =
+    totalBytes > 0
+      ? tasks.reduce((sum, task) => sum + task.sizeBytes * task.progress, 0) /
+        totalBytes
+      : tasks.length > 0
+        ? tasks.reduce((sum, task) => sum + task.progress, 0) / tasks.length
+        : 0;
   const remaining = pending.filter((task) => task.status !== 'failed').length;
 
   // The drawer. Only while the app is off screen: a banner over the app saying

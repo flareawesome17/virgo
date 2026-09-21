@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import { toast } from 'sonner';
+import { useHydrated } from '@/lib/hydration';
 
 /**
  * The desktop app's own title bar.
@@ -90,18 +91,19 @@ function CloseGlyph() {
 
 export function DesktopTitleBar() {
   const [maximised, setMaximised] = useState(false);
-  // Absent until the shell's IPC grant reaches the page. Kept in state so the
-  // buttons are not rendered at all when they could not work — a dead close
-  // button is worse than a window with no close button, because the second is
-  // obviously a bug and the first looks like the app is hung.
-  const [ready, setReady] = useState(false);
+  // The window is absent until the shell's IPC grant reaches the page, and
+  // without it the buttons are not rendered at all — a dead close button is
+  // worse than a window with no close button, because the second is obviously
+  // a bug and the first looks like the app is hung. Never ready in the server
+  // render, which has no window to ask.
+  const hydrated = useHydrated();
+  const ready = hydrated && currentWindow() !== null;
 
   useEffect(() => {
     if (!IS_DESKTOP) return;
     const win = currentWindow();
     if (!win) return;
 
-    setReady(true);
     let unlisten: (() => void) | undefined;
 
     void win.isMaximized().then(setMaximised);

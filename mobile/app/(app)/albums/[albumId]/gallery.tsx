@@ -10,12 +10,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { ArrowLeft, ImageSquare, UploadSimple } from 'phosphor-react-native';
+import { ArrowLeftIcon, ImageIcon, UploadIcon } from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
 import { useAlbum, useAlbumFiles } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
 import {
@@ -26,6 +27,10 @@ import {
   toSections,
   type MediaRow,
 } from '@/src/lib/media-grid';
+
+for (const Icon of [ArrowLeftIcon, ImageIcon, UploadIcon]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 export default function GalleryScreen() {
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
@@ -93,7 +98,7 @@ export default function GalleryScreen() {
             style={{ width: tile, height: tile }}
             className="bg-white/[0.04] active:opacity-75"
           >
-            <Image
+            <RemoteImage
               source={{ uri: photo.thumbnailUrl ?? photo.url ?? undefined }}
               style={{ width: '100%', height: '100%' }}
               contentFit="cover"
@@ -196,7 +201,7 @@ export default function GalleryScreen() {
             hitSlop={8}
             className="w-10 h-10 rounded-full bg-black/40 items-center justify-center active:opacity-70"
           >
-            <ArrowLeft size={19} color="#fff" weight="regular" />
+            <ArrowLeftIcon size={19} color="#fff" />
           </Pressable>
           <View className="flex-1 min-w-0">
             <Text
@@ -233,7 +238,7 @@ function GridSkeleton({ tile, columns }: { tile: number; columns: number }) {
 function Empty({ albumId }: { albumId: string }) {
   return (
     <View className="items-center px-8 pt-24">
-      <ImageSquare size={40} color="rgba(255,255,255,.22)" weight="light" />
+      <ImageIcon size={40} color="rgba(255,255,255,.22)" strokeWidth={1.5} />
       <Text className="text-white text-lg font-semibold mt-5">
         No photos yet
       </Text>
@@ -246,7 +251,7 @@ function Empty({ albumId }: { albumId: string }) {
         }
         className="mt-7 bg-[#C17745] rounded-full px-6 py-3 flex-row items-center gap-2 active:opacity-85"
       >
-        <UploadSimple size={17} color="#fff" weight="regular" />
+        <UploadIcon size={17} color="#fff" />
         <Text className="text-white font-semibold">Upload photos</Text>
       </Pressable>
     </View>

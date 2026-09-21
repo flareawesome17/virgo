@@ -1,7 +1,8 @@
 import {
-  View, Text, ScrollView, Pressable, Image, Alert,
+  View, Text, ScrollView, Pressable, Alert,
   ActivityIndicator, RefreshControl,
 } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -413,7 +414,7 @@ function Applicants({ postId }: { postId: string }) {
       {applications.map((app) => (
         <View key={app.id} className="bg-background rounded-xl p-3 gap-2">
           <View className="flex-row items-start gap-2.5">
-            <Image
+            <RemoteImage
               source={{ uri: app.personAvatarUrl ?? PLACEHOLDER_IMAGE }}
               style={{ width: 30, height: 30, borderRadius: 15 }}
             />

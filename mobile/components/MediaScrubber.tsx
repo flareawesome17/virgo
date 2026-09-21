@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { View, Text } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { clock } from '@/src/lib/media-grid';
@@ -46,23 +46,46 @@ export function MediaScrubber({
   const shown = dragging ? draggedAt : position;
   const fraction = duration > 0 ? Math.min(Math.max(shown / duration, 0), 1) : 0;
 
-  const at = (x: number) => {
-    if (!width || !duration) return 0;
-    return Math.min(Math.max(x / width, 0), 1) * duration;
-  };
+  /**
+   * Seconds under a touch at `x`.
+   *
+   * This runs on the JS thread and must keep doing so. A gesture callback is a
+   * worklet — it executes on the UI thread — and calling an ordinary function
+   * from inside one is fatal, not degraded: it throws where nothing can catch
+   * it and takes the app down. That is what dragging this bar used to do.
+   *
+   * So the worklets below hand over the one thing they have, the raw x, and
+   * every conversion happens over here where `width` and `duration` live.
+   */
+  const at = useCallback(
+    (x: number) => {
+      if (!width || !duration) return 0;
+      return Math.min(Math.max(x / width, 0), 1) * duration;
+    },
+    [width, duration],
+  );
+
+  const beginAt = useCallback(
+    (x: number) => {
+      setDragging(true);
+      setDraggedAt(at(x));
+    },
+    [at],
+  );
+  const moveTo = useCallback((x: number) => setDraggedAt(at(x)), [at]);
+  const seekTo = useCallback((x: number) => onSeek(at(x)), [at, onSeek]);
 
   const drag = Gesture.Pan()
     .minDistance(0)
     .onBegin((event) => {
       held.value = 1;
-      runOnJS(setDragging)(true);
-      runOnJS(setDraggedAt)(at(event.x));
+      runOnJS(beginAt)(event.x);
     })
     .onUpdate((event) => {
-      runOnJS(setDraggedAt)(at(event.x));
+      runOnJS(moveTo)(event.x);
     })
     .onEnd((event) => {
-      runOnJS(onSeek)(at(event.x));
+      runOnJS(seekTo)(event.x);
     })
     .onFinalize(() => {
       held.value = 0;

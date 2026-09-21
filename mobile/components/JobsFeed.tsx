@@ -1,7 +1,8 @@
 import {
-  View, Text, ScrollView, Pressable, Image, RefreshControl,
+  View, Text, ScrollView, Pressable, RefreshControl,
   ActivityIndicator, TextInput,
 } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useAuth, useJobs, useRoles } from '@/src/hooks';
@@ -149,7 +150,7 @@ function Composer() {
       className="bg-card rounded-2xl p-3.5 flex-row items-center gap-3"
       onPress={() => router.push('/jobs/new')}
     >
-      <Image
+      <RemoteImage
         source={{ uri: profile?.avatarUrl ?? PLACEHOLDER_IMAGE }}
         style={{ width: 36, height: 36, borderRadius: 18 }}
       />
@@ -205,7 +206,7 @@ function JobCard({ job }: { job: JobPost }) {
       onPress={() => router.push(`/jobs/${job.slug}`)}
     >
       <View className="flex-row items-start gap-2.5">
-        <Image
+        <RemoteImage
           source={{ uri: job.postedBy.avatarUrl ?? PLACEHOLDER_IMAGE }}
           style={{ width: 32, height: 32, borderRadius: 16 }}
         />

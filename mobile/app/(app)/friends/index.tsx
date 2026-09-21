@@ -1,4 +1,5 @@
-import { View, Text, FlatList, RefreshControl, Pressable, Image } from 'react-native';
+import { View, Text, FlatList, RefreshControl, Pressable } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useFriends, useTheme } from '@/src/hooks';
 import { useState, useMemo } from 'react';
@@ -122,7 +123,7 @@ export default function FriendsScreen() {
         renderItem={({ item }) => (
           <View className="mx-5 mb-2 bg-card rounded-2xl p-4 flex-row items-center gap-4"
             style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <Image source={{ uri: item.friend_avatar_url || PLACEHOLDER_IMAGE }}
+            <RemoteImage source={{ uri: item.friend_avatar_url || PLACEHOLDER_IMAGE }}
               style={{ width: 46, height: 46, borderRadius: 23 }} />
             <View className="flex-1 min-w-0">
               <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{item.friend_name}</Text>

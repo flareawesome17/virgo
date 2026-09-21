@@ -1,4 +1,5 @@
-import { View, Text, Pressable, Image, Alert } from 'react-native';
+import { View, Text, Pressable, Alert } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { useState } from 'react';
 import {
   CalendarDaysIcon,
@@ -79,7 +80,7 @@ function PersonAvatar({
 }) {
   if (avatarUrl) {
     return (
-      <Image
+      <RemoteImage
         source={{ uri: avatarUrl }}
         style={{ width: size, height: size, borderRadius: size / 2 }}
       />

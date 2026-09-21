@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   Extrapolation,
@@ -25,26 +25,35 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import {
-  ArrowClockwise,
-  ArrowCounterClockwise,
-  ArrowLeft,
-  CaretDown,
-  MusicNotesSimple,
-  Pause,
-  Play,
-  Repeat,
-  RepeatOnce,
-  Shuffle,
-  SkipBack,
-  SkipForward,
-  UploadSimple,
-} from 'phosphor-react-native';
+  ArrowLeftIcon,
+  ChevronDownIcon,
+  MusicIcon,
+  PauseIcon,
+  PlayIcon,
+  Repeat1Icon,
+  RepeatIcon,
+  RotateCcwIcon,
+  RotateCwIcon,
+  ShuffleIcon,
+  SkipBackIcon,
+  SkipForwardIcon,
+  UploadIcon,
+} from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
 import { useAlbum, useAlbumFiles } from '@/src/hooks';
 import { useAlbumAudio } from '@/src/providers/AlbumAudioProvider';
 import { LoadFailed } from '@/components/LoadFailed';
 import { MediaScrubber } from '@/components/MediaScrubber';
 import { clock } from '@/src/lib/media-grid';
 import { type StoredFile } from '@/src/api';
+
+for (const Icon of [
+  ArrowLeftIcon, ChevronDownIcon, MusicIcon, PauseIcon, PlayIcon, Repeat1Icon,
+  RepeatIcon, RotateCcwIcon, RotateCwIcon, ShuffleIcon, SkipBackIcon,
+  SkipForwardIcon, UploadIcon,
+]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 const ACCENT = '#C17745';
 const ACCENT_LIGHT = '#D89566';
@@ -131,7 +140,7 @@ function Artwork({
 }) {
   if (uri) {
     return (
-      <Image
+      <RemoteImage
         source={{ uri }}
         style={{ width: size, height: size, borderRadius: radius }}
         contentFit="cover"
@@ -144,10 +153,11 @@ function Artwork({
       style={{ width: size, height: size, borderRadius: radius }}
       className="bg-[#2A2320] items-center justify-center"
     >
-      <MusicNotesSimple
+      {/* Outlined rather than filled: Lucide draws the stems and beam as one
+          open path, and filling it paints a solid block between the stems. */}
+      <MusicIcon
         size={Math.max(16, size * 0.32)}
         color={ACCENT_LIGHT}
-        weight="fill"
       />
     </View>
   );
@@ -389,10 +399,12 @@ export default function AudioScreen() {
                   accessibilityLabel="Shuffle"
                   className="mr-5 active:opacity-60"
                 >
-                  <Shuffle
+                  {/* Heavier when on, as the tab bar marks its focused tab.
+                      Shuffle is open strokes, so there is no filled form. */}
+                  <ShuffleIcon
                     size={22}
                     color={audio.shuffle ? ACCENT_LIGHT : 'rgba(255,255,255,.5)'}
-                    weight={audio.shuffle ? 'fill' : 'regular'}
+                    strokeWidth={audio.shuffle ? 2.5 : 2}
                   />
                 </Pressable>
                 <Pressable
@@ -405,16 +417,15 @@ export default function AudioScreen() {
                   className="active:opacity-60"
                 >
                   {audio.repeat === 'one' ? (
-                    <RepeatOnce size={22} color={ACCENT_LIGHT} weight="regular" />
+                    <Repeat1Icon size={22} color={ACCENT_LIGHT} />
                   ) : (
-                    <Repeat
+                    <RepeatIcon
                       size={22}
                       color={
                         audio.repeat === 'all'
                           ? ACCENT_LIGHT
                           : 'rgba(255,255,255,.5)'
                       }
-                      weight="regular"
                     />
                   )}
                 </Pressable>
@@ -430,12 +441,16 @@ export default function AudioScreen() {
                   style={{ backgroundColor: ACCENT }}
                   className="w-14 h-14 rounded-full items-center justify-center active:scale-[0.94]"
                 >
+                  {/* `fill` repeats the colour rather than saying
+                      currentColor: lucide-react-native gives `color` to the
+                      stroke alone, so on a device currentColor resolves to
+                      nothing and the glyph comes out hollow. */}
                   {activeKey && audio.loading ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : activeKey && audio.playing ? (
-                    <Pause size={25} color="#fff" weight="fill" />
+                    <PauseIcon size={25} color="#fff" fill="#fff" />
                   ) : (
-                    <Play size={26} color="#fff" weight="fill" />
+                    <PlayIcon size={26} color="#fff" fill="#fff" />
                   )}
                 </Pressable>
               </View>
@@ -478,7 +493,7 @@ export default function AudioScreen() {
             hitSlop={8}
             className="w-10 h-10 rounded-full bg-black/35 items-center justify-center active:opacity-70"
           >
-            <ArrowLeft size={19} color="#fff" weight="regular" />
+            <ArrowLeftIcon size={19} color="#fff" />
           </Pressable>
           <Animated.View style={compactStyle} className="flex-1 min-w-0">
             <Text
@@ -586,9 +601,9 @@ function MiniBar({
             {loading ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : playing ? (
-              <Pause size={21} color="#fff" weight="fill" />
+              <PauseIcon size={21} color="#fff" fill="#fff" />
             ) : (
-              <Play size={21} color="#fff" weight="fill" />
+              <PlayIcon size={21} color="#fff" fill="#fff" />
             )}
           </Pressable>
           <Pressable
@@ -597,7 +612,7 @@ function MiniBar({
             accessibilityLabel="Next track"
             className="w-9 h-9 items-center justify-center active:opacity-60"
           >
-            <SkipForward size={19} color="#fff" weight="fill" />
+            <SkipForwardIcon size={19} color="#fff" fill="#fff" />
           </Pressable>
         </View>
         <View className="h-[2px] bg-white/10">
@@ -655,7 +670,7 @@ function NowPlaying({
             accessibilityLabel="Close player"
             className="w-10 h-10 -ml-2 items-center justify-center active:opacity-60"
           >
-            <CaretDown size={22} color="#fff" weight="regular" />
+            <ChevronDownIcon size={22} color="#fff" />
           </Pressable>
           <Text className="flex-1 text-center text-white/50 text-[11px] uppercase tracking-[1.6px]">
             {albumName || 'Now playing'}
@@ -707,10 +722,10 @@ function NowPlaying({
               accessibilityLabel="Shuffle"
               className="w-11 h-11 items-center justify-center active:opacity-60"
             >
-              <Shuffle
+              <ShuffleIcon
                 size={20}
                 color={audio.shuffle ? ACCENT_LIGHT : 'rgba(255,255,255,.42)'}
-                weight={audio.shuffle ? 'fill' : 'regular'}
+                strokeWidth={audio.shuffle ? 2.5 : 2}
               />
             </Pressable>
             <Pressable
@@ -719,7 +734,7 @@ function NowPlaying({
               accessibilityLabel="Previous track"
               className="w-12 h-12 items-center justify-center active:opacity-60"
             >
-              <SkipBack size={28} color="#fff" weight="fill" />
+              <SkipBackIcon size={28} color="#fff" fill="#fff" />
             </Pressable>
             <Pressable
               onPress={audio.toggle}
@@ -730,9 +745,9 @@ function NowPlaying({
               {audio.loading ? (
                 <ActivityIndicator color="#fff" />
               ) : audio.playing ? (
-                <Pause size={28} color="#fff" weight="fill" />
+                <PauseIcon size={28} color="#fff" fill="#fff" />
               ) : (
-                <Play size={30} color="#fff" weight="fill" />
+                <PlayIcon size={30} color="#fff" fill="#fff" />
               )}
             </Pressable>
             <Pressable
@@ -741,7 +756,7 @@ function NowPlaying({
               accessibilityLabel="Next track"
               className="w-12 h-12 items-center justify-center active:opacity-60"
             >
-              <SkipForward size={28} color="#fff" weight="fill" />
+              <SkipForwardIcon size={28} color="#fff" fill="#fff" />
             </Pressable>
             {/* Distinct glyphs for repeat and for skipping forward. The old
                 player drew the same arrow for both, so the two controls beside
@@ -756,16 +771,15 @@ function NowPlaying({
               className="w-11 h-11 items-center justify-center active:opacity-60"
             >
               {audio.repeat === 'one' ? (
-                <RepeatOnce size={20} color={ACCENT_LIGHT} weight="regular" />
+                <Repeat1Icon size={20} color={ACCENT_LIGHT} />
               ) : (
-                <Repeat
+                <RepeatIcon
                   size={20}
                   color={
                     audio.repeat === 'all'
                       ? ACCENT_LIGHT
                       : 'rgba(255,255,255,.42)'
                   }
-                  weight="regular"
                 />
               )}
             </Pressable>
@@ -778,10 +792,9 @@ function NowPlaying({
               accessibilityLabel="Back 15 seconds"
               className="flex-row items-center gap-1.5 active:opacity-60"
             >
-              <ArrowCounterClockwise
+              <RotateCcwIcon
                 size={18}
                 color="rgba(255,255,255,.55)"
-                weight="regular"
               />
               <Text className="text-white/45 text-[12px] font-mono">15</Text>
             </Pressable>
@@ -802,10 +815,9 @@ function NowPlaying({
               className="flex-row items-center gap-1.5 active:opacity-60"
             >
               <Text className="text-white/45 text-[12px] font-mono">15</Text>
-              <ArrowClockwise
+              <RotateCwIcon
                 size={18}
                 color="rgba(255,255,255,.55)"
-                weight="regular"
               />
             </Pressable>
           </View>
@@ -818,7 +830,7 @@ function NowPlaying({
 function Empty({ albumId }: { albumId: string }) {
   return (
     <View className="items-center px-4 pt-16">
-      <MusicNotesSimple size={40} color="rgba(255,255,255,.22)" weight="light" />
+      <MusicIcon size={40} color="rgba(255,255,255,.22)" strokeWidth={1.5} />
       <Text className="text-white text-lg font-semibold mt-5">No audio yet</Text>
       <Text className="text-white/40 text-sm text-center mt-2 leading-5">
         Upload a recording or a finished track and it will queue up here.
@@ -830,7 +842,7 @@ function Empty({ albumId }: { albumId: string }) {
         style={{ backgroundColor: ACCENT }}
         className="mt-7 rounded-full px-6 py-3 flex-row items-center gap-2 active:opacity-85"
       >
-        <UploadSimple size={17} color="#fff" weight="regular" />
+        <UploadIcon size={17} color="#fff" />
         <Text className="text-white font-semibold">Upload audio</Text>
       </Pressable>
     </View>

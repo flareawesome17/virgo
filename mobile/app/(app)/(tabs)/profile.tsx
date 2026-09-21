@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, Pressable, Image, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, Alert } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppTopBar } from '@/components';
 import {
@@ -156,7 +157,7 @@ export default function ProfileScreen() {
         {/* Profile card */}
         <View className="mx-5 mt-2 bg-card rounded-3xl border border-border/40 p-5 items-center">
           {profile?.avatarUrl ? (
-            <Image
+            <RemoteImage
               source={{ uri: profile.avatarUrl }}
               style={{ width: 80, height: 80, borderRadius: 40 }}
             />

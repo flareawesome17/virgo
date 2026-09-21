@@ -76,6 +76,14 @@ export function useNotificationRouting(enabled: boolean): void {
           // applicant's side of the workflow, and /jobs/mine opens on Posted.
           else router.push('/jobs/mine?tab=applications');
           return;
+
+        // An announcement about the app itself opens the notification list,
+        // where its full text is and where it is marked read — not its link
+        // directly, which would take someone from a push straight out of the
+        // app into a browser they did not ask for.
+        case 'app-update':
+          router.push('/notifications');
+          return;
       }
     };
 

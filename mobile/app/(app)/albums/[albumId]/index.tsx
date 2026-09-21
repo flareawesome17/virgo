@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -1144,7 +1144,7 @@ function MediaTile({
       className="bg-muted active:opacity-80 overflow-hidden"
     >
       {still ? (
-        <Image
+        <RemoteImage
           source={{ uri: still }}
           placeholder={file.blurDataUrl ? { uri: file.blurDataUrl } : undefined}
           placeholderContentFit="cover"

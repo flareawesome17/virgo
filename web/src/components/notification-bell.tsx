@@ -13,6 +13,7 @@ import {
   Gift,
   LifeBuoy,
   MessageCircle,
+  Sparkles,
   Trash2,
   Heart,
   UserPlus,
@@ -80,7 +81,33 @@ const TOPICS: Record<
   },
   support: { icon: LifeBuoy, href: '/support' },
   promo: { icon: Gift, href: '/rewards' },
+  // An announcement opens its link when it has one, and otherwise has said all
+  // it needs to in the list — there is no page in the app it belongs to.
+  'app-update': {
+    icon: Sparkles,
+    href: (d) => (typeof d.url === 'string' ? d.url : ''),
+  },
 };
+
+/**
+ * Opens a link outside the app.
+ *
+ * In a browser that is a new tab. In the desktop app the page is served from a
+ * loopback origin, so an ordinary new-window request goes nowhere; the opener
+ * plugin hands the URL to the system browser instead, and it is only allowed
+ * to for api.virgo.ph — so a page cannot send somebody to an address of its
+ * choosing. A link it refuses simply does not open.
+ */
+function openExternal(url: string): void {
+  const opener = (
+    window as { __TAURI_PLUGIN_OPENER__?: { openUrl?: (url: string) => Promise<void> } }
+  ).__TAURI_PLUGIN_OPENER__;
+  if (opener?.openUrl) {
+    void opener.openUrl(url).catch(() => undefined);
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
 
 /** "4m", "3h", "2d" — a list this dense has no room for a sentence. */
 function ago(iso: string): string {
@@ -173,7 +200,9 @@ export function NotificationBell() {
     if (!n.readAt) markRead.mutate([n.id]);
     const href = destination(n);
     setOpen(false);
-    if (href) router.push(href);
+    if (!href) return;
+    if (/^https:\/\//.test(href)) openExternal(href);
+    else router.push(href);
   };
 
   return (

@@ -65,24 +65,27 @@ function AccessDialog({
 }) {
   const { albums, isFetching } = useCollaboratorAlbums(collaborator?.id ?? null);
   const save = useSetCollaboratorAlbums();
+
+  // What they can see today, which is where the boxes start. Derived rather
+  // than copied into state, so it is right from the render the albums arrive.
+  const current: Record<string, MediaAccess> = {};
+  for (const a of albums) {
+    if (a.shared) current[a.id] = a.media_access ?? 'view';
+  }
+
+  /** The edited selection, from the first change. Null means untouched. */
   const [picked, setPicked] = useState<Record<string, MediaAccess> | null>(null);
 
-  // Seed from what they can see today, once per open.
-  useEffect(() => {
-    if (!collaborator) {
-      setPicked(null);
-      return;
-    }
-    if (picked === null && albums.length > 0) {
-      const seed: Record<string, MediaAccess> = {};
-      for (const a of albums) {
-        if (a.shared) seed[a.id] = a.media_access ?? 'view';
-      }
-      setPicked(seed);
-    }
-  }, [collaborator, albums, picked]);
+  // Edits belong to one opening of the dialog: dropped when it closes, so the
+  // next opening starts again from what they can see today.
+  const openFor = collaborator?.id ?? null;
+  const [pickedFor, setPickedFor] = useState(openFor);
+  if (openFor !== pickedFor) {
+    setPickedFor(openFor);
+    setPicked(null);
+  }
 
-  const selection = picked ?? {};
+  const selection = picked ?? current;
 
   return (
     <Dialog open={!!collaborator} onOpenChange={onOpenChange}>
@@ -116,7 +119,7 @@ function AccessDialog({
                       checked={level !== undefined}
                       onCheckedChange={(checked) =>
                         setPicked((prev) => {
-                          const base = { ...(prev ?? {}) };
+                          const base = { ...(prev ?? current) };
                           if (checked) base[album.id] = 'view';
                           else delete base[album.id];
                           return base;
@@ -140,7 +143,7 @@ function AccessDialog({
                         value={level}
                         onChange={(e) =>
                           setPicked((prev) => ({
-                            ...(prev ?? {}),
+                            ...(prev ?? current),
                             [album.id]: e.target.value as MediaAccess,
                           }))
                         }

@@ -197,6 +197,20 @@ export async function ensureChannels(): Promise<void> {
     vibrationPattern: null,
     lightColor: '#B66A40',
   });
+
+  // News about the app itself. Its own channel so it can be muted without
+  // muting anything a person is waiting on, and quiet like 'reminders': an
+  // update is worth knowing about, not worth a buzz. Created with every
+  // registration (see getPushRegistration), because the server only pushes
+  // announcements to devices that registered — so no announcement can arrive
+  // on a phone that has not made this channel, which Android would not show.
+  await N.setNotificationChannelAsync('updates', {
+    name: 'App updates',
+    importance: N.AndroidImportance.DEFAULT,
+    sound: null,
+    vibrationPattern: null,
+    lightColor: '#B66A40',
+  });
 }
 
 /** The one notification the upload queue owns, replaced rather than stacked. */
@@ -220,6 +234,17 @@ export async function showUploadProgress(
 ): Promise<void> {
   const N = loadNotifications();
   if (!N) return;
+
+  // Neither of these was done, and both are required for anything to appear.
+  // Without permission nothing posts at all; without the channel Android
+  // accepts the call and drops the notification, silently — which is exactly
+  // what "no indicator, even in the drawer" looked like.
+  //
+  // ensurePermissions never re-prompts once answered, so this is a cheap
+  // check on every call rather than a dialog.
+  if (!(await ensurePermissions())) return;
+  await ensureChannels();
+
   try {
     await N.scheduleNotificationAsync({
       identifier: UPLOAD_NOTIFICATION_ID,
@@ -265,6 +290,17 @@ export async function showUploadFinished(
 ): Promise<void> {
   const N = loadNotifications();
   if (!N) return;
+
+  // Neither of these was done, and both are required for anything to appear.
+  // Without permission nothing posts at all; without the channel Android
+  // accepts the call and drops the notification, silently — which is exactly
+  // what "no indicator, even in the drawer" looked like.
+  //
+  // ensurePermissions never re-prompts once answered, so this is a cheap
+  // check on every call rather than a dialog.
+  if (!(await ensurePermissions())) return;
+  await ensureChannels();
+
   try {
     await N.scheduleNotificationAsync({
       content: {
@@ -371,6 +407,11 @@ export async function clearReminderNotifications(): Promise<void> {
 export interface PushRegistration {
   token: string;
   platform: 'ios' | 'android' | 'web';
+  /**
+   * This binary's version, so an update announcement is pushed only to the
+   * phones it applies to — an OTA reaches exactly one version.
+   */
+  appVersion?: string;
 }
 
 /**
@@ -401,10 +442,25 @@ export async function getPushRegistration(): Promise<PushRegistration | null> {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const N = require('expo-notifications') as NotificationsModule;
     const { data } = await N.getExpoPushTokenAsync({ projectId });
+    // Before the token is handed over, not after: the server pushes update
+    // announcements on the 'updates' channel, and only to devices that
+    // registered with a version. Creating the channels here is what makes
+    // "reported a version" imply "has the channel".
+    //
+    // If that fails, the device still registers — just without a version, so
+    // messages and reminders keep arriving and only the announcements it could
+    // not display are withheld. Failing the whole registration instead would
+    // have cost every other push for the sake of one channel.
+    const channelsReady = await ensureChannels().then(
+      () => true,
+      () => false,
+    );
+    const appVersion = channelsReady ? Constants.expoConfig?.version : undefined;
     return {
       token: data,
       platform:
         Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+      ...(appVersion ? { appVersion } : {}),
     };
   } catch {
     return null;
@@ -433,6 +489,8 @@ export interface NotificationPayload {
     | 'job_application'
     | 'job_response'
     | 'client_picks'
+    /** An update announcement for this app. */
+    | 'app-update'
     | string;
   conversationId?: string;
   albumId?: string;
@@ -440,6 +498,9 @@ export interface NotificationPayload {
   eventId?: string;
   workspaceId?: string;
   fromUserId?: string;
+  /** For 'app-update': the announcement, and what to open from it. */
+  updateId?: string;
+  url?: string;
 }
 
 function payloadOf(response: unknown): NotificationPayload | null {

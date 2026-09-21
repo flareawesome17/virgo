@@ -9,8 +9,14 @@ import {
   useReminderNotifications,
   useReminders,
 } from '@/src/hooks';
-import { RolesRequiredSheet, VerifyEmailBanner } from '@/components';
+import {
+  RolesRequiredSheet,
+  UploadBar,
+  VerifyEmailBanner,
+  VideoSurface,
+} from '@/components';
 import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
+import { VideoPlayerProvider } from '@/src/providers/VideoPlayerProvider';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
@@ -76,11 +82,24 @@ export default function AppLayout() {
           it takes the top safe area, and it zeroes that inset for the screens
           underneath so they do not pad for the notch a second time. Renders
           its children untouched once the address is confirmed. */}
+      <VideoPlayerProvider>
       <AlbumAudioProvider>
         <VerifyEmailBanner>
-          <Stack screenOptions={{ headerShown: false }} />
+          {/* Wraps the navigator, not AppTopBar, which renders on the six tab
+              screens only — and nobody uploads from a tab. Every route into
+              the upload screen is an album or a workspace, so this is the one
+              placement where the indicator is on screen while it runs. */}
+          <UploadBar>
+            {/* Inside UploadBar so the docked film sits below the upload
+                strip rather than fighting it for the same edge, and around
+                the navigator so a film survives going back to the album. */}
+            <VideoSurface>
+              <Stack screenOptions={{ headerShown: false }} />
+            </VideoSurface>
+          </UploadBar>
         </VerifyEmailBanner>
       </AlbumAudioProvider>
+      </VideoPlayerProvider>
     </>
   );
 }

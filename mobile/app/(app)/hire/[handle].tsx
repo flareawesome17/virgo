@@ -1,7 +1,8 @@
 import {
-  View, Text, ScrollView, Pressable, TextInput, Image, Alert,
+  View, Text, ScrollView, Pressable, TextInput, Alert,
   ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -114,7 +115,7 @@ export default function HireScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View className="flex-row items-center gap-3.5">
-            <Image
+            <RemoteImage
               source={{ uri: person.avatarUrl ?? PLACEHOLDER_IMAGE }}
               style={{ width: 54, height: 54, borderRadius: 27 }}
             />

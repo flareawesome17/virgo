@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { UploadDropzone, openFilePicker, openFolderPicker } from '@/components/media/upload-dropzone';
 import { MediaViewer } from '@/components/media/media-viewer';
+import { useVideoPlayback } from '@/components/media/video-playback';
 import { AlbumAudioPlayer } from '@/components/media/album-audio-player';
 import { ShareDialog } from '@/components/media/share-dialog';
 import { AlbumGrid, type Density } from '@/components/media/album-grid';
@@ -225,19 +226,35 @@ function AlbumWorkspace() {
   );
   const viewerIndex = viewerKey ? viewable.findIndex((file) => file.key === viewerKey) : -1;
 
-  const openFile = useCallback((file: StoredFile) => {
-    const fileKind = kindOf(file.contentType);
-    if (fileKind === 'audio') {
-      // The player lives on the Audio filter, with the album's whole set.
-      setKind('audio');
-      return;
-    }
-    if (fileKind === 'other') {
-      if (file.url) window.open(file.url, '_blank', 'noopener');
-      return;
-    }
-    setViewerKey(file.key);
-  }, []);
+  const { open: openFilm } = useVideoPlayback();
+  const openFile = useCallback(
+    (file: StoredFile) => {
+      const fileKind = kindOf(file.contentType);
+      if (fileKind === 'audio') {
+        // The player lives on the Audio filter, with the album's whole set.
+        setKind('audio');
+        return;
+      }
+      if (fileKind === 'other') {
+        if (file.url) window.open(file.url, '_blank', 'noopener');
+        return;
+      }
+      // A film goes to the player held above the app, not the lightbox. The
+      // lightbox belongs to this page, so a film opened in it stops the moment
+      // you leave the album; the player carries on in the corner while you look
+      // at something else. The queue is the album's films, so stepping to the
+      // next one does not stop at every photograph in between.
+      if (fileKind === 'video') {
+        openFilm(
+          file,
+          files.filter((candidate) => kindOf(candidate.contentType) === 'video'),
+        );
+        return;
+      }
+      setViewerKey(file.key);
+    },
+    [files, openFilm],
+  );
 
   const selected = useMemo(() => files.filter((file) => selection.has(file.key)), [files, selection]);
   const oneImage = selected.length === 1 && kindOf(selected[0].contentType) === 'image';

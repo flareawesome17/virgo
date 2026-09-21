@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
-import { Image } from 'expo-image';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -356,7 +356,7 @@ function AlbumCard({ album }: { album: Album }) {
     >
       <View style={{ width: '100%', aspectRatio: 4 / 3 }} className="bg-muted">
         {album.cover_url ? (
-          <Image source={{ uri: album.cover_url }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={150} />
+          <RemoteImage source={{ uri: album.cover_url }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={150} />
         ) : (
           <View className="flex-1 items-center justify-center">
             <ImageIcon size={22} className="text-muted-foreground" />

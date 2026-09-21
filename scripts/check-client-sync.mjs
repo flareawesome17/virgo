@@ -39,6 +39,7 @@ const MOBILE = join(root, 'mobile', 'src');
  */
 const PLATFORM_SPECIFIC = {
   'api/client.ts': 'different fetch and refresh plumbing',
+  'api/client-identity.ts': 'Platform.OS and expo-constants vs the desktop flag and user agent',
   'api/config.ts': 'EXPO_PUBLIC_* vs NEXT_PUBLIC_*',
   'api/tokens.ts': 'SecureStore vs localStorage',
   'api/index.ts': 'exports differ with the platform files',

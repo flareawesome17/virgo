@@ -1,7 +1,38 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { cn } from '@/lib/utils';
+
+const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
+
+/** One query for every Reveal on the page; `matches` stays live. */
+let motionQuery: MediaQueryList | undefined;
+
+function reducedMotionQuery(): MediaQueryList {
+  motionQuery ??= window.matchMedia(REDUCED_MOTION);
+  return motionQuery;
+}
+
+function prefersReducedMotion(): boolean {
+  return reducedMotionQuery().matches;
+}
+
+function subscribeToReducedMotion(onChange: () => void): () => void {
+  const query = reducedMotionQuery();
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+}
+
+/** The server cannot know, and the page it sends is the animated one. */
+function reducedMotionOnServer(): boolean {
+  return false;
+}
 
 /**
  * Reveals its children when they scroll into view.
@@ -44,24 +75,30 @@ export function Reveal({
   as?: 'div' | 'section' | 'li' | 'span';
 }) {
   const ref = useRef<HTMLElement>(null);
-  const [shown, setShown] = useState(false);
+  const [inView, setInView] = useState(false);
+
+  // Anyone who has asked for less motion gets the end state immediately, from
+  // the first render after hydration rather than once an effect has run.
+  const reducedMotion = useSyncExternalStore(
+    subscribeToReducedMotion,
+    prefersReducedMotion,
+    reducedMotionOnServer,
+  );
+  const shown = reducedMotion || inView;
 
   useEffect(() => {
     const node = ref.current;
-    if (!node) return;
-
-    // Anyone who has asked for less motion gets the end state immediately.
-    // Checked here rather than only in CSS so the observer is never even set
-    // up, and the content is present for anything that does not run effects.
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setShown(true);
-      return;
-    }
+    // Checked here as well as in CSS so the observer is never even set up for
+    // them. Read live rather than from `reducedMotion`, which still holds the
+    // server's answer when this first runs after hydration. Runs again if the
+    // preference changes, so switching it off mid-page sets up the observer
+    // that was skipped rather than leaving the content hidden.
+    if (!node || prefersReducedMotion()) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry.isIntersecting) return;
-        setShown(true);
+        setInView(true);
         observer.disconnect();
       },
       // A negative bottom margin means it fires slightly before the element
@@ -72,7 +109,7 @@ export function Reveal({
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [reducedMotion]);
 
   return (
     <Tag

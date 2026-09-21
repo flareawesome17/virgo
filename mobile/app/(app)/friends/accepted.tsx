@@ -1,4 +1,5 @@
-import { View, Text, Pressable, Image } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
+import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { UserCheckIcon, UsersIcon, MessageCircleIcon } from 'lucide-react-native';
@@ -28,7 +29,7 @@ export default function FriendRequestAcceptedScreen() {
 
         {/* Friend card */}
         <View className="mt-8 bg-card rounded-2xl p-5 items-center w-full" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}>
-          <Image
+          <RemoteImage
             source={{ uri: avatar || PLACEHOLDER_IMAGE }}
             style={{ width: 72, height: 72, borderRadius: 36 }}
           />

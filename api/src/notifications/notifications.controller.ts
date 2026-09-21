@@ -18,6 +18,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { parseClient } from './app-update-targeting';
 import { NotificationFeedService } from './notification-feed.service';
 import { PushService } from './push.service';
 import { ReminderDispatcherService } from './reminder-dispatcher.service';
@@ -37,6 +38,19 @@ export class RegisterPushTokenDto {
 
   @IsIn(['ios', 'android', 'web'])
   platform!: 'ios' | 'android' | 'web';
+
+  /**
+   * The app version the device is running, so an update announcement is
+   * pushed only to phones it applies to. Optional because builds from before
+   * it existed do not send it — those devices simply are not pushed
+   * announcements, which is also what keeps a push off a phone that has no
+   * channel to show it on.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  @Matches(/^v?\d{1,6}(\.\d{1,6}){0,3}$/, { message: 'Not a version number' })
+  appVersion?: string;
 }
 
 export class UnregisterPushTokenDto {
@@ -71,29 +85,54 @@ export class NotificationsController {
    *
    * Returns the unread count alongside the page, so opening the list and
    * showing the badge is one request rather than two that can disagree.
+   *
+   * `platform` and `version` say what the asking client is, and bring in the
+   * update announcements meant for it. Query parameters rather than headers:
+   * a custom header from the browser would cost a CORS preflight on every poll.
+   * An unrecognised or missing platform shows no announcements, never all.
    */
   @Get()
   list(
     @CurrentUser('id') userId: string,
     @Query('limit') limit?: string,
     @Query('before') before?: string,
+    @Query('platform') platform?: string,
+    @Query('version') version?: string,
   ) {
     return this.feed.list(userId, {
       limit: limit ? Number(limit) : undefined,
       before,
+      client: parseClient(platform, version),
     });
   }
 
   /** Just the badge, for the poll. */
   @Get('unread-count')
-  async unreadCount(@CurrentUser('id') userId: string) {
-    return { count: await this.feed.unreadCount(userId) };
+  async unreadCount(
+    @CurrentUser('id') userId: string,
+    @Query('platform') platform?: string,
+    @Query('version') version?: string,
+  ) {
+    return {
+      count: await this.feed.unreadCount(userId, parseClient(platform, version)),
+    };
   }
 
   @HttpCode(200)
   @Post('read')
-  async markRead(@CurrentUser('id') userId: string, @Body() dto: MarkReadDto) {
-    return { updated: await this.feed.markRead(userId, dto.ids) };
+  async markRead(
+    @CurrentUser('id') userId: string,
+    @Body() dto: MarkReadDto,
+    @Query('platform') platform?: string,
+    @Query('version') version?: string,
+  ) {
+    return {
+      updated: await this.feed.markRead(
+        userId,
+        dto.ids,
+        parseClient(platform, version),
+      ),
+    };
   }
 
   /** Called by the app once it has permission and a token. */
@@ -103,7 +142,7 @@ export class NotificationsController {
     @CurrentUser('id') userId: string,
     @Body() dto: RegisterPushTokenDto,
   ): Promise<void> {
-    await this.push.registerToken(userId, dto.token, dto.platform);
+    await this.push.registerToken(userId, dto.token, dto.platform, dto.appVersion);
   }
 
   /** Called on sign-out so a shared device stops receiving the old account. */

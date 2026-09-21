@@ -44,7 +44,14 @@ export type NotificationTopic =
   /** A booking was created, changed, agreed or cancelled. */
   | 'booking'
   /** A reward is being offered to this account, and is waiting to be claimed. */
-  | 'promo';
+  | 'promo'
+  /**
+   * A new version of the app this client is running. Never sent over the
+   * socket — it is targeted at a platform and version, and a socket frame goes
+   * to every session an account has open, phone and browser alike. It reaches
+   * the list through the feed, which asks each client what it is.
+   */
+  | 'app-update';
 
 /** What the server pushes. Discriminated on `type`. */
 export type ServerEvent =

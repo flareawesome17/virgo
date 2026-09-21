@@ -13,6 +13,7 @@ export {
 export { RolePicker } from '@/components/RolePicker'
 export { RolesRequiredSheet } from '@/components/RolesRequired'
 export { VerifyEmailBanner } from '@/components/VerifyEmailBanner'
+export { RemoteImage, stableCacheKey } from '@/components/RemoteImage'
 export {
   PresenceDot,
   PresenceLine,
@@ -28,3 +29,6 @@ export { AppTopBar } from '@/components/AppTopBar'
 export { StorageRing } from '@/components/StorageRing'
 export { UploadBar } from '@/components/UploadBar'
 export { BookingsList } from '@/components/BookingsList'
+export { UpdateBanner } from '@/components/UpdateBanner'
+export { VideoPlayer } from '@/components/VideoPlayer'
+export { VideoSurface } from '@/components/VideoSurface'
