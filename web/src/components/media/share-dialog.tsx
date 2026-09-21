@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Check, Copy, ExternalLink, Link2, Loader2, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -65,10 +65,14 @@ export function ShareDialog({
   const [confirmingRevoke, setConfirmingRevoke] = useState(false);
 
   // Seed the boxes from the live link so re-opening shows what is actually
-  // shared, not the defaults.
-  useEffect(() => {
+  // shared, not the defaults. Again whenever the link itself changes — it
+  // loads, or an update comes back — and during render rather than in an
+  // effect, so the boxes never paint the defaults first.
+  const [seededFrom, setSeededFrom] = useState<typeof link>(null);
+  if (link !== seededFrom) {
+    setSeededFrom(link);
     if (link) setKinds(link.kinds);
-  }, [link]);
+  }
 
   const copy = async () => {
     if (!link) return;

@@ -64,7 +64,13 @@ function HandleField({
   const [debounced, setDebounced] = useState('');
   const setHandle = useSetHandle();
 
-  useEffect(() => setValue(current ?? ''), [current]);
+  // Follows the saved handle whenever it changes — a claim lands, or the
+  // settings refetch — adjusted during render rather than in an effect.
+  const [shownFor, setShownFor] = useState(current);
+  if (current !== shownFor) {
+    setShownFor(current);
+    setValue(current ?? '');
+  }
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(value.trim().toLowerCase()), 350);
@@ -171,9 +177,13 @@ function AddImagesDialog({
     enabled: open,
   });
 
-  useEffect(() => {
+  // A selection belongs to one opening of the picker, so closing it clears
+  // the selection. Adjusted during render rather than in an effect.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (!open) setSelected([]);
-  }, [open]);
+  }
 
   const available = (files.data?.data ?? []).filter(
     (file) => kindOf(file.contentType) === 'image' && file.url && !chosen.has(file.key),
