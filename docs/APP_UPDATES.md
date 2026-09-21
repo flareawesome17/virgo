@@ -27,6 +27,7 @@ A client sees an announcement when **all** of these hold:
 | its version is within `min_version`…`max_version`, when either is set | an OTA reaches exactly one native version |
 | the announcement was published after the account was created | a new account has no use for old notes |
 | the announcement is under 90 days old | the same window the notification list keeps |
+| they have not deleted it | deleting one hides it from that account's list, not anyone else's |
 
 Platforms are `web`, `windows`, `macos` (the desktop app), `ios` and `android`
 (the phone app).
@@ -72,6 +73,8 @@ Announcements are pushed only to devices that did. That is what makes version
 targeting possible, and it is also what guarantees the device can show the
 push: registering creates the Android "App updates" channel first, and Android
 does not display a notification sent to a channel the device never created.
+An account that switched off App updates for push, in its notification
+settings, is left out as well.
 
 Devices registered by a build older than this feature report no version, so they
 are not pushed announcements until they update — which, for an OTA, is their

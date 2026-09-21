@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { AppUpdatesController } from './app-updates.controller';
 import { AppUpdatesService } from './app-updates.service';
 import { NotificationFeedService } from './notification-feed.service';
+import { NotificationSettingsService } from './notification-settings.service';
 import { NotificationsController } from './notifications.controller';
 import { NotifyService } from './notify.service';
 import { PushService } from './push.service';
@@ -22,6 +23,9 @@ import { ReminderDispatcherService } from './reminder-dispatcher.service';
     NotifyService,
     ReminderDispatcherService,
     NotificationFeedService,
+    // Read by NotifyService on every delivery, written only by the settings
+    // endpoints here, so not exported either.
+    NotificationSettingsService,
     // Here rather than in a module of its own: the feed reads it and it pushes
     // through PushService, so a separate module would import this one while
     // this one imported it.

@@ -103,11 +103,14 @@ export class AppUpdatesService {
    * The database narrows by platform, age and the account's own start date,
    * which are cheap; version bounds are checked here, because comparing
    * `1.10.0` with `1.9.0` correctly is not something text comparison does.
+   * One this account deleted is gone from its list, though not from anyone
+   * else's.
    */
   async visibleTo(
     userId: string,
     client: Client,
     before: Date | null = null,
+    only: string | null = null,
   ): Promise<FeedItem[]> {
     const rows = await this.db.query<UpdateRow>(
       `select u.id, u.platforms, u.min_version, u.max_version, u.version,
@@ -120,11 +123,19 @@ export class AppUpdatesService {
           and u.published_at >= me.created_at
           and u.published_at > now() - make_interval(days => $3)
           and ($4::timestamptz is null or u.published_at < $4)
+          and r.hidden_at is null
+          and ($6::uuid is null or u.id = $6)
         order by u.published_at desc
         limit $5`,
-      [userId, client.platform, RETENTION_DAYS, before, MAX_CANDIDATES],
+      [userId, client.platform, RETENTION_DAYS, before, MAX_CANDIDATES, only],
     );
     return rows.filter((row) => appliesTo(targetOf(row), client)).map(present);
+  }
+
+  /** One announcement, if this client can see it. */
+  async one(userId: string, client: Client, id: string): Promise<FeedItem | null> {
+    const [item] = await this.visibleTo(userId, client, null, id);
+    return item ?? null;
   }
 
   async unreadCount(userId: string, client: Client): Promise<number> {
@@ -157,12 +168,53 @@ export class AppUpdatesService {
     }
     if (updateIds.length === 0) return 0;
 
+    // An upsert, not insert-or-nothing: a row marked unread again keeps its
+    // place (and whether it was hidden) and only gets its read time back.
     const rows = await this.db.query<{ update_id: string }>(
-      `insert into app_update_reads (user_id, update_id)
-       select $1, u.id from app_updates u where u.id = any($2::uuid[])
-       on conflict do nothing
+      `insert into app_update_reads (user_id, update_id, read_at)
+       select $1, u.id, now() from app_updates u where u.id = any($2::uuid[])
+       on conflict (user_id, update_id) do update
+         set read_at = now()
+         where app_update_reads.read_at is null
        returning update_id`,
       [userId, updateIds],
+    );
+    return rows.length;
+  }
+
+  /**
+   * Marks announcements unread again. Only ids that are announcements this
+   * account has read are touched; the rest of the ids are ordinary
+   * notifications, or already unread.
+   */
+  async markUnread(userId: string, ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const rows = await this.db.query<{ update_id: string }>(
+      `update app_update_reads set read_at = null
+        where user_id = $1
+          and update_id = any($2::uuid[])
+          and read_at is not null
+       returning update_id`,
+      [userId, [...ids]],
+    );
+    return rows.length;
+  }
+
+  /**
+   * Deletes announcements from this account's list.
+   *
+   * The announcement is shared, so this marks it hidden for them rather than
+   * removing it — and read, so it can never count towards a badge again.
+   */
+  async hide(userId: string, ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const rows = await this.db.query<{ update_id: string }>(
+      `insert into app_update_reads (user_id, update_id, read_at, hidden_at)
+       select $1, u.id, now(), now() from app_updates u where u.id = any($2::uuid[])
+       on conflict (user_id, update_id) do update
+         set hidden_at = coalesce(app_update_reads.hidden_at, now())
+       returning update_id`,
+      [userId, [...ids]],
     );
     return rows.length;
   }
@@ -229,11 +281,15 @@ export class AppUpdatesService {
       platform: ClientPlatform;
       app_version: string | null;
     }>(
-      `select token, platform, app_version
-         from push_tokens
-        where disabled_at is null
-          and app_version is not null
-          and platform = any($1)`,
+      // Minus anyone who switched announcement pushes off. No settings row, or
+      // no word on it, is on — as it was for everyone before settings existed.
+      `select t.token, t.platform, t.app_version
+         from push_tokens t
+         left join notification_settings ns on ns.user_id = t.user_id
+        where t.disabled_at is null
+          and t.app_version is not null
+          and t.platform = any($1)
+          and coalesce((ns.channels -> 'updates' ->> 'push')::boolean, true)`,
       [phones],
     );
 
