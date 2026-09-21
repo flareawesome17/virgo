@@ -40,6 +40,10 @@ export interface PortfolioAlbum {
   name: string;
   caption: string | null;
   coverUrl: string | null;
+  /**
+   * The photographs in the album, counted on every read. Photographs only,
+   * because that is all the gallery at `url` shows (see `addAlbum`).
+   */
   itemCount: number;
   /** The public gallery, on the share host. Never the client's own link. */
   url: string | null;
@@ -58,7 +62,8 @@ interface ItemRow {
   album_name: string | null;
   /** A cover stored as a URL, from before covers were chosen by key. */
   album_cover_url: string | null;
-  album_item_count: number | null;
+  /** As text: `count(*)` is a bigint, which the driver hands back as a string. */
+  album_photo_count: string;
   share_token: string | null;
   /** The photograph chosen as the cover, while it is still in the album. */
   chosen_cover_key: string | null;
@@ -105,6 +110,11 @@ export class PortfolioService {
    * moved out of it is a stale reference like any other. Being in this user's
    * album is the ownership check for both, because an album's files are
    * billed to its owner, whoever uploaded them.
+   *
+   * The photograph count is scoped the same way: the album's own rows,
+   * counted. It used to be `albums.item_count`, a counter the app bumped
+   * after each upload that nothing kept true, which the app's cards stopped
+   * trusting for the same reason.
    */
   async list(
     userId: string,
@@ -114,7 +124,10 @@ export class PortfolioService {
       `select p.id, p.kind, p.file_key, p.album_id, p.caption,
               a.name        as album_name,
               a.cover_url   as album_cover_url,
-              a.item_count  as album_item_count,
+              (select count(*)::text
+                 from user_files f3
+                where f3.album_id = a.id
+                  and f3.content_type like 'image/%') as album_photo_count,
               l.token       as share_token,
               c.key         as chosen_cover_key,
               c.thumb_key   as chosen_cover_thumb_key,
@@ -198,7 +211,7 @@ export class PortfolioService {
           shownKey(row.derived_cover_key, row.derived_cover_thumb_key),
           PUBLISHED_URL_TTL_SECONDS,
         )),
-      itemCount: row.album_item_count ?? 0,
+      itemCount: Number(row.album_photo_count),
       url: row.share_token ? this.shares.urlFor(row.share_token) : null,
       ...(forOwner ? { albumId: row.album_id! } : {}),
     };

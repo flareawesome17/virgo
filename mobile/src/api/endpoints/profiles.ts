@@ -26,6 +26,7 @@ export interface PortfolioAlbum {
   name: string;
   caption: string | null;
   coverUrl: string | null;
+  /** The photographs in the album, which are all its gallery at `url` shows. */
   itemCount: number;
   url: string | null;
   /** Owner's list only, so the picker can hide albums already showcased. */
