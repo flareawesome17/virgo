@@ -7,6 +7,12 @@ import {
   RealtimeGateway,
   type NotificationTopic,
 } from '../realtime/realtime.gateway';
+import {
+  allows,
+  CATEGORY_OF_TOPIC,
+  type NotificationChannel,
+} from './notification-categories';
+import { NotificationSettingsService } from './notification-settings.service';
 import { PushService, type PushMessage } from './push.service';
 
 export interface Notification {
@@ -87,6 +93,7 @@ export class NotifyService {
     private readonly realtime: RealtimeGateway,
     private readonly mail: MailService,
     private readonly db: DatabaseService,
+    private readonly settings: NotificationSettingsService,
   ) {}
 
   /** Sends one notification to one or more people. */
@@ -142,14 +149,32 @@ export class NotifyService {
       });
     });
 
+    // What each recipient switched off, read once for the batch. The list and
+    // the live frame above are not subject to it: those are where a
+    // notification is kept, and settings choose only what reaches you
+    // elsewhere. If it cannot be read, everything goes out as it did before
+    // settings existed — a notification lost to a failed lookup is worse than
+    // one the person would rather not have had.
+    let stored = new Map<string, unknown>();
     try {
+      stored = await this.settings.storedFor([
+        ...new Set(deliveries.map((d) => d.userId)),
+      ]);
+    } catch (err) {
+      this.logger.warn(`Could not read notification settings: ${String(err)}`);
+    }
+    const wants = (d: Delivery, channel: NotificationChannel) =>
+      allows(stored.get(d.userId), CATEGORY_OF_TOPIC[d.topic], channel);
+
+    try {
+      const pushed = deliveries.filter((d) => wants(d, 'push'));
       const tokensByUser = new Map<string, string[]>();
-      for (const userId of new Set(deliveries.map((d) => d.userId))) {
+      for (const userId of new Set(pushed.map((d) => d.userId))) {
         tokensByUser.set(userId, await this.push.tokensFor(userId));
       }
 
       const messages: PushMessage[] = [];
-      for (const d of deliveries) {
+      for (const d of pushed) {
         for (const to of tokensByUser.get(d.userId) ?? []) {
           messages.push({
             to,
@@ -167,7 +192,7 @@ export class NotifyService {
       }
 
       const result = await this.push.send(messages);
-      await this.sendEmails(deliveries);
+      await this.sendEmails(deliveries.filter((d) => wants(d, 'email')));
       return result;
     } catch (err) {
       this.logger.warn(`Notification delivery failed: ${String(err)}`);

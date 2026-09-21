@@ -42,7 +42,13 @@ export {
 } from './endpoints/promos';
 export {
   notificationsApi,
+  CATEGORY_OF_TOPIC,
+  NOTIFICATION_CATEGORIES,
   type AppNotification,
+  type NotificationCategory,
+  type NotificationChannel,
+  type NotificationListParams,
+  type NotificationSetting,
   type NotificationTopic,
 } from './endpoints/notifications';
 export {

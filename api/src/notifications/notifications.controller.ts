@@ -1,15 +1,22 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   HttpCode,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsOptional,
   IsString,
@@ -19,7 +26,15 @@ import {
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { parseClient } from './app-update-targeting';
+import {
+  isNotificationCategory,
+  NOTIFICATION_CATEGORIES,
+  NOTIFICATION_CHANNELS,
+  type NotificationCategory,
+  type NotificationChannel,
+} from './notification-categories';
 import { NotificationFeedService } from './notification-feed.service';
+import { NotificationSettingsService } from './notification-settings.service';
 import { PushService } from './push.service';
 import { ReminderDispatcherService } from './reminder-dispatcher.service';
 
@@ -72,12 +87,34 @@ export class MarkReadDto {
   ids?: string[];
 }
 
+/** Marking unread and deleting always name what they act on. */
+export class NotificationIdsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsUUID('4', { each: true })
+  ids!: string[];
+}
+
+/** One switch on the settings screen. */
+export class UpdateNotificationSettingDto {
+  @IsIn(NOTIFICATION_CATEGORIES)
+  category!: NotificationCategory;
+
+  @IsIn(NOTIFICATION_CHANNELS)
+  channel!: NotificationChannel;
+
+  @IsBoolean()
+  enabled!: boolean;
+}
+
 @Controller('notifications')
 export class NotificationsController {
   constructor(
     private readonly push: PushService,
     private readonly dispatcher: ReminderDispatcherService,
     private readonly feed: NotificationFeedService,
+    private readonly settings: NotificationSettingsService,
   ) {}
 
   /**
@@ -90,6 +127,10 @@ export class NotificationsController {
    * update announcements meant for it. Query parameters rather than headers:
    * a custom header from the browser would cost a CORS preflight on every poll.
    * An unrecognised or missing platform shows no announcements, never all.
+   *
+   * `unread=1` and `category=…` narrow it, for the list's filters. They are
+   * applied on the server so that "show earlier" pages through what the
+   * filter shows, rather than through everything and coming back half empty.
    */
   @Get()
   list(
@@ -98,11 +139,18 @@ export class NotificationsController {
     @Query('before') before?: string,
     @Query('platform') platform?: string,
     @Query('version') version?: string,
+    @Query('unread') unread?: string,
+    @Query('category') category?: string,
   ) {
+    if (category !== undefined && !isNotificationCategory(category)) {
+      throw new BadRequestException('Unknown notification category');
+    }
     return this.feed.list(userId, {
       limit: limit ? Number(limit) : undefined,
       before,
       client: parseClient(platform, version),
+      unread: unread === '1' || unread === 'true',
+      category: category ?? null,
     });
   }
 
@@ -132,6 +180,45 @@ export class NotificationsController {
         dto.ids,
         parseClient(platform, version),
       ),
+    };
+  }
+
+  @HttpCode(200)
+  @Post('unread')
+  async markUnread(
+    @CurrentUser('id') userId: string,
+    @Body() dto: NotificationIdsDto,
+  ) {
+    return { updated: await this.feed.markUnread(userId, dto.ids) };
+  }
+
+  /**
+   * A POST rather than DELETE with a body: a body on DELETE is legal but
+   * dropped by enough proxies to not be worth relying on, and this takes a
+   * list so that several can go at once.
+   */
+  @HttpCode(200)
+  @Post('delete')
+  async remove(
+    @CurrentUser('id') userId: string,
+    @Body() dto: NotificationIdsDto,
+  ) {
+    return { deleted: await this.feed.remove(userId, dto.ids) };
+  }
+
+  /** Which kinds reach this account where, for the settings screen. */
+  @Get('settings')
+  async getSettings(@CurrentUser('id') userId: string) {
+    return { data: await this.settings.get(userId) };
+  }
+
+  @Patch('settings')
+  async updateSetting(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateNotificationSettingDto,
+  ) {
+    return {
+      data: await this.settings.set(userId, dto.category, dto.channel, dto.enabled),
     };
   }
 
@@ -177,5 +264,24 @@ export class NotificationsController {
       })),
     );
     return { ...result, devices: tokens.length };
+  }
+
+  /**
+   * One notification, for the detail view.
+   *
+   * Declared last, because as a pattern it would otherwise answer for
+   * `unread-count` and `settings`. Someone else's id and one that has gone
+   * get the same 404, so this cannot tell anyone whether a notification exists.
+   */
+  @Get(':id')
+  async one(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Query('platform') platform?: string,
+    @Query('version') version?: string,
+  ) {
+    const item = await this.feed.one(userId, id, parseClient(platform, version));
+    if (!item) throw new NotFoundException('Notification not found');
+    return item;
   }
 }

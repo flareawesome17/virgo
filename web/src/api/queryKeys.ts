@@ -69,7 +69,21 @@ export const queryKeys = {
   notifications: {
     all: ['notifications'] as const,
     list: (limit?: number) => ['notifications', 'list', limit ?? 30] as const,
+    /** The filtered, paged list on the notifications page and screen. */
+    feed: (filter: { unread?: boolean; category?: string | null } = {}) =>
+      [
+        'notifications',
+        'feed',
+        filter.unread ? 'unread' : 'all',
+        filter.category ?? 'every',
+      ] as const,
+    detail: (id: string) => ['notifications', 'detail', id] as const,
     unread: ['notifications', 'unread'] as const,
+    /**
+     * Outside `all` on purpose: marking something read invalidates `all`, and
+     * that is no reason to fetch the settings again.
+     */
+    settings: ['notification-settings'] as const,
   },
   support: {
     all: ['support'] as const,

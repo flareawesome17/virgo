@@ -58,6 +58,12 @@ tauri-plugin-updater = "2"
 # the process, so this is the updater's dependency rather than its own feature.
 tauri-plugin-process = "2"
 
+# System notifications. It also stands in for the browser's `Notification` API,
+# which the webview does not have, so the web client's existing alerts work in
+# the app unchanged. 2.4 needs tauri ^2.10, which the lock already satisfies, so
+# adding it moves nothing else.
+tauri-plugin-notification = "2.4"
+
 # Nothing else. The Node process is started with std::process::Command and the
 # webview is moved with `eval`, so neither tauri-plugin-shell nor
 # tauri-plugin-http is pulled in.

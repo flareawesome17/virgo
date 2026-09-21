@@ -86,6 +86,9 @@ const SHARED_LIB = [
   // Which day a photograph belongs under. Both galleries group by it, and a
   // difference here puts the same frame under different days on each.
   'media-days.ts',
+  // What each kind of notification is called, and how the list groups by day.
+  // The same notification must read the same in the browser and on the phone.
+  'notification-categories.ts',
   'ph-locations.ts',
   'presence-store.ts',
   'queryClient.ts',

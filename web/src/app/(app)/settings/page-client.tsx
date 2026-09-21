@@ -298,10 +298,10 @@ export default function SettingsPage() {
                 permission === 'unsupported'
                   ? 'This browser does not support notifications.'
                   : permission === 'granted'
-                    ? 'New messages notify you when this tab is in the background.'
+                    ? 'Alerts show on this computer while Virgo is in the background.'
                     : permission === 'denied'
                       ? 'Blocked for this site. Allow it in your browser settings.'
-                      : 'Get notified about new messages while this tab is behind others.'
+                      : 'Get alerts on this computer while Virgo is in the background.'
               }
             >
               {permission === 'granted' ? (
@@ -352,6 +352,21 @@ export default function SettingsPage() {
                 }}
                 aria-label="Notification sound"
               />
+            </SettingRow>
+
+            {/* Everything above is this device; this is the account — which
+                kinds of notification follow you to your phone and inbox. */}
+            <SettingRow
+              icon={Bell}
+              title="What reaches you"
+              detail="Choose which kinds of notification reach your phone and your inbox."
+            >
+              <Button asChild size="sm" variant="outline">
+                <Link href="/settings/notifications">
+                  Choose
+                  <ChevronRight className="size-4" />
+                </Link>
+              </Button>
             </SettingRow>
           </CardContent>
         </Card>

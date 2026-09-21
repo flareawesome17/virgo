@@ -4,6 +4,7 @@ import { DatabaseService } from '../database/database.service';
 import type { NotificationTopic } from '../realtime/realtime.gateway';
 import type { Client } from './app-update-targeting';
 import { AppUpdatesService } from './app-updates.service';
+import { topicsIn, type NotificationCategory } from './notification-categories';
 
 /** One stored notification, as the clients see it. */
 export interface FeedItem {
@@ -67,15 +68,27 @@ export class NotificationFeedService {
    * to one page together, so anything older from either lands on the next
    * page rather than being skipped. Without one — an app too old to say what
    * it is — the list is exactly what it always was.
+   *
+   * `unread` and `category` narrow both sources the same way. Announcements
+   * are the whole of the `updates` category and no part of any other.
    */
   async list(
     userId: string,
-    params: { limit?: number; before?: string; client?: Client | null } = {},
+    params: {
+      limit?: number;
+      before?: string;
+      client?: Client | null;
+      unread?: boolean;
+      category?: NotificationCategory | null;
+    } = {},
   ): Promise<{ data: FeedItem[]; unread: number }> {
     const limit = Math.min(Math.max(params.limit ?? 30, 1), 100);
     const parsed = params.before ? new Date(params.before) : null;
     const before = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
     const client = params.client ?? null;
+    const unreadOnly = params.unread === true;
+    const category = params.category ?? null;
+    const withAnnouncements = client !== null && (category === null || category === 'updates');
 
     const [rows, announcements] = await Promise.all([
       this.db.query<FeedRow>(
@@ -83,18 +96,79 @@ export class NotificationFeedService {
            from notifications
           where user_id = $1
             and ($3::timestamptz is null or created_at < $3)
+            and ($4::boolean is not true or read_at is null)
+            and ($5::text[] is null or topic = any($5::text[]))
           order by created_at desc
           limit $2`,
-        [userId, limit, before],
+        [userId, limit, before, unreadOnly, category ? topicsIn(category) : null],
       ),
-      client ? this.updates.visibleTo(userId, client, before) : Promise.resolve([]),
+      withAnnouncements
+        ? this.updates.visibleTo(userId, client, before)
+        : Promise.resolve([]),
     ]);
 
-    const data = [...rows.map(present), ...announcements]
+    const data = [
+      ...rows.map(present),
+      ...announcements.filter((item) => !unreadOnly || !item.readAt),
+    ]
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       .slice(0, limit);
 
     return { data, unread: await this.unreadCount(userId, client) };
+  }
+
+  /**
+   * One notification, for the detail view — and for a link to it, which is
+   * why this does not assume the list was loaded first. Scoped to the caller
+   * like everything here: someone else's id reads as not found.
+   */
+  async one(
+    userId: string,
+    id: string,
+    client: Client | null = null,
+  ): Promise<FeedItem | null> {
+    const row = await this.db.queryOne<FeedRow>(
+      `select id, topic, title, body, data, read_at, created_at
+         from notifications
+        where user_id = $1 and id = $2`,
+      [userId, id],
+    );
+    if (row) return present(row);
+    return client ? this.updates.one(userId, client, id) : null;
+  }
+
+  /** The reverse of markRead, for something someone wants to come back to. */
+  async markUnread(userId: string, ids: readonly string[]): Promise<number> {
+    const [rows, announcements] = await Promise.all([
+      this.db.query<{ id: string }>(
+        `update notifications set read_at = null
+          where user_id = $1
+            and read_at is not null
+            and id = any($2::uuid[])
+          returning id`,
+        [userId, [...ids]],
+      ),
+      this.updates.markUnread(userId, ids),
+    ]);
+    return rows.length + announcements;
+  }
+
+  /**
+   * Deletes notifications from this account's list. Only the notification:
+   * the booking or application it was about is untouched. Announcements are
+   * shared, so for them this hides the one copy this account sees.
+   */
+  async remove(userId: string, ids: readonly string[]): Promise<number> {
+    const [rows, announcements] = await Promise.all([
+      this.db.query<{ id: string }>(
+        `delete from notifications
+          where user_id = $1 and id = any($2::uuid[])
+          returning id`,
+        [userId, [...ids]],
+      ),
+      this.updates.hide(userId, ids),
+    ]);
+    return rows.length + announcements;
   }
 
   /** Unread notifications, plus unread announcements for this client. */

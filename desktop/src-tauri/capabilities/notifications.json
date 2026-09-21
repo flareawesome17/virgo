@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notifications",
+  "//": "Must also be listed in app.security.capabilities in tauri.conf.json. A capability absent from that allow-list is parsed and validated and then never enabled, and every command it grants is refused with 'not allowed by ACL' — which reads as a missing permission rather than a switched-off capability.",
+  "description": "Lets the app show system notifications: desktop alerts for notifications that arrive while the window is behind others. Granted to the loopback origin the app is served from. Only the three commands the Notification API stand-in uses — ask whether it is allowed, ask for permission, show one — and nothing that reads, cancels or lists what the system is showing.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:41730/*"]
+  },
+  "permissions": [
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify"
+  ]
+}
