@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -109,8 +110,33 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
       allowsRecording: false,
       shouldRouteThroughEarpiece: false,
     }).catch(() => {});
-    return () => clearLockScreen(player);
   }, [player]);
+
+  /*
+   * Clears the lock-screen controls as the provider goes away, which is
+   * sign-out: it wraps every signed-in screen and unmounts only then.
+   *
+   * A layout effect, not a passive one, so that it runs while the player
+   * still exists. useAudioPlayer releases the native player in a passive
+   * cleanup of its own, and passive cleanups run in the order the hooks were
+   * called, so this ran second and called into a released player. Native
+   * throws for that ("Unable to find the native shared object"), and nothing
+   * catches a throw from a cleanup: the app crashed on every sign-out. Layout
+   * cleanups all run before passive ones.
+   *
+   * Guarded as well, like the video player's cleanup: a released player has
+   * no lock-screen controls left to clear.
+   */
+  useLayoutEffect(
+    () => () => {
+      try {
+        clearLockScreen(player);
+      } catch {
+        // Already released.
+      }
+    },
+    [player],
+  );
 
   const activate = useCallback(
     (file: StoredFile, index: number) => {
