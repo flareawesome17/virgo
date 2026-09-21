@@ -694,7 +694,8 @@ had more than anyone would like.
 |---|---|
 | `deleteObject` | `removeFor([key])` |
 | `deleteMany` | `removeFor(known)` — every requested key with a row, not only what came back deleted |
-| `wipeAll` | `removeTree('users/<id>')` — one call, and it collects orphans too |
+| `wipeAll` | `removeTree('users/<id>')` — one call, and it collects orphans too — plus `removeFor` for collaborators' uploads into the user's albums, which live under the collaborator's prefix |
+| `wipeAll`, when the user has uploads in someone else's album | `removeFor` on every original it wiped, and no tree: those uploads are billed to that album's owner and outlive the wipe, and their renditions share the tree. Orphans under the prefix are left behind |
 
 ### Still outstanding
 

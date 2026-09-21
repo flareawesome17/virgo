@@ -656,23 +656,41 @@ export class QuotaService {
     return [...new Set(expanded.filter((key): key is string => !!key))];
   }
 
-  /** Every key this user has stored, for a full wipe. */
-  async allKeys(userId: string): Promise<string[]> {
-    const rows = await this.db.query<{
-      key: string;
-      thumb_key: string | null;
-      poster_key: string | null;
-    }>(
+  /**
+   * Every file billed to this user, for a full wipe.
+   *
+   * Billed, not uploaded: this includes what collaborators put into the
+   * user's albums, which keeps the collaborator's key prefix. Rows rather
+   * than a flat key list, because the wipe has to know which keys are
+   * originals — renditions are named after those, not after thumbnails.
+   */
+  async allFiles(
+    userId: string,
+  ): Promise<Pick<StoredFile, 'key' | 'thumb_key' | 'poster_key'>[]> {
+    return this.db.query<Pick<StoredFile, 'key' | 'thumb_key' | 'poster_key'>>(
       'select key, thumb_key, poster_key from user_files where user_id = $1',
       [userId],
     );
-    return [
-      ...new Set(
-        rows
-          .flatMap((row) => [row.key, row.thumb_key, row.poster_key])
-          .filter((key): key is string => !!key),
-      ),
-    ];
+  }
+
+  /**
+   * Whether anything under this user's key prefix is billed to someone else.
+   *
+   * That is an upload of theirs into another person's album. It keeps the
+   * uploader's prefix but belongs to the album's owner, so it outlives the
+   * uploader's wipe — and its renditions sit in the same tree as theirs.
+   *
+   * Not index-assisted, and does not need to be: the only caller is the wipe.
+   */
+  async hasUploadsBilledToOthers(userId: string): Promise<boolean> {
+    const row = await this.db.queryOne<{ found: boolean }>(
+      `select exists (
+         select 1 from user_files
+          where user_id <> $1 and starts_with(key, $2)
+       ) as found`,
+      [userId, `users/${userId}/`],
+    );
+    return row?.found ?? false;
   }
 
   /**

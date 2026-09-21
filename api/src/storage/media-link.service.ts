@@ -352,8 +352,11 @@ export class MediaLinkService {
    *
    * A wipe deletes the user's originals from B2, and deriving a rendition
    * name for each of several thousand keys to unlink them one at a time is
-   * both slower and less complete than removing the subtree they all live
-   * under. Never throws, for the same reason `removeFor` does not.
+   * both slower and less complete than removing the subtree they live under.
+   * That subtree is the uploader's rather than the album owner's, though, so
+   * a wipe only takes it when nothing in it outlives the wipe — see
+   * `StorageService.wipeAll`. Never throws, for the same reason `removeFor`
+   * does not.
    */
   async removeTree(prefix: string): Promise<void> {
     if (!this.root || !this.isSafeKey(prefix)) return;
