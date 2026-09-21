@@ -230,7 +230,9 @@ export default function PublicProfileScreen() {
                       {item.kind === 'album' ? item.name : (item.caption ?? 'Photo')}
                     </Text>
                     <Text className="text-muted-foreground text-[11px]">
-                      {item.kind === 'album' ? `Gallery · ${item.itemCount} items` : 'Photo'}
+                      {item.kind === 'album'
+                        ? `Gallery · ${item.itemCount} ${item.itemCount === 1 ? 'photo' : 'photos'}`
+                        : 'Photo'}
                     </Text>
                   </View>
 

@@ -390,7 +390,9 @@ function PortfolioRow({
           {item.kind === 'album' ? item.name : (item.caption ?? 'Photo')}
         </p>
         <p className="text-xs text-muted-foreground">
-          {item.kind === 'album' ? `Gallery · ${item.itemCount} items` : 'Photo'}
+          {item.kind === 'album'
+            ? `Gallery · ${item.itemCount} ${item.itemCount === 1 ? 'photo' : 'photos'}`
+            : 'Photo'}
         </p>
       </div>
 
