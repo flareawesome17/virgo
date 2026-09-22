@@ -22,6 +22,7 @@ import { QuotaModule } from './quota/quota.module';
 import { MailModule } from './mail/mail.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RemindersModule } from './reminders/reminders.module';
+import { SafetyModule } from './safety/safety.module';
 import { ScheduleEventsModule } from './schedule-events/schedule-events.module';
 import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -41,13 +42,21 @@ import { PromosModule } from './promos/promos.module';
     AdminModule,
     VisitsModule,
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
+    // The object form only to set the message: the apps show a 429's text
+    // word for word, and the library's default is "ThrottlerException: Too
+    // Many Requests". It carries no getTracker, so CloudflareThrottlerGuard's
+    // own per-account tracker still applies.
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
+      errorMessage: 'Too many attempts. Please wait a while and try again.',
+    }),
     // Drives the due-reminder sweep in NotificationsModule.
     ScheduleModule.forRoot(),
     DatabaseModule,
     QuotaModule,
     MailModule,
     RealtimeModule,
+    SafetyModule,
     AuthModule,
     HealthModule,
     WorkspaceActivityModule,

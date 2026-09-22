@@ -42,6 +42,11 @@ export interface UserRow {
   disabled_until: Date | null;
   /** When they last disabled it. Kept after it lifts, as history. */
   disabled_at: Date | null;
+  /**
+   * When the console suspended the account; null when it is not. Only the
+   * console sets or clears it — lifting a self-pause (`enable`) leaves it be.
+   */
+  suspended_at: Date | null;
   two_factor_enabled_at: Date | null;
   /** SHA-256 hashes; the printable recovery codes are shown once. */
   two_factor_recovery_codes: string[];

@@ -76,10 +76,24 @@ export class PushService {
     );
   }
 
-  /** Active tokens for a user. */
+  /**
+   * Active tokens for a user. None while the console has them suspended.
+   *
+   * Decided here, when a push is about to go, rather than by deleting tokens
+   * on suspension. The app never unregisters on a forced sign-out, so a
+   * suspended phone would keep showing message previews on its lock screen;
+   * a token it registers again inside its last fifteen minutes still fails
+   * this join; and lifting the suspension brings pushes back with no
+   * re-registration.
+   */
   async tokensFor(userId: string): Promise<string[]> {
     const rows = await this.db.query<{ token: string }>(
-      'select token from push_tokens where user_id = $1 and disabled_at is null',
+      `select t.token
+         from push_tokens t
+         join users u on u.id = t.user_id
+        where t.user_id = $1
+          and t.disabled_at is null
+          and u.suspended_at is null`,
       [userId],
     );
     return rows.map((r) => r.token);

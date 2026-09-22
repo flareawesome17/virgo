@@ -15,6 +15,8 @@ import { MessagesService } from '../messages/messages.service';
 import { NotifyService } from '../notifications/notify.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { BookingsService } from '../bookings/bookings.service';
+import { blockedBetween, PAIR_LOCK_SQL, suspendedAccount } from '../safety/block-sql';
+import { BlocksService } from '../safety/blocks.service';
 import { normalizeRoles } from '../auth/roles';
 import { slugify } from './slug';
 import { canonicalLocation, coordsFor, locationKey } from './locations';
@@ -255,6 +257,7 @@ export class HiringService {
     private readonly mailConfig: MailConfig,
     private readonly realtime: RealtimeGateway,
     private readonly bookings: BookingsService,
+    private readonly blocks: BlocksService,
   ) {}
 
   /**
@@ -286,10 +289,28 @@ export class HiringService {
     u.email        as poster_email,
     u.avatar_url   as poster_avatar_url,
     case when u.public_profile then u.handle end as poster_handle,
-    (select count(*)::text from hiring_applications a where a.post_id = p.id)
-      as applicant_count,
+    /*
+     * The applicants the poster's list shows, counted from the poster's side
+     * whoever is viewing: everyone hired, and otherwise nobody across a block
+     * with the poster or suspended. Counted plainly, a post whose only
+     * applicant the poster just blocked read "1 applicant" over an empty list.
+     */
     (select count(*)::text from hiring_applications a
-      where a.post_id = p.id and a.status = 'new')
+      where a.post_id = p.id
+        and (a.status = 'accepted'
+             or (not ${blockedBetween('p.user_id', 'a.user_id')}
+                 and not ${suspendedAccount('a.user_id')})))
+      as applicant_count,
+    /*
+     * Not counting a suspended applicant, whom the applicant list hides too:
+     * a badge for somebody the poster cannot see is a badge nothing clears.
+     * Nor one across a block, which a block declines but the release before
+     * this one did not.
+     */
+    (select count(*)::text from hiring_applications a
+      where a.post_id = p.id and a.status = 'new'
+        and not ${blockedBetween('p.user_id', 'a.user_id')}
+        and not ${suspendedAccount('a.user_id')})
       as new_applicant_count,
     /*
      * The viewer's own applications, one per role they applied for.
@@ -356,7 +377,15 @@ export class HiringService {
     const lat = me?.lat ?? null;
     const lon = me?.lon ?? null;
 
-    const where = `
+    /*
+     * One WHERE for the page and for its total, so load-more never runs past
+     * or short of what the board holds.
+     *
+     * Taking the viewer's placeholder, because the two queries bind it at
+     * different positions — cast, since in the count query nothing else gives
+     * it a type.
+     */
+    const boardWhere = (viewer: string) => `
         where p.status = 'open'
           and p.hidden_at is null
           and p.expires_at > now()
@@ -389,7 +418,12 @@ export class HiringService {
             $2::text is null
             or p.location_key like $2 || '%'
             or (p.location_key is null and p.location ilike '%' || $2 || '%')
-          )`;
+          )
+          -- Nothing from a suspended poster, and nothing across a block
+          -- either way: being blocked has to look like the poster not being
+          -- there.
+          and u.suspended_at is null
+          and not ${blockedBetween(`${viewer}::uuid`, 'p.user_id')}`;
 
     /*
      * Nearest first, when we know where the reader is.
@@ -420,7 +454,7 @@ export class HiringService {
               round(${distance}::numeric, 1) as distance_km
          from hiring_posts p
          join users u on u.id = p.user_id
-        ${where}
+        ${boardWhere('$5')}
         order by (${distance}) asc nulls last, p.created_at desc
         limit $3 offset $4`,
       [roles, locationKeyQuery, limit, offset, viewerId, lat, lon],
@@ -430,8 +464,8 @@ export class HiringService {
       `select count(*)::text as total
          from hiring_posts p
          join users u on u.id = p.user_id
-        ${where}`,
-      [roles, locationKeyQuery],
+        ${boardWhere('$3')}`,
+      [roles, locationKeyQuery, viewerId],
     );
 
     return {
@@ -447,6 +481,11 @@ export class HiringService {
    * explain that the job is taken rather than 404, and the page can say so.
    * Hidden and expired do not: those are the two states where showing it is
    * the problem.
+   *
+   * Across a block, or from a suspended poster, it is not there either — the
+   * board's rule. Except for someone already accepted on it: that is booked
+   * work, reached from their applications and from the card in the chat, and
+   * a block does not undo the booking.
    */
   async bySlug(viewerId: string, slug: string): Promise<PublicJobPost> {
     const row = await this.db.queryOne<PostRow>(
@@ -466,6 +505,14 @@ export class HiringService {
             p.event_date is null
             or p.event_date >= current_date
             or p.user_id = $2
+          )
+          and (
+            p.user_id = $2
+            or (u.suspended_at is null and not ${blockedBetween('$2', 'p.user_id')})
+            or exists (select 1 from hiring_applications ha
+                        where ha.post_id = p.id
+                          and ha.user_id = $2
+                          and ha.status = 'accepted')
           )`,
       [slug, viewerId],
     );
@@ -479,6 +526,10 @@ export class HiringService {
    * Excludes their own — a badge for something you just wrote is noise — and
    * counts everything when `jobs_seen_at` is null, which is the honest answer
    * for an account that has never opened the board: none of it has been seen.
+   *
+   * Both numbers leave out what the lists they point at leave out: posts and
+   * applicants across a block, and suspended accounts. A badge nothing on the
+   * other side can clear is a badge that never goes out.
    */
   async unseenCount(userId: string): Promise<UnseenJobs> {
     const row = await this.db.queryOne<{ count: string; applications: string }>(
@@ -492,7 +543,10 @@ export class HiringService {
              and p.user_id <> $1
              and p.created_at > coalesce(
                    (select jobs_seen_at from users where id = $1),
-                   'epoch'::timestamptz))::text as count,
+                   'epoch'::timestamptz)
+             and not ${blockedBetween('$1', 'p.user_id')}
+             and exists (select 1 from users pu
+                          where pu.id = p.user_id and pu.suspended_at is null))::text as count,
          (select count(*)
             from hiring_applications a
             join hiring_posts p on p.id = a.post_id
@@ -502,7 +556,9 @@ export class HiringService {
              -- has already answered everyone, and counting its history kept
              -- the Jobs badge lit permanently on a job finished weeks ago.
              and p.status = 'open'
-             and a.status = 'new')::text as applications`,
+             and a.status = 'new'
+             and not ${blockedBetween('$1', 'a.user_id')}
+             and not ${suspendedAccount('a.user_id')})::text as applications`,
       [userId],
     );
     return {
@@ -780,10 +836,17 @@ export class HiringService {
 
       // Returns the rows so each person can be told, which a bare UPDATE
       // could not do — and the notification is the entire point.
+      //
+      // Locked in id order first. A block declines waiting applications in
+      // the same order (BlocksService.block), and two multi-row updates that
+      // lock the same rows in different orders can deadlock each other.
       const rest = await client.query<{ user_id: string }>(
         `update hiring_applications
             set status = 'declined', responded_at = now()
-          where post_id = $1 and status in ('new', 'shortlisted')
+          where id in (select id from hiring_applications
+                        where post_id = $1 and status in ('new', 'shortlisted')
+                        order by id
+                          for update)
           returning user_id`,
         [id],
       );
@@ -982,8 +1045,13 @@ export class HiringService {
                   and a.status = 'accepted'
                   and a.role is not null) as filled_roles
          from hiring_posts
-        where slug = $1 and hidden_at is null and expires_at > now()`,
-      [slug],
+        where slug = $1 and hidden_at is null and expires_at > now()
+          -- The board's rule: nothing from a suspended poster, and nothing
+          -- across a block either way, with the same answer as a missing post.
+          and exists (select 1 from users pu
+                       where pu.id = hiring_posts.user_id and pu.suspended_at is null)
+          and not ${blockedBetween('$2', 'hiring_posts.user_id')}`,
+      [slug, userId],
     );
     if (!post) throw new NotFoundException('That job post is no longer available');
 
@@ -1094,20 +1162,36 @@ export class HiringService {
     return this.applicationById(row!.id, userId);
   }
 
-  /** Applications on one of the caller's own posts. */
+  /**
+   * Applications on one of the caller's own posts.
+   *
+   * Across a block, or from a suspended applicant, only an accepted one is
+   * listed — that is somebody hired, with a booking. Lifting a suspension
+   * brings the rest back.
+   */
   async applicationsFor(userId: string, postId: string): Promise<JobApplication[]> {
     await this.ownedPost(userId, postId);
     const rows = await this.db.query<ApplicationRow>(
-      `${this.applicationSelect} where a.post_id = $1 order by a.created_at desc`,
-      [postId],
+      `${this.applicationSelect}
+        where a.post_id = $1
+          and (a.status = 'accepted'
+               or (not ${blockedBetween('$2', 'a.user_id')} and u.suspended_at is null))
+        order by a.created_at desc`,
+      [postId, userId],
     );
     return rows.map((row) => this.presentApplication(row, userId));
   }
 
-  /** Everything the caller has applied to. */
+  /** Everything the caller has applied to, on the same terms from the other side. */
   async myApplications(userId: string): Promise<JobApplication[]> {
     const rows = await this.db.query<ApplicationRow>(
-      `${this.applicationSelect} where a.user_id = $1 order by a.created_at desc limit 100`,
+      `${this.applicationSelect}
+        where a.user_id = $1
+          and (a.status = 'accepted'
+               or (not ${blockedBetween('$1', 'p.user_id')}
+                   and not ${suspendedAccount('p.user_id')}))
+        order by a.created_at desc
+        limit 100`,
       [userId],
     );
     return rows.map((row) => this.presentApplication(row, userId));
@@ -1151,6 +1235,12 @@ export class HiringService {
    * Accepting is what connects them, and it is the same transaction a hire
    * enquiry uses — status, both friend rows, then the conversation. Shortlisting
    * and declining only move the status; neither is a commitment.
+   *
+   * Every answer takes the pair lock first (see PAIR_LOCK_SQL), because a block
+   * takes it and then declines this same row; the other order is a deadlock.
+   * Under the lock the pair is checked again — across a block, or with either
+   * side suspended, the application is not there — and the update only moves
+   * a row nobody has accepted since it was read.
    */
   async respond(
     userId: string,
@@ -1170,43 +1260,25 @@ export class HiringService {
       throw new BadRequestException('You have already accepted this application');
     }
 
-    if (status !== 'accepted') {
-      await this.db.query(
-        `update hiring_applications set status = $2, responded_at = now() where id = $1`,
+    const accepted = await this.db.transaction(async (client) => {
+      await client.query(PAIR_LOCK_SQL, [userId, row.user_id]);
+      if (await this.blocks.unavailable(userId, row.user_id, client)) {
+        throw new NotFoundException('Application not found');
+      }
+
+      const moved = await client.query<{ id: string }>(
+        `update hiring_applications set status = $2, responded_at = now()
+          where id = $1 and status <> 'accepted'
+          returning id`,
         [applicationId, status],
       );
+      if (moved.rows.length === 0) {
+        throw new BadRequestException('You have already accepted this application');
+      }
+      if (status !== 'accepted') return null;
 
-      /*
-       * Tell them either way.
-       *
-       * Shortlisting and declining used to return here silently, so an
-       * applicant learned nothing — no push, no realtime frame, and nothing
-       * on the client polls application status. A decline that is never
-       * delivered reads exactly like a poster who never looked, and the
-       * applicant goes on waiting for a job that is gone.
-       */
-      const me = await this.account(userId);
-      const who = me ? this.nameFor(me) : 'The poster';
-      await this.notifier.notify([row.user_id], {
-        topic: 'job-response',
-        title:
-          status === 'shortlisted' ? 'You were shortlisted' : 'Application closed',
-        body:
-          status === 'shortlisted'
-            ? `${who} shortlisted you for “${row.post_title}”`
-            : `${who} went with someone else for “${row.post_title}”`,
-        data: { type: 'job_response', applicationId, status },
-      });
-
-      return this.applicationById(applicationId, userId);
-    }
-
-    const accepted = await this.db.transaction(async (client) => {
-      await client.query(
-        `update hiring_applications set status = 'accepted', responded_at = now()
-          where id = $1`,
-        [applicationId],
-      );
+      // This client already holds the pair lock, so connect() taking it again
+      // returns at once.
       await this.friends.connect(userId, row.user_id, client);
 
       /*
@@ -1262,62 +1334,100 @@ export class HiringService {
       return { bookingId, role };
     });
 
-    // Outside the transaction: openDirect runs its own and is idempotent.
-    const conversation = await this.messages.openDirect(userId, row.user_id);
+    if (!accepted) {
+      /*
+       * Tell them either way.
+       *
+       * Shortlisting and declining used to return here silently, so an
+       * applicant learned nothing — no push, no realtime frame, and nothing
+       * on the client polls application status. A decline that is never
+       * delivered reads exactly like a poster who never looked, and the
+       * applicant goes on waiting for a job that is gone.
+       */
+      const me = await this.account(userId);
+      const who = me ? this.nameFor(me) : 'The poster';
+      await this.notifier.notify([row.user_id], {
+        topic: 'job-response',
+        title:
+          status === 'shortlisted' ? 'You were shortlisted' : 'Application closed',
+        body:
+          status === 'shortlisted'
+            ? `${who} shortlisted you for “${row.post_title}”`
+            : `${who} went with someone else for “${row.post_title}”`,
+        data: { type: 'job_response', applicationId, status },
+      });
 
-    const me = await this.account(userId);
-
-    /*
-     * The first thing in the thread.
-     *
-     * Acceptance opened this conversation and left it empty — both people
-     * arrived at a blank screen and had to remember which job it was, which
-     * of three roles was accepted, and what had been agreed, while the
-     * booking that answers all three sat on a different screen.
-     *
-     * A message rather than a pinned header: it belongs at the point in the
-     * conversation where it happened, and it should scroll away as the two of
-     * them talk. Hire a second person from the same post later and there is a
-     * second card in its own place, which a header could not do.
-     *
-     * Failing to write it must not fail the acceptance — that is already
-     * committed, the applicant has been connected, and a missing card is a
-     * far smaller problem than a 500 on a job someone has just been given.
-     */
-    try {
-      await this.messages.system(
-        conversation.id,
-        userId,
-        'job-accepted',
-        // Read by anything that shows a thread preview or a notification, so
-        // it has to stand on its own without the card.
-        accepted.role
-          ? `Accepted for ${accepted.role} — “${row.post_title}”`
-          : `Accepted for “${row.post_title}”`,
-        {
-          applicationId,
-          postId: row.post_id,
-          postSlug: row.post_slug,
-          postTitle: row.post_title,
-          role: accepted.role,
-          bookingId: accepted.bookingId,
-        },
-      );
-    } catch (err) {
-      this.logger.warn(
-        `could not write the acceptance card for ${applicationId}: ${String(err)}`,
-      );
+      return this.applicationById(applicationId, userId);
     }
-    await this.notifier.notify([row.user_id], {
-      topic: 'job-response',
-      title: 'Application accepted',
-      body: `${me ? this.nameFor(me) : 'They'} accepted your application for “${row.post_title}”`,
-      data: {
-        type: 'job_response',
-        applicationId,
-        conversationId: conversation.id,
-      },
-    });
+
+    // Outside the transaction: openDirect runs its own and is idempotent.
+    //
+    // A 403 here means a block landed in the moment after the commit. The
+    // acceptance and its booking stand, since they came first, but there is
+    // no chat to put the card in and the applicant is not told. The poster
+    // still hears if that was the last role, below — that is about their post.
+    const conversation = await this.messages
+      .openDirect(userId, row.user_id)
+      .catch((err: unknown) => {
+        if (err instanceof ForbiddenException) return null;
+        throw err;
+      });
+
+    if (conversation) {
+      const me = await this.account(userId);
+
+      /*
+       * The first thing in the thread.
+       *
+       * Acceptance opened this conversation and left it empty — both people
+       * arrived at a blank screen and had to remember which job it was, which
+       * of three roles was accepted, and what had been agreed, while the
+       * booking that answers all three sat on a different screen.
+       *
+       * A message rather than a pinned header: it belongs at the point in the
+       * conversation where it happened, and it should scroll away as the two of
+       * them talk. Hire a second person from the same post later and there is a
+       * second card in its own place, which a header could not do.
+       *
+       * Failing to write it must not fail the acceptance — that is already
+       * committed, the applicant has been connected, and a missing card is a
+       * far smaller problem than a 500 on a job someone has just been given.
+       */
+      try {
+        await this.messages.system(
+          conversation.id,
+          userId,
+          'job-accepted',
+          // Read by anything that shows a thread preview or a notification, so
+          // it has to stand on its own without the card.
+          accepted.role
+            ? `Accepted for ${accepted.role} — “${row.post_title}”`
+            : `Accepted for “${row.post_title}”`,
+          {
+            applicationId,
+            postId: row.post_id,
+            postSlug: row.post_slug,
+            postTitle: row.post_title,
+            role: accepted.role,
+            bookingId: accepted.bookingId,
+          },
+        );
+      } catch (err) {
+        this.logger.warn(
+          `could not write the acceptance card for ${applicationId}: ${String(err)}`,
+        );
+      }
+      await this.notifier.notify([row.user_id], {
+        topic: 'job-response',
+        title: 'Application accepted',
+        body: `${me ? this.nameFor(me) : 'They'} accepted your application for “${row.post_title}”`,
+        data: {
+          type: 'job_response',
+          applicationId,
+          conversationId: conversation.id,
+        },
+      });
+    }
 
     /*
      * If that was the last role, say so.
@@ -1360,7 +1470,7 @@ export class HiringService {
     }
 
     this.logger.log(`application ${applicationId} accepted by ${userId}`);
-    return this.applicationById(applicationId, userId, conversation.id);
+    return this.applicationById(applicationId, userId, conversation?.id ?? null);
   }
 
   // --------------------------------------------------------------- reporting

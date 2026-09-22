@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { StorageService } from '../storage/storage.service';
 import { MailService } from '../mail/mail.service';
 import { PLAN_CATALOGUE, limitsFor, toJsonLimit } from '../quota/quota.config';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { VisitsService } from '../visits/visits.service';
 
 /**
@@ -20,6 +21,8 @@ export class AdminService {
     private readonly storage: StorageService,
     private readonly mail: MailService,
     private readonly visits: VisitsService,
+    // Global (RealtimeModule), so no import here: suspending closes sockets.
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   // ---------------------------------------------------------------- overview
@@ -41,7 +44,8 @@ export class AdminService {
          (select count(*) from hiring_posts where status = 'open')::text      as jobs_open,
          (select count(*) from hiring_applications)::text                     as applications,
          (select count(*) from support_tickets where status in ('open','pending'))::text as tickets_open,
-         (select count(*) from hiring_post_reports)::text                     as reports`,
+         (select count(*) from hiring_post_reports)::text                     as reports,
+         (select count(*) from user_reports)::text                            as user_reports`,
       [String(days)],
     );
 
@@ -82,7 +86,10 @@ export class AdminService {
         openJobs: Number(counts?.jobs_open ?? 0),
         applications: Number(counts?.applications ?? 0),
         openTickets: Number(counts?.tickets_open ?? 0),
+        // Job reports only, still: the console before this release reads it
+        // as that. People reports are their own number.
         reports: Number(counts?.reports ?? 0),
+        userReports: Number(counts?.user_reports ?? 0),
       },
       signups,
       uploads,
@@ -106,7 +113,7 @@ export class AdminService {
     }>(
       `select u.id, u.email, u.display_name, u.avatar_url, u.plan, u.roles,
               u.created_at, u.last_seen_at, u.email_verified_at,
-              u.disabled_at, u.disabled_until, u.handle, u.public_profile,
+              u.disabled_at, u.disabled_until, u.suspended_at, u.handle, u.public_profile,
               (select coalesce(sum(f.size_bytes), 0) from user_files f where f.user_id = u.id)::bigint
                 as storage_bytes,
               -- Claimed promos, which raise the ceiling above what the plan
@@ -166,7 +173,7 @@ export class AdminService {
       `select id, email, display_name, avatar_url, plan, plan_since, roles, title, bio,
               location, website, handle, public_profile, discoverable, shares_location,
               created_at, updated_at, last_seen_at, email_verified_at,
-              disabled_at, disabled_until, paymongo_customer_id
+              disabled_at, disabled_until, suspended_at, paymongo_customer_id
          from users where id = $1`,
       [id],
     );
@@ -232,22 +239,55 @@ export class AdminService {
   /**
    * Suspends or restores an account.
    *
-   * Sets `disabled_at`, which the app's own auth already understands — this
-   * reuses the existing suspension path rather than inventing a second notion
-   * of "blocked" that only the console knows about.
+   * `suspended_at` is what the app enforces: sign-in and refresh refuse it,
+   * and every place that hides a paused account hides a suspended one too.
+   * Suspending again keeps the first time.
+   *
+   * `disabled_at` is still written because the console before this release
+   * shows its "Disabled" badge from it. It cannot be the suspension on its own
+   * — a self-pause sets it too, and keeps it after the pause ends. The pause
+   * itself (`disabled_until`) is the person's and is left alone; this used to
+   * clear it, so suspending someone who had paused their account un-paused it.
+   *
+   * Suspending ends the sessions that exist: refresh tokens are revoked and
+   * open sockets closed. An access token already issued lives out its fifteen
+   * minutes on REST, which is accepted; a socket reconnecting with it is
+   * refused when it authenticates, and push stops because the token reads
+   * skip suspended accounts. Nothing is deleted, so lifting it needs nothing
+   * re-registered.
    */
   async setUserDisabled(id: string, disabled: boolean, reason?: string) {
-    const row = await this.db.queryOne<{ id: string; email: string }>(
+    const row = await this.db.queryOne<{
+      id: string;
+      email: string;
+      suspended_at: Date | null;
+    }>(
       `update users
-          set disabled_at = case when $2 then now() else null end,
-              disabled_until = null,
+          set suspended_at = case when $2 then coalesce(suspended_at, now()) else null end,
+              disabled_at = case when $2 then now() else null end,
               updated_at = now()
         where id = $1
-        returning id, email`,
+        returning id, email, suspended_at`,
       [id, disabled],
     );
     if (!row) throw new NotFoundException('No such account');
-    return { ...row, disabled, reason: reason ?? null };
+
+    if (disabled) {
+      await this.db.query(
+        `update refresh_tokens set revoked_at = now()
+          where user_id = $1 and revoked_at is null`,
+        [id],
+      );
+      this.realtime.closeUser(id);
+    }
+
+    return {
+      id: row.id,
+      email: row.email,
+      disabled,
+      suspendedAt: row.suspended_at,
+      reason: reason ?? null,
+    };
   }
 
   /**
@@ -356,6 +396,40 @@ export class AdminService {
     );
     const total = await this.db.queryOne<{ count: string }>(
       'select count(*)::text as count from hiring_post_reports',
+    );
+    return { data: rows, total: Number(total?.count ?? 0) };
+  }
+
+  /**
+   * Reports about people, newest first.
+   *
+   * Each row carries the target's running count and whether they are already
+   * suspended, which is what decides whether anyone needs to act. Target and
+   * reporter addresses are shown, as they are for job reports, to the same
+   * permission.
+   */
+  async userReports(params: { limit?: number; offset?: number }) {
+    const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
+    const offset = Math.max(params.offset ?? 0, 0);
+    const rows = await this.db.query(
+      `select r.id, r.reason, r.note, r.source, r.created_at, r.target_id,
+              coalesce(nullif(btrim(t.display_name), ''), split_part(t.email, '@', 1))
+                as target_name,
+              t.handle as target_handle,
+              t.email as target_email,
+              t.suspended_at as target_suspended_at,
+              r.reporter_id,
+              u.email as reporter_email,
+              (select count(*) from user_reports x where x.target_id = r.target_id)::int
+                as target_report_count
+         from user_reports r
+         join users t on t.id = r.target_id
+         left join users u on u.id = r.reporter_id
+        order by r.created_at desc limit $1 offset $2`,
+      [limit, offset],
+    );
+    const total = await this.db.queryOne<{ count: string }>(
+      'select count(*)::text as count from user_reports',
     );
     return { data: rows, total: Number(total?.count ?? 0) };
   }

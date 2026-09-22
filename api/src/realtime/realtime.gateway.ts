@@ -98,8 +98,9 @@ export type ServerEvent =
   /**
    * Somebody came online or went offline.
    *
-   * Sent only to people who share a conversation with them — see
-   * PresenceService. `lastSeenAt` is what to show once `online` is false.
+   * Sent only to their direct-chat partners and friends, never across a
+   * block — see PresenceService. `lastSeenAt` is what to show once `online`
+   * is false.
    */
   | { type: 'presence'; userId: string; online: boolean; lastSeenAt: string | null }
   /**
@@ -231,24 +232,60 @@ export class RealtimeGateway implements OnModuleDestroy {
       return;
     }
 
+    void this.register(session, claims.sub);
+  }
+
+  /**
+   * Admits a socket whose token checked out, unless the account has since
+   * been suspended or deleted.
+   *
+   * A valid token is not enough on its own: one issued just before a
+   * suspension lives on for up to fifteen minutes, and closeUser only ends the
+   * sockets open at that moment. This is what refuses the reconnect.
+   *
+   * Nothing is recorded until the answer is back — no user id on the session,
+   * so typing frames are still ignored, and the auth timer still running, so a
+   * lookup that hangs ends in a close rather than a socket left half-open.
+   */
+  private async register(session: Session, userId: string): Promise<void> {
+    let allowed: boolean;
+    try {
+      allowed = await this.presence.mayConnect(userId);
+    } catch (err) {
+      // Not a refusal. 1011 sends the client round its usual backoff; 4001
+      // would stop it until the app next came to the foreground.
+      this.logger.warn(`Could not check account for a socket: ${String(err)}`);
+      clearTimeout(session.authTimer);
+      this.close(session.socket, 1011, 'Try again');
+      return;
+    }
+    if (!allowed) {
+      clearTimeout(session.authTimer);
+      this.close(session.socket, 4001, 'Session ended');
+      return;
+    }
+    // It closed, or the auth timer ran out, while the lookup was in flight.
+    // Registering it now would leave a dead socket in the map for good.
+    if (session.socket.readyState !== 1) return;
+
     clearTimeout(session.authTimer);
     session.authTimer = undefined;
-    session.userId = claims.sub;
+    session.userId = userId;
 
-    const set = this.sessions.get(claims.sub) ?? new Set<Session>();
+    const set = this.sessions.get(userId) ?? new Set<Session>();
     // Somebody with the app and the web open has two sockets. Only the first
     // is a transition from offline — announcing on every socket would flicker
     // them "online" repeatedly for anyone watching.
     const wasOffline = set.size === 0;
     set.add(session);
-    this.sessions.set(claims.sub, set);
+    this.sessions.set(userId, set);
 
-    this.send(session.socket, { type: 'ready', userId: claims.sub });
-    if (wasOffline) void this.announcePresence(claims.sub, true);
+    this.send(session.socket, { type: 'ready', userId });
+    if (wasOffline) void this.announcePresence(userId, true);
   }
 
   /**
-   * Tells the people who share a conversation with this user.
+   * Tells the people entitled to know — PresenceService decides who.
    *
    * Fire-and-forget: presence is decoration, and a failure here must not
    * affect the socket that triggered it.
@@ -343,6 +380,22 @@ export class RealtimeGateway implements OnModuleDestroy {
   /** Whether anyone is listening — lets callers skip work when nobody is. */
   hasListeners(userId: string): boolean {
     return (this.sessions.get(userId)?.size ?? 0) > 0;
+  }
+
+  /**
+   * Ends every session this account has open, for a console suspension.
+   *
+   * 4001, the code for a refused token, because the clients treat it as "stop"
+   * and do not retry on a timer. They do reconnect when the app returns to the
+   * foreground or the tab becomes visible, with the access token they stored,
+   * which can still be valid; the suspension check in `register` is what
+   * refuses those. Walks a copy, because `forget` edits the set as each socket
+   * closes.
+   */
+  closeUser(userId: string, reason = 'Session ended'): void {
+    for (const session of [...(this.sessions.get(userId) ?? [])]) {
+      this.close(session.socket, 4001, reason);
+    }
   }
 
   private send(socket: WebSocket, event: ServerEvent): void {

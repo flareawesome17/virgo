@@ -241,11 +241,14 @@ export class NotifyService {
 
     const rows = await this.db.query<{ id: string; email: string }>(
       `select id, email from users
-        where id = any($1::uuid[]) and email_verified_at is not null`,
+        where id = any($1::uuid[]) and email_verified_at is not null
+          and suspended_at is null`,
       [[...new Set(wanted.map((d) => d.userId))]],
     );
     // Unverified addresses are skipped: sending to one is how a sender
     // reputation gets spent on bounces, and the address is unproven anyway.
+    // Suspended accounts too, as their pushes are (PushService.tokensFor): a
+    // suspension that still mails message previews has not stopped anything.
     const addresses = new Map(rows.map((r) => [r.id, r.email]));
 
     for (const d of wanted) {

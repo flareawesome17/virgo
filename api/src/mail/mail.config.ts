@@ -42,6 +42,15 @@ export class MailConfig {
    */
   readonly siteUrl: string;
 
+  /**
+   * The management console — console.virgo.ph.
+   *
+   * For the emails only staff receive, like a report about an account, whose
+   * link has to land on the account page rather than on anything a member
+   * can open. The same variable the console's password reset reads.
+   */
+  readonly consoleUrl: string;
+
   constructor(private readonly config: ConfigService) {
     this.host = config.get<string>('SMTP_HOST', 'mail-us.smtp2go.com');
     this.port = Number(config.get<string>('SMTP_PORT', '2525'));
@@ -63,6 +72,10 @@ export class MailConfig {
 
     this.siteUrl = (
       config.get<string>('PUBLIC_SITE_URL') ?? 'https://virgo.ph'
+    ).replace(/\/+$/, '');
+
+    this.consoleUrl = (
+      config.get<string>('CONSOLE_URL') ?? 'https://console.virgo.ph'
     ).replace(/\/+$/, '');
 
     if (!this.isConfigured) {

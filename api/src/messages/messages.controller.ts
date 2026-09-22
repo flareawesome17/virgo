@@ -17,6 +17,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -25,9 +26,10 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator';
 import { MessagesService } from './messages.service';
 
+// Account ids are uuids, checked here so a malformed one is a 400 rather than
+// a 500 from Postgres. Every client only ever sends ids the API gave it.
 export class OpenDirectDto {
-  @IsString()
-  @MaxLength(64)
+  @IsUUID('all')
   userId!: string;
 }
 
@@ -39,13 +41,12 @@ export class CreateGroupDto {
 
   @IsArray()
   @ArrayMaxSize(50)
-  @IsString({ each: true })
+  @IsUUID('all', { each: true })
   memberIds!: string[];
 }
 
 export class AddMemberDto {
-  @IsString()
-  @MaxLength(64)
+  @IsUUID('all')
   userId!: string;
 }
 
@@ -164,12 +165,17 @@ export class MessagesController {
   ) {
     return this.messages
       .messages(userId, id, query.limit)
-      .then(({ messages, lastReadAt }) => ({
+      .then(({ messages, lastReadAt, canSend, blockedByMe, blockId }) => ({
         data: messages,
         total: messages.length,
         // Where the caller had read up to before this call, for the
         // "new messages" divider.
         lastReadAt,
+        // Whether a block has frozen the thread, and whose it is — so the
+        // composer can become a notice instead of failing every send.
+        canSend,
+        blockedByMe,
+        blockId,
       }));
   }
 

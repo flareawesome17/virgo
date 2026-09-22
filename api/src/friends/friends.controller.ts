@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -64,20 +65,26 @@ export class FriendsController {
   }
 
   /**
-   * Sends a request to an account picked from search.
+   * Sends a request to a profile, an account picked from search, or an exact
+   * address — whichever the body names, in that order.
    *
    * Replaces creating a friend row directly: that only ever described someone,
    * and the person described was never told.
+   *
+   * 20 an hour per account, shared by all three shapes, and refusals count
+   * too: it is the one call that puts something in a stranger's inbox.
    */
+  @Throttle({ default: { limit: 20, ttl: 3_600_000 } })
   @HttpCode(200)
   @Post('request')
   sendRequest(
     @CurrentUser('id') userId: string,
     @Body() dto: SendFriendRequestDto,
   ) {
-    return dto.userId
-      ? this.friends.sendRequestToUser(userId, dto.userId)
-      : this.friends.sendRequest(userId, dto.email!);
+    if (dto.handle) return this.friends.sendRequestToHandle(userId, dto.handle);
+    if (dto.userId) return this.friends.sendRequestToUser(userId, dto.userId);
+    if (dto.email) return this.friends.sendRequest(userId, dto.email);
+    throw new BadRequestException('Choose someone to send a request to');
   }
 
   @HttpCode(200)

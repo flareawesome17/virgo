@@ -9,6 +9,8 @@ import { FriendsService } from '../friends/friends.service';
 import { MailConfig } from '../mail/mail.config';
 import { eventChanged, eventInvite } from '../mail/mail.templates';
 import { NotifyService } from '../notifications/notify.service';
+import { blockedBetween, PAIR_LOCK_SQL } from '../safety/block-sql';
+import { BlocksService } from '../safety/blocks.service';
 
 export type AttendeeStatus = 'pending' | 'accepted' | 'declined';
 
@@ -81,6 +83,7 @@ export class EventAttendeesService {
     private readonly friends: FriendsService,
     private readonly notifier: NotifyService,
     private readonly mailConfig: MailConfig,
+    private readonly blocks: BlocksService,
   ) {}
 
   /** Throws unless the caller owns the event. Only the owner may invite. */
@@ -104,6 +107,9 @@ export class EventAttendeesService {
    * Re-inviting someone who declined resets them to pending, which is what
    * "ask again" should mean; someone who already accepted is left alone rather
    * than being silently un-accepted.
+   *
+   * Refused when it would put two people on either side of a block on the
+   * same event, the way a group chat refuses such a member.
    */
   async invite(
     userId: string,
@@ -123,6 +129,49 @@ export class EventAttendeesService {
           'You can only invite people you are friends with',
         );
       }
+    }
+
+    // Each invitee is the organiser's friend, which rules out a block with the
+    // organiser. One of them may still have blocked, or been blocked by,
+    // somebody already on the event — or somebody else in this batch — and an
+    // event puts them in front of each other: on the guest list, and in the
+    // push and email every edit sends. The same rule as adding someone to a
+    // group chat, and like it the answer says only that some pair cannot be
+    // together, not which.
+    //
+    // Only people joining are checked. Anyone already pending or accepted is
+    // on the event whatever happens here, and asking them again must not start
+    // failing because of a block that came after they were invited.
+    const clash = await this.db.queryOne<{ blocked: boolean }>(
+      `with party as (
+         select a.user_id
+           from event_attendees a
+          where a.event_id = $1 and a.status in ('pending', 'accepted')
+       ), joining as (
+         select j.id
+           from unnest($2::uuid[]) as j(id)
+          where j.id not in (select user_id from party)
+       ), everyone as (
+         select user_id as id from party
+         union
+         select id from joining
+       )
+       select exists (
+         select 1
+           from user_blocks b
+          where (b.blocker_id in (select id from joining)
+                 and b.blocked_id in (select id from everyone))
+             or (b.blocked_id in (select id from joining)
+                 and b.blocker_id in (select id from everyone))
+       ) as blocked`,
+      [eventId, unique],
+    );
+    if (clash?.blocked) {
+      throw new ForbiddenException(
+        unique.length === 1
+          ? "They can't be invited to this event."
+          : "Some of the people you picked can't be invited to this event.",
+      );
     }
 
     const rows = await this.db.query<{ user_id: string }>(
@@ -147,7 +196,20 @@ export class EventAttendeesService {
     return { invited: rows.length };
   }
 
-  /** Accepts or declines. Only the invitee may answer their own invitation. */
+  /**
+   * Accepts or declines. Only the invitee may answer their own invitation.
+   *
+   * An answer can take a declined invitation back to accepted, so unlike a
+   * workspace invitation this cannot lean on a `pending` condition to lose a
+   * race with a block: the block's decline and the invitee's own look the
+   * same afterwards. It takes the pair lock first instead (see PAIR_LOCK_SQL)
+   * and checks the pair under it.
+   *
+   * Across a block, accepting is refused as if the invitation were not there.
+   * Declining is allowed — someone already going can still drop out — but the
+   * organiser is not told. Nobody is told about an answer that changed
+   * nothing, either, so tapping the same button twice is not two pushes.
+   */
   async respond(
     userId: string,
     eventId: string,
@@ -155,16 +217,38 @@ export class EventAttendeesService {
   ): Promise<{ status: AttendeeStatus }> {
     const status: AttendeeStatus = accept ? 'accepted' : 'declined';
 
-    const row = await this.db.queryOne<{ id: string; invited_by: string }>(
-      `update event_attendees
-          set status = $3, responded_at = now()
-        where event_id = $1 and user_id = $2
-        returning id, invited_by`,
-      [eventId, userId, status],
+    const row = await this.db.queryOne<{
+      id: string;
+      status: AttendeeStatus;
+      organiser_id: string;
+    }>(
+      `select a.id, a.status, e.user_id as organiser_id
+         from event_attendees a
+         join schedule_events e on e.id = a.event_id
+        where a.event_id = $1 and a.user_id = $2`,
+      [eventId, userId],
     );
     if (!row) throw new NotFoundException('Invitation not found');
 
-    await this.notifyOrganiser(userId, eventId, row.invited_by, status);
+    const { blocked, changed } = await this.db.transaction(async (client) => {
+      await client.query(PAIR_LOCK_SQL, [userId, row.organiser_id]);
+      const block = !!(await this.blocks.between(userId, row.organiser_id, client));
+      if (block && accept) throw new NotFoundException('Invitation not found');
+
+      const moved = await client.query<{ id: string }>(
+        `update event_attendees
+            set status = $2, responded_at = now()
+          where id = $1 and status <> $2
+          returning id`,
+        [row.id, status],
+      );
+      return { blocked: block, changed: moved.rows.length > 0 };
+    });
+
+    // Only the organiser can invite, so they are who sent it and who hears.
+    if (changed && !blocked) {
+      await this.notifyOrganiser(userId, eventId, row.organiser_id, status);
+    }
     return { status };
   }
 
@@ -208,6 +292,10 @@ export class EventAttendeesService {
    *
    * Past events are excluded: an invitation to something that already happened
    * is not a decision anyone can still make.
+   *
+   * So is anything from an organiser across a block. A block declines those,
+   * but the release before this one does not, and whatever it wrote during a
+   * rollback must not be offered once this one is back.
    */
   async invitations(
     userId: string,
@@ -224,6 +312,7 @@ export class EventAttendeesService {
         where a.user_id = $1
           and a.status = $2
           and e.event_date >= current_date
+          and not ${blockedBetween('$1', 'e.user_id')}
         order by e.event_date, e.event_time nulls last`,
       [userId, status],
     );

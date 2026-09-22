@@ -43,8 +43,10 @@ export class PublicProfilesController {
 
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get(':handle')
-  get(@Param('handle') handle: string) {
-    return this.profiles.publicProfile(handle);
+  get(@CurrentUser('id') viewerId: string, @Param('handle') handle: string) {
+    // The viewer, so a block between the two reads as the profile not being
+    // there.
+    return this.profiles.publicProfile(handle, viewerId);
   }
 }
 

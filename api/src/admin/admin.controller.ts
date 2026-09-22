@@ -347,6 +347,19 @@ export class AdminController {
     });
   }
 
+  /**
+   * Reports about people. The same permission as job reports: reading a
+   * report is triage, and suspending still needs users.disable.
+   */
+  @RequirePermission('content.read')
+  @Get('user-reports')
+  userReports(@Query('limit') limit?: string, @Query('offset') offset?: string) {
+    return this.admin.userReports({
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
   @RequirePermission('content.moderate')
   @Patch('jobs/:id/hidden')
   async setJobHidden(

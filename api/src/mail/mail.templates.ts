@@ -381,7 +381,7 @@ export function jobPostReported(options: {
       cta: { label: 'View the post', url: options.url },
       fineprint: [
         options.note ? `They added: ${options.note}` : 'No further detail was given.',
-        'To take it down, set hidden_at on the hiring_posts row.',
+        'To take it down, use Hide post under Content > Reports in the console.',
       ],
     }),
     text: [
@@ -392,7 +392,55 @@ export function jobPostReported(options: {
       '',
       options.url,
       '',
-      'To take it down, set hidden_at on the hiring_posts row.',
+      'To take it down, use Hide post under Content > Reports in the console.',
+    ].join('\n'),
+  };
+}
+
+/**
+ * An account has been reported.
+ *
+ * Goes to whoever answers the reply-to address, like a job report, and links
+ * to the account in the console, where it can be suspended. Sent on the first
+ * report from each person only; the running count says how many there are.
+ *
+ * The reporter is never named. The console shows who it was to the staff
+ * allowed to see it, and an inbox is not that place.
+ */
+export function userReported(options: {
+  name: string;
+  handle: string | null;
+  reason: string;
+  note: string | null;
+  reportCount: number;
+  source: string | null;
+  url: string;
+}): RenderedEmail {
+  const n = options.reportCount;
+  const intro = `${options.name}${options.handle ? ` (@${options.handle})` : ''} was reported for ${options.reason}${options.source ? ` from ${options.source}` : ''}. They have ${n} report${n === 1 ? '' : 's'}.`;
+  const detail = options.note
+    ? `They added: ${options.note}`
+    : 'No further detail was given.';
+  const howTo =
+    'To suspend the account, open it in the console and choose Suspend account.';
+
+  return {
+    subject: `Reported account: ${options.name}`,
+    html: layout({
+      heading: 'Someone reported an account',
+      intro,
+      cta: { label: 'Open in the console', url: options.url },
+      fineprint: [detail, howTo],
+    }),
+    text: [
+      'Someone reported an account',
+      '',
+      intro,
+      options.note ? `\n${detail}` : '',
+      '',
+      options.url,
+      '',
+      howTo,
     ].join('\n'),
   };
 }
