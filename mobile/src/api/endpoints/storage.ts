@@ -306,6 +306,11 @@ export const storageApi = {
     contentType: string;
     scope: UploadScope;
     contentLength: number;
+    /**
+     * The album it is for. Into someone else's album the file counts toward
+     * their storage, so that is the storage the ticket is checked against.
+     */
+    albumId?: string;
   }): Promise<UploadTicket> {
     return api.post<UploadTicket>('/storage/upload-url', { body: input });
   },
@@ -455,6 +460,7 @@ export const storageApi = {
         contentType: options.contentType,
         scope: options.scope,
         contentLength,
+        albumId: options.albumId,
       });
 
       // Before the bytes, not after: an upload that outlives this process has

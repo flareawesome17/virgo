@@ -9,6 +9,7 @@ import {
 } from '@/src/api';
 
 import type { QueryOptions } from './useWorkspaces';
+import { usageQueryKey } from './useUsage';
 
 export function useAlbums(
   params: ListAlbumsParams = {},
@@ -81,6 +82,9 @@ export function useCreateAlbum() {
       // The workspace list carries a derived media_count, so adding an album
       // changes it — the cached list is stale even though nothing wrote to it.
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
+      // So does the usage summary: an album limit checked against the old
+      // count lets the next one through to a refusal.
+      queryClient.invalidateQueries({ queryKey: usageQueryKey });
     },
   });
 }
@@ -93,6 +97,8 @@ export function useUpdateAlbum() {
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.albums.detail(updated.id), updated);
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
+      // Its workspace's card counts it, and a move changes two of them.
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
     },
   });
 }
@@ -104,6 +110,7 @@ export function useDeleteAlbum() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
+      queryClient.invalidateQueries({ queryKey: usageQueryKey });
     },
   });
 }

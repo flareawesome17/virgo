@@ -36,7 +36,7 @@ const RETENTION_OPTIONS = [
 const CUSTOM_DAYS = [14, 21, 45, 60, 90, 120, 180, 365];
 
 export default function CreateAlbumScreen() {
-  const { atAlbumLimit, albumLimit, plan } = usePlanLimits();
+  const { isAlbumLimitReached, albumLimit, plan } = usePlanLimits();
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { workspaceId } = useLocalSearchParams<{ workspaceId?: string }>();
@@ -48,12 +48,14 @@ export default function CreateAlbumScreen() {
   const [customDays, setCustomDays] = useState<number | null>(null);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
 
-  // The API returns whole rows rather than a column projection; this screen
-  // only reads id / name / accent_color, so nothing downstream changes.
-  const { workspaces } = useWorkspaces(
+  // Only your own: an album can only be made in a workspace you own, and
+  // offering one shared with you ended in "Unknown workspace" at the end of
+  // the form. Archived ones are left out by the list itself.
+  const { workspaces: listed } = useWorkspaces(
     { orderBy: 'name', direction: 'asc', limit: 100 },
     { enabled: !!user?.id },
   );
+  const workspaces = listed.filter((w) => w.user_id === user?.id);
 
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaceId || '');
   const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
@@ -68,6 +70,11 @@ export default function CreateAlbumScreen() {
     if (retentionKey === 'custom') return customDays;
     return parseInt(retentionKey);
   };
+
+  const selectedWs = workspaces.find((w) => w.id === selectedWorkspaceId);
+
+  // Per workspace, as the plan counts it: this one is full, not every one.
+  const atAlbumLimit = !!selectedWs && isAlbumLimitReached(selectedWs.album_total);
 
   // Albums hold any media type, so there is no source to choose up front.
   // Same reasoning as the workspace form: fail before the work, not after.
@@ -92,8 +99,6 @@ export default function CreateAlbumScreen() {
       },
     );
   };
-
-  const selectedWs = workspaces.find((w) => w.id === selectedWorkspaceId);
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -140,10 +145,10 @@ export default function CreateAlbumScreen() {
         {/* Explains the disabled Create button. */}
         {atAlbumLimit && (
           <View className="mx-5 mt-4 rounded-2xl p-4" style={{ backgroundColor: '#C76B4A18' }}>
-            <Text className="text-[#C76B4A] text-sm font-bold">Album limit reached</Text>
+            <Text className="text-[#C76B4A] text-sm font-bold">{selectedWs?.name} is full</Text>
             <Text className="text-[#C76B4A] text-xs mt-1">
-              The {plan} plan includes {albumLimit} album{albumLimit === 1 ? '' : 's'}.
-              Delete one, or upgrade to add another.
+              The {plan} plan allows {albumLimit} album{albumLimit === 1 ? '' : 's'} in each
+              workspace. Choose another workspace, delete an album, or upgrade.
             </Text>
             <Pressable
               onPress={() => router.push('/settings/storage/plans')}

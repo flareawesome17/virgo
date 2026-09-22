@@ -1,5 +1,6 @@
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
+import type { Workspace } from '@/src/api';
 import { useUsage } from './useUsage';
 
 /**
@@ -8,15 +9,12 @@ import { useUsage } from './useUsage';
  * The server is still the authority — these limits are checked again on every
  * create, and hiding a button is presentation, not enforcement. What this adds
  * is telling the user *before* they fill in a form that they cannot submit it.
- * Previously `atWorkspaceLimit` / `atAlbumLimit` existed on useUsage and no
- * screen read them, so hitting a limit surfaced as a failed create at the end.
  */
 export function usePlanLimits() {
-  const { usage, atWorkspaceLimit, atAlbumLimit } = useUsage();
+  const { usage, atWorkspaceLimit, albumLimit, isAlbumLimitReached } = useUsage();
 
   const workspaceLimit = usage?.workspaces.limit ?? null;
-  const albumLimit = usage?.albums.limit ?? null;
-  const isFree = (usage?.plan ?? 'free') === 'free';
+  const plan = usage?.plan ?? 'free';
 
   const warn = (title: string, message: string) =>
     Alert.alert(title, message, [
@@ -32,30 +30,36 @@ export function usePlanLimits() {
     if (!atWorkspaceLimit) return proceed();
     warn(
       'Workspace limit reached',
-      `Your ${isFree ? 'free' : usage?.plan} plan includes ${workspaceLimit} workspace${
+      `Your ${plan} plan includes ${workspaceLimit} workspace${
         workspaceLimit === 1 ? '' : 's'
       }. Delete one or upgrade to add another.`,
     );
   };
 
-  const guardAlbumCreate = (proceed: () => void) => () => {
-    if (!atAlbumLimit) return proceed();
-    warn(
-      'Album limit reached',
-      `Your ${isFree ? 'free' : usage?.plan} plan includes ${albumLimit} album${
-        albumLimit === 1 ? '' : 's'
-      }. Delete one or upgrade to add another.`,
-    );
-  };
+  /**
+   * Wraps making an album in `workspace`.
+   *
+   * The limit is per workspace, so only the workspace the album is going into
+   * can say whether there is room. Without one — from Home or the album list,
+   * where the workspace is chosen on the next screen — it goes ahead, and the
+   * create screen says so once a full one is picked.
+   */
+  const guardAlbumCreate =
+    (proceed: () => void, workspace?: Pick<Workspace, 'name' | 'album_total'>) => () => {
+      if (!workspace || !isAlbumLimitReached(workspace.album_total)) return proceed();
+      warn(
+        'This workspace is full',
+        `${workspace.name} has ${albumLimit} album${albumLimit === 1 ? '' : 's'}, the most your ${plan} plan allows in one workspace. Delete one, use another workspace, or upgrade.`,
+      );
+    };
 
   return {
     atWorkspaceLimit,
-    atAlbumLimit,
     workspaceLimit,
     albumLimit,
+    isAlbumLimitReached,
     workspacesUsed: usage?.workspaces.used ?? 0,
-    albumsUsed: usage?.albums.used ?? 0,
-    plan: usage?.plan ?? 'free',
+    plan,
     guardWorkspaceCreate,
     guardAlbumCreate,
   };

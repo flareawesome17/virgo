@@ -31,21 +31,39 @@ export interface CreateCollaboratorInput {
   /**
    * Albums to share, with the access level for each.
    *
-   * Omitted shares the workspace's albums as they stand today. Albums created
-   * afterwards are private until granted, so a new client's shoot is not
-   * handed to everyone already in the workspace.
+   * Omitted shares the workspace's albums as they stand today, at the role's
+   * default level.
    */
   albums?: AlbumGrant[];
+  /**
+   * What albums added to the workspace later give them. Null or left out:
+   * nothing until one is shared on purpose.
+   */
+  new_album_access?: MediaAccess | null;
 }
 
 export type UpdateCollaboratorInput = Partial<
   Omit<CreateCollaboratorInput, 'id' | 'workspace_id'>
 >;
 
+/** An invitation addressed to you, with what accepting it would give you. */
 export interface CollaboratorInvitation extends Collaborator {
   workspace_name: string | null;
+  workspace_color: string | null;
   inviter_name: string | null;
+  inviter_avatar_url: string | null;
+  /** The albums on offer, and what you could do in each. */
+  albums: { id: string; name: string; media_access: MediaAccess }[];
 }
+
+/** What each role gets by default: what the invite screens promise, and the API applies. */
+export const ROLE_DEFAULT_ACCESS: Record<CollaboratorRole, MediaAccess> = {
+  owner: 'manage',
+  photographer: 'upload',
+  editor: 'manage',
+  reviewer: 'download',
+  client: 'view',
+};
 
 export const collaboratorsApi = {
   /** Invitations addressed to the caller and not yet answered. */
@@ -73,8 +91,20 @@ export const collaboratorsApi = {
    * The whole selection is sent every time. Albums left out have their grant
    * removed, which is how revoking works — there is nothing else to delete.
    */
-  setAlbums(id: string, albums: AlbumGrant[]): Promise<{ shared: number; excluded: number }> {
-    return api.post('/collaborators/' + id + '/albums', { body: { albums } });
+  setAlbums(
+    id: string,
+    albums: AlbumGrant[],
+    /** What albums added later give them. Left out, unchanged; null, nothing. */
+    newAlbumAccess?: MediaAccess | null,
+  ): Promise<{ shared: number; excluded: number }> {
+    return api.post('/collaborators/' + id + '/albums', {
+      body: newAlbumAccess === undefined ? { albums } : { albums, new_album_access: newAlbumAccess },
+    });
+  },
+
+  /** Sends an unanswered invitation again. Refused within ten minutes of the last. */
+  resend(id: string): Promise<Collaborator> {
+    return api.post<Collaborator>('/collaborators/' + id + '/resend');
   },
 
   /** Only the invitee can respond; the server enforces that. */

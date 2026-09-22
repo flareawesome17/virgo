@@ -11,16 +11,57 @@ export interface ListResponse<T> {
   total: number;
 }
 
+/** Someone in a workspace, as a card or a header draws them. */
+export interface WorkspacePerson {
+  user_id: string;
+  name: string;
+  avatar_url: string | null;
+  /** 'owner', or their role as a collaborator. */
+  role: CollaboratorRole;
+}
+
+/**
+ * A workspace as the person asking sees it.
+ *
+ * Everything after `updated_at` is derived per viewer: a member counts only
+ * the albums they were given, and sees no storage figure or invitations.
+ */
 export interface Workspace {
   id: string;
   user_id: string;
   name: string;
   description: string | null;
   accent_color: string;
-  media_count: number;
-  collaborator_count: number;
+  /** Null while in use. */
+  archived_at: string | null;
+  /** The album whose cover stands for it, if one was chosen. */
+  cover_album_id: string | null;
   created_at: string;
   updated_at: string;
+  is_owner: boolean;
+  /** 'owner', or the viewer's role as a collaborator. */
+  my_role: CollaboratorRole;
+  owner: { id: string; name: string; avatar_url: string | null };
+  /** Albums the viewer can open. */
+  album_count: number;
+  /** Every album in it, whoever can open them — what the plan's per-workspace limit counts. */
+  album_total: number;
+  /** Files in the albums the viewer can open. */
+  media_count: number;
+  /** Of those, the ones added in the last seven days. */
+  files_this_week: number;
+  /** The owner's figure; null for a member. */
+  storage_bytes: number | null;
+  /** Accepted collaborators, not counting the owner. */
+  collaborator_count: number;
+  /** Everyone in it, owner included. */
+  member_count: number;
+  /** Invitations not yet answered. Always 0 for a member. */
+  pending_count: number;
+  /** Up to five of the people here besides the viewer, the owner first. */
+  people: WorkspacePerson[];
+  /** The newest thing the viewer could see happen here, or the last edit. */
+  last_activity_at: string;
 }
 
 export type AlbumStatus = 'draft' | 'review' | 'delivered';
@@ -38,6 +79,12 @@ export interface Album {
   item_count: number;
   /** What it holds by kind. Absent from an API older than the album list redesign. */
   counts?: { image: number; video: number; audio: number };
+  /** Members of its workspace who can open it; 0 is private. Absent before the workspaces redesign. */
+  shared_with?: number;
+  /** Unanswered invitations that would give it. */
+  offered_to?: number;
+  /** What the reader can do with it: 'owner', their grant, or null. */
+  my_access?: 'owner' | 'view' | 'download' | 'upload' | 'manage' | null;
   status: AlbumStatus;
   retention_days: number | null;
   created_at: string;
@@ -134,6 +181,8 @@ export interface Collaborator {
   /** Invitations start pending; only 'accepted' grants access. */
   status: 'pending' | 'accepted' | 'declined';
   responded_at: string | null;
+  /** What albums added to the workspace later give them. Null: nothing until shared. */
+  new_album_access?: 'view' | 'download' | 'upload' | 'manage' | null;
   created_at: string;
 }
 

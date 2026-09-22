@@ -20,6 +20,8 @@ export const queryKeys = {
     all: ['workspaces'] as const,
     list: (params?: unknown) => ['workspaces', 'list', params ?? {}] as const,
     detail: (id: string) => ['workspaces', 'detail', id] as const,
+    members: (id: string) => ['workspaces', 'members', id] as const,
+    activity: (id: string) => ['workspaces', 'activity', id] as const,
   },
   albums: {
     all: ['albums'] as const,

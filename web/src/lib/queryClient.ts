@@ -70,7 +70,11 @@ export const queryClient = new QueryClient({
  * server-side meets client code expecting the old one. Changing this throws
  * the whole persisted cache away on next launch.
  */
-const CACHE_VERSION = 'v1-desktop-offline';
+/*
+ * Bumped for the workspaces redesign: a workspace now carries who owns it,
+ * its members and its activity, and screens read those without a fallback.
+ */
+const CACHE_VERSION = 'v2-workspaces-redesign';
 
 /**
  * Queries never written to disk, whatever their staleTime says.

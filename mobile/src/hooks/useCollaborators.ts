@@ -6,6 +6,7 @@ import {
   type Collaborator,
   type CreateCollaboratorInput,
   type ListCollaboratorsParams,
+  type MediaAccess,
   type UpdateCollaboratorInput,
 } from '@/src/api';
 
@@ -62,6 +63,20 @@ export function useUpdateCollaborator() {
         updated,
       );
       queryClient.invalidateQueries({ queryKey: queryKeys.collaborators.all });
+      // A role shows on the members list and on every card that names them.
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
+    },
+  });
+}
+
+/** Sends an unanswered invitation again. */
+export function useResendInvitation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => collaboratorsApi.resend(id),
+    onSuccess: () => {
+      // "Invited Mon" becomes "Invited today".
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
     },
   });
 }
@@ -110,15 +125,27 @@ export function useRespondToInvitation() {
   });
 }
 
-/** Sets exactly which albums a collaborator can see. */
+/**
+ * Sets exactly which albums a collaborator can see, and — when given — what
+ * albums added later give them.
+ */
 export function useSetCollaboratorAlbums() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, albums }: { id: string; albums: AlbumGrant[] }) =>
-      collaboratorsApi.setAlbums(id, albums),
+    mutationFn: ({
+      id,
+      albums,
+      newAlbumAccess,
+    }: {
+      id: string;
+      albums: AlbumGrant[];
+      newAlbumAccess?: MediaAccess | null;
+    }) => collaboratorsApi.setAlbums(id, albums, newAlbumAccess),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['collaborators'] });
       queryClient.invalidateQueries({ queryKey: ['albums'] });
+      // The members list summarises access; the feed says it changed.
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
     },
   });
 }

@@ -94,7 +94,11 @@ export const asyncStoragePersister = createAsyncStoragePersister({
  * keep hanging — the fix has to invalidate what the bug wrote, not just stop
  * writing more.
  */
-const CACHE_VERSION = 'v3-success-only-dehydrate'
+/*
+ * Bumped for the workspaces redesign: a workspace now carries who owns it,
+ * its members and its activity, and screens read those without a fallback.
+ */
+const CACHE_VERSION = 'v4-workspaces-redesign'
 
 /**
  * Never written to disk, whatever their staleTime says.

@@ -63,8 +63,15 @@ export {
 } from './endpoints/support';
 export {
   workspacesApi,
+  type ActivityPerson,
+  type ArchivedFilter,
   type CreateWorkspaceInput,
   type UpdateWorkspaceInput,
+  type WorkspaceActivityItem,
+  type WorkspaceActivityKind,
+  type WorkspaceListParams,
+  type WorkspaceListResponse,
+  type WorkspaceMember,
 } from './endpoints/workspaces';
 export {
   albumsApi,
@@ -80,6 +87,7 @@ export {
 } from './endpoints/scheduleEvents';
 export {
   collaboratorsApi,
+  ROLE_DEFAULT_ACCESS,
   type AlbumGrant,
   type CollaboratorInvitation,
   type CreateCollaboratorInput,
