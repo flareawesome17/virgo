@@ -27,7 +27,7 @@ import { Plate } from './plate';
  */
 
 const NAV = [
-  { label: 'Home', d: 'M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5' },
+  { label: 'Dashboard', d: 'M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5' },
   { label: 'Workspaces', d: 'M3 7h6l2 2h10v11H3z' },
   { label: 'Schedule', d: 'M4 5h16v16H4zM4 10h16M9 3v4M15 3v4' },
 ];

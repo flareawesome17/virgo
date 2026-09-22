@@ -10,7 +10,7 @@ import PageClient from './page-client';
  * page-client.tsx. Setting document.title from the client instead loses a
  * race against Next re-asserting this value after every navigation.
  */
-export const metadata: Metadata = { title: "Home" };
+export const metadata: Metadata = { title: "Dashboard" };
 
 export default function Page() {
   return <PageClient />;
