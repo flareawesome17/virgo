@@ -8,16 +8,17 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
 import { profilesApi, profileUrl } from '@/src/api';
+import { useProfileSettings } from '@/src/hooks';
 import {
   ArrowLeftIcon, BriefcaseIcon, GlobeIcon, LayersIcon,
-  MapPinIcon, Share2Icon, UserSearchIcon,
+  MapPinIcon, PencilIcon, Share2Icon, UserSearchIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 
 for (const Icon of [
   ArrowLeftIcon, BriefcaseIcon, GlobeIcon, LayersIcon,
-  MapPinIcon, Share2Icon, UserSearchIcon,
+  MapPinIcon, PencilIcon, Share2Icon, UserSearchIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -43,6 +44,9 @@ export default function ProfileScreen() {
     enabled: Boolean(handle),
     retry: false,
   });
+  // Settings > View profile opens your own page here, where "Hire <you>"
+  // leads to a screen that refuses it.
+  const { settings: own } = useProfileSettings();
 
   if (profile.isLoading) {
     return (
@@ -68,6 +72,7 @@ export default function ProfileScreen() {
   }
 
   const person = profile.data;
+  const isSelf = !!own?.handle && own.handle.toLowerCase() === person.handle.toLowerCase();
   const images = person.portfolio.filter(
     (i): i is Extract<typeof i, { kind: 'image' }> => i.kind === 'image',
   );
@@ -184,16 +189,27 @@ export default function ProfileScreen() {
             <Stat label="On Virgo" value={person.memberSince} />
           </View>
 
-          <Pressable
-            className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2 mt-4"
-            style={{ backgroundColor: '#B66A40' }}
-            onPress={() => router.push(`/hire/${person.handle}`)}
-          >
-            <BriefcaseIcon size={16} color="#fff" />
-            <Text className="text-white text-[15px] font-bold">
-              Hire {person.displayName.split(' ')[0]}
-            </Text>
-          </Pressable>
+          {isSelf ? (
+            <Pressable
+              className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2 mt-4 bg-muted active:opacity-80"
+              onPress={() => router.push('/settings/profile')}
+              accessibilityRole="button"
+            >
+              <PencilIcon size={16} className="text-foreground" />
+              <Text className="text-foreground text-[15px] font-bold">Edit profile</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2 mt-4"
+              style={{ backgroundColor: '#B66A40' }}
+              onPress={() => router.push(`/hire/${person.handle}`)}
+            >
+              <BriefcaseIcon size={16} color="#fff" />
+              <Text className="text-white text-[15px] font-bold">
+                Hire {person.displayName.split(' ')[0]}
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         {images.length > 0 && (

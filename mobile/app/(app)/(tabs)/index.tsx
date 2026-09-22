@@ -68,7 +68,7 @@ function formatTime(timeStr: string | null): string {
   return `${h12}:${m} ${ampm}`;
 }
 
-export default function FeedScreen() {
+export default function DashboardScreen() {
   const { count: unseenJobs } = useUnseenJobs();
   const markSeen = useMarkJobsSeen();
 
@@ -170,7 +170,7 @@ export default function FeedScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      {/* Brand, bell, and the Feed/Jobs pair — the same bar on every tab
+      {/* Brand, bell, and the Dashboard/Jobs tabs — the same bar on every tab
           screen. Jobs used to be half of this screen, behind a segmented
           control; it has its own address now. */}
       <AppTopBar />
@@ -196,9 +196,11 @@ export default function FeedScreen() {
             </Text>
           </View>
           <Pressable
-            onPress={() => router.push('/profile')}
+            // The account half of Settings — what the Profile tab showed
+            // before it became Settings.
+            onPress={() => router.navigate('/settings?view=account')}
             accessibilityRole="button"
-            accessibilityLabel="Open profile"
+            accessibilityLabel="Your profile and account settings"
             className="active:scale-[0.96]"
           >
             {profile?.avatarUrl ? (
