@@ -40,13 +40,22 @@ export function useNotificationRouting(enabled: boolean): void {
           else router.push('/(app)/(tabs)/schedule');
           return;
 
-        // Friendships and workspace invitations are both answered from
-        // Network, which is where these were doing nothing at all before.
+        // Friendships are answered from Network.
         case 'friend_request':
         case 'friend_accepted':
-        case 'collaborator_invite':
-        case 'collaborator_response':
           router.push('/(app)/(tabs)/connect?view=people');
+          return;
+
+        // A workspace invitation is answered on Workspaces, where it shows
+        // what is on offer. It went to Network, which has no invitations on
+        // it any more. An answer — or someone leaving — is about one of your
+        // own workspaces, so it opens that workspace's members.
+        case 'collaborator_invite':
+          router.push('/(app)/(tabs)/workspaces');
+          return;
+        case 'collaborator_response':
+          if (payload.workspaceId) router.push(`/workspaces/${payload.workspaceId}?tab=members`);
+          else router.push('/(app)/(tabs)/workspaces');
           return;
 
         // Both sides of a hire enquiry are answered from the same list, and an

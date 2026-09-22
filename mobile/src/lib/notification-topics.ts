@@ -37,7 +37,11 @@ const TOPICS: Record<
   'friend-request': { icon: UserPlusIcon, href: '/friends' },
   'friend-accepted': { icon: UserPlusIcon, href: '/friends' },
   'collaborator-invite': { icon: UsersIcon, href: '/workspaces' },
-  'collaborator-response': { icon: UsersIcon, href: '/workspaces' },
+  'collaborator-response': {
+    icon: UsersIcon,
+    href: (d) =>
+      typeof d.workspaceId === 'string' ? `/workspaces/${d.workspaceId}?tab=members` : '/workspaces',
+  },
   'event-invite': { icon: CalendarIcon, href: '/schedule' },
   'event-response': { icon: CalendarIcon, href: '/schedule' },
   'event-updated': { icon: CalendarIcon, href: '/schedule' },

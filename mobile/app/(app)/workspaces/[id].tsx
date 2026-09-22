@@ -1,573 +1,845 @@
-import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
-import { RemoteImage } from '@/components/RemoteImage';
-import { eventColor, eventTypeLabel, isEventUpcoming } from '@/src/lib/calendar';
+import { View, Text, ScrollView, RefreshControl, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  useAlbums,
-  useCollaborators,
-  useScheduleEvents,
-  useTheme,
-  useWorkspace,
-  usePlanLimits,
-} from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
+  type LucideIcon,
   ArrowLeftIcon,
+  CalendarPlusIcon,
+  ChevronRightIcon,
+  FolderXIcon,
+  LockIcon,
+  LogOutIcon,
+  MoreHorizontalIcon,
   PlusIcon,
+  RefreshCwIcon,
   UploadIcon,
   UserPlusIcon,
-  CalendarPlusIcon,
-  ImageIcon,
-  UsersIcon,
-  ClockIcon,
-  ChevronRightIcon,
-  MessageCircleIcon,
-  MailIcon,
-  LayersIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { PLACEHOLDER_COVER, PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import {
+  useAlbums,
+  useDeleteCollaborator,
+  useDeleteWorkspace,
+  useLeaveWorkspace,
+  usePlanLimits,
+  useResendInvitation,
+  useScheduleEvents,
+  useTheme,
+  useUpdateWorkspace,
+  useWorkspace,
+  useWorkspaceMembers,
+} from '@/src/hooks';
+import { formatBytes, type Album, type ScheduleEvent, type Workspace, type WorkspaceMember } from '@/src/api';
+import { isEventUpcoming } from '@/src/lib/calendar';
+import {
+  ACCESS_LABEL,
+  ROLE_LABEL,
+  accessPhrase,
+  deleteConsequence,
+  firstName,
+  invitedWhen,
+  plural,
+  roleInSentence,
+} from '@/src/lib/workspaces';
+import { RemoteImage } from '@/components/RemoteImage';
 import { LoadFailed } from '@/components/LoadFailed';
+import { WorkspaceActivity } from '@/components/WorkspaceActivity';
+import { ActionSheet, PersonAvatar, Pill, WorkspaceTile } from '@/components/WorkspaceBits';
+import { ownerLine } from '@/components/WorkspaceCard';
+import { PALETTES } from '@/theme';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(CalendarPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(FolderXIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(LockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(LogOutIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(MoreHorizontalIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(RefreshCwIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UploadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CalendarPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const STATUS_BADGES: Record<string, { bg: string; text: string; label: string }> = {
-  draft: { bg: '#A8948920', text: '#8B7355', label: 'Draft' },
-  review: { bg: '#C1774520', text: '#C17745', label: 'In Review' },
-  delivered: { bg: '#6B8E4E20', text: '#4A6B3A', label: 'Delivered' },
-};
+type Segment = 'overview' | 'albums' | 'members';
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Owner',
-  photographer: 'Photographer',
-  editor: 'Editor',
-  reviewer: 'Reviewer',
-  client: 'Client',
-};
-
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diff = d.getTime() - now.getTime();
-  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Tomorrow';
-  if (days < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function formatTime(timeStr: string | null): string {
-  if (!timeStr) return '';
-  const [h, m] = timeStr.split(':');
-  const hour = parseInt(h);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const h12 = hour % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
-}
-
-const QUICK_ACTIONS = [
-  { key: 'album', label: 'Create Album', icon: PlusIcon },
-  { key: 'upload', label: 'Upload', icon: UploadIcon },
-  { key: 'invite', label: 'Invite', icon: UserPlusIcon },
-  { key: 'schedule', label: 'Schedule', icon: CalendarPlusIcon },
+const SEGMENTS: { key: Segment; label: string }[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'albums', label: 'Albums' },
+  { key: 'members', label: 'Members' },
 ];
 
-export default function WorkspaceDetailScreen() {
-  const { guardAlbumCreate } = usePlanLimits();
-  const { id } = useLocalSearchParams<{ id: string }>();
+/** "Private", "Shared with 2", "Offered to 1": who can open an album. */
+function sharingLabel(album: Album): string {
+  if ((album.shared_with ?? 0) > 0) return `Shared with ${album.shared_with}`;
+  if ((album.offered_to ?? 0) > 0) return `Offered to ${album.offered_to}`;
+  return 'Private';
+}
+
+/** The back button on a header tinted with the workspace's colour. */
+function BackButton() {
+  return (
+    <Pressable
+      onPress={() => router.back()}
+      accessibilityRole="button"
+      accessibilityLabel="Back"
+      className="w-11 h-11 items-center justify-center active:opacity-60"
+    >
+      <ArrowLeftIcon size={20} className="text-foreground" />
+    </Pressable>
+  );
+}
+
+function Chip({ icon: Icon, label, onPress }: { icon: LucideIcon; label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      className="h-10 px-3.5 rounded-full bg-card border border-border flex-row items-center gap-1.5 active:scale-[0.96]"
+    >
+      <Icon size={16} className="text-foreground" />
+      <Text className="text-foreground text-[13px] font-semibold">{label}</Text>
+    </Pressable>
+  );
+}
+
+function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <View className={`bg-card rounded-2xl border border-border/40 ${className}`}>{children}</View>;
+}
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[1.5px] mx-1 mb-2">
+      {children}
+    </Text>
+  );
+}
+
+function EventRow({ event }: { event: ScheduleEvent }) {
+  const date = new Date(`${event.event_date}T00:00:00`);
+  const when = [
+    date.toLocaleDateString('en-US', { weekday: 'short' }),
+    event.event_time ? formatClock(event.event_time) : 'All day',
+    event.location,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <Pressable
+      onPress={() => router.push(`/schedule/${event.id}`)}
+      accessibilityRole="button"
+      className="flex-row items-center gap-3 active:opacity-70"
+    >
+      <View className="w-12 h-[52px] rounded-xl bg-primary/10 items-center justify-center">
+        <Text className="text-primary text-[11px] font-bold tracking-[1px]">
+          {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+        </Text>
+        <Text className="text-primary text-xl font-bold">{date.getDate()}</Text>
+      </View>
+      <View className="flex-1 min-w-0">
+        <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+          {event.title}
+        </Text>
+        <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+          {when}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/** `HH:MM[:SS]` to "7:00 AM". */
+function formatClock(time: string): string {
+  const [h, m] = time.split(':');
+  const hour = parseInt(h, 10);
+  return `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
+}
+
+function AlbumRow({ album, showSharing, divider }: { album: Album; showSharing: boolean; divider?: string }) {
+  const label = sharingLabel(album);
+  const isPrivate = showSharing && label === 'Private';
+  return (
+    <Pressable
+      onPress={() => router.push(`/albums/${album.id}`)}
+      accessibilityRole="button"
+      className="flex-row items-center gap-3 px-3.5 py-3 active:opacity-70"
+      style={divider ? { borderTopWidth: 1, borderTopColor: divider } : undefined}
+    >
+      <View className="w-14 h-14 rounded-xl overflow-hidden bg-muted">
+        {album.cover_url ? (
+          <RemoteImage source={{ uri: album.cover_url }} style={{ width: 56, height: 56 }} />
+        ) : null}
+      </View>
+      <View className="flex-1 min-w-0">
+        <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+          {album.name}
+        </Text>
+        <View className="flex-row items-center gap-1 mt-0.5">
+          {isPrivate && <LockIcon size={11} className="text-warning" />}
+          <Text className={`text-xs ${isPrivate ? 'text-warning' : 'text-muted-foreground'}`} numberOfLines={1}>
+            {plural(album.item_count, 'file')}
+            {showSharing ? ` · ${label}` : ''}
+          </Text>
+        </View>
+      </View>
+      <ChevronRightIcon size={16} className="text-muted-foreground" />
+    </Pressable>
+  );
+}
+
+/** The owner's workspace: what is in it, what needs doing, and who is here. */
+function OwnerView({
+  workspace,
+  initialSegment,
+}: {
+  workspace: Workspace;
+  initialSegment: Segment;
+}) {
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
+  const { guardAlbumCreate } = usePlanLimits();
+  const [segment, setSegment] = useState<Segment>(initialSegment);
   const [refreshing, setRefreshing] = useState(false);
+  const [options, setOptions] = useState(false);
 
-  const enabled = { enabled: !!id };
+  const id = workspace.id;
+  const albumsQuery = useAlbums({ workspace_id: id, orderBy: 'created_at', direction: 'desc', limit: 100 });
+  const membersQuery = useWorkspaceMembers(id);
+  // Latest-dated first, so the future is what fits in the page. Oldest
+  // first, a workspace with fifty past events showed nothing coming up.
+  const { events, refetch: refetchEvents } = useScheduleEvents({
+    workspace_id: id,
+    orderBy: 'event_date',
+    direction: 'desc',
+    limit: 100,
+  });
+  const update = useUpdateWorkspace();
+  const remove = useDeleteWorkspace();
+  const resend = useResendInvitation();
+  const cancelInvite = useDeleteCollaborator();
 
-  const {
-    data: workspace,
-    isLoading: wsLoading,
-    refetch: refetchWorkspace,
-  } = useWorkspace(id);
-
-  const {
-    albums,
-    loadFailed: albumsFailed,
-    refetch: refetchAlbums,
-  } = useAlbums(
-    {
-      workspace_id: id,
-      orderBy: 'created_at',
-      direction: 'desc',
-      limit: 100,
-    },
-    enabled,
+  const albums = albumsQuery.albums;
+  const members = membersQuery.members;
+  const present = members.filter((m) => m.status === 'owner' || m.status === 'accepted');
+  const invites = members.filter((m) => m.status === 'pending' || m.status === 'declined');
+  const waiting = members.filter((m) => m.status === 'pending');
+  const waitingIds = useMemo(
+    () =>
+      new Set(members.flatMap((m) => (m.status === 'pending' && m.user_id ? [m.user_id] : []))),
+    [members],
   );
-
-  const { collaborators, refetch: refetchCollaborators } = useCollaborators(
-    { workspace_id: id, limit: 100 },
-    enabled,
-  );
-
-  // A window, not 3: ascending order puts the *oldest* events first, so a
-  // small limit returns only past ones and leaves Upcoming empty once they are
-  // filtered out.
-  const { events, refetch: refetchEvents } = useScheduleEvents(
-    {
-      workspace_id: id,
-      orderBy: 'event_date',
-      direction: 'asc',
-      limit: 50,
-    },
-    enabled,
-  );
-
-  // Compared against the moment, not the date — a 9am event was still listed
-  // as upcoming that same evening.
-  const upcomingEvents = events
+  const hasPeople = workspace.collaborator_count + workspace.pending_count > 0;
+  const unshared = hasPeople
+    ? albums.filter((a) => (a.shared_with ?? 0) === 0 && (a.offered_to ?? 0) === 0)
+    : [];
+  // Compared against the moment, not the date — a 9am event is not upcoming
+  // that evening.
+  const upcoming = events
     .filter((e) => isEventUpcoming(e.event_date, e.event_time))
-    .slice(0, 3);
+    .sort((a, b) => `${a.event_date} ${a.event_time ?? ''}`.localeCompare(`${b.event_date} ${b.event_time ?? ''}`))
+    .slice(0, 2);
+  const accent = workspace.accent_color;
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([
-      refetchWorkspace(),
-      refetchAlbums(),
-      refetchCollaborators(),
-      refetchEvents(),
-    ]);
+    await Promise.all([albumsQuery.refetch(), membersQuery.refetch(), refetchEvents()]);
     setRefreshing(false);
   };
 
-  if (wsLoading || !workspace) {
-    return (
-      <SafeAreaView edges={['top']} className="flex-1 bg-background">
-        <View className="flex-1 items-center justify-center gap-3">
-          <Text className="text-muted-foreground text-sm">Loading workspace...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const newAlbum = guardAlbumCreate(() => router.push(`/albums/create?workspaceId=${id}`), workspace);
 
-  const accent = workspace.accent_color || '#B66A40';
-  const albumCount = albums.length;
-  const totalItems = albums.reduce((s, a) => s + (a.item_count || 0), 0);
+  const sendAgain = (member: WorkspaceMember) =>
+    resend.mutate(member.id!, {
+      onSuccess: () => Alert.alert('Sent again', `${firstName(member.name)} has the invitation again.`),
+      onError: (err: Error) => Alert.alert('Not sent', err.message),
+    });
+
+  const confirmCancel = (member: WorkspaceMember) =>
+    Alert.alert(
+      `Cancel the invitation to ${firstName(member.name)}?`,
+      'It disappears from their Workspaces. You can invite them again whenever you like.',
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Cancel invitation',
+          style: 'destructive',
+          onPress: () =>
+            cancelInvite.mutate(member.id!, {
+              onError: (err: Error) => Alert.alert('Could not cancel it', err.message),
+            }),
+        },
+      ],
+    );
+
+  const toggleArchive = () => {
+    const archiving = !workspace.archived_at;
+    update.mutate(
+      { id, archived: archiving },
+      {
+        onSuccess: () => {
+          if (archiving) {
+            Alert.alert(
+              `${workspace.name} is archived`,
+              'Find it under Archived at the bottom of your workspaces. Albums and sharing are as they were.',
+            );
+            router.back();
+          }
+        },
+        onError: (err: Error) => Alert.alert('Could not change that', err.message),
+      },
+    );
+  };
+
+  const confirmDelete = () =>
+    Alert.alert(`Delete ${workspace.name}?`, `${deleteConsequence(workspace)} This cannot be undone.`, [
+      { text: 'Keep it', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () =>
+          remove.mutate(id, {
+            onSuccess: () => router.replace('/(app)/(tabs)/workspaces'),
+            onError: (err: Error) => Alert.alert('Could not delete', err.message),
+          }),
+      },
+    ]);
+
+  return (
+    <ScrollView
+      className="flex-1"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: 120 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}
+    >
+      <View style={{ backgroundColor: `${accent}1A` }} className="pb-4">
+        <View className="px-2 pt-1 flex-row items-center justify-between">
+          <BackButton />
+          <Pressable
+            onPress={() => setOptions(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Workspace options"
+            className="w-11 h-11 items-center justify-center active:opacity-60"
+          >
+            <MoreHorizontalIcon size={22} className="text-secondary-foreground" />
+          </Pressable>
+        </View>
+        <View className="px-5 gap-3">
+          <View className="flex-row items-center gap-3">
+            <WorkspaceTile name={workspace.name} color={accent} size={52} />
+            <View className="flex-1 min-w-0">
+              <Text className="text-foreground text-[22px] font-bold tracking-tight" numberOfLines={2}>
+                {workspace.name}
+              </Text>
+              <Text className="text-secondary-foreground text-xs mt-0.5">
+                {workspace.archived_at ? 'Archived · ' : ''}
+                {ownerLine(workspace)}
+              </Text>
+            </View>
+          </View>
+          {workspace.description ? (
+            <Text className="text-secondary-foreground text-sm" numberOfLines={3}>
+              {workspace.description}
+            </Text>
+          ) : null}
+          <View className="flex-row gap-2">
+            {[
+              [workspace.album_count.toLocaleString(), workspace.album_count === 1 ? 'album' : 'albums'],
+              [workspace.media_count.toLocaleString(), workspace.media_count === 1 ? 'file' : 'files'],
+              [formatBytes(workspace.storage_bytes ?? 0), 'storage'],
+            ].map(([value, label]) => (
+              <View key={label} className="flex-1 px-3 py-2.5 rounded-xl bg-card">
+                <Text className="text-foreground text-lg font-bold">{value}</Text>
+                <Text className="text-muted-foreground text-[11px]">{label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      <View className="px-5 pt-3.5 gap-3.5">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          <Chip icon={PlusIcon} label="New album" onPress={newAlbum} />
+          <Chip icon={UploadIcon} label="Upload" onPress={() => router.push('/albums/upload')} />
+          <Chip icon={UserPlusIcon} label="Invite" onPress={() => router.push(`/workspaces/${id}/invite`)} />
+          <Chip
+            icon={CalendarPlusIcon}
+            label="Schedule"
+            onPress={() => router.push(`/schedule/create?workspaceId=${id}`)}
+          />
+        </ScrollView>
+
+        <View className="flex-row gap-0.5 p-0.5 rounded-xl bg-muted" accessibilityRole="tablist">
+          {SEGMENTS.map((s) => {
+            const on = s.key === segment;
+            return (
+              <Pressable
+                key={s.key}
+                onPress={() => setSegment(s.key)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                className={`flex-1 h-9 rounded-[10px] items-center justify-center ${on ? 'bg-card' : ''}`}
+              >
+                <Text className={`text-[13px] ${on ? 'text-foreground font-bold' : 'text-secondary-foreground font-medium'}`}>
+                  {s.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {segment === 'overview' && (
+          <>
+            {unshared.length > 0 && (
+              <View className="flex-row items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-warning/15">
+                <LockIcon size={18} className="text-warning" />
+                <View className="flex-1">
+                  <Text className="text-foreground text-[13px] font-semibold">
+                    {unshared.length === 1
+                      ? `${unshared[0].name} isn’t shared yet`
+                      : `${unshared.length} albums aren’t shared yet`}
+                  </Text>
+                  <Text className="text-secondary-foreground text-xs mt-0.5">New albums start private.</Text>
+                </View>
+                <Pressable onPress={() => setSegment('members')} accessibilityRole="button" hitSlop={8}>
+                  <Text className="text-primary text-[13px] font-bold">Share</Text>
+                </Pressable>
+              </View>
+            )}
+            {waiting.length > 0 && (
+              <View className="flex-row items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-secondary">
+                <RefreshCwIcon size={16} className="text-secondary-foreground" />
+                <View className="flex-1">
+                  <Text className="text-foreground text-[13px] font-semibold">
+                    {waiting.length === 1
+                      ? `${firstName(waiting[0].name)} hasn’t answered yet`
+                      : `${waiting.length} invitations waiting`}
+                  </Text>
+                  <Text className="text-secondary-foreground text-xs mt-0.5">
+                    {waiting.length === 1
+                      ? `Sent ${invitedWhen(waiting[0].invited_at)}, as ${roleInSentence(waiting[0].role)}.`
+                      : 'Resend or cancel them from Members.'}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => (waiting.length === 1 ? sendAgain(waiting[0]) : setSegment('members'))}
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  disabled={resend.isPending}
+                >
+                  <Text className="text-primary text-[13px] font-bold">{waiting.length === 1 ? 'Resend' : 'See'}</Text>
+                </Pressable>
+              </View>
+            )}
+
+            <Card className="px-3.5 pt-3">
+              <Text className="text-foreground text-sm font-semibold">What’s been happening</Text>
+              <WorkspaceActivity workspaceId={id} waiting={waitingIds} limit={6} divider={palette.border} />
+            </Card>
+
+            <Card className="p-3.5 gap-3">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-foreground text-sm font-semibold">Coming up</Text>
+                <Pressable onPress={() => router.push(`/schedule/create?workspaceId=${id}`)} hitSlop={8}>
+                  <Text className="text-primary text-[13px] font-bold">Add</Text>
+                </Pressable>
+              </View>
+              {upcoming.length === 0 ? (
+                <Text className="text-muted-foreground text-sm">Nothing scheduled for this workspace.</Text>
+              ) : (
+                upcoming.map((event) => <EventRow key={event.id} event={event} />)
+              )}
+            </Card>
+          </>
+        )}
+
+        {segment === 'albums' &&
+          (albumsQuery.isLoading ? (
+            <ActivityIndicator className="py-8" />
+          ) : albumsQuery.loadFailed && albums.length === 0 ? (
+            <Card>
+              <LoadFailed what="these albums" onRetry={() => albumsQuery.refetch()} compact />
+            </Card>
+          ) : albums.length === 0 ? (
+            <Card className="p-6 items-center gap-2">
+              <Text className="text-muted-foreground text-sm text-center">
+                No albums yet. An album holds one shoot or one delivery.
+              </Text>
+              <Pressable onPress={newAlbum} className="bg-action rounded-xl px-4 py-2 mt-1 active:scale-[0.96]">
+                <Text className="text-white text-sm font-semibold">Create the first album</Text>
+              </Pressable>
+            </Card>
+          ) : (
+            <Card className="overflow-hidden">
+              {albums.map((album, i) => (
+                <AlbumRow
+                  key={album.id}
+                  album={album}
+                  showSharing={hasPeople}
+                  divider={i > 0 ? palette.border : undefined}
+                />
+              ))}
+            </Card>
+          ))}
+
+        {segment === 'members' && (
+          <>
+            <View className="flex-row items-center justify-between">
+              <Text className="text-muted-foreground text-[13px] flex-1 mr-3">
+                Everyone here can see who else is.
+              </Text>
+              <Pressable
+                onPress={() => router.push(`/workspaces/${id}/invite`)}
+                accessibilityRole="button"
+                className="h-9 px-3.5 rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.96]"
+              >
+                <UserPlusIcon size={15} className="text-action-foreground" />
+                <Text className="text-action-foreground text-[13px] font-bold">Invite</Text>
+              </Pressable>
+            </View>
+            {membersQuery.isLoading ? (
+              <ActivityIndicator className="py-6" />
+            ) : membersQuery.loadFailed && members.length === 0 ? (
+              <Card>
+                <LoadFailed what="who is here" onRetry={() => membersQuery.refetch()} compact />
+              </Card>
+            ) : (
+              <>
+                <Card className="overflow-hidden">
+                  {present.map((member, i) => {
+                    const line =
+                      member.status === 'owner'
+                        ? 'Owner · everything'
+                        : `${ROLE_LABEL[member.role]} · ${accessPhrase(member, workspace.album_total)}`;
+                    const row = (
+                      <>
+                        <PersonAvatar name={member.name} url={member.avatar_url} size={38} />
+                        <View className="flex-1 min-w-0">
+                          <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                            {member.name}
+                            {member.is_you ? ' (you)' : ''}
+                          </Text>
+                          <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+                            {line}
+                          </Text>
+                        </View>
+                      </>
+                    );
+                    const style = i > 0 ? { borderTopWidth: 1, borderTopColor: palette.border } : undefined;
+                    return member.status === 'owner' ? (
+                      <View key={`owner-${member.user_id}`} className="flex-row items-center gap-3 px-3.5 py-3" style={style}>
+                        {row}
+                      </View>
+                    ) : (
+                      <Pressable
+                        key={member.id}
+                        onPress={() => router.push(`/workspaces/${id}/member/${member.id}`)}
+                        accessibilityRole="button"
+                        accessibilityHint="Change their role and what they can do in each album"
+                        className="flex-row items-center gap-3 px-3.5 py-3 active:opacity-70"
+                        style={style}
+                      >
+                        {row}
+                        <ChevronRightIcon size={18} className="text-muted-foreground" />
+                      </Pressable>
+                    );
+                  })}
+                </Card>
+
+                {invites.length > 0 && (
+                  <View>
+                    <SectionLabel>Invites</SectionLabel>
+                    <Card className="overflow-hidden">
+                      {invites.map((member, i) => (
+                        <View
+                          key={member.id}
+                          className="px-3.5 py-3 gap-2.5"
+                          style={i > 0 ? { borderTopWidth: 1, borderTopColor: palette.border } : undefined}
+                        >
+                          <View className="flex-row items-center gap-3">
+                            <PersonAvatar name={member.name} url={member.avatar_url} size={38} />
+                            <View className="flex-1 min-w-0">
+                              <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                                {member.name}
+                              </Text>
+                              <Text className="text-muted-foreground text-xs mt-0.5">
+                                {ROLE_LABEL[member.role]} ·{' '}
+                                {member.status === 'pending' ? `invited ${invitedWhen(member.invited_at)}` : 'declined'}
+                              </Text>
+                            </View>
+                            {member.status === 'pending' ? (
+                              <Pill tone="warning">Waiting</Pill>
+                            ) : (
+                              <Pressable
+                                onPress={() =>
+                                  router.push(`/workspaces/${id}/invite?person=${member.user_id ?? ''}`)
+                                }
+                                accessibilityRole="button"
+                                hitSlop={8}
+                              >
+                                <Text className="text-primary text-[13px] font-bold">Invite again</Text>
+                              </Pressable>
+                            )}
+                          </View>
+                          {member.status === 'pending' && (
+                            <View className="flex-row gap-2 pl-[50px]">
+                              <Pressable
+                                onPress={() => sendAgain(member)}
+                                disabled={resend.isPending}
+                                accessibilityRole="button"
+                                className="h-9 px-3 rounded-xl border border-border flex-row items-center gap-1.5 active:scale-[0.96]"
+                              >
+                                <RefreshCwIcon size={14} className="text-foreground" />
+                                <Text className="text-foreground text-[13px] font-semibold">Resend</Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={() => confirmCancel(member)}
+                                accessibilityRole="button"
+                                className="h-9 px-3 rounded-xl items-center justify-center active:opacity-60"
+                              >
+                                <Text className="text-secondary-foreground text-[13px] font-semibold">
+                                  Cancel invite
+                                </Text>
+                              </Pressable>
+                            </View>
+                          )}
+                        </View>
+                      ))}
+                    </Card>
+                  </View>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </View>
+
+      <ActionSheet
+        visible={options}
+        title={workspace.name}
+        onClose={() => setOptions(false)}
+        actions={[
+          { label: 'Edit details', onPress: () => router.push(`/workspaces/${id}/edit`) },
+          { label: workspace.archived_at ? 'Bring back from archive' : 'Archive', onPress: toggleArchive },
+          { label: 'Delete workspace…', destructive: true, onPress: confirmDelete },
+        ]}
+      />
+    </ScrollView>
+  );
+}
+
+/**
+ * A workspace someone else owns: the albums shared with you and what you can
+ * do in each, who else is here, what has been happening in your albums, and a
+ * way out. Nothing that is the owner's to decide.
+ */
+function SharedView({ workspace }: { workspace: Workspace }) {
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
+  const [refreshing, setRefreshing] = useState(false);
+  const id = workspace.id;
+  const albumsQuery = useAlbums({ workspace_id: id, orderBy: 'created_at', direction: 'desc', limit: 100 });
+  const membersQuery = useWorkspaceMembers(id);
+  const leave = useLeaveWorkspace();
+
+  const albums = albumsQuery.albums;
+  const owner = firstName(workspace.owner.name);
+  const hidden = Math.max(0, workspace.album_total - workspace.album_count);
+  const uploadable = albums.filter((a) => a.my_access === 'upload' || a.my_access === 'manage');
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([albumsQuery.refetch(), membersQuery.refetch()]);
+    setRefreshing(false);
+  };
+
+  const confirmLeave = () =>
+    Alert.alert(
+      `Leave ${workspace.name}?`,
+      `You lose access to its albums straight away, and ${owner} is told. Anything you uploaded stays in ${owner}’s albums. ${owner} can invite you again.`,
+      [
+        { text: 'Stay', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: () =>
+            leave.mutate(id, {
+              onSuccess: () => router.replace('/(app)/(tabs)/workspaces'),
+              onError: (err: Error) => Alert.alert('Could not leave', err.message),
+            }),
+        },
+      ],
+    );
+
+  return (
+    <ScrollView
+      className="flex-1"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: 120 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}
+    >
+      <View style={{ backgroundColor: `${workspace.accent_color}1A` }} className="pb-4">
+        <View className="px-2 pt-1">
+          <BackButton />
+        </View>
+        <View className="px-5 flex-row items-center gap-3">
+          <WorkspaceTile name={workspace.name} color={workspace.accent_color} size={52} />
+          <View className="flex-1 min-w-0">
+            <Text className="text-foreground text-[22px] font-bold tracking-tight" numberOfLines={2}>
+              {workspace.name}
+            </Text>
+            <Text className="text-secondary-foreground text-xs mt-0.5">
+              Shared by {workspace.owner.name} · you’re {roleInSentence(workspace.my_role, true)}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View className="px-4 pt-3.5 gap-4">
+        <View className="flex-row gap-2">
+          {uploadable.length > 0 && (
+            <Chip
+              icon={UploadIcon}
+              label="Upload"
+              onPress={() =>
+                router.push(uploadable.length === 1 ? `/albums/upload?albumId=${uploadable[0].id}` : '/albums/upload')
+              }
+            />
+          )}
+          <Chip icon={CalendarPlusIcon} label="Schedule" onPress={() => router.push('/(app)/(tabs)/schedule')} />
+        </View>
+
+        <View>
+          <SectionLabel>Albums shared with you</SectionLabel>
+          {albumsQuery.isLoading ? (
+            <ActivityIndicator className="py-6" />
+          ) : albumsQuery.loadFailed && albums.length === 0 ? (
+            <Card>
+              <LoadFailed what="these albums" onRetry={() => albumsQuery.refetch()} compact />
+            </Card>
+          ) : albums.length === 0 ? (
+            <Card className="p-4">
+              <Text className="text-muted-foreground text-sm">
+                {owner} hasn’t shared an album with you yet. They appear here as soon as one is.
+              </Text>
+            </Card>
+          ) : (
+            <Card className="overflow-hidden">
+              {albums.map((album, i) => (
+                <Pressable
+                  key={album.id}
+                  onPress={() => router.push(`/albums/${album.id}`)}
+                  accessibilityRole="button"
+                  className="flex-row items-center gap-3 px-3.5 py-3 active:opacity-70"
+                  style={i > 0 ? { borderTopWidth: 1, borderTopColor: palette.border } : undefined}
+                >
+                  <View className="w-11 h-11 rounded-xl overflow-hidden bg-muted">
+                    {album.cover_url ? (
+                      <RemoteImage source={{ uri: album.cover_url }} style={{ width: 44, height: 44 }} />
+                    ) : null}
+                  </View>
+                  <View className="flex-1 min-w-0">
+                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                      {album.name}
+                    </Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">{plural(album.item_count, 'file')}</Text>
+                  </View>
+                  {album.my_access && album.my_access !== 'owner' ? (
+                    <Pill tone="info">You can {ACCESS_LABEL[album.my_access].toLowerCase()}</Pill>
+                  ) : null}
+                </Pressable>
+              ))}
+            </Card>
+          )}
+          {hidden > 0 && (
+            <Text className="text-muted-foreground text-xs mt-2 mx-1">
+              {hidden === 1
+                ? `${owner}’s other album isn’t shared with you.`
+                : `${owner}’s other ${hidden} albums aren’t shared with you.`}
+            </Text>
+          )}
+        </View>
+
+        <Card className="px-3.5 pt-3">
+          <Text className="text-foreground text-sm font-semibold">What’s been happening</Text>
+          <WorkspaceActivity workspaceId={id} limit={6} divider={palette.border} />
+        </Card>
+
+        <View>
+          <SectionLabel>Who’s here</SectionLabel>
+          <Card className="overflow-hidden">
+            {membersQuery.members.map((member, i) => (
+              <View
+                key={member.id ?? `owner-${member.user_id}`}
+                className="flex-row items-center gap-3 px-3.5 py-3"
+                style={i > 0 ? { borderTopWidth: 1, borderTopColor: palette.border } : undefined}
+              >
+                <PersonAvatar name={member.name} url={member.avatar_url} size={38} />
+                <View className="flex-1 min-w-0">
+                  <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                    {member.name}
+                    {member.is_you ? ' (you)' : ''}
+                  </Text>
+                  <Text className="text-muted-foreground text-xs mt-0.5">{ROLE_LABEL[member.role]}</Text>
+                </View>
+              </View>
+            ))}
+          </Card>
+        </View>
+
+        <Pressable
+          onPress={confirmLeave}
+          disabled={leave.isPending}
+          accessibilityRole="button"
+          className="h-12 rounded-2xl bg-destructive/10 flex-row items-center justify-center gap-2 active:scale-[0.98]"
+        >
+          <LogOutIcon size={17} className="text-destructive" />
+          <Text className="text-destructive text-sm font-bold">Leave workspace</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  );
+}
+
+export default function WorkspaceDetailScreen() {
+  const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
+  const { data: workspace, isLoading } = useWorkspace(id);
+  const initialSegment: Segment = tab === 'members' || tab === 'albums' ? tab : 'overview';
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <ScrollView
-        className="flex-1"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={isDark ? '#C17745' : '#B66A40'}
-          />
-        }
-      >
-        {/* ── Hero Header ── */}
-        <View className="relative">
-          {/* Color block */}
-          <View
-            style={{
-              backgroundColor: `${accent}12`,
-              paddingTop: 4,
-              paddingBottom: 28,
-              paddingHorizontal: 20,
-            }}
-          >
-            {/* Back button */}
-            <Pressable
-              onPress={() => router.back()}
-              className="w-10 h-10 rounded-2xl bg-white items-center justify-center mb-4 active:scale-[0.94]"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.06,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 2,
-              }}
-            >
-              <ArrowLeftIcon size={18} color="#1E1B18" />
-            </Pressable>
-
-            {/* Icon + title */}
-            <View className="flex-row items-center gap-4">
-              <View
-                style={{
-                  width: 60,
-                  height: 60,
-                  borderRadius: 20,
-                  backgroundColor: `${accent}22`,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text style={{ fontSize: 26, fontWeight: '700', color: accent }}>
-                  {workspace.name.charAt(0)}
-                </Text>
-              </View>
-              <View className="flex-1">
-                <Text className="text-foreground text-[22px] font-bold tracking-tight">
-                  {workspace.name}
-                </Text>
-                {workspace.description ? (
-                  <Text className="text-muted-foreground text-sm mt-0.5" numberOfLines={2}>
-                    {workspace.description}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-
-            {/* Stats row */}
-            <View className="flex-row items-center gap-5 mt-5">
-              <View className="flex-row items-center gap-1.5">
-                <ImageIcon size={13} color={accent} />
-                <Text className="text-foreground text-sm font-bold">
-                  {totalItems.toLocaleString()}
-                </Text>
-                <Text className="text-muted-foreground text-xs">items</Text>
-              </View>
-              <View className="flex-row items-center gap-1.5">
-                <LayersIcon size={13} color={accent} />
-                <Text className="text-foreground text-sm font-bold">{albumCount}</Text>
-                <Text className="text-muted-foreground text-xs">albums</Text>
-              </View>
-              <View className="flex-row items-center gap-1.5">
-                <UsersIcon size={13} color={accent} />
-                <Text className="text-foreground text-sm font-bold">
-                  {workspace.collaborator_count}
-                </Text>
-                <Text className="text-muted-foreground text-xs">members</Text>
-              </View>
-            </View>
+      {workspace ? (
+        workspace.is_owner ? (
+          <OwnerView workspace={workspace} initialSegment={initialSegment} />
+        ) : (
+          <SharedView workspace={workspace} />
+        )
+      ) : isLoading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator />
+        </View>
+      ) : (
+        // Deleted, left, removed, or never there: one answer, since the server
+        // gives one. This spun on "Loading workspace..." forever before.
+        <View className="flex-1">
+          <View className="px-2 pt-1">
+            <BackButton />
           </View>
-        </View>
-
-        {/* ── Quick Actions ── */}
-        <View className="-mt-5 mx-5">
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 10 }}
-          >
-            {QUICK_ACTIONS.map((action) => {
-              const Icon = action.icon;
-              const isInvite = action.key === 'invite';
-              return (
-                <Pressable
-                  key={action.key}
-                  // These branches were empty stubs, so three of the four
-                  // quick actions did nothing when tapped.
-                  onPress={() => {
-                    if (action.key === 'invite') {
-                      router.push(`/workspaces/${id}/invite`);
-                    } else if (action.key === 'album') {
-                      guardAlbumCreate(() => router.push(`/albums/create?workspaceId=${id}`))();
-                    } else if (action.key === 'upload') {
-                      router.push('/albums/upload');
-                    } else if (action.key === 'schedule') {
-                      router.push(`/schedule/create?workspaceId=${id}`);
-                    }
-                  }}
-                  className="bg-card rounded-2xl px-5 py-3.5 flex-row items-center gap-2.5 active:scale-[0.96]"
-                  style={{
-                    shadowColor: '#000',
-                    shadowOpacity: 0.05,
-                    shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 3 },
-                    elevation: 3,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 10,
-                      backgroundColor: `${accent}18`,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Icon size={15} color={accent} />
-                  </View>
-                  <Text className="text-foreground text-sm font-semibold">{action.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* ── Collaborators ── */}
-        <View className="px-5 mt-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-base font-bold tracking-tight">Members</Text>
-            <Pressable
-              onPress={() => router.push(`/workspaces/${id}/invite`)}
-              className="flex-row items-center gap-1 active:opacity-60"
-            >
-              <UserPlusIcon size={13} className="text-primary" />
-              <Text className="text-primary text-sm font-semibold">Invite</Text>
-            </Pressable>
-          </View>
-
-          {collaborators.length === 0 ? (
-            <View className="bg-card rounded-2xl p-6 items-center gap-2">
-              <UsersIcon size={20} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-sm">No members yet</Text>
-            </View>
-          ) : (
-            <View
-              className="bg-card rounded-2xl overflow-hidden"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.04,
-                shadowRadius: 10,
-                shadowOffset: { width: 0, height: 3 },
-                elevation: 3,
-              }}
-            >
-              {collaborators.map((collab, i) => (
-                <Pressable
-                  key={collab.id}
-                  className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
-                  style={
-                    i < collaborators.length - 1
-                      ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
-                      : undefined
-                  }
-                >
-                  <RemoteImage
-                    source={{
-                      uri:
-                        collab.avatar_url ||
-                        PLACEHOLDER_IMAGE,
-                    }}
-                    style={{ width: 36, height: 36, borderRadius: 18 }}
-                  />
-                  <View className="flex-1 min-w-0">
-                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                      {collab.name}
-                    </Text>
-                    <View className="flex-row items-center gap-1.5">
-                      <Text className="text-muted-foreground text-xs">
-                        {ROLE_LABELS[collab.role] || collab.role}
-                      </Text>
-                      {/* Web has said this since invitations shipped; the phone
-                          did not, so an invitation nobody had answered looked
-                          exactly like a collaborator who had joined. */}
-                      {collab.status === 'pending' && (
-                        <View
-                          className="rounded-full px-1.5 py-0.5"
-                          style={{ backgroundColor: '#B66A4018' }}
-                        >
-                          <Text className="text-[9px] font-bold" style={{ color: '#B66A40' }}>
-                            INVITED
-                          </Text>
-                        </View>
-                      )}
-                      {collab.status === 'declined' && (
-                        <View className="rounded-full px-1.5 py-0.5 bg-muted">
-                          <Text className="text-muted-foreground text-[9px] font-bold">
-                            DECLINED
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                  <View className="flex-row gap-1.5">
-                    <Pressable className="w-8 h-8 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
-                      <MessageCircleIcon size={13} className="text-muted-foreground" />
-                    </Pressable>
-                    <Pressable className="w-8 h-8 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
-                      <MailIcon size={13} className="text-muted-foreground" />
-                    </Pressable>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </View>
-
-        {/* ── Albums ── */}
-        <View className="px-5 mt-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-base font-bold tracking-tight">Albums</Text>
-            <Pressable
-              onPress={() => router.push(`/albums?workspaceId=${id}`)}
-              className="flex-row items-center gap-1 active:opacity-60"
-            >
-              <Text className="text-primary text-sm font-semibold">See all</Text>
-              <ChevronRightIcon size={14} className="text-primary" />
-            </Pressable>
-          </View>
-
-          {albumsFailed && albums.length === 0 ? (
-            <View className="bg-card rounded-2xl">
-              <LoadFailed what="these albums" onRetry={() => refetchAlbums()} compact />
-            </View>
-          ) : albums.length === 0 ? (
-            <View className="bg-card rounded-2xl p-6 items-center gap-2">
-              <LayersIcon size={20} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-sm">No albums created yet</Text>
-              <Pressable
-                onPress={guardAlbumCreate(() => router.push(`/albums/create?workspaceId=${id}`))}
-                className="bg-action rounded-xl px-4 py-2 active:scale-[0.96] mt-1"
-              >
-                <Text className="text-white text-sm font-semibold">Create first album</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <View className="gap-3">
-              {albums.map((album) => {
-                const badge = STATUS_BADGES[album.status] || STATUS_BADGES.draft;
-                return (
-                  <Pressable
-                    key={album.id}
-                    // Had no onPress at all, so album cards were inert.
-                    onPress={() => router.push(`/albums/${album.id}`)}
-                    className="bg-card rounded-2xl overflow-hidden flex-row active:scale-[0.98]"
-                    style={{
-                      shadowColor: '#000',
-                      shadowOpacity: 0.04,
-                      shadowRadius: 10,
-                      shadowOffset: { width: 0, height: 3 },
-                      elevation: 3,
-                    }}
-                  >
-                    <RemoteImage
-                      source={{
-                        uri:
-                          album.cover_url ||
-                          PLACEHOLDER_COVER,
-                      }}
-                      style={{ width: 80, height: 80 }}
-                    />
-                    <View className="flex-1 p-3 justify-center min-w-0">
-                      <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                        {album.name}
-                      </Text>
-                      {album.description ? (
-                        <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-                          {album.description}
-                        </Text>
-                      ) : null}
-                      <View className="flex-row items-center gap-3 mt-2">
-                        <Text className="text-muted-foreground text-[11px] font-medium">
-                          {album.item_count} items
-                        </Text>
-                        <View
-                          style={{
-                            paddingHorizontal: 6,
-                            paddingVertical: 2,
-                            borderRadius: 5,
-                            backgroundColor: badge.bg,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: badge.text,
-                              fontSize: 9,
-                              fontWeight: '600',
-                              textTransform: 'uppercase',
-                            }}
-                          >
-                            {badge.label}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
-        </View>
-
-        {/* ── Upcoming Schedule ── */}
-        <View className="px-5 mt-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-base font-bold tracking-tight">
-              Upcoming Schedule
+          <View className="flex-1 items-center justify-center px-10 gap-3 pb-24">
+            <FolderXIcon size={30} className="text-muted-foreground" />
+            <Text className="text-foreground text-lg font-bold text-center">This workspace isn’t available</Text>
+            <Text className="text-muted-foreground text-sm text-center">
+              It may have been deleted, or you are no longer a member.
             </Text>
-            <Pressable onPress={() => router.push(`/schedule/create?workspaceId=${id}`)} className="flex-row items-center gap-1 active:opacity-60">
-              <PlusIcon size={13} className="text-primary" />
-              <Text className="text-primary text-sm font-semibold">Add</Text>
+            <Pressable
+              onPress={() => router.replace('/(app)/(tabs)/workspaces')}
+              accessibilityRole="button"
+              className="mt-2 bg-action rounded-2xl px-5 py-3 active:scale-[0.96]"
+            >
+              <Text className="text-white text-sm font-semibold">Your workspaces</Text>
             </Pressable>
           </View>
-
-          {upcomingEvents.length === 0 ? (
-            <View className="bg-card rounded-2xl p-6 items-center gap-2">
-              <CalendarPlusIcon size={20} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-sm">No upcoming events</Text>
-            </View>
-          ) : (
-            <View
-              className="bg-card rounded-2xl overflow-hidden"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.04,
-                shadowRadius: 10,
-                shadowOffset: { width: 0, height: 3 },
-                elevation: 3,
-              }}
-            >
-              {upcomingEvents.map((event, i) => {
-                const dotColor = eventColor(event.event_type);
-                return (
-                  <Pressable
-                    key={event.id}
-                    onPress={() => router.push(`/schedule/${event.id}`)}
-                    className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
-                    style={
-                      i < upcomingEvents.length - 1
-                        ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
-                        : undefined
-                    }
-                  >
-                    <View
-                      style={{
-                        width: 3,
-                        height: 34,
-                        borderRadius: 2,
-                        backgroundColor: dotColor,
-                      }}
-                    />
-                    <View className="flex-1 min-w-0">
-                      <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                        {event.title}
-                      </Text>
-                      <Text className="text-muted-foreground text-xs mt-0.5">
-                        {eventTypeLabel(event)}
-                      </Text>
-                    </View>
-                    <View className="items-end">
-                      <Text className="text-foreground text-xs font-bold">
-                        {formatDate(event.event_date)}
-                      </Text>
-                      {event.event_time ? (
-                        <Text className="text-muted-foreground text-xs mt-0.5">
-                          {formatTime(event.event_time)}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
         </View>
-      </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
