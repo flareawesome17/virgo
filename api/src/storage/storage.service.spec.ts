@@ -4,6 +4,7 @@ import { DeleteObjectsCommand, S3Client } from '@aws-sdk/client-s3';
 import type { QuotaService } from '../quota/quota.service';
 import type { MediaLinkService } from './media-link.service';
 import { StorageConfig } from './storage.config';
+import type { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import { StorageService } from './storage.service';
 
 /**
@@ -121,6 +122,7 @@ function wipeOf(world: {
       storageConfig(),
       quota as unknown as QuotaService,
       mediaLink as unknown as MediaLinkService,
+      { recordInAlbum: async () => undefined } as unknown as WorkspaceActivityService,
     ),
     batches,
     askedToDelete: () => batches.flat(),

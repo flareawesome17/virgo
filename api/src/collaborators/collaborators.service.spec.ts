@@ -2,6 +2,7 @@ import type { DatabaseService } from '../database/database.service';
 import type { FriendsService } from '../friends/friends.service';
 import type { MailConfig } from '../mail/mail.config';
 import type { NotifyService } from '../notifications/notify.service';
+import type { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import type { WorkspacesService } from '../workspaces/workspaces.service';
 import type { CollaboratorsRepository } from './collaborators.repository';
 import { CollaboratorsService } from './collaborators.service';
@@ -38,6 +39,7 @@ function serviceOver() {
     db,
     {} as unknown as NotifyService,
     {} as unknown as MailConfig,
+    {} as unknown as WorkspaceActivityService,
   );
   return { service, query };
 }

@@ -351,7 +351,16 @@ export class QuotaService {
    * refuse. The declared size is already pinned into the signature, so it
    * cannot be understated here and exceeded later.
    */
-  async assertCanStore(userId: string, additionalBytes: number): Promise<void> {
+  async assertCanStore(
+    userId: string,
+    additionalBytes: number,
+    /**
+     * Whose storage it is, for the refusal. A collaborator adding to someone
+     * else's album spends the album owner's storage, and "your 5 GB" would
+     * send them to their own plan to fix something that is not on it.
+     */
+    whose: 'yours' | 'album-owner' = 'yours',
+  ): Promise<void> {
     const limits = await this.limits(userId);
     if (!Number.isFinite(limits.storageBytes)) return;
 
@@ -360,12 +369,19 @@ export class QuotaService {
       const gb = (limits.storageBytes / 1024 ** 3).toFixed(0);
       const remaining = Math.max(limits.storageBytes - used, 0);
       throw new ForbiddenException(
-        `That upload would exceed your ${gb} GB of storage. ${formatBytes(remaining)} remaining.`,
+        whose === 'yours'
+          ? `That upload would exceed your ${gb} GB of storage. ${formatBytes(remaining)} remaining.`
+          : `The album's owner does not have room for that upload: ${formatBytes(remaining)} of their ${gb} GB remaining. Uploads here count toward their storage, not yours.`,
       );
     }
   }
 
-  /** Records a confirmed upload. Idempotent on `key`. */
+  /**
+   * Records a confirmed upload. Idempotent on `key`.
+   *
+   * True when the row is new, so a confirmation sent twice for the same file
+   * is counted once by anything that counts arrivals.
+   */
   async recordFile(
     userId: string,
     file: {
@@ -376,12 +392,12 @@ export class QuotaService {
       albumId?: string | null;
       originalName?: string | null;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const kind = file.contentType?.split('/')[0];
     const processingStatus = ['image', 'video', 'audio'].includes(kind ?? '')
       ? 'pending'
       : 'not_required';
-    await this.db.query(
+    const rows = await this.db.query<{ inserted: boolean }>(
       `insert into user_files
          (user_id, key, size_bytes, content_type, scope, album_id,
           original_name, processing_status, next_processing_at)
@@ -401,7 +417,8 @@ export class QuotaService {
                when user_files.content_type is distinct from excluded.content_type
                  and excluded.processing_status = 'pending' then now()
                else user_files.next_processing_at
-             end`,
+             end
+       returning (xmax = 0) as inserted`,
       [
         userId,
         file.key,
@@ -413,6 +430,8 @@ export class QuotaService {
         processingStatus,
       ],
     );
+    // xmax is 0 on a row this statement inserted and set on one it updated.
+    return rows[0]?.inserted ?? false;
   }
 
   /**

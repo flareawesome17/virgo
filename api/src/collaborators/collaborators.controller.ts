@@ -9,6 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { CollaboratorsService } from './collaborators.service';
 import {
@@ -85,7 +86,18 @@ export class CollaboratorsController {
     const grants = dto.albums
       ? dto.albums.map((a) => ({ albumId: a.album_id, mediaAccess: a.media_access }))
       : (dto.album_ids ?? []).map((albumId) => ({ albumId }));
-    return this.collaborators.updateSharedAlbums(userId, id, grants);
+    return this.collaborators.updateSharedAlbums(userId, id, grants, dto.new_album_access);
+  }
+
+  /**
+   * Sends an unanswered invitation again. The service refuses a second one
+   * within ten minutes; this stops a loop from trying.
+   */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post(':id/resend')
+  resend(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.collaborators.resend(userId, id);
   }
 
   /** Removes someone from this album only; their workspace access remains. */

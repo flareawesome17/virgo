@@ -85,6 +85,14 @@ export class CreateCollaboratorDto {
   @IsOptional()
   @IsIn(ROLES)
   role?: (typeof ROLES)[number];
+
+  /**
+   * What albums added to the workspace later will give them. Left out or
+   * null, they get nothing until an album is shared with them.
+   */
+  @IsOptional()
+  @IsIn(MEDIA_ACCESS)
+  new_album_access?: (typeof MEDIA_ACCESS)[number] | null;
 }
 
 export class UpdateCollaboratorDto {
@@ -102,6 +110,11 @@ export class UpdateCollaboratorDto {
   @IsOptional()
   @IsIn(ROLES)
   role?: (typeof ROLES)[number];
+
+  /** What albums added later give them; null for nothing. */
+  @IsOptional()
+  @IsIn(MEDIA_ACCESS)
+  new_album_access?: (typeof MEDIA_ACCESS)[number] | null;
 }
 
 export class ListCollaboratorsDto extends ListQueryDto {
@@ -131,4 +144,12 @@ export class UpdateCollaboratorAlbumsDto {
   @ArrayMaxSize(200)
   @IsString({ each: true })
   album_ids?: string[];
+
+  /**
+   * What albums added later give them, saved with the rest. Left out, it is
+   * unchanged; null, they get nothing until an album is shared with them.
+   */
+  @IsOptional()
+  @IsIn(MEDIA_ACCESS)
+  new_album_access?: (typeof MEDIA_ACCESS)[number] | null;
 }

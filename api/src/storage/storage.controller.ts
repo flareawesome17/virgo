@@ -61,6 +61,7 @@ export class StorageController {
       contentType: dto.contentType,
       scope: dto.scope,
       contentLength: dto.contentLength,
+      albumId: dto.albumId,
     });
   }
 
