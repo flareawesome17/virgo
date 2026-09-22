@@ -69,6 +69,7 @@ import {
   ManageAttendeesDialog,
 } from '@/components/event-invites';
 import { useCreateReminder, useDeleteReminder, useReminders } from '@/hooks/useReminders';
+import { useWorkspaces } from '@/hooks/useWorkspaces';
 import {
   DAY_DOT_SIZE,
   DAYS,
@@ -111,15 +112,21 @@ function timeInputValue(event: ScheduleEvent | undefined): string {
   return event?.event_time ? event.event_time.slice(0, 5) : '';
 }
 
+/** The workspace select's value for an event that belongs to none. */
+const NO_WORKSPACE = 'none';
+
 function EventDialog({
   open,
   onOpenChange,
   defaultDate,
+  defaultWorkspaceId,
   event,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultDate: string;
+  /** The workspace a new event starts in: "Add" from a workspace's Coming up. */
+  defaultWorkspaceId?: string | null;
   /** Present to edit that event; absent to create a new one. */
   event?: ScheduleEvent;
 }) {
@@ -140,6 +147,16 @@ function EventDialog({
   const [otherLabel, setOtherLabel] = useState(event?.event_type_other ?? '');
   const [location, setLocation] = useState(event?.location ?? '');
   const [guests, setGuests] = useState<string[]>([]);
+  const [workspaceId, setWorkspaceId] = useState(
+    event?.workspace_id ?? defaultWorkspaceId ?? NO_WORKSPACE,
+  );
+  // Your own workspaces only: an event is filed under a workspace the same
+  // way an album is, and only its owner can do that.
+  const { workspaces: listed } = useWorkspaces(
+    { limit: 100, orderBy: 'name', direction: 'asc' },
+    { enabled: open && !guestEdit },
+  );
+  const ownWorkspaces = listed.filter((w) => w.is_owner);
 
   // An "other" event is only half-described until it is named, so the save
   // button waits for the name the same way it waits for the title.
@@ -150,13 +167,14 @@ function EventDialog({
   // for — and any instance handed a different event would go on showing the
   // previous one's values. Adjusted during render rather than in an effect, so
   // the first frame of the dialog already shows them.
-  const [filledFor, setFilledFor] = useState({ open, event, defaultDate });
+  const [filledFor, setFilledFor] = useState({ open, event, defaultDate, defaultWorkspaceId });
   if (
     open !== filledFor.open ||
     event !== filledFor.event ||
-    defaultDate !== filledFor.defaultDate
+    defaultDate !== filledFor.defaultDate ||
+    defaultWorkspaceId !== filledFor.defaultWorkspaceId
   ) {
-    setFilledFor({ open, event, defaultDate });
+    setFilledFor({ open, event, defaultDate, defaultWorkspaceId });
     if (open && event) {
       setTitle(event.title);
       setDescription(event.description ?? '');
@@ -165,8 +183,10 @@ function EventDialog({
       setType(event.event_type as EventType);
       setOtherLabel(event.event_type_other ?? '');
       setLocation(event.location ?? '');
+      setWorkspaceId(event.workspace_id ?? NO_WORKSPACE);
     } else if (open) {
       setDate(defaultDate);
+      setWorkspaceId(defaultWorkspaceId ?? NO_WORKSPACE);
     }
   }
 
@@ -183,6 +203,9 @@ function EventDialog({
       // Null rather than '' when cleared, so "has a location" stays one check.
       // The server settles the spelling — "cebu" comes back as "Cebu City".
       location: location.trim() || null,
+      // A guest cannot file somebody else's event under a workspace, so their
+      // edit leaves it where it is.
+      ...(guestEdit ? {} : { workspace_id: workspaceId === NO_WORKSPACE ? null : workspaceId }),
     };
 
     if (event) {
@@ -327,6 +350,25 @@ function EventDialog({
               />
             )}
           </div>
+
+          {!guestEdit && ownWorkspaces.length > 0 && (
+            <div className="grid gap-2">
+              <Label htmlFor="event-workspace">Workspace</Label>
+              <Select value={workspaceId} onValueChange={setWorkspaceId}>
+                <SelectTrigger id="event-workspace">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_WORKSPACE}>None</SelectItem>
+                  {ownWorkspaces.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="grid gap-2">
             <Label htmlFor="event-location">Where</Label>
@@ -578,6 +620,8 @@ function ScheduleContent() {
   const [selected, setSelected] = useState(today);
   const [cursor, setCursor] = useState(() => new Date());
   const [creatingEvent, setCreatingEvent] = useState(false);
+  /** The workspace a linked "new event" starts in (?workspace=). */
+  const [newEventWorkspace, setNewEventWorkspace] = useState<string | null>(null);
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(
     null,
@@ -601,7 +645,10 @@ function ScheduleContent() {
       setSelected(date);
       setCursor(new Date(`${date}T00:00:00`));
     }
-    if (searchParams.get('new') === '1') setCreatingEvent(true);
+    if (searchParams.get('new') === '1') {
+      setNewEventWorkspace(searchParams.get('workspace'));
+      setCreatingEvent(true);
+    }
     // ?tab=invites is where an event-invite notification points, so tapping it
     // lands on the decision rather than on the calendar.
     const wanted = searchParams.get('tab');
@@ -981,8 +1028,12 @@ function ScheduleContent() {
 
       <EventDialog
         open={creatingEvent}
-        onOpenChange={setCreatingEvent}
+        onOpenChange={(next) => {
+          setCreatingEvent(next);
+          if (!next) setNewEventWorkspace(null);
+        }}
         defaultDate={selected}
+        defaultWorkspaceId={newEventWorkspace}
       />
       {editingEvent && (
         <EventDialog

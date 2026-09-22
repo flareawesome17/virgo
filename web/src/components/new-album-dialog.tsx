@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useCreateAlbum } from '@/hooks/useAlbums';
+import { useUsage } from '@/hooks/useUsage';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 
 /**
@@ -46,17 +47,27 @@ export function NewAlbumDialog({
 }) {
   const router = useRouter();
   const create = useCreateAlbum();
-  const { workspaces, isLoading } = useWorkspaces({ limit: 100 }, { enabled: open && !workspaceId });
+  // Only your own: an album can only be made in a workspace you own, and one
+  // shared with you ended in "Unknown workspace" after the form was filled.
+  const { workspaces: listed, isLoading } = useWorkspaces(
+    { limit: 100, orderBy: 'name', direction: 'asc' },
+    { enabled: open },
+  );
+  const workspaces = listed.filter((w) => w.is_owner);
+  const { usage, isAlbumLimitReached, albumLimit } = useUsage();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   /** Days to keep the files. 'none' keeps them until deleted by hand. */
   const [retention, setRetention] = useState('none');
   const [chosenWorkspace, setChosenWorkspace] = useState<string | null>(null);
   const target = workspaceId ?? chosenWorkspace ?? workspaces[0]?.id ?? null;
+  const targetWorkspace = listed.find((w) => w.id === target);
+  // Per workspace, as the plan counts it: this one is full, not all of them.
+  const full = !!targetWorkspace && isAlbumLimitReached(targetWorkspace.album_total);
 
   const submit = () => {
     const trimmed = name.trim();
-    if (!trimmed || !target) return;
+    if (!trimmed || !target || full) return;
     create.mutate(
       {
         name: trimmed,
@@ -108,11 +119,21 @@ export function NewAlbumDialog({
                     {workspaces.map((workspace) => (
                       <SelectItem key={workspace.id} value={workspace.id}>
                         {workspace.name}
+                        {isAlbumLimitReached(workspace.album_total) ? ' — full' : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+            )}
+            {full && (
+              <p className="rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
+                {targetWorkspace?.name} has {albumLimit} album{albumLimit === 1 ? '' : 's'}, the most the{' '}
+                {usage?.plan ?? 'free'} plan allows in one workspace.{' '}
+                <Link href="/settings/plans" className="font-medium underline-offset-4 hover:underline">
+                  See plans
+                </Link>
+              </p>
             )}
             <div className="grid gap-2">
               <Label htmlFor="album-name">Name</Label>
@@ -167,7 +188,7 @@ export function NewAlbumDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!name.trim() || !target || create.isPending}>
+          <Button onClick={submit} disabled={!name.trim() || !target || full || create.isPending}>
             {create.isPending && <Loader2 className="size-4 animate-spin" />}
             Create album
           </Button>

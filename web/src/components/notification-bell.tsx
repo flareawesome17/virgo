@@ -59,8 +59,14 @@ const TOPICS: Record<
 > = {
   'friend-request': { icon: UserPlus, href: '/network' },
   'friend-accepted': { icon: UserPlus, href: '/network' },
-  'collaborator-invite': { icon: Users, href: '/network' },
-  'collaborator-response': { icon: Users, href: '/network' },
+  // Invitations are answered on Workspaces, where they show what is on
+  // offer; an answer, or someone leaving, is about one of your workspaces.
+  'collaborator-invite': { icon: Users, href: '/workspaces' },
+  'collaborator-response': {
+    icon: Users,
+    href: (d) =>
+      typeof d.workspaceId === 'string' ? `/workspaces/${d.workspaceId}?tab=members` : '/workspaces',
+  },
   'event-invite': { icon: Calendar, href: '/schedule?tab=invites' },
   'event-response': { icon: Calendar, href: '/schedule' },
   'event-updated': { icon: Calendar, href: '/schedule' },
