@@ -26,6 +26,9 @@ import {
   CheckIcon,
   MailIcon,
   MapPinIcon,
+  FlagIcon,
+  BanIcon,
+  EllipsisIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -40,10 +43,14 @@ import {
   useRenameConversation,
   useTheme,
 } from '@/src/hooks';
+import type { Participant } from '@/src/api';
+import { PersonSafetySheet, firstName, usePersonSafety } from '@/components/PersonSafetySheet';
+import { PALETTES } from '@/theme';
 
 for (const Icon of [
   ArrowLeftIcon, UsersIcon, BellIcon, BellOffIcon, PencilIcon, UserPlusIcon,
-  LogOutIcon, Trash2Icon, CheckIcon, MailIcon, MapPinIcon,
+  LogOutIcon, Trash2Icon, CheckIcon, MailIcon, MapPinIcon, FlagIcon, BanIcon,
+  EllipsisIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -78,6 +85,7 @@ export default function ConversationInfoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { user } = useAuth();
 
   const { participants, isLoading } = useParticipants(id);
@@ -94,6 +102,8 @@ export default function ConversationInfoScreen() {
   const [titleDraft, setTitleDraft] = useState('');
   const [muteOpen, setMuteOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  /** The group member whose More menu is open. */
+  const [safetyFor, setSafetyFor] = useState<Participant | null>(null);
 
   const isGroup = participants.length > 2 || !!conversation?.isGroup;
   const others = useMemo(
@@ -102,6 +112,18 @@ export default function ConversationInfoScreen() {
   );
   const title = conversation?.title ?? (isGroup ? 'Group' : (others[0]?.name ?? 'Conversation'));
   const muted = !!conversation?.muted;
+
+  // By account id: participants carry it, and a handle is often unpublished.
+  // Blocking needs no navigation afterwards — the thread stays, frozen, and
+  // the refreshed participants turn this row into Unblock.
+  const direct = !isGroup ? (others[0] ?? null) : null;
+  const directSafety = usePersonSafety({
+    name: direct?.name ?? '',
+    target: direct ? { userId: direct.id } : null,
+    source: 'chat',
+    blockId: direct?.block_id ?? null,
+  });
+  const directFirst = firstName(direct?.name ?? '');
 
   /** Friends not already in this group. */
   const addable = useMemo(() => {
@@ -342,31 +364,52 @@ export default function ConversationInfoScreen() {
                 <ActivityIndicator size="small" color="#B66A40" />
               </View>
             ) : (
-              participants.map((p, i) => (
-                <View
-                  key={p.id}
-                  className="px-4 py-3 flex-row items-center gap-3"
-                  style={i < participants.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
-                >
-                  {p.avatar_url ? (
-                    <RemoteImage source={{ uri: p.avatar_url }} style={{ width: 40, height: 40, borderRadius: 20 }} />
-                  ) : (
-                    <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
-                      <Text style={{ color: '#B66A40', fontWeight: '700' }}>
-                        {p.name.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                  )}
-                  <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
-                    {p.name}
-                  </Text>
-                  {p.id === user?.id && (
-                    <View className="rounded-full px-2 py-0.5 bg-muted">
-                      <Text className="text-muted-foreground text-[10px] font-bold">YOU</Text>
-                    </View>
-                  )}
-                </View>
-              ))
+              participants.map((p, i) => {
+                // In a group, anyone but you opens the More menu: a group puts
+                // you in a room with people you may never have added yourself.
+                // A direct chat has its own Safety card below instead.
+                const actionable = isGroup && p.id !== user?.id;
+                return (
+                  <Pressable
+                    key={p.id}
+                    disabled={!actionable}
+                    onPress={actionable ? () => setSafetyFor(p) : undefined}
+                    accessibilityRole={actionable ? 'button' : undefined}
+                    // A label replaces what the row contains, so the Blocked
+                    // pill is only heard if the label says it too.
+                    accessibilityLabel={
+                      actionable ? `${p.name}${p.blocked_by_me ? ', blocked' : ''}` : undefined
+                    }
+                    accessibilityHint={actionable ? 'Opens report and block options' : undefined}
+                    className="px-4 py-3 flex-row items-center gap-3 active:bg-muted/30"
+                    style={i < participants.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
+                  >
+                    {p.avatar_url ? (
+                      <RemoteImage source={{ uri: p.avatar_url }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+                    ) : (
+                      <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
+                        <Text style={{ color: '#B66A40', fontWeight: '700' }}>
+                          {p.name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
+                      {p.name}
+                    </Text>
+                    {p.id === user?.id && (
+                      <View className="rounded-full px-2 py-0.5 bg-muted">
+                        <Text className="text-muted-foreground text-[10px] font-bold">YOU</Text>
+                      </View>
+                    )}
+                    {p.blocked_by_me && (
+                      <View className="rounded-full px-2 py-0.5 bg-destructive/10">
+                        <Text className="text-destructive text-[10px] font-bold">Blocked</Text>
+                      </View>
+                    )}
+                    {actionable && <EllipsisIcon size={16} className="text-muted-foreground" />}
+                  </Pressable>
+                );
+              })
             )}
           </View>
         </View>
@@ -401,6 +444,77 @@ export default function ConversationInfoScreen() {
                   See who is nearby
                 </Text>
               </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* Safety, for a direct chat. Its own card rather than a place in
+            Exits: blocking keeps the conversation, so it is not a way out of
+            it, and reporting has nothing to do with leaving. */}
+        {direct && (
+          <View className="px-5 mt-6">
+            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+              Safety
+            </Text>
+            <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
+              <Pressable
+                onPress={directSafety.openReport}
+                accessibilityRole="button"
+                className="px-4 py-3.5 flex-row items-center gap-3 border-b border-muted active:bg-muted/30"
+              >
+                <View className="w-8 h-8 rounded-[10px] bg-muted items-center justify-center">
+                  <FlagIcon size={15} className="text-foreground" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-foreground text-sm font-semibold">
+                    Report {directFirst}
+                  </Text>
+                  <Text className="text-muted-foreground text-xs mt-0.5">
+                    {"Tell us something's wrong. They won't know."}
+                  </Text>
+                </View>
+              </Pressable>
+              {direct.blocked_by_me ? (
+                <Pressable
+                  onPress={directSafety.confirmUnblock}
+                  disabled={directSafety.pending}
+                  accessibilityRole="button"
+                  className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
+                >
+                  <View className="w-8 h-8 rounded-[10px] bg-muted items-center justify-center">
+                    <BanIcon size={15} className="text-foreground" />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-foreground text-sm font-semibold">
+                      Unblock {directFirst}
+                    </Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">
+                      You’ll be able to message each other in this chat again.
+                    </Text>
+                  </View>
+                  {directSafety.pending && <ActivityIndicator size="small" color={palette.primary} />}
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={directSafety.confirmBlock}
+                  disabled={directSafety.pending}
+                  accessibilityRole="button"
+                  className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
+                >
+                  <View className="w-8 h-8 rounded-[10px] bg-destructive/10 items-center justify-center">
+                    <BanIcon size={15} className="text-destructive" />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-destructive text-sm font-semibold">
+                      Block {directFirst}
+                    </Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">
+                      {"They can't message you or find you. They won't be told."}
+                    </Text>
+                  </View>
+                  {directSafety.pending && <ActivityIndicator size="small" color={palette.destructive} />}
+                </Pressable>
+              )}
             </View>
           </View>
         )}
@@ -549,6 +663,18 @@ export default function ConversationInfoScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {directSafety.sheets}
+
+      {/* One menu for every group member, fed whichever row was tapped. */}
+      <PersonSafetySheet
+        visible={!!safetyFor}
+        onClose={() => setSafetyFor(null)}
+        name={safetyFor?.name ?? ''}
+        target={safetyFor ? { userId: safetyFor.id } : null}
+        source="chat"
+        blockId={safetyFor?.block_id ?? null}
+      />
     </SafeAreaView>
   );
 }

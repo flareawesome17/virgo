@@ -5,19 +5,21 @@ import {
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
-import { profilesApi, profileUrl } from '@/src/api';
+import { profilesApi, profileUrl, queryKeys } from '@/src/api';
 import { useProfileSettings } from '@/src/hooks';
 import {
-  ArrowLeftIcon, BriefcaseIcon, GlobeIcon, LayersIcon,
+  ArrowLeftIcon, BriefcaseIcon, EllipsisIcon, GlobeIcon, LayersIcon,
   MapPinIcon, PencilIcon, Share2Icon, UserSearchIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { PersonSafetySheet } from '@/components/PersonSafetySheet';
 
 for (const Icon of [
-  ArrowLeftIcon, BriefcaseIcon, GlobeIcon, LayersIcon,
+  ArrowLeftIcon, BriefcaseIcon, EllipsisIcon, GlobeIcon, LayersIcon,
   MapPinIcon, PencilIcon, Share2Icon, UserSearchIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -39,7 +41,7 @@ export default function ProfileScreen() {
   const { handle } = useLocalSearchParams<{ handle: string }>();
 
   const profile = useQuery({
-    queryKey: ['public-profile', handle],
+    queryKey: queryKeys.publicProfiles.detail(handle as string),
     queryFn: () => profilesApi.publicProfile(handle as string),
     enabled: Boolean(handle),
     retry: false,
@@ -47,6 +49,7 @@ export default function ProfileScreen() {
   // Settings > View profile opens your own page here, where "Hire <you>"
   // leads to a screen that refuses it.
   const { settings: own } = useProfileSettings();
+  const [safetyOpen, setSafetyOpen] = useState(false);
 
   if (profile.isLoading) {
     return (
@@ -106,6 +109,16 @@ export default function ProfileScreen() {
         >
           <Share2Icon size={18} className="text-muted-foreground" />
         </Pressable>
+        {!isSelf && (
+          <Pressable
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            onPress={() => setSafetyOpen(true)}
+          >
+            <EllipsisIcon size={18} className="text-muted-foreground" />
+          </Pressable>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
@@ -269,6 +282,19 @@ export default function ProfileScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* By handle: the profile never carries the account id. Blocking goes
+          back, because across a block this profile no longer exists. */}
+      {!isSelf && (
+        <PersonSafetySheet
+          visible={safetyOpen}
+          onClose={() => setSafetyOpen(false)}
+          name={person.displayName}
+          target={{ handle: person.handle }}
+          source="profile"
+          onBlocked={() => router.back()}
+        />
+      )}
     </SafeAreaView>
   );
 }

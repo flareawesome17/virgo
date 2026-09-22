@@ -197,6 +197,50 @@ export function ActionSheet({
 }
 
 /**
+ * Radio rows, the current one ticked.
+ *
+ * On their own so a sheet that asks for more than the one choice — a report,
+ * which also takes a note — can list its options the same way ChoiceSheet
+ * does without closing the moment one is picked.
+ */
+export function ChoiceRows<T extends string>({
+  options,
+  value,
+  onChoose,
+}: {
+  options: { value: T; label: string; description?: string }[];
+  value: T | null;
+  onChoose: (value: T) => void;
+}) {
+  return (
+    <>
+      {options.map((option) => {
+        const on = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: on }}
+            onPress={() => onChoose(option.value)}
+            className="flex-row items-center gap-3 py-3 active:opacity-70"
+          >
+            <View className="flex-1">
+              <Text className={`text-base ${on ? 'text-foreground font-bold' : 'text-foreground'}`}>
+                {option.label}
+              </Text>
+              {option.description ? (
+                <Text className="text-muted-foreground text-xs mt-0.5">{option.description}</Text>
+              ) : null}
+            </View>
+            {on && <CheckIcon size={18} className="text-primary" />}
+          </Pressable>
+        );
+      })}
+    </>
+  );
+}
+
+/**
  * A bottom sheet of choices, the current one ticked. For picking one of a few
  * short options on a phone, where a dropdown costs a modal anyway.
  */
@@ -227,31 +271,14 @@ export function ChoiceSheet<T extends string>({
           </Text>
           {hint ? <Text className="text-muted-foreground text-xs mt-1">{hint}</Text> : null}
           <View className="mt-3">
-            {options.map((option) => {
-              const on = option.value === value;
-              return (
-                <Pressable
-                  key={option.value}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: on }}
-                  onPress={() => {
-                    onChoose(option.value);
-                    onClose();
-                  }}
-                  className="flex-row items-center gap-3 py-3 active:opacity-70"
-                >
-                  <View className="flex-1">
-                    <Text className={`text-base ${on ? 'text-foreground font-bold' : 'text-foreground'}`}>
-                      {option.label}
-                    </Text>
-                    {option.description ? (
-                      <Text className="text-muted-foreground text-xs mt-0.5">{option.description}</Text>
-                    ) : null}
-                  </View>
-                  {on && <CheckIcon size={18} className="text-primary" />}
-                </Pressable>
-              );
-            })}
+            <ChoiceRows
+              options={options}
+              value={value}
+              onChoose={(chosen) => {
+                onChoose(chosen);
+                onClose();
+              }}
+            />
           </View>
         </View>
       </SafeAreaView>

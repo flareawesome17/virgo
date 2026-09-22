@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { chatApi, type SendMessageInput, type Thread } from '@/src/api';
+import { chatApi, chatRefusal, type SendMessageInput, type Thread } from '@/src/api';
 import { seedPresence } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
 
@@ -130,6 +130,11 @@ export function useThread(conversationId: string | undefined) {
     loadFailed: query.isError || query.isPaused,
     messages: query.data?.data ?? [],
     lastReadAt: dividerAt?.at ?? null,
+    // True when the field is missing: an API from before blocking — a rolled
+    // back one, say — sends none of these and never freezes a thread.
+    canSend: query.data?.canSend ?? true,
+    blockedByMe: query.data?.blockedByMe ?? false,
+    blockId: query.data?.blockId ?? null,
   };
 }
 
@@ -161,6 +166,16 @@ export function useSendMessage(conversationId: string) {
           : old,
       );
       queryClient.invalidateQueries({ queryKey: chatKeys.thread(conversationId) });
+      queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+    },
+    // A block refusal means the thread on screen is out of date: it still
+    // offers a composer the server will no longer accept. Refetching it is
+    // what swaps the composer for the notice, and the participants carry who
+    // is blocked.
+    onError: (err) => {
+      if (!chatRefusal(err)) return;
+      queryClient.invalidateQueries({ queryKey: chatKeys.thread(conversationId) });
+      queryClient.invalidateQueries({ queryKey: chatKeys.participants(conversationId) });
       queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
     },
   });

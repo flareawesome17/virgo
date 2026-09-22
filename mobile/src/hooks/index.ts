@@ -91,6 +91,13 @@ export {
   usePeopleSearch,
 } from '@/src/hooks/useFriends'
 
+export {
+  useBlocks,
+  useBlockPerson,
+  useUnblock,
+  useReportPerson,
+} from '@/src/hooks/useBlocks'
+
 export { useUpload, useDeleteUpload, type UploadInput } from '@/src/hooks/useUpload'
 export { useUsage, usePlans, usageQueryKey, plansQueryKey } from '@/src/hooks/useUsage'
 export { useAlbumFiles, albumFilesQueryKey, kindOf, fileNameFromKey, fileDate, type MediaKind, type AlbumFilesFilter } from '@/src/hooks/useAlbumFiles'

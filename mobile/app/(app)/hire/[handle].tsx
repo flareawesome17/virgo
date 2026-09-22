@@ -8,7 +8,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSendEnquiry } from '@/src/hooks';
-import { profilesApi } from '@/src/api';
+import { profilesApi, queryKeys } from '@/src/api';
 import {
   ArrowLeftIcon, MapPinIcon, SendIcon, UserSearchIcon,
 } from 'lucide-react-native';
@@ -32,7 +32,7 @@ export default function HireScreen() {
   const send = useSendEnquiry();
 
   const profile = useQuery({
-    queryKey: ['public-profile', handle],
+    queryKey: queryKeys.publicProfiles.detail(handle as string),
     queryFn: () => profilesApi.publicProfile(handle as string),
     enabled: Boolean(handle),
     retry: false,

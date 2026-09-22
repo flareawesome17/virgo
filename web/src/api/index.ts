@@ -10,7 +10,7 @@
  */
 
 export { api, request, setAuthFailureHandler } from './client';
-export { ApiError } from './errors';
+export { ApiError, chatRefusal, type ChatRefusal } from './errors';
 export { API_BASE_URL } from './config';
 export {
   clearTokens,
@@ -104,9 +104,20 @@ export {
 export {
   friendsApi,
   type CreateFriendInput,
+  type FriendRequestTarget,
   type ListFriendsParams,
+  type PersonResult,
+  type SendRequestResult,
   type UpdateFriendInput,
 } from './endpoints/friends';
+export {
+  blocksApi,
+  USER_REPORT_REASONS,
+  type BlockedPerson,
+  type PersonRef,
+  type ReportSource,
+  type UserReportReason,
+} from './endpoints/blocks';
 export {
   usageApi,
   formatBytes,

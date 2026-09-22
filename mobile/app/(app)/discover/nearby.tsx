@@ -19,6 +19,7 @@ import {
   UserPlusIcon,
   ShieldCheckIcon,
   BriefcaseIcon,
+  EllipsisIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LocationField } from '@/components/LocationField';
@@ -41,6 +42,7 @@ import {
 import { RolePicker } from '@/components';
 import type { NearbyPerson } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
+import { PersonSafetySheet } from '@/components/PersonSafetySheet';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -48,6 +50,7 @@ cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp:
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ShieldCheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BriefcaseIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(EllipsisIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /** The API caps the radius at 200km. */
 const RADII = [5, 25, 50, 100, 200];
@@ -70,6 +73,8 @@ export default function NearbyScreen() {
   /** Empty means everyone; otherwise only people who do one of these. */
   const [roleFilter, setRoleFilter] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  /** The person whose More menu is open. */
+  const [safetyFor, setSafetyFor] = useState<NearbyPerson | null>(null);
 
   /**
    * What is in the "Near" box, and what is actually being searched.
@@ -313,6 +318,17 @@ export default function NearbyScreen() {
           <Text className="text-white text-xs font-bold">Add</Text>
         </Pressable>
       )}
+
+      {/* Nearby is where strangers meet, so every row carries the way out. */}
+      <Pressable
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={`More options for ${person.name}`}
+        onPress={() => setSafetyFor(person)}
+        className="w-8 h-8 items-center justify-center"
+      >
+        <EllipsisIcon size={16} className="text-muted-foreground" />
+      </Pressable>
     </View>
   );
 
@@ -629,6 +645,16 @@ export default function NearbyScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* One menu for every row. A block refreshes the discover queries, and
+          the server leaves the person out of the next answer. */}
+      <PersonSafetySheet
+        visible={!!safetyFor}
+        onClose={() => setSafetyFor(null)}
+        name={safetyFor?.name ?? ''}
+        target={safetyFor ? { userId: safetyFor.id } : null}
+        source="nearby"
+      />
     </SafeAreaView>
   );
 }

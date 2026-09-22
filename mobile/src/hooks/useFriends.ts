@@ -5,6 +5,7 @@ import {
   queryKeys,
   type CreateFriendInput,
   type Friend,
+  type FriendRequestTarget,
   type ListFriendsParams,
   type UpdateFriendInput,
 } from '@/src/api';
@@ -91,7 +92,7 @@ export function useDeleteFriend() {
 }
 
 /**
- * Sends a friend request by email.
+ * Sends a friend request.
  *
  * The old flow called useCreateFriend with a typed-in name, which wrote a row
  * describing someone rather than reaching them. This addresses a real account,
@@ -100,12 +101,10 @@ export function useDeleteFriend() {
 export function useSendFriendRequest() {
   const queryClient = useQueryClient();
   return useMutation({
-    // Takes an account id from the people search; an email is still accepted
-    // for adding someone by exact address.
-    mutationFn: (target: { userId: string } | { email: string }) =>
-      'userId' in target
-        ? friendsApi.sendRequestToUser(target.userId)
-        : friendsApi.sendRequest(target.email),
+    // Takes an account id from the people search or an exact address, as
+    // before, or a handle from a profile. Posted as given: the body for
+    // { userId } and { email } is exactly what the older calls sent.
+    mutationFn: (target: FriendRequestTarget) => friendsApi.request(target),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
     },
@@ -120,7 +119,7 @@ export function useRespondToFriendRequest() {
     onSuccess: () => {
       // Both sides change, and collaborator pickers read the accepted list.
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
-      queryClient.invalidateQueries({ queryKey: ['collaborators'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.collaborators.all });
     },
   });
 }
@@ -134,7 +133,7 @@ export function useRespondToFriendRequest() {
 export function usePeopleSearch(query: string) {
   const q = query.trim();
   const result = useQuery({
-    queryKey: ['friends', 'search', q],
+    queryKey: queryKeys.friends.search(q),
     queryFn: () => friendsApi.searchPeople(q),
     enabled: q.length >= 2,
   });
