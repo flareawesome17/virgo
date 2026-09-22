@@ -8,14 +8,22 @@ import {
   MinLength,
 } from 'class-validator';
 import { ListQueryDto } from '../../common/dto/list-query.dto';
+import { HANDLE_MAX, HANDLE_MIN } from '../../profiles/handles';
 
 /**
  * Addresses a request to a real account.
  *
  * Normally `userId`, picked from the people search. `email` stays supported so
  * someone can be added by exact address when they are not easy to find by name.
+ * `handle` is for a public profile, which deliberately carries no user id.
  */
 export class SendFriendRequestDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(HANDLE_MIN)
+  @MaxLength(HANDLE_MAX)
+  handle?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(64)

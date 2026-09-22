@@ -17,6 +17,7 @@ import {
   bytes,
   when,
 } from '@/components/console/primitives';
+import { isPaused, isSuspended } from '@/lib/account-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,7 +41,12 @@ import {
 const PLANS = ['free', 'freelance', 'studio', 'business'];
 
 interface UserDetail {
-  user: Record<string, string | boolean | null>;
+  user: Record<string, string | boolean | null> & {
+    disabled_at: string | null;
+    /** Absent, not null, from an API older than suspensions. See isSuspended. */
+    suspended_at?: string | null;
+    disabled_until?: string | null;
+  };
   storage: { bytes: number; files: number; limitBytes: number | null };
   limits: { workspaces: number | null; albumsPerWorkspace: number | null };
   workspaces: { id: string; name: string; created_at: string }[];
@@ -66,7 +72,11 @@ export default function VirgoUserDetailPage() {
 
   const d = data as unknown as UserDetail | undefined;
   const u = d?.user;
-  const disabled = !!u?.disabled_at;
+  const suspended = !!u && isSuspended(u);
+  // Shown beside a suspension rather than instead of it: restoring access
+  // does not end a pause the person chose, and the console should not look
+  // as if it had.
+  const paused = !!u && isPaused(u);
 
   return (
     <>
@@ -94,7 +104,8 @@ export default function VirgoUserDetailPage() {
                   <Badge variant="secondary" className="capitalize">
                     {String(u.plan)}
                   </Badge>
-                  {disabled && <Badge variant="destructive">Disabled</Badge>}
+                  {suspended && <Badge variant="destructive">Suspended</Badge>}
+                  {paused && <Badge variant="outline">Paused</Badge>}
                 </div>
               }
             />
@@ -186,9 +197,9 @@ export default function VirgoUserDetailPage() {
                   {can('users.disable') && (
                     <div className="border-t pt-4">
                       <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                        {disabled ? 'Restore access' : 'Suspend account'}
+                        Access
                       </p>
-                      {!disabled && (
+                      {!suspended && (
                         <Input
                           value={reason}
                           onChange={(e) => setReason(e.target.value)}
@@ -197,19 +208,26 @@ export default function VirgoUserDetailPage() {
                         />
                       )}
                       <Button
-                        variant={disabled ? 'secondary' : 'destructive'}
+                        variant={suspended ? 'secondary' : 'destructive'}
                         size="sm"
                         disabled={setDisabled.isPending}
                         onClick={() =>
                           setDisabled.mutate({
-                            disabled: !disabled,
+                            disabled: !suspended,
                             reason: reason || undefined,
                           })
                         }
                       >
-                        {disabled ? 'Re-enable account' : 'Disable account'}
+                        {suspended ? 'Restore access' : 'Suspend account'}
                       </Button>
+                      {/* Said here because it was not always true: the old
+                          switch only stamped a column nothing enforced. The
+                          15 minutes is the life of an access token already
+                          issued; refresh and sign-in are refused at once. */}
                       <p className="mt-1.5 text-[11px] text-muted-foreground">
+                        {suspended
+                          ? 'Lets them sign in again. '
+                          : 'Signs them out everywhere within 15 minutes and stops them signing back in. '}
                         Their media is untouched either way.
                       </p>
                     </div>

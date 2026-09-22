@@ -9,15 +9,16 @@ import { useAnswerEnquiry, useHireEnquiries } from '@/src/hooks';
 import type { HireEnquiry } from '@/src/api';
 import {
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, CheckIcon,
-  MessageCircleIcon, BanknoteIcon, XIcon,
+  EllipsisIcon, MessageCircleIcon, BanknoteIcon, XIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
+import { PersonSafetySheet } from '@/components/PersonSafetySheet';
 
 for (const Icon of [
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, CheckIcon,
-  MessageCircleIcon, BanknoteIcon, XIcon,
+  EllipsisIcon, MessageCircleIcon, BanknoteIcon, XIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -43,6 +44,8 @@ export default function EnquiriesScreen() {
   const insets = useSafeAreaInsets();
   const { received, sent, isLoading, loadFailed, refetch } = useHireEnquiries();
   const [refreshing, setRefreshing] = useState(false);
+  /** The received enquiry whose More menu is open. */
+  const [safetyFor, setSafetyFor] = useState<HireEnquiry | null>(null);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -94,7 +97,11 @@ export default function EnquiriesScreen() {
                 Sent to you
               </Text>
               {received.map((enquiry) => (
-                <EnquiryCard key={enquiry.id} enquiry={enquiry} />
+                <EnquiryCard
+                  key={enquiry.id}
+                  enquiry={enquiry}
+                  onMore={() => setSafetyFor(enquiry)}
+                />
               ))}
             </View>
           )}
@@ -111,11 +118,28 @@ export default function EnquiriesScreen() {
           )}
         </ScrollView>
       )}
+
+      {/* By enquiry: it names the sender and carries no account id. A block
+          declines it if it was still waiting, and the refreshed list drops it. */}
+      <PersonSafetySheet
+        visible={!!safetyFor}
+        onClose={() => setSafetyFor(null)}
+        name={safetyFor?.personName ?? ''}
+        target={safetyFor ? { enquiryId: safetyFor.id } : null}
+        source="enquiries"
+      />
     </SafeAreaView>
   );
 }
 
-function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
+function EnquiryCard({
+  enquiry,
+  onMore,
+}: {
+  enquiry: HireEnquiry;
+  /** Report or block the sender. Offered on received enquiries only. */
+  onMore?: () => void;
+}) {
   const answer = useAnswerEnquiry();
   const [acting, setActing] = useState<'accept' | 'decline' | null>(null);
 
@@ -186,6 +210,19 @@ function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
               : enquiry.status === 'accepted' ? 'Accepted' : 'Declined'}
           </Text>
         </View>
+        {/* Only on what you received: an enquiry is a stranger's message in
+            your inbox, and this is the way to say so or shut it out. */}
+        {isIncoming && onMore && (
+          <Pressable
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`More options for ${enquiry.personName}`}
+            onPress={onMore}
+            className="py-1"
+          >
+            <EllipsisIcon size={16} className="text-muted-foreground" />
+          </Pressable>
+        )}
       </View>
 
       <View className="bg-background rounded-xl p-3">

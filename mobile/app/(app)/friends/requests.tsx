@@ -4,20 +4,25 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useFriends, useRespondToFriendRequest, useTheme } from '@/src/hooks';
 import { useState } from 'react';
 import { router } from 'expo-router';
-import { ArrowLeftIcon, CheckIcon, XIcon, ClockIcon, UserPlusIcon } from 'lucide-react-native';
+import { ArrowLeftIcon, CheckIcon, XIcon, ClockIcon, UserPlusIcon, EllipsisIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { PersonSafetySheet } from '@/components/PersonSafetySheet';
+import type { Friend } from '@/src/api';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(XIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(EllipsisIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function FriendRequestsScreen() {
   const { user } = useAuth();
   const { isDark } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
+  /** The received request whose More menu is open. */
+  const [safetyFor, setSafetyFor] = useState<Friend | null>(null);
 
   // Filtering by status is a query parameter now rather than a chained .eq().
   const { friends, refetch } = useFriends(
@@ -96,6 +101,22 @@ export default function FriendRequestsScreen() {
                     <Pressable onPress={() => declineRequest(f.id)} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
                       <XIcon size={16} className="text-muted-foreground" />
                     </Pressable>
+                    {/* Declining stops them asking again but tells nobody, and
+                        a stranger's request may be the only trace of them
+                        you have: no profile if theirs is unpublished, no chat
+                        until you accept. Negative margins keep the full 44pt
+                        target without taking its width from the name. */}
+                    {f.friend_user_id ? (
+                      <Pressable
+                        onPress={() => setSafetyFor(f)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`More options for ${f.friend_name}`}
+                        accessibilityHint="Opens report and block options"
+                        className="w-11 h-11 -mx-2 items-center justify-center active:opacity-60"
+                      >
+                        <EllipsisIcon size={16} className="text-muted-foreground" />
+                      </Pressable>
+                    ) : null}
                   </View>
                 ))}
               </View>
@@ -137,6 +158,16 @@ export default function FriendRequestsScreen() {
           </View>
         }
         renderItem={() => null}
+      />
+
+      {/* By account id; a legacy free-text request has none and gets no
+          button. A block deletes the request, and the refreshed list drops it. */}
+      <PersonSafetySheet
+        visible={!!safetyFor}
+        onClose={() => setSafetyFor(null)}
+        name={safetyFor?.friend_name ?? ''}
+        target={safetyFor?.friend_user_id ? { userId: safetyFor.friend_user_id } : null}
+        source="requests"
       />
     </SafeAreaView>
   );

@@ -25,6 +25,7 @@ import {
   StarIcon,
   UserCogIcon,
   UserIcon,
+  UserXIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -48,7 +49,7 @@ for (const Icon of [
   BellIcon, BriefcaseIcon, ChevronRightIcon, CloudIcon, FileTextIcon, GiftIcon,
   GlobeIcon, HardDriveIcon, HelpCircleIcon, InfoIcon, LifeBuoyIcon, LockIcon,
   LogOutIcon, PaletteIcon, PencilIcon, ShieldIcon, SlidersHorizontalIcon,
-  StarIcon, UserCogIcon, UserIcon,
+  StarIcon, UserCogIcon, UserIcon, UserXIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -368,6 +369,13 @@ function AppHalf() {
           detail: 'Who can find you, and what leaves your device',
           route: '/settings/privacy',
           color: CHART_COLORS.blue,
+        },
+        {
+          icon: UserXIcon,
+          label: 'Blocked people',
+          detail: 'People you’ve blocked, and how to unblock them',
+          route: '/settings/blocked',
+          color: palette.destructive,
         },
       ],
     },

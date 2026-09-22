@@ -44,3 +44,35 @@ export function extractMessage(body: unknown, fallback: string): string {
 
   return fallback;
 }
+
+/**
+ * Why the server would not let a chat action through because of a block.
+ *
+ * 'you-blocked': you blocked them, and unblocking is up to you.
+ * 'unavailable': they blocked you, or everyone else in the group is blocked
+ * with you. Worded by the server so it never says "blocked".
+ * 'group': a group would have put a blocked pair together.
+ */
+export type ChatRefusal = 'you-blocked' | 'unavailable' | 'group';
+
+/**
+ * Reads the refusal off a 403, by its code rather than its text.
+ *
+ * The code is what stays stable: the message is copy and can be reworded, and
+ * a 403 without one of these codes — not being friends, say — is a different
+ * refusal with its own handling, so it answers null.
+ */
+export function chatRefusal(err: unknown): ChatRefusal | null {
+  if (!(err instanceof ApiError) || err.status !== 403) return null;
+  const code =
+    err.body && typeof err.body === 'object'
+      ? (err.body as { code?: unknown }).code
+      : undefined;
+  return code === 'YOU_BLOCKED'
+    ? 'you-blocked'
+    : code === 'CHAT_UNAVAILABLE'
+      ? 'unavailable'
+      : code === 'GROUP_MEMBER_UNAVAILABLE'
+        ? 'group'
+        : null;
+}

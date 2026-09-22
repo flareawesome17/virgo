@@ -123,6 +123,11 @@ export default function OverviewPage() {
                     value={data.totals.reports}
                     warn={data.totals.reports > 0}
                   />
+                  <Row
+                    label="People reports"
+                    value={data.totals.userReports ?? 0}
+                    warn={(data.totals.userReports ?? 0) > 0}
+                  />
                 </CardContent>
               </Card>
 

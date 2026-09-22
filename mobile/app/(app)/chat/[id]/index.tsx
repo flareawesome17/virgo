@@ -42,12 +42,14 @@ import {
   useSendMessage,
   useTheme,
   useThread,
+  useUnblock,
   setOpenConversation,
 } from '@/src/hooks';
 import { JobAcceptedCard, PresenceLine, TypingIndicator } from '@/components';
+import { askToUnblock, safetyError } from '@/components/PersonSafetySheet';
 import { sendTyping } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
-import type { ConversationMessage, Participant } from '@/src/api';
+import { chatRefusal, type ConversationMessage, type Participant } from '@/src/api';
 
 for (const Icon of [
   ArrowLeftIcon, SendIcon, UsersIcon, CheckIcon, CheckCheckIcon, ClockIcon,
@@ -68,7 +70,8 @@ function timeLabel(iso: string): string {
  * How far one of your own messages has got.
  *
  * `failed` and `sending` live only on the device; the rest are derived from
- * what the other participants' clients have reported back.
+ * what the other participants' clients have reported back. A refused message
+ * is drawn as failed.
  */
 type Delivery = 'sending' | 'failed' | 'sent' | 'delivered' | 'read';
 
@@ -80,7 +83,12 @@ interface Outgoing {
   replyToBody?: string | null;
   replyToSender?: string | null;
   mentionIds: string[];
-  status: 'sending' | 'failed';
+  /**
+   * 'refused' is a failure that retrying cannot fix: a block froze the
+   * conversation. Offering "tap to retry" there would only fail again — until
+   * the thread thaws, when it goes back to being 'failed'.
+   */
+  status: 'sending' | 'failed' | 'refused';
   createdAt: string;
 }
 
@@ -108,12 +116,13 @@ export default function ConversationScreen() {
   const { user } = useAuth();
   const { isOffline } = useOffline();
 
-  const { messages, lastReadAt, isLoading } = useThread(id);
+  const { messages, lastReadAt, isLoading, canSend, blockedByMe, blockId } = useThread(id);
   const { participants } = useParticipants(id);
   const { conversation } = useConversation(id);
   const send = useSendMessage(id);
   const remove = useDeleteMessage(id);
   const markRead = useMarkThreadRead();
+  const unblock = useUnblock();
 
   const [draft, setDraft] = useState('');
   const [outbox, setOutbox] = useState<Outgoing[]>([]);
@@ -161,6 +170,17 @@ export default function ConversationScreen() {
   const title = isGroup
     ? `${participants.length} people`
     : (others[0]?.name ?? 'Conversation');
+  /** Who the frozen-thread notice names. */
+  const noticeName = (!isGroup ? others[0]?.name : undefined) ?? conversation?.title ?? title;
+
+  const unblockFromNotice = () => {
+    if (!blockId) return;
+    askToUnblock(noticeName, () =>
+      unblock.mutate(blockId, {
+        onError: (err) => Alert.alert('Could not unblock', safetyError(err)),
+      }),
+    );
+  };
 
   /**
    * How far a message of yours has got.
@@ -307,12 +327,12 @@ export default function ConversationScreen() {
           setOutbox((prev) => prev.filter((o) => o.tempId !== item.tempId)),
         // Kept, not discarded. A failed send with the text thrown away is how
         // people lose messages they thought they had sent.
-        onError: () =>
+        onError: (err) => {
+          const status = chatRefusal(err) ? 'refused' : 'failed';
           setOutbox((prev) =>
-            prev.map((o) =>
-              o.tempId === item.tempId ? { ...o, status: 'failed' } : o,
-            ),
-          ),
+            prev.map((o) => (o.tempId === item.tempId ? { ...o, status } : o)),
+          );
+        },
       },
     );
   };
@@ -338,6 +358,8 @@ export default function ConversationScreen() {
 
   const noteTyping = useCallback(
     (value: string) => {
+      // A frozen thread tells nobody you are typing into it.
+      if (!canSend) return;
       // An emptied box is not typing.
       if (!value.trim()) {
         stopTyping();
@@ -351,11 +373,34 @@ export default function ConversationScreen() {
       clearTimeout(typingIdle.current);
       typingIdle.current = setTimeout(stopTyping, 3000);
     },
-    [id, stopTyping],
+    [id, stopTyping, canSend],
   );
 
   // Leaving the thread must not strand the indicator on the other screen.
   useEffect(() => stopTyping, [stopTyping]);
+  // Nor must the thread freezing under someone who was mid-sentence.
+  useEffect(() => {
+    if (!canSend) stopTyping();
+  }, [canSend, stopTyping]);
+
+  /*
+   * A refusal only holds while the thread is frozen. Once it thaws — you
+   * unblocked them from the notice, or from another device — the same send
+   * would go through, so what was refused becomes an ordinary failure with
+   * "tap to retry" again. Otherwise each message had to be copied, discarded
+   * and sent by hand, and the outbox lives only on this screen.
+   */
+  const couldSend = useRef(canSend);
+  useEffect(() => {
+    const thawed = !couldSend.current && canSend;
+    couldSend.current = canSend;
+    if (!thawed) return;
+    setOutbox((prev) =>
+      prev.some((o) => o.status === 'refused')
+        ? prev.map((o) => (o.status === 'refused' ? { ...o, status: 'failed' } : o))
+        : prev,
+    );
+  }, [canSend]);
 
   const submit = () => {
     const body = draft.trim();
@@ -486,12 +531,14 @@ export default function ConversationScreen() {
               <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
                 {participants.map((p) => p.name).join(', ')}
               </Text>
-            ) : (
+            ) : canSend ? (
               <View className="mt-0.5">
-                {/* Online / last seen, kept current by the socket. */}
+                {/* Online / last seen, kept current by the socket. Not in a
+                    frozen thread, where the server has stopped sending it and
+                    whatever the store last held would be stale. */}
                 <PresenceLine userId={others[0]?.id} />
               </View>
-            )}
+            ) : null}
           </Pressable>
           <Pressable
             onPress={() => router.push(`/chat/${id}/info`)}
@@ -548,6 +595,9 @@ export default function ConversationScreen() {
               if (item.kind === 'outgoing') {
                 const o = item.outgoing;
                 const failed = o.status === 'failed';
+                const refused = o.status === 'refused';
+                const discard = () =>
+                  setOutbox((prev) => prev.filter((x) => x.tempId !== o.tempId));
                 return (
                   <View className="items-end">
                     <Pressable
@@ -558,19 +608,24 @@ export default function ConversationScreen() {
                               Alert.alert('Unsent message', o.body, [
                                 { text: 'Close', style: 'cancel' },
                                 { text: 'Try again', onPress: () => dispatch(o) },
-                                {
-                                  text: 'Discard',
-                                  style: 'destructive',
-                                  onPress: () =>
-                                    setOutbox((prev) =>
-                                      prev.filter((x) => x.tempId !== o.tempId),
-                                    ),
-                                },
+                                { text: 'Discard', style: 'destructive', onPress: discard },
                               ])
-                          : undefined
+                          : refused
+                            ? () =>
+                                // No retry: it would be refused again. Copy
+                                // keeps the words for somewhere they can go.
+                                Alert.alert('Not sent', o.body, [
+                                  { text: 'Close', style: 'cancel' },
+                                  {
+                                    text: 'Copy',
+                                    onPress: () => void Clipboard.setStringAsync(o.body),
+                                  },
+                                  { text: 'Discard', style: 'destructive', onPress: discard },
+                                ])
+                            : undefined
                       }
                       className="rounded-2xl px-3.5 py-2.5 bg-action"
-                      style={{ maxWidth: '80%', opacity: failed ? 0.75 : 0.85 }}
+                      style={{ maxWidth: '80%', opacity: failed || refused ? 0.75 : 0.85 }}
                     >
                       {o.replyToBody != null && (
                         <View
@@ -588,13 +643,15 @@ export default function ConversationScreen() {
                       <Text className="text-sm text-white">{o.body}</Text>
                       <View className="flex-row items-center gap-1 mt-1">
                         <Text className="text-[10px] text-white/60">
-                          {failed
-                            ? isOffline
-                              ? 'Waiting for connection'
-                              : 'Not sent — tap to retry'
-                            : 'Sending…'}
+                          {refused
+                            ? 'Not sent'
+                            : failed
+                              ? isOffline
+                                ? 'Waiting for connection'
+                                : 'Not sent — tap to retry'
+                              : 'Sending…'}
                         </Text>
-                        <DeliveryMark state={failed ? 'failed' : 'sending'} />
+                        <DeliveryMark state={failed || refused ? 'failed' : 'sending'} />
                       </View>
                     </Pressable>
                   </View>
@@ -707,7 +764,7 @@ export default function ConversationScreen() {
         )}
 
         {/* Mention picker — only while an @word is being typed. */}
-        {mentionOptions.length > 0 && (
+        {canSend && mentionOptions.length > 0 && (
           <View
             className="mx-4 mb-2 bg-card rounded-2xl overflow-hidden"
             style={{ shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 6 }}
@@ -739,7 +796,7 @@ export default function ConversationScreen() {
         )}
 
         {/* What you are replying to */}
-        {replyTo && (
+        {canSend && replyTo && (
           <View
             className="mx-4 mb-2 bg-card rounded-2xl px-3 py-2.5 flex-row items-center gap-3"
             style={{ borderLeftWidth: 3, borderLeftColor: '#B66A40' }}
@@ -759,36 +816,77 @@ export default function ConversationScreen() {
           </View>
         )}
 
-        {/* Composer */}
-        <View
-          className="px-4 pt-2 flex-row items-end gap-2 border-t bg-background"
-          style={{ paddingBottom: insets.bottom + 8, borderTopColor: border }}
-        >
-          <View className="flex-1 bg-card rounded-2xl px-4 py-2.5">
-            <TextInput
-              value={draft}
-              onChangeText={(value) => {
-                setDraft(value);
-                noteTyping(value);
-              }}
-              onBlur={stopTyping}
-              placeholder={isGroup ? 'Message — use @ to mention' : 'Message'}
-              placeholderTextColor="#A89489"
-              multiline
-              className="text-foreground text-sm"
-              style={{ maxHeight: 100 }}
-            />
-          </View>
-          <Pressable
-            onPress={submit}
-            disabled={!draft.trim()}
-            className={`w-11 h-11 rounded-full items-center justify-center active:scale-[0.94] ${
-              draft.trim() ? 'bg-action' : 'bg-muted'
-            }`}
+        {/* Composer, or why there is none. A frozen thread keeps its
+            history but takes no new messages, and a composer that fails every
+            send is worse than a plain line saying so. */}
+        {canSend ? (
+          <View
+            className="px-4 pt-2 flex-row items-end gap-2 border-t bg-background"
+            style={{ paddingBottom: insets.bottom + 8, borderTopColor: border }}
           >
-            <SendIcon size={17} className={draft.trim() ? 'text-white' : 'text-muted-foreground'} />
-          </Pressable>
-        </View>
+            <View className="flex-1 bg-card rounded-2xl px-4 py-2.5">
+              <TextInput
+                value={draft}
+                onChangeText={(value) => {
+                  setDraft(value);
+                  noteTyping(value);
+                }}
+                onBlur={stopTyping}
+                placeholder={isGroup ? 'Message — use @ to mention' : 'Message'}
+                placeholderTextColor="#A89489"
+                multiline
+                className="text-foreground text-sm"
+                style={{ maxHeight: 100 }}
+              />
+            </View>
+            <Pressable
+              onPress={submit}
+              disabled={!draft.trim()}
+              className={`w-11 h-11 rounded-full items-center justify-center active:scale-[0.94] ${
+                draft.trim() ? 'bg-action' : 'bg-muted'
+              }`}
+            >
+              <SendIcon size={17} className={draft.trim() ? 'text-white' : 'text-muted-foreground'} />
+            </Pressable>
+          </View>
+        ) : (
+          <View
+            className="bg-muted px-5 py-4 border-t border-border"
+            style={{ paddingBottom: insets.bottom + 16 }}
+          >
+            {blockedByMe ? (
+              <View className="flex-row items-center gap-3">
+                <View className="flex-1 min-w-0">
+                  <Text className="text-foreground font-semibold" numberOfLines={1}>
+                    You blocked {noticeName}.
+                  </Text>
+                  <Text className="text-muted-foreground text-xs mt-0.5">
+                    Unblock them to send messages.
+                  </Text>
+                </View>
+                {blockId ? (
+                  <Pressable
+                    onPress={unblockFromNotice}
+                    disabled={unblock.isPending}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    className="active:opacity-60"
+                  >
+                    <Text className="text-primary font-bold">
+                      {unblock.isPending ? 'Unblocking…' : 'Unblock'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : (
+              // Worded to say nothing about why. Being blocked must look like
+              // the other person simply not being reachable here.
+              <Text className="text-muted-foreground text-center">
+                {"You can't reply to this conversation."}
+              </Text>
+            )}
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       {/* Long-press actions */}
@@ -808,17 +906,20 @@ export default function ConversationScreen() {
             {acting?.body}
           </Text>
 
-          <Pressable
-            onPress={() => {
-              setReplyTo(acting);
-              setActing(null);
-            }}
-            className="py-3.5 flex-row items-center gap-3 active:opacity-60"
-            style={{ borderTopWidth: 1, borderTopColor: border }}
-          >
-            <ReplyIcon size={17} className="text-foreground" />
-            <Text className="text-foreground text-base">Reply</Text>
-          </Pressable>
+          {/* A reply needs somewhere to be sent. */}
+          {canSend && (
+            <Pressable
+              onPress={() => {
+                setReplyTo(acting);
+                setActing(null);
+              }}
+              className="py-3.5 flex-row items-center gap-3 active:opacity-60"
+              style={{ borderTopWidth: 1, borderTopColor: border }}
+            >
+              <ReplyIcon size={17} className="text-foreground" />
+              <Text className="text-foreground text-base">Reply</Text>
+            </Pressable>
+          )}
 
           <Pressable
             onPress={async () => {

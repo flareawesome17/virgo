@@ -5,30 +5,52 @@ import {
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useApplyToJob, useJob, useReportJob } from '@/src/hooks';
 import {
+  ApiError,
   applicationFor,
   budgetLabel,
   isRoleFilled,
   openRolesOf,
   roleBudgetLabel,
   rolesLeftFor,
+  type ReportReason,
 } from '@/src/api';
 import { APPLICATION_LABEL, jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, MapPinIcon,
-  BanknoteIcon, SendIcon, FlagIcon,
+  BanknoteIcon, SendIcon, EllipsisIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { ActionSheet } from '@/components/WorkspaceBits';
+import { ReportSheet } from '@/components/ReportSheet';
+import { firstName, safetyError, usePersonSafety } from '@/components/PersonSafetySheet';
 
 for (const Icon of [
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, MapPinIcon,
-  BanknoteIcon, SendIcon, FlagIcon,
+  BanknoteIcon, SendIcon, EllipsisIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
+
+/** What can be wrong with a post, as opposed to with the person behind it. */
+const POST_REPORT_REASONS: { value: ReportReason; label: string }[] = [
+  { value: 'spam', label: 'Spam' },
+  { value: 'scam', label: 'Scam' },
+  { value: 'offensive', label: 'Offensive' },
+  { value: 'not-a-job', label: 'Not a real job' },
+  { value: 'other', label: 'Something else' },
+];
+
+/** The person wording, except that a missing post is not a missing person. */
+function postReportFailure(err: unknown): string {
+  if (err instanceof ApiError && err.status === 404) {
+    return 'That job post is no longer available.';
+  }
+  return safetyError(err);
 }
 
 /** One job, and the form to apply to it. */
@@ -39,6 +61,22 @@ export default function JobDetailScreen() {
   const apply = useApplyToJob();
   const report = useReportJob();
   const [role, setRole] = useState<string | null>(null);
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [postReportOpen, setPostReportOpen] = useState(false);
+  const [postReportError, setPostReportError] = useState<string | null>(null);
+  /** What to show once the post report sheet has finished closing. */
+  const afterPostReport = useRef<(() => void) | null>(null);
+
+  // Addressed by the post: the poster's account id is never sent to the
+  // phone. Across a block the post 404s, so blocking goes back.
+  const loaded = job.data;
+  const poster = usePersonSafety({
+    name: loaded?.postedBy.displayName ?? '',
+    target: loaded && !loaded.isMine ? { jobPostId: loaded.id } : null,
+    source: 'job',
+    onBlocked: () => router.back(),
+  });
 
   if (job.isLoading) {
     return (
@@ -89,22 +127,23 @@ export default function JobDetailScreen() {
     );
   };
 
-  const flag = () => {
-    Alert.alert('Report this post', 'What is wrong with it?', [
-      { text: 'Cancel', style: 'cancel' },
-      ...(['spam', 'scam', 'offensive', 'not-a-job'] as const).map((reason) => ({
-        text: reason === 'not-a-job' ? 'Not a real job' : reason[0].toUpperCase() + reason.slice(1),
-        onPress: () =>
-          report.mutate(
-            { postId: post.id, reason },
-            {
-              onSuccess: () => Alert.alert('Thanks', 'We will take a look at it.'),
-              onError: (e: Error) => Alert.alert('Could not report', e.message),
-            },
-          ),
-      })),
-    ]);
+  const submitPostReport = (reason: ReportReason, note: string) => {
+    setPostReportError(null);
+    report.mutate(
+      { postId: post.id, reason, note: note.trim() || undefined },
+      {
+        onSuccess: () => {
+          // Shown once the sheet has gone: iOS drops an alert raised while a
+          // modal is still on its way out.
+          afterPostReport.current = () => Alert.alert('Thanks', 'We will take a look at it.');
+          setPostReportOpen(false);
+        },
+        onError: (err) => setPostReportError(postReportFailure(err)),
+      },
+    );
   };
+
+  const posterFirst = firstName(post.postedBy.displayName);
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
@@ -113,9 +152,16 @@ export default function JobDetailScreen() {
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="text-foreground text-lg font-bold flex-1">Job</Text>
-        <Pressable onPress={flag} hitSlop={10} disabled={report.isPending}>
-          <FlagIcon size={17} className="text-muted-foreground" />
-        </Pressable>
+        {!post.isMine && (
+          <Pressable
+            onPress={() => setMenuOpen(true)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+          >
+            <EllipsisIcon size={18} className="text-muted-foreground" />
+          </Pressable>
+        )}
       </View>
 
       <KeyboardAvoidingView
@@ -310,6 +356,40 @@ export default function JobDetailScreen() {
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* The post and the person are reported separately: a fake listing
+          and a person who is a problem are different things to act on. */}
+      <ActionSheet
+        visible={menuOpen}
+        title="This job"
+        actions={[
+          {
+            label: 'Report this post',
+            onPress: () => {
+              setPostReportError(null);
+              setPostReportOpen(true);
+            },
+          },
+          { label: `Report ${posterFirst}`, onPress: poster.openReport },
+          { label: `Block ${posterFirst}`, destructive: true, onPress: poster.confirmBlock },
+        ]}
+        onClose={() => setMenuOpen(false)}
+      />
+      <ReportSheet
+        visible={postReportOpen}
+        title="Report this post"
+        reasons={POST_REPORT_REASONS}
+        pending={report.isPending}
+        error={postReportError}
+        onSubmit={submitPostReport}
+        onClose={() => setPostReportOpen(false)}
+        onClosed={() => {
+          const run = afterPostReport.current;
+          afterPostReport.current = null;
+          run?.();
+        }}
+      />
+      {poster.sheets}
     </SafeAreaView>
   );
 }

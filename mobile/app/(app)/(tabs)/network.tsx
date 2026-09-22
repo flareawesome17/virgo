@@ -22,10 +22,12 @@ import {
   ChevronRightIcon,
   UsersIcon,
   MapPinIcon,
+  EllipsisIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
+import { PersonSafetySheet } from '@/components/PersonSafetySheet';
 import { lastSeenLabel, usePresence } from '@/src/lib/presence-store';
 import type { Collaborator, Friend } from '@/src/api';
 import { PALETTES } from '@/theme';
@@ -35,6 +37,7 @@ cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { co
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(EllipsisIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner',
@@ -63,6 +66,8 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
     requested_by: 'them',
     limit: 50,
   });
+  /** The incoming request whose More menu is open. */
+  const [safetyFor, setSafetyFor] = useState<Friend | null>(null);
 
   const addFriend = (userId: string) => {
     sendRequest.mutate(
@@ -312,9 +317,14 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                       <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
                         {p.name}
                       </Text>
-                      <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-                        {p.email}
-                      </Text>
+                      {/* The address only comes back when it was what you
+                          searched for, so most rows show the handle, and an
+                          unpublished account shows neither. */}
+                      {p.email || p.handle ? (
+                        <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+                          {p.email || `@${p.handle}`}
+                        </Text>
+                      ) : null}
                     </View>
 
                     {p.relationship === 'accepted' ? (
@@ -388,6 +398,23 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                   >
                     <Text className="text-white text-xs font-bold">Accept</Text>
                   </Pressable>
+                  {/* A request is often all you have of a stranger — no
+                      profile if theirs is unpublished, no chat until you
+                      accept — so the way to report or block them is on the
+                      request itself. The negative margin lets the 44pt target
+                      reach into the card's padding instead of taking its
+                      width from the name. */}
+                  {req.friend_user_id ? (
+                    <Pressable
+                      onPress={() => setSafetyFor(req)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`More options for ${req.friend_name}`}
+                      accessibilityHint="Opens report and block options"
+                      className="w-11 h-11 -mr-3 items-center justify-center active:opacity-60"
+                    >
+                      <EllipsisIcon size={16} className="text-muted-foreground" />
+                    </Pressable>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -536,6 +563,16 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
       </ScrollView>
           </KeyboardAvoidingView>
 
+      {/* By account id, which a request carries and a legacy free-text row
+          does not — those rows get no button. A block deletes the request on
+          both sides, and the refreshed list drops it. */}
+      <PersonSafetySheet
+        visible={!!safetyFor}
+        onClose={() => setSafetyFor(null)}
+        name={safetyFor?.friend_name ?? ''}
+        target={safetyFor?.friend_user_id ? { userId: safetyFor.friend_user_id } : null}
+        source="requests"
+      />
     </SafeAreaView>
   );
 }

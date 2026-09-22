@@ -1,12 +1,16 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { normalizeRoles, USER_ROLES } from '../auth/roles';
 import { DatabaseService } from '../database/database.service';
+import { relationshipCase } from '../friends/friend-sql';
 import { canonicalLocation, coordsFor } from '../hiring/locations';
+import { blockedBetween } from '../safety/block-sql';
 
 export interface NearbyPerson {
   id: string;
   name: string;
   avatarUrl: string | null;
+  /** Only when their profile is published, so the link cannot 404. */
+  handle: string | null;
   /** Kilometres, one decimal. Deliberately not coordinates. */
   distanceKm: number;
   relationship: 'none' | 'pending_out' | 'pending_in' | 'accepted';
@@ -208,8 +212,7 @@ export class DiscoverService {
       roles: string[] | null;
       handle: string | null;
       distance_km: string | number;
-      status: string | null;
-      requested_by: string | null;
+      relationship: NearbyPerson['relationship'];
     }>(
       // Haversine, computed in a subquery so the radius can be filtered on the
       // alias. Filtering it inline would mean repeating the expression, and
@@ -223,7 +226,10 @@ export class DiscoverService {
                 -- Only when the profile is actually published: an unpublished
                 -- handle is not a link, and offering one would 404.
                 case when u.public_profile then u.handle end as handle,
-                f.status, f.requested_by,
+                -- From both rows, the rule search uses. The caller's row alone
+                -- showed an orphaned request as incoming, and a half-pair as
+                -- a friend.
+                ${relationshipCase('f', 'theirs')} as relationship,
                 round((
                   6371 * acos(
                     least(1, greatest(-1,
@@ -236,6 +242,8 @@ export class DiscoverService {
            from users u
            left join friends f
              on f.user_id = $1 and f.friend_user_id = u.id
+           left join friends theirs
+             on theirs.user_id = u.id and theirs.friend_user_id = $1
           where u.id <> $1
             and u.shares_location = true
             and u.latitude is not null
@@ -249,8 +257,12 @@ export class DiscoverService {
             -- with nothing to tell them why.
             and (u.location_place is not null
                  or u.location_updated_at > now() - interval '30 days')
-            -- A paused account is not available to hire.
+            -- A paused account is not available to hire, and a suspended one
+            -- is not available at all.
             and (u.disabled_until is null or u.disabled_until <= now())
+            and u.suspended_at is null
+            -- Nobody across a block, either way round.
+            and not ${blockedBetween('$1', 'u.id')}
             -- Overlap, not containment: somebody who is both a photographer
             -- and an editor should turn up under either search. Empty array
             -- means no filter, and && uses the GIN index on users.roles.
@@ -265,6 +277,7 @@ export class DiscoverService {
     return {
       sharing: true,
       ...(from ? { place: from.name } : {}),
+      // The email is selected only for the name fallback and never leaves.
       people: rows.map((r) => ({
         id: r.id,
         name: r.display_name?.trim() || r.email.split('@')[0],
@@ -272,14 +285,7 @@ export class DiscoverService {
         distanceKm: Number(r.distance_km),
         roles: r.roles ?? [],
         handle: r.handle,
-        relationship:
-          r.status === 'accepted'
-            ? 'accepted'
-            : r.status === 'pending'
-              ? r.requested_by === 'me'
-                ? 'pending_out'
-                : 'pending_in'
-              : 'none',
+        relationship: r.relationship,
       })),
     };
   }

@@ -9,6 +9,8 @@ import { FriendsService } from '../friends/friends.service';
 import { MailConfig } from '../mail/mail.config';
 import { collaboratorInvite } from '../mail/mail.templates';
 import { NotifyService } from '../notifications/notify.service';
+import { blockedBetween } from '../safety/block-sql';
+import { BlocksService } from '../safety/blocks.service';
 import { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { type MediaAccess } from '../quota/quota.service';
@@ -101,6 +103,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     private readonly notifier: NotifyService,
     private readonly mailConfig: MailConfig,
     private readonly feed: WorkspaceActivityService,
+    private readonly blocks: BlocksService,
   ) {
     super(collaborators, 'Collaborator');
   }
@@ -232,6 +235,10 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
    * Refused within ten minutes of the last one, so a button pressed twice
    * does not fill somebody's inbox. The invitation's date moves to now, which
    * is what "Invited Mon" should then say.
+   *
+   * Across a block the invitation is not there: the block declined it, and
+   * sending it again would be the inviter reaching someone who asked them not
+   * to, or the other way round.
    */
   async resend(userId: string, id: string): Promise<CollaboratorRow> {
     const row = await this.db.queryOne<CollaboratorRow & { recent: boolean }>(
@@ -240,6 +247,12 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
       [id, userId],
     );
     if (!row) throw new NotFoundException('Invitation not found');
+    if (
+      row.collaborator_user_id &&
+      (await this.blocks.between(userId, row.collaborator_user_id))
+    ) {
+      throw new NotFoundException('Invitation not found');
+    }
     if (row.status !== 'pending') {
       throw new BadRequestException(`That invitation is already ${row.status}`);
     }
@@ -249,12 +262,17 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
       );
     }
 
-    const { recent: _recent, ...invitation } = row;
-    const updated =
-      (await this.db.queryOne<CollaboratorRow>(
-        'update collaborators set created_at = now() where id = $1 returning *',
-        [id],
-      )) ?? invitation;
+    // Only while still pending. A block, or the invitee answering, may land
+    // between the read above and this; either way there is nothing to resend.
+    const updated = await this.db.queryOne<CollaboratorRow>(
+      `update collaborators set created_at = now()
+        where id = $1 and status = 'pending'
+        returning *`,
+      [id],
+    );
+    if (!updated) {
+      throw new BadRequestException('That invitation has already been answered');
+    }
     if (updated.collaborator_user_id) {
       await this.notifyInvitee(userId, updated.collaborator_user_id, updated.workspace_id, updated);
     }
@@ -536,6 +554,10 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
    * accepting would give them: the albums on offer and what they could do in
    * each. Deciding whether to join a workspace without that was deciding
    * blind.
+   *
+   * Never one from across a block. A block declines them, but the release
+   * before this one does not, and anything it wrote during a rollback must not
+   * be offered once this one is back.
    */
   async invitationsFor(userId: string): Promise<
     (CollaboratorRow & {
@@ -563,6 +585,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
          left join workspaces w on w.id = c.workspace_id
          left join users u on u.id = c.user_id
         where c.collaborator_user_id = $1 and c.status = 'pending'
+          and not ${blockedBetween('$1', 'c.user_id')}
         order by c.created_at desc`,
       [userId],
     );
@@ -573,6 +596,15 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
    *
    * Scoped to `collaborator_user_id`, so only the person invited can respond —
    * the row's `user_id` is the inviter and must not be able to self-accept.
+   *
+   * Across a block the invitation is not there, whichever way the answer
+   * would go: the block has already declined it, and telling the inviter
+   * either way would be a message across it.
+   *
+   * No pair lock, unlike the other accepts. This connects nobody and writes
+   * one row, and only while it is still pending. A block declining that same
+   * row makes this update wait on the row and then re-check `pending`, so
+   * whichever lands first, the other finds nothing to do.
    */
   async respondToInvitation(
     userId: string,
@@ -584,6 +616,9 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
       [id, userId],
     );
     if (!row) throw new NotFoundException('Invitation not found');
+    if (await this.blocks.between(userId, row.user_id)) {
+      throw new NotFoundException('Invitation not found');
+    }
     if (row.status !== 'pending') {
       throw new BadRequestException(`That invitation is already ${row.status}`);
     }
@@ -591,10 +626,13 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     const updated = await this.db.queryOne<CollaboratorRow>(
       `update collaborators
           set status = $2, responded_at = now()
-        where id = $1
+        where id = $1 and collaborator_user_id = $3 and status = 'pending'
         returning *`,
-      [id, accept ? 'accepted' : 'declined'],
+      [id, accept ? 'accepted' : 'declined', userId],
     );
+    if (!updated) {
+      throw new BadRequestException('That invitation has already been answered');
+    }
     await this.feed.record(row.workspace_id, userId, accept ? 'joined' : 'declined');
 
     // The inviter was told nothing at all before this, so a workspace could
@@ -616,7 +654,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
       // Best-effort, as everywhere else here.
     }
 
-    return updated!;
+    return updated;
   }
 
   /**

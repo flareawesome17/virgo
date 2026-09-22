@@ -35,11 +35,27 @@ export type UpdateFriendInput = Partial<
 export interface PersonResult {
   id: string;
   name: string;
-  email: string;
+  /**
+   * Only when the search was this account's exact address — the one thing the
+   * searcher already knew. Returning it for a name match is how a two-letter
+   * query used to read out everyone's email.
+   */
+  email: string | null;
   avatarUrl: string | null;
+  /**
+   * Their public profile address, when they have published one. Optional so a
+   * response from an older API still type-checks.
+   */
+  handle?: string | null;
   /** The caller's relationship to this account. */
   relationship: 'none' | 'pending_out' | 'pending_in' | 'accepted';
 }
+
+/** Who a request is for: exactly one of these, which the server resolves. */
+export type FriendRequestTarget =
+  | { handle: string }
+  | { userId: string }
+  | { email: string };
 
 export interface SendRequestResult {
   status: string;
@@ -78,6 +94,18 @@ export const friendsApi = {
   /** Adding by exact address, for someone hard to find by name. */
   sendRequest(email: string): Promise<SendRequestResult> {
     return api.post<SendRequestResult>('/friends/request', { body: { email } });
+  },
+
+  /**
+   * Any of the three ways of naming someone, posted as it is.
+   *
+   * The two methods above are kept so nothing that names them breaks; the
+   * body is the same either way. `{ handle }` is only understood by an API
+   * from P2 on — an older one refuses the unknown key with a 400 — so nothing
+   * sends it until the Connect button, which ships after that API is settled.
+   */
+  request(target: FriendRequestTarget): Promise<SendRequestResult> {
+    return api.post<SendRequestResult>('/friends/request', { body: target });
   },
 
   /** Only an incoming request can be accepted; the server enforces that. */

@@ -18,6 +18,7 @@ import {
 } from './users.repository';
 import { StorageService } from '../storage/storage.service';
 import { PromosService } from '../promos/promos.service';
+import { accountRefusal } from './account-state';
 import { normalizeRoles } from './roles';
 import { TwoFactorService } from './two-factor.service';
 
@@ -107,7 +108,18 @@ export class AuthService {
     return value * multipliers[unit];
   }
 
+  /**
+   * The one place a session is made, and so the one gate every session passes.
+   *
+   * Login, the second factor, refresh and finishing 2FA setup all end here, and
+   * so will anything added later: an unverified, suspended or paused account
+   * gets a refusal instead of tokens, whichever path it came in by. Setup used
+   * to be the gap — it issued a fresh pair without asking.
+   */
   private async issueTokens(user: UserRow): Promise<AuthTokens> {
+    this.assertVerified(user);
+    this.assertNotDisabled(user);
+
     const accessTtl = this.config.get<string>('JWT_ACCESS_TTL', '15m');
     const refreshTtl = this.config.get<string>('JWT_REFRESH_TTL', '30d');
 
@@ -157,30 +169,16 @@ export class AuthService {
   }
 
   /**
-   * Refuses a session while the account is paused.
+   * Refuses a session while the account is suspended or paused.
    *
-   * Applied to login *and* refresh, for the same reason as assertVerified: a
-   * session already open would otherwise outlive the pause by however long its
-   * access token has left.
-   *
-   * The date is returned rather than hidden. Someone who paused their account
-   * and forgot needs to be told when it comes back, or their only option is to
-   * guess — and a bare "account disabled" reads as a ban.
+   * Applied to every session (issueTokens), for the same reason as
+   * assertVerified: a session already open would otherwise outlive the
+   * suspension or pause by however long its refresh token has left. The rule
+   * itself, and its wording, is accountRefusal's.
    */
   private assertNotDisabled(user: UserRow): void {
-    if (!user.disabled_until) return;
-    const until = new Date(user.disabled_until);
-    // Lifts on its own: nothing clears the column, the comparison just stops
-    // being true. See migration 027.
-    if (until.getTime() <= Date.now()) return;
-
-    throw new ForbiddenException({
-      message: `You paused this account. It comes back on ${until.toISOString().slice(0, 10)}.`,
-      error: 'AccountDisabled',
-      code: 'ACCOUNT_DISABLED',
-      disabledUntil: until.toISOString(),
-      statusCode: 403,
-    });
+    const refusal = accountRefusal(user);
+    if (refusal) throw refusal;
   }
 
   async register(
@@ -282,7 +280,9 @@ export class AuthService {
 
     // After the password check, never before: answering "verify your email"
     // or "this account is paused" to a wrong password would confirm the
-    // account exists.
+    // account exists. And before the second-factor branch, which issueTokens
+    // would otherwise only reach after a suspended account had been emailed a
+    // login code.
     this.assertVerified(user);
     this.assertNotDisabled(user);
 
@@ -300,9 +300,9 @@ export class AuthService {
     challengeToken: string,
     code: string,
   ): Promise<AuthResult> {
+    // Refused by issueTokens if the account was suspended or paused while
+    // the code was on its way.
     const user = await this.twoFactor.completeLoginChallenge(challengeToken, code);
-    this.assertVerified(user);
-    this.assertNotDisabled(user);
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
   }
 
@@ -380,11 +380,9 @@ export class AuthService {
     const user = await this.users.findById(stored.user_id);
     if (!user) throw new UnauthorizedException('Invalid refresh token');
 
-    // Revoke first, so a blocked refresh still consumes the token rather than
-    // leaving it replayable.
+    // Revoke first, so a refused refresh still consumes the token rather than
+    // leaving it replayable. issueTokens is what refuses it.
     await this.users.revokeRefreshToken(tokenHash);
-    this.assertVerified(user);
-    this.assertNotDisabled(user);
 
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
   }

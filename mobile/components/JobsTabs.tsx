@@ -15,12 +15,13 @@ import {
   usePendingApplicants,
   useSetJobStatus,
 } from '@/src/hooks';
-import { budgetLabel, isRoleFilled, type JobPost } from '@/src/api';
+import { budgetLabel, isRoleFilled, type JobApplication, type JobPost } from '@/src/api';
 import { APPLICATION_LABEL } from '@/src/lib/jobs-format';
 import { JobsFeed } from '@/components/JobsFeed';
 import { BookingsList } from '@/components/BookingsList';
+import { PersonSafetySheet } from '@/components/PersonSafetySheet';
 import {
-  BriefcaseIcon, CheckIcon, ChevronDownIcon,
+  BriefcaseIcon, CheckIcon, ChevronDownIcon, EllipsisIcon,
   MessageCircleIcon, StarIcon, TrashIcon, XIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -28,7 +29,7 @@ import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
 
 for (const Icon of [
-  BriefcaseIcon, CheckIcon, ChevronDownIcon,
+  BriefcaseIcon, CheckIcon, ChevronDownIcon, EllipsisIcon,
   MessageCircleIcon, StarIcon, TrashIcon, XIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -387,6 +388,8 @@ function Applicants({ postId }: { postId: string }) {
   const { applications, isLoading, loadFailed, refetch } = useApplicants(postId);
   const respond = useRespondToApplication();
   const [acting, setActing] = useState<string | null>(null);
+  /** The applicant whose More menu is open. */
+  const [safetyFor, setSafetyFor] = useState<JobApplication | null>(null);
 
   if (isLoading) {
     return <ActivityIndicator color="#B66A40" style={{ marginVertical: 12 }} />;
@@ -452,6 +455,16 @@ function Applicants({ postId }: { postId: string }) {
                 {app.status}
               </Text>
             )}
+            {/* An applicant is usually a stranger, and the application is the
+                only thing on this screen that names them. */}
+            <Pressable
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`More options for ${app.personName}`}
+              onPress={() => setSafetyFor(app)}
+            >
+              <EllipsisIcon size={16} className="text-muted-foreground" />
+            </Pressable>
           </View>
 
           {/*
@@ -522,6 +535,17 @@ function Applicants({ postId }: { postId: string }) {
           )}
         </View>
       ))}
+
+      {/* By application: the row carries no account id. A block declines the
+          application if it was still waiting, and the refreshed list drops it.
+          Its sheets are modals, so they take no room in this column. */}
+      <PersonSafetySheet
+        visible={!!safetyFor}
+        onClose={() => setSafetyFor(null)}
+        name={safetyFor?.personName ?? ''}
+        target={safetyFor ? { applicationId: safetyFor.id } : null}
+        source="applicants"
+      />
     </View>
   );
 }

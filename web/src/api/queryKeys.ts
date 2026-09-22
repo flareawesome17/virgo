@@ -54,6 +54,31 @@ export const queryKeys = {
     list: (params?: unknown) => ['friends', 'list', params ?? {}] as const,
     detail: (id: string) => ['friends', 'detail', id] as const,
     presence: ['friends', 'presence'] as const,
+    /** Under `all`, so a block or a request refreshes the relationship shown. */
+    search: (q: string) => ['friends', 'search', q] as const,
+  },
+  /** People you have blocked. */
+  blocks: {
+    all: ['blocks'] as const,
+    list: ['blocks', 'list'] as const,
+  },
+  /**
+   * The prefixes of keys that live next to their hooks — chatKeys in useChat,
+   * nearbyKeys in useNearby — for invalidating the lot from elsewhere.
+   */
+  chat: {
+    all: ['chat'] as const,
+  },
+  discover: {
+    all: ['discover'] as const,
+  },
+  /**
+   * The same arrays the profile screens wrote by hand, so a cache the app
+   * already persisted still matches.
+   */
+  publicProfiles: {
+    all: ['public-profile'] as const,
+    detail: (handle: string) => ['public-profile', handle] as const,
   },
   hire: {
     all: ['hire'] as const,

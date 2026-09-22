@@ -283,8 +283,10 @@ export class AppUpdatesService {
     }>(
       // Minus anyone who switched announcement pushes off. No settings row, or
       // no word on it, is on — as it was for everyone before settings existed.
+      // Minus suspended accounts too, as PushService.tokensFor leaves them out.
       `select t.token, t.platform, t.app_version
          from push_tokens t
+         join users u on u.id = t.user_id and u.suspended_at is null
          left join notification_settings ns on ns.user_id = t.user_id
         where t.disabled_at is null
           and t.app_version is not null

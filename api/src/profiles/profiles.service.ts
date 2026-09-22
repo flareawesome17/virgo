@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { blockedBetween } from '../safety/block-sql';
 import { PortfolioService, type PortfolioItem } from './portfolio.service';
 import {
   HANDLE_CHANGE_COOLDOWN_DAYS,
@@ -55,6 +56,7 @@ export const NEVER_PUBLIC = [
   'email_verified_at',
   'disabled_until',
   'disabled_at',
+  'suspended_at',
   'id',
 ] as const;
 
@@ -85,12 +87,14 @@ export class ProfilesService {
    * A published profile, or nothing.
    *
    * Returns the same 404 for a handle that does not exist, one that exists but
-   * is unpublished, and one whose owner has paused their account. Three
-   * different answers would make this endpoint a membership oracle — a way to
-   * ask "is this person on Virgo" about anybody whose handle you can guess.
-   * The album share resolver takes the same line.
+   * is unpublished, one whose owner has paused their account or been
+   * suspended, and one on the other side of a block from the viewer, either
+   * way round. Different answers would make this endpoint a membership oracle
+   * — a way to ask "is this person on Virgo", or "have they blocked me", about
+   * anybody whose handle you can guess. The album share resolver takes the
+   * same line.
    */
-  async publicProfile(rawHandle: string): Promise<PublicProfile> {
+  async publicProfile(rawHandle: string, viewerId: string): Promise<PublicProfile> {
     const handle = normalizeHandle(rawHandle);
 
     const row = await this.db.queryOne<ProfileRow>(
@@ -99,8 +103,10 @@ export class ProfilesService {
          from users u
         where lower(u.handle) = $1
           and u.public_profile = true
-          and (u.disabled_until is null or u.disabled_until <= now())`,
-      [handle],
+          and (u.disabled_until is null or u.disabled_until <= now())
+          and u.suspended_at is null
+          and not ${blockedBetween('$2', 'u.id')}`,
+      [handle, viewerId],
     );
     if (!row) throw new NotFoundException('Profile not found');
 

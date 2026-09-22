@@ -98,6 +98,16 @@ export interface Participant {
   last_read_at: string | null;
   /** How far messages have reached this person's device. */
   last_delivered_at: string | null;
+  /*
+   * The three below are optional, like `online`, so a response from an API
+   * that predates blocking still type-checks. Absent reads as "not blocked".
+   */
+  /** Their public profile address, only when they have published one. */
+  handle?: string | null;
+  /** Whether you have blocked this person. */
+  blocked_by_me?: boolean;
+  /** Your block on them, which is what unblocking takes. Null when there is none. */
+  block_id?: string | null;
 }
 
 export interface Thread {
@@ -105,6 +115,16 @@ export interface Thread {
   total: number;
   /** Where you had read up to before this request, for the unread divider. */
   lastReadAt: string | null;
+  /**
+   * False once a block has frozen the conversation: either way round in a
+   * direct chat, or with everyone else in a group.
+   * Optional so an older API's response still type-checks; read a missing
+   * value as true, because the older API never refuses a send for this.
+   */
+  canSend?: boolean;
+  /** Whether it is frozen because you blocked them, which you can undo. */
+  blockedByMe?: boolean;
+  blockId?: string | null;
 }
 
 /**

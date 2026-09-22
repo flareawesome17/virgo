@@ -168,9 +168,14 @@ function NetworkPageBody() {
                         <PersonAvatar name={person.name} url={person.avatarUrl} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold">{person.name}</p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {person.email}
-                          </p>
+                          {/* The address only comes back when it was what you
+                              searched for, so most rows show the handle, and
+                              an unpublished account shows neither. */}
+                          {(person.email || person.handle) && (
+                            <p className="truncate text-xs text-muted-foreground">
+                              {person.email || `@${person.handle}`}
+                            </p>
+                          )}
                         </div>
                         {person.relationship === 'accepted' ? (
                           <Badge className="bg-success/15 text-success">Friends</Badge>

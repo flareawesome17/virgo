@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -11,6 +12,8 @@ import { MailConfig } from '../mail/mail.config';
 import { hireEnquiry } from '../mail/mail.templates';
 import { MessagesService } from '../messages/messages.service';
 import { NotifyService } from '../notifications/notify.service';
+import { blockedBetween, PAIR_LOCK_SQL } from '../safety/block-sql';
+import { BlocksService } from '../safety/blocks.service';
 
 export interface HireEnquiry {
   id: string;
@@ -62,6 +65,7 @@ export class HireService {
     private readonly messages: MessagesService,
     private readonly notifier: NotifyService,
     private readonly mailConfig: MailConfig,
+    private readonly blocks: BlocksService,
   ) {}
 
   /**
@@ -71,6 +75,10 @@ export class HireService {
    * page, so accepting an arbitrary `toUserId` would turn this into a way to
    * message any account on Virgo without being connected — exactly what the
    * friendship gate exists to prevent.
+   *
+   * The same 404 for a paused or suspended profile and for one on the other
+   * side of a block, either way round — the rule the profile page itself
+   * applies, so this cannot tell anyone more than that page does.
    */
   async send(
     fromUserId: string,
@@ -88,11 +96,13 @@ export class HireService {
     }
 
     const target = await this.db.queryOne<{ id: string; roles: string[] | null }>(
-      `select id, roles from users
-        where lower(handle) = lower($1)
-          and public_profile = true
-          and (disabled_until is null or disabled_until <= now())`,
-      [input.handle],
+      `select u.id, u.roles from users u
+        where lower(u.handle) = lower($1)
+          and u.public_profile = true
+          and (u.disabled_until is null or u.disabled_until <= now())
+          and u.suspended_at is null
+          and not ${blockedBetween('$2', 'u.id')}`,
+      [input.handle, fromUserId],
     );
     if (!target) throw new NotFoundException('Profile not found');
 
@@ -159,14 +169,23 @@ export class HireService {
     return this.present(await this.byId(row!.id, fromUserId), fromUserId, null);
   }
 
-  /** Both inboxes for the caller — what they were sent and what they sent. */
+  /**
+   * Both inboxes for the caller — what they were sent and what they sent.
+   *
+   * An enquiry still open or turned down is hidden across a block, and while
+   * the other side is suspended; lifting the suspension brings it back. An
+   * accepted one stays: it is agreed work, with a chat behind it.
+   */
   async list(userId: string): Promise<HireEnquiry[]> {
     const rows = await this.db.query<EnquiryRow & { conversation_id: string | null }>(
       `select e.*,
               other.display_name as person_name,
               other.email        as person_email,
               other.avatar_url   as person_avatar_url,
-              other.handle       as person_handle,
+              -- Only a published handle: an unpublished one is not a link,
+              -- and handing it out names a profile its owner has not chosen
+              -- to show.
+              case when other.public_profile then other.handle end as person_handle,
               (select c.id
                  from conversations c
                  join conversation_participants a
@@ -179,7 +198,10 @@ export class HireService {
          join users other
            on other.id = case when e.from_user_id = $1
                               then e.to_user_id else e.from_user_id end
-        where e.from_user_id = $1 or e.to_user_id = $1
+        where (e.from_user_id = $1 or e.to_user_id = $1)
+          and (e.status = 'accepted'
+               or (not ${blockedBetween('e.from_user_id', 'e.to_user_id')}
+                   and other.suspended_at is null))
         order by e.created_at desc
         limit 200`,
       [userId],
@@ -191,30 +213,71 @@ export class HireService {
   /**
    * Accepts an enquiry — the moment two strangers become collaborators.
    *
-   * One transaction for the status, the friendship and the conversation. Split
-   * across three, a failure halfway leaves an enquiry marked accepted with no
-   * way to talk to the person who sent it, which reads to both sides as the
-   * feature being broken.
+   * One transaction for the status and the friendship. Split across two, a
+   * failure halfway leaves an enquiry marked accepted with no way to talk to
+   * the person who sent it, which reads to both sides as the feature being
+   * broken.
+   *
+   * The pair lock comes first, before the enquiry row is touched (see
+   * PAIR_LOCK_SQL): a block takes the same lock and then declines this same
+   * row, and taking the two in opposite orders is a deadlock. Under the lock
+   * the pair is checked again, and the update only moves an enquiry still at
+   * 'new', so a block or a second tap that got there first wins cleanly.
    */
   async accept(userId: string, id: string): Promise<HireEnquiry> {
-    const enquiry = await this.forRecipient(userId, id);
+    const enquiry = await this.db.queryOne<{ from_user_id: string; status: string }>(
+      'select from_user_id, status from hire_enquiries where id = $1 and to_user_id = $2',
+      [id, userId],
+    );
+    // Same answer for "not yours" and "does not exist", so an id cannot be
+    // tested for existence by anyone it was not sent to.
+    if (!enquiry) throw new NotFoundException('Enquiry not found');
 
     await this.db.transaction(async (client) => {
-      await client.query(
+      await client.query(PAIR_LOCK_SQL, [userId, enquiry.from_user_id]);
+      // A block either way, or either account suspended, reads as the enquiry
+      // not being there — the same 404 as any other miss.
+      if (await this.blocks.unavailable(userId, enquiry.from_user_id, client)) {
+        throw new NotFoundException('Enquiry not found');
+      }
+
+      const moved = await client.query<{ id: string }>(
         `update hire_enquiries
             set status = 'accepted', responded_at = now()
-          where id = $1`,
-        [id],
+          where id = $1 and to_user_id = $2 and status = 'new'
+          returning id`,
+        [id, userId],
       );
+      if (moved.rows.length === 0) {
+        const current = await client.query<{ status: string }>(
+          'select status from hire_enquiries where id = $1',
+          [id],
+        );
+        throw new BadRequestException(
+          `That enquiry is already ${current.rows[0]?.status ?? enquiry.status}`,
+        );
+      }
+
+      // This client already holds the pair lock, so connect() taking it again
+      // returns at once.
       await this.friends.connect(userId, enquiry.from_user_id, client);
     });
 
     // Outside the transaction: openDirect runs its own, and it is idempotent —
     // a retry finds the conversation the first attempt made.
-    const conversation = await this.messages.openDirect(
-      userId,
-      enquiry.from_user_id,
-    );
+    //
+    // A 403 here means a block landed in the moment after the commit. The
+    // acceptance stands, since it was made first, but nobody is sent into a
+    // chat the block has closed and nobody is told.
+    const conversation = await this.messages
+      .openDirect(userId, enquiry.from_user_id)
+      .catch((err: unknown) => {
+        if (err instanceof ForbiddenException) return null;
+        throw err;
+      });
+    if (!conversation) {
+      return this.present(await this.byId(id, userId), userId, null);
+    }
 
     const me = await this.account(userId);
     await this.notifier.notify([enquiry.from_user_id], {
@@ -240,22 +303,12 @@ export class HireService {
    * The sender sees the status change if they look, and gets nothing pushed at
    * them — the same choice already made for declined friend requests. "X turned
    * you down" is a notification nobody has ever wanted to receive.
+   *
+   * Across a block the enquiry is not there, as it is not in the list. No pair
+   * lock: this writes one row, only while it is still 'new', and connects
+   * nobody.
    */
   async decline(userId: string, id: string): Promise<HireEnquiry> {
-    await this.forRecipient(userId, id);
-
-    await this.db.query(
-      `update hire_enquiries
-          set status = 'declined', responded_at = now()
-        where id = $1`,
-      [id],
-    );
-
-    return this.present(await this.byId(id, userId), userId, null);
-  }
-
-  /** An enquiry the caller is the recipient of, and has not answered yet. */
-  private async forRecipient(userId: string, id: string): Promise<EnquiryRow> {
     const row = await this.db.queryOne<EnquiryRow>(
       'select * from hire_enquiries where id = $1 and to_user_id = $2',
       [id, userId],
@@ -263,10 +316,33 @@ export class HireService {
     // Same answer for "not yours" and "does not exist", so an id cannot be
     // tested for existence by anyone it was not sent to.
     if (!row) throw new NotFoundException('Enquiry not found');
+    if (await this.blocks.between(userId, row.from_user_id)) {
+      throw new NotFoundException('Enquiry not found');
+    }
     if (row.status !== 'new') {
       throw new BadRequestException(`That enquiry is already ${row.status}`);
     }
-    return row;
+
+    const moved = await this.db.query<{ id: string }>(
+      `update hire_enquiries
+          set status = 'declined', responded_at = now()
+        where id = $1 and status = 'new'
+        returning id`,
+      [id],
+    );
+    if (moved.length === 0) {
+      // Answered since it was read: accepted on another device, or closed by a
+      // block.
+      const current = await this.db.queryOne<{ status: string }>(
+        'select status from hire_enquiries where id = $1',
+        [id],
+      );
+      throw new BadRequestException(
+        `That enquiry is already ${current?.status ?? 'answered'}`,
+      );
+    }
+
+    return this.present(await this.byId(id, userId), userId, null);
   }
 
   private async byId(id: string, viewerId: string): Promise<EnquiryRow> {
@@ -275,7 +351,7 @@ export class HireService {
               other.display_name as person_name,
               other.email        as person_email,
               other.avatar_url   as person_avatar_url,
-              other.handle       as person_handle
+              case when other.public_profile then other.handle end as person_handle
          from hire_enquiries e
          join users other
            on other.id = case when e.from_user_id = $2
