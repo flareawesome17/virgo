@@ -29,7 +29,7 @@ export const CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
   albums: 'Client picks and scheduled clean-ups',
   jobs: 'Applications and replies',
   hire: 'People asking to hire you',
-  network: 'Friend requests and workspace invites',
+  network: 'Connection requests and workspace invites',
   schedule: 'Event invites, replies and reminders',
   billing: 'Payments and your plan',
   updates: "What's new in Virgo",

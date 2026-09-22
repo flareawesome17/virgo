@@ -27,6 +27,8 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
+import { SITE } from '@/src/lib/profile-media';
+import { PALETTES } from '@/theme';
 
 for (const Icon of [
   ArrowLeftIcon, AlertCircleIcon, CheckIcon, ExternalLinkIcon,
@@ -37,7 +39,12 @@ for (const Icon of [
 
 const MAX_IMAGES = 24;
 const MAX_ALBUMS = 12;
-const SITE = process.env.EXPO_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
+
+/**
+ * A profile photo or a cover. They are the account's own uploads too, but a
+ * portfolio tile of your own avatar is not work, and the server refuses both.
+ */
+const PROFILE_PICTURE_KEY = /^users\/[^/]+\/(avatars|covers)\//;
 
 /**
  * The public profile controls.
@@ -49,6 +56,7 @@ const SITE = process.env.EXPO_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
 export default function PublicProfileScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { settings, isLoading } = useProfileSettings();
   const setPublished = useSetPublished();
   const { items, images, albums, loadFailed, refetch } = usePortfolio();
@@ -59,7 +67,7 @@ export default function PublicProfileScreen() {
   if (isLoading || !settings) {
     return (
       <SafeAreaView className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color="#B66A40" />
+        <ActivityIndicator color={palette.primary} />
       </SafeAreaView>
     );
   }
@@ -101,7 +109,8 @@ export default function PublicProfileScreen() {
             <Switch
               value={settings.published}
               disabled={setPublished.isPending || (!settings.published && !settings.canPublish)}
-              trackColor={{ true: '#B66A40', false: isDark ? '#3a3a3a' : '#d4d4d4' }}
+              trackColor={{ true: palette.primary, false: palette.muted }}
+              ios_backgroundColor={palette.muted}
               onValueChange={(next) =>
                 setPublished.mutate(next, {
                   onError: (error: Error) => Alert.alert('Not yet', error.message),
@@ -111,10 +120,10 @@ export default function PublicProfileScreen() {
           </View>
 
           {!settings.canPublish && settings.blockers.length > 0 && (
-            <View className="flex-row gap-2.5 rounded-xl bg-amber-500/10 p-3">
-              <AlertCircleIcon size={15} color="#f59e0b" style={{ marginTop: 1 }} />
+            <View className="flex-row gap-2.5 rounded-xl bg-warning/15 p-3">
+              <AlertCircleIcon size={15} className="text-warning" style={{ marginTop: 1 }} />
               <View className="flex-1">
-                <Text className="text-[12px] font-bold" style={{ color: '#f59e0b' }}>
+                <Text className="text-warning text-[12px] font-bold">
                   Before you can publish
                 </Text>
                 {settings.blockers.map((blocker) => (
@@ -134,8 +143,8 @@ export default function PublicProfileScreen() {
                 className="flex-row items-center gap-1.5"
                 onPress={() => router.push(`/u/${settings.handle}`)}
               >
-                <ExternalLinkIcon size={13} color="#B66A40" />
-                <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+                <ExternalLinkIcon size={13} className="text-primary" />
+                <Text className="text-primary text-[12px] font-semibold">
                   View my profile
                 </Text>
               </Pressable>
@@ -173,7 +182,7 @@ export default function PublicProfileScreen() {
                 style={{ opacity: images.length >= MAX_IMAGES ? 0.4 : 1 }}
                 onPress={() => setPicking('images')}
               >
-                <ImagePlusIcon size={14} color="#B66A40" />
+                <ImagePlusIcon size={14} className="text-primary" />
                 <Text className="text-foreground text-[12px] font-semibold">Photos</Text>
               </Pressable>
               <Pressable
@@ -182,7 +191,7 @@ export default function PublicProfileScreen() {
                 style={{ opacity: albums.length >= MAX_ALBUMS ? 0.4 : 1 }}
                 onPress={() => setPicking('albums')}
               >
-                <LayersIcon size={14} color="#B66A40" />
+                <LayersIcon size={14} className="text-primary" />
                 <Text className="text-foreground text-[12px] font-semibold">Gallery</Text>
               </Pressable>
             </View>
@@ -215,13 +224,10 @@ export default function PublicProfileScreen() {
                     />
                   ) : (
                     <View
-                      style={{
-                        width: 44, height: 44, borderRadius: 8,
-                        backgroundColor: '#B66A4020',
-                        alignItems: 'center', justifyContent: 'center',
-                      }}
+                      className="bg-primary/10 items-center justify-center"
+                      style={{ width: 44, height: 44, borderRadius: 8 }}
                     >
-                      <LayersIcon size={16} color="#B66A40" />
+                      <LayersIcon size={16} className="text-primary" />
                     </View>
                   )}
 
@@ -234,6 +240,13 @@ export default function PublicProfileScreen() {
                         ? `Gallery · ${item.itemCount} ${item.itemCount === 1 ? 'photo' : 'photos'}`
                         : 'Photo'}
                     </Text>
+                    {/* Explicitly false only: an older API sends no flag, and
+                        that says nothing about whether the photo shows. */}
+                    {item.kind === 'image' && item.publiclyShown === false && (
+                      <Text className="text-warning text-[11px] leading-4 mt-0.5">
+                        Not shown on your profile. Remove it, or add a JPEG copy instead.
+                      </Text>
+                    )}
                   </View>
 
                   {/* Arrows, not drag: a long-press reorder inside a ScrollView
@@ -255,7 +268,7 @@ export default function PublicProfileScreen() {
                       })
                     }
                   >
-                    <TrashIcon size={16} color="#ef4444" />
+                    <TrashIcon size={16} className="text-destructive" />
                   </Pressable>
                 </View>
               ))}
@@ -286,6 +299,8 @@ function HandleCard({
   const [value, setValue] = useState(current ?? '');
   const [debounced, setDebounced] = useState('');
   const setHandle = useSetHandle();
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
 
   useEffect(() => setValue(current ?? ''), [current]);
 
@@ -322,7 +337,7 @@ function HandleCard({
             editable={!lockedUntil}
             onChangeText={(v) => setValue(v.replace(/[^A-Za-z0-9_]/g, '').toLowerCase())}
             placeholder="yourname"
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={palette.mutedForeground}
             autoCapitalize="none"
             autoCorrect={false}
             maxLength={30}
@@ -330,9 +345,8 @@ function HandleCard({
           />
         </View>
         <Pressable
-          className="rounded-xl px-4 py-3"
+          className="rounded-xl px-4 py-3 bg-action"
           style={{
-            backgroundColor: '#B66A40',
             opacity:
               unchanged || lockedUntil || value.trim().length < 3 ||
               setHandle.isPending || check.data?.available === false
@@ -348,7 +362,7 @@ function HandleCard({
             })
           }
         >
-          <Text className="text-white text-[13px] font-bold">
+          <Text className="text-action-foreground text-[13px] font-bold">
             {current ? 'Change' : 'Claim'}
           </Text>
         </Pressable>
@@ -369,8 +383,7 @@ function HandleCard({
         <Text className="text-muted-foreground text-[11px]">Checking…</Text>
       ) : check.data ? (
         <Text
-          className="text-[11px]"
-          style={{ color: check.data.available ? '#10b981' : '#ef4444' }}
+          className={`text-[11px] ${check.data.available ? 'text-success' : 'text-destructive'}`}
         >
           {check.data.available ? 'Available' : check.data.reason}
         </Text>
@@ -393,6 +406,8 @@ function PickerModal({
   const { addImage, addAlbum } = usePortfolioActions();
   const { albums } = useAlbums();
   const [selected, setSelected] = useState<string[]>([]);
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
 
   const files = useQuery({
     queryKey: ['storage', 'files', 'all'],
@@ -405,7 +420,11 @@ function PickerModal({
   }, [mode]);
 
   const availableImages = (files.data?.data ?? []).filter(
-    (f) => kindOf(f.contentType) === 'image' && f.url && !chosenKeys.has(f.key),
+    (f) =>
+      kindOf(f.contentType) === 'image' &&
+      f.url &&
+      !chosenKeys.has(f.key) &&
+      !PROFILE_PICTURE_KEY.test(f.key),
   );
   const availableAlbums = albums.filter((a) => !chosenAlbums.has(a.id));
 
@@ -435,8 +454,8 @@ function PickerModal({
           {mode === 'images' ? (
             <Pressable onPress={saveImages} disabled={selected.length === 0} hitSlop={10}>
               <Text
-                className="text-[15px] font-bold"
-                style={{ color: '#B66A40', opacity: selected.length === 0 ? 0.4 : 1 }}
+                className="text-primary text-[15px] font-bold"
+                style={{ opacity: selected.length === 0 ? 0.4 : 1 }}
               >
                 Add {selected.length || ''}
               </Text>
@@ -449,7 +468,7 @@ function PickerModal({
         {mode === 'images' ? (
           files.isLoading ? (
             <View className="flex-1 items-center justify-center">
-              <ActivityIndicator color="#B66A40" />
+              <ActivityIndicator color={palette.primary} />
             </View>
           ) : availableImages.length === 0 ? (
             <Text className="text-muted-foreground text-center text-[13px] mt-16 px-8">
@@ -473,19 +492,19 @@ function PickerModal({
                     }
                     style={{
                       width: '31.5%', aspectRatio: 1, borderRadius: 10, overflow: 'hidden',
-                      borderWidth: 2, borderColor: isOn ? '#B66A40' : 'transparent',
+                      borderWidth: 2, borderColor: isOn ? palette.primary : 'transparent',
                     }}
                   >
                     <RemoteImage source={{ uri: file.url as string }} style={{ flex: 1 }} />
                     {isOn && (
                       <View
+                        className="bg-primary items-center justify-center"
                         style={{
                           position: 'absolute', top: 6, right: 6, width: 20, height: 20,
-                          borderRadius: 10, backgroundColor: '#B66A40',
-                          alignItems: 'center', justifyContent: 'center',
+                          borderRadius: 10,
                         }}
                       >
-                        <CheckIcon size={12} color="#fff" />
+                        <CheckIcon size={12} className="text-primary-foreground" />
                       </View>
                     )}
                   </Pressable>
@@ -519,7 +538,7 @@ function PickerModal({
                     )
                   }
                 >
-                  <LayersIcon size={16} color="#B66A40" />
+                  <LayersIcon size={16} className="text-primary" />
                   <View className="flex-1">
                     <Text className="text-foreground text-[14px] font-semibold" numberOfLines={1}>
                       {album.name}

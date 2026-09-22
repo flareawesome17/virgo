@@ -41,3 +41,16 @@ export {
   askToBlock,
   askToUnblock,
 } from '@/components/PersonSafetySheet'
+export {
+  ProfileCover,
+  ProfileAvatar,
+  ProfileStatsLine,
+  ProfileDetails,
+  PortfolioBlock,
+  type ProfileDetailRow,
+} from '@/components/ProfileParts'
+export {
+  CoverPositionSheet,
+  useCoverEditor,
+  useAvatarEditor,
+} from '@/components/ProfilePhotoEditors'

@@ -635,7 +635,7 @@ export default function NearbyScreen() {
             {friendsNearby.length > 0 && (
               <View className="px-5 mt-6">
                 <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-                  Friends nearby
+                  Connections nearby
                 </Text>
                 <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
                   {friendsNearby.map((p, i) => renderPerson(p, i, friendsNearby.length))}

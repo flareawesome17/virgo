@@ -19,7 +19,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import {
   Dialog,
@@ -45,6 +44,12 @@ const MAX_ALBUMS = 12;
 
 /** Where a claimed handle actually resolves. */
 const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
+
+/**
+ * A profile photo or a cover. They are the account's own uploads too, but a
+ * portfolio tile of your own avatar is not work, and the server refuses both.
+ */
+const PROFILE_PICTURE_KEY = /^users\/[^/]+\/(avatars|covers)\//;
 
 /**
  * Claiming a handle.
@@ -186,7 +191,11 @@ function AddImagesDialog({
   }
 
   const available = (files.data?.data ?? []).filter(
-    (file) => kindOf(file.contentType) === 'image' && file.url && !chosen.has(file.key),
+    (file) =>
+      kindOf(file.contentType) === 'image' &&
+      file.url &&
+      !chosen.has(file.key) &&
+      !PROFILE_PICTURE_KEY.test(file.key),
   );
 
   const toggle = (key: string) =>
@@ -394,6 +403,13 @@ function PortfolioRow({
             ? `Gallery · ${item.itemCount} ${item.itemCount === 1 ? 'photo' : 'photos'}`
             : 'Photo'}
         </p>
+        {/* Explicitly false only: an older API sends no flag, and that says
+            nothing about whether the photo shows. */}
+        {item.kind === 'image' && item.publiclyShown === false && (
+          <p className="mt-0.5 text-[11px] text-warning">
+            Not shown on your profile. Remove it, or add a JPEG copy instead.
+          </p>
+        )}
       </div>
 
       <Button

@@ -124,7 +124,22 @@ export {
   type PortfolioItem,
   type PortfolioImage,
   type PortfolioAlbum,
+  type ProfilePage,
+  type ProfileStats,
+  type ProfileView,
+  type ProfileViewer,
+  type ViewerConnection,
 } from './endpoints/profiles';
+export {
+  COVER_ASPECT,
+  clamp01,
+  coverCropRect,
+  coverFocusFromOffset,
+  mutualConnectionsLine,
+  profileBanner,
+  profileStatsLine,
+  withProfileDefaults,
+} from './profile-view';
 export {
   hireApi,
   type HireEnquiry,

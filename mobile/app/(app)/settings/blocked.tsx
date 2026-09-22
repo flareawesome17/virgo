@@ -110,7 +110,7 @@ export default function BlockedPeopleScreen() {
 
   const intro = (
     <Text className="text-muted-foreground text-sm leading-5 mb-4">
-      {"People you block can't message you, send you friend requests or enquiries, or find you in search and Nearby. They aren't told."}
+      {"People you block can't message you, send you connection requests or enquiries, or find you in search and Nearby. They aren't told."}
     </Text>
   );
 

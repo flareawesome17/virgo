@@ -165,10 +165,6 @@ function AccountHalf({ rewards }: { rewards: number }) {
     ]);
   };
 
-  // Only a published profile has a page to view. Until it is, the card is
-  // the way into editing it instead of a button that would 404.
-  const publicHandle = settings?.published && settings.handle ? settings.handle : null;
-
   const sections: { title: string; rows: SettingsRow[] }[] = [
     {
       title: 'Your profile',
@@ -245,7 +241,11 @@ function AccountHalf({ rewards }: { rewards: number }) {
     <View className="px-5 mt-5 gap-5">
       {/* Two sibling buttons rather than one inside the other: a Pressable is
           a single accessibility element on iOS, so a button nested in the
-          card could never be reached with VoiceOver. */}
+          card could never be reached with VoiceOver.
+
+          The card edits; View profile opens "Your profile", which exists
+          whether or not the profile is published — unpublished is exactly
+          when somebody most needs to see what publishing would show. */}
       <View className="bg-card rounded-2xl border border-border/40 p-4 flex-row items-center gap-3">
         <Pressable
           onPress={() => router.push('/settings/profile')}
@@ -282,18 +282,15 @@ function AccountHalf({ rewards }: { rewards: number }) {
               {user?.email ?? ''}
             </Text>
           </View>
-          {!publicHandle && <ChevronRightIcon size={16} className="text-muted-foreground" />}
         </Pressable>
-        {publicHandle ? (
-          <Pressable
-            onPress={() => router.push(`/u/${publicHandle}`)}
-            accessibilityRole="button"
-            accessibilityLabel="View your public profile"
-            className="min-h-11 justify-center rounded-full bg-muted px-3.5 active:opacity-70"
-          >
-            <Text className="text-foreground text-xs font-bold">View profile</Text>
-          </Pressable>
-        ) : null}
+        <Pressable
+          onPress={() => router.push('/profile')}
+          accessibilityRole="button"
+          accessibilityLabel="View your profile"
+          className="min-h-11 justify-center rounded-full bg-muted px-3.5 active:opacity-70"
+        >
+          <Text className="text-foreground text-xs font-bold">View profile</Text>
+        </Pressable>
       </View>
 
       {sections.map((section) => (

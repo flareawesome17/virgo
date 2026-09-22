@@ -1,13 +1,18 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import {
+  View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform,
+  Switch, useWindowDimensions,
+} from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import * as ImagePicker from 'expo-image-picker';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { useAuth, useUpload } from '@/src/hooks';
-import { titleFromRoles } from '@/src/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAuth, useTheme, useUpdateProfileFlags } from '@/src/hooks';
+import { COVER_ASPECT, queryKeys, titleFromRoles, type AuthUser } from '@/src/api';
 import { RolePicker } from '@/components';
+import { useAvatarEditor, useCoverEditor } from '@/components/ProfilePhotoEditors';
+import { profileActionMessage } from '@/src/lib/profile-media';
+import { CHART_COLORS, PALETTES, type Palette } from '@/theme';
 import {
   ArrowLeftIcon, CameraIcon, UserIcon, MailIcon, BriefcaseIcon, PhoneIcon,
   GlobeIcon, MapPinIcon, ChevronRightIcon, CheckIcon, LockIcon, HashIcon,
@@ -32,52 +37,21 @@ cssInterop(Building2Icon, { className: { target: 'style', nativeStyleToProp: { c
 cssInterop(AtSignIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-/** Matches AVATAR_EDGE in api/src/storage/thumbnails.service.ts. */
-const AVATAR_MAX_EDGE = 512;
-
-/**
- * Scales a picked photo down before it is uploaded.
- *
- * The picker's `quality: 0.8` only re-encodes — it does not bound dimensions,
- * so a 12 MP camera photo was uploaded at 4032 px to fill an 88 px circle,
- * and counted against the account's storage quota at that size.
- *
- * The API resizes avatars on confirm regardless, so this is not what makes
- * them small; it is what stops several megabytes crossing a mobile connection
- * to be discarded on arrival. Returns the asset untouched if anything fails —
- * not shrinking an upload is no reason to fail it.
- */
-async function shrinkForAvatar(
-  asset: ImagePicker.ImagePickerAsset,
-): Promise<{ uri: string; mimeType?: string }> {
-  const original = { uri: asset.uri, mimeType: asset.mimeType };
-  const longest = Math.max(asset.width ?? 0, asset.height ?? 0);
-  if (!longest || longest <= AVATAR_MAX_EDGE) return original;
-
-  try {
-    // Only the longer edge is given; the other is derived to keep the ratio.
-    const size =
-      (asset.width ?? 0) >= (asset.height ?? 0)
-        ? { width: AVATAR_MAX_EDGE }
-        : { height: AVATAR_MAX_EDGE };
-
-    const rendered = await ImageManipulator.manipulate(asset.uri)
-      .resize(size)
-      .renderAsync();
-    const out = await rendered.saveAsync({
-      format: SaveFormat.JPEG,
-      compress: 0.82,
-    });
-    return { uri: out.uri, mimeType: 'image/jpeg' };
-  } catch {
-    return original;
-  }
-}
-
 export default function ProfileSettingsScreen() {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
+  const queryClient = useQueryClient();
   const { user, profile, updateProfile } = useAuth();
-  const upload = useUpload();
+  // The photo and the cover each upload and save on their own, so neither
+  // puts the form's Save into "Saving…" nor the other into "Uploading…".
+  const avatar = useAvatarEditor();
+  const cover = useCoverEditor();
+  // One per switch: two quick toggles on a shared mutation would only report
+  // the second's outcome, and a failed first would never be put back.
+  const availabilityFlag = useUpdateProfileFlags();
+  const studioFlag = useUpdateProfileFlags();
 
   // Seeded from the real profile once it loads. Every field was previously
   // hardcoded and Save only raised an alert — nothing persisted.
@@ -96,6 +70,8 @@ export default function ProfileSettingsScreen() {
   const [province, setProvince] = useState('');
   const [postal, setPostal] = useState('');
   const [country, setCountry] = useState('');
+  const [availableForBookings, setAvailableForBookings] = useState(false);
+  const [showStudio, setShowStudio] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   /*
@@ -138,6 +114,9 @@ export default function ProfileSettingsScreen() {
     setProvince(profile.addressProvince ?? '');
     setPostal(profile.addressPostal ?? '');
     setCountry(profile.addressCountry ?? '');
+    // Off unless the API says otherwise: an older one sends neither key.
+    setAvailableForBookings(profile.availableForBookings ?? false);
+    setShowStudio(profile.showStudio ?? false);
     setHydrated(true);
   }, [profile, hydrated]);
 
@@ -174,9 +153,11 @@ export default function ProfileSettingsScreen() {
   const addressMissing = !addressStarted
     ? []
     : ([
-        !address.addressLine1 && 'a street address',
-        !address.addressCity && 'a city or municipality',
-        !address.addressProvince && 'a province or region',
+        // The server's own minimums, so Save is refused here with the reason
+        // rather than by the API with nothing better than "try again".
+        address.addressLine1.length < 4 && 'a street address',
+        address.addressCity.length < 2 && 'a city or municipality',
+        address.addressProvince.length < 2 && 'a province or region',
         address.addressCountry.length !== 2 && 'a two-letter country code',
       ].filter(Boolean) as string[]);
 
@@ -203,64 +184,36 @@ export default function ProfileSettingsScreen() {
           setSaved(true);
           setTimeout(() => setSaved(false), 2000);
         },
-        onError: (err) =>
-          Alert.alert('Could not save', err.message || 'Please try again.'),
+        onError: (err) => Alert.alert('Could not save', profileActionMessage(err, 'setting')),
       },
     );
   };
 
-  /** Picks a photo, uploads it to storage, then saves the returned URL. */
-  const handleChangePhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to set an avatar.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
+  /**
+   * A switch saves the moment it moves, in a request of its own.
+   *
+   * Shown moved straight away and put back if the save fails — to what the
+   * session holds, not simply to the opposite, so a failure after an earlier
+   * toggle that did save lands on the value the server actually has.
+   */
+  const saveFlag = (key: 'availableForBookings' | 'showStudio', next: boolean) => {
+    const set = key === 'availableForBookings' ? setAvailableForBookings : setShowStudio;
+    const mutation = key === 'availableForBookings' ? availabilityFlag : studioFlag;
+    set(next);
+    mutation.mutate(key === 'availableForBookings' ? { availableForBookings: next } : { showStudio: next }, {
+      onError: (err) => {
+        const saved = queryClient.getQueryData<AuthUser | null>(queryKeys.auth.session);
+        set(saved?.[key] ?? false);
+        Alert.alert("Couldn't save that setting", profileActionMessage(err, 'setting'));
+      },
     });
-    if (result.canceled || !result.assets?.[0]) return;
-
-    const asset = result.assets[0];
-    const scaled = await shrinkForAvatar(asset);
-
-    // Only reached when the shrink declined or failed — a scaled avatar is
-    // well under any limit. Rejecting a 20 MP photo we could have scaled
-    // would be worse than uploading it, so this guards the fallback, not the
-    // happy path. Web has the same 8 MB ceiling; mobile had none at all.
-    if (scaled.uri === asset.uri && (asset.fileSize ?? 0) > 8 * 1024 * 1024) {
-      Alert.alert(
-        'That image is too large',
-        'Profile pictures are limited to 8 MB.',
-      );
-      return;
-    }
-
-    try {
-      const uploaded = await upload.mutateAsync({
-        uri: scaled.uri,
-        scope: 'avatars',
-        mimeType: scaled.mimeType,
-      });
-      if (!uploaded.publicUrl) {
-        Alert.alert('Uploaded', 'No public URL is configured to serve it.');
-        return;
-      }
-      await updateProfile.mutateAsync({ avatarUrl: uploaded.publicUrl });
-    } catch (err) {
-      Alert.alert(
-        'Upload failed',
-        err instanceof Error ? err.message : 'Please try again.',
-      );
-    }
   };
 
-  const busy = updateProfile.isPending || upload.isPending;
+  const savedStudio = profile?.studioName?.trim() || null;
+  const busy = updateProfile.isPending || avatar.busy;
   const blocked = roles.length === 0 || addressMissing.length > 0;
+  const coverUrl = profile?.coverUrl ?? null;
+  const coverWidth = width - 40;
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -289,6 +242,59 @@ export default function ProfileSettingsScreen() {
           <Text className="text-foreground text-[22px] font-bold tracking-tight">Edit profile</Text>
         </View>
 
+        {/* Cover. Chosen and framed on the phone — the crop is baked in
+            before upload, so what shows here is exactly what visitors get. */}
+        <View className="px-5 mt-4">
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+            Cover photo
+          </Text>
+          <View
+            className="rounded-2xl overflow-hidden bg-primary/10"
+            style={{ width: coverWidth, height: coverWidth / COVER_ASPECT }}
+          >
+            {coverUrl ? (
+              <RemoteImage
+                source={{ uri: coverUrl }}
+                style={{ width: coverWidth, height: coverWidth / COVER_ASPECT }}
+                contentFit="cover"
+              />
+            ) : (
+              <View className="flex-1 items-center justify-center px-6">
+                <Text className="text-muted-foreground text-xs text-center">
+                  No cover yet. Your work shows here instead.
+                </Text>
+              </View>
+            )}
+          </View>
+          <View className="flex-row items-center gap-4 mt-2.5">
+            <Pressable
+              onPress={() => void cover.choose()}
+              disabled={cover.busy}
+              accessibilityRole="button"
+              accessibilityState={{ busy: cover.busy, disabled: cover.busy }}
+              className="bg-muted rounded-xl px-4 py-2.5 flex-row items-center gap-2 active:opacity-80"
+              style={{ opacity: cover.busy ? 0.6 : 1 }}
+            >
+              <CameraIcon size={14} className="text-foreground" />
+              <Text className="text-foreground text-[13px] font-semibold">
+                {cover.busy ? 'Uploading…' : coverUrl ? 'Change cover' : 'Add cover'}
+              </Text>
+            </Pressable>
+            {coverUrl && (
+              <Pressable
+                onPress={cover.confirmRemove}
+                disabled={cover.busy}
+                accessibilityRole="button"
+                accessibilityLabel="Remove cover"
+                hitSlop={13}
+                style={{ opacity: cover.busy ? 0.6 : 1 }}
+              >
+                <Text className="text-destructive text-[13px] font-semibold">Remove</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+
         {/* Avatar */}
         <View className="items-center mt-6 mb-6">
           <View className="relative">
@@ -299,30 +305,32 @@ export default function ProfileSettingsScreen() {
               />
             ) : (
               <View
-                style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: '#B66A4018', alignItems: 'center', justifyContent: 'center' }}
+                style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: `${palette.primary}18`, alignItems: 'center', justifyContent: 'center' }}
               >
-                <Text style={{ color: '#B66A40', fontSize: 32, fontWeight: '700' }}>
+                <Text style={{ color: palette.primary, fontSize: 32, fontWeight: '700' }}>
                   {(profile?.displayName || user?.email || '?').charAt(0).toUpperCase()}
                 </Text>
               </View>
             )}
             <Pressable
-              onPress={handleChangePhoto}
+              onPress={() => void avatar.choose()}
               disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel="Change profile photo"
               className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-action items-center justify-center active:scale-[0.90]"
-              style={{ shadowColor: '#B66A40', shadowOpacity: 0.3, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4 }}
+              style={{ shadowColor: palette.primary, shadowOpacity: 0.3, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4 }}
             >
-              <CameraIcon size={14} className="text-white" />
+              <CameraIcon size={14} className="text-action-foreground" />
             </Pressable>
           </View>
           <Text className="text-muted-foreground text-xs mt-3">
-            {upload.isPending ? 'Uploading…' : 'Tap to change photo'}
+            {avatar.busy ? 'Uploading…' : 'Tap to change photo'}
           </Text>
         </View>
 
         {/* Form fields */}
         <View className="px-5 gap-4">
-          <FieldRow icon={UserIcon} label="Name" value={name} onChange={setName} color="#B66A40" />
+          <FieldRow icon={UserIcon} label="Name" value={name} onChange={setName} color="#B66A40" maxLength={120} />
           {/* Typing takes ownership: it stops tracking the roles from here. */}
           <FieldRow
             icon={BriefcaseIcon}
@@ -334,6 +342,7 @@ export default function ProfileSettingsScreen() {
             }}
             placeholder={derivedTitle || 'Wedding photographer'}
             color="#C17745"
+            maxLength={160}
           />
           {/* Read-only: changing the login address needs a verification flow
               that does not exist yet, so editing it here would be a lie. */}
@@ -344,14 +353,19 @@ export default function ProfileSettingsScreen() {
               <Text className="text-muted-foreground text-base flex-1">{user?.email ?? ''}</Text>
             </View>
           </View>
-          <FieldRow icon={PhoneIcon} label="Phone" value={phone} onChange={setPhone} color="#6B8E4E" keyboardType="phone-pad" />
-          <FieldRow icon={GlobeIcon} label="Website" value={website} onChange={setWebsite} color="#5B7B9A" />
+          <FieldRow icon={PhoneIcon} label="Phone" value={phone} onChange={setPhone} color="#6B8E4E" keyboardType="phone-pad" maxLength={40} />
+          <FieldRow icon={GlobeIcon} label="Website" value={website} onChange={setWebsite} color="#5B7B9A" maxLength={255} />
           {/* Both collected at sign-up and both optional there, so they are
               optional here too — plenty of people freelance under the name on
               their passport. */}
-          <FieldRow icon={Building2Icon} label="Studio Name" value={studioName} onChange={setStudioName} color="#8B5E3C" />
-          <FieldRow icon={AtSignIcon} label="Social" value={socialHandle} onChange={setSocialHandle} color="#5B7B9A" />
-          <FieldRow icon={MapPinIcon} label="Location" value={location} onChange={setLocation} color="#C17745" />
+          <View>
+            <FieldRow icon={Building2Icon} label="Studio Name" value={studioName} onChange={setStudioName} color={CHART_COLORS.brown} maxLength={120} />
+            <Text className="text-muted-foreground text-xs ml-1 mt-1.5">
+              Private unless Show studio on profile is on.
+            </Text>
+          </View>
+          <FieldRow icon={AtSignIcon} label="Social" value={socialHandle} onChange={setSocialHandle} color="#5B7B9A" maxLength={200} />
+          <FieldRow icon={MapPinIcon} label="Location" value={location} onChange={setLocation} color="#C17745" maxLength={160} />
 
           {/* Bio */}
           <View>
@@ -359,6 +373,7 @@ export default function ProfileSettingsScreen() {
             <TextInput
               value={bio}
               onChangeText={setBio}
+              maxLength={1000}
               multiline
               numberOfLines={4}
               textAlignVertical="top"
@@ -388,6 +403,38 @@ export default function ProfileSettingsScreen() {
             )}
           </View>
 
+          {/* Each switch saves on its own the moment it moves, never with the
+              form: an older API refuses a key it does not know with a 400,
+              and inside Save that would lose every other field with it. */}
+          <View className="gap-2.5">
+            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] ml-1">
+              On your profile
+            </Text>
+            <FlagCard
+              title="Available for bookings"
+              detail="Shows a badge on your profile. People can send enquiries either way."
+              value={availableForBookings}
+              onChange={(next) => saveFlag('availableForBookings', next)}
+              palette={palette}
+            />
+            {/* Off can always be reached, even with the name cleared: a
+                switch stuck on would publish whatever name is typed next. */}
+            <FlagCard
+              title="Show studio on profile"
+              detail={
+                savedStudio
+                  ? `Shows "${savedStudio}" on your public profile.`
+                  : showStudio
+                    ? 'Add a studio name above to show it.'
+                    : 'Add a studio name above and save, then turn this on.'
+              }
+              value={showStudio}
+              disabled={!savedStudio && !showStudio}
+              onChange={(next) => saveFlag('showStudio', next)}
+              palette={palette}
+            />
+          </View>
+
           {/* Everything above this line is how you appear to other people.
               Everything below it is not, and saying so is the point — a
               postal address sitting unmarked among the fields that go on a
@@ -409,13 +456,13 @@ export default function ProfileSettingsScreen() {
             </Text>
           </View>
 
-          <FieldRow icon={MapPinIcon} label="Street Address" value={line1} onChange={setLine1} color="#C17745" />
-          <FieldRow icon={HomeIcon} label="Apartment, Unit, Floor · optional" value={line2} onChange={setLine2} color="#8B5E3C" />
-          <FieldRow icon={MapPinIcon} label="City" value={city} onChange={setCity} color="#C17745" />
-          <FieldRow icon={MapPinIcon} label="Province" value={province} onChange={setProvince} color="#C17745" />
+          <FieldRow icon={MapPinIcon} label="Street Address" value={line1} onChange={setLine1} color="#C17745" maxLength={200} />
+          <FieldRow icon={HomeIcon} label="Apartment, Unit, Floor · optional" value={line2} onChange={setLine2} color="#8B5E3C" maxLength={200} />
+          <FieldRow icon={MapPinIcon} label="City" value={city} onChange={setCity} color="#C17745" maxLength={120} />
+          <FieldRow icon={MapPinIcon} label="Province" value={province} onChange={setProvince} color="#C17745" maxLength={120} />
           {/* Optional on purpose, as at sign-up: plenty of Philippine
               addresses have no ZIP. */}
-          <FieldRow icon={HashIcon} label="Postal Code · optional" value={postal} onChange={setPostal} color="#6B8E4E" keyboardType="number-pad" />
+          <FieldRow icon={HashIcon} label="Postal Code · optional" value={postal} onChange={setPostal} color="#6B8E4E" keyboardType="number-pad" maxLength={20} />
           <FieldRow icon={GlobeIcon} label="Country" value={country} onChange={(v) => setCountry(v.toUpperCase())} color="#5B7B9A" maxLength={2} />
 
           {addressMissing.length > 0 && (
@@ -456,7 +503,40 @@ export default function ProfileSettingsScreen() {
         </Pressable>
       </View>
           </KeyboardAvoidingView>
+      {cover.sheet}
     </SafeAreaView>
+  );
+}
+
+/** One profile switch: what it is, what it does, and the switch. */
+function FlagCard({
+  title, detail, value, onChange, disabled = false, palette,
+}: {
+  title: string;
+  detail: string;
+  value: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+  palette: Palette;
+}) {
+  return (
+    <View
+      className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3"
+      style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+    >
+      <View className="flex-1">
+        <Text className="text-foreground text-sm font-semibold">{title}</Text>
+        <Text className="text-muted-foreground text-xs leading-4 mt-0.5">{detail}</Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        disabled={disabled}
+        accessibilityLabel={title}
+        trackColor={{ true: palette.primary, false: palette.muted }}
+        ios_backgroundColor={palette.muted}
+      />
+    </View>
   );
 }
 

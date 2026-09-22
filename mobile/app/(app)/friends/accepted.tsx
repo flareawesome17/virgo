@@ -11,7 +11,7 @@ cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color
 cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function FriendRequestAcceptedScreen() {
-  const { name = 'Friend', avatar } = useLocalSearchParams<{ name?: string; avatar?: string }>();
+  const { name = 'this person', avatar } = useLocalSearchParams<{ name?: string; avatar?: string }>();
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -24,18 +24,18 @@ export default function FriendRequestAcceptedScreen() {
 
         <Text className="text-foreground text-[26px] font-extrabold tracking-tight">Now Connected!</Text>
         <Text className="text-muted-foreground text-sm text-center mt-2 px-8">
-          You and {name} are now confirmed friends. You can invite them to albums and workspaces.
+          You're now connected with {name}. You can invite them to albums and workspaces.
         </Text>
 
-        {/* Friend card */}
+        {/* Connection card */}
         <View className="mt-8 bg-card rounded-2xl p-5 items-center w-full" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}>
           <RemoteImage
             source={{ uri: avatar || PLACEHOLDER_IMAGE }}
             style={{ width: 72, height: 72, borderRadius: 36 }}
           />
           <Text className="text-foreground text-lg font-bold mt-3">{name}</Text>
-          <View className="bg-[#6B8E4E18] rounded-lg px-3 py-1 mt-2">
-            <Text className="text-[#6B8E4E] text-[11px] font-bold">✓ Confirmed Friend</Text>
+          <View className="bg-success/15 rounded-lg px-3 py-1 mt-2">
+            <Text className="text-success text-[11px] font-bold">✓ Connected</Text>
           </View>
         </View>
 
@@ -45,7 +45,7 @@ export default function FriendRequestAcceptedScreen() {
             className="bg-action rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <UsersIcon size={18} className="text-white" />
-            <Text className="text-white text-base font-bold">View All Friends</Text>
+            <Text className="text-white text-base font-bold">View all connections</Text>
           </Pressable>
 
           <Pressable onPress={() => router.push('/friends/requests')}

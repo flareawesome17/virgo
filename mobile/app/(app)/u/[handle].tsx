@@ -1,31 +1,58 @@
 import {
-  View, Text, ScrollView, Pressable, ActivityIndicator,
+  View, Text, ScrollView, Pressable, ActivityIndicator, Alert,
   Share, useWindowDimensions,
 } from 'react-native';
-import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
-import { profilesApi, profileUrl, queryKeys } from '@/src/api';
-import { useProfileSettings } from '@/src/hooks';
 import {
-  ArrowLeftIcon, BriefcaseIcon, EllipsisIcon, GlobeIcon, LayersIcon,
-  MapPinIcon, PencilIcon, Share2Icon, UserSearchIcon,
+  ApiError,
+  friendsApi,
+  profileBanner,
+  profileUrl,
+  queryKeys,
+  type ProfileView,
+  type PublicProfile,
+  type ViewerConnection,
+} from '@/src/api';
+import {
+  useOpenDirectChat,
+  useProfileSettings,
+  usePublicProfile,
+  useRespondToFriendRequest,
+  useSendFriendRequest,
+  useTheme,
+} from '@/src/hooks';
+import {
+  ArrowLeftIcon, BriefcaseIcon, Building2Icon, CalendarCheckIcon, CalendarIcon,
+  CheckIcon, ClockIcon, EllipsisIcon, GlobeIcon, MapPinIcon, MessageCircleIcon,
+  PencilIcon, Share2Icon, UserCheckIcon, UserPlusIcon, UserSearchIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { PersonSafetySheet } from '@/components/PersonSafetySheet';
+import { LoadFailed } from '@/components/LoadFailed';
+import {
+  PortfolioBlock,
+  ProfileAvatar,
+  ProfileCover,
+  ProfileDetails,
+  ProfileStatsLine,
+  type ProfileDetailRow,
+} from '@/components/ProfileParts';
+import { SITE, profileActionMessage } from '@/src/lib/profile-media';
+import { PALETTES } from '@/theme';
 
+// Every icon drawn here, including those handed to ProfileDetails, which
+// draws them by class. One left out renders without its colour.
 for (const Icon of [
-  ArrowLeftIcon, BriefcaseIcon, EllipsisIcon, GlobeIcon, LayersIcon,
-  MapPinIcon, PencilIcon, Share2Icon, UserSearchIcon,
+  ArrowLeftIcon, BriefcaseIcon, Building2Icon, CalendarCheckIcon, CalendarIcon,
+  CheckIcon, ClockIcon, EllipsisIcon, GlobeIcon, MapPinIcon, MessageCircleIcon,
+  PencilIcon, Share2Icon, UserCheckIcon, UserPlusIcon, UserSearchIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
-
-const SITE = process.env.EXPO_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
 
 /**
  * Somebody's profile, on the phone.
@@ -38,62 +65,76 @@ const SITE = process.env.EXPO_PUBLIC_SITE_ORIGIN ?? 'https://virgo.ph';
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { handle } = useLocalSearchParams<{ handle: string }>();
 
-  const profile = useQuery({
-    queryKey: queryKeys.publicProfiles.detail(handle as string),
-    queryFn: () => profilesApi.publicProfile(handle as string),
-    enabled: Boolean(handle),
-    retry: false,
-  });
-  // Settings > View profile opens your own page here, where "Hire <you>"
-  // leads to a screen that refuses it.
+  const q = usePublicProfile(handle);
+  // Only for an API that sends no viewer block: Settings > View profile used
+  // to open your own page here, where "Hire <you>" leads to a screen that
+  // refuses it.
   const { settings: own } = useProfileSettings();
   const [safetyOpen, setSafetyOpen] = useState(false);
 
-  if (profile.isLoading) {
+  const back = () => (router.canGoBack() ? router.back() : router.replace('/'));
+
+  if (q.isLoading) {
     return (
       <SafeAreaView className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color="#B66A40" />
+        <ActivityIndicator color={palette.primary} />
       </SafeAreaView>
     );
   }
 
-  if (profile.isError || !profile.data) {
+  // Ahead of any cached copy: a block or an unpublish has to take the page
+  // away, not leave the one from before it on screen.
+  if (q.notFound) return <NotFound onBack={back} />;
+
+  if (q.loadFailed) {
     return (
-      <SafeAreaView className="flex-1 bg-background items-center justify-center px-10">
-        <UserSearchIcon size={30} className="text-muted-foreground" />
-        <Text className="text-foreground text-[15px] font-bold mt-3">Profile not found</Text>
-        <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
-          This profile is private, or the handle has changed.
-        </Text>
-        <Pressable className="mt-5" onPress={() => router.back()}>
-          <Text className="text-[13px] font-bold" style={{ color: '#B66A40' }}>Go back</Text>
-        </Pressable>
+      <SafeAreaView className="flex-1 bg-background" edges={['top']}>
+        <View className="flex-row items-center gap-3 px-5 py-3">
+          <Pressable onPress={back} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back">
+            <ArrowLeftIcon size={20} className="text-foreground" />
+          </Pressable>
+          <Text className="text-foreground text-lg font-bold flex-1" numberOfLines={1}>
+            {handle ? `@${handle}` : 'Profile'}
+          </Text>
+        </View>
+        <LoadFailed what="this profile" onRetry={() => q.refetch()} />
       </SafeAreaView>
     );
   }
 
-  const person = profile.data;
-  const isSelf = !!own?.handle && own.handle.toLowerCase() === person.handle.toLowerCase();
-  const images = person.portfolio.filter(
-    (i): i is Extract<typeof i, { kind: 'image' }> => i.kind === 'image',
-  );
-  const albums = person.portfolio.filter(
-    (i): i is Extract<typeof i, { kind: 'album' }> =>
-      i.kind === 'album' && Boolean(i.url),
-  );
-  const cover = images[0]?.url ?? albums.find((a) => a.coverUrl)?.coverUrl ?? null;
+  const person = q.profile;
+  if (!person) return <NotFound onBack={back} />;
 
-  // Three across with 2px seams, the same grid the web profile uses. Computed
-  // from the real width because a percentage leaves a sub-pixel gap that shows
-  // as a hairline between tiles.
-  const tile = Math.floor((width - 4) / 3);
+  const isSelf =
+    person.viewer?.isSelf ??
+    (!!own?.handle && own.handle.toLowerCase() === person.handle.toLowerCase());
+  const first = person.displayName.split(' ')[0];
+
+  const rows: ProfileDetailRow[] = [];
+  if (person.location) rows.push({ icon: MapPinIcon, text: person.location });
+  if (person.studioName) rows.push({ icon: Building2Icon, text: person.studioName });
+  if (person.website) {
+    const site = person.website;
+    rows.push({
+      icon: GlobeIcon,
+      text: site.replace(/^https?:\/\//i, ''),
+      tone: 'link',
+      onPress: () => Linking.openURL(/^https?:\/\//i.test(site) ? site : `https://${site}`),
+    });
+  }
+  if (person.availableForBookings) {
+    rows.push({ icon: CalendarCheckIcon, text: 'Available for bookings', tone: 'success' });
+  }
+  rows.push({ icon: CalendarIcon, text: `On Virgo since ${person.memberSince}` });
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <View className="flex-row items-center gap-3 px-5 py-3">
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable onPress={back} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back">
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="text-foreground text-lg font-bold flex-1" numberOfLines={1}>
@@ -101,6 +142,8 @@ export default function ProfileScreen() {
         </Text>
         <Pressable
           hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Share profile"
           onPress={() =>
             Share.share({
               message: `${person.displayName} on Virgo — ${profileUrl(person.handle, SITE)}`,
@@ -122,165 +165,96 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
-        {/* Their own work as the banner. */}
-        <View style={{ height: 130, backgroundColor: '#B66A4014' }}>
-          {cover && (
-            <RemoteImage source={{ uri: cover }} style={{ flex: 1, opacity: 0.5 }} blurRadius={3} />
-          )}
-        </View>
+        <ProfileCover banner={profileBanner(person)} width={width} />
 
         <View className="px-5">
-          <View className="flex-row items-end gap-3" style={{ marginTop: -44 }}>
-            <RemoteImage
-              source={{ uri: person.avatarUrl ?? PLACEHOLDER_IMAGE }}
-              style={{
-                width: 88, height: 88, borderRadius: 44,
-                borderWidth: 4, borderColor: '#161311',
-              }}
-            />
-            <View className="flex-1 min-w-0 pb-1">
-              <Text className="text-foreground text-[22px] font-extrabold" numberOfLines={1}>
-                {person.displayName}
-              </Text>
-            </View>
+          <View style={{ marginTop: -48 }}>
+            <ProfileAvatar url={person.avatarUrl} name={person.displayName} size={96} />
           </View>
 
-          {person.title && (
-            <Text className="text-foreground text-[15px] font-medium mt-3">
+          <Text className="text-foreground text-[22px] font-extrabold mt-3" numberOfLines={2}>
+            {person.displayName}
+          </Text>
+          {person.title ? (
+            <Text className="text-muted-foreground text-[15px] font-medium mt-0.5">
               {person.title}
             </Text>
-          )}
+          ) : null}
 
           {person.roles.length > 0 && (
             <View className="flex-row flex-wrap gap-1.5 mt-2.5">
               {person.roles.map((role) => (
-                <View key={role} className="rounded-full px-3 py-1"
-                  style={{ backgroundColor: '#B66A4018' }}>
-                  <Text className="text-[11px] font-bold" style={{ color: '#B66A40' }}>
-                    {role}
-                  </Text>
+                <View key={role} className="rounded-full px-3 py-1 bg-primary/10">
+                  <Text className="text-primary text-[11px] font-bold">{role}</Text>
                 </View>
               ))}
             </View>
           )}
 
-          {person.bio && (
-            <Text className="text-muted-foreground text-[13px] leading-5 mt-3">
-              {person.bio}
-            </Text>
-          )}
+          <ProfileStatsLine
+            stats={person.stats}
+            mutual={isSelf ? 0 : person.mutualConnections}
+            className="mt-3"
+          />
 
-          <View className="flex-row flex-wrap items-center gap-x-4 gap-y-1.5 mt-3">
-            {person.location && (
-              <View className="flex-row items-center gap-1.5">
-                <MapPinIcon size={12} className="text-muted-foreground" />
-                <Text className="text-muted-foreground text-[12px]">{person.location}</Text>
-              </View>
-            )}
-            {person.website && (
+          <View className="mt-4 gap-2">
+            {isSelf ? (
               <Pressable
-                className="flex-row items-center gap-1.5"
-                onPress={() =>
-                  Linking.openURL(
-                    /^https?:\/\//i.test(person.website!)
-                      ? person.website!
-                      : `https://${person.website}`,
-                  )
-                }
+                className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2 bg-muted active:opacity-80"
+                onPress={() => router.push('/settings/profile')}
+                accessibilityRole="button"
               >
-                <GlobeIcon size={12} color="#B66A40" />
-                <Text className="text-[12px]" style={{ color: '#B66A40' }}>
-                  {person.website.replace(/^https?:\/\//i, '')}
-                </Text>
+                <PencilIcon size={16} className="text-foreground" />
+                <Text className="text-foreground text-[15px] font-bold">Edit profile</Text>
               </Pressable>
+            ) : (
+              <>
+                <Pressable
+                  className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2 bg-action active:opacity-90"
+                  onPress={() => router.push(`/hire/${person.handle}`)}
+                  accessibilityRole="button"
+                >
+                  <BriefcaseIcon size={16} className="text-action-foreground" />
+                  <Text className="text-action-foreground text-[15px] font-bold">Hire {first}</Text>
+                </Pressable>
+                {/* Only when the API said where the viewer stands: guessing
+                    would offer Connect to somebody already connected. */}
+                {person.viewer && handle && (
+                  <ConnectionActions
+                    person={person}
+                    cacheHandle={handle}
+                    connection={person.viewer.connection}
+                    friendId={person.viewer.friendId}
+                    first={first}
+                    onStale={() => q.refetch()}
+                  />
+                )}
+              </>
             )}
           </View>
 
-          <View className="flex-row gap-8 border-y border-border py-3.5 mt-4">
-            <Stat label="Work" value={images.length} />
-            <Stat label="Galleries" value={albums.length} />
-            <Stat label="On Virgo" value={person.memberSince} />
-          </View>
+          {person.bio ? (
+            <Text className="text-muted-foreground text-[13px] leading-5 mt-4">{person.bio}</Text>
+          ) : null}
 
-          {isSelf ? (
-            <Pressable
-              className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2 mt-4 bg-muted active:opacity-80"
-              onPress={() => router.push('/settings/profile')}
-              accessibilityRole="button"
-            >
-              <PencilIcon size={16} className="text-foreground" />
-              <Text className="text-foreground text-[15px] font-bold">Edit profile</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2 mt-4"
-              style={{ backgroundColor: '#B66A40' }}
-              onPress={() => router.push(`/hire/${person.handle}`)}
-            >
-              <BriefcaseIcon size={16} color="#fff" />
-              <Text className="text-white text-[15px] font-bold">
-                Hire {person.displayName.split(' ')[0]}
-              </Text>
-            </Pressable>
-          )}
+          <View className="mt-4">
+            <ProfileDetails rows={rows} />
+          </View>
         </View>
 
-        {images.length > 0 && (
-          <View className="mt-6">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] px-5 mb-2">
-              Work
-            </Text>
-            <View className="flex-row flex-wrap" style={{ gap: 2 }}>
-              {images.map((item) => (
-                <RemoteImage
-                  key={item.id}
-                  source={{ uri: item.url }}
-                  style={{ width: tile, height: tile }}
-                />
-              ))}
+        <PortfolioBlock
+          header="Portfolio"
+          width={width}
+          items={person.portfolio}
+          emptyState={
+            <View className="items-center px-5 py-10">
+              <BriefcaseIcon size={26} className="text-muted-foreground" />
+              <Text className="text-muted-foreground text-[13px] text-center mt-3 leading-5">
+                {first} has not added any work yet. You can still send an enquiry.
+              </Text>
             </View>
-          </View>
-        )}
-
-        {albums.length > 0 && (
-          <View className="mt-6 px-5 gap-2.5">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
-              Galleries
-            </Text>
-            {albums.map((album) => (
-              <Pressable
-                key={album.id}
-                className="rounded-2xl overflow-hidden bg-card"
-                onPress={() => album.url && Linking.openURL(album.url)}
-              >
-                {album.coverUrl ? (
-                  <RemoteImage source={{ uri: album.coverUrl }} style={{ width: '100%', height: 140 }} />
-                ) : (
-                  <View style={{ height: 140, backgroundColor: '#B66A4014' }}
-                    className="items-center justify-center">
-                    <LayersIcon size={26} color="#B66A40" />
-                  </View>
-                )}
-                <View className="p-3.5">
-                  <Text className="text-foreground text-[14px] font-bold">{album.name}</Text>
-                  <Text className="text-muted-foreground text-[11px] mt-0.5">
-                    {album.itemCount} {album.itemCount === 1 ? 'photo' : 'photos'}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-        )}
-
-        {images.length === 0 && albums.length === 0 && (
-          <View className="items-center px-10 py-12">
-            <BriefcaseIcon size={26} className="text-muted-foreground" />
-            <Text className="text-muted-foreground text-[13px] text-center mt-3 leading-5">
-              {person.displayName.split(' ')[0]} has not added any work yet. You
-              can still send an enquiry.
-            </Text>
-          </View>
-        )}
+          }
+        />
       </ScrollView>
 
       {/* By handle: the profile never carries the account id. Blocking goes
@@ -299,13 +273,199 @@ export default function ProfileScreen() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
+function NotFound({ onBack }: { onBack: () => void }) {
   return (
-    <View>
-      <Text className="text-muted-foreground text-[10px] uppercase tracking-[1.5px]">
-        {label}
+    <SafeAreaView className="flex-1 bg-background items-center justify-center px-10">
+      <UserSearchIcon size={30} className="text-muted-foreground" />
+      <Text className="text-foreground text-[15px] font-bold mt-3">Profile not found</Text>
+      <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
+        This profile is private, or the handle has changed.
       </Text>
-      <Text className="text-foreground text-[17px] font-bold mt-0.5">{value}</Text>
+      <Pressable className="mt-5" onPress={onBack} accessibilityRole="button">
+        <Text className="text-primary text-[13px] font-bold">Go back</Text>
+      </Pressable>
+    </SafeAreaView>
+  );
+}
+
+/**
+ * Connect, and what it becomes.
+ *
+ * Withdrawing, declining and removing stay on Network, where the whole list
+ * is. A declined request keeps reading as Requested — the server reports it
+ * that way on purpose, so nobody learns they were turned down by watching a
+ * button change back.
+ *
+ * Message only once connected: chat needs a connection, and a button that
+ * answers "you can only chat with people you're connected with" is a dead end.
+ */
+function ConnectionActions({
+  person,
+  cacheHandle,
+  connection,
+  friendId,
+  first,
+  onStale,
+}: {
+  person: ProfileView;
+  /** The handle the query is cached under, exactly as the route gave it. */
+  cacheHandle: string;
+  connection: ViewerConnection;
+  friendId: string | null;
+  first: string;
+  onStale: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
+  const send = useSendFriendRequest();
+  const respond = useRespondToFriendRequest();
+  const openDirect = useOpenDirectChat();
+  const [opening, setOpening] = useState(false);
+
+  // Written to the raw cached profile; the screen reads it back through
+  // withProfileDefaults like any other copy.
+  const writeViewer = (next: { connection: ViewerConnection; friendId: string | null }) =>
+    queryClient.setQueryData<PublicProfile>(queryKeys.publicProfiles.detail(cacheHandle), (raw) =>
+      raw ? { ...raw, viewer: { isSelf: false, ...raw.viewer, ...next } } : raw,
+    );
+
+  const connect = () =>
+    send.mutate(
+      { handle: person.handle },
+      {
+        onSuccess: (res) => writeViewer({ connection: 'pending_out', friendId: res.friend.id }),
+        onError: (err) => {
+          // A 400 means it changed elsewhere — already connected, or already
+          // asked — so the page is simply out of date. Refreshing it says so
+          // better than an alert would.
+          if (err instanceof ApiError && err.status === 400) {
+            onStale();
+            return;
+          }
+          if (err instanceof ApiError && err.status === 404) onStale();
+          Alert.alert("Couldn't send the request", profileActionMessage(err, 'connect'));
+        },
+      },
+    );
+
+  const accept = () => {
+    if (!friendId) return;
+    respond.mutate(
+      { id: friendId, accept: true },
+      {
+        onSuccess: () => writeViewer({ connection: 'accepted', friendId }),
+        onError: (err) => {
+          onStale();
+          Alert.alert("Couldn't accept the request", profileActionMessage(err, 'accept'));
+        },
+      },
+    );
+  };
+
+  // The profile carries no account id, by design. The viewer's own friends
+  // row does, and they are entitled to it — so the chat is opened from that.
+  const message = async () => {
+    if (!friendId || opening) return;
+    setOpening(true);
+    try {
+      const row = await queryClient.fetchQuery({
+        queryKey: queryKeys.friends.detail(friendId),
+        queryFn: () => friendsApi.get(friendId),
+      });
+      if (!row.friend_user_id) throw new Error('This connection has no account to message.');
+      const chat = await openDirect.mutateAsync(row.friend_user_id);
+      router.push(`/chat/${chat.id}`);
+    } catch (err) {
+      // Most likely the connection went (removed, or a block) while this page
+      // sat open. Refetching turns the button back into Connect, or the page
+      // into not-found, instead of offering the same failing Message again.
+      onStale();
+      Alert.alert("Couldn't open the chat", profileActionMessage(err, 'message'));
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  if (connection === 'none') {
+    return (
+      <Pressable
+        onPress={connect}
+        disabled={send.isPending}
+        accessibilityRole="button"
+        accessibilityLabel={`Connect with ${first}`}
+        accessibilityState={{ busy: send.isPending, disabled: send.isPending }}
+        className="rounded-2xl py-3 border border-primary flex-row items-center justify-center gap-2 active:opacity-80"
+      >
+        {send.isPending ? (
+          <ActivityIndicator size="small" color={palette.primary} />
+        ) : (
+          <UserPlusIcon size={16} className="text-primary" />
+        )}
+        <Text className="text-primary text-[15px] font-bold">Connect</Text>
+      </Pressable>
+    );
+  }
+
+  if (connection === 'pending_out') {
+    return (
+      <View
+        className="rounded-2xl py-3 bg-muted flex-row items-center justify-center gap-2"
+        accessible
+        accessibilityLabel="Connection requested"
+        accessibilityState={{ disabled: true }}
+      >
+        <ClockIcon size={16} className="text-muted-foreground" />
+        <Text className="text-muted-foreground text-[15px] font-bold">Requested</Text>
+      </View>
+    );
+  }
+
+  if (connection === 'pending_in') {
+    return (
+      <Pressable
+        onPress={accept}
+        disabled={respond.isPending || !friendId}
+        accessibilityRole="button"
+        accessibilityLabel={`Accept ${first}'s connection request`}
+        accessibilityState={{ busy: respond.isPending, disabled: respond.isPending || !friendId }}
+        className="rounded-2xl py-3 bg-primary flex-row items-center justify-center gap-2 active:opacity-90"
+      >
+        {respond.isPending ? (
+          <ActivityIndicator size="small" color={palette.primaryForeground} />
+        ) : (
+          <UserCheckIcon size={16} className="text-primary-foreground" />
+        )}
+        <Text className="text-primary-foreground text-[15px] font-bold">Accept</Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <View className="flex-row gap-2">
+      <View
+        className="flex-1 rounded-2xl py-3 bg-success/15 flex-row items-center justify-center gap-2"
+        accessible
+        accessibilityLabel={`Connected with ${first}`}
+      >
+        <CheckIcon size={16} className="text-success" />
+        <Text className="text-success text-[15px] font-bold">Connected</Text>
+      </View>
+      <Pressable
+        onPress={message}
+        disabled={opening || !friendId}
+        accessibilityRole="button"
+        accessibilityLabel={`Message ${first}`}
+        accessibilityState={{ busy: opening, disabled: opening || !friendId }}
+        className="flex-1 rounded-2xl py-3 bg-muted flex-row items-center justify-center gap-2 active:opacity-80"
+      >
+        {opening ? (
+          <ActivityIndicator size="small" color={palette.foreground} />
+        ) : (
+          <MessageCircleIcon size={16} className="text-foreground" />
+        )}
+        <Text className="text-foreground text-[15px] font-bold">Message</Text>
+      </Pressable>
     </View>
   );
 }

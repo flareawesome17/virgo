@@ -56,7 +56,7 @@ export default function FriendsScreen() {
                   <ArrowLeftIcon size={18} className="text-foreground" />
                 </Pressable>
                 <View>
-                  <Text className="text-foreground text-[28px] font-bold tracking-tight">Friends</Text>
+                  <Text className="text-foreground text-[28px] font-bold tracking-tight">Connections</Text>
                   <Text className="text-muted-foreground text-sm mt-1">{confirmed.length} confirmed · {pending.length} pending</Text>
                 </View>
               </View>
@@ -72,7 +72,7 @@ export default function FriendsScreen() {
               <View className="flex-row items-center bg-card rounded-2xl px-4 h-11 gap-3"
                 style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
                 <SearchIcon size={16} className="text-muted-foreground" />
-                <Text className="text-muted-foreground text-sm flex-1">Search friends</Text>
+                <Text className="text-muted-foreground text-sm flex-1">Search connections</Text>
               </View>
             </View>
 
@@ -97,7 +97,7 @@ export default function FriendsScreen() {
             {/* Section */}
             <View className="px-5 mb-3 flex-row items-center justify-between">
               <Text className="text-foreground text-base font-bold tracking-tight">
-                Confirmed Friends ({confirmed.length})
+                Connections ({confirmed.length})
               </Text>
             </View>
           </View>
@@ -105,17 +105,17 @@ export default function FriendsScreen() {
         ListEmptyComponent={
           loadFailed && confirmed.length === 0 ? (
             <View className="pt-8">
-              <LoadFailed what="your friends" onRetry={() => refetch()} compact />
+              <LoadFailed what="your connections" onRetry={() => refetch()} compact />
             </View>
           ) : confirmed.length === 0 ? (
             <View className="px-5 pt-8 items-center gap-4">
               <View className="w-16 h-16 rounded-full bg-muted items-center justify-center"><UsersIcon size={28} className="text-muted-foreground" /></View>
               <View className="items-center gap-1">
-                <Text className="text-foreground text-lg font-bold">No friends yet</Text>
-                <Text className="text-muted-foreground text-sm text-center px-8">Add creative collaborators to your network to invite them to albums and workspaces</Text>
+                <Text className="text-foreground text-lg font-bold">No connections yet</Text>
+                <Text className="text-muted-foreground text-sm text-center px-8">Add creative collaborators as connections to invite them to albums and workspaces</Text>
               </View>
               <Pressable onPress={() => router.push('/(app)/(tabs)/connect?view=people')} className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]">
-                <UserPlusIcon size={18} className="text-white" /><Text className="text-white text-sm font-semibold">Add Friend</Text>
+                <UserPlusIcon size={18} className="text-white" /><Text className="text-white text-sm font-semibold">Find people</Text>
               </Pressable>
             </View>
           ) : null

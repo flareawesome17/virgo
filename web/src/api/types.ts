@@ -258,6 +258,19 @@ export interface AuthUser {
   /** Whether sign-in requires an emailed one-time code or recovery code. */
   twoFactorEnabled: boolean;
   createdAt: string;
+  /*
+   * The three below are optional: an older API leaves them out, and so does a
+   * desktop session persisted before they existed. Read them with a fallback.
+   */
+  /**
+   * The CDN address of the profile cover. Set only through profilesApi.setCover,
+   * never through updateMe: the server builds it from an object it re-encoded.
+   */
+  coverUrl?: string | null;
+  /** An "Available for bookings" badge on the profile. It does not gate Hire. */
+  availableForBookings?: boolean;
+  /** Whether studioName is shown on the public profile. Off, it stays private. */
+  showStudio?: boolean;
 }
 
 /** Fields a user may edit on their own profile. `null` clears a field. */
@@ -296,6 +309,14 @@ export interface UpdateProfileInput {
   addressPostal?: string | null;
   studioName?: string | null;
   socialHandle?: string | null;
+
+  /**
+   * The profile switches. Send each alone, never inside the form save: an
+   * older API rejects unknown keys with a 400, and one switch it does not know
+   * would fail every other field in the same request.
+   */
+  availableForBookings?: boolean;
+  showStudio?: boolean;
 }
 
 /**

@@ -56,6 +56,9 @@ export function useAnswerEnquiry() {
       queryClient.invalidateQueries({ queryKey: queryKeys.hire.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
       queryClient.invalidateQueries({ queryKey: ['chat'] });
+      // A new connection changes their Connect button and both counts.
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicProfiles.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile.page });
     },
   });
 }

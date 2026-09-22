@@ -162,19 +162,19 @@ export default function NewChatScreen() {
 
           <View className="px-5 mt-5">
             <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-              {mode === 'direct' ? 'Choose a friend' : `People (${selected.length})`}
+              {mode === 'direct' ? 'Choose a connection' : `People (${selected.length})`}
             </Text>
 
             {loadFailed && chattable.length === 0 ? (
-              <LoadFailed what="your friends" onRetry={() => refetch()} compact />
+              <LoadFailed what="your connections" onRetry={() => refetch()} compact />
             ) : chattable.length === 0 ? (
               <Pressable
                 onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
                 className="bg-card rounded-2xl px-4 py-6 items-center active:scale-[0.98]"
               >
-                <Text className="text-foreground text-sm font-semibold">No friends yet</Text>
+                <Text className="text-foreground text-sm font-semibold">No connections yet</Text>
                 <Text className="text-muted-foreground text-xs mt-1 text-center">
-                  You can only chat with people you are friends with.
+                  You can only chat with people you're connected with.
                 </Text>
                 <Text className="text-primary text-xs font-bold mt-3">Find people</Text>
               </Pressable>

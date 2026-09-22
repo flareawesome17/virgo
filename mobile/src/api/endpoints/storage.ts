@@ -3,7 +3,12 @@ import { api } from '../client';
 import { API_BASE_URL } from '../config';
 import { ApiError } from '../errors';
 
-export type UploadScope = 'albums' | 'avatars' | 'workspaces' | 'misc';
+/**
+ * Where an upload goes. 'avatars' and 'covers' land in the public bucket and
+ * are re-encoded on confirm; an older API refuses 'covers' at upload-url, so
+ * nothing is sent to one that could not handle it.
+ */
+export type UploadScope = 'albums' | 'avatars' | 'covers' | 'workspaces' | 'misc';
 
 export interface UploadTicket {
   key: string;

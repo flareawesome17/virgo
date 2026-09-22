@@ -3,16 +3,20 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
   ArrowUpRight,
   BriefcaseBusiness,
+  Building2,
+  CalendarCheck,
+  CloudOff,
   Globe,
   Layers,
   MapPin,
+  Pencil,
   Share2,
   UserSearch,
+  Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell } from '@/components/app-shell';
@@ -21,7 +25,16 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { profilesApi, profileUrl, type PublicProfile } from '@/api';
+import {
+  mutualConnectionsLine,
+  profileBanner,
+  profileStatsLine,
+  profileUrl,
+  type PortfolioAlbum,
+  type PortfolioImage,
+  type ProfileView,
+} from '@/api';
+import { usePublicProfile } from '@/hooks/useProfile';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
 
@@ -43,36 +56,50 @@ export default function AppProfilePage() {
   const { handle } = useParams<{ handle: string }>();
   const router = useRouter();
 
-  const profile = useQuery({
-    queryKey: ['public-profile', handle],
-    queryFn: () => profilesApi.publicProfile(handle),
-    retry: false,
-  });
+  const q = usePublicProfile(handle);
 
-  if (profile.isLoading) return <AppShell title="Profile"><CenteredSpinner /></AppShell>;
+  if (q.isLoading) return <AppShell title="Profile"><CenteredSpinner /></AppShell>;
 
-  if (profile.isError || !profile.data) {
+  const notFound = (
+    <AppShell title="Profile">
+      <EmptyState
+        icon={UserSearch}
+        title="Profile not found"
+        description="This profile is private, or the handle has changed."
+        action={<Button onClick={() => router.push('/nearby')}>Find collaborators</Button>}
+      />
+    </AppShell>
+  );
+
+  // Ahead of any cached copy: a block or an unpublish has to take the page
+  // away, not leave the one from before it on screen.
+  if (q.notFound) return notFound;
+
+  // A failed load is not a missing profile. Saying "not found" to somebody on
+  // a bad connection sends them away from a person who is right there.
+  if (q.loadFailed) {
     return (
       <AppShell title="Profile">
         <EmptyState
-          icon={UserSearch}
-          title="Profile not found"
-          description="This profile is private, or the handle has changed."
-          action={<Button onClick={() => router.push('/nearby')}>Find collaborators</Button>}
+          icon={CloudOff}
+          title="Could not load this profile"
+          description="Check your connection and try again."
+          action={<Button onClick={() => q.refetch()}>Try again</Button>}
         />
       </AppShell>
     );
   }
 
-  const person = profile.data;
-  const images = person.portfolio.filter(
-    (i): i is Extract<typeof i, { kind: 'image' }> => i.kind === 'image',
-  );
+  const person = q.profile;
+  if (!person) return notFound;
+
+  const images = person.portfolio.filter((i): i is PortfolioImage => i.kind === 'image');
   const albums = person.portfolio.filter(
-    (i): i is Extract<typeof i, { kind: 'album' }> =>
-      i.kind === 'album' && Boolean(i.url),
+    (i): i is PortfolioAlbum => i.kind === 'album' && Boolean(i.url),
   );
-  const cover = images[0]?.url ?? albums.find((a) => a.coverUrl)?.coverUrl ?? null;
+  const banner = profileBanner(person);
+  const isSelf = person.viewer?.isSelf === true;
+  const mutual = isSelf ? null : mutualConnectionsLine(person.mutualConnections);
 
   const share = async () => {
     const url = profileUrl(person.handle, SITE);
@@ -87,7 +114,7 @@ export default function AppProfilePage() {
   };
 
   return (
-    <AppShell title={profile.data.displayName ?? "Profile"}>
+    <AppShell title={person.displayName || 'Profile'}>
       <div className="mx-auto w-full max-w-4xl px-6 py-6">
         <Button
           variant="ghost"
@@ -100,23 +127,41 @@ export default function AppProfilePage() {
         </Button>
 
         <Card className="overflow-hidden py-0">
-          {/* Their own work as the banner, the same as the public page — a
-              photographer's profile that opens on a flat panel wastes the one
-              thing they have most of. */}
-          <div className="relative h-32 bg-primary/10 sm:h-40">
-            {cover && (
-              <>
-                <Image
-                  src={cover}
-                  alt=""
-                  fill
-                  sizes="(max-width: 900px) 100vw, 900px"
-                  className="scale-105 object-cover blur-[2px]"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-card via-card/50 to-card/10" />
-              </>
-            )}
-          </div>
+          {banner && !banner.blurred ? (
+            // Their cover, at the 2:1 it was cropped to on the phone. No max
+            // height: capping it would crop the framing they chose all over
+            // again. Unoptimised because the CDN host is inferred to be the
+            // one next.config allows, not verified.
+            <div className="relative aspect-[2/1] w-full bg-primary/10">
+              <Image
+                src={banner.url}
+                alt=""
+                fill
+                unoptimized
+                sizes="(max-width: 900px) 100vw, 900px"
+                className="object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-card/70 to-transparent" />
+            </div>
+          ) : (
+            // Without a cover, their own work as the banner, the same as the
+            // public page — a photographer's profile that opens on a flat
+            // panel wastes the one thing they have most of.
+            <div className="relative h-32 bg-primary/10 sm:h-40">
+              {banner && (
+                <>
+                  <Image
+                    src={banner.url}
+                    alt=""
+                    fill
+                    sizes="(max-width: 900px) 100vw, 900px"
+                    className="scale-105 object-cover blur-[2px]"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-card via-card/50 to-card/10" />
+                </>
+              )}
+            </div>
+          )}
 
           <CardContent className="pb-6">
             <div className="-mt-12 flex flex-col gap-4 sm:flex-row sm:items-end">
@@ -132,18 +177,36 @@ export default function AppProfilePage() {
                   {person.displayName}
                 </h1>
                 <p className="text-sm text-muted-foreground">@{person.handle}</p>
+                {person.stats && (
+                  <p className="mt-1 text-sm font-semibold">{profileStatsLine(person.stats)}</p>
+                )}
+                {mutual && (
+                  <p className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
+                    <Users className="size-3.5" />
+                    {mutual}
+                  </p>
+                )}
               </div>
 
               <div className="flex shrink-0 gap-2 sm:mb-1">
                 <Button variant="outline" size="icon" onClick={share} aria-label="Copy link">
                   <Share2 className="size-4" />
                 </Button>
-                <Button asChild>
-                  <Link href={`/hire/${person.handle}`}>
-                    <BriefcaseBusiness className="size-4" />
-                    Hire {person.displayName.split(' ')[0]}
-                  </Link>
-                </Button>
+                {isSelf ? (
+                  <Button asChild variant="outline">
+                    <Link href="/profile">
+                      <Pencil className="size-4" />
+                      Edit profile
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button asChild>
+                    <Link href={`/hire/${person.handle}`}>
+                      <BriefcaseBusiness className="size-4" />
+                      Hire {person.displayName.split(' ')[0]}
+                    </Link>
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -151,8 +214,14 @@ export default function AppProfilePage() {
               <p className="mt-4 text-[15px] font-medium">{person.title}</p>
             )}
 
-            {person.roles.length > 0 && (
+            {(person.roles.length > 0 || person.availableForBookings) && (
               <div className="mt-3 flex flex-wrap gap-1.5">
+                {person.availableForBookings && (
+                  <Badge variant="secondary" className="text-[12px]">
+                    <CalendarCheck className="size-3.5" />
+                    Available for bookings
+                  </Badge>
+                )}
                 {person.roles.map((role) => (
                   <Badge key={role} variant="secondary" className="text-[12px]">
                     {role}
@@ -174,6 +243,12 @@ export default function AppProfilePage() {
                   {person.location}
                 </span>
               )}
+              {person.studioName && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Building2 className="size-3.5" />
+                  {person.studioName}
+                </span>
+              )}
               {person.website && (
                 <a
                   href={
@@ -191,12 +266,6 @@ export default function AppProfilePage() {
               )}
               <span>On Virgo since {person.memberSince}</span>
             </div>
-
-            <dl className="mt-5 flex gap-8 border-t pt-4">
-              <Stat label="Work" value={images.length} />
-              <Stat label="Galleries" value={albums.length} />
-              <Stat label="On Virgo" value={person.memberSince} />
-            </dl>
           </CardContent>
         </Card>
 
@@ -206,25 +275,14 @@ export default function AppProfilePage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div>
-      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </dt>
-      <dd className="text-lg font-bold tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
 function ProfileWork({
   images,
   albums,
   person,
 }: {
-  images: Extract<PublicProfile['portfolio'][number], { kind: 'image' }>[];
-  albums: Extract<PublicProfile['portfolio'][number], { kind: 'album' }>[];
-  person: PublicProfile;
+  images: PortfolioImage[];
+  albums: PortfolioAlbum[];
+  person: ProfileView;
 }) {
   if (images.length === 0 && albums.length === 0) {
     return (
@@ -243,10 +301,14 @@ function ProfileWork({
       {images.length > 0 && (
         <div>
           <h2 className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-            Work
+            Portfolio
           </h2>
           {/* The same tight square grid the public page uses. Uniform crops are
-              what let somebody judge a dozen photographs at a glance. */}
+              what let somebody judge a dozen photographs at a glance.
+
+              `url` is the 640 px B2 copy, which next/image is allowed to load.
+              displaySources is never passed here: the media host is not in
+              its allow-list, and the images are already the size they need. */}
           <div className="mt-2 grid grid-cols-3 gap-1 overflow-hidden rounded-xl">
             {images.map((item) => (
               <figure

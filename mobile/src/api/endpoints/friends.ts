@@ -101,8 +101,9 @@ export const friendsApi = {
    *
    * The two methods above are kept so nothing that names them breaks; the
    * body is the same either way. `{ handle }` is only understood by an API
-   * from P2 on — an older one refuses the unknown key with a 400 — so nothing
-   * sends it until the Connect button, which ships after that API is settled.
+   * from P2 on — an older one refuses the unknown key with a 400. The profile's
+   * Connect button is what sends it, and it only shows when the profile came
+   * with a `viewer` block, which no API before P3 sends.
    */
   request(target: FriendRequestTarget): Promise<SendRequestResult> {
     return api.post<SendRequestResult>('/friends/request', { body: target });
