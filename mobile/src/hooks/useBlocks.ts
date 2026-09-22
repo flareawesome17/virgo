@@ -43,6 +43,9 @@ export function useBlocks(options: QueryOptions = {}) {
  * Without them the invitation badge and cards kept offering an Accept that
  * could only answer "Invitation not found", and your own invitation to them
  * still read "Waiting" in the members and attendee lists.
+ *
+ * Your own page too: a block ends the friendship, so your connection count on
+ * it drops by one.
  */
 const invalidateSafety = (queryClient: QueryClient) =>
   [
@@ -53,6 +56,7 @@ const invalidateSafety = (queryClient: QueryClient) =>
     queryKeys.hire.all,
     queryKeys.jobs.all,
     queryKeys.publicProfiles.all,
+    queryKeys.profile.page,
     queryKeys.notifications.all,
     queryKeys.collaborators.all,
     queryKeys.scheduleEvents.all,

@@ -176,8 +176,13 @@ export {
 
 export {
   useProfileSettings,
+  usePublicProfile,
+  useProfilePage,
   useSetHandle,
   useSetPublished,
+  useSetCover,
+  useRemoveCover,
+  useUpdateProfileFlags,
   usePortfolio,
   usePortfolioActions,
 } from '@/src/hooks/useProfile'

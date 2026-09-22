@@ -4,8 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { MediaLinkService } from '../storage/media-link.service';
 import { PUBLISHED_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
+import { MAX_SOURCE_BYTES, ThumbnailsService } from '../storage/thumbnails.service';
 import { AlbumShareService } from '../albums/share/album-share.service';
 
 /**
@@ -18,11 +20,40 @@ import { AlbumShareService } from '../albums/share/album-share.service';
 export const MAX_IMAGES = 24;
 export const MAX_ALBUMS = 12;
 
+/**
+ * A profile photo or cover: never something to put on a portfolio.
+ *
+ * Both belong to the profile, not the portfolio. Changing either deletes the
+ * old object (discardAvatar, discardCover and the cover sweep), and a tile
+ * made from one would vanish with it, unannounced. Neither has a thumbnail
+ * either, and making one here would put a second copy of it in the public
+ * bucket.
+ */
+const PROFILE_PHOTO_KEY = /^users\/[^/]+\/(avatars|covers)\//;
+
 export interface PortfolioImage {
   id: string;
   kind: 'image';
+  /**
+   * The signed 640 px WebP thumbnail on B2, never the original.
+   *
+   * The camera file carries its EXIF, GPS included, and a public profile is
+   * the last place it belongs. The thumbnail is a re-encode, so none of that
+   * survives it. It stays on the B2 host because the deployed web's
+   * next/image allows that host and not the media one.
+   *
+   * The owner's own editor is the exception: it falls back to the original
+   * for a photograph with no thumbnail, so it can still be recognised and
+   * removed. `publiclyShown` says which those are.
+   */
   url: string;
   caption: string | null;
+  /**
+   * The 1024 and 2048 copies on the media host, narrowest first, when they
+   * exist. Possibly empty. Not for next/image, whose allow-list lacks that
+   * host.
+   */
+  displaySources: { width: number; url: string }[];
   /**
    * The object key behind `url`.
    *
@@ -32,6 +63,11 @@ export interface PortfolioImage {
    * URL and needs nothing more.
    */
   fileKey?: string;
+  /**
+   * Owner's list only. False for a photograph the public page leaves out
+   * because it has no thumbnail, so the editor can say so.
+   */
+  publiclyShown?: boolean;
 }
 
 export interface PortfolioAlbum {
@@ -59,6 +95,9 @@ interface ItemRow {
   file_key: string | null;
   album_id: string | null;
   caption: string | null;
+  /** A single photograph's own thumbnail and display copies. */
+  image_thumb_key: string | null;
+  image_display_widths: number[] | null;
   album_name: string | null;
   /** A cover stored as a URL, from before covers were chosen by key. */
   album_cover_url: string | null;
@@ -74,12 +113,13 @@ interface ItemRow {
 }
 
 /**
- * What a card draws for a photograph: its thumbnail, or the original while
- * there is none — still being processed, or too large to thumbnail.
+ * What the owner's editor draws for a photograph: its thumbnail, or the
+ * original while there is none — still being processed, or too large to
+ * thumbnail.
  *
  * The same rule as the app's album cards (`shownKey` in albums.repository.ts).
- * Signing the original sent a stranger a whole camera file for every card on
- * a public profile, where the thumbnail is 640 px of WebP.
+ * The public page never takes the second half of it: signing the original
+ * sent a stranger a whole camera file, EXIF and all, for every card.
  */
 function shownKey(key: string | null, thumbKey: string | null): string | null {
   return thumbKey ?? key;
@@ -91,6 +131,8 @@ export class PortfolioService {
     private readonly db: DatabaseService,
     private readonly storage: StorageService,
     private readonly shares: AlbumShareService,
+    private readonly mediaLink: MediaLinkService,
+    private readonly thumbs: ThumbnailsService,
   ) {}
 
   /**
@@ -115,6 +157,11 @@ export class PortfolioService {
    * counted. It used to be `albums.item_count`, a counter the app bumped
    * after each upload that nothing kept true, which the app's cards stopped
    * trusting for the same reason.
+   *
+   * A single photograph reaches the public list only through its thumbnail,
+   * so one without is filtered out here, in SQL, rather than signed as the
+   * original. The owner's list keeps it, flagged, so the editor can say why
+   * the public page is one short.
    */
   async list(
     userId: string,
@@ -122,6 +169,8 @@ export class PortfolioService {
   ): Promise<PortfolioItem[]> {
     const rows = await this.db.query<ItemRow>(
       `select p.id, p.kind, p.file_key, p.album_id, p.caption,
+              f.thumb_key      as image_thumb_key,
+              f.display_widths as image_display_widths,
               a.name        as album_name,
               a.cover_url   as album_cover_url,
               (select count(*)::text
@@ -159,39 +208,85 @@ export class PortfolioService {
                 order by f2.created_at desc
                 limit 1) d on true
         where p.user_id = $1
-          and ((p.kind = 'image' and f.key is not null)
+          and ((p.kind = 'image' and f.key is not null
+                -- The public page shows a photograph only through its EXIF-free copy.
+                and ($2::boolean or f.thumb_key is not null))
             or (p.kind = 'album' and a.id is not null))
         order by p.position, p.created_at`,
-      [userId],
+      [userId, forOwner],
     );
 
-    return Promise.all(rows.map((row) => this.present(row, forOwner)));
+    const items = await Promise.all(rows.map((row) => this.present(row, forOwner)));
+    return items.filter((item): item is PortfolioItem => item !== null);
   }
 
   /**
-   * A published profile is open to the web, so these URLs are signed on the
-   * strength of the profile being published rather than of who is asking.
+   * How many of the owner's photographs the public page leaves out.
    *
-   * The long TTL matters more here than anywhere else: this page is meant to
-   * be indexed, and a crawler that cached the HTML will keep serving whatever
-   * URL was in it. A short expiry turns into a broken photograph in somebody's
-   * search results, on the one page whose whole job is to look good.
+   * The ones with no thumbnail: the same test `list` filters on, counted, so
+   * the owner's page can say how many are missing from what visitors see.
    */
-  private async present(row: ItemRow, forOwner: boolean): Promise<PortfolioItem> {
+  async hiddenCount(userId: string): Promise<number> {
+    const row = await this.db.queryOne<{ n: number }>(
+      `select count(*)::int as n
+         from portfolio_items p
+         join user_files f
+           on f.key = p.file_key
+          and f.user_id = p.user_id
+          and f.content_type like 'image/%'
+        where p.user_id = $1
+          and p.kind = 'image'
+          and f.thumb_key is null`,
+      [userId],
+    );
+    return Number(row?.n ?? 0);
+  }
+
+  /**
+   * A published profile is open to every signed-in account, so these URLs are
+   * signed on the strength of the profile being published rather than of who
+   * is asking.
+   *
+   * The long TTL matters more here than anywhere else: a profile page is
+   * rendered once and then looked at, and a cached copy keeps serving
+   * whatever URL was in it. A short expiry turns into a broken photograph on
+   * the one page whose whole job is to look good.
+   *
+   * Null leaves an item off the public list: a photograph whose thumbnail
+   * cannot be signed has nothing it may be shown as.
+   */
+  private async present(row: ItemRow, forOwner: boolean): Promise<PortfolioItem | null> {
     if (row.kind === 'image') {
-      // The original, unlike an album's cover below. On a high-density screen
-      // the web profile's tiles are wider than a thumbnail's short side, so
-      // portrait work would draw soft, and the first photograph is also the
-      // profile's full-width banner.
-      return {
-        id: row.id,
-        kind: 'image',
-        url:
-          (await this.storage.mediaUrl(row.file_key!, PUBLISHED_URL_TTL_SECONDS)) ??
-          '',
-        caption: row.caption,
-        ...(forOwner ? { fileKey: row.file_key! } : {}),
-      };
+      // The thumbnail and never the original, on the public list. It is a
+      // re-encode, so the camera's EXIF and GPS do not survive it, and 640 px
+      // is enough for a tile and for the blurred banner the first photograph
+      // becomes. The larger copies ride along for clients that can use the
+      // media host.
+      const displaySources = this.mediaLink.displaySources(
+        row.file_key!,
+        row.image_display_widths,
+        PUBLISHED_URL_TTL_SECONDS,
+      );
+      if (forOwner) {
+        // The owner's own editor may fall back to the original: it is their
+        // file, and the tile has to be recognisable to be removed.
+        return {
+          id: row.id,
+          kind: 'image',
+          url:
+            (await this.storage.mediaUrl(
+              row.image_thumb_key ?? row.file_key!,
+              PUBLISHED_URL_TTL_SECONDS,
+            )) ?? '',
+          caption: row.caption,
+          displaySources,
+          fileKey: row.file_key!,
+          publiclyShown: row.image_thumb_key !== null,
+        };
+      }
+      const url = await this.storage.mediaUrl(row.image_thumb_key, PUBLISHED_URL_TTL_SECONDS);
+      if (!url) return null;
+      return { id: row.id, kind: 'image', url, caption: row.caption, displaySources };
     }
 
     return {
@@ -199,22 +294,46 @@ export class PortfolioService {
       kind: 'album',
       name: row.album_name ?? 'Album',
       caption: row.caption,
-      // The app's order: the photograph its owner chose, then a cover stored
-      // as a URL before covers were chosen by key, then the newest photograph.
-      coverUrl:
-        (await this.storage.mediaUrl(
-          shownKey(row.chosen_cover_key, row.chosen_cover_thumb_key),
-          PUBLISHED_URL_TTL_SECONDS,
-        )) ??
-        row.album_cover_url ??
-        (await this.storage.mediaUrl(
-          shownKey(row.derived_cover_key, row.derived_cover_thumb_key),
-          PUBLISHED_URL_TTL_SECONDS,
-        )),
+      coverUrl: forOwner ? await this.ownerCover(row) : await this.publicCover(row),
       itemCount: Number(row.album_photo_count),
       url: row.share_token ? this.shares.urlFor(row.share_token) : null,
       ...(forOwner ? { albumId: row.album_id! } : {}),
     };
+  }
+
+  /**
+   * An album card's cover on the public page: a thumbnail or nothing.
+   *
+   * The chosen photograph's, then the newest one's. Never an original, and
+   * never the legacy stored `cover_url`, which predates thumbnails and can
+   * point at one. A card with no cover draws its placeholder.
+   */
+  private async publicCover(row: ItemRow): Promise<string | null> {
+    return (
+      (await this.storage.mediaUrl(row.chosen_cover_thumb_key, PUBLISHED_URL_TTL_SECONDS)) ??
+      (await this.storage.mediaUrl(row.derived_cover_thumb_key, PUBLISHED_URL_TTL_SECONDS)) ??
+      null
+    );
+  }
+
+  /**
+   * The same card in the owner's editor, in the app's own order: the
+   * photograph its owner chose, then a cover stored as a URL before covers
+   * were chosen by key, then the newest photograph — each from its thumbnail
+   * while it has one.
+   */
+  private async ownerCover(row: ItemRow): Promise<string | null> {
+    return (
+      (await this.storage.mediaUrl(
+        shownKey(row.chosen_cover_key, row.chosen_cover_thumb_key),
+        PUBLISHED_URL_TTL_SECONDS,
+      )) ??
+      row.album_cover_url ??
+      (await this.storage.mediaUrl(
+        shownKey(row.derived_cover_key, row.derived_cover_thumb_key),
+        PUBLISHED_URL_TTL_SECONDS,
+      ))
+    );
   }
 
   /**
@@ -224,14 +343,31 @@ export class PortfolioService {
    * from the client, and keys are not secrets — they appear in CDN URLs. Insert
    * without checking and anyone can put another user's private photograph on
    * their own public, indexable profile, attributed to themselves.
+   *
+   * A photograph arrives with its thumbnail or not at all. The public page
+   * shows it only through that copy, so one that has none yet — a GIF or an
+   * image from before thumbnails were always made, say — gets one made here,
+   * and one that cannot be made is refused with a sentence the person can act
+   * on, rather than added as a tile nobody else will ever see.
    */
   async addImage(
     userId: string,
     fileKey: string,
     caption?: string,
   ): Promise<PortfolioItem[]> {
-    const file = await this.db.queryOne<{ content_type: string | null }>(
-      'select content_type from user_files where key = $1 and user_id = $2',
+    if (PROFILE_PHOTO_KEY.test(fileKey)) {
+      throw new BadRequestException('Choose a photo from your uploads.');
+    }
+
+    const file = await this.db.queryOne<{
+      content_type: string | null;
+      size_bytes: string | number;
+      thumb_key: string | null;
+      display_widths: number[] | null;
+      blur_data_url: string | null;
+    }>(
+      `select content_type, size_bytes, thumb_key, display_widths, blur_data_url
+         from user_files where key = $1 and user_id = $2`,
       [fileKey, userId],
     );
     // Same answer whether the file belongs to someone else or does not exist,
@@ -243,6 +379,30 @@ export class PortfolioService {
     }
 
     await this.assertRoom(userId, 'image', MAX_IMAGES);
+
+    if (!file.thumb_key) {
+      const size = Number(file.size_bytes);
+      if (size > MAX_SOURCE_BYTES) {
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          code: 'PORTFOLIO_TOO_LARGE',
+          message: 'That photo is too large to show on your profile. Choose one under 40 MB.',
+        });
+      }
+      const made = await this.thumbs.generate(fileKey, file.content_type, size, {
+        displayWidths: file.display_widths,
+        blurDataUrl: file.blur_data_url,
+      });
+      if (!made) {
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          code: 'PORTFOLIO_NO_WEB_COPY',
+          message: "That photo can't be shown on your profile. Try a JPEG or PNG copy of it.",
+        });
+      }
+    }
 
     await this.db.query(
       `insert into portfolio_items (user_id, kind, file_key, caption, position)
@@ -311,9 +471,15 @@ export class PortfolioService {
     return this.list(userId, { forOwner: true });
   }
 
-  /** Reorders the portfolio. Ids that are not the caller's are ignored. */
+  /**
+   * Reorders the portfolio. Ids that are not the caller's are ignored.
+   *
+   * Always answers with the owner's list, the empty case included: the
+   * editor's cache is written from this response, and the public list would
+   * drop the keys it matches on and every photograph it leaves out.
+   */
   async reorder(userId: string, ids: string[]): Promise<PortfolioItem[]> {
-    if (ids.length === 0) return this.list(userId);
+    if (ids.length === 0) return this.list(userId, { forOwner: true });
 
     await this.db.query(
       `update portfolio_items p

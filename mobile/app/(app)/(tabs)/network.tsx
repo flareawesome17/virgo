@@ -29,7 +29,8 @@ import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PersonSafetySheet } from '@/components/PersonSafetySheet';
 import { lastSeenLabel, usePresence } from '@/src/lib/presence-store';
-import type { Collaborator, Friend } from '@/src/api';
+import { ApiError, type Collaborator, type Friend } from '@/src/api';
+import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -74,11 +75,19 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
       { userId },
       {
         onSuccess: () => Alert.alert('Request sent', 'They will see it in their network.'),
-        // The API's messages are already user-facing ("You are already
-        // friends", "They have already sent you a request"), so they are used
-        // as written.
-        onError: (err: any) =>
-          Alert.alert('Could not send request', err?.message || 'Please try again.'),
+        onError: (err) => {
+          // A 400 is the relationship having moved on somewhere else — already
+          // connected, already asked, or they asked first — so the row is out
+          // of date rather than wrong. Refreshing it shows the right chip,
+          // which says so better than an alert would; the profile's Connect
+          // does the same.
+          if (err instanceof ApiError && err.status === 400) {
+            refetchPeople();
+            refetchIncoming();
+            return;
+          }
+          Alert.alert('Could not send request', profileActionMessage(err, 'connect'));
+        },
       },
     );
   };
@@ -127,7 +136,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
       'Remove collaborator',
       // Spells out the blast radius: workspace membership is what grants album
       // access, so removing it takes every album in that workspace with it.
-      `${name} will lose access to this workspace and all of its albums. They stay in your friends, so you can invite them again.`,
+      `${name} will lose access to this workspace and all of its albums. They stay in your connections, so you can invite them again.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -135,8 +144,10 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
           style: 'destructive',
           onPress: () =>
             removeCollaborator.mutate(id, {
-              onError: (err: any) =>
-                Alert.alert('Could not remove', err?.message || 'Please try again.'),
+              // Fixed copy rather than the server's text, which is written for
+              // the API ("Collaborator not found"), not for this screen.
+              onError: () =>
+                Alert.alert('Could not remove', "Couldn't remove them from this workspace. Try again."),
             }),
         },
       ],
@@ -145,10 +156,10 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
 
   const confirmRemoveFriend = (id: string, name: string) => {
     Alert.alert(
-      'Remove friend',
-      // Says what survives, since removing a friend does not retract the
+      'Remove connection',
+      // Says what survives, since removing a connection does not retract the
       // workspaces they were already added to.
-      `${name} will no longer be in your friends. They stay on any workspace you already added them to — remove them there separately.`,
+      `${name} will no longer be one of your connections. They stay on any workspace you already added them to — remove them there separately.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -328,8 +339,8 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                     </View>
 
                     {p.relationship === 'accepted' ? (
-                      <View className="px-3 py-1.5 rounded-full bg-[#6B8E4E18]">
-                        <Text className="text-[#6B8E4E] text-xs font-bold">Friends</Text>
+                      <View className="px-3 py-1.5 rounded-full bg-success/15">
+                        <Text className="text-success text-xs font-bold">Connected</Text>
                       </View>
                     ) : p.relationship === 'pending_out' ? (
                       <View className="px-3 py-1.5 rounded-full bg-muted">
@@ -349,7 +360,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                         className="px-3 py-2 rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.94]"
                       >
                         <UserPlusIcon size={13} className="text-white" />
-                        <Text className="text-white text-xs font-bold">Add</Text>
+                        <Text className="text-white text-xs font-bold">Connect</Text>
                       </Pressable>
                     )}
                   </View>
@@ -364,7 +375,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
         {incoming.length > 0 && (
           <View className="px-5 pb-4">
             <Text className="text-foreground text-[13px] font-semibold mb-2 ml-1">
-              Friend requests
+              Connection requests
             </Text>
             <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
               {incoming.map((req, i) => (
@@ -421,13 +432,13 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
           </View>
         )}
 
-        {/* Friends. The screen listed collaborators but never the people you
+        {/* Connections. The screen listed collaborators but never the people you
             are connected to, so an accepted request had nowhere to show. */}
         {search.trim().length < 2 && (
           <View className="px-5 pb-4">
             <View className="flex-row items-center justify-between mb-2 ml-1">
               <Text className="text-foreground text-[13px] font-semibold">
-                Friends
+                Connections
               </Text>
               <Text className="text-muted-foreground text-xs font-semibold">
                 {acceptedFriends.length}
@@ -436,10 +447,10 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
 
             <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
               {friendsFailed && acceptedFriends.length === 0 ? (
-                <LoadFailed what="your friends" onRetry={() => refetchFriends()} compact />
+                <LoadFailed what="your connections" onRetry={() => refetchFriends()} compact />
               ) : acceptedFriends.length === 0 ? (
                 <Text className="text-muted-foreground text-sm text-center py-5 px-4">
-                  No friends yet. Search for someone above to connect.
+                  No connections yet. Search for someone above to connect.
                 </Text>
               ) : (
                 acceptedFriends.map((f, i) => (

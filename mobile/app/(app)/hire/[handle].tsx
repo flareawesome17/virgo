@@ -6,14 +6,14 @@ import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useSendEnquiry } from '@/src/hooks';
-import { profilesApi, queryKeys } from '@/src/api';
+import { usePublicProfile, useSendEnquiry, useTheme } from '@/src/hooks';
 import {
   ArrowLeftIcon, MapPinIcon, SendIcon, UserSearchIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
+import { LoadFailed } from '@/components/LoadFailed';
+import { PALETTES } from '@/theme';
 
 for (const Icon of [ArrowLeftIcon, MapPinIcon, SendIcon, UserSearchIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -30,13 +30,12 @@ export default function HireScreen() {
   const insets = useSafeAreaInsets();
   const { handle } = useLocalSearchParams<{ handle: string }>();
   const send = useSendEnquiry();
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
 
-  const profile = useQuery({
-    queryKey: queryKeys.publicProfiles.detail(handle as string),
-    queryFn: () => profilesApi.publicProfile(handle as string),
-    enabled: Boolean(handle),
-    retry: false,
-  });
+  // The same query, and so the same cache entry, as the profile this is
+  // opened from: arriving here from it costs no second fetch.
+  const profile = usePublicProfile(handle);
 
   const [message, setMessage] = useState('');
   const [roleWanted, setRoleWanted] = useState<string | null>(null);
@@ -46,12 +45,33 @@ export default function HireScreen() {
   if (profile.isLoading) {
     return (
       <SafeAreaView className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color="#B66A40" />
+        <ActivityIndicator color={palette.primary} />
       </SafeAreaView>
     );
   }
 
-  if (profile.isError || !profile.data) {
+  // A failed load is not a missing profile: saying "not found" to somebody
+  // on a bad connection sends them away from a person who is right there.
+  if (!profile.notFound && profile.loadFailed) {
+    return (
+      <SafeAreaView className="flex-1 bg-background" edges={['top']}>
+        <View className="flex-row items-center gap-3 px-5 py-3">
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <ArrowLeftIcon size={20} className="text-foreground" />
+          </Pressable>
+          <Text className="text-foreground text-lg font-bold">Send an enquiry</Text>
+        </View>
+        <LoadFailed what="this profile" onRetry={() => profile.refetch()} />
+      </SafeAreaView>
+    );
+  }
+
+  if (profile.notFound || !profile.profile) {
     return (
       <SafeAreaView className="flex-1 bg-background items-center justify-center px-10">
         <UserSearchIcon size={30} className="text-muted-foreground" />
@@ -60,13 +80,13 @@ export default function HireScreen() {
           This profile is private, or the handle has changed.
         </Text>
         <Pressable className="mt-5" onPress={() => router.back()}>
-          <Text className="text-[13px] font-bold" style={{ color: '#B66A40' }}>Go back</Text>
+          <Text className="text-primary text-[13px] font-bold">Go back</Text>
         </Pressable>
       </SafeAreaView>
     );
   }
 
-  const person = profile.data;
+  const person = profile.profile;
   const firstName = person.displayName.split(' ')[0];
   const tooShort = message.trim().length < 10;
 
@@ -147,16 +167,16 @@ export default function HireScreen() {
                     <Pressable
                       key={role}
                       onPress={() => setRoleWanted(isOn ? null : role)}
-                      className="rounded-full px-3.5 py-2"
-                      style={{
-                        backgroundColor: isOn ? '#B66A40' : 'transparent',
-                        borderWidth: 1,
-                        borderColor: isOn ? '#B66A40' : '#B66A4055',
-                      }}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isOn }}
+                      className={`rounded-full px-3.5 py-2 border ${
+                        isOn ? 'bg-primary border-primary' : 'border-primary/30'
+                      }`}
                     >
                       <Text
-                        className="text-[12px] font-semibold"
-                        style={{ color: isOn ? '#fff' : '#B66A40' }}
+                        className={`text-[12px] font-semibold ${
+                          isOn ? 'text-primary-foreground' : 'text-primary'
+                        }`}
                       >
                         {role}
                       </Text>
@@ -176,7 +196,7 @@ export default function HireScreen() {
                 value={eventDate}
                 onChangeText={setEventDate}
                 placeholder="2026-11-14"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={palette.mutedForeground}
                 autoCapitalize="none"
                 autoCorrect={false}
                 maxLength={10}
@@ -191,14 +211,14 @@ export default function HireScreen() {
                 value={budget}
                 onChangeText={setBudget}
                 placeholder="₱25,000"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={palette.mutedForeground}
                 maxLength={60}
                 className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
               />
             </View>
           </View>
           {!dateLooksRight && (
-            <Text className="text-[11px] -mt-4" style={{ color: '#ef4444' }}>
+            <Text className="text-destructive text-[11px] -mt-4">
               Use a date like 2026-11-14.
             </Text>
           )}
@@ -211,7 +231,7 @@ export default function HireScreen() {
               value={message}
               onChangeText={setMessage}
               placeholder={`Hi ${firstName} — tell them what the job is, where it is, and roughly how long you need them for.`}
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={palette.mutedForeground}
               multiline
               numberOfLines={6}
               maxLength={2000}
@@ -227,18 +247,17 @@ export default function HireScreen() {
           </View>
 
           <Pressable
-            className="rounded-2xl py-4 flex-row items-center justify-center gap-2"
+            className="rounded-2xl py-4 flex-row items-center justify-center gap-2 bg-action"
             style={{
-              backgroundColor: '#B66A40',
               opacity: tooShort || !dateLooksRight || send.isPending ? 0.4 : 1,
             }}
             disabled={tooShort || !dateLooksRight || send.isPending}
             onPress={onSubmit}
           >
             {send.isPending
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <SendIcon size={16} color="#fff" />}
-            <Text className="text-white text-[15px] font-bold">Send enquiry</Text>
+              ? <ActivityIndicator size="small" color={palette.actionForeground} />
+              : <SendIcon size={16} className="text-action-foreground" />}
+            <Text className="text-action-foreground text-[15px] font-bold">Send enquiry</Text>
           </Pressable>
 
           <Text className="text-muted-foreground text-[11px] text-center">

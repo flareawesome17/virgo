@@ -78,7 +78,7 @@ export default function FriendRequestsScreen() {
                 <ArrowLeftIcon size={18} className="text-foreground" />
               </Pressable>
               <View>
-                <Text className="text-foreground text-[22px] font-bold tracking-tight">Friend Requests</Text>
+                <Text className="text-foreground text-[22px] font-bold tracking-tight">Connection requests</Text>
                 <Text className="text-muted-foreground text-sm mt-0.5">{received.length} received · {sent.length} sent</Text>
               </View>
             </View>
@@ -148,10 +148,10 @@ export default function FriendRequestsScreen() {
                 <View className="w-16 h-16 rounded-full bg-muted items-center justify-center"><UserPlusIcon size={28} className="text-muted-foreground" /></View>
                 <View className="items-center gap-1">
                   <Text className="text-foreground text-lg font-bold">No pending requests</Text>
-                  <Text className="text-muted-foreground text-sm text-center px-8">Send friend requests to collaborate with other creatives</Text>
+                  <Text className="text-muted-foreground text-sm text-center px-8">Send connection requests to work with other creatives</Text>
                 </View>
                 <Pressable onPress={() => router.push('/(app)/(tabs)/connect?view=people')} className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]">
-                  <UserPlusIcon size={18} className="text-white" /><Text className="text-white text-sm font-semibold">Add Friend</Text>
+                  <UserPlusIcon size={18} className="text-white" /><Text className="text-white text-sm font-semibold">Find people</Text>
                 </Pressable>
               </View>
             )}

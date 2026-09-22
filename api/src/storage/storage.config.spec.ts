@@ -1,9 +1,12 @@
+import type { ConfigService } from '@nestjs/config';
 import {
   DISPLAY_URL_TTL_SECONDS,
   DISPLAY_URL_WINDOW_SECONDS,
   DOWNLOAD_URL_TTL_SECONDS,
   MEDIA_URL_WINDOW_SECONDS,
   PUBLISHED_URL_TTL_SECONDS,
+  StorageConfig,
+  UPLOAD_SCOPES,
   UPLOAD_URL_TTL_SECONDS,
   signingWindowFor,
 } from './storage.config';
@@ -47,5 +50,45 @@ describe('signingWindowFor', () => {
   it('gives a display link at least six hours when it arrives', () => {
     const left = DISPLAY_URL_TTL_SECONDS - signingWindowFor(DISPLAY_URL_TTL_SECONDS);
     expect(left).toBeGreaterThanOrEqual(6 * 60 * 60);
+  });
+});
+
+describe('StorageConfig bucket routing', () => {
+  function config(): StorageConfig {
+    const values: Record<string, string> = {
+      B2_BUCKET_NAME: 'virgo-public',
+      B2_MEDIA_BUCKET_NAME: 'virgo-media',
+    };
+    return new StorageConfig({
+      get: (key: string, fallback?: string) => values[key] ?? fallback,
+    } as unknown as ConfigService);
+  }
+
+  it('keeps covers in the public bucket beside avatars, and everything else private', () => {
+    // A cover is stored as a whole URL in users.cover_url, which has to keep
+    // resolving. The HEAD at confirm, the re-encode and every delete all go
+    // through this, so a cover routed privately would be looked for, and
+    // deleted from, the wrong bucket.
+    const storage = config();
+    expect(storage.bucketForKey('users/u1/covers/2026/09/x.jpg')).toBe('virgo-public');
+    expect(storage.bucketForKey('users/u1/avatars/2026/09/x.jpg')).toBe('virgo-public');
+    expect(storage.bucketForKey('users/u1/albums/2026/09/x.jpg')).toBe('virgo-media');
+    expect(storage.bucketForScope('covers')).toBe('virgo-public');
+    expect(storage.bucketForScope('avatars')).toBe('virgo-public');
+    expect(storage.bucketForScope('albums')).toBe('virgo-media');
+  });
+
+  it('tells a cover from an avatar, and both from the rest', () => {
+    const storage = config();
+    expect(storage.isCoverKey('users/u1/covers/2026/09/x.jpg')).toBe(true);
+    expect(storage.isCoverKey('users/u1/avatars/2026/09/x.jpg')).toBe(false);
+    expect(storage.isAvatarKey('users/u1/covers/2026/09/x.jpg')).toBe(false);
+    expect(storage.isPublicKey('users/u1/covers/2026/09/x.jpg')).toBe(true);
+    expect(storage.isPublicKey('users/u1/avatars/2026/09/x.jpg')).toBe(true);
+    expect(storage.isPublicKey('users/u1/albums/2026/09/x.jpg')).toBe(false);
+  });
+
+  it('accepts covers as a scope', () => {
+    expect(UPLOAD_SCOPES).toContain('covers');
   });
 });

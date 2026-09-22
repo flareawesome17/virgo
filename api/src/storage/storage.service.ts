@@ -32,11 +32,15 @@ import {
 } from '../quota/quota.service';
 import {
   ALLOWED_CONTENT_TYPES,
+  COVER_CONTENT_TYPES,
   DISPLAY_URL_TTL_SECONDS,
   DOWNLOAD_URL_TTL_SECONDS,
   EXTENSION_BY_CONTENT_TYPE,
   IMMUTABLE_CACHE_CONTROL,
+  MAX_AVATAR_BYTES,
+  MAX_COVER_BYTES,
   MAX_UPLOAD_BYTES,
+  PROFILE_PHOTO_CONTENT_TYPES,
   signingWindowFor,
   StorageConfig,
   UPLOAD_URL_TTL_SECONDS,
@@ -229,6 +233,41 @@ export class StorageService {
       );
     }
 
+    // A profile photo is re-encoded in place on confirm, and one that cannot
+    // be is deleted and refused there. Saying no here instead spares the
+    // person the upload, and keeps anything sharp would refuse — a film, a
+    // PDF, a file too big to decode — out of the public bucket altogether.
+    if (input.scope === 'covers') {
+      if (!(COVER_CONTENT_TYPES as readonly string[]).includes(input.contentType)) {
+        throw new BadRequestException('A cover has to be a JPEG, PNG, WebP or AVIF photo.');
+      }
+      if (input.contentLength > MAX_COVER_BYTES) {
+        throw new BadRequestException('That photo is too large for a cover. Choose one under 15 MB.');
+      }
+      // Before signing, not at PATCH /me/profile/cover: without a CDN there is
+      // no URL a cover could be stored as, and finding that out after the
+      // bytes are up leaves a public object nothing can ever point at.
+      if (!this.config.cdnBaseUrl) {
+        throw new ServiceUnavailableException('Covers are not available right now.');
+      }
+    }
+    if (input.scope === 'avatars') {
+      if (!(PROFILE_PHOTO_CONTENT_TYPES as readonly string[]).includes(input.contentType)) {
+        throw new BadRequestException('A profile photo has to be an image file.');
+      }
+      if (input.contentLength > MAX_AVATAR_BYTES) {
+        throw new BadRequestException(
+          'That photo is too large for a profile photo. Choose one under 40 MB.',
+        );
+      }
+    }
+
+    // A profile photo is the caller's own, billed to the caller, whatever
+    // album the client happened to name. confirm files it under no album for
+    // the same reason (StorageController.confirm).
+    const albumId =
+      input.scope === 'avatars' || input.scope === 'covers' ? undefined : input.albumId;
+
     // Last chance to refuse: once the client holds a signed URL the server is
     // out of the loop. The size is pinned into the signature below, so it
     // cannot be understated here and exceeded at upload time.
@@ -237,13 +276,13 @@ export class StorageService {
     // that is the album's owner (see `statObject`), so their storage is the
     // one that has to have room — and not being allowed to add to the album
     // at all is worth saying now rather than after the bytes have gone up.
-    if (input.albumId) {
-      const access = await this.quota.accessForAlbum(userId, input.albumId);
+    if (albumId) {
+      const access = await this.quota.accessForAlbum(userId, albumId);
       if (!accessAllows(access, 'upload')) {
         throw new ForbiddenException('You cannot add media to that album');
       }
       const billedTo =
-        access === 'owner' ? userId : ((await this.quota.albumOwner(input.albumId)) ?? userId);
+        access === 'owner' ? userId : ((await this.quota.albumOwner(albumId)) ?? userId);
       await this.quota.assertCanStore(
         billedTo,
         input.contentLength,
@@ -384,7 +423,7 @@ export class StorageService {
   }
 
   /**
-   * Writes a derived object — today only thumbnails.
+   * Writes a derived object — a thumbnail, or a normalised avatar or cover.
    *
    * Goes to the same bucket as its source so it inherits the same lifecycle:
    * deleting an album's media by prefix takes the thumbnails with it, rather
@@ -415,6 +454,30 @@ export class StorageService {
   /** The object key a stored public URL points at, or null if it is not ours. */
   keyFromPublicUrl(url: string | null | undefined): string | null {
     return this.config.keyFromPublicUrl(url);
+  }
+
+  /**
+   * The object this user's profile cover is, or null when there is none.
+   *
+   * Worked back from `users.cover_url`, the whole CDN URL setCover stored, in
+   * the same way the cover code does it (ProfilesService.discardCover).
+   */
+  async coverKeyOf(userId: string): Promise<string | null> {
+    return this.ownCoverKey(userId, await this.quota.coverUrl(userId));
+  }
+
+  /**
+   * The key behind a stored cover URL, when it is one of this user's covers.
+   *
+   * Nothing outside their own covers prefix is: setCover only ever stores a
+   * key it minted there, so anything else is a URL from another host or from
+   * before that rule, and is never theirs to delete.
+   */
+  private ownCoverKey(userId: string, url: string | null): string | null {
+    const key = this.config.keyFromPublicUrl(url);
+    return key && this.isSafeKey(key) && key.startsWith(`users/${userId}/covers/`)
+      ? key
+      : null;
   }
 
   /**
@@ -663,6 +726,15 @@ export class StorageService {
    * the S3 API maximum). Only keys the bucket confirms deleted are forgotten,
    * so a partial failure leaves the rest still counted against the quota
    * rather than silently handing back allowance for objects that still exist.
+   *
+   * The profile cover goes too, found by the URL the profile holds rather
+   * than by a row. The two can part: an API image from before covers sends a
+   * cover's delete to the private bucket, where it reports success, and the
+   * row is forgotten while the public object stays. Nothing but
+   * `users.cover_url` still names that object, and account deletion is about
+   * to remove the column. The profile stops pointing at the cover once its
+   * object is gone, and only then. Account deletion comes through here too,
+   * and a cover the bucket refused is a failure there like any other object.
    */
   async wipeAll(
     userId: string,
@@ -670,7 +742,14 @@ export class StorageService {
     const client = this.requireClient();
 
     const files = await this.quota.allFiles(userId);
-    if (files.length === 0) return { deleted: 0, failed: 0, freedBytes: 0 };
+    const coverUrl = await this.quota.coverUrl(userId);
+    const coverKey = this.ownCoverKey(userId, coverUrl);
+    if (files.length === 0 && !coverKey) {
+      // A URL that names none of their covers names nothing a wipe could
+      // delete, and the profile does not keep it either.
+      if (coverUrl) await this.quota.forgetCover(userId, coverUrl);
+      return { deleted: 0, failed: 0, freedBytes: 0 };
+    }
 
     const before = await this.quota.storageUsed(userId);
     // For the renditions at the end. Asked now so that if it fails, it fails
@@ -688,8 +767,7 @@ export class StorageService {
     // skipped rather than thrown: one bad row must not end the wipe halfway.
     const objects = [
       ...new Set(
-        files
-          .flatMap((file) => [file.key, file.thumb_key, file.poster_key])
+        [...files.flatMap((file) => [file.key, file.thumb_key, file.poster_key]), coverKey]
           .filter((key): key is string => !!key),
       ),
     ];
@@ -704,9 +782,10 @@ export class StorageService {
       const batch = keys.slice(i, i + 1000);
 
       try {
-        // A batch can straddle both buckets — avatars live in the public one,
-        // everything else in the private one — and DeleteObjects takes exactly
-        // one bucket, so the batch is split by where each key actually is.
+        // A batch can straddle both buckets — avatars and covers live in the
+        // public one, everything else in the private one — and DeleteObjects
+        // takes exactly one bucket, so the batch is split by where each key
+        // actually is.
         const byBucket = new Map<string, string[]>();
         for (const key of batch) {
           const b = this.config.bucketForKey(key);
@@ -749,14 +828,24 @@ export class StorageService {
     await this.quota.forgetFiles(userId, deletedKeys);
     const after = await this.quota.storageUsed(userId);
 
+    // Off the profile once the bucket confirms the object gone. One it refused
+    // stays named, and the next wipe tries it again.
+    if (coverUrl && (!coverKey || deletedKeys.includes(coverKey))) {
+      await this.quota.forgetCover(userId, coverUrl);
+    }
+
     // Renditions are not bucket objects, so nothing above touched them. Each
     // sits beside its original, under the prefix of whoever UPLOADED it, and
     // that is not always this user — in either direction. Every original the
     // wipe covered loses its renditions, not only those the bucket confirmed
-    // gone, which is what taking the tree has always meant.
-    const originals = files
-      .map((file) => file.key)
-      .filter((key) => this.isSafeKey(key));
+    // gone, which is what taking the tree has always meant. The cover is one
+    // of those originals whether or not a row still tracks it.
+    const originals = [
+      ...new Set(
+        [...files.map((file) => file.key), coverKey]
+          .filter((key): key is string => !!key && this.isSafeKey(key)),
+      ),
+    ];
     if (keepTree) {
       // Some of this user's own uploads went into somebody else's album. They
       // are billed to that album's owner, so they outlive this wipe, and their

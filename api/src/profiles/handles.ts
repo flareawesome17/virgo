@@ -41,6 +41,9 @@ export const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   'workspaces', 'albums', 'media', 'storage', 'billing', 'plans', 'pricing',
   'health', 'status', 'legal', 'terms', 'privacy', 'about', 'help', 'support',
   'contact', 'blog', 'docs', 'download', 'hire', 'jobs', 'careers',
+  // P3/P4 routes. Anyone who already holds one keeps it: setHandle and
+  // checkHandle let the holder save their own handle again.
+  'feed', 'showcase', 'showcases', 'connections',
   // Identity.
   'virgo', 'virgoph', 'virgo_ph', 'official', 'staff', 'team', 'admin',
   'administrator', 'root', 'system', 'moderator', 'mod', 'security',

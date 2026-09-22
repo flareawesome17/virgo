@@ -105,7 +105,9 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
     private readonly realtime: RealtimeGateway,
     private readonly blocks: BlocksService,
   ) {
-    super(friends, 'Friend');
+    // The word people see in a 404. "Connection" since the apps started
+    // calling friends that; the class, routes and topics keep their names.
+    super(friends, 'Connection');
   }
 
   /**
@@ -145,7 +147,8 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
 
   /**
    * How many friends this person has. Mirrored pairs only, so the number
-   * matches the people you could actually message. Not routed yet.
+   * matches the people you could actually message. The "connections" count
+   * on a profile.
    */
   async connectionCount(userId: string): Promise<number> {
     const row = await this.db.queryOne<{ n: number }>(
@@ -158,7 +161,10 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
     return Number(row?.n ?? 0);
   }
 
-  /** Friends these two have in common, both friendships mirrored. Not routed yet. */
+  /**
+   * Friends these two have in common, both friendships mirrored. A profile's
+   * "mutual connections" line.
+   */
   async mutualCount(viewerId: string, otherId: string): Promise<number> {
     const row = await this.db.queryOne<{ n: number }>(
       `select count(*)::int as n
@@ -396,7 +402,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
       const theirs = rows.find((r) => r.user_id === target.id);
 
       if (mine?.status === 'accepted' && theirs?.status === 'accepted') {
-        throw new BadRequestException('You are already friends');
+        throw new BadRequestException('You are already connected');
       }
       if (
         mine?.status === 'pending' &&
@@ -434,7 +440,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
     if (notify) {
       void this.notifier.notify([target.id], {
         topic: 'friend-request',
-        title: 'New friend request',
+        title: 'New connection request',
         body: `${this.nameFor(me)} wants to connect on Virgo`,
         data: { type: 'friend_request', fromUserId: requesterId },
         email: friendRequest({
@@ -569,14 +575,14 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
       'select id, friend_user_id from friends where id = $1 and user_id = $2',
       [id, userId],
     );
-    if (!own) throw new NotFoundException('Friend not found');
+    if (!own) throw new NotFoundException('Connection not found');
 
     if (!own.friend_user_id) {
       const deleted = await this.db.query<{ id: string }>(
         'delete from friends where id = $1 and user_id = $2 returning id',
         [id, userId],
       );
-      if (deleted.length === 0) throw new NotFoundException('Friend not found');
+      if (deleted.length === 0) throw new NotFoundException('Connection not found');
       return;
     }
 
@@ -597,7 +603,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
         [userId, other],
       );
       const mine = rows.find((r) => r.user_id === userId && r.id === id);
-      if (!mine) throw new NotFoundException('Friend not found');
+      if (!mine) throw new NotFoundException('Connection not found');
       const mirror = rows.find((r) => r.user_id === other);
 
       if (
@@ -662,7 +668,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
       'select id, friend_user_id, status, requested_by from friends where id = $1 and user_id = $2',
       [id, userId],
     );
-    if (!mine) throw new NotFoundException('Friend request not found');
+    if (!mine) throw new NotFoundException('Connection request not found');
 
     // Only incoming requests can be answered. Accepting your own outgoing one
     // would let anybody befriend anybody.
@@ -682,7 +688,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
         [id, status, userId],
       );
       if (updated.length === 0) {
-        throw new NotFoundException('Friend request not found');
+        throw new NotFoundException('Connection request not found');
       }
       return this.get(userId, id);
     }
@@ -699,13 +705,13 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
           [id, userId],
         );
         if (rows.length === 0) {
-          throw new NotFoundException('Friend request not found');
+          throw new NotFoundException('Connection request not found');
         }
         return;
       }
 
       if (await this.blocks.unavailable(userId, other, c)) {
-        throw new NotFoundException('Friend request not found');
+        throw new NotFoundException('Connection request not found');
       }
 
       const own = await c.query<{ id: string }>(
@@ -719,7 +725,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
         [id, userId],
       );
       if (own.rows.length === 0) {
-        throw new NotFoundException('Friend request not found');
+        throw new NotFoundException('Connection request not found');
       }
 
       // The sender's side, only while they are still asking. Nothing to update
@@ -735,7 +741,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
         [other, userId],
       );
       if (mirror.rows.length === 0) {
-        throw new NotFoundException('Friend request not found');
+        throw new NotFoundException('Connection request not found');
       }
     });
 
@@ -745,7 +751,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
       const me = await this.accountById(userId);
       await this.notifier.notify([other], {
         topic: 'friend-accepted',
-        title: 'Friend request accepted',
+        title: 'Connection request accepted',
         body: `${me ? this.nameFor(me) : 'Someone'} accepted your request`,
         data: { type: 'friend_accepted', fromUserId: userId },
       });

@@ -47,9 +47,41 @@
  * else is left.
  *
  * Left alone, as they are on upload: originals over the 40 MB ceiling, and
- * avatars, which are resized in place rather than given derivatives. Nor does
- * this remake display copies the sweep has evicted. Eviction keeps the
- * preview, and a missing preview is what this looks for.
+ * avatars and covers — anything kept in the public bucket — which are
+ * re-encoded in place rather than given derivatives. Neither has a preview,
+ * so without that rule every one would be picked, and each would gain a
+ * thumbnail in the public bucket and display copies that nothing ever reads.
+ * Nor does this remake display copies the sweep has evicted. Eviction keeps
+ * the preview, and a missing preview is what this looks for.
+ *
+ * --portfolio is a different question: which photographs can a public
+ * profile not show? A profile shows a photograph only through its thumbnail,
+ * never the original, so this mode picks every image on a portfolio, or in an
+ * album a portfolio link shows, that has no thumbnail — preview or not. Those
+ * are GIFs, iPhone HEICs, photographs whose thumbnail once came out no smaller
+ * than the original, and originals over 40 MB. ThumbnailsService now makes a
+ * thumbnail for all of them, so this runs it again:
+ *
+ *   - avatars are not skipped here: one already on a portfolio must keep
+ *     showing;
+ *   - the ceiling is 256 MB rather than 40, since this reads one file at a
+ *     time in a container of its own, not on a serving API's confirm path;
+ *   - a row is skipped once it has a thumbnail, not once it has a preview.
+ *
+ * It ends by listing every key still without a thumbnail, with its type and
+ * size, and exits 1 if there is any: that is the release gate. A dry run ends
+ * the same way with what it found, so its exit 1 means a real run is still
+ * needed. Run it from the NEW image, before that image serves — the
+ * pipeline's own migrate form:
+ *
+ *   $env:IMAGE_TAG='<tag>'
+ *   docker compose -f docker-compose.prod.yml pull api
+ *   docker compose -f docker-compose.prod.yml run --rm --no-deps api node scripts/backfill-thumbnails.mjs --portfolio --dry-run
+ *   docker compose -f docker-compose.prod.yml run --rm --no-deps api node scripts/backfill-thumbnails.mjs --portfolio
+ *   Remove-Item Env:IMAGE_TAG
+ *
+ * and once more with `exec api` after the deploy, for anything added through
+ * the old API in between. See the profile pages runbook in api/README.md.
  */
 import { access, constants } from 'node:fs/promises';
 import { ConfigService } from '@nestjs/config';
@@ -66,6 +98,7 @@ import {
 
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry-run');
+const PORTFOLIO = args.includes('--portfolio');
 const limitAt = args.indexOf('--limit');
 const LIMIT = limitAt === -1 ? null : Number(args[limitAt + 1]);
 
@@ -73,12 +106,32 @@ const LIMIT = limitAt === -1 ? null : Number(args[limitAt + 1]);
 // otherwise run for real, and `--limit 5OO` would quietly mean no limit.
 const unknown = args.filter(
   (arg, i) =>
-    arg !== '--dry-run' && arg !== '--limit' && (limitAt === -1 || i !== limitAt + 1),
+    arg !== '--dry-run' &&
+    arg !== '--portfolio' &&
+    arg !== '--limit' &&
+    (limitAt === -1 || i !== limitAt + 1),
 );
 if (unknown.length || (LIMIT !== null && !(Number.isInteger(LIMIT) && LIMIT > 0))) {
-  console.error('usage: node scripts/backfill-thumbnails.mjs [--dry-run] [--limit N]');
+  console.error(
+    'usage: node scripts/backfill-thumbnails.mjs [--portfolio] [--dry-run] [--limit N]',
+  );
   process.exit(2);
 }
+
+/**
+ * The ceiling for --portfolio. One file at a time in a one-off container can
+ * afford what a confirm request on the serving API cannot, and the largest
+ * TIFF a photographer delivers is well inside it.
+ */
+const PORTFOLIO_MAX_SOURCE_BYTES = 256 * 1024 * 1024;
+const ceiling = PORTFOLIO ? PORTFOLIO_MAX_SOURCE_BYTES : MAX_SOURCE_BYTES;
+
+/**
+ * How long ffmpeg may take over one iPhone HEIC here. A request gets fifteen
+ * seconds; this reads one file at a time with nobody waiting on it, so a large
+ * still that is merely slow still gets its thumbnail.
+ */
+const STILL_DECODE_TIMEOUT_MS = 120_000;
 
 // The API's own services, put together by hand. Booting the API's module
 // instead would also start its scheduled workers in this process, claiming
@@ -97,18 +150,39 @@ const mb = (bytes) => `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 // Everything still without a preview, newest first, since that is what is
 // likeliest to be looked at. Photographs that failed before go last, so one
 // that will never decode cannot hold a --limit window in place.
-const candidates = (
-  await db.query(
-    `select key, content_type, size_bytes, thumb_key, display_widths
-       from user_files
-      where blur_data_url is null
-        and (content_type like 'image/%' or poster_key is not null)
-      order by processing_status = 'failed', created_at desc, key desc`,
-  )
-).filter((row) => !storageConfig.isAvatarKey(row.key));
+const everything = () =>
+  db
+    .query(
+      `select key, content_type, size_bytes, thumb_key, display_widths, blur_data_url
+         from user_files
+        where blur_data_url is null
+          and (content_type like 'image/%' or poster_key is not null)
+        order by processing_status = 'failed', created_at desc, key desc`,
+    )
+    // Avatars and covers, which confirm re-encodes in place and never gives
+    // derivatives. isPublicKey rather than isAvatarKey: covers are new, and
+    // testing for avatars alone picked every one of them.
+    .then((rows) => rows.filter((row) => !storageConfig.isPublicKey(row.key)));
+
+// What a public profile shows, without a thumbnail: photographs on a
+// portfolio, and every photograph in an album a live portfolio link shows.
+// Avatars included, since one already on a portfolio has to keep showing.
+const PORTFOLIO_SQL = `select f.key, f.content_type, f.size_bytes, f.thumb_key,
+         f.display_widths, f.blur_data_url
+    from user_files f
+   where f.content_type like 'image/%'
+     and f.thumb_key is null
+     and (exists (select 1 from portfolio_items p
+                   where p.kind = 'image' and p.file_key = f.key and p.user_id = f.user_id)
+          or exists (select 1 from album_share_links l
+                      where l.album_id = f.album_id and l.user_id = f.user_id
+                        and l.purpose = 'portfolio' and l.revoked_at is null))
+   order by f.created_at desc, f.key desc`;
+
+const candidates = PORTFOLIO ? await db.query(PORTFOLIO_SQL) : await everything();
 
 const backlog = candidates.filter(
-  (row) => !isPhoto(row) || Number(row.size_bytes) <= MAX_SOURCE_BYTES,
+  (row) => !isPhoto(row) || Number(row.size_bytes) <= ceiling,
 );
 const work = LIMIT ? backlog.slice(0, LIMIT) : backlog;
 
@@ -118,13 +192,15 @@ function describe(rows) {
   return `${photos.length} photograph(s), ${mb(bytes)} to read, and ${rows.length - photos.length} film poster(s)`;
 }
 
-console.log(`Without a preview: ${describe(backlog)}${DRY ? ' (dry run)' : ''}`);
+console.log(
+  `${PORTFOLIO ? 'On a public profile without a thumbnail' : 'Without a preview'}: ${describe(backlog)}${DRY ? ' (dry run)' : ''}`,
+);
 if (work.length < backlog.length) {
   console.log(`This run, by --limit: ${describe(work)}`);
 }
 if (candidates.length > backlog.length) {
   console.log(
-    `Left alone: ${candidates.length - backlog.length} photograph(s) over ${mb(MAX_SOURCE_BYTES)}, as on upload`,
+    `Left alone: ${candidates.length - backlog.length} photograph(s) over ${mb(ceiling)}${PORTFOLIO ? '' : ', as on upload'}`,
   );
 }
 
@@ -184,14 +260,14 @@ function current(key) {
 /** What a file lacks, which is what a real run will try to make. */
 function missing(row) {
   if (!isPhoto(row)) return 'preview, from the poster';
-  // A GIF gets neither, on upload or here: a thumbnail or a display copy
-  // would turn its motion into a still.
+  // A GIF's thumbnail is animated. It gets no display copy, on upload or
+  // here: one would be a still, opened in place of the motion.
   const gif = row.content_type === 'image/gif';
   const lacks = [];
-  if (!gif && !row.thumb_key) lacks.push('thumbnail');
+  if (!row.thumb_key) lacks.push(gif ? 'animated thumbnail' : 'thumbnail');
   if (!gif && !row.display_widths?.length) lacks.push('display copies');
-  lacks.push('preview');
-  return `${lacks.join(', ')}  (${mb(Number(row.size_bytes))})`;
+  if (!row.blur_data_url) lacks.push('preview');
+  return `${lacks.join(', ')}  (${row.content_type}, ${mb(Number(row.size_bytes))})`;
 }
 
 let read = 0;
@@ -203,16 +279,25 @@ let skipped = 0;
 
 async function photograph(row) {
   const before = await current(row.key);
-  // Deleted, or finished by its own confirm, since the list was read.
-  if (!before || before.blur_data_url) {
+  // Deleted, or finished by its own confirm, since the list was read. For
+  // --portfolio, finished means it has a thumbnail, which a preview says
+  // nothing about.
+  const done = PORTFOLIO ? before?.thumb_key : before?.blur_data_url;
+  if (!before || done) {
     skipped++;
-    return `  skip  ${label(row)}  ${before ? 'already has a preview' : 'deleted'}`;
+    const why = !before ? 'deleted' : PORTFOLIO ? 'already has a thumbnail' : 'already has a preview';
+    return `  skip  ${label(row)}  ${why}`;
   }
 
-  await thumbs.generate(row.key, row.content_type, Number(row.size_bytes), {
-    thumbKey: before.thumb_key,
-    displayWidths: before.display_widths,
-  });
+  await thumbs.generate(
+    row.key,
+    row.content_type,
+    Number(row.size_bytes),
+    PORTFOLIO
+      ? { displayWidths: before.display_widths, blurDataUrl: before.blur_data_url }
+      : { thumbKey: before.thumb_key, displayWidths: before.display_widths },
+    { maxSourceBytes: ceiling, stillDecodeTimeoutMs: STILL_DECODE_TIMEOUT_MS },
+  );
   read++;
 
   // generate never throws. It records a failure as the row's status and
@@ -236,7 +321,7 @@ async function photograph(row) {
     displayed++;
     made.push(after.display_widths.join('+'));
   }
-  if (after.blur_data_url) {
+  if (!before.blur_data_url && after.blur_data_url) {
     previews++;
     made.push('preview');
   }
@@ -287,4 +372,28 @@ console.log(
     ? '\nDry run: nothing was read or written.'
     : `\nread=${read} thumbnails=${thumbnails} display=${displayed} previews=${previews} failed=${failed} skipped=${skipped}`,
 );
+
+// The gate: every photograph a public profile still leaves out, each one a
+// tile missing from somebody's page, by full key with its type and size, and
+// exit 1 while there is any. After a real run the list is read again rather
+// than tallied, so a photograph added while this ran, or one over the ceiling
+// that was never tried, is counted too. A dry run changed nothing, so its
+// list is the one it started from, and its exit 1 says a real run is still
+// needed.
+if (PORTFOLIO) {
+  const left = DRY ? candidates : await db.query(PORTFOLIO_SQL);
+  if (left.length) {
+    console.log(
+      `\n${DRY ? 'Without' : 'Still without'} a thumbnail on a public profile: ${left.length}`,
+    );
+    for (const row of left) {
+      const size = Number(row.size_bytes);
+      const never = size > ceiling ? `  (over ${mb(ceiling)}, never read)` : '';
+      console.log(`  ${row.key}  ${row.content_type}  ${mb(size)}${never}`);
+    }
+    await db.onModuleDestroy();
+    process.exit(1);
+  }
+  console.log('\nEvery photograph on a public profile has a thumbnail.');
+}
 await db.onModuleDestroy();

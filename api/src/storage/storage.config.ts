@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 export const UPLOAD_SCOPES = [
   'albums',
   'avatars',
+  'covers',
   'workspaces',
   'misc',
 ] as const;
@@ -66,12 +67,59 @@ export const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 /**
- * Avatars, by key shape.
+ * Avatars and profile covers, by key shape.
  *
  * Keyed off the path rather than a column because it has to give the same
  * answer for an object whose `user_files` row was never written.
  */
 const AVATAR_KEY = /^users\/[^/]+\/avatars\//;
+const COVER_KEY = /^users\/[^/]+\/covers\//;
+/** Objects kept in the public bucket at a permanent CDN URL. */
+const PUBLIC_KEY = /^users\/[^/]+\/(avatars|covers)\//;
+
+/**
+ * What a cover upload may be: stills the server's sharp can decode.
+ *
+ * Never GIF, video or PDF, and not HEIC either. The prebuilt sharp in the
+ * image reads HEIF only when it is AVIF, so a HEIC cover could only ever end
+ * in "that photo couldn't be used", after the bytes had gone up. The phone
+ * crops and re-encodes to JPEG before it uploads, so it never sends one.
+ */
+export const COVER_CONTENT_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/avif',
+] as const;
+
+/**
+ * Headroom, not a target. The phone sends a JPEG of at most 2048 px, which is
+ * around a megabyte; this only has to leave room for a web upload of a
+ * full-size photo, and keeps a decode on the confirm path small.
+ */
+export const MAX_COVER_BYTES = 15 * 1024 * 1024;
+
+/**
+ * What a profile photo may be.
+ *
+ * The avatars scope used to take anything the bucket takes, films and PDFs
+ * included, up to 500 MB. None of that can be made into an avatar, and one
+ * that cannot be re-encoded is refused and deleted at confirm, so the ticket
+ * says no first.
+ */
+export const PROFILE_PHOTO_CONTENT_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/avif',
+  'image/heic',
+  'image/heif',
+  'image/gif',
+  'image/tiff',
+] as const;
+
+/** thumbnails.service MAX_SOURCE_BYTES: above it sharp is not asked. */
+export const MAX_AVATAR_BYTES = 40 * 1024 * 1024;
 
 /** Presigned URLs are short-lived — long enough to start an upload, not to share. */
 export const UPLOAD_URL_TTL_SECONDS = 15 * 60;
@@ -144,12 +192,14 @@ export function signingWindowFor(ttlSeconds: number): number {
  * lets a browser, a phone and Cloudflare keep a picture for good instead of
  * asking again.
  *
- * One write does replace bytes under an existing key: avatar normalisation
- * rewrites the uploaded original as a small WebP, in place. It is safe here
+ * Two writes do replace bytes under an existing key: avatar and cover
+ * normalisation rewrite the uploaded original as a WebP, in place. It is safe
  * only because it happens inside the confirm request, which the client waits
- * on before it saves the new avatar to the profile — so no cache can have
- * fetched the original under that key first. Anything that rewrites a
- * displayed key after the fact must not use this.
+ * on before it saves the new avatar or cover to the profile — so no cache can
+ * have fetched the original under that key first. Both are idempotent, so a
+ * repeated confirm returns what is stored rather than encoding a displayed
+ * key again. Anything that rewrites a displayed key after the fact must not
+ * use this.
  *
  * Reprocessing does rewrite thumbnails and posters under their existing keys
  * (migrations 064 and 065 re-queue files to do exactly that). It is only
@@ -168,7 +218,7 @@ export class StorageConfig {
   private readonly logger = new Logger(StorageConfig.name);
 
   readonly provider: string;
-  /** The original bucket. Public, and now holds nothing but avatars. */
+  /** The original bucket. Public, and holds nothing but avatars and covers. */
   readonly bucket: string;
   /** Private. Everything that is somebody's work rather than their face. */
   readonly mediaBucket: string;
@@ -212,16 +262,17 @@ export class StorageConfig {
    *
    * Avatars stay in the public bucket because they are stored as whole URLs —
    * `users.avatar_url`, and denormalised copies in `friends` and
-   * `collaborators` — and a URL in a database has to keep resolving. Nothing
-   * else is referenced that way, so everything else lives in the private
-   * bucket and is reached through a signed URL.
+   * `collaborators` — and a URL in a database has to keep resolving. Covers
+   * are stored the same way, in `users.cover_url`. Nothing else is referenced
+   * that way, so everything else lives in the private bucket and is reached
+   * through a signed URL.
    *
    * Keyed off the path rather than a column so it gives the same answer for an
    * object whose row was never written, of which there are more than you would
    * hope: the bucket had 30 objects with no `user_files` row at all.
    */
   bucketForKey(key: string): string {
-    return AVATAR_KEY.test(key) ? this.bucket : this.mediaBucket;
+    return PUBLIC_KEY.test(key) ? this.bucket : this.mediaBucket;
   }
 
   /**
@@ -233,6 +284,28 @@ export class StorageConfig {
    */
   isAvatarKey(key: string): boolean {
     return AVATAR_KEY.test(key);
+  }
+
+  /**
+   * Is this a profile cover?
+   *
+   * Covers share the public bucket with avatars but not their handling: a
+   * cover is re-encoded at a different size on confirm and set through its
+   * own endpoint, so the two tests are kept apart.
+   */
+  isCoverKey(key: string): boolean {
+    return COVER_KEY.test(key);
+  }
+
+  /**
+   * Is this an avatar or a cover — an object at a permanent public URL?
+   *
+   * Those are never filed into an album. An album can be deleted or swept by
+   * retention, and a profile photo filed into one would go with it and leave
+   * the profile pointing at nothing.
+   */
+  isPublicKey(key: string): boolean {
+    return PUBLIC_KEY.test(key);
   }
 
   /**
@@ -266,7 +339,7 @@ export class StorageConfig {
   }
 
   bucketForScope(scope: string): string {
-    return scope === 'avatars' ? this.bucket : this.mediaBucket;
+    return scope === 'avatars' || scope === 'covers' ? this.bucket : this.mediaBucket;
   }
 
   private static normalizeEndpoint(raw: string): string {

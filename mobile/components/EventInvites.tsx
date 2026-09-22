@@ -144,7 +144,7 @@ export function InvitePeoplePicker({
         className="bg-card rounded-2xl px-4 py-4 active:opacity-70"
       >
         <Text className="text-muted-foreground text-sm">
-          Add friends from the Network tab to invite them to events.
+          Add connections from the Network tab to invite them to events.
         </Text>
       </Pressable>
     );

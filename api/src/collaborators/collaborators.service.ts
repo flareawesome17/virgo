@@ -129,7 +129,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     const collaboratorUserId = data.collaborator_user_id as string | undefined;
     if (!collaboratorUserId) {
       throw new BadRequestException(
-        'Choose someone from your friends to add as a collaborator',
+        'Choose someone from your connections to add as a collaborator',
       );
     }
     if (collaboratorUserId === userId) {
@@ -137,7 +137,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     }
     if (!(await this.friends.areFriends(userId, collaboratorUserId))) {
       throw new BadRequestException(
-        'You can only add people you are friends with. Send them a friend request first.',
+        'You can only add people you are connected with. Send them a connection request first.',
       );
     }
 

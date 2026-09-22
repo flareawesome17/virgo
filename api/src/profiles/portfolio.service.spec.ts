@@ -1,11 +1,13 @@
 import type { AlbumShareService } from '../albums/share/album-share.service';
 import type { DatabaseService } from '../database/database.service';
+import type { MediaLinkService } from '../storage/media-link.service';
 import {
   DOWNLOAD_URL_TTL_SECONDS,
   PUBLISHED_URL_TTL_SECONDS,
 } from '../storage/storage.config';
 import type { StorageService } from '../storage/storage.service';
-import { PortfolioService } from './portfolio.service';
+import { MAX_SOURCE_BYTES, type ThumbnailsService } from '../storage/thumbnails.service';
+import { PortfolioService, type PortfolioItem } from './portfolio.service';
 
 /**
  * What an album card on a public profile is given to draw.
@@ -16,6 +18,10 @@ import { PortfolioService } from './portfolio.service';
  * the album's oldest photograph where the app shows its newest. And it was
  * signed from the original, so every card on a public page downloaded a whole
  * camera file.
+ *
+ * Since profile pages, a public payload carries no original at all: a single
+ * photograph is its thumbnail, and one without a thumbnail is left out. The
+ * owner's own editor alone still falls back to the original.
  *
  * The database is faked at the level of the rows that query returns, built
  * from the albums and files below the way its joins build them. Which
@@ -31,6 +37,7 @@ interface FileRow {
   key: string;
   thumb_key: string | null;
   content_type: string;
+  display_widths?: number[] | null;
 }
 
 /** An album on the profile, as much of one as its card reads. */
@@ -108,13 +115,26 @@ interface Profile {
  * bigint. Its films and recordings are none of those. The stored counter
  * rides along as `album_item_count`, the name the query used to read it by.
  */
-function profileOf({ images = [], albums = [], files = [] }: Profile) {
+function profileOf(
+  { images = [], albums = [], files = [] }: Profile,
+  {
+    unsignable = [],
+    madeThumbnail = 'thumb',
+  }: {
+    /** Keys the fake signer cannot sign, as with storage unconfigured. */
+    unsignable?: string[];
+    /** What generate returns when addImage asks for a missing thumbnail. */
+    madeThumbnail?: string | null;
+  } = {},
+) {
   const imageRows = images.map((image, i) => ({
     id: `image-${i}`,
     kind: 'image' as const,
     file_key: image.key,
     album_id: null,
     caption: null,
+    image_thumb_key: image.thumb_key,
+    image_display_widths: image.display_widths ?? null,
   }));
 
   const albumRows = albums.map((row, i) => {
@@ -129,6 +149,8 @@ function profileOf({ images = [], albums = [], files = [] }: Profile) {
       file_key: null,
       album_id: row.id,
       caption: null,
+      image_thumb_key: null,
+      image_display_widths: null,
       album_name: row.id,
       album_cover_url: row.cover_url,
       album_item_count: row.item_count,
@@ -141,14 +163,43 @@ function profileOf({ images = [], albums = [], files = [] }: Profile) {
     };
   });
 
-  const query = jest.fn(async (sql: string) =>
-    sql.includes('from portfolio_items') ? [...imageRows, ...albumRows] : [],
-  );
-  const db = { query } as unknown as DatabaseService;
+  // The list query, as its SQL reads: on the public list a photograph with no
+  // thumbnail does not come back at all. Applied only when the query carries
+  // the filter, so a query that lost it would put that photograph on the page.
+  const PUBLIC_FILTER = '($2::boolean or f.thumb_key is not null)';
+  const query = jest.fn(async (sql: string, params: unknown[] = []) => {
+    if (!sql.includes('from portfolio_items')) return [];
+    const forOwner = params[1] === true;
+    const shown = sql.includes(PUBLIC_FILTER)
+      ? imageRows.filter((row) => forOwner || row.image_thumb_key !== null)
+      : imageRows;
+    return [...shown, ...albumRows];
+  });
+  /** The file addImage reads, by key. */
+  const everyFile = [...images, ...files];
+  const queryOne = jest.fn(async (sql: string, params: unknown[] = []) => {
+    if (/from user_files where key = \$1 and user_id = \$2/.test(sql)) {
+      const file = everyFile.find((f) => f.key === params[0]);
+      return file
+        ? {
+            content_type: file.content_type,
+            size_bytes: String(sizes.get(file.key) ?? 4_000_000),
+            thumb_key: file.thumb_key,
+            display_widths: file.display_widths ?? null,
+            blur_data_url: null,
+          }
+        : null;
+    }
+    if (/count\(\*\)::text as count from portfolio_items/.test(sql)) return { count: '0' };
+    if (/coalesce\(max\(position\), -1\) \+ 1/.test(sql)) return { next: '0' };
+    if (/count\(\*\)::int as n/.test(sql)) return { n: 1 };
+    return null;
+  });
+  const db = { query, queryOne } as unknown as DatabaseService;
 
   const mediaUrl = jest.fn(
     async (key: string | null | undefined, ttl = DOWNLOAD_URL_TTL_SECONDS) =>
-      key ? `https://media.test/${key}?ttl=${ttl}` : null,
+      key && !unsignable.includes(key) ? `https://media.test/${key}?ttl=${ttl}` : null,
   );
   const storage = { mediaUrl } as unknown as StorageService;
 
@@ -156,8 +207,27 @@ function profileOf({ images = [], albums = [], files = [] }: Profile) {
     urlFor: (token: string) => `https://share.test/${token}`,
   } as unknown as AlbumShareService;
 
-  return { service: new PortfolioService(db, storage, shares), query, mediaUrl };
+  const displaySources = jest.fn(
+    (key: string, widths: readonly number[] | null | undefined, ttl?: number) =>
+      (widths ?? []).map((width) => ({ width, url: `https://copies.test/${key}-${width}?ttl=${ttl}` })),
+  );
+  const mediaLink = { displaySources } as unknown as MediaLinkService;
+
+  const generate = jest.fn(async () => madeThumbnail);
+  const thumbs = { generate } as unknown as ThumbnailsService;
+
+  return {
+    service: new PortfolioService(db, storage, shares, mediaLink, thumbs),
+    query,
+    queryOne,
+    mediaUrl,
+    displaySources,
+    generate,
+  };
 }
+
+/** Stated sizes for addImage, by key; anything else is 4 MB. */
+const sizes = new Map<string, number>();
 
 /** The cover each album card was given, in order. */
 async function coversOf(service: PortfolioService): Promise<(string | null)[]> {
@@ -199,23 +269,44 @@ describe('PortfolioService album covers', () => {
     await expect(coversOf(service)).resolves.toEqual([published(reception.thumb_key)]);
   });
 
-  it('falls back to the original while a photograph has no thumbnail', async () => {
+  it('shows no album cover rather than an original', async () => {
+    // A photograph with no thumbnail used to be signed whole for the card:
+    // a camera file, EXIF and all, on a public page. Now the card draws its
+    // placeholder until there is a thumbnail.
+    const fresh = photo('wedding', 'just-uploaded', { thumbnail: false });
+    const { service, mediaUrl } = profileOf({ albums: [album('wedding')], files: [fresh] });
+
+    await expect(coversOf(service)).resolves.toEqual([null]);
+    expect(mediaUrl).not.toHaveBeenCalledWith(fresh.key, expect.anything());
+  });
+
+  it("keeps a cover stored as a URL for the owner's editor, and off the public page", async () => {
+    // Served verbatim in the editor, ahead of the stand-in, as the app's own
+    // cards do. It predates thumbnails and can point at an original, so the
+    // public card never uses it. An album with nothing to show has no cover.
+    const stored = `https://cdn.virgo.ph/users/${OWNER}/covers/wedding.jpg`;
+    const reception = photo('wedding', 'reception');
+    const { service } = profileOf({
+      albums: [album('wedding', { coverUrl: stored }), album('empty')],
+      files: [reception],
+    });
+
+    await expect(coversOf(service)).resolves.toEqual([published(reception.thumb_key), null]);
+    const owner = await service.list(OWNER, { forOwner: true });
+    expect(owner.flatMap((item) => (item.kind === 'album' ? [item.coverUrl] : []))).toEqual([
+      stored,
+      null,
+    ]);
+  });
+
+  it("falls back to the original only in the owner's editor", async () => {
     const fresh = photo('wedding', 'just-uploaded', { thumbnail: false });
     const { service } = profileOf({ albums: [album('wedding')], files: [fresh] });
 
-    await expect(coversOf(service)).resolves.toEqual([published(fresh.key)]);
-  });
-
-  it('still shows a cover stored as a URL before covers were chosen by key', async () => {
-    // Served verbatim, ahead of the stand-in, as the app's own cards do. An
-    // album with nothing to show has no cover at all.
-    const stored = `https://cdn.virgo.ph/users/${OWNER}/covers/wedding.jpg`;
-    const { service } = profileOf({
-      albums: [album('wedding', { coverUrl: stored }), album('empty')],
-      files: [photo('wedding', 'reception')],
-    });
-
-    await expect(coversOf(service)).resolves.toEqual([stored, null]);
+    const owner = await service.list(OWNER, { forOwner: true });
+    expect(owner.flatMap((item) => (item.kind === 'album' ? [item.coverUrl] : []))).toEqual([
+      published(fresh.key),
+    ]);
   });
 
   it('asks for the newest photograph, not the oldest', async () => {
@@ -248,12 +339,193 @@ describe('PortfolioService album covers', () => {
 
     const items = await service.list(OWNER);
 
-    // A single photograph is still signed from its original. See `present`.
-    expect(items[0]).toMatchObject({ kind: 'image', url: published(solo.key) });
+    // A single photograph is its thumbnail, never the original.
+    expect(items[0]).toMatchObject({ kind: 'image', url: published(solo.thumb_key) });
     expect(mediaUrl).toHaveBeenCalled();
     for (const [, ttl] of mediaUrl.mock.calls) {
       expect(ttl).toBe(PUBLISHED_URL_TTL_SECONDS);
     }
+  });
+});
+
+/**
+ * A single photograph on a profile.
+ *
+ * It used to be signed from the original, because a thumbnail looked soft on
+ * the web's tiles. That sent every visitor the camera file, EXIF and GPS
+ * included. The public list now carries the 640 px thumbnail and the media
+ * host's copies, and leaves out a photograph that has neither.
+ */
+describe('PortfolioService photographs', () => {
+  it('shows a photograph as its thumbnail, with exactly the public keys', async () => {
+    const solo = { ...photo(null, 'portrait'), display_widths: [1024, 2048] };
+    const { service, displaySources } = profileOf({ images: [solo] });
+
+    const [item] = await service.list(OWNER);
+
+    expect(item).toEqual({
+      id: 'image-0',
+      kind: 'image',
+      url: published(solo.thumb_key),
+      caption: null,
+      displaySources: displaySources(solo.key, [1024, 2048], PUBLISHED_URL_TTL_SECONDS),
+    });
+    expect(Object.keys(item).sort()).toEqual(['caption', 'displaySources', 'id', 'kind', 'url']);
+    expect(displaySources).toHaveBeenCalledWith(solo.key, [1024, 2048], PUBLISHED_URL_TTL_SECONDS);
+  });
+
+  it('never signs an original for the public list', async () => {
+    const solo = photo(null, 'portrait');
+    const bare = photo(null, 'unthumbnailed', { thumbnail: false });
+    const { service, mediaUrl } = profileOf({
+      images: [solo, bare],
+      albums: [album('wedding')],
+      files: [photo('wedding', 'reception', { thumbnail: false })],
+    });
+
+    await service.list(OWNER);
+
+    for (const [key] of mediaUrl.mock.calls) {
+      expect(String(key)).not.toMatch(/\.jpg$/);
+    }
+  });
+
+  it('leaves a photograph without a thumbnail off the public list, in SQL', async () => {
+    const solo = photo(null, 'portrait');
+    const bare = photo(null, 'unthumbnailed', { thumbnail: false });
+    const { service, query } = profileOf({ images: [solo, bare] });
+
+    const items = await service.list(OWNER);
+
+    expect(items.map((item) => item.id)).toEqual(['image-0']);
+    const [sql, params] = query.mock.calls[0];
+    expect(params).toEqual([OWNER, false]);
+    expect(sql).toContain('($2::boolean or f.thumb_key is not null)');
+  });
+
+  it('leaves out a photograph whose thumbnail cannot be signed, rather than send an empty url', async () => {
+    const solo = photo(null, 'portrait');
+    const other = photo(null, 'other');
+    const { service } = profileOf({ images: [solo, other] }, { unsignable: [solo.thumb_key!] });
+
+    const items = await service.list(OWNER);
+
+    expect(items.map((item) => item.id)).toEqual(['image-1']);
+  });
+
+  it('gives the owner every photograph, saying which ones the public page leaves out', async () => {
+    const solo = photo(null, 'portrait');
+    const bare = photo(null, 'unthumbnailed', { thumbnail: false });
+    const { service, query } = profileOf({ images: [solo, bare] });
+
+    const items = await service.list(OWNER, { forOwner: true });
+
+    expect(query.mock.calls[0][1]).toEqual([OWNER, true]);
+    expect(items).toEqual([
+      expect.objectContaining({
+        url: published(solo.thumb_key),
+        fileKey: solo.key,
+        publiclyShown: true,
+      }),
+      // The original, so the owner can still recognise it and take it off.
+      expect.objectContaining({
+        url: published(bare.key),
+        fileKey: bare.key,
+        publiclyShown: false,
+      }),
+    ]);
+  });
+
+  it('counts what the public page leaves out, photographs with no thumbnail', async () => {
+    const { service, queryOne } = profileOf({});
+
+    await expect(service.hiddenCount(OWNER)).resolves.toBe(1);
+
+    const [sql, params] = queryOne.mock.calls[0];
+    expect(params).toEqual([OWNER]);
+    expect(sql).toMatch(/p\.kind = 'image'/);
+    expect(sql).toMatch(/f\.thumb_key is null/);
+    expect(sql).toMatch(/f\.user_id = p\.user_id/);
+  });
+
+  it("answers an empty reorder with the owner's list", async () => {
+    // The editor's cache is written from this response; the public list
+    // would drop the keys it matches on and every photograph it leaves out.
+    const bare = photo(null, 'unthumbnailed', { thumbnail: false });
+    const { service, query } = profileOf({ images: [bare] });
+
+    const items: PortfolioItem[] = await service.reorder(OWNER, []);
+
+    expect(query.mock.calls[0][1]).toEqual([OWNER, true]);
+    expect(items).toEqual([expect.objectContaining({ fileKey: bare.key, publiclyShown: false })]);
+  });
+});
+
+describe('PortfolioService.addImage', () => {
+  const inserted = (query: jest.Mock) =>
+    query.mock.calls.filter(([sql]) => /insert into portfolio_items/.test(sql));
+
+  it('makes a thumbnail for a photograph that has none, then adds it', async () => {
+    const gif = { ...photo(null, 'loop', { thumbnail: false }), content_type: 'image/gif' };
+    const { service, generate, query } = profileOf({ images: [gif] });
+
+    await service.addImage(OWNER, gif.key);
+
+    expect(generate).toHaveBeenCalledWith(gif.key, 'image/gif', 4_000_000, {
+      displayWidths: null,
+      blurDataUrl: null,
+    });
+    expect(inserted(query)).toHaveLength(1);
+  });
+
+  it('adds a photograph that already has one without making another', async () => {
+    const solo = photo(null, 'portrait');
+    const { service, generate, query } = profileOf({ images: [solo] });
+
+    await service.addImage(OWNER, solo.key);
+
+    expect(generate).not.toHaveBeenCalled();
+    expect(inserted(query)).toHaveLength(1);
+  });
+
+  it('refuses one no web copy can be made of, with a sentence to act on', async () => {
+    const heic = { ...photo(null, 'IMG_0001', { thumbnail: false }), content_type: 'image/heic' };
+    const { service, query } = profileOf({ images: [heic] }, { madeThumbnail: null });
+
+    await expect(service.addImage(OWNER, heic.key)).rejects.toEqual(
+      expect.objectContaining({
+        response: expect.objectContaining({
+          code: 'PORTFOLIO_NO_WEB_COPY',
+          message: "That photo can't be shown on your profile. Try a JPEG or PNG copy of it.",
+        }),
+      }),
+    );
+    expect(inserted(query)).toHaveLength(0);
+  });
+
+  it('refuses one too large to read, without trying', async () => {
+    const tiff = { ...photo(null, 'master', { thumbnail: false }), content_type: 'image/tiff' };
+    sizes.set(tiff.key, MAX_SOURCE_BYTES + 1);
+    const { service, generate, query } = profileOf({ images: [tiff] });
+
+    await expect(service.addImage(OWNER, tiff.key)).rejects.toEqual(
+      expect.objectContaining({
+        response: expect.objectContaining({ code: 'PORTFOLIO_TOO_LARGE' }),
+      }),
+    );
+    expect(generate).not.toHaveBeenCalled();
+    expect(inserted(query)).toHaveLength(0);
+  });
+
+  it.each(['avatars', 'covers'])('refuses a key from %s before reading anything', async (scope) => {
+    // Both belong to the profile: changing either deletes the object, and a
+    // tile made from one would vanish with it.
+    const { service, queryOne } = profileOf({});
+
+    await expect(
+      service.addImage(OWNER, `users/${OWNER}/${scope}/2026/09/me.webp`),
+    ).rejects.toThrow('Choose a photo from your uploads.');
+    expect(queryOne).not.toHaveBeenCalled();
   });
 });
 

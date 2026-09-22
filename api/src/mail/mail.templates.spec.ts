@@ -1,6 +1,6 @@
-import { jobPostReported, userReported } from './mail.templates';
+import { friendRequest, jobPostReported, userReported } from './mail.templates';
 
-/** The two emails staff get about reports. */
+/** The two emails staff get about reports, and the one a connection request sends. */
 
 describe('userReported', () => {
   const email = userReported({
@@ -63,5 +63,22 @@ describe('jobPostReported', () => {
     );
     expect(email.html).not.toContain('hidden_at');
     expect(email.text).not.toContain('hidden_at');
+  });
+});
+
+describe('friendRequest', () => {
+  const email = friendRequest({ requesterName: 'Ana', url: 'https://web.virgo.test/network' });
+
+  it('asks to connect, in the words the apps use', () => {
+    expect(email.subject).toBe('Ana wants to connect on Virgo');
+    expect(email.html).toContain('New connection request');
+    expect(email.text).toContain('New connection request');
+  });
+
+  it('says friend nowhere', () => {
+    // The function keeps its name; what the person reads does not.
+    expect(email.subject.toLowerCase()).not.toContain('friend');
+    expect(email.html.toLowerCase()).not.toContain('friend');
+    expect(email.text.toLowerCase()).not.toContain('friend');
   });
 });

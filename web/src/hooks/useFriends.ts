@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   friendsApi,
   queryKeys,
@@ -12,6 +12,17 @@ import {
 
 import { seedPresence } from '@/lib/presence-store';
 import type { QueryOptions } from '@/hooks/useWorkspaces';
+
+/**
+ * A profile carries the viewer's connection to its owner and both of their
+ * counts, so any change to a friendship makes it stale — the one on screen
+ * and your own page's stats alike. Without this, Connect kept showing after a
+ * request was sent from Network, and a removed connection still read as one.
+ */
+const invalidateProfiles = (queryClient: QueryClient) => {
+  queryClient.invalidateQueries({ queryKey: queryKeys.publicProfiles.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.profile.page });
+};
 
 export function useFriends(
   params: ListFriendsParams = {},
@@ -87,6 +98,7 @@ export function useDeleteFriend() {
     mutationFn: (id: string) => friendsApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+      invalidateProfiles(queryClient);
     },
   });
 }
@@ -107,6 +119,7 @@ export function useSendFriendRequest() {
     mutationFn: (target: FriendRequestTarget) => friendsApi.request(target),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+      invalidateProfiles(queryClient);
     },
   });
 }
@@ -120,6 +133,7 @@ export function useRespondToFriendRequest() {
       // Both sides change, and collaborator pickers read the accepted list.
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.collaborators.all });
+      invalidateProfiles(queryClient);
     },
   });
 }

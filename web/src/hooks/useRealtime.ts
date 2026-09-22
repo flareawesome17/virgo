@@ -82,8 +82,16 @@ const TOPICS: Record<
     href?: string | ((data: Record<string, unknown> | undefined) => string);
   }
 > = {
-  'friend-request': { keys: [queryKeys.friends.all], href: '/network' },
-  'friend-accepted': { keys: [queryKeys.friends.all], href: '/network' },
+  // A profile carries your connection to its owner and both of your counts, so
+  // every topic that changes a friendship refreshes the profiles too.
+  'friend-request': {
+    keys: [queryKeys.friends.all, queryKeys.publicProfiles.all, queryKeys.profile.page],
+    href: '/network',
+  },
+  'friend-accepted': {
+    keys: [queryKeys.friends.all, queryKeys.publicProfiles.all, queryKeys.profile.page],
+    href: '/network',
+  },
   'collaborator-invite': {
     keys: [queryKeys.collaborators.all, queryKeys.workspaces.all],
     href: '/workspaces',
@@ -107,7 +115,13 @@ const TOPICS: Record<
   // Accepting also creates a friendship and a conversation, so all three lists
   // are stale for the sender the moment this arrives.
   'hire-response': {
-    keys: [queryKeys.hire.all, queryKeys.friends.all, ['chat']],
+    keys: [
+      queryKeys.hire.all,
+      queryKeys.friends.all,
+      ['chat'],
+      queryKeys.publicProfiles.all,
+      queryKeys.profile.page,
+    ],
     href: '/network?tab=enquiries',
   },
   // Applications arrive on your own posts, so land on that tab rather than
@@ -117,8 +131,9 @@ const TOPICS: Record<
     href: '/jobs/mine?tab=posted',
   },
   support: { keys: [queryKeys.support.all], href: '/support' },
+  // Confirming or cancelling one moves the jobs-done count on your own page.
   booking: {
-    keys: [queryKeys.bookings.all],
+    keys: [queryKeys.bookings.all, queryKeys.profile.page],
     href: (data) =>
       typeof data?.bookingId === 'string'
         ? `/bookings/${data.bookingId}`
@@ -134,7 +149,13 @@ const TOPICS: Record<
   // shown a list of other jobs, with the conversation id sitting unread in
   // the payload.
   'job-response': {
-    keys: [queryKeys.jobs.all, queryKeys.friends.all, ['chat']],
+    keys: [
+      queryKeys.jobs.all,
+      queryKeys.friends.all,
+      ['chat'],
+      queryKeys.publicProfiles.all,
+      queryKeys.profile.page,
+    ],
     href: (data) =>
       typeof data?.conversationId === 'string'
         ? `/chat/${data.conversationId}`

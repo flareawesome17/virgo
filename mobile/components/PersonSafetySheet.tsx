@@ -41,7 +41,7 @@ export function askToBlock(name: string, onConfirm: () => void): void {
   const first = firstName(name);
   Alert.alert(
     `Block ${first}?`,
-    "They won't be able to message you, send you friend requests, enquiries or invitations, or apply to your jobs, and you won't see each other in search, Nearby or the job board. Anything between you that's still waiting for an answer — friend requests, enquiries, job applications and invitations — is closed. Your chat history stays, and in groups you share you'll both stay but won't be notified about each other. We won't tell them.",
+    "They won't be able to message you, send you connection requests, enquiries or invitations, or apply to your jobs, and you won't see each other in search, Nearby or the job board. Anything between you that's still waiting for an answer — connection requests, enquiries, job applications and invitations — is closed. Your chat history stays, and in groups you share you'll both stay but won't be notified about each other. We won't tell them.",
     [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Block', style: 'destructive', onPress: onConfirm },
@@ -49,12 +49,12 @@ export function askToBlock(name: string, onConfirm: () => void): void {
   );
 }
 
-/** The unblock confirmation. Says plainly that the friendship is not restored. */
+/** The unblock confirmation. Says plainly that the connection is not restored. */
 export function askToUnblock(name: string, onConfirm: () => void): void {
   const first = firstName(name);
   Alert.alert(
     `Unblock ${first}?`,
-    "They'll be able to find you and send you requests again. Your friendship isn't restored — send a new request if you want to reconnect.",
+    "They'll be able to find you and send you requests again. Your connection isn't restored — send a new request if you want to reconnect.",
     [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Unblock', onPress: onConfirm },

@@ -50,6 +50,15 @@ export interface UserRow {
   two_factor_enabled_at: Date | null;
   /** SHA-256 hashes; the printable recovery codes are shown once. */
   two_factor_recovery_codes: string[];
+  /**
+   * The profile cover's public CDN URL. Written only by /me/profile/cover,
+   * from a key the server re-encoded; never through updateProfile.
+   */
+  cover_url: string | null;
+  /** An "Available for bookings" badge on the profile. Display only. */
+  available_for_bookings: boolean;
+  /** Whether studio_name is shown on the public profile. */
+  show_studio: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -90,6 +99,9 @@ export interface PublicUser {
   studioName: string | null;
   socialHandle: string | null;
   twoFactorEnabled: boolean;
+  coverUrl: string | null;
+  availableForBookings: boolean;
+  showStudio: boolean;
   createdAt: Date;
 }
 
@@ -121,11 +133,22 @@ export function toPublicUser(row: UserRow): PublicUser {
     studioName: row.studio_name ?? null,
     socialHandle: row.social_handle ?? null,
     twoFactorEnabled: !!row.two_factor_enabled_at,
+    // Defaulted for a row read before migration 070, which the previous
+    // image's database can still hand back during a rollback window.
+    coverUrl: row.cover_url ?? null,
+    availableForBookings: row.available_for_bookings ?? false,
+    showStudio: row.show_studio ?? false,
     createdAt: row.created_at,
   };
 }
 
-/** Columns a user may edit on their own profile. */
+/**
+ * Columns a user may edit on their own profile.
+ *
+ * Not cover_url. A cover is a large public image, so it is set only from an
+ * object the server re-encoded itself (ProfilesService.setCover), never from
+ * a URL in a request body.
+ */
 export type ProfileFields = Partial<
   Pick<
     UserRow,
@@ -146,6 +169,8 @@ export type ProfileFields = Partial<
     | 'address_country'
     | 'studio_name'
     | 'social_handle'
+    | 'available_for_bookings'
+    | 'show_studio'
   >
 >;
 

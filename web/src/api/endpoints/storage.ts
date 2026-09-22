@@ -2,7 +2,12 @@ import { api } from '../client';
 import { API_BASE_URL } from '../config';
 import { ApiError } from '../errors';
 
-export type UploadScope = 'albums' | 'avatars' | 'workspaces' | 'misc';
+/**
+ * Where an upload goes. 'avatars' and 'covers' land in the public bucket and
+ * are re-encoded on confirm. Only the phone uploads a cover — it crops it to
+ * shape first — so 'covers' is here for parity with the mobile client.
+ */
+export type UploadScope = 'albums' | 'avatars' | 'covers' | 'workspaces' | 'misc';
 
 export interface UploadTicket {
   key: string;

@@ -66,8 +66,10 @@ type ServerEvent =
  * responsibility, not this hook's.
  */
 const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
-  'friend-request': [queryKeys.friends.all],
-  'friend-accepted': [queryKeys.friends.all],
+  // A profile carries your connection to its owner and both of your counts, so
+  // every topic that changes a friendship refreshes the profiles too.
+  'friend-request': [queryKeys.friends.all, queryKeys.publicProfiles.all, queryKeys.profile.page],
+  'friend-accepted': [queryKeys.friends.all, queryKeys.publicProfiles.all, queryKeys.profile.page],
   'collaborator-invite': [queryKeys.collaborators.all, queryKeys.workspaces.all],
   'collaborator-response': [queryKeys.collaborators.all, queryKeys.workspaces.all],
   'event-invite': [queryKeys.scheduleEvents.all],
@@ -76,12 +78,25 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   'hire-enquiry': [queryKeys.hire.all],
   // Accepting also creates a friendship and a conversation, so all three lists
   // are stale for the sender the moment this arrives.
-  'hire-response': [queryKeys.hire.all, queryKeys.friends.all, ['chat']],
+  'hire-response': [
+    queryKeys.hire.all,
+    queryKeys.friends.all,
+    ['chat'],
+    queryKeys.publicProfiles.all,
+    queryKeys.profile.page,
+  ],
   'job-application': [queryKeys.jobs.all],
   support: [queryKeys.support.all],
-  booking: [queryKeys.bookings.all],
+  // Confirming or cancelling one moves the jobs-done count on your own page.
+  booking: [queryKeys.bookings.all, queryKeys.profile.page],
   // Accepting also connects the two and opens a chat.
-  'job-response': [queryKeys.jobs.all, queryKeys.friends.all, ['chat']],
+  'job-response': [
+    queryKeys.jobs.all,
+    queryKeys.friends.all,
+    ['chat'],
+    queryKeys.publicProfiles.all,
+    queryKeys.profile.page,
+  ],
   reminder: [queryKeys.reminders.all],
   // These two exist on the server and were missing here, so their notifications
   // arrived without refreshing anything.

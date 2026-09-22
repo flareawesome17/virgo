@@ -196,11 +196,11 @@ export default function DashboardScreen() {
             </Text>
           </View>
           <Pressable
-            // The account half of Settings — what the Profile tab showed
-            // before it became Settings.
-            onPress={() => router.navigate('/settings?view=account')}
+            // Your own face opens your own page, as it does everywhere else
+            // people tap an avatar. Account settings stay a tab away.
+            onPress={() => router.push('/profile')}
             accessibilityRole="button"
-            accessibilityLabel="Your profile and account settings"
+            accessibilityLabel="Your profile"
             className="active:scale-[0.96]"
           >
             {profile?.avatarUrl ? (

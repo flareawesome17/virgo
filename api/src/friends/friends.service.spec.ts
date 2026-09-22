@@ -202,7 +202,10 @@ describe('FriendsService.requestAccount', () => {
     expect(h.notifier.notify).toHaveBeenCalledWith(
       [THEM],
       expect.objectContaining({
+        // The apps call it a connection now. The topic and data.type are what
+        // they switch on, and those stay as they were.
         topic: 'friend-request',
+        title: 'New connection request',
         data: { type: 'friend_request', fromUserId: ME },
       }),
     );
@@ -246,7 +249,7 @@ describe('FriendsService.requestAccount', () => {
       ),
     });
     await expect(friends.service.sendRequestToUser(ME, THEM)).rejects.toThrow(
-      'You are already friends',
+      'You are already connected',
     );
 
     const crossing = harness({
@@ -405,7 +408,11 @@ describe('FriendsService.respond', () => {
     expect(updates[1].sql).toMatch(/f\.status = 'pending' and f\.requested_by = 'me'/);
     expect(h.notifier.notify).toHaveBeenCalledWith(
       [THEM],
-      expect.objectContaining({ topic: 'friend-accepted' }),
+      expect.objectContaining({
+        topic: 'friend-accepted',
+        title: 'Connection request accepted',
+        data: { type: 'friend_accepted', fromUserId: ME },
+      }),
     );
   });
 
@@ -416,7 +423,7 @@ describe('FriendsService.respond', () => {
     });
 
     await expect(h.service.accept(ME, 'req-1')).rejects.toThrow(
-      new NotFoundException('Friend request not found'),
+      new NotFoundException('Connection request not found'),
     );
     const updates = h.clientSql().filter((c) => /update friends/.test(c.sql));
     expect(updates).toHaveLength(1);
@@ -430,7 +437,7 @@ describe('FriendsService.respond', () => {
     });
 
     await expect(h.service.accept(ME, 'req-1')).rejects.toThrow(
-      new NotFoundException('Friend request not found'),
+      new NotFoundException('Connection request not found'),
     );
     expect(h.notifier.notify).not.toHaveBeenCalled();
   });
@@ -439,7 +446,7 @@ describe('FriendsService.respond', () => {
     const h = harness({ pool: incoming, unavailable: true });
 
     await expect(h.service.accept(ME, 'req-1')).rejects.toThrow(
-      new NotFoundException('Friend request not found'),
+      new NotFoundException('Connection request not found'),
     );
     expect(h.clientSql().filter((c) => /update friends/.test(c.sql))).toHaveLength(0);
     expect(h.notifier.notify).not.toHaveBeenCalled();
@@ -482,7 +489,7 @@ describe('FriendsService.respond', () => {
 
     const missing = harness();
     await expect(missing.service.accept(ME, 'req-1')).rejects.toThrow(
-      new NotFoundException('Friend request not found'),
+      new NotFoundException('Connection request not found'),
     );
   });
 });
@@ -553,12 +560,12 @@ describe('FriendsService.remove', () => {
   it('gives 404 for a row that is not theirs, before or under the lock', async () => {
     const missing = harness();
     await expect(missing.service.remove(ME, 'row-1')).rejects.toThrow(
-      new NotFoundException('Friend not found'),
+      new NotFoundException('Connection not found'),
     );
 
     const vanished = harness({ pool: own(THEM), client: inLock() });
     await expect(vanished.service.remove(ME, 'row-1')).rejects.toThrow(
-      new NotFoundException('Friend not found'),
+      new NotFoundException('Connection not found'),
     );
     expect(vanished.clientSql().some((c) => /delete/.test(c.sql))).toBe(false);
   });

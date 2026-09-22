@@ -623,15 +623,15 @@ export function friendRequest(options: {
   requesterName: string;
   url: string;
 }): RenderedEmail {
-  const intro = `${options.requesterName} wants to connect with you on Virgo. Once you are friends you can share workspaces and chat.`;
+  const intro = `${options.requesterName} wants to connect with you on Virgo. Once you're connected you can share workspaces and chat.`;
   return {
-    subject: `${options.requesterName} sent you a friend request`,
+    subject: `${options.requesterName} wants to connect on Virgo`,
     html: layout({
-      heading: 'New friend request',
+      heading: 'New connection request',
       intro,
       cta: { label: 'Open Virgo', url: options.url },
     }),
-    text: ['New friend request', '', intro, '', options.url].join('\n'),
+    text: ['New connection request', '', intro, '', options.url].join('\n'),
   };
 }
 

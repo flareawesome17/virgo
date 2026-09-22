@@ -226,6 +226,10 @@ export function useAuth() {
       // Write straight into the session cache so every screen reading `user`
       // reflects the change immediately, without a refetch round-trip.
       queryClient.setQueryData(queryKeys.auth.session, updated);
+      // Name, photo, bio and studio are also what your own page and your own
+      // public profile show, and those are separate queries.
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile.page });
+      queryClient.invalidateQueries({ queryKey: queryKeys.publicProfiles.all });
     },
   });
 

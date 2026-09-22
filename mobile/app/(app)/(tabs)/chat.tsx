@@ -281,7 +281,7 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
               </View>
               <Text className="text-foreground text-lg font-bold">No conversations</Text>
               <Text className="text-muted-foreground text-sm text-center mt-2">
-                Start a chat with a friend, or create a group for a shoot.
+                Start a chat with a connection, or create a group for a shoot.
               </Text>
               <Pressable
                 onPress={() => router.push('/chat/new')}

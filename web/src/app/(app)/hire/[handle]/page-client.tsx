@@ -3,9 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2, MapPin, Send, UserSearch } from 'lucide-react';
+import { ArrowLeft, CloudOff, Loader2, MapPin, Send, UserSearch } from 'lucide-react';
 import { toast } from 'sonner';
-import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
@@ -15,8 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { profilesApi } from '@/api';
 import { useSendEnquiry } from '@/hooks/useHire';
+import { usePublicProfile } from '@/hooks/useProfile';
 
 /**
  * The enquiry form.
@@ -30,11 +29,9 @@ export default function HirePage() {
   const router = useRouter();
   const send = useSendEnquiry();
 
-  const profile = useQuery({
-    queryKey: ['public-profile', handle],
-    queryFn: () => profilesApi.publicProfile(handle),
-    retry: false,
-  });
+  // The same query, and so the same cache entry, as the profile this is
+  // opened from: arriving here from it costs no second fetch.
+  const profile = usePublicProfile(handle);
 
   const [message, setMessage] = useState('');
   const [roleWanted, setRoleWanted] = useState<string | null>(null);
@@ -43,7 +40,22 @@ export default function HirePage() {
 
   if (profile.isLoading) return <AppShell title="Hire"><CenteredSpinner /></AppShell>;
 
-  if (profile.isError || !profile.data) {
+  // A failed load is not a missing profile: saying "not found" to somebody
+  // on a bad connection sends them away from a person who is right there.
+  if (!profile.notFound && profile.loadFailed) {
+    return (
+      <AppShell title="Hire">
+        <EmptyState
+          icon={CloudOff}
+          title="Could not load this profile"
+          description="Check your connection and try again."
+          action={<Button onClick={() => profile.refetch()}>Try again</Button>}
+        />
+      </AppShell>
+    );
+  }
+
+  if (profile.notFound || !profile.profile) {
     return (
       <AppShell title="Hire">
         <EmptyState
@@ -56,7 +68,7 @@ export default function HirePage() {
     );
   }
 
-  const person = profile.data;
+  const person = profile.profile;
   const firstName = person.displayName.split(' ')[0];
   const tooShort = message.trim().length < 10;
 
@@ -82,7 +94,7 @@ export default function HirePage() {
   };
 
   return (
-    <AppShell title={`Hire ${profile.data.displayName ?? ""}`.trim()}>
+    <AppShell title={`Hire ${person.displayName ?? ""}`.trim()}>
       <div className="mx-auto w-full max-w-2xl px-6 py-6">
         <Button
           variant="ghost"

@@ -224,7 +224,7 @@ describe('MessagesService.openDirect across a block', () => {
 
     expect(err).toBeInstanceOf(ForbiddenException);
     const body = (err as ForbiddenException).getResponse() as Record<string, unknown>;
-    expect(body.message).toBe('You can only chat with people you are friends with');
+    expect(body.message).toBe('You can only chat with people you are connected with');
     expect(body.code).toBeUndefined();
     expect(h.transaction).not.toHaveBeenCalled();
   });

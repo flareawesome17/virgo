@@ -279,7 +279,7 @@ export class MessagesService {
       }
       if (!(await this.friends.areFriends(userId, id))) {
         throw new ForbiddenException(
-          'You can only chat with people you are friends with',
+          'You can only chat with people you are connected with',
         );
       }
     }

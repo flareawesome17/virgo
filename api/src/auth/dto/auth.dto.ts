@@ -388,6 +388,27 @@ export class UpdateProfileDto {
   @IsString()
   @MaxLength(200)
   socialHandle?: string | null;
+
+  /*
+   * Two profile switches, each saved by the apps in a PATCH of its own so a
+   * rolled-back API's 400 for an unknown key only reverts that one switch.
+   *
+   * Settings like `discoverable`, so never null, but held to it with the
+   * address fields' ValidateIf rather than @IsOptional: @IsOptional lets a
+   * null through, and these columns are NOT NULL, so it would reach the
+   * database as a 500 rather than stop here as a 400.
+   *
+   * There is no coverUrl. A cover is set only through PATCH /me/profile/cover,
+   * from a key the server re-encoded, and with forbidNonWhitelisted a body
+   * that carries one here is refused.
+   */
+  @ValidateIf((_, value) => value !== undefined)
+  @IsBoolean()
+  availableForBookings?: boolean;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsBoolean()
+  showStudio?: boolean;
 }
 
 export class ForgotPasswordDto {

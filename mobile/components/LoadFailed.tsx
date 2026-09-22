@@ -39,12 +39,12 @@ export function LoadFailed({
         Check your connection and try again.
       </Text>
       <Pressable
-        className="mt-4 rounded-xl px-5 py-2.5 flex-row items-center gap-2"
-        style={{ borderWidth: 1, borderColor: '#B66A40' }}
+        className="mt-4 rounded-xl px-5 py-2.5 flex-row items-center gap-2 border border-primary"
         onPress={onRetry}
+        accessibilityRole="button"
       >
-        <RotateCwIcon size={14} color="#B66A40" />
-        <Text className="text-[13px] font-bold" style={{ color: '#B66A40' }}>
+        <RotateCwIcon size={14} className="text-primary" />
+        <Text className="text-primary text-[13px] font-bold">
           Try again
         </Text>
       </Pressable>

@@ -126,7 +126,12 @@ export const queryKeys = {
     all: ['portfolio'] as const,
   },
   profile: {
+    /** Settings and the page together: a handle or a publish changes both. */
+    all: ['profile'] as const,
+    /** Unchanged, so a cache the app already persisted still matches. */
     settings: ['profile', 'settings'] as const,
+    /** Your own page, GET /me/profile/page. */
+    page: ['profile', 'page'] as const,
   },
   promos: {
     all: ['promos'] as const,

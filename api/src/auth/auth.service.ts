@@ -426,6 +426,8 @@ export class AuthService {
       addressPostal?: string | null;
       studioName?: string | null;
       socialHandle?: string | null;
+      availableForBookings?: boolean;
+      showStudio?: boolean;
     },
   ): Promise<PublicUser> {
     // Read the old avatar before the write, so the object it points at can be
@@ -455,6 +457,8 @@ export class AuthService {
       address_country: input.addressCountry,
       studio_name: input.studioName,
       social_handle: input.socialHandle,
+      available_for_bookings: input.availableForBookings,
+      show_studio: input.showStudio,
     });
     if (!user) throw new UnauthorizedException();
 
