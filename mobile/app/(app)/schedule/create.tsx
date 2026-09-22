@@ -116,12 +116,18 @@ export default function CreateEventScreen() {
     setSelectedWsId(existing.workspace_id ?? null);
   }, [existing]);
 
-  const { workspaces } = useWorkspaces(
-    { orderBy: 'name', direction: 'asc', limit: 100 },
+  // Archived ones too, so an event already filed under one still shows it.
+  const { workspaces: listed } = useWorkspaces(
+    { orderBy: 'name', direction: 'asc', limit: 100, archived: 'include' },
     { enabled: !!user?.id },
   );
 
-  const selectedWs = workspaces.find((w) => w.id === selectedWsId);
+  const selectedWs = listed.find((w) => w.id === selectedWsId);
+
+  // Offered: your own, in use. An event is filed under a workspace the way an
+  // album is, and only its owner can — one shared with you ended in "Unknown
+  // workspace" when you saved.
+  const workspaces = listed.filter((w) => w.user_id === user?.id && !w.archived_at);
 
   /**
    * Editing an event somebody else created.

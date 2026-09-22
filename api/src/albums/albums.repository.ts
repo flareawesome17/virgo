@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OwnedRepository, type ListOptions } from '../common/owned.repository';
 import { DatabaseService } from '../database/database.service';
+import type { ResolvedAccess } from '../quota/quota.service';
 import { DISPLAY_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
 
@@ -43,6 +44,15 @@ export interface AlbumRow {
   item_count: number;
   /** Derived: what the album holds, by kind, so a card can say "312 · 2 films". */
   counts?: { image: number; video: number; audio: number };
+  /** Derived: members of its workspace who can open it. 0 is "Private". */
+  shared_with?: number;
+  /** Derived: invitations not yet answered that would give it. */
+  offered_to?: number;
+  /**
+   * Derived: what the person reading can do with it — 'owner', their grant,
+   * or null. Lets a screen offer Upload only to someone who can.
+   */
+  my_access?: ResolvedAccess;
   status: AlbumStatus;
   retention_days: number | null;
   created_at: Date;
@@ -88,7 +98,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
    * every album started life with a blank card. When it is null the newest
    * image in the album stands in, which is what the card was missing.
    */
-  private async withDerivedFields(rows: AlbumRow[]): Promise<AlbumRow[]> {
+  private async withDerivedFields(rows: AlbumRow[], viewerId?: string): Promise<AlbumRow[]> {
     if (rows.length === 0) return rows;
 
     const ids = rows.map((r) => r.id);
@@ -136,8 +146,32 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
         )
       : [];
 
+    // Who else can open each one, and what the reader can do with it. Only
+    // grants from the album's own workspace count: a grant is access through
+    // membership of that workspace, and nothing else.
+    const grants = await this.db.query<{
+      album_id: string;
+      shared_with: string;
+      offered_to: string;
+      mine: ResolvedAccess;
+    }>(
+      `select ca.album_id,
+              count(*) filter (where c.status = 'accepted')::text as shared_with,
+              count(*) filter (where c.status = 'pending')::text as offered_to,
+              max(ca.media_access) filter (
+                where c.status = 'accepted' and c.collaborator_user_id = $2
+              ) as mine
+         from collaborator_albums ca
+         join collaborators c on c.id = ca.collaborator_id
+         join albums a on a.id = ca.album_id and a.workspace_id = c.workspace_id
+        where ca.album_id = any($1::text[])
+        group by ca.album_id`,
+      [ids, viewerId ?? null],
+    );
+
     const countById = new Map(counts.map((c) => [c.album_id, c]));
     const coverById = new Map(covers.map((c) => [c.album_id, shownKey(c)]));
+    const grantsById = new Map(grants.map((g) => [g.album_id, g]));
     const chosenByKey = new Map(chosen.map((c) => [c.key, shownKey(c)]));
 
     // Signed rather than public: the bucket is not world-readable, so a cover
@@ -171,6 +205,14 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
       },
       // An explicitly chosen cover always wins over the derived one.
       cover_url: chosenUrls[i] ?? row.cover_url ?? coverUrls[i],
+      shared_with: Number(grantsById.get(row.id)?.shared_with ?? 0),
+      offered_to: Number(grantsById.get(row.id)?.offered_to ?? 0),
+      my_access:
+        viewerId === undefined
+          ? null
+          : row.user_id === viewerId
+            ? 'owner'
+            : (grantsById.get(row.id)?.mine ?? null),
     }));
   }
 
@@ -199,13 +241,18 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
    * would show a workspace to someone who never answered the invitation.
    */
   private sharedClause(paramIndex: number): string {
+    // The collaborator row has to be in the album's own workspace. A grant
+    // from elsewhere is one left behind by a move, and was listing the album
+    // to people who could no longer open anything in it.
     return `(
       user_id = $${paramIndex}
-      or id in (
-        select ca.album_id
+      or exists (
+        select 1
           from collaborator_albums ca
           join collaborators c on c.id = ca.collaborator_id
-         where c.collaborator_user_id = $${paramIndex}
+         where ca.album_id = albums.id
+           and c.workspace_id = albums.workspace_id
+           and c.collaborator_user_id = $${paramIndex}
            and c.status = 'accepted'
       )
     )`;
@@ -259,6 +306,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
           limit $${params.length - 1} offset $${params.length}`,
         params,
       ),
+      userId,
     );
   }
 
@@ -268,7 +316,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
       [userId, id],
     );
     if (!row) return null;
-    return (await this.withDerivedFields([row]))[0];
+    return (await this.withDerivedFields([row], userId))[0];
   }
 
   /**
@@ -281,7 +329,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
    * has no `item_count` at all.
    */
   async create(userId: string, data: Record<string, unknown>): Promise<AlbumRow> {
-    const [created] = await this.withDerivedFields([await super.create(userId, data)]);
+    const [created] = await this.withDerivedFields([await super.create(userId, data)], userId);
     return created;
   }
 
@@ -291,7 +339,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     data: Record<string, unknown>,
   ): Promise<AlbumRow | null> {
     const updated = await super.update(userId, id, data);
-    return updated && (await this.withDerivedFields([updated]))[0];
+    return updated && (await this.withDerivedFields([updated], userId))[0];
   }
 
   /**

@@ -28,6 +28,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { DiscoverModule } from './discover/discover.module';
 import { DownloadsModule } from './downloads/downloads.module';
 import { MessagesModule } from './messages/messages.module';
+import { WorkspaceActivityModule } from './workspaces/workspace-activity.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 import { AdminModule } from './admin/admin.module';
 import { VisitsModule } from './visits/visits.module';
@@ -49,6 +50,7 @@ import { PromosModule } from './promos/promos.module';
     RealtimeModule,
     AuthModule,
     HealthModule,
+    WorkspaceActivityModule,
     WorkspacesModule,
     AlbumsModule,
     ScheduleEventsModule,

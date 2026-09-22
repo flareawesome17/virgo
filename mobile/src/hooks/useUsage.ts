@@ -62,7 +62,17 @@ export function useUsage(options: { enabled?: boolean } = {}) {
     atWorkspaceLimit:
       usage?.workspaces.limit != null &&
       usage.workspaces.used >= usage.workspaces.limit,
-    atAlbumLimit:
-      usage?.albums.limit != null && usage.albums.used >= usage.albums.limit,
+    /** Albums allowed in each workspace; null is unlimited. */
+    albumLimit: usage?.albums.limit ?? null,
+    /**
+     * Whether a workspace holding this many albums is full.
+     *
+     * Per workspace, because that is how the limit works. `albums.used` is
+     * the total across all of them, and comparing it with the per-workspace
+     * limit — which is what `atAlbumLimit` did — told someone with two
+     * half-empty workspaces that they could not make another album anywhere.
+     */
+    isAlbumLimitReached: (albumsInWorkspace: number) =>
+      usage?.albums.limit != null && albumsInWorkspace >= usage.albums.limit,
   };
 }

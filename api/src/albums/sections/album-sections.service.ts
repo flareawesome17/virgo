@@ -12,6 +12,7 @@ import {
   QuotaService,
   type MediaAccess,
 } from '../../quota/quota.service';
+import { WorkspaceActivityService } from '../../workspaces/workspace-activity.service';
 
 export interface AlbumSection {
   id: string;
@@ -52,6 +53,7 @@ export class AlbumSectionsService {
   constructor(
     private readonly db: DatabaseService,
     private readonly quota: QuotaService,
+    private readonly feed: WorkspaceActivityService,
   ) {}
 
   private async require(userId: string, albumId: string, level: MediaAccess) {
@@ -145,6 +147,7 @@ export class AlbumSectionsService {
          returning id, name, position`,
         [generateId(), albumId, clean],
       );
+      await this.feed.recordInAlbum(albumId, userId, 'sections');
       return { ...row!, count: 0, counts: { image: 0, video: 0, audio: 0 } };
     } catch (err) {
       throw duplicateOr(err);

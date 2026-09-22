@@ -86,11 +86,16 @@ const TOPICS: Record<
   'friend-accepted': { keys: [queryKeys.friends.all], href: '/network' },
   'collaborator-invite': {
     keys: [queryKeys.collaborators.all, queryKeys.workspaces.all],
-    href: '/network',
+    href: '/workspaces',
   },
+  // Albums too: someone leaving takes their access with them, and the
+  // sharing on each album card says so.
   'collaborator-response': {
-    keys: [queryKeys.collaborators.all, queryKeys.workspaces.all],
-    href: '/network',
+    keys: [queryKeys.collaborators.all, queryKeys.workspaces.all, queryKeys.albums.all],
+    href: (data) =>
+      typeof data?.workspaceId === 'string'
+        ? `/workspaces/${data.workspaceId}?tab=members`
+        : '/workspaces',
   },
   'event-invite': {
     keys: [queryKeys.scheduleEvents.all],

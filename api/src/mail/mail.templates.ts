@@ -255,9 +255,9 @@ export function collaboratorInvite(options: {
     html: layout({
       heading: 'You have been invited',
       intro,
-      cta: { label: 'Open Virgo', url: options.url },
+      cta: { label: 'See the invitation', url: options.url },
       fineprint: [
-        'Accept the invitation from your Network screen to gain access.',
+        'It is waiting in Workspaces, with the albums on offer and what you could do in each. Nothing is shared with you until you accept.',
       ],
     }),
     text: [
@@ -267,7 +267,7 @@ export function collaboratorInvite(options: {
       '',
       options.url,
       '',
-      'Accept the invitation from your Network screen to gain access.',
+      'It is waiting in Workspaces, with the albums on offer and what you could do in each. Nothing is shared with you until you accept.',
     ].join('\n'),
   };
 }

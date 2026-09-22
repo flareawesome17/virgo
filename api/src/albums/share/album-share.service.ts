@@ -19,6 +19,7 @@ import {
   TAKEN_AT_TEXT_SQL,
 } from '../../quota/quota.service';
 import { SORT_AT_SQL } from '../../storage/capture-time';
+import { WorkspaceActivityService } from '../../workspaces/workspace-activity.service';
 
 export interface ShareLinkRow {
   id: string;
@@ -182,6 +183,7 @@ export class AlbumShareService {
     private readonly hls: HlsService,
     private readonly config: ConfigService,
     private readonly notify: NotifyService,
+    private readonly feed: WorkspaceActivityService,
   ) {}
 
   /** base64url of 32 random bytes — 256 bits, not enumerable. */
@@ -759,6 +761,8 @@ export class AlbumShareService {
       'update album_share_links set picks_sent_at = now() where id = $1 returning picks_sent_at',
       [link.id],
     );
+    // No actor: the client is on a link, not an account.
+    await this.feed.recordInAlbum(link.album_id, null, 'picks', count);
 
     await this.notify
       .notify([link.user_id], {

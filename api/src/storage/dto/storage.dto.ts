@@ -36,6 +36,21 @@ export class CreateUploadUrlDto {
   @Min(1)
   @Max(MAX_UPLOAD_BYTES)
   contentLength!: number;
+
+  /**
+   * The album this upload is for, when it is for one.
+   *
+   * An upload into someone else's album is stored against that album's
+   * owner, so it has to fit in their storage, not the uploader's. Without the
+   * album the ticket could only check the uploader — a collaborator on a full
+   * free plan was refused room in an album whose owner had plenty, and one
+   * with room could fill the owner's. Optional, because apps already
+   * installed do not send it; they get the check they always had.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  albumId?: string;
 }
 
 export class ObjectKeyDto {

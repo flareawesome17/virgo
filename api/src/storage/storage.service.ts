@@ -20,6 +20,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MediaLinkService } from './media-link.service';
+import { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import { contentDisposition, safeFileStem, uniqueNames } from './download-names';
 import {
   accessAllows,
@@ -75,6 +76,7 @@ export class StorageService {
     private readonly config: StorageConfig,
     private readonly quota: QuotaService,
     private readonly mediaLink: MediaLinkService,
+    private readonly feed: WorkspaceActivityService,
   ) {
     this.client = config.isConfigured
       ? new S3Client({
@@ -207,6 +209,8 @@ export class StorageService {
       contentType: string;
       scope: UploadScope;
       contentLength: number;
+      /** The album it is for, whose owner's storage it will count toward. */
+      albumId?: string;
     },
   ): Promise<UploadTicket> {
     const client = this.requireClient();
@@ -228,7 +232,26 @@ export class StorageService {
     // Last chance to refuse: once the client holds a signed URL the server is
     // out of the loop. The size is pinned into the signature below, so it
     // cannot be understated here and exceeded at upload time.
-    await this.quota.assertCanStore(userId, input.contentLength);
+    //
+    // Against whoever the file will be billed to. Into someone else's album
+    // that is the album's owner (see `statObject`), so their storage is the
+    // one that has to have room — and not being allowed to add to the album
+    // at all is worth saying now rather than after the bytes have gone up.
+    if (input.albumId) {
+      const access = await this.quota.accessForAlbum(userId, input.albumId);
+      if (!accessAllows(access, 'upload')) {
+        throw new ForbiddenException('You cannot add media to that album');
+      }
+      const billedTo =
+        access === 'owner' ? userId : ((await this.quota.albumOwner(input.albumId)) ?? userId);
+      await this.quota.assertCanStore(
+        billedTo,
+        input.contentLength,
+        billedTo === userId ? 'yours' : 'album-owner',
+      );
+    } else {
+      await this.quota.assertCanStore(userId, input.contentLength);
+    }
 
     const key = this.buildKey(userId, input.scope, input.contentType);
 
@@ -924,7 +947,7 @@ export class StorageService {
 
       // Record against the storage quota using the size B2 actually reports,
       // not a number the client supplied. Idempotent on the key.
-      await this.quota.recordFile(attributeTo, {
+      const arrived = await this.quota.recordFile(attributeTo, {
         key,
         sizeBytes: size,
         contentType: head.ContentType,
@@ -932,6 +955,13 @@ export class StorageService {
         albumId,
         originalName: cleanOriginalName(originalName),
       });
+
+      // Into the workspace's feed as the person who uploaded it, whoever it
+      // is billed to. Once per file: a second confirmation is not a second
+      // upload.
+      if (albumId && arrived) {
+        await this.feed.recordInAlbum(albumId, userId, 'upload');
+      }
 
       return { exists: true, size, contentType: head.ContentType };
     } catch (err) {

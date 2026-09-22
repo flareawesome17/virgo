@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Check, Loader2, MapPin, Search, UserPlus, Users, X } from 'lucide-react';
+import { Loader2, MapPin, Search, UserPlus, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell, PageHeader } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
@@ -13,15 +13,6 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   useDeleteFriend,
   useFriends,
@@ -29,20 +20,12 @@ import {
   useRespondToFriendRequest,
   useSendFriendRequest,
 } from '@/hooks/useFriends';
-import {
-  useCollaboratorAlbums,
-  useCollaborators,
-  useDeleteCollaborator,
-  useSetCollaboratorAlbums,
-} from '@/hooks/useCollaborators';
+import { useCollaborators } from '@/hooks/useCollaborators';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useHireEnquiries } from '@/hooks/useHire';
 import { EnquiriesTab } from '@/components/enquiries';
-import type { MediaAccess } from '@/api';
-import {
-  MEDIA_ACCESS_OPTIONS,
-  ROLE_LABELS,
-} from '@/components/workspace-invitations';
+import type { Collaborator } from '@/api';
+import { ROLE_LABEL } from '@/lib/workspaces';
 
 function PersonAvatar({ name, url }: { name: string; url?: string | null }) {
   return (
@@ -52,146 +35,6 @@ function PersonAvatar({ name, url }: { name: string; url?: string | null }) {
         {name.slice(0, 2).toUpperCase()}
       </AvatarFallback>
     </Avatar>
-  );
-}
-
-/** Edits which albums one collaborator can open. */
-function AccessDialog({
-  collaborator,
-  onOpenChange,
-}: {
-  collaborator: { id: string; name: string } | null;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const { albums, isFetching } = useCollaboratorAlbums(collaborator?.id ?? null);
-  const save = useSetCollaboratorAlbums();
-
-  // What they can see today, which is where the boxes start. Derived rather
-  // than copied into state, so it is right from the render the albums arrive.
-  const current: Record<string, MediaAccess> = {};
-  for (const a of albums) {
-    if (a.shared) current[a.id] = a.media_access ?? 'view';
-  }
-
-  /** The edited selection, from the first change. Null means untouched. */
-  const [picked, setPicked] = useState<Record<string, MediaAccess> | null>(null);
-
-  // Edits belong to one opening of the dialog: dropped when it closes, so the
-  // next opening starts again from what they can see today.
-  const openFor = collaborator?.id ?? null;
-  const [pickedFor, setPickedFor] = useState(openFor);
-  if (openFor !== pickedFor) {
-    setPickedFor(openFor);
-    setPicked(null);
-  }
-
-  const selection = picked ?? current;
-
-  return (
-    <Dialog open={!!collaborator} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{collaborator?.name}&rsquo;s access</DialogTitle>
-          <DialogDescription>
-            Tick the albums they can open, and choose what they may do with the
-            media in each. Albums you create later stay private until you share
-            them here.
-          </DialogDescription>
-        </DialogHeader>
-
-        {isFetching && albums.length === 0 ? (
-          <div className="py-8 text-center">
-            <Loader2 className="mx-auto size-5 animate-spin text-primary" />
-          </div>
-        ) : albums.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            This workspace has no albums yet.
-          </p>
-        ) : (
-          <ul className="max-h-72 overflow-y-auto">
-            {albums.map((album) => {
-              const level = selection[album.id];
-              return (
-                <li key={album.id}>
-                  <div className="flex items-center gap-3 border-b py-3 last:border-0">
-                    <Checkbox
-                      id={`album-${album.id}`}
-                      checked={level !== undefined}
-                      onCheckedChange={(checked) =>
-                        setPicked((prev) => {
-                          const base = { ...(prev ?? current) };
-                          if (checked) base[album.id] = 'view';
-                          else delete base[album.id];
-                          return base;
-                        })
-                      }
-                    />
-                    <label
-                      htmlFor={`album-${album.id}`}
-                      className="min-w-0 flex-1 cursor-pointer truncate text-sm"
-                    >
-                      {album.name}
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {album.item_count}
-                      </span>
-                    </label>
-
-                    {/* Only meaningful once the album is actually shared, so it
-                        appears with the tick rather than sitting there greyed. */}
-                    {level !== undefined && (
-                      <select
-                        value={level}
-                        onChange={(e) =>
-                          setPicked((prev) => ({
-                            ...(prev ?? current),
-                            [album.id]: e.target.value as MediaAccess,
-                          }))
-                        }
-                        className="rounded-md border bg-background px-2 py-1 text-xs"
-                      >
-                        {MEDIA_ACCESS_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={save.isPending || !collaborator}
-            onClick={() =>
-              save.mutate(
-                {
-                  id: collaborator!.id,
-                  albums: Object.entries(selection).map(([album_id, media_access]) => ({
-                    album_id,
-                    media_access,
-                  })),
-                },
-                {
-                  onSuccess: () => onOpenChange(false),
-                  onError: (err: Error) =>
-                    toast.error('Could not save', { description: err.message }),
-                },
-              )
-            }
-          >
-            {save.isPending && <Loader2 className="size-4 animate-spin" />}
-            Save access
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -205,7 +48,6 @@ function NetworkPageBody() {
   const { pending: pendingEnquiries } = useHireEnquiries();
   const [search, setSearch] = useState('');
   const [term, setTerm] = useState('');
-  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     const id = setTimeout(() => setTerm(search.trim()), 300);
@@ -216,7 +58,6 @@ function NetworkPageBody() {
   const sendRequest = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
   const removeFriend = useDeleteFriend();
-  const removeCollaborator = useDeleteCollaborator();
 
   const { friends: incoming } = useFriends({
     status: 'pending',
@@ -233,12 +74,27 @@ function NetworkPageBody() {
     limit: 100,
   });
   const { collaborators } = useCollaborators({ limit: 100 });
-  const { workspaces } = useWorkspaces({ limit: 100 });
+  // Archived ones too: the people in them are still yours to manage.
+  const { workspaces } = useWorkspaces({ limit: 100, archived: 'include' });
 
-  const workspaceName = useMemo(
-    () => Object.fromEntries(workspaces.map((w) => [w.id, w.name])),
-    [workspaces],
-  );
+  /**
+   * Your collaborators under the workspace they are in, by its id. Grouped
+   * by name, two workspaces called "Reyes Wedding" would have been merged.
+   */
+  const byWorkspace = useMemo(() => {
+    const names = new Map(workspaces.map((w) => [w.id, w.name]));
+    const groups = new Map<string, { name: string; people: Collaborator[] }>();
+    for (const c of collaborators) {
+      const group = groups.get(c.workspace_id) ?? {
+        name: names.get(c.workspace_id) ?? 'Workspace',
+        people: [],
+      };
+      group.people.push(c);
+      groups.set(c.workspace_id, group);
+    }
+    return [...groups.entries()];
+  }, [collaborators, workspaces]);
+  const collaboratorCount = collaborators.filter((c) => c.status === 'accepted').length;
 
   const fail = (label: string) => (err: Error) =>
     toast.error(label, { description: err.message });
@@ -255,7 +111,7 @@ function NetworkPageBody() {
     <AppShell title="Network">
       <PageHeader
         title="Network"
-        description={`${friends.length} friend${friends.length === 1 ? '' : 's'} · ${collaborators.length} collaborator${collaborators.length === 1 ? '' : 's'}`}
+        description={`${friends.length} friend${friends.length === 1 ? '' : 's'} · ${collaboratorCount} collaborator${collaboratorCount === 1 ? '' : 's'}`}
         actions={
           <Button asChild variant="outline">
             <Link href="/nearby">
@@ -412,7 +268,7 @@ function NetworkPageBody() {
             <TabsList>
               <TabsTrigger value="friends">Friends ({friends.length})</TabsTrigger>
               <TabsTrigger value="collaborators">
-                Collaborators ({collaborators.length})
+                Collaborators ({collaboratorCount})
               </TabsTrigger>
               <TabsTrigger value="enquiries">
                 Enquiries
@@ -492,61 +348,54 @@ function NetworkPageBody() {
                   />
                 </Card>
               ) : (
-                <Card>
-                  <CardContent className="p-0">
-                    <ul>
-                      {collaborators.map((collaborator) => (
-                        <li
-                          key={collaborator.id}
-                          className="flex items-center gap-3 border-b px-4 py-3 last:border-0"
-                        >
-                          <PersonAvatar
-                            name={collaborator.name}
-                            url={collaborator.avatar_url}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold">
-                              {collaborator.name}
-                            </p>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                              <Badge variant="secondary" className="text-[10px]">
-                                {ROLE_LABELS[collaborator.role] ?? collaborator.role}
-                              </Badge>
-                              {collaborator.status === 'pending' && (
-                                <Badge variant="outline" className="text-[10px]">
-                                  Pending
-                                </Badge>
-                              )}
-                              <span className="truncate text-xs text-muted-foreground">
-                                {workspaceName[collaborator.workspace_id] ?? 'Workspace'}
-                              </span>
-                            </div>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              setEditing({ id: collaborator.id, name: collaborator.name })
-                            }
-                          >
-                            Access
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              removeCollaborator.mutate(collaborator.id, {
-                                onError: fail('Could not remove'),
-                              })
-                            }
-                          >
-                            Remove
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
-                </Card>
+                // Who can do what is managed inside each workspace now, beside
+                // its albums; this is the way to find them.
+                <div className="flex flex-col gap-4">
+                  {byWorkspace.map(([workspaceId, group]) => (
+                    <section key={workspaceId}>
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <h2 className="truncate text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                          {group.name}
+                        </h2>
+                        <Button asChild size="sm" variant="ghost">
+                          <Link href={`/workspaces/${workspaceId}?tab=members`}>Manage access</Link>
+                        </Button>
+                      </div>
+                      <Card>
+                        <CardContent className="p-0">
+                          <ul>
+                            {group.people.map((collaborator) => (
+                              <li
+                                key={collaborator.id}
+                                className="flex items-center gap-3 border-b px-4 py-3 last:border-0"
+                              >
+                                <PersonAvatar
+                                  name={collaborator.name}
+                                  url={collaborator.avatar_url}
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold">
+                                    {collaborator.name}
+                                  </p>
+                                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                                    <Badge variant="secondary" className="text-[10px]">
+                                      {ROLE_LABEL[collaborator.role] ?? collaborator.role}
+                                    </Badge>
+                                    {collaborator.status !== 'accepted' && (
+                                      <Badge variant="outline" className="text-[10px]">
+                                        {collaborator.status === 'pending' ? 'Invited' : 'Declined'}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </CardContent>
+                      </Card>
+                    </section>
+                  ))}
+                </div>
               )}
             </TabsContent>
 
@@ -557,7 +406,6 @@ function NetworkPageBody() {
         )}
       </div>
 
-      <AccessDialog collaborator={editing} onOpenChange={(o) => !o && setEditing(null)} />
     </AppShell>
   );
 }

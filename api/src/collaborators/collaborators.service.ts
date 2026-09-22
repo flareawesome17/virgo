@@ -9,6 +9,7 @@ import { FriendsService } from '../friends/friends.service';
 import { MailConfig } from '../mail/mail.config';
 import { collaboratorInvite } from '../mail/mail.templates';
 import { NotifyService } from '../notifications/notify.service';
+import { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { type MediaAccess } from '../quota/quota.service';
 import {
@@ -27,20 +28,38 @@ export interface AlbumGrant {
  *
  * A reviewer and a photographer plainly do not want the same thing, and making
  * every unspecified grant 'view' would leave editors unable to do the job they
- * were invited for.
+ * were invited for. These are what the invite screens say each role gets: a
+ * photographer uploads; an editor arranges, uploads and deletes; a reviewer
+ * views and downloads; a client views.
+ *
+ * No role at all is the column's default, 'editor' — not 'view'. Reading a
+ * missing role as 'view' gave a collaborator an editor's title and a client's
+ * access.
  */
-function defaultAccessFor(role: unknown): MediaAccess {
-  switch (role) {
+export function defaultAccessFor(role: unknown): MediaAccess {
+  switch (role ?? 'editor') {
     case 'owner':
+    case 'editor':
       return 'manage';
     case 'photographer':
-    case 'editor':
       return 'upload';
     case 'reviewer':
       return 'download';
     default:
       return 'view';
   }
+}
+
+/** "a photographer", "an editor": a role as a sentence says it. */
+function roleInSentence(role: unknown): string {
+  const name = typeof role === 'string' && role ? role : 'editor';
+  return `${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`;
+}
+
+const MEDIA_ACCESS_LEVELS: readonly MediaAccess[] = ['view', 'download', 'upload', 'manage'];
+
+function isMediaAccess(value: unknown): value is MediaAccess {
+  return (MEDIA_ACCESS_LEVELS as readonly unknown[]).includes(value);
 }
 
 /**
@@ -81,6 +100,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     private readonly db: DatabaseService,
     private readonly notifier: NotifyService,
     private readonly mailConfig: MailConfig,
+    private readonly feed: WorkspaceActivityService,
   ) {
     super(collaborators, 'Collaborator');
   }
@@ -121,12 +141,12 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     // One row per person per workspace. Without this a second invitation
     // produced a duplicate entry with its own role and its own album
     // exclusions, and no clear answer to what access they actually had.
-    const already = await this.db.queryOne<{ status: string; name: string }>(
-      `select status, name from collaborators
+    const already = await this.db.queryOne<{ id: string; status: string; name: string }>(
+      `select id, status, name from collaborators
         where workspace_id = $1 and collaborator_user_id = $2`,
       [workspaceId, collaboratorUserId],
     );
-    if (already) {
+    if (already && already.status !== 'declined') {
       throw new BadRequestException(
         already.status === 'pending'
           ? `${already.name} has already been invited to this workspace`
@@ -138,18 +158,25 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     // applied as grants below.
     const requested = readAlbumGrants(data, data.role);
     const { album_ids: _ids, albums: _albums, ...columns } = data;
+    if (columns.new_album_access !== undefined && !isMediaAccess(columns.new_album_access)) {
+      columns.new_album_access = null;
+    }
 
     // An invitation, not a fait accompli: the other person has to accept before
     // the workspace appears in their app. `status` is not passed here and is
     // not writable — the column defaults to 'pending', and only
     // `respondToInvitation` moves it, so neither side can skip the asking.
-    const row = await super.create(userId, columns);
+    //
+    // Someone who declined can be asked again. Their row is reused rather than
+    // a second one made — one row per person per workspace — and put back to
+    // pending, as a new invitation on whatever terms are offered this time.
+    const row = already
+      ? await this.reopen(userId, already.id, columns)
+      : await super.create(userId, columns);
 
     if (workspaceId) {
       // No selection means "the workspace as it stands today", which is what
-      // inviting someone to a workspace has always meant. Only albums made
-      // *after* this point need granting, so the invitee does not land in an
-      // empty workspace while the picker is still being built.
+      // inviting someone to a workspace has always meant.
       const grants =
         requested ??
         (
@@ -161,8 +188,95 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
       await this.setSharedAlbums(userId, row.id, workspaceId, grants);
     }
 
-    await this.notifyInvitee(userId, collaboratorUserId, workspaceId);
+    await this.feed.record(workspaceId, userId, 'invited', {
+      subjectId: collaboratorUserId,
+      data: { name: row.name, role: row.role },
+    });
+    await this.notifyInvitee(userId, collaboratorUserId, workspaceId, row);
     return row;
+  }
+
+  /** A declined invitation, made again: pending, sent now, on these terms. */
+  private async reopen(
+    userId: string,
+    id: string,
+    columns: Record<string, unknown>,
+  ): Promise<CollaboratorRow> {
+    const row = await this.db.queryOne<CollaboratorRow>(
+      `update collaborators
+          set status = 'pending',
+              responded_at = null,
+              created_at = now(),
+              role = coalesce($3, role),
+              name = coalesce($4, name),
+              avatar_url = coalesce($5, avatar_url),
+              new_album_access = $6
+        where id = $1 and user_id = $2 and status = 'declined'
+        returning *`,
+      [
+        id,
+        userId,
+        (columns.role as string | undefined) ?? null,
+        (columns.name as string | undefined) ?? null,
+        (columns.avatar_url as string | undefined) ?? null,
+        (columns.new_album_access as string | null | undefined) ?? null,
+      ],
+    );
+    if (!row) throw new BadRequestException('That invitation has already been answered');
+    return row;
+  }
+
+  /**
+   * Sends an unanswered invitation again: the notification and the email.
+   *
+   * Refused within ten minutes of the last one, so a button pressed twice
+   * does not fill somebody's inbox. The invitation's date moves to now, which
+   * is what "Invited Mon" should then say.
+   */
+  async resend(userId: string, id: string): Promise<CollaboratorRow> {
+    const row = await this.db.queryOne<CollaboratorRow & { recent: boolean }>(
+      `select *, created_at > now() - interval '10 minutes' as recent
+         from collaborators where id = $1 and user_id = $2`,
+      [id, userId],
+    );
+    if (!row) throw new NotFoundException('Invitation not found');
+    if (row.status !== 'pending') {
+      throw new BadRequestException(`That invitation is already ${row.status}`);
+    }
+    if (row.recent) {
+      throw new BadRequestException(
+        `${row.name} was sent this invitation a few minutes ago. Give it a little longer.`,
+      );
+    }
+
+    const { recent: _recent, ...invitation } = row;
+    const updated =
+      (await this.db.queryOne<CollaboratorRow>(
+        'update collaborators set created_at = now() where id = $1 returning *',
+        [id],
+      )) ?? invitation;
+    if (updated.collaborator_user_id) {
+      await this.notifyInvitee(userId, updated.collaborator_user_id, updated.workspace_id, updated);
+    }
+    return updated;
+  }
+
+  /**
+   * Takes someone off a workspace, or withdraws an invitation.
+   *
+   * Their grants go with the row. Only a removal is recorded in the feed; a
+   * withdrawn invitation was never anyone arriving.
+   */
+  async remove(userId: string, id: string): Promise<void> {
+    const row = await this.collaborators.findOne(userId, id);
+    if (!row) throw new NotFoundException('Collaborator not found');
+    await super.remove(userId, id);
+    if (row.status === 'accepted') {
+      await this.feed.record(row.workspace_id, userId, 'removed', {
+        subjectId: row.collaborator_user_id,
+        data: { name: row.name, role: row.role },
+      });
+    }
   }
 
   /**
@@ -182,16 +296,41 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     collaboratorId: string,
     workspaceId: string,
     grants: AlbumGrant[],
-  ): Promise<{ shared: number; excluded: number }> {
+  ): Promise<{
+    shared: number;
+    excluded: number;
+    /** Albums they did not have before, and the level each was given. */
+    added: { name: string; level: MediaAccess }[];
+    /** Albums they had and no longer do. */
+    removed: number;
+    /** Albums they kept at a different level. */
+    changed: number;
+  }> {
     // Only albums the caller actually owns in this workspace, so a forged id
-    // cannot grant access to somebody else's album.
-    const albums = await this.db.query<{ id: string }>(
-      'select id from albums where workspace_id = $1 and user_id = $2',
-      [workspaceId, userId],
+    // cannot grant access to somebody else's album. Read with the current
+    // grants, so the result can say what changed.
+    const albums = await this.db.query<{
+      id: string;
+      name: string;
+      media_access: MediaAccess | null;
+    }>(
+      `select a.id, a.name, ca.media_access
+         from albums a
+         left join collaborator_albums ca
+           on ca.album_id = a.id and ca.collaborator_id = $3
+        where a.workspace_id = $1 and a.user_id = $2
+        order by a.created_at`,
+      [workspaceId, userId, collaboratorId],
     );
 
     const owned = new Set(albums.map((a) => a.id));
-    const wanted = grants.filter((g) => owned.has(g.albumId));
+    // One grant per album. The last one sent wins, as it would have on the
+    // insert's conflict clause, which a repeated id in one statement trips.
+    const wanted = [
+      ...new Map(
+        grants.filter((g) => owned.has(g.albumId)).map((g) => [g.albumId, g]),
+      ).values(),
+    ];
 
     await this.db.transaction(async (client) => {
       await client.query(
@@ -213,9 +352,24 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
       }
     });
 
+    const before = new Map(albums.map((a) => [a.id, a.media_access]));
+    const after = new Map(wanted.map((g) => [g.albumId, g.mediaAccess ?? 'view']));
+    const nameOf = new Map(albums.map((a) => [a.id, a.name]));
+
     // `excluded` is kept in the response shape because both clients read it.
     // Under an allow-list it means "in this workspace but not granted".
-    return { shared: wanted.length, excluded: albums.length - wanted.length };
+    return {
+      shared: wanted.length,
+      excluded: albums.length - wanted.length,
+      added: [...after]
+        .filter(([id]) => !before.get(id))
+        .map(([id, level]) => ({ name: nameOf.get(id) ?? '', level })),
+      removed: [...before].filter(([id, level]) => level && !after.has(id)).length,
+      changed: [...after].filter(([id, level]) => {
+        const was = before.get(id);
+        return was && was !== level;
+      }).length,
+    };
   }
 
   /**
@@ -261,43 +415,90 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     );
   }
 
-  /** Replaces an existing collaborator's album access. */
+  /**
+   * Replaces an existing collaborator's album access, and — when sent — what
+   * albums added later give them.
+   *
+   * The feed hears about it only when something actually changed, and in one
+   * line: saving the same selection twice is not news.
+   */
   async updateSharedAlbums(
     userId: string,
     collaboratorId: string,
     grants: AlbumGrant[],
+    newAlbumAccess?: MediaAccess | null,
   ): Promise<{ shared: number; excluded: number }> {
-    const row = await this.db.queryOne<{ workspace_id: string }>(
-      'select workspace_id from collaborators where id = $1 and user_id = $2',
+    const row = await this.db.queryOne<{
+      workspace_id: string;
+      collaborator_user_id: string | null;
+      name: string;
+      role: string;
+    }>(
+      `select workspace_id, collaborator_user_id, name, role
+         from collaborators where id = $1 and user_id = $2`,
       [collaboratorId, userId],
     );
     if (!row) throw new NotFoundException('Collaborator not found');
-    return this.setSharedAlbums(userId, collaboratorId, row.workspace_id, grants);
+
+    if (newAlbumAccess !== undefined) {
+      await this.db.query(
+        'update collaborators set new_album_access = $2 where id = $1',
+        [collaboratorId, isMediaAccess(newAlbumAccess) ? newAlbumAccess : null],
+      );
+    }
+
+    const result = await this.setSharedAlbums(userId, collaboratorId, row.workspace_id, grants);
+    if (result.added.length || result.removed || result.changed) {
+      // What the newly shared albums allow, when that is one thing: "Carlo
+      // can upload" about albums given at two levels would be half untrue.
+      const levels = new Set(result.added.map((a) => a.level));
+      await this.feed.record(row.workspace_id, userId, 'shared', {
+        subjectId: row.collaborator_user_id,
+        data: {
+          name: row.name,
+          role: row.role,
+          added: result.added.slice(0, 3).map((a) => a.name),
+          added_count: result.added.length,
+          removed_count: result.removed,
+          changed_count: result.changed,
+          access: levels.size === 1 ? [...levels][0] : null,
+        },
+      });
+    }
+    return { shared: result.shared, excluded: result.excluded };
   }
 
-  /** Tells the invitee. Best-effort: a failure must not undo the invite. */
+  /**
+   * Tells the invitee. Best-effort: a failure must not undo the invite.
+   *
+   * The notification and the email both lead to Workspaces, where the
+   * invitation is answered and what is on offer is shown. They led to Network,
+   * which had no invitations on it.
+   */
   private async notifyInvitee(
     inviterId: string,
     inviteeId: string,
     workspaceId: string | undefined,
+    invitation: Pick<CollaboratorRow, 'id' | 'role'>,
   ): Promise<void> {
     try {
       const { who, what, workspaceName } = await this.describe(
         inviterId,
         workspaceId,
       );
+      const role = roleInSentence(invitation.role);
 
       await this.notifier.notify([inviteeId], {
         topic: 'collaborator-invite',
         title: 'Workspace invitation',
-        body: `${who} invited you to ${what}`,
-        data: { type: 'collaborator_invite', workspaceId },
+        body: `${who} invited you to ${what} as ${role}`,
+        data: { type: 'collaborator_invite', workspaceId, collaboratorId: invitation.id },
         // An invitation is worth reaching someone who is not in the app.
         email: collaboratorInvite({
           inviterName: who,
           workspaceName: workspaceName ?? 'a workspace',
-          role: 'a collaborator',
-          url: `${this.mailConfig.appUrl}/network`,
+          role,
+          url: `${this.mailConfig.appUrl}/workspaces`,
         }),
       });
     } catch {
@@ -330,13 +531,34 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     };
   }
 
-  /** Invitations addressed to the caller and not yet answered. */
+  /**
+   * Invitations addressed to the caller and not yet answered, each with what
+   * accepting would give them: the albums on offer and what they could do in
+   * each. Deciding whether to join a workspace without that was deciding
+   * blind.
+   */
   async invitationsFor(userId: string): Promise<
-    (CollaboratorRow & { workspace_name: string | null; inviter_name: string | null })[]
+    (CollaboratorRow & {
+      workspace_name: string | null;
+      workspace_color: string | null;
+      inviter_name: string | null;
+      inviter_avatar_url: string | null;
+      albums: { id: string; name: string; media_access: MediaAccess }[];
+    })[]
   > {
     return this.db.query(
-      `select c.*, w.name as workspace_name,
-              coalesce(u.display_name, split_part(u.email, '@', 1)) as inviter_name
+      `select c.*, w.name as workspace_name, w.accent_color as workspace_color,
+              coalesce(nullif(trim(u.display_name), ''), split_part(u.email, '@', 1))
+                as inviter_name,
+              u.avatar_url as inviter_avatar_url,
+              coalesce((
+                select json_agg(json_build_object(
+                         'id', a.id, 'name', a.name, 'media_access', ca.media_access
+                       ) order by a.created_at)
+                  from collaborator_albums ca
+                  join albums a on a.id = ca.album_id
+                 where ca.collaborator_id = c.id
+              ), '[]'::json) as albums
          from collaborators c
          left join workspaces w on w.id = c.workspace_id
          left join users u on u.id = c.user_id
@@ -373,6 +595,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
         returning *`,
       [id, accept ? 'accepted' : 'declined'],
     );
+    await this.feed.record(row.workspace_id, userId, accept ? 'joined' : 'declined');
 
     // The inviter was told nothing at all before this, so a workspace could
     // gain — or fail to gain — a collaborator with no sign either way.

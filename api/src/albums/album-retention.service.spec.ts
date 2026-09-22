@@ -6,6 +6,7 @@ import type { NotifyService } from '../notifications/notify.service';
 import type { QuotaService, ResolvedAccess } from '../quota/quota.service';
 import type { MediaLinkService } from '../storage/media-link.service';
 import { StorageConfig } from '../storage/storage.config';
+import type { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import { StorageService } from '../storage/storage.service';
 import { AlbumRetentionService } from './album-retention.service';
 
@@ -127,6 +128,7 @@ function sweepOf(world: {
     storageConfig(),
     quota as unknown as QuotaService,
     mediaLink as unknown as MediaLinkService,
+    { recordInAlbum: async () => undefined } as unknown as WorkspaceActivityService,
   );
   const db = {
     query: jest.fn(async () =>

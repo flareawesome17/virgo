@@ -21,6 +21,8 @@ export interface CollaboratorRow {
   /** pending until the invitee answers. */
   status: 'pending' | 'accepted' | 'declined';
   responded_at: Date | null;
+  /** What albums added to the workspace later give them. Null: nothing until shared. */
+  new_album_access: 'view' | 'download' | 'upload' | 'manage' | null;
   created_at: Date;
 }
 
@@ -48,6 +50,7 @@ export class CollaboratorsRepository extends OwnedRepository<CollaboratorRow> {
     'name',
     'avatar_url',
     'role',
+    'new_album_access',
   ];
 
   protected readonly filterableColumns = ['status', 'workspace_id', 'role'];

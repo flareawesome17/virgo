@@ -93,6 +93,9 @@ const SHARED_LIB = [
   'presence-store.ts',
   'queryClient.ts',
   'sounds.ts',
+  // How workspaces, roles, access and the activity feed are worded. A role
+  // or a feed line that reads differently in the two apps is two products.
+  'workspaces.ts',
 ];
 
 function walk(dir, base = dir, out = []) {

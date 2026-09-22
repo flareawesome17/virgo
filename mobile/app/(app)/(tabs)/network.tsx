@@ -1,12 +1,10 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useAuth,
   useCollaborators,
-  useCollaboratorAlbums,
   useDeleteCollaborator,
-  useSetCollaboratorAlbums,
   useDeleteFriend,
   useFriends,
   useFriendPresence,
@@ -16,29 +14,26 @@ import {
   useTheme,
   useWorkspaces,
 } from '@/src/hooks';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { router } from 'expo-router';
 import {
   SearchIcon,
   UserPlusIcon,
   ChevronRightIcon,
   UsersIcon,
-  CheckIcon,
   MapPinIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
-import { AccessChip } from '@/components/WorkspaceInvitations';
 import { lastSeenLabel, usePresence } from '@/src/lib/presence-store';
-import type { Friend, MediaAccess } from '@/src/api';
+import type { Collaborator, Friend } from '@/src/api';
 import { PALETTES } from '@/theme';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const ROLE_LABELS: Record<string, string> = {
@@ -109,34 +104,18 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
   const removeFriend = useDeleteFriend();
   const removeCollaborator = useDeleteCollaborator();
 
-  // Which collaborator's access is being edited, if any.
-  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
-  const [pickedAlbums, setPickedAlbums] = useState<Record<string, MediaAccess>>({});
-  const { albums: accessAlbums, isFetching: loadingAccess } = useCollaboratorAlbums(
-    editing?.id ?? null,
-  );
-  const saveAccess = useSetCollaboratorAlbums();
-
-  // Seed the checkboxes from what they can see today, once per open.
-  const seededFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (!editing || accessAlbums.length === 0) return;
-    if (seededFor.current === editing.id) return;
-    seededFor.current = editing.id;
-    setPickedAlbums(
-      Object.fromEntries(
-        accessAlbums
-          .filter((a) => a.shared)
-          .map((a) => [a.id, a.media_access ?? 'view']),
-      ),
+  /**
+   * Access is edited on the member's own screen in the workspace, beside its
+   * albums. The sheet that did it here let Save go before the albums had
+   * loaded — and a selection is the whole list, so that removed every album
+   * the person had.
+   */
+  const openAccess = (collab: Collaborator) =>
+    router.push(
+      collab.status === 'accepted'
+        ? `/workspaces/${collab.workspace_id}/member/${collab.id}`
+        : `/workspaces/${collab.workspace_id}?tab=members`,
     );
-  }, [editing, accessAlbums]);
-
-  const openAccessEditor = (id: string, name: string) => {
-    seededFor.current = null;
-    setPickedAlbums({});
-    setEditing({ id, name });
-  };
 
   const confirmRemoveCollaborator = (id: string, name: string) => {
     Alert.alert(
@@ -202,8 +181,9 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
     enabled,
   );
 
+  // Archived ones too: the people in them are still yours to manage.
   const { workspaces, refetch: refetchWorkspaces } = useWorkspaces(
-    { limit: 100 },
+    { limit: 100, archived: 'include' },
     enabled,
   );
 
@@ -226,16 +206,16 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
     setRefreshing(false);
   };
 
-  // Group by workspace
+  // Grouped by workspace id and labelled with its name. Grouped by name, two
+  // workspaces both called "Reyes Wedding" were merged into one list.
   const grouped = useMemo(() => {
-    const map: Record<string, typeof collaborators> = {};
+    const map: Record<string, Collaborator[]> = {};
     for (const c of filtered) {
-      const wsName = workspaceNameById[c.workspace_id] || 'Unassigned';
-      if (!map[wsName]) map[wsName] = [];
-      map[wsName].push(c);
+      if (!map[c.workspace_id]) map[c.workspace_id] = [];
+      map[c.workspace_id].push(c);
     }
     return map;
-  }, [filtered, workspaceNameById]);
+  }, [filtered]);
 
   const groupKeys = Object.keys(grouped);
 
@@ -472,22 +452,22 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
             </View>
           </View>
         ) : (
-          groupKeys.map((wsName) => (
-            <View key={wsName} className="mb-5">
+          groupKeys.map((wsId) => (
+            <View key={wsId} className="mb-5">
               <View className="px-5 mb-2">
                 <Text className="text-foreground text-[13px] font-semibold">
-                  {wsName}
+                  {workspaceNameById[wsId] || 'Workspace'}
                 </Text>
               </View>
               <View className="mx-5 bg-card rounded-2xl overflow-hidden border border-border/30">
-                {grouped[wsName].map((collab, i) => {
+                {grouped[wsId].map((collab, i) => {
                   const badge = ROLE_BADGE_COLORS[collab.role] || ROLE_BADGE_COLORS.editor;
                   return (
                     <Pressable
                       key={collab.id}
                       className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
                       style={
-                        i < grouped[wsName].length - 1
+                        i < grouped[wsId].length - 1
                           ? { borderBottomWidth: 1, borderBottomColor: palette.border }
                           : undefined
                       }
@@ -532,7 +512,9 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                           even though both existed in the API. */}
                       <View className="flex-row items-center gap-2">
                         <Pressable
-                          onPress={() => openAccessEditor(collab.id, collab.name)}
+                          onPress={() => openAccess(collab)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${collab.name}'s access`}
                           className="px-3 py-2 rounded-xl bg-primary/10 active:scale-[0.94]"
                         >
                           <Text className="text-primary text-xs font-bold">Access</Text>
@@ -554,124 +536,6 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
       </ScrollView>
           </KeyboardAvoidingView>
 
-      {/* Edit which albums a collaborator can see. Unticking one removes it
-          for them without touching the workspace or any other album. */}
-      <Modal
-        visible={!!editing}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setEditing(null)}
-      >
-        <Pressable
-          className="flex-1"
-          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
-          onPress={() => setEditing(null)}
-        />
-        <View className="bg-card rounded-t-3xl px-5 pt-5" style={{ paddingBottom: 32 }}>
-          <Text className="text-foreground text-lg font-bold">
-            {editing?.name}&rsquo;s access
-          </Text>
-          <Text className="text-muted-foreground text-sm mt-1">
-            Albums they can open in this workspace. New albums are shared
-            automatically unless you untick them here.
-          </Text>
-
-          {loadingAccess && accessAlbums.length === 0 ? (
-            <View className="py-8 items-center">
-              <ActivityIndicator size="small" color={palette.primary} />
-            </View>
-          ) : accessAlbums.length === 0 ? (
-            <Text className="text-muted-foreground text-sm text-center py-8">
-              This workspace has no albums yet.
-            </Text>
-          ) : (
-            <ScrollView style={{ maxHeight: 340 }} className="mt-4">
-              {accessAlbums.map((a, i) => {
-                const level = pickedAlbums[a.id];
-                const on = level !== undefined;
-                return (
-                  <Pressable
-                    key={a.id}
-                    onPress={() =>
-                      setPickedAlbums((prev) => {
-                        const base = { ...prev };
-                        if (base[a.id] === undefined) base[a.id] = 'view';
-                        else delete base[a.id];
-                        return base;
-                      })
-                    }
-                    className="py-3 flex-row items-center gap-3 active:opacity-70"
-                    style={i < accessAlbums.length - 1 ? { borderBottomWidth: 1, borderBottomColor: palette.border } : undefined}
-                  >
-                    <View
-                      className="items-center justify-center rounded-md"
-                      style={{
-                        width: 22,
-                        height: 22,
-                        backgroundColor: on ? palette.action : 'transparent',
-                        borderWidth: on ? 0 : 1.5,
-                        borderColor: palette.border,
-                      }}
-                    >
-                      {on && <CheckIcon size={14} className="text-white" />}
-                    </View>
-                    <Text className="text-foreground text-sm flex-1" numberOfLines={1}>
-                      {a.name}
-                    </Text>
-                    {/* Only once it is actually shared: an access level on an
-                        album nobody can open says nothing. */}
-                    {on ? (
-                      <AccessChip
-                        value={level}
-                        onChange={(next) =>
-                          setPickedAlbums((prev) => ({ ...prev, [a.id]: next }))
-                        }
-                      />
-                    ) : (
-                      <Text className="text-muted-foreground text-xs">{a.item_count}</Text>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          )}
-
-          <View className="flex-row gap-3 mt-5">
-            <Pressable
-              onPress={() => setEditing(null)}
-              className="flex-1 bg-muted rounded-2xl py-3.5 items-center active:scale-[0.97]"
-            >
-              <Text className="text-foreground text-base font-semibold">Cancel</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                if (!editing) return;
-                saveAccess.mutate(
-                  {
-                    id: editing.id,
-                    albums: Object.entries(pickedAlbums).map(([album_id, media_access]) => ({
-                      album_id,
-                      media_access,
-                    })),
-                  },
-                  {
-                    onSuccess: () => setEditing(null),
-                    onError: (err: any) =>
-                      Alert.alert('Could not save', err?.message || 'Please try again.'),
-                  },
-                );
-              }}
-              disabled={saveAccess.isPending}
-              className="flex-[2] bg-action rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97]"
-            >
-              {saveAccess.isPending && <ActivityIndicator size="small" color="#FFFFFF" />}
-              <Text className="text-white text-base font-bold">
-                {saveAccess.isPending ? 'Saving…' : 'Save access'}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }

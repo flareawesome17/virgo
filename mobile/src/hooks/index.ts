@@ -17,6 +17,9 @@ export {
   useCreateWorkspace,
   useUpdateWorkspace,
   useDeleteWorkspace,
+  useWorkspaceMembers,
+  useWorkspaceActivity,
+  useLeaveWorkspace,
 } from '@/src/hooks/useWorkspaces'
 
 export {
@@ -54,6 +57,7 @@ export {
   useRespondToInvitation,
   useSetCollaboratorAlbums,
   useCollaboratorAlbums,
+  useResendInvitation,
 } from '@/src/hooks/useCollaborators'
 
 export {
