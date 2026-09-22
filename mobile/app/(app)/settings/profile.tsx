@@ -286,7 +286,7 @@ export default function ProfileSettingsScreen() {
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
-          <Text className="text-foreground text-[22px] font-bold tracking-tight">Profile</Text>
+          <Text className="text-foreground text-[22px] font-bold tracking-tight">Edit profile</Text>
         </View>
 
         {/* Avatar */}

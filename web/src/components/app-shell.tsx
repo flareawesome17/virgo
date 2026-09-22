@@ -71,7 +71,7 @@ interface NavItem {
 const NAV: { heading?: string; items: NavItem[] }[] = [
   {
     items: [
-      { href: '/', label: 'Home', icon: Home },
+      { href: '/', label: 'Dashboard', icon: Home },
       { href: '/workspaces', label: 'Workspaces', icon: FolderOpen, badge: 'invitations' },
       // Every album across every workspace. There was no way to reach an album
       // on the web without first remembering which workspace it was in.

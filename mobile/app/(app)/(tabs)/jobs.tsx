@@ -16,8 +16,8 @@ cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color:
  * screen so the bottom bar stays put: leaving Jobs for Workspaces is one tap,
  * not a back gesture and then a tap.
  *
- * Hidden from the bottom bar itself (see _layout.tsx): Feed and Jobs are the
- * two tabs in the top bar, and repeating one of them below would be the same
+ * Hidden from the bottom bar itself (see _layout.tsx): Dashboard and Jobs are
+ * the tabs in the top bar, and repeating one of them below would be the same
  * destination twice.
  */
 export default function JobsScreen() {

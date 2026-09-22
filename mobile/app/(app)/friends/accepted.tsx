@@ -57,7 +57,7 @@ export default function FriendRequestAcceptedScreen() {
 
           <Pressable onPress={() => router.navigate('/')}
             className="py-3 items-center active:scale-[0.97]">
-            <Text className="text-primary text-sm font-semibold">Go to Home</Text>
+            <Text className="text-primary text-sm font-semibold">Go to Dashboard</Text>
           </Pressable>
         </View>
       </View>

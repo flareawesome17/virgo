@@ -78,7 +78,7 @@ export default function HomePage() {
   ];
 
   return (
-    <AppShell title="Home">
+    <AppShell title="Dashboard">
       <PageHeader
         title={`${greeting()}${name ? `, ${name}` : ''}`}
         description="Everything on your plate today."
