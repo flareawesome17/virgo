@@ -6,8 +6,9 @@ const view: PublicAlbumView = {
   kinds: ['image', 'video', 'audio'],
   sections: [{ id: 'sec-1', name: 'Ceremony <b>', count: 1 }],
   picks: { enabled: true, count: 0, sentAt: null },
+  downloads: true,
   total: 1,
-  totalBytes: 1024,
+  totalBytes: 250 * 1024 * 1024,
   nextCursor: null,
   counts: { image: 1, video: 0, audio: 0 },
   files: [{
@@ -77,6 +78,35 @@ describe('client gallery template', () => {
     expect(html).toContain("base + '/picks'");
     expect(html).toContain("base + '/picks/send'");
     expect(html).toContain('href="/s/token-value/picks.zip"');
+  });
+
+  it('offers the whole delivery, and says how big it is, on a client link', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    expect(html).toContain('Private delivery');
+    expect(html).toContain('href="/s/token-value/download.zip"');
+    expect(html).toContain('250 MB');
+  });
+
+  it('offers nothing to download on a portfolio link, and no sizes', () => {
+    // The gallery a public profile's album card opens: a stranger looking at
+    // renditions, not a client taking delivery of files.
+    const portfolio: PublicAlbumView = {
+      ...view,
+      picks: { enabled: false, count: 0, sentAt: null },
+      downloads: false,
+      totalBytes: 0,
+      files: view.files.map((file) => ({ ...file, downloadUrl: null, sizeBytes: 0 })),
+    };
+    const html = renderClientGallery(portfolio, 'token-value', 'nonce-value');
+    expect(html).toContain('<p class="eyebrow">Portfolio</p>');
+    expect(html).not.toContain('Private delivery');
+    expect(html).not.toContain('download.zip');
+    expect(html).not.toMatch(/\d+ MB|<1 MB|\d+\.\d GB/);
+    // The viewers hide their download buttons for a file with no download
+    // link, and the page makes `hidden` win over the buttons' own display.
+    expect(html).toContain("el('viewerDownload').hidden = !file.downloadUrl;");
+    expect(html).toContain("el('videoDownload').hidden = !file.downloadUrl;");
+    expect(html).toContain('[hidden] { display:none !important; }');
   });
 
   it('keeps secondary text on the dark panel at a readable contrast', () => {

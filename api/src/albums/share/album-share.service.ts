@@ -133,7 +133,16 @@ export interface PublicAlbumView {
    * public, so on one `enabled` is false and nothing can be marked.
    */
   picks: { enabled: boolean; count: number; sentAt: string | null };
-  /** Every byte the link covers, for the "Download all" button to declare. */
+  /**
+   * Whether this link hands over files at all. True only for a client
+   * delivery. A portfolio link is reached from a public profile, so it shows
+   * renditions and offers no download, no zip and no original filename.
+   */
+  downloads: boolean;
+  /**
+   * Every byte the link covers, for the "Download all" button to declare.
+   * 0 on a portfolio link, which has no such button.
+   */
   totalBytes: number;
   total: number;
   nextCursor: string | null;
@@ -568,6 +577,17 @@ export class AlbumShareService {
     const hasMore = files.length > limit;
     const pageFiles = hasMore ? files.slice(0, limit) : files;
 
+    // A portfolio link is the one a public profile's album card opens, so it
+    // shows only what a rendition can stand in for, and never signs an
+    // original: the camera file carries its EXIF, GPS included. A photograph
+    // with neither a thumbnail nor a display copy is left out rather than
+    // sent whole. The cursor still comes from the page as fetched, so paging
+    // is unchanged, and each file keeps its own place in the numbering.
+    const portfolio = link.purpose === 'portfolio';
+    const shown = portfolio
+      ? pageFiles.filter((f) => f.thumb_key || f.display_widths?.length)
+      : pageFiles;
+
     // The kind counts follow the chapter and the picks filter, so each tab
     // counts what is on screen. The totals are the whole link: they are what
     // "Download all" is about to hand over.
@@ -620,27 +640,29 @@ export class AlbumShareService {
     // because the download carries a signed Content-Disposition — the only
     // way to make a cross-origin link actually save instead of opening — and
     // that is part of what is signed, so it cannot be bolted on afterwards.
-    const names = pageFiles.map((f) =>
+    const names = shown.map((f) =>
       deliveryName(link.name, Number(f.position) - 1, f.key),
     );
     const [urls, thumbUrls, posterUrls, downloadUrls] = await Promise.all([
       this.storage.mediaUrls(
-        pageFiles.map((f) => f.key),
+        shown.map((f) => (portfolio ? null : f.key)),
         PUBLISHED_URL_TTL_SECONDS,
       ),
       this.storage.mediaUrls(
-        pageFiles.map((f) => f.thumb_key),
+        shown.map((f) => f.thumb_key),
         PUBLISHED_URL_TTL_SECONDS,
       ),
       this.storage.mediaUrls(
-        pageFiles.map((f) => f.poster_key),
+        shown.map((f) => f.poster_key),
         PUBLISHED_URL_TTL_SECONDS,
       ),
-      this.storage.mediaUrls(
-        pageFiles.map((f) => f.key),
-        PUBLISHED_URL_TTL_SECONDS,
-        names,
-      ),
+      portfolio
+        ? Promise.resolve(shown.map(() => null))
+        : this.storage.mediaUrls(
+            shown.map((f) => f.key),
+            PUBLISHED_URL_TTL_SECONDS,
+            names,
+          ),
     ]);
 
     return {
@@ -652,7 +674,8 @@ export class AlbumShareService {
         count: Number(summary?.picked_count ?? 0),
         sentAt: link.picks_sent_at ? link.picks_sent_at.toISOString() : null,
       },
-      totalBytes: Number(summary?.total_bytes ?? 0),
+      downloads: link.purpose === 'client',
+      totalBytes: portfolio ? 0 : Number(summary?.total_bytes ?? 0),
       total: Number(summary?.total ?? 0),
       counts: {
         image: Number(summary?.image_count ?? 0),
@@ -663,35 +686,44 @@ export class AlbumShareService {
         hasMore && pageFiles.at(-1)
           ? encodeFileCursor(pageFiles.at(-1)!.sort_at, pageFiles.at(-1)!.key, 'oldest')
           : null,
-      files: pageFiles.map((f, i) => ({
-        id: f.id,
-        url: urls[i],
-        thumbUrl: thumbUrls[i],
-        posterUrl: posterUrls[i],
-        proxyUrl: this.mediaLink.url(f.proxy_key, PUBLISHED_URL_TTL_SECONDS),
-        displaySources: this.mediaLink.displaySources(
+      files: shown.map((f, i) => {
+        const displaySources = this.mediaLink.displaySources(
           f.key,
           f.display_widths,
           PUBLISHED_URL_TTL_SECONDS,
-        ),
-        hlsUrl: this.mediaLink.hlsUrl(f.hls_prefix, PUBLISHED_URL_TTL_SECONDS),
-        blurDataUrl: f.blur_data_url,
-        downloadUrl: downloadUrls[i],
-        downloadName: names[i],
-        takenAt: f.taken_at,
-        createdAt: f.created_at.toISOString(),
-        contentType: f.content_type,
-        sizeBytes: Number(f.size_bytes),
-        originalName: f.original_name ?? f.key.split('/').pop() ?? f.key,
-        width: f.width_px,
-        height: f.height_px,
-        durationMs: f.duration_ms ? Number(f.duration_ms) : null,
-        mediaTitle: f.media_title,
-        mediaArtist: f.media_artist,
-        processingStatus: f.processing_status,
-        sectionId: f.section_id,
-        picked: link.purpose === 'client' && f.picked,
-      })),
+        );
+        return {
+          id: f.id,
+          // On a portfolio link the widest rendition there is, never the file.
+          url: portfolio ? (displaySources.at(-1)?.url ?? thumbUrls[i] ?? null) : urls[i],
+          thumbUrl: thumbUrls[i],
+          posterUrl: posterUrls[i],
+          proxyUrl: this.mediaLink.url(f.proxy_key, PUBLISHED_URL_TTL_SECONDS),
+          displaySources,
+          hlsUrl: this.mediaLink.hlsUrl(f.hls_prefix, PUBLISHED_URL_TTL_SECONDS),
+          blurDataUrl: f.blur_data_url,
+          downloadUrl: downloadUrls[i],
+          downloadName: names[i],
+          takenAt: f.taken_at,
+          createdAt: f.created_at.toISOString(),
+          contentType: f.content_type,
+          // The delivery name, without its extension, and no size: what the
+          // file was called on the photographer's laptop, and how big the
+          // original is, are nothing a stranger on a profile needs.
+          sizeBytes: portfolio ? 0 : Number(f.size_bytes),
+          originalName: portfolio
+            ? names[i].replace(/\.[^.]+$/, '')
+            : (f.original_name ?? f.key.split('/').pop() ?? f.key),
+          width: f.width_px,
+          height: f.height_px,
+          durationMs: f.duration_ms ? Number(f.duration_ms) : null,
+          mediaTitle: f.media_title,
+          mediaArtist: f.media_artist,
+          processingStatus: f.processing_status,
+          sectionId: f.section_id,
+          picked: link.purpose === 'client' && f.picked,
+        };
+      }),
     };
   }
 
@@ -846,6 +878,9 @@ export class AlbumShareService {
     files: { key: string; name: string }[];
   }> {
     const link = await this.linkFor(token);
+    // A portfolio link offers no download. Nothing to zip is the existing
+    // "Nothing to download" 404, the same answer as an empty album.
+    if (link.purpose === 'portfolio') return { albumName: link.name, files: [] };
     const files = await this.db.query<{ key: string }>(
       `select key
          from user_files

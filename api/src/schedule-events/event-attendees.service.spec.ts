@@ -153,7 +153,7 @@ describe('EventAttendeesService.invite', () => {
     const h = harness({ friends: false });
 
     await expect(h.service.invite(ORGANISER, EVENT, [GUEST])).rejects.toThrow(
-      new ForbiddenException('You can only invite people you are friends with'),
+      new ForbiddenException('You can only invite people you are connected with'),
     );
     expect(h.clashes()).toHaveLength(0);
     expect(h.inserts()).toHaveLength(0);

@@ -126,7 +126,7 @@ export class EventAttendeesService {
     for (const id of unique) {
       if (!(await this.friends.areFriends(userId, id))) {
         throw new ForbiddenException(
-          'You can only invite people you are friends with',
+          'You can only invite people you are connected with',
         );
       }
     }

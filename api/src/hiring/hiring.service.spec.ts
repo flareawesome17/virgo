@@ -367,7 +367,7 @@ describe('HiringService.respond', () => {
   it('keeps the booking but writes no card and tells no applicant when a block lands after', async () => {
     const h = harness({
       openDirect: async () => {
-        throw new ForbiddenException('You can only chat with people you are friends with');
+        throw new ForbiddenException('You can only chat with people you are connected with');
       },
     });
 

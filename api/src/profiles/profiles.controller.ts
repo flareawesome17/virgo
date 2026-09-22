@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -23,6 +24,16 @@ export class SetHandleDto {
 export class PublishDto {
   @IsBoolean()
   published!: boolean;
+}
+
+/**
+ * A cover, named by the object key its upload was given. Never a URL: the
+ * server builds that itself from an object it re-encoded.
+ */
+export class SetCoverDto {
+  @IsString()
+  @MaxLength(1024)
+  key!: string;
 }
 
 /**
@@ -58,6 +69,29 @@ export class MyProfileController {
   @Get()
   settings(@CurrentUser('id') userId: string) {
     return this.profiles.settings(userId);
+  }
+
+  /**
+   * The owner's own page, published or not. A GET, so an account that has
+   * not verified its email can still see what it is building.
+   */
+  @Get('page')
+  page(@CurrentUser('id') userId: string) {
+    return this.profiles.ownerPage(userId);
+  }
+
+  // A write per call and a delete behind it, so tighter than the global limit.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @HttpCode(200)
+  @Patch('cover')
+  setCover(@CurrentUser('id') userId: string, @Body() dto: SetCoverDto) {
+    return this.profiles.setCover(userId, dto.key);
+  }
+
+  @HttpCode(200)
+  @Delete('cover')
+  removeCover(@CurrentUser('id') userId: string) {
+    return this.profiles.removeCover(userId);
   }
 
   @Throttle({ default: { limit: 20, ttl: 60_000 } })

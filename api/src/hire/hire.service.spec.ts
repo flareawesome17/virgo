@@ -190,7 +190,7 @@ describe('HireService.accept', () => {
   it('keeps the acceptance but tells nobody when a block lands after the commit', async () => {
     const h = harness({
       openDirect: async () => {
-        throw new ForbiddenException('You can only chat with people you are friends with');
+        throw new ForbiddenException('You can only chat with people you are connected with');
       },
     });
 

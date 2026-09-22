@@ -8,6 +8,7 @@ import {
 import type { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
 import { NotifyService } from '../notifications/notify.service';
+import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
 
 /** The two people on a booking, and which one the reader is. */
 export type BookingSide = 'poster' | 'creative';
@@ -418,6 +419,29 @@ export class BookingsService {
       [userId, applicationId],
     );
     return row ? this.present(row, userId) : null;
+  }
+
+  /**
+   * Jobs this person finished as the creative: agreed, not cancelled, and
+   * dated before today in Manila. The count on a profile's stats line.
+   *
+   * "Today" is Manila's, bound as a parameter, never current_date. That
+   * follows the session's zone, which nothing sets and so is most likely
+   * UTC, and would leave yesterday's job uncounted for the first eight hours
+   * of every Manila morning. An undated booking is never done: nobody can
+   * say when it happened.
+   */
+  async jobsDoneCount(userId: string): Promise<number> {
+    const row = await this.db.queryOne<{ n: number }>(
+      `select count(*)::int as n
+         from job_bookings jb
+        where jb.creative_id = $1
+          and jb.creative_confirmed_at is not null
+          and jb.cancelled_at is null
+          and jb.event_date < (now() at time zone $2::text)::date`,
+      [userId, MEDIA_LOCAL_ZONE],
+    );
+    return Number(row?.n ?? 0);
   }
 
   /** Refuses a caller who is on neither side. Used by the controller guard. */

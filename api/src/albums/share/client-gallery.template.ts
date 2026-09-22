@@ -31,6 +31,11 @@ const PAGE_STYLE = `
   button,a { -webkit-tap-highlight-color:transparent; }
   button:focus-visible,a:focus-visible,input:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
   .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  /* The page's own display rules (.round is a grid, .more a block) outrank the
+     browser's rule for [hidden], so without this nothing the script hides —
+     the viewer's download button on a portfolio link, the pick heart, Load
+     more — would actually disappear. */
+  [hidden] { display:none !important; }
   @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation:none!important; transition:none!important; } }
 `;
 
@@ -136,12 +141,12 @@ ${PAGE_STYLE}
 </style></head><body>
 <div class="shell">
   <header class="hero"><div class="hero-in">
-    <p class="eyebrow">Private delivery</p>
+    <p class="eyebrow">${view.downloads ? 'Private delivery' : 'Portfolio'}</p>
     <h1>${esc(view.album.name)}</h1>
     ${view.album.description ? `<p class="desc">${esc(view.album.description)}</p>` : ''}
     <div class="summary">
-      <span>${view.total} item${view.total === 1 ? '' : 's'} · ${bytesLabel(view.totalBytes)}</span>
-      <span class="actions">${view.total > 0 ? `<a class="grab" href="/s/${esc(token)}/download.zip">${DOWNLOAD_ICON}Download all</a>` : ''}</span>
+      <span>${view.total} item${view.total === 1 ? '' : 's'}${view.downloads ? ` · ${bytesLabel(view.totalBytes)}` : ''}</span>
+      <span class="actions">${view.downloads && view.total > 0 ? `<a class="grab" href="/s/${esc(token)}/download.zip">${DOWNLOAD_ICON}Download all</a>` : ''}</span>
     </div>
   </div></header>
   ${hasSections ? '<nav id="chapters" class="chapters" aria-label="Chapters"></nav>' : ''}
@@ -411,6 +416,8 @@ ${PAGE_STYLE}
     shown.alt = file.originalName;
     el('viewerName').textContent = file.originalName;
     el('viewerCount').textContent = (photoIndex + 1) + ' / ' + photoList.length;
+    // No download on a link that offers none, rather than one that opens the rendition.
+    el('viewerDownload').hidden = !file.downloadUrl;
     el('viewerDownload').href = file.downloadUrl || file.url || '';
     syncViewerPick();
   }
@@ -437,6 +444,7 @@ ${PAGE_STYLE}
     video.poster = file.posterUrl || '';
     el('videoName').textContent = file.originalName;
     el('videoMeta').textContent = duration(file.durationMs);
+    el('videoDownload').hidden = !file.downloadUrl;
     el('videoDownload').href = file.downloadUrl || file.url || '';
     el('videoViewer').classList.add('open'); document.body.style.overflow = 'hidden';
     video.load(); video.play().catch(() => {});

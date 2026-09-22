@@ -368,11 +368,19 @@ export class QuotaService {
     if (used + additionalBytes > limits.storageBytes) {
       const gb = (limits.storageBytes / 1024 ** 3).toFixed(0);
       const remaining = Math.max(limits.storageBytes - used, 0);
-      throw new ForbiddenException(
-        whose === 'yours'
-          ? `That upload would exceed your ${gb} GB of storage. ${formatBytes(remaining)} remaining.`
-          : `The album's owner does not have room for that upload: ${formatBytes(remaining)} of their ${gb} GB remaining. Uploads here count toward their storage, not yours.`,
-      );
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'Forbidden',
+        // A marker as well as the sentence, so a client can put storage-full
+        // copy of its own in front of somebody, and tell this refusal apart
+        // from every other 403, without matching on words that give the
+        // numbers and may change.
+        code: 'STORAGE_FULL',
+        message:
+          whose === 'yours'
+            ? `That upload would exceed your ${gb} GB of storage. ${formatBytes(remaining)} remaining.`
+            : `The album's owner does not have room for that upload: ${formatBytes(remaining)} of their ${gb} GB remaining. Uploads here count toward their storage, not yours.`,
+      });
     }
   }
 
@@ -394,9 +402,16 @@ export class QuotaService {
     },
   ): Promise<boolean> {
     const kind = file.contentType?.split('/')[0];
-    const processingStatus = ['image', 'video', 'audio'].includes(kind ?? '')
-      ? 'pending'
-      : 'not_required';
+    // Avatars and covers are re-encoded in place inside confirm, which also
+    // records their size, type and dimensions. The worker's probe could only
+    // race that rewrite, and write back the dimensions of an original that
+    // is no longer there.
+    const processingStatus =
+      file.scope === 'avatars' || file.scope === 'covers'
+        ? 'not_required'
+        : ['image', 'video', 'audio'].includes(kind ?? '')
+          ? 'pending'
+          : 'not_required';
     const rows = await this.db.query<{ inserted: boolean }>(
       `insert into user_files
          (user_id, key, size_bytes, content_type, scope, album_id,
@@ -795,6 +810,39 @@ export class QuotaService {
     return this.db.query<Pick<StoredFile, 'key' | 'thumb_key' | 'poster_key'>>(
       'select key, thumb_key, poster_key from user_files where user_id = $1',
       [userId],
+    );
+  }
+
+  /**
+   * The profile cover this user has set, as the whole URL it is stored as.
+   *
+   * Here, beside the file rows, because this service is how storage reaches
+   * Postgres, and a cover is an object in the bucket whose only reliable
+   * record is this column: its user_files row can be gone while the object
+   * and the URL are not. An API image from before covers deletes a cover's
+   * row through the file list and misses the object.
+   */
+  async coverUrl(userId: string): Promise<string | null> {
+    const row = await this.db.queryOne<{ cover_url: string | null }>(
+      'select cover_url from users where id = $1',
+      [userId],
+    );
+    return row?.cover_url ?? null;
+  }
+
+  /**
+   * Takes a cover off the profile, once the object it named is gone.
+   *
+   * Only while the column still holds that same URL, so a cover saved while
+   * a wipe was running is not cleared by it.
+   */
+  async forgetCover(userId: string, url: string): Promise<void> {
+    await this.db.query(
+      `update users
+          set cover_url = null, updated_at = now()
+        where id = $1
+          and cover_url = $2`,
+      [userId, url],
     );
   }
 
