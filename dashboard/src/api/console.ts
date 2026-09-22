@@ -35,7 +35,13 @@ export interface Overview {
     openJobs: number;
     applications: number;
     openTickets: number;
+    /** Reported job posts. People have their own count, below. */
     reports: number;
+    /**
+     * Reported accounts. Optional because an API rolled back to before people
+     * could be reported leaves it out, and the badge must still add up.
+     */
+    userReports?: number;
   };
   signups: { day: string; count: number }[];
   uploads: { day: string; count: number; bytes: string | number }[];
@@ -59,7 +65,19 @@ export interface AdminUserRow {
   created_at: string;
   last_seen_at: string | null;
   email_verified_at: string | null;
+  /**
+   * Set by a console suspension and by a self-pause alike, and kept after a
+   * pause ends, so it cannot say which. Read only when the API predates
+   * `suspended_at`.
+   */
   disabled_at: string | null;
+  /**
+   * A console suspension. Absent, not null, when the API predates it, which
+   * is how the badge knows to fall back to `disabled_at`.
+   */
+  suspended_at?: string | null;
+  /** The end of a pause the person chose themselves. */
+  disabled_until?: string | null;
   handle: string | null;
   public_profile: boolean;
   /** What the account is currently holding. */
@@ -75,6 +93,27 @@ export interface AdminUserRow {
   /** How much of `storage_limit_bytes` came from promos rather than the plan. */
   storage_bonus_bytes: number;
   albums: number;
+}
+
+/** Somebody in the app reported an account. Mirrors AdminService.userReports. */
+export interface UserReportRow {
+  id: string;
+  /** spam, scam, harassment, impersonation, inappropriate or other. */
+  reason: string;
+  note: string | null;
+  /** Where in the app it was made: profile, chat, nearby, applicants, enquiries or job. */
+  source: string | null;
+  created_at: string;
+  target_id: string;
+  target_name: string;
+  target_handle: string | null;
+  target_email: string;
+  target_suspended_at: string | null;
+  /** Null once the reporter deletes their account; the report is kept. */
+  reporter_id: string | null;
+  reporter_email: string | null;
+  /** Every report against this account, from anyone, not just this one. */
+  target_report_count: number;
 }
 
 export interface Ticket {
@@ -177,6 +216,8 @@ export const console_ = {
     api.post(`/admin/share-links/${id}/revoke`),
   jobReports: (p: { limit?: number; offset?: number }) =>
     api.get<Paged<Record<string, unknown>>>(`/admin/job-reports${qs(p)}`),
+  userReports: (p: { limit?: number; offset?: number }) =>
+    api.get<Paged<UserReportRow>>(`/admin/user-reports${qs(p)}`),
   setJobHidden: (id: string, hidden: boolean) =>
     api.patch(`/admin/jobs/${id}/hidden`, { hidden }),
 

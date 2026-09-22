@@ -78,7 +78,11 @@ export default function ConsoleLayout({
           overview
             ? {
                 openTickets: overview.totals.openTickets,
-                reports: overview.totals.reports,
+                // Both kinds land on the Content page's Reports tab, so the
+                // badge counts both. `reports` stays job posts only in the
+                // API, which is what the previous console still reads.
+                reports:
+                  overview.totals.reports + (overview.totals.userReports ?? 0),
               }
             : undefined
         }

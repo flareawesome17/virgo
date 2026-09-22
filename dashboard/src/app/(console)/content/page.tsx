@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
 import {
   useAlbums,
   useJobReports,
@@ -8,6 +8,7 @@ import {
   useRevokeShareLink,
   useSetJobHidden,
   useShareLinks,
+  useUserReports,
 } from '@/hooks/useConsole';
 import {
   DataState,
@@ -32,7 +33,7 @@ export default function ContentPage() {
     <>
       <PageHeader
         title="Content"
-        description="Albums, the client links that expose them, and reported job posts."
+        description="Albums, the client links that expose them, and reports about people and job posts."
       />
       <Tabs defaultValue="albums">
         <TabsList>
@@ -185,6 +186,87 @@ function ShareLinks() {
 }
 
 function Reports() {
+  return (
+    <div className="space-y-8">
+      <section>
+        <h2 className="mb-3 text-sm font-semibold">People</h2>
+        <PeopleReports />
+      </section>
+      <section>
+        <h2 className="mb-3 text-sm font-semibold">Job posts</h2>
+        <JobReports />
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Accounts somebody in the app reported, newest first.
+ *
+ * Nothing is actioned from here. Suspending lives on the account page behind
+ * users.disable, and this list is content.read, so a viewer can read the
+ * reports without being handed the switch.
+ */
+function PeopleReports() {
+  const { data, isLoading, isError, refetch } = useUserReports({ limit: 50 });
+
+  return (
+    <DataState
+      isLoading={isLoading}
+      isError={isError}
+      isEmpty={!!data && data.data.length === 0}
+      emptyLabel="Nobody has been reported"
+      onRetry={() => void refetch()}
+    >
+      <div className="space-y-3">
+        {data?.data.map((row) => (
+          <div key={row.id} className="rounded-lg border p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium">
+                  {row.target_name}{' '}
+                  <span className="font-normal text-muted-foreground">
+                    {row.target_handle ? `@${row.target_handle}` : 'no handle'}
+                  </span>
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Reported by {row.reporter_email ?? 'a deleted account'} ·{' '}
+                  {when(row.created_at)}
+                  {row.source ? ` · from ${row.source}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {row.target_suspended_at && (
+                  <Badge variant="destructive">Suspended</Badge>
+                )}
+                {/* Every report against the account, not just this one: one
+                    complaint reads differently from the fifth. */}
+                <Badge variant="secondary">
+                  {row.target_report_count}{' '}
+                  {row.target_report_count === 1 ? 'report' : 'reports'}
+                </Badge>
+                <Button asChild size="sm" variant="secondary">
+                  <Link href={`/virgo-users/${row.target_id}`}>Open account</Link>
+                </Button>
+              </div>
+            </div>
+            <p className="mt-2 text-sm font-medium capitalize">{row.reason}</p>
+            {row.note && (
+              // Their own words, so line breaks are kept. `anywhere` rather
+              // than `break-word`: only it lowers the min-content width, and a
+              // pasted link otherwise stretches the whole console sideways.
+              <p className="mt-2 whitespace-pre-wrap wrap-anywhere rounded bg-muted/50 px-3 py-2 text-sm">
+                {row.note}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </DataState>
+  );
+}
+
+function JobReports() {
   const { can } = useMe();
   const { data, isLoading, isError, refetch } = useJobReports({ limit: 50 });
   const setHidden = useSetJobHidden();

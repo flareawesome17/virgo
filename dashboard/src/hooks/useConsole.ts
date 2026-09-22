@@ -17,6 +17,7 @@ export const keys = {
   albums: (p: unknown) => ['albums', p] as QueryKey,
   shareLinks: (p: unknown) => ['shareLinks', p] as QueryKey,
   jobReports: (p: unknown) => ['jobReports', p] as QueryKey,
+  userReports: (p: unknown) => ['userReports', p] as QueryKey,
   subscriptions: (p: unknown) => ['subscriptions', p] as QueryKey,
   health: ['health'] as QueryKey,
   tickets: (p: unknown) => ['tickets', p] as QueryKey,
@@ -65,6 +66,10 @@ export function useShareLinks(p: { limit?: number; offset?: number }) {
 
 export function useJobReports(p: { limit?: number; offset?: number }) {
   return useQuery({ queryKey: keys.jobReports(p), queryFn: () => console_.jobReports(p) });
+}
+
+export function useUserReports(p: { limit?: number; offset?: number }) {
+  return useQuery({ queryKey: keys.userReports(p), queryFn: () => console_.userReports(p) });
 }
 
 export function useSubscriptions(p: { status?: string; limit?: number; offset?: number }) {
@@ -130,7 +135,12 @@ export function useSetUserDisabled(userId: string) {
   return useConsoleMutation(
     ({ disabled, reason }: { disabled: boolean; reason?: string }) =>
       console_.setUserDisabled(userId, disabled, reason),
-    { success: 'Account updated', invalidate: [keys.user(userId), ['users']] },
+    {
+      success: 'Account updated',
+      // The people reports carry the target's suspension, and a moderator
+      // who suspends from a report goes straight back to that list.
+      invalidate: [keys.user(userId), ['users'], ['userReports']],
+    },
   );
 }
 

@@ -10,6 +10,7 @@ import {
   bytes,
   when,
 } from '@/components/console/primitives';
+import { isPaused, isSuspended } from '@/lib/account-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -134,8 +135,10 @@ export default function VirgoUsersPage() {
                         {when(u.last_seen_at)}
                       </TableCell>
                       <TableCell>
-                        {u.disabled_at ? (
-                          <Badge variant="destructive">Disabled</Badge>
+                        {isSuspended(u) ? (
+                          <Badge variant="destructive">Suspended</Badge>
+                        ) : isPaused(u) ? (
+                          <Badge variant="outline">Paused</Badge>
                         ) : !u.email_verified_at ? (
                           <Badge variant="outline">Unverified</Badge>
                         ) : (
