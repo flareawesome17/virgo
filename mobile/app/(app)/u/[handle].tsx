@@ -249,9 +249,28 @@ export default function ProfileScreen() {
           emptyState={
             <View className="items-center px-5 py-10">
               <BriefcaseIcon size={26} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-[13px] text-center mt-3 leading-5">
-                {first} has not added any work yet. You can still send an enquiry.
-              </Text>
+              {/* This screen is reached from "View my profile" as well, and
+                  addressing somebody in the third person about their own empty
+                  page invited them to send themselves an enquiry. */}
+              {isSelf ? (
+                <>
+                  <Text className="text-muted-foreground text-[13px] text-center mt-3 leading-5">
+                    You have not added any work yet. This is the first thing
+                    someone looks at before they get in touch.
+                  </Text>
+                  <Pressable
+                    className="bg-action rounded-xl px-5 py-2.5 mt-4 active:opacity-90"
+                    accessibilityRole="button"
+                    onPress={() => router.push('/settings/public-profile')}
+                  >
+                    <Text className="text-action-foreground text-[13px] font-bold">Add work</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Text className="text-muted-foreground text-[13px] text-center mt-3 leading-5">
+                  {first} has not added any work yet. You can still send an enquiry.
+                </Text>
+              )}
             </View>
           }
         />

@@ -149,7 +149,16 @@ export async function renderAvatar(
 }
 
 /** The profile actions that can fail in front of somebody. */
-export type ProfileAction = 'cover' | 'photo' | 'setting' | 'connect' | 'accept' | 'message';
+export type ProfileAction =
+  | 'cover'
+  | 'photo'
+  | 'setting'
+  | 'connect'
+  | 'accept'
+  | 'message'
+  | 'showcase'
+  | 'unshowcase'
+  | 'reorder';
 
 const ACTION_COPY: Record<ProfileAction, string> = {
   cover: "Couldn't update your cover. Try again later.",
@@ -158,6 +167,9 @@ const ACTION_COPY: Record<ProfileAction, string> = {
   connect: "Couldn't send the request. Try again.",
   accept: "Couldn't accept the request. Try again.",
   message: "Couldn't open the chat. Try again.",
+  showcase: "Couldn't add that to your portfolio. Try again.",
+  unshowcase: "Couldn't remove that. Try again.",
+  reorder: "Couldn't save the new order. Try again.",
 };
 
 const OFFLINE = 'Check your connection and try again.';
@@ -206,6 +218,15 @@ export function profileActionMessage(err: unknown, action: ProfileAction): strin
     return 'Confirm your email address first. The link is in your inbox.';
   }
   if (code === 'COVER_UNUSABLE') return "That photo couldn't be used as a cover. Try a different one.";
+  // Both are the server refusing one photograph, and both name what to do
+  // about it. Restated here rather than shown from the body: an API that
+  // predates these codes answers the same 400 with developer text.
+  if (code === 'PORTFOLIO_TOO_LARGE') {
+    return 'That photo is too large to show on your profile. Choose one under 40 MB.';
+  }
+  if (code === 'PORTFOLIO_NO_WEB_COPY') {
+    return "That photo can't be shown on your profile. Try a JPEG or PNG copy of it.";
+  }
   if (code === 'AVATAR_UNUSABLE' && action === 'photo') {
     return "That photo couldn't be used. Try a different one.";
   }
