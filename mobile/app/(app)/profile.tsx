@@ -387,7 +387,7 @@ export default function YourProfileScreen() {
           { label: 'Remove cover', destructive: true, onPress: cover.confirmRemove },
         ]}
       />
-      {cover.sheet}
+      {cover.dialog}
     </SafeAreaView>
   );
 }

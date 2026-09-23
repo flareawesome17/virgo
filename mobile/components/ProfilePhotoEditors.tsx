@@ -11,7 +11,6 @@ import {
   useWindowDimensions,
   type AccessibilityActionEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { RemoteImage } from '@/components/RemoteImage';
 import {
@@ -58,10 +57,18 @@ function layoutFor(source: CoverSource, frameW: number, frameH: number) {
  * here instead. Where it is left is baked into the pixels before upload, which
  * is why the server stores no focus point and no surface has to agree on one.
  *
+ * A centred dialog, not a bottom sheet. A sheet is for a list of actions, where
+ * the eye goes down to the thumb; this is a picture to look at and adjust, and
+ * anchoring it to the bottom edge left the preview sitting low under a tall
+ * empty scrim, with the photo furthest from where the eye starts. Centred, it
+ * also matches every other prompt in this flow — the permission, the failure
+ * and the remove confirmation are all `Alert`, which is centred on both
+ * platforms.
+ *
  * React Native's own PanResponder and Animated, no gesture library: this ships
  * as an update over the air, and a new native module cannot.
  */
-export function CoverPositionSheet({
+export function CoverPositionDialog({
   visible,
   source,
   busy,
@@ -78,7 +85,10 @@ export function CoverPositionSheet({
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
-  const frameW = width - 32;
+  // The card floats, so it has margins of its own as well as its padding, and
+  // stops widening on a tablet rather than stretching a phone dialog across it.
+  const cardW = Math.min(width - 32, 420);
+  const frameW = cardW - 32;
   const frameH = frameW / COVER_ASPECT;
   const layout = source ? layoutFor(source, frameW, frameH) : null;
   const maxOffset = layout?.maxOffset ?? 0;
@@ -98,7 +108,7 @@ export function CoverPositionSheet({
   };
 
   // Every new photo starts centred, not wherever the last one was left —
-  // before paint, so the sheet never shows it at the top for a frame first.
+  // before paint, so the dialog never shows it at the top for a frame first.
   useLayoutEffect(() => {
     position.current = -maxOffset / 2;
     translateY.setValue(position.current);
@@ -132,79 +142,93 @@ export function CoverPositionSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-      <Pressable className="flex-1 bg-foreground/40" onPress={close} accessibilityLabel="Close" />
-      <SafeAreaView edges={['bottom']} className="bg-background rounded-t-3xl px-4">
-        <View className="pt-5 pb-3">
-          <Text className="text-foreground text-[17px] font-bold">Position your cover</Text>
-          <Text className="text-muted-foreground text-[13px] mt-1">
-            {/* A wide photo has nothing to move up or down; telling someone
-                to drag it would send them hunting for a gesture that does
-                nothing. */}
-            {layout && !layout.pans
-              ? layout.left < -0.5
-                ? 'Its sides are trimmed to fit the cover.'
-                : 'This photo fits the cover as it is.'
-              : 'Drag the photo up or down to choose what shows.'}
-          </Text>
-        </View>
-
-        <View
-          className="rounded-2xl overflow-hidden bg-muted"
-          style={{ width: frameW, height: frameH }}
-          accessible={Boolean(layout?.pans)}
-          accessibilityRole={layout?.pans ? 'adjustable' : undefined}
-          accessibilityLabel="Cover position"
-          accessibilityHint="Swipe up or down to move the photo."
-          accessibilityActions={
-            layout?.pans ? [{ name: 'increment' }, { name: 'decrement' }] : undefined
-          }
-          onAccessibilityAction={onAccessibilityAction}
-          {...(layout?.pans ? responder.panHandlers : {})}
-        >
-          {source && layout && (
-            <Animated.View
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: layout.left,
-                transform: [{ translateY }],
-              }}
-            >
-              <RemoteImage
-                source={{ uri: source.uri }}
-                style={{ width: layout.drawnW, height: layout.drawnH }}
-                contentFit="cover"
-                transition={0}
-              />
-            </Animated.View>
-          )}
-        </View>
-
-        <View className="flex-row gap-3 pt-4 pb-4">
-          <Pressable
-            onPress={close}
-            disabled={busy}
-            accessibilityRole="button"
-            className="flex-1 bg-muted rounded-2xl py-3.5 items-center active:opacity-80"
-            style={{ opacity: busy ? 0.5 : 1 }}
-          >
-            <Text className="text-foreground text-[15px] font-bold">Cancel</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => onConfirm(coverFocusFromOffset(position.current, limit.current))}
-            disabled={busy || !source}
-            accessibilityRole="button"
-            accessibilityState={{ busy, disabled: busy || !source }}
-            className="flex-1 bg-action rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:opacity-90"
-          >
-            {busy && <ActivityIndicator size="small" color={palette.actionForeground} />}
-            <Text className="text-action-foreground text-[15px] font-bold">
-              {busy ? 'Uploading…' : 'Use photo'}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={close}
+    >
+      <View className="flex-1 items-center justify-center">
+        {/* Behind the card rather than around it, so a tap anywhere outside
+            closes without the card having to stop the press itself. */}
+        <Pressable
+          className="absolute top-0 bottom-0 left-0 right-0 bg-foreground/40"
+          onPress={close}
+          accessibilityLabel="Close"
+        />
+        <View className="bg-background rounded-3xl px-4" style={{ width: cardW }}>
+          <View className="pt-5 pb-3">
+            <Text className="text-foreground text-[17px] font-bold">Position your cover</Text>
+            <Text className="text-muted-foreground text-[13px] mt-1">
+              {/* A wide photo has nothing to move up or down; telling someone
+                  to drag it would send them hunting for a gesture that does
+                  nothing. */}
+              {layout && !layout.pans
+                ? layout.left < -0.5
+                  ? 'Its sides are trimmed to fit the cover.'
+                  : 'This photo fits the cover as it is.'
+                : 'Drag the photo up or down to choose what shows.'}
             </Text>
-          </Pressable>
+          </View>
+
+          <View
+            className="rounded-2xl overflow-hidden bg-muted"
+            style={{ width: frameW, height: frameH }}
+            accessible={Boolean(layout?.pans)}
+            accessibilityRole={layout?.pans ? 'adjustable' : undefined}
+            accessibilityLabel="Cover position"
+            accessibilityHint="Swipe up or down to move the photo."
+            accessibilityActions={
+              layout?.pans ? [{ name: 'increment' }, { name: 'decrement' }] : undefined
+            }
+            onAccessibilityAction={onAccessibilityAction}
+            {...(layout?.pans ? responder.panHandlers : {})}
+          >
+            {source && layout && (
+              <Animated.View
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: layout.left,
+                  transform: [{ translateY }],
+                }}
+              >
+                <RemoteImage
+                  source={{ uri: source.uri }}
+                  style={{ width: layout.drawnW, height: layout.drawnH }}
+                  contentFit="cover"
+                  transition={0}
+                />
+              </Animated.View>
+            )}
+          </View>
+
+          <View className="flex-row gap-3 pt-4 pb-5">
+            <Pressable
+              onPress={close}
+              disabled={busy}
+              accessibilityRole="button"
+              className="flex-1 bg-muted rounded-2xl py-3.5 items-center active:opacity-80"
+              style={{ opacity: busy ? 0.5 : 1 }}
+            >
+              <Text className="text-foreground text-[15px] font-bold">Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => onConfirm(coverFocusFromOffset(position.current, limit.current))}
+              disabled={busy || !source}
+              accessibilityRole="button"
+              accessibilityState={{ busy, disabled: busy || !source }}
+              className="flex-1 bg-action rounded-2xl py-3.5 flex-row items-center justify-center gap-2 active:opacity-90"
+            >
+              {busy && <ActivityIndicator size="small" color={palette.actionForeground} />}
+              <Text className="text-action-foreground text-[15px] font-bold">
+                {busy ? 'Uploading…' : 'Use photo'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
@@ -311,8 +335,8 @@ export function useCoverEditor() {
   const uploading = rendering || upload.isPending || setCover.isPending;
   const busy = preparing || uploading || removeCover.isPending;
 
-  const sheet = (
-    <CoverPositionSheet
+  const dialog = (
+    <CoverPositionDialog
       visible={source !== null}
       source={source}
       busy={uploading}
@@ -321,7 +345,7 @@ export function useCoverEditor() {
     />
   );
 
-  return { choose, confirmRemove, busy, sheet };
+  return { choose, confirmRemove, busy, dialog };
 }
 
 /** Profile pictures past this are refused if they could not be scaled down. */

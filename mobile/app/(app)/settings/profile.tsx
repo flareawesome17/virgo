@@ -503,7 +503,7 @@ export default function ProfileSettingsScreen() {
         </Pressable>
       </View>
           </KeyboardAvoidingView>
-      {cover.sheet}
+      {cover.dialog}
     </SafeAreaView>
   );
 }
