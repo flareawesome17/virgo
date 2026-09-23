@@ -27,7 +27,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
-import { SITE } from '@/src/lib/profile-media';
+import { SITE, profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [
@@ -59,7 +59,17 @@ export default function PublicProfileScreen() {
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { settings, isLoading } = useProfileSettings();
   const setPublished = useSetPublished();
-  const { items, images, albums, loadFailed, refetch } = usePortfolio();
+  // `portfolioLoading` is not optional dressing. Without it the section falls
+  // straight to its empty branch while the list is still in flight, and tells
+  // somebody who has twenty photographs that there is nothing here yet.
+  const {
+    items,
+    images,
+    albums,
+    loadFailed,
+    refetch,
+    isLoading: portfolioLoading,
+  } = usePortfolio();
   const { remove, reorder } = usePortfolioActions();
 
   const [picking, setPicking] = useState<'images' | 'albums' | null>(null);
@@ -78,7 +88,12 @@ export default function PublicProfileScreen() {
     const next = [...items];
     const [moved] = next.splice(index, 1);
     next.splice(target, 0, moved);
-    reorder.mutate(next.map((i) => i.id));
+    reorder.mutate(next.map((i) => i.id), {
+      // Offline the row simply does not move, because React Query pauses the
+      // mutation rather than failing it — so the arrow tap produced nothing at
+      // all, and no explanation. This is the explanation.
+      onError: (error) => Alert.alert('Could not reorder', profileActionMessage(error, 'reorder')),
+    });
   };
 
   return (
@@ -197,16 +212,38 @@ export default function PublicProfileScreen() {
             </View>
           </View>
 
-          {loadFailed && items.length === 0 ? (
+          {/* Offline, React Query pauses a mutation instead of failing it, so
+              `onError` never runs and the tap looks ignored. Saying so is the
+              only feedback there is until the device is back. */}
+          {(reorder.isPaused || remove.isPaused) && (
+            <Text className="text-muted-foreground text-[11px] leading-4">
+              Waiting for a connection — your changes will be saved when you are back online.
+            </Text>
+          )}
+
+          {portfolioLoading ? (
+            <View className="rounded-2xl border border-dashed border-border py-8 items-center">
+              <ActivityIndicator color={palette.primary} />
+            </View>
+          ) : loadFailed && items.length === 0 ? (
             <View className="rounded-2xl border border-dashed border-border">
               <LoadFailed what="your portfolio" onRetry={() => refetch()} compact />
             </View>
           ) : items.length === 0 ? (
-            <View className="rounded-2xl border border-dashed border-border py-8 px-5">
+            <View className="rounded-2xl border border-dashed border-border py-8 px-5 gap-3">
               <Text className="text-muted-foreground text-[12px] text-center leading-5">
                 Nothing here yet. Add a few of your best photographs — this is
                 what someone judges before they get in touch.
               </Text>
+              {/* The buttons that do this are in the header above, which is off
+                  screen by the time somebody has read this far. */}
+              <Pressable
+                className="bg-action rounded-xl py-2.5 items-center active:opacity-90 self-center px-5"
+                onPress={() => setPicking('images')}
+                accessibilityRole="button"
+              >
+                <Text className="text-action-foreground text-[13px] font-bold">Add photos</Text>
+              </Pressable>
             </View>
           ) : (
             <View className="gap-2">
@@ -264,7 +301,8 @@ export default function PublicProfileScreen() {
                     hitSlop={6}
                     onPress={() =>
                       remove.mutate(item.id, {
-                        onError: (error: Error) => Alert.alert('Could not remove', error.message),
+                        onError: (error: Error) =>
+                          Alert.alert('Could not remove', profileActionMessage(error, 'unshowcase')),
                       })
                     }
                   >
@@ -406,6 +444,7 @@ function PickerModal({
   const { addImage, addAlbum } = usePortfolioActions();
   const { albums } = useAlbums();
   const [selected, setSelected] = useState<string[]>([]);
+  const [atCap, setAtCap] = useState(false);
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
@@ -416,8 +455,17 @@ function PickerModal({
   });
 
   useEffect(() => {
-    if (!mode) setSelected([]);
+    if (!mode) {
+      setSelected([]);
+      setAtCap(false);
+    }
   }, [mode]);
+
+  // The notice is about the selection, so it goes as soon as the selection
+  // leaves the ceiling — deselecting one makes room and says so by vanishing.
+  useEffect(() => {
+    if (selected.length < roomForImages) setAtCap(false);
+  }, [selected.length, roomForImages]);
 
   const availableImages = (files.data?.data ?? []).filter(
     (f) =>
@@ -434,7 +482,15 @@ function PickerModal({
       try {
         await addImage.mutateAsync({ fileKey: key });
       } catch (error) {
-        Alert.alert('Could not add', (error as Error).message);
+        // One refusal stops the run, so say which photographs did make it —
+        // otherwise "could not add" reads as though none of them did.
+        const done = selected.indexOf(key);
+        Alert.alert(
+          'Could not add',
+          done > 0
+            ? `${profileActionMessage(error, 'showcase')}\n\nThe first ${done} ${done === 1 ? 'photo was' : 'photos were'} added.`
+            : profileActionMessage(error, 'showcase'),
+        );
         break;
       }
     }
@@ -452,12 +508,21 @@ function PickerModal({
             {mode === 'albums' ? 'Showcase a gallery' : 'Add work'}
           </Text>
           {mode === 'images' ? (
-            <Pressable onPress={saveImages} disabled={selected.length === 0} hitSlop={10}>
+            // Disabled while it runs as well as while empty: the adds are
+            // sequential, so a second tap on a slow connection started the
+            // whole run again and added each photograph twice.
+            <Pressable
+              onPress={saveImages}
+              disabled={selected.length === 0 || addImage.isPending}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityState={{ busy: addImage.isPending, disabled: selected.length === 0 }}
+            >
               <Text
                 className="text-primary text-[15px] font-bold"
-                style={{ opacity: selected.length === 0 ? 0.4 : 1 }}
+                style={{ opacity: selected.length === 0 || addImage.isPending ? 0.4 : 1 }}
               >
-                Add {selected.length || ''}
+                {addImage.isPending ? 'Adding…' : `Add ${selected.length || ''}`}
               </Text>
             </Pressable>
           ) : (
@@ -471,24 +536,53 @@ function PickerModal({
               <ActivityIndicator color={palette.primary} />
             </View>
           ) : availableImages.length === 0 ? (
-            <Text className="text-muted-foreground text-center text-[13px] mt-16 px-8">
-              No images left to add. Upload some to an album first.
-            </Text>
+            // This used to be the sentence alone. Telling somebody their work
+            // has to go through an album and then leaving them to find where
+            // albums live is the longest dead end in the app.
+            <View className="mt-16 px-8 gap-4 items-center">
+              <Text className="text-muted-foreground text-center text-[13px] leading-5">
+                Your photographs live in albums, and there are none here yet to add
+                from. Upload some first and they will show up here.
+              </Text>
+              <Pressable
+                className="bg-action rounded-xl px-5 py-2.5 active:opacity-90"
+                accessibilityRole="button"
+                onPress={() => {
+                  onClose();
+                  router.push('/albums/upload');
+                }}
+              >
+                <Text className="text-action-foreground text-[13px] font-bold">Upload photos</Text>
+              </Pressable>
+            </View>
           ) : (
-            <ScrollView contentContainerStyle={{ padding: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              {availableImages.map((file) => {
+            <>
+              {atCap && (
+                <Text className="text-warning text-[12px] leading-4 px-4 pt-1 text-center">
+                  {roomForImages === 0
+                    ? `Your portfolio is full at ${MAX_IMAGES} photos. Remove one to add another.`
+                    : `That is ${roomForImages} ${roomForImages === 1 ? 'photo' : 'photos'} — all the room left in your portfolio.`}
+                </Text>
+              )}
+              <ScrollView contentContainerStyle={{ padding: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {availableImages.map((file) => {
                 const isOn = selected.includes(file.key);
                 return (
                   <Pressable
                     key={file.key}
                     onPress={() =>
-                      setSelected((current) =>
-                        current.includes(file.key)
-                          ? current.filter((k) => k !== file.key)
-                          : current.length >= roomForImages
-                            ? current
-                            : [...current, file.key],
-                      )
+                      setSelected((current) => {
+                        if (current.includes(file.key)) {
+                          return current.filter((k) => k !== file.key);
+                        }
+                        // Past the cap the tap used to return `current`
+                        // unchanged — indistinguishable from a tap that missed.
+                        if (current.length >= roomForImages) {
+                          setAtCap(true);
+                          return current;
+                        }
+                        return [...current, file.key];
+                      })
                     }
                     style={{
                       width: '31.5%', aspectRatio: 1, borderRadius: 10, overflow: 'hidden',
@@ -509,8 +603,9 @@ function PickerModal({
                     )}
                   </Pressable>
                 );
-              })}
-            </ScrollView>
+                })}
+              </ScrollView>
+            </>
           )
         ) : (
           <ScrollView contentContainerStyle={{ padding: 20, gap: 8 }}>
