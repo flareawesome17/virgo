@@ -50,7 +50,7 @@ export {
   type ProfileDetailRow,
 } from '@/components/ProfileParts'
 export {
-  CoverPositionSheet,
+  CoverPositionDialog,
   useCoverEditor,
   useAvatarEditor,
 } from '@/components/ProfilePhotoEditors'
