@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -32,7 +33,7 @@ import {
   profileUrl,
   type ProfileView,
 } from '@/api';
-import { useProfileWork } from '@/hooks/useShowcases';
+import { useProfileTaste, useProfileWork } from '@/hooks/useShowcases';
 import { usePublicProfile } from '@/hooks/useProfile';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
@@ -271,6 +272,90 @@ export default function AppProfilePage() {
 }
 
 function ProfileWork({ handle, person }: { handle: string; person: ProfileView }) {
+  const [tab, setTab] = useState<'work' | 'taste'>('work');
+
+  return (
+    <div className="mt-4">
+      <div className="flex gap-2">
+        <Button size="sm" variant={tab === 'work' ? 'default' : 'secondary'} onClick={() => setTab('work')}>
+          Work
+        </Button>
+        <Button size="sm" variant={tab === 'taste' ? 'default' : 'secondary'} onClick={() => setTab('taste')}>
+          Taste
+        </Button>
+      </div>
+      {tab === 'work' ? (
+        <ProfilePosts handle={handle} person={person} />
+      ) : (
+        <ProfileTaste handle={handle} person={person} />
+      )}
+    </div>
+  );
+}
+
+/** What somebody keeps of other people's work. Public shelves only. */
+function ProfileTaste({ handle, person }: { handle: string; person: ProfileView }) {
+  const { shelves, isLoading, loadFailed, refetch } = useProfileTaste(handle);
+
+  if (isLoading) {
+    return (
+      <Card className="mt-4">
+        <div className="grid place-items-center py-14 text-muted-foreground">Loading…</div>
+      </Card>
+    );
+  }
+
+  if (loadFailed && shelves.length === 0) {
+    return (
+      <Card className="mt-4">
+        <EmptyState
+          icon={BriefcaseBusiness}
+          title="Could not load these shelves"
+          description="Check your connection and try again."
+          action={<Button onClick={() => void refetch()}>Try again</Button>}
+        />
+      </Card>
+    );
+  }
+
+  if (shelves.length === 0) {
+    return (
+      <Card className="mt-4">
+        <EmptyState
+          icon={BriefcaseBusiness}
+          title={`${person.displayName.split(' ')[0]} has not kept anything yet`}
+          description="What somebody keeps says as much about them as what they make."
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {shelves.map((shelf) => (
+        <figure key={shelf.id} className="overflow-hidden">
+          <span className="relative block aspect-square overflow-hidden rounded-xl bg-muted">
+            {shelf.coverUrl && (
+              <Image
+                src={shelf.coverUrl}
+                alt=""
+                fill
+                sizes="(max-width: 900px) 50vw, 300px"
+                className="object-cover"
+              />
+            )}
+          </span>
+          <figcaption className="mt-1.5">
+            <p className="truncate text-[13px] font-semibold">{shelf.name}</p>
+            <p className="text-[11px] text-muted-foreground">{shelf.count} kept</p>
+          </figcaption>
+        </figure>
+      ))}
+    </div>
+  );
+}
+
+function ProfilePosts({ handle, person }: { handle: string; person: ProfileView }) {
   const { showcases, isLoading, loadFailed, refetch } = useProfileWork(handle);
 
   if (isLoading) {
@@ -308,9 +393,6 @@ function ProfileWork({ handle, person }: { handle: string; person: ProfileView }
 
   return (
     <div className="mt-4">
-      <h2 className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-        Work
-      </h2>
       {/* The cover of each showcase, in the same tight square grid the app
           uses. `url` on a piece is the 640 px B2 copy, which next/image is
           allowed to load; displaySources is never passed here, because the

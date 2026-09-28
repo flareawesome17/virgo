@@ -13,6 +13,7 @@ import {
   CalendarDays,
   FolderOpen,
   Home,
+  LayoutGrid,
   Images,
   LogOut,
   MapPin,
@@ -72,6 +73,7 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
   {
     items: [
       { href: '/', label: 'Dashboard', icon: Home },
+      { href: '/feed', label: 'Feed', icon: LayoutGrid },
       { href: '/workspaces', label: 'Workspaces', icon: FolderOpen, badge: 'invitations' },
       // Every album across every workspace. There was no way to reach an album
       // on the web without first remembering which workspace it was in.
