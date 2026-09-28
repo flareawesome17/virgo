@@ -105,15 +105,19 @@ export class FeedService {
          join users u on u.id = s.user_id
         where s.published_at is not null
           and s.unpublished_at is null
-          -- Your own work is not inspiration; it is already on your profile.
-          and s.user_id <> $2
+          -- Your own work is IN the feed. It was left out at first, on the
+          -- reasoning that your own work is not inspiration and is already on
+          -- your profile — which reads as a bug the moment you post something
+          -- and land on a feed without it, and reads as a broken feature while
+          -- few enough people have posted that yours was the only one there.
+          -- Every feed anybody has used shows them their own posts.
           and u.suspended_at is null
           and (u.disabled_until is null or u.disabled_until <= now())
           and not ${blockedBetween('$2', 's.user_id')}
           and ${
             scope === 'connections'
-              ? CONNECTED_TO_AUTHOR
-              : `(s.visibility = 'public' or ${CONNECTED_TO_AUTHOR})`
+              ? `(s.user_id = $2 or ${CONNECTED_TO_AUTHOR})`
+              : `(s.user_id = $2 or s.visibility = 'public' or ${CONNECTED_TO_AUTHOR})`
           }
           and ($1::timestamptz is null
                or (s.published_at, s.id) < ($1::timestamptz, $3::uuid))
