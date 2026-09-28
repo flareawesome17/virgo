@@ -18,6 +18,7 @@ export const keys = {
   shareLinks: (p: unknown) => ['shareLinks', p] as QueryKey,
   jobReports: (p: unknown) => ['jobReports', p] as QueryKey,
   userReports: (p: unknown) => ['userReports', p] as QueryKey,
+  showcaseReports: (p: unknown) => ['showcaseReports', p] as QueryKey,
   subscriptions: (p: unknown) => ['subscriptions', p] as QueryKey,
   health: ['health'] as QueryKey,
   tickets: (p: unknown) => ['tickets', p] as QueryKey,
@@ -70,6 +71,21 @@ export function useJobReports(p: { limit?: number; offset?: number }) {
 
 export function useUserReports(p: { limit?: number; offset?: number }) {
   return useQuery({ queryKey: keys.userReports(p), queryFn: () => console_.userReports(p) });
+}
+
+export function useShowcaseReports(p: { limit?: number; offset?: number }) {
+  return useQuery({
+    queryKey: keys.showcaseReports(p),
+    queryFn: () => console_.showcaseReports(p),
+  });
+}
+
+export function useSetShowcaseHidden() {
+  return useConsoleMutation(
+    ({ id, hidden }: { id: string; hidden: boolean }) =>
+      console_.setShowcaseHidden(id, hidden),
+    { success: 'Post updated', invalidate: [['showcaseReports']] },
+  );
 }
 
 export function useSubscriptions(p: { status?: string; limit?: number; offset?: number }) {

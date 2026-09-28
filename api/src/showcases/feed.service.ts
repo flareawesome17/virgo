@@ -108,6 +108,7 @@ export class FeedService {
          join users u on u.id = s.user_id
         where s.published_at is not null
           and s.unpublished_at is null
+          and s.hidden_at is null
           -- Your own work is IN the feed. It was left out at first, on the
           -- reasoning that your own work is not inspiration and is already on
           -- your profile — which reads as a bug the moment you post something

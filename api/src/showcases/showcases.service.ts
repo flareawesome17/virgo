@@ -85,6 +85,7 @@ export interface Showcase {
   allowComments: boolean;
   showHire: boolean;
   publishedAt: string | null;
+  hiddenAt: string | null;
   keptCount: number;
   likeCount: number;
   pieces: ShowcasePiece[];
@@ -105,6 +106,7 @@ export interface ShowcaseRow {
   allow_comments: boolean;
   show_hire: boolean;
   published_at: Date | string | null;
+  hidden_at: Date | string | null;
   kept_count: number;
   like_count: number;
   created_at: Date | string;
@@ -159,6 +161,9 @@ export class ShowcasesService {
             or (
               s.published_at is not null
               and s.unpublished_at is null
+              -- Taken down by the console. The author keeps their own view of
+              -- it, through the s.user_id = $2 branch above.
+              and s.hidden_at is null
               and (u.disabled_until is null or u.disabled_until <= now())
               and u.suspended_at is null
               and not ${blockedBetween('$2', 's.user_id')}
@@ -200,6 +205,7 @@ export class ShowcasesService {
         where lower(u.handle) = $1
           and s.published_at is not null
           and s.unpublished_at is null
+          and s.hidden_at is null
           and u.suspended_at is null
           and (u.disabled_until is null or u.disabled_until <= now())
           and (u.public_profile = true or u.id = $2)
@@ -492,6 +498,7 @@ export class ShowcasesService {
       allowComments: row.allow_comments,
       showHire: row.show_hire,
       publishedAt: asIso(row.published_at),
+      hiddenAt: asIso(row.hidden_at),
       keptCount: Number(row.kept_count),
       likeCount: Number(row.like_count),
       pieces: grouped.get(row.id) ?? [],

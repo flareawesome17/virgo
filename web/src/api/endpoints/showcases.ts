@@ -36,6 +36,8 @@ export interface Showcase {
   allowComments: boolean;
   showHire: boolean;
   publishedAt: string | null;
+  /** Set when Virgo has taken it down. Only its author ever sees this. */
+  hiddenAt: string | null;
   keptCount: number;
   likeCount: number;
   pieces: ShowcasePiece[];
@@ -195,5 +197,28 @@ export const likesApi = {
 
   unlike(showcaseId: string): Promise<{ likeCount: number; liked: boolean }> {
     return api.delete(`/showcases/${showcaseId}/like`);
+  },
+};
+
+/** Why somebody is reporting a post. Matches the server's list. */
+export const SHOWCASE_REPORT_REASONS = [
+  { value: 'inappropriate', label: 'Inappropriate or explicit' },
+  { value: 'stolen_work', label: 'This is not their work' },
+  { value: 'wrong_credit', label: 'Credited to the wrong person' },
+  { value: 'harassment', label: 'Harassment or bullying' },
+  { value: 'spam', label: 'Spam' },
+  { value: 'scam', label: 'Scam or fraud' },
+  { value: 'other', label: 'Something else' },
+] as const;
+
+export type ShowcaseReportReason = (typeof SHOWCASE_REPORT_REASONS)[number]['value'];
+
+export const showcaseReportsApi = {
+  report(
+    showcaseId: string,
+    reason: ShowcaseReportReason,
+    note?: string,
+  ): Promise<{ reported: true }> {
+    return api.post(`/showcases/${showcaseId}/report`, { body: { reason, note } });
   },
 };

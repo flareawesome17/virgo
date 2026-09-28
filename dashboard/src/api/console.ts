@@ -116,6 +116,33 @@ export interface UserReportRow {
   target_report_count: number;
 }
 
+/** Somebody reported a post. Mirrors AdminService.showcaseReports. */
+export interface ShowcaseReportRow {
+  id: string;
+  /** spam, scam, harassment, inappropriate, stolen_work, wrong_credit or other. */
+  reason: string;
+  note: string | null;
+  created_at: string;
+  showcase_id: string;
+  title: string | null;
+  caption: string | null;
+  /** Set once the console has taken it down. */
+  hidden_at: string | null;
+  published_at: string | null;
+  author_id: string;
+  author_name: string;
+  author_handle: string | null;
+  author_email: string;
+  author_suspended_at: string | null;
+  /** Null once the reporter deletes their account; the report is kept. */
+  reporter_id: string | null;
+  reporter_email: string | null;
+  /** Every report against this post, from anyone, not just this one. */
+  showcase_report_count: number;
+  /** The first piece's thumbnail key — a moderator needs to see the photograph. */
+  thumb_key: string | null;
+}
+
 export interface Ticket {
   id: string;
   subject: string;
@@ -220,6 +247,12 @@ export const console_ = {
     api.get<Paged<UserReportRow>>(`/admin/user-reports${qs(p)}`),
   setJobHidden: (id: string, hidden: boolean) =>
     api.patch(`/admin/jobs/${id}/hidden`, { hidden }),
+
+  showcaseReports: (p: { limit?: number; offset?: number }) =>
+    api.get<Paged<ShowcaseReportRow>>(`/admin/showcase-reports${qs(p)}`),
+
+  setShowcaseHidden: (id: string, hidden: boolean) =>
+    api.patch(`/admin/showcases/${id}/hidden`, { hidden }),
 
   subscriptions: (p: { status?: string; limit?: number; offset?: number }) =>
     api.get<

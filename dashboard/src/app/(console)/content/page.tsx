@@ -9,6 +9,8 @@ import {
   useSetJobHidden,
   useShareLinks,
   useUserReports,
+  useShowcaseReports,
+  useSetShowcaseHidden,
 } from '@/hooks/useConsole';
 import {
   DataState,
@@ -193,10 +195,91 @@ function Reports() {
         <PeopleReports />
       </section>
       <section>
+        <h2 className="mb-3 text-sm font-semibold">Posts</h2>
+        <ShowcaseReports />
+      </section>
+      <section>
         <h2 className="mb-3 text-sm font-semibold">Job posts</h2>
         <JobReports />
       </section>
     </div>
+  );
+}
+
+/**
+ * Somebody reported a post.
+ *
+ * Unlike the people list, this one IS actionable: taking a post down is a
+ * content decision and this screen is where content decisions are made, where
+ * suspending an account is not. The thumbnail is here because a moderator
+ * deciding whether a photograph should stay up needs to see the photograph.
+ */
+function ShowcaseReports() {
+  const { data, isLoading, isError, refetch } = useShowcaseReports({ limit: 50 });
+  const setHidden = useSetShowcaseHidden();
+
+  return (
+    <DataState
+      isLoading={isLoading}
+      isError={isError}
+      isEmpty={!!data && data.data.length === 0}
+      emptyLabel="No posts have been reported"
+      onRetry={() => void refetch()}
+    >
+      <div className="space-y-3">
+        {data?.data.map((row) => (
+          <div key={row.id} className="rounded-lg border p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium">
+                  {row.title ?? 'Untitled post'}{' '}
+                  <span className="font-normal text-muted-foreground">
+                    by {row.author_name}
+                    {row.author_handle ? ` @${row.author_handle}` : ''}
+                  </span>
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Reported by {row.reporter_email ?? 'a deleted account'} ·{' '}
+                  {when(row.created_at)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {row.hidden_at && <Badge variant="destructive">Taken down</Badge>}
+                {row.author_suspended_at && <Badge variant="destructive">Author suspended</Badge>}
+                <Badge variant="secondary">
+                  {row.showcase_report_count}{' '}
+                  {row.showcase_report_count === 1 ? 'report' : 'reports'}
+                </Badge>
+                <Button
+                  size="sm"
+                  variant={row.hidden_at ? 'secondary' : 'destructive'}
+                  disabled={setHidden.isPending}
+                  onClick={() =>
+                    setHidden.mutate({ id: row.showcase_id, hidden: !row.hidden_at })
+                  }
+                >
+                  {row.hidden_at ? 'Put it back' : 'Take it down'}
+                </Button>
+                <Button asChild size="sm" variant="secondary">
+                  <Link href={`/virgo-users/${row.author_id}`}>Open account</Link>
+                </Button>
+              </div>
+            </div>
+            <p className="mt-2 text-sm font-medium capitalize">
+              {row.reason.replace('_', ' ')}
+            </p>
+            {row.note && (
+              <p className="mt-2 whitespace-pre-wrap wrap-anywhere rounded bg-muted/50 px-3 py-2 text-sm">
+                {row.note}
+              </p>
+            )}
+            {row.caption && (
+              <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{row.caption}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </DataState>
   );
 }
 

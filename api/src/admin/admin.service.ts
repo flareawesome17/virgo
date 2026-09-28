@@ -434,6 +434,63 @@ export class AdminService {
     return { data: rows, total: Number(total?.count ?? 0) };
   }
 
+  /**
+   * Reported showcases, newest first, with the post and whoever made it.
+   *
+   * The cover comes from the showcase's first piece, because a moderator
+   * deciding whether a photograph should stay up needs to see the photograph.
+   */
+  async showcaseReports({ limit = 50, offset = 0 }: { limit?: number; offset?: number }) {
+    const rows = await this.db.query(
+      `select r.id, r.reason, r.note, r.created_at, r.showcase_id,
+              s.title, s.caption, s.hidden_at, s.published_at,
+              s.user_id as author_id,
+              coalesce(nullif(btrim(a.display_name), ''), split_part(a.email, '@', 1))
+                as author_name,
+              a.handle as author_handle,
+              a.email as author_email,
+              a.suspended_at as author_suspended_at,
+              r.reporter_id,
+              u.email as reporter_email,
+              (select count(*) from showcase_reports x where x.showcase_id = r.showcase_id)::int
+                as showcase_report_count,
+              (
+                select f.thumb_key
+                  from showcase_items si
+                  join user_files f on f.key = si.file_key and f.user_id = si.user_id
+                 where si.showcase_id = s.id and f.thumb_key is not null
+                 order by si.position, si.created_at
+                 limit 1
+              ) as thumb_key
+         from showcase_reports r
+         join showcases s on s.id = r.showcase_id
+         join users a on a.id = s.user_id
+         left join users u on u.id = r.reporter_id
+        order by r.created_at desc limit $1 offset $2`,
+      [limit, offset],
+    );
+    const total = await this.db.queryOne<{ count: string }>(
+      'select count(*)::text as count from showcase_reports',
+    );
+    return { data: rows, total: Number(total?.count ?? 0) };
+  }
+
+  /**
+   * Take a showcase down, or put it back.
+   *
+   * hidden_at rather than the author's own unpublished_at: a moderation
+   * decision the author could reverse is not one.
+   */
+  async setShowcaseHidden(showcaseId: string, hidden: boolean) {
+    const row = await this.db.queryOne<{ id: string; title: string | null }>(
+      `update showcases set hidden_at = case when $2 then now() else null end
+        where id = $1 returning id, title`,
+      [showcaseId, hidden],
+    );
+    if (!row) throw new NotFoundException('Showcase not found');
+    return row;
+  }
+
   async setJobHidden(postId: string, hidden: boolean) {
     const row = await this.db.queryOne<{ id: string; title: string }>(
       `update hiring_posts set hidden_at = case when $2 then now() else null end

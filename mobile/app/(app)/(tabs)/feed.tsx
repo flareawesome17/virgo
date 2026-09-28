@@ -13,6 +13,7 @@ import { router } from 'expo-router';
 import {
   BookmarkIcon,
   ChevronUpIcon,
+  FlagIcon,
   HeartIcon,
   ImageIcon,
   PlusIcon,
@@ -22,12 +23,13 @@ import { AppTopBar } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { KeepSheet } from '@/components/KeepSheet';
+import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
 import { useFeed, useLike, useTheme } from '@/src/hooks';
 import { useChrome } from '@/src/providers/ChromeProvider';
 import type { FeedItem } from '@/src/api';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [BookmarkIcon, ChevronUpIcon, HeartIcon, ImageIcon, PlusIcon]) {
+for (const Icon of [BookmarkIcon, ChevronUpIcon, FlagIcon, HeartIcon, ImageIcon, PlusIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -47,6 +49,7 @@ export default function FeedScreen() {
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [scope, setScope] = useState<'everyone' | 'connections'>('everyone');
   const [keeping, setKeeping] = useState<FeedItem | null>(null);
+  const [reporting, setReporting] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const {
@@ -71,7 +74,7 @@ export default function FeedScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => (
-      <Placard item={item} onKeep={() => setKeeping(item)} />
+      <Placard item={item} onKeep={() => setKeeping(item)} onReport={() => setReporting(item.id)} />
     ),
     [],
   );
@@ -134,6 +137,7 @@ export default function FeedScreen() {
       )}
 
       <KeepSheet item={keeping} onClose={() => setKeeping(null)} />
+      <ShowcaseReportSheet showcaseId={reporting} onClose={() => setReporting(null)} />
     </SafeAreaView>
   );
 }
@@ -170,7 +174,15 @@ function ScopeTab({
  * ratio, so the placard lands in the same place on every card and the thumb
  * does not have to hunt for Keep.
  */
-function Placard({ item, onKeep }: { item: FeedItem; onKeep: () => void }) {
+function Placard({
+  item,
+  onKeep,
+  onReport,
+}: {
+  item: FeedItem;
+  onKeep: () => void;
+  onReport: () => void;
+}) {
   const { isDark } = useTheme();
   const like = useLike();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -238,6 +250,15 @@ function Placard({ item, onKeep }: { item: FeedItem; onKeep: () => void }) {
                 </Text>
               ) : null}
             </View>
+            <Pressable
+              onPress={onReport}
+              accessibilityRole="button"
+              accessibilityLabel="Report this post"
+              hitSlop={8}
+              className="w-9 h-9 items-center justify-center active:opacity-60"
+            >
+              <FlagIcon size={15} className="text-muted-foreground" />
+            </Pressable>
             {item.showHire && item.maker.handle && (
               <Pressable
                 onPress={() => router.push(`/hire/${item.maker.handle}`)}
