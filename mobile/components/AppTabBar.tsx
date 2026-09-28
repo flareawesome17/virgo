@@ -132,12 +132,18 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
                 focused ? 'bg-foreground/10' : ''
               }`}
             >
+              {/* Icons alone. At five destinations each cell is about seventy
+                  points wide, and "Dashboard" and "Workspaces" do not fit in
+                  that at a legible size — shrinking the type until they did
+                  would have made the labels unreadable rather than helpful.
+                  The name is still announced: it is in accessibilityLabel
+                  above, and holding a tab shows it enlarged. */}
               <View>
-                {options.tabBarIcon?.({ focused, color, size: 22 })}
+                {options.tabBarIcon?.({ focused, color, size: 25 })}
                 {badge != null && (
                   <View
                     className="absolute h-[18px] min-w-[18px] items-center justify-center rounded-full bg-action px-[5px]"
-                    style={{ top: -5, left: 14 }}
+                    style={{ top: -6, left: 16 }}
                   >
                     <Text allowFontScaling={false} className="text-action-foreground text-[11px] font-bold">
                       {badge}
@@ -145,13 +151,6 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
                   </View>
                 )}
               </View>
-              <Text
-                numberOfLines={1}
-                allowFontScaling={false}
-                style={{ color, fontSize: 11, lineHeight: 13, fontWeight: '600', marginTop: 3 }}
-              >
-                {label}
-              </Text>
             </Pressable>
           );
         })}

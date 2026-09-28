@@ -4,18 +4,17 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { NotificationBell } from '@/components/NotificationBell';
 import { UpdateBanner } from '@/components/UpdateBanner';
-import { MessageCircleIcon } from 'lucide-react-native';
+import { MessageCircleIcon, SettingsIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
-  useAuth,
   useIncomingFriendRequests,
   usePromoOffers,
   useUnreadCount,
 } from '@/src/hooks';
 
-cssInterop(MessageCircleIcon, {
-  className: { target: 'style', nativeStyleToProp: { color: true } },
-});
+for (const Icon of [MessageCircleIcon, SettingsIcon]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 /**
  * The mark itself, transparent — not assets/icon.png, which is the store
@@ -43,7 +42,6 @@ const LOGO = require('@/assets/splash-icon.png');
  * a bar that travels, Workspaces would be a screen with no way back to it.
  */
 export function AppTopBar() {
-  const { profile } = useAuth();
   const unread = useUnreadCount();
   const { count: friendRequests } = useIncomingFriendRequests();
   const { offers: rewards } = usePromoOffers();
@@ -89,9 +87,6 @@ export function AppTopBar() {
 
             <NotificationBell />
 
-            {/* Your own photograph rather than a cog: Settings is where the
-                account lives, and this is the thing people already reach for
-                when they want it. It is also the way to the profile. */}
             <Pressable
               onPress={() => router.navigate('/settings')}
               accessibilityRole="button"
@@ -100,19 +95,7 @@ export function AppTopBar() {
               }
               className="w-11 h-11 items-center justify-center active:opacity-70"
             >
-              <View className="w-[30px] h-[30px] rounded-full overflow-hidden bg-primary/15 items-center justify-center border border-border">
-                {profile?.avatarUrl ? (
-                  <Image
-                    source={{ uri: profile.avatarUrl }}
-                    style={{ width: 30, height: 30 }}
-                    contentFit="cover"
-                  />
-                ) : (
-                  <Text className="text-primary text-[12px] font-bold">
-                    {(profile?.displayName ?? '?').charAt(0).toUpperCase()}
-                  </Text>
-                )}
-              </View>
+              <SettingsIcon size={22} className="text-foreground" />
               {rewards.length > 0 && <Dot count={rewards.length} />}
             </Pressable>
           </View>
