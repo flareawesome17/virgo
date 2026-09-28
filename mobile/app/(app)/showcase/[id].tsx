@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,15 +10,22 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ArrowLeftIcon, EyeOffIcon, Trash2Icon } from 'lucide-react-native';
+import {
+  ArrowLeftIcon,
+  BookmarkIcon,
+  EyeOffIcon,
+  HeartIcon,
+  Trash2Icon,
+} from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
-import { useAuth, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
+import { KeepSheet } from '@/components/KeepSheet';
+import { useAuth, useLike, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon, EyeOffIcon, Trash2Icon]) {
+for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeOffIcon, HeartIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -33,6 +41,8 @@ export default function ShowcaseScreen() {
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { showcase, isLoading, loadFailed, refetch } = useShowcase(id);
   const { user } = useAuth();
+  const like = useLike();
+  const [keeping, setKeeping] = useState(false);
   const { setPublished, remove } = useShowcaseActions();
   const mine = Boolean(showcase && user && showcase.userId === user.id);
 
@@ -134,6 +144,93 @@ export default function ShowcaseScreen() {
             </View>
           ))}
 
+          {/* Who made it, and what you can do about it. The list form carries
+              no maker, so this is the only place a reader can credit them. */}
+          <View className="px-5 pt-4 flex-row items-center gap-2.5">
+            <Pressable
+              onPress={() =>
+                showcase.maker.handle ? router.push(`/u/${showcase.maker.handle}`) : undefined
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${showcase.maker.displayName}'s profile`}
+              className="w-10 h-10 rounded-full overflow-hidden bg-primary/15 items-center justify-center"
+            >
+              {showcase.maker.avatarUrl ? (
+                <RemoteImage
+                  source={{ uri: showcase.maker.avatarUrl }}
+                  style={{ width: 40, height: 40 }}
+                />
+              ) : (
+                <Text className="text-primary text-[15px] font-bold">
+                  {showcase.maker.displayName.charAt(0).toUpperCase()}
+                </Text>
+              )}
+            </Pressable>
+            <View className="flex-1 min-w-0">
+              <Text className="text-foreground text-[14px] font-bold" numberOfLines={1}>
+                {showcase.maker.displayName}
+              </Text>
+              {showcase.maker.title ? (
+                <Text className="text-muted-foreground text-[11px]" numberOfLines={1}>
+                  {showcase.maker.title}
+                </Text>
+              ) : null}
+            </View>
+            {showcase.showHire && showcase.maker.handle && !mine && (
+              <Pressable
+                onPress={() => router.push(`/hire/${showcase.maker.handle}`)}
+                accessibilityRole="button"
+                className="min-h-9 px-3.5 rounded-full bg-action items-center justify-center active:opacity-90"
+              >
+                <Text className="text-action-foreground text-[12px] font-bold">Hire</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <View className="px-5 pt-3 flex-row gap-2.5">
+            <Pressable
+              onPress={() =>
+                like.mutate({ showcaseId: showcase.id, liked: !showcase.likedByMe })
+              }
+              accessibilityRole="button"
+              accessibilityState={{ selected: showcase.likedByMe }}
+              accessibilityLabel={showcase.likedByMe ? 'Liked. Tap to unlike.' : 'Like'}
+              className="flex-1 min-h-11 flex-row items-center justify-center gap-2 rounded-xl border border-border active:opacity-70"
+            >
+              <HeartIcon
+                size={16}
+                className={showcase.likedByMe ? 'text-destructive' : 'text-muted-foreground'}
+                fill={showcase.likedByMe ? palette.destructive : 'none'}
+              />
+              <Text
+                className={`text-[13px] font-bold ${showcase.likedByMe ? 'text-destructive' : 'text-foreground'}`}
+              >
+                {showcase.likeCount > 0 ? showcase.likeCount : 'Like'}
+              </Text>
+            </Pressable>
+            {/* Keeping your own work is refused by the server, so it is not
+                offered here either. */}
+            {!mine && (
+              <Pressable
+                onPress={() => setKeeping(true)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: showcase.keptByMe }}
+                className={`flex-1 min-h-11 flex-row items-center justify-center gap-2 rounded-xl active:opacity-90 ${showcase.keptByMe ? 'bg-secondary' : 'bg-action'}`}
+              >
+                <BookmarkIcon
+                  size={16}
+                  className={showcase.keptByMe ? 'text-primary' : 'text-action-foreground'}
+                  fill={showcase.keptByMe ? palette.primary : 'none'}
+                />
+                <Text
+                  className={`text-[13px] font-bold ${showcase.keptByMe ? 'text-primary' : 'text-action-foreground'}`}
+                >
+                  {showcase.keptByMe ? 'Kept' : 'Keep'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+
           <View className="px-5 pt-5">
             {showcase.caption ? (
               <Text className="text-foreground text-[14px] leading-[21px]">
@@ -176,6 +273,11 @@ export default function ShowcaseScreen() {
           </View>
         </ScrollView>
       )}
+
+      <KeepSheet
+        item={keeping && showcase ? showcase : null}
+        onClose={() => setKeeping(false)}
+      />
     </SafeAreaView>
   );
 }

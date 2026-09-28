@@ -240,6 +240,7 @@ export {
   type Showcase,
   type ShowcasePiece,
   type FeedItem,
+  type ShowcaseDetail,
   type FeedMaker,
   type FeedPage,
   type ShelfSummary,

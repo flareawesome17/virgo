@@ -71,6 +71,27 @@ export interface ShowcasePiece {
   publiclyShown?: boolean;
 }
 
+export interface ShowcaseMaker {
+  id: string;
+  displayName: string;
+  handle: string | null;
+  avatarUrl: string | null;
+  title: string | null;
+}
+
+/**
+ * One showcase, read on its own.
+ *
+ * Carries who made it, which the list form does not: a list of your own work
+ * needs no byline, and a single showcase somebody opened cannot offer to keep
+ * it without being able to credit them for it.
+ */
+export interface ShowcaseDetail extends Showcase {
+  maker: ShowcaseMaker;
+  keptByMe: boolean;
+  likedByMe: boolean;
+}
+
 export interface Showcase {
   id: string;
   userId: string;
@@ -151,9 +172,28 @@ export class ShowcasesService {
    * is not there answers in the same time whatever the reason — unpublished,
    * taken down, connections-only, or either party having blocked the other.
    */
-  async one(viewerId: string, id: string): Promise<Showcase> {
-    const row = await this.db.queryOne<ShowcaseRow>(
-      `select s.* from showcases s
+  async one(viewerId: string, id: string): Promise<ShowcaseDetail> {
+    const row = await this.db.queryOne<
+      ShowcaseRow & {
+        display_name: string | null;
+        handle: string | null;
+        avatar_url: string | null;
+        user_title: string | null;
+        kept_by_me: boolean;
+        liked_by_me: boolean;
+      }
+    >(
+      `select s.*,
+              u.display_name, u.handle, u.avatar_url, u.title as user_title,
+              exists (
+                select 1 from shelf_items i
+                 where i.showcase_id = s.id and i.user_id = $2
+              ) as kept_by_me,
+              exists (
+                select 1 from showcase_likes l
+                 where l.showcase_id = s.id and l.user_id = $2
+              ) as liked_by_me
+         from showcases s
          join users u on u.id = s.user_id
         where s.id = $1
           and (
@@ -174,7 +214,19 @@ export class ShowcasesService {
     );
     if (!row) throw new NotFoundException('Showcase not found');
 
-    const [showcase] = await this.hydrate([row], row.user_id === viewerId);
+    const [base] = await this.hydrate([row], row.user_id === viewerId);
+    const showcase: ShowcaseDetail | undefined = base && {
+      ...base,
+      maker: {
+        id: row.user_id,
+        displayName: row.display_name ?? 'Someone',
+        handle: row.handle,
+        avatarUrl: row.avatar_url,
+        title: row.user_title,
+      },
+      keptByMe: row.kept_by_me,
+      likedByMe: row.liked_by_me,
+    };
     // A showcase whose every piece lost its web copy has nothing to show. The
     // owner still sees it, so they can fix or remove it.
     if (!showcase || (showcase.pieces.length === 0 && row.user_id !== viewerId)) {
