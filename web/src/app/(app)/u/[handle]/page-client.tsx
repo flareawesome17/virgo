@@ -6,15 +6,14 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
-  ArrowUpRight,
   BriefcaseBusiness,
   Building2,
   CalendarCheck,
   CloudOff,
   Globe,
-  Layers,
   MapPin,
   Pencil,
+  Play,
   Share2,
   UserSearch,
   Users,
@@ -394,10 +393,14 @@ function ProfilePosts({ handle, person }: { handle: string; person: ProfileView 
   return (
     <div className="mt-4">
       {/* The cover of each showcase, in the same tight square grid the app
-          uses. `url` on a piece is the 640 px B2 copy, which next/image is
-          allowed to load; displaySources is never passed here, because the
-          media host is not in its allow-list and these are already the size
-          they need to be. */}
+          uses. `url` on a piece is the 640 px B2 copy — a photograph's
+          thumbnail or a film's poster frame — which next/image is allowed to
+          load; displaySources is never passed here, because the media host is
+          not in its allow-list and these are already the size they need to be.
+
+          A film is marked rather than played: a tile this size is no place to
+          watch one, and there is no showcase page on the web to send somebody
+          to yet. The badge says there is film here; the app plays it. */}
       <div className="mt-2 grid grid-cols-3 gap-1 overflow-hidden rounded-xl">
         {showcases.map((showcase) => (
           <figure
@@ -411,6 +414,13 @@ function ProfilePosts({ handle, person }: { handle: string; person: ProfileView 
               sizes="(max-width: 900px) 33vw, 300px"
               className="object-cover transition-transform duration-500 group-hover:scale-105"
             />
+            {showcase.pieces[0].kind === 'video' && (
+              <span className="pointer-events-none absolute inset-0 grid place-items-center">
+                <span className="grid size-10 place-items-center rounded-full bg-black/50 text-white">
+                  <Play size={16} fill="currentColor" />
+                </span>
+              </span>
+            )}
             {showcase.pieces.length > 1 && (
               <span className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">
                 {showcase.pieces.length}
