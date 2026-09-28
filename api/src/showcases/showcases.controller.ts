@@ -11,6 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
   CreateShelfDto,
@@ -21,6 +22,11 @@ import {
 } from './dto/showcase.dto';
 import { FeedService } from './feed.service';
 import { LikesService } from './likes.service';
+import {
+  SHOWCASE_REPORT_REASONS,
+  ShowcaseReportsService,
+  type ShowcaseReportReason,
+} from './showcase-reports.service';
 import { ShelvesService } from './shelves.service';
 import { ShowcasesService } from './showcases.service';
 
@@ -253,5 +259,34 @@ export class LikesController {
   @HttpCode(200)
   unlike(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.likes.unlike(userId, id);
+  }
+}
+
+export class ReportShowcaseDto {
+  @IsIn(SHOWCASE_REPORT_REASONS)
+  reason!: ShowcaseReportReason;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+/** Reporting a post. Its own route so a report can name the work, not the person. */
+@Controller('showcases/:id/report')
+export class ShowcaseReportsController {
+  constructor(private readonly reports: ShowcaseReportsService) {}
+
+  // Low, and per account: reporting is not something anybody does in volume,
+  // and a flood of them is the thing the limit is for.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post()
+  @HttpCode(200)
+  report(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReportShowcaseDto,
+  ) {
+    return this.reports.report(userId, id, dto.reason, dto.note);
   }
 }

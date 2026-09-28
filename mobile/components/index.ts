@@ -56,3 +56,4 @@ export {
 } from '@/components/ProfilePhotoEditors'
 export { KeepSheet } from './KeepSheet';
 export { ProfileWorkTaste } from './ProfileWorkTaste';
+export { ShowcaseReportSheet } from './ShowcaseReportSheet';

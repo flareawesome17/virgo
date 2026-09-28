@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 import { StorageModule } from '../storage/storage.module';
 import { FeedService } from './feed.service';
 import { LikesService } from './likes.service';
+import { ShowcaseReportsService } from './showcase-reports.service';
 import { ShelvesService } from './shelves.service';
 import {
   FeedController,
   LikesController,
+  ShowcaseReportsController,
   MyShelvesController,
   MyShowcasesController,
   ProfileWorkController,
@@ -33,8 +35,9 @@ import { ShowcasesService } from './showcases.service';
     FeedController,
     ProfileWorkController,
     LikesController,
+    ShowcaseReportsController,
   ],
-  providers: [ShowcasesService, ShelvesService, FeedService, LikesService],
-  exports: [ShowcasesService, ShelvesService, FeedService, LikesService],
+  providers: [ShowcasesService, ShelvesService, FeedService, LikesService, ShowcaseReportsService],
+  exports: [ShowcasesService, ShelvesService, FeedService, LikesService, ShowcaseReportsService],
 })
 export class ShowcasesModule {}

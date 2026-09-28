@@ -81,6 +81,7 @@ export class ShelvesService {
                   join showcases sc on sc.id = li.showcase_id
                                    and sc.published_at is not null
                                    and sc.unpublished_at is null
+                                   and sc.hidden_at is null
                   join showcase_items si on si.showcase_id = sc.id
                   join user_files f on f.key = si.file_key and f.user_id = si.user_id
                  where li.shelf_id = sh.id and f.thumb_key is not null
@@ -174,6 +175,7 @@ export class ShelvesService {
          join showcases s on s.id = i.showcase_id
                          and s.published_at is not null
                          and s.unpublished_at is null
+                         and s.hidden_at is null
          join users u on u.id = s.user_id
                      and u.suspended_at is null
                      and (u.disabled_until is null or u.disabled_until <= now())

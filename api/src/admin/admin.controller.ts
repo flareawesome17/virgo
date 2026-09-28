@@ -360,6 +360,31 @@ export class AdminController {
     });
   }
 
+  @Get('showcase-reports')
+  showcaseReports(@Query('limit') limit?: string, @Query('offset') offset?: string) {
+    return this.admin.showcaseReports({
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  @RequirePermission('content.moderate')
+  @Patch('showcases/:id/hidden')
+  async setShowcaseHidden(
+    @Param('id') id: string,
+    @Body() dto: HiddenDto,
+    @CurrentAdmin() admin: AdminIdentity,
+  ) {
+    const result = await this.admin.setShowcaseHidden(id, dto.hidden);
+    await this.audit.record(admin, {
+      action: dto.hidden ? 'showcase.hide' : 'showcase.unhide',
+      targetType: 'showcase',
+      targetId: id,
+      detail: { title: result.title },
+    });
+    return result;
+  }
+
   @RequirePermission('content.moderate')
   @Patch('jobs/:id/hidden')
   async setJobHidden(
