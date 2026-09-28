@@ -20,6 +20,7 @@ import {
   UpdateShowcaseDto,
 } from './dto/showcase.dto';
 import { FeedService } from './feed.service';
+import { LikesService } from './likes.service';
 import { ShelvesService } from './shelves.service';
 import { ShowcasesService } from './showcases.service';
 
@@ -230,5 +231,27 @@ export class ProfileWorkController {
   async taste(@CurrentUser('id') viewerId: string, @Param('handle') handle: string) {
     const data = await this.shelves.publicByHandle(viewerId, handle);
     return { data, total: data.length };
+  }
+}
+
+/** Liking, on the showcase itself rather than under /me — it is about the post. */
+@Controller('showcases/:id/like')
+export class LikesController {
+  constructor(private readonly likes: LikesService) {}
+
+  // A tap, so a looser limit than posting: somebody going down a feed liking
+  // things is normal use, not abuse.
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @Post()
+  @HttpCode(200)
+  like(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.likes.like(userId, id);
+  }
+
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @Delete()
+  @HttpCode(200)
+  unlike(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.likes.unlike(userId, id);
   }
 }

@@ -86,6 +86,7 @@ export interface Showcase {
   showHire: boolean;
   publishedAt: string | null;
   keptCount: number;
+  likeCount: number;
   pieces: ShowcasePiece[];
   createdAt: string;
 }
@@ -105,6 +106,7 @@ export interface ShowcaseRow {
   show_hire: boolean;
   published_at: Date | string | null;
   kept_count: number;
+  like_count: number;
   created_at: Date | string;
 }
 
@@ -491,6 +493,7 @@ export class ShowcasesService {
       showHire: row.show_hire,
       publishedAt: asIso(row.published_at),
       keptCount: Number(row.kept_count),
+      likeCount: Number(row.like_count),
       pieces: grouped.get(row.id) ?? [],
       createdAt: asIso(row.created_at)!,
     }));
