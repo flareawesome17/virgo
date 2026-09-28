@@ -58,6 +58,15 @@ export interface FeedItem extends Showcase {
   likedByMe: boolean;
 }
 
+/**
+ * One showcase, opened on its own.
+ *
+ * The same shape a feed card has. The list form carries no maker — a list of
+ * your own work needs no byline — but a showcase somebody opened cannot offer
+ * to keep it without being able to credit whoever made it.
+ */
+export type ShowcaseDetail = FeedItem;
+
 export interface FeedPage {
   items: FeedItem[];
   nextCursor: string | null;
@@ -115,7 +124,7 @@ export const showcasesApi = {
     return api.get('/me/showcases');
   },
 
-  one(id: string): Promise<Showcase> {
+  one(id: string): Promise<ShowcaseDetail> {
     return api.get(`/showcases/${id}`);
   },
 
