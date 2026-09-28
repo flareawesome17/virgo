@@ -247,4 +247,6 @@ export {
   useShelves,
   useShelfEntries,
   useShelfActions,
+  useProfileWork,
+  useProfileTaste,
 } from './useShowcases';

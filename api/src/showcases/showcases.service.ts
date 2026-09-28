@@ -50,15 +50,18 @@ const PROFILE_PHOTO_KEY = /^users\/[^/]+\/(avatars|covers)\//;
  * exists to prevent, and a connections-only showcase shown to somebody who
  * unfriended its author is the version of it that matters here.
  */
-export const CONNECTED_TO_AUTHOR = `exists (
+export const connectedTo = (viewer: string, author: string): string => `exists (
   select 1 from friends mine
    join friends theirs
      on theirs.user_id = mine.friend_user_id
     and theirs.friend_user_id = mine.user_id
     and theirs.status = 'accepted'
-  where mine.user_id = $2 and mine.friend_user_id = s.user_id
+  where mine.user_id = ${viewer} and mine.friend_user_id = ${author}
     and mine.status = 'accepted'
 )`;
+
+/** The shape both existing callers use: viewer at $2, author on `s`. */
+export const CONNECTED_TO_AUTHOR = connectedTo('$2', 's.user_id');
 
 export interface ShowcasePiece {
   fileKey: string;
@@ -171,6 +174,43 @@ export class ShowcasesService {
       throw new NotFoundException('Showcase not found');
     }
     return showcase;
+  }
+
+  /**
+   * One person's published showcases, as a given viewer may see them.
+   *
+   * By handle, because that is what a profile is addressed by and it saves the
+   * caller a lookup it would only have to guard the same way. The account's own
+   * gates — published, not suspended, not disabled, not blocked either way, and
+   * the profile actually public — are asked in the same statement as the
+   * showcases, so a profile that is not there and one with nothing on it are
+   * not distinguishable by timing.
+   */
+  async byHandle(
+    viewerId: string,
+    handle: string,
+    opts: { limit?: number } = {},
+  ): Promise<Showcase[]> {
+    const limit = Math.min(Math.max(opts.limit ?? 24, 1), 60);
+    const rows = await this.db.query<ShowcaseRow>(
+      `select s.* from showcases s
+         join users u on u.id = s.user_id
+        where lower(u.handle) = $1
+          and s.published_at is not null
+          and s.unpublished_at is null
+          and u.suspended_at is null
+          and (u.disabled_until is null or u.disabled_until <= now())
+          and (u.public_profile = true or u.id = $2)
+          and not ${blockedBetween('$2', 's.user_id')}
+          and (s.visibility = 'public' or s.user_id = $2 or ${connectedTo('$2', 's.user_id')})
+        order by s.published_at desc, s.id desc
+        limit $3`,
+      [handle.toLowerCase(), viewerId, limit],
+    );
+
+    const showcases = await this.hydrate(rows, false);
+    // One whose every piece lost its web copy has nothing to draw.
+    return showcases.filter((s) => s.pieces.length > 0);
   }
 
   // ── writes ─────────────────────────────────────────────────────────────────

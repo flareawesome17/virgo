@@ -107,6 +107,32 @@ export class ShelvesService {
   }
 
   /**
+   * Somebody's public shelves, by handle.
+   *
+   * Public ones only, whoever is asking — a shelf marked private is a research
+   * tool, not something a visitor gets because they found the profile. The
+   * account's gates are asked here too, so a suspended or blocked person's
+   * taste is as absent as the rest of them.
+   */
+  async publicByHandle(viewerId: string, handle: string): Promise<ShelfSummary[]> {
+    const owner = await this.db.queryOne<{ id: string }>(
+      `select u.id from users u
+        where lower(u.handle) = $1
+          and u.suspended_at is null
+          and (u.disabled_until is null or u.disabled_until <= now())
+          and (u.public_profile = true or u.id = $2)
+          and not exists (
+            select 1 from user_blocks ub
+             where (ub.blocker_id = $2 and ub.blocked_id = u.id)
+                or (ub.blocker_id = u.id and ub.blocked_id = $2)
+          )`,
+      [handle.toLowerCase(), viewerId],
+    );
+    if (!owner) return [];
+    return this.list(viewerId, owner.id);
+  }
+
+  /**
    * One shelf's contents.
    *
    * Every entry names its maker, always. An unpublished or deleted showcase is

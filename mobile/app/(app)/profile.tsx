@@ -37,6 +37,7 @@ import {
   ProfileStatsLine,
   type ProfileDetailRow,
 } from '@/components/ProfileParts';
+import { ProfileWorkTaste } from '@/components/ProfileWorkTaste';
 import { useAvatarEditor, useCoverEditor } from '@/components/ProfilePhotoEditors';
 import { useAuth, useProfilePage, useProfileSettings, useTheme } from '@/src/hooks';
 import { useQueryClient } from '@tanstack/react-query';
@@ -328,6 +329,12 @@ export default function YourProfileScreen() {
             )}
           </View>
         </View>
+
+        {/* What you made, and what you keep. Above the portfolio rather than
+            instead of it: portfolio_items still serves every profile, and
+            nothing anybody already put there is going to vanish because a new
+            object exists. */}
+        <ProfileWorkTaste handle={handle ?? undefined} isSelf firstName="You" />
 
         <PortfolioBlock
           header="Portfolio"

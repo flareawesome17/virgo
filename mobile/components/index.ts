@@ -55,3 +55,4 @@ export {
   useAvatarEditor,
 } from '@/components/ProfilePhotoEditors'
 export { KeepSheet } from './KeepSheet';
+export { ProfileWorkTaste } from './ProfileWorkTaste';

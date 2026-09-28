@@ -7,6 +7,7 @@ import {
 import {
   feedApi,
   queryKeys,
+  profileWorkApi,
   shelvesApi,
   showcasesApi,
   type FeedItem,
@@ -202,4 +203,39 @@ export function useShelfActions() {
   });
 
   return { createShelf, updateShelf, removeShelf, keep, unkeep };
+}
+
+/**
+ * Somebody's profile, in its two halves.
+ *
+ * By handle rather than id, because that is what the profile screen already
+ * has and it saves resolving one. Your own profile uses the same pair, so the
+ * page a visitor sees and the page you see are drawn from the same shape.
+ */
+export function useProfileWork(handle: string | undefined) {
+  const query = useQuery({
+    queryKey: queryKeys.showcases.ofHandle(handle ?? ''),
+    queryFn: () => profileWorkApi.showcases(handle!),
+    enabled: Boolean(handle),
+  });
+
+  return {
+    ...query,
+    showcases: query.data?.data ?? ([] as Showcase[]),
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+export function useProfileTaste(handle: string | undefined) {
+  const query = useQuery({
+    queryKey: queryKeys.shelves.ofHandle(handle ?? ''),
+    queryFn: () => profileWorkApi.shelves(handle!),
+    enabled: Boolean(handle),
+  });
+
+  return {
+    ...query,
+    shelves: query.data?.data ?? ([] as ShelfSummary[]),
+    loadFailed: query.isError || query.isPaused,
+  };
 }
