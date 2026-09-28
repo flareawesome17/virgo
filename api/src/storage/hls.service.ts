@@ -215,6 +215,34 @@ export class HlsService {
     return rows.length;
   }
 
+  /**
+   * Queue named films for a ladder.
+   *
+   * The album form above exists because sharing an album was the only thing
+   * that ever wanted one. Posting a showcase wants the same for the films in
+   * it, and a showcase is not an album — its pieces can come from several.
+   *
+   * Same `hls_status = 'none'` filter, so a film already queued, already built
+   * or already given up on is left alone, and posting the same film twice
+   * costs nothing.
+   */
+  async enqueueKeys(keys: string[]): Promise<number> {
+    if (!this.mediaLink.isConfigured || keys.length === 0) return 0;
+    const rows = await this.db.query<{ key: string }>(
+      `update user_files
+          set hls_status = 'pending', hls_next_at = now(), hls_attempts = 0
+        where key = any($1::text[])
+          and split_part(coalesce(content_type, ''), '/', 1) = 'video'
+          and hls_status = 'none'
+        returning key`,
+      [keys],
+    );
+    if (rows.length > 0) {
+      this.logger.log(`Queued ${rows.length} film(s) for a ladder from a showcase`);
+    }
+    return rows.length;
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async processPending(): Promise<void> {
     if (this.running || !this.mediaLink.isConfigured) return;

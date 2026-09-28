@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Text,
   View,
+  type ViewToken,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -22,6 +23,7 @@ import { cssInterop } from 'nativewind';
 import { AppTopBar } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
+import { ShowcaseFilm } from '@/components/ShowcaseFilm';
 import { KeepSheet } from '@/components/KeepSheet';
 import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
 import { useFeed, useLike, useTheme } from '@/src/hooks';
@@ -51,6 +53,7 @@ export default function FeedScreen() {
   const [keeping, setKeeping] = useState<FeedItem | null>(null);
   const [reporting, setReporting] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [visibleId, setVisibleId] = useState<string | null>(null);
 
   const {
     items,
@@ -72,11 +75,29 @@ export default function FeedScreen() {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  /**
+   * Which card is on screen, so a film that scrolls away stops.
+   *
+   * Both of these are held in refs because FlatList refuses a viewability
+   * callback whose identity changes between renders, and this one would change
+   * on every scroll if it closed over state.
+   */
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken<FeedItem>[] }) =>
+      setVisibleId(viewableItems[0]?.item.id ?? null),
+  ).current;
+
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => (
-      <Placard item={item} onKeep={() => setKeeping(item)} onReport={() => setReporting(item.id)} />
+      <Placard
+        item={item}
+        visible={item.id === visibleId}
+        onKeep={() => setKeeping(item)}
+        onReport={() => setReporting(item.id)}
+      />
     ),
-    [],
+    [visibleId],
   );
 
   return (
@@ -114,6 +135,9 @@ export default function FeedScreen() {
           data={items}
           keyExtractor={(i) => i.id}
           renderItem={renderItem}
+          extraData={visibleId}
+          viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewableItemsChanged}
           contentContainerStyle={{ paddingBottom: 130 }}
           showsVerticalScrollIndicator={false}
           onEndReached={onEnd}
@@ -176,10 +200,13 @@ function ScopeTab({
  */
 function Placard({
   item,
+  visible,
   onKeep,
   onReport,
 }: {
   item: FeedItem;
+  /** Whether this card is the one on screen; a film that is not, stops. */
+  visible: boolean;
   onKeep: () => void;
   onReport: () => void;
 }) {
@@ -192,25 +219,44 @@ function Placard({
 
   return (
     <View className="mb-5">
-      <Pressable
-        onPress={() => router.push(`/showcase/${item.id}`)}
-        accessibilityRole="button"
-        accessibilityLabel={item.title ?? 'Open this showcase'}
-      >
-        <View style={{ width, height }} className="bg-muted">
-          <RemoteImage
-            source={{ uri: cover?.url }}
-            style={{ width, height }}
-            contentFit="cover"
-          />
+      {/* A film is its own control, so it is not wrapped in the Pressable that
+          opens the showcase — a tap meant for play would otherwise navigate
+          away from the thing it was meant to start. The placard below still
+          opens it, as does "See it all". */}
+      {cover?.kind === 'video' ? (
+        <View style={{ width, height }}>
+          <ShowcaseFilm piece={cover} width={width} height={height} active={visible} />
           {item.pieces.length > 1 && (
-            <View className="absolute right-3 top-3 flex-row items-center gap-1 rounded-full bg-foreground/55 px-2.5 py-1">
+            <View
+              className="absolute right-3 top-3 flex-row items-center gap-1 rounded-full bg-foreground/55 px-2.5 py-1"
+              pointerEvents="none"
+            >
               <ImageIcon size={12} className="text-background" />
               <Text className="text-background text-[11px] font-bold">{item.pieces.length}</Text>
             </View>
           )}
         </View>
-      </Pressable>
+      ) : (
+        <Pressable
+          onPress={() => router.push(`/showcase/${item.id}`)}
+          accessibilityRole="button"
+          accessibilityLabel={item.title ?? 'Open this showcase'}
+        >
+          <View style={{ width, height }} className="bg-muted">
+            <RemoteImage
+              source={{ uri: cover?.url }}
+              style={{ width, height }}
+              contentFit="cover"
+            />
+            {item.pieces.length > 1 && (
+              <View className="absolute right-3 top-3 flex-row items-center gap-1 rounded-full bg-foreground/55 px-2.5 py-1">
+                <ImageIcon size={12} className="text-background" />
+                <Text className="text-background text-[11px] font-bold">{item.pieces.length}</Text>
+              </View>
+            )}
+          </View>
+        </Pressable>
+      )}
 
       {/* The placard, laid over the foot of the photograph. */}
       <View className="-mt-8 mx-2.5 rounded-2xl bg-card overflow-hidden">

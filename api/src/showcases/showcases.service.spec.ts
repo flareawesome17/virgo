@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { DatabaseService } from '../database/database.service';
+import type { HlsService } from '../storage/hls.service';
 import type { MediaLinkService } from '../storage/media-link.service';
 import type { StorageService } from '../storage/storage.service';
 import { MAX_SOURCE_BYTES, type ThumbnailsService } from '../storage/thumbnails.service';
@@ -28,6 +29,7 @@ interface FileRow {
   content_type: string | null;
   size_bytes: number;
   thumb_key: string | null;
+  poster_key: string | null;
   display_widths: number[] | null;
   blur_data_url: string | null;
 }
@@ -35,6 +37,7 @@ interface FileRow {
 function make(files: FileRow[], opts: { showcaseCount?: number } = {}) {
   const inserts: { sql: string; params: unknown[] }[] = [];
   const generate = jest.fn(async () => ({ key: 'k', size: 1, contentType: 'image/webp' }));
+  const enqueueKeys = jest.fn(async () => 0);
 
   const client = {
     query: jest.fn(async (sql: string, params: unknown[]) => {
@@ -83,16 +86,29 @@ function make(files: FileRow[], opts: { showcaseCount?: number } = {}) {
     { mediaUrl: jest.fn(async () => 'https://cdn/x') } as unknown as StorageService,
     { displaySources: jest.fn(() => []) } as unknown as MediaLinkService,
     { generate } as unknown as ThumbnailsService,
+    { enqueueKeys } as unknown as HlsService,
   );
 
-  return { service, db, inserts, generate };
+  return { service, db, inserts, generate, enqueueKeys };
 }
+
+const film = (key: string, over: Partial<FileRow> = {}): FileRow => ({
+  key,
+  content_type: 'video/mp4',
+  size_bytes: 40_000_000,
+  thumb_key: null,
+  poster_key: `${key}-poster.webp`,
+  display_widths: null,
+  blur_data_url: null,
+  ...over,
+});
 
 const photo = (key: string, over: Partial<FileRow> = {}): FileRow => ({
   key,
   content_type: 'image/jpeg',
   size_bytes: 1_000,
   thumb_key: `${key}-thumb.webp`,
+  poster_key: null,
   display_widths: [1024],
   blur_data_url: null,
   ...over,
@@ -135,9 +151,32 @@ describe('posting a showcase', () => {
     );
   });
 
-  it('refuses a film', async () => {
-    const { service } = make([photo('clip.mp4', { content_type: 'video/mp4' })]);
-    await expect(service.create(ME, { fileKeys: ['clip.mp4'] })).rejects.toBeInstanceOf(
+  it('refuses a film whose poster frame has not been made yet', async () => {
+    // The poster is the only still a feed has to draw. Posting before the media
+    // worker has written one would put a blank card on everybody's feed, so it
+    // is refused with the one useful thing to say: wait a moment.
+    const { service } = make([film('clip.mp4', { poster_key: null })]);
+    await expect(service.create(ME, { fileKeys: ['clip.mp4'] })).rejects.toMatchObject({
+      response: { code: 'SHOWCASE_FILM_NOT_READY' },
+    });
+  });
+
+  it('takes a film that has one, and asks for a ladder without waiting for it', async () => {
+    const { service, inserts, generate, enqueueKeys } = make([film('clip.mp4'), photo('a.jpg')]);
+
+    await service.create(ME, { fileKeys: ['clip.mp4', 'a.jpg'] });
+
+    const pieces = inserts.find((i) => i.sql.includes('insert into showcase_items'));
+    expect(pieces?.params[2]).toEqual(['clip.mp4', 'a.jpg']);
+    // A film is never put through the thumbnailer: its still already exists.
+    expect(generate).not.toHaveBeenCalled();
+    // Both keys go to the queue; it decides for itself which are films.
+    expect(enqueueKeys).toHaveBeenCalledWith(['clip.mp4', 'a.jpg']);
+  });
+
+  it('refuses a file that is neither', async () => {
+    const { service } = make([photo('notes.pdf', { content_type: 'application/pdf' })]);
+    await expect(service.create(ME, { fileKeys: ['notes.pdf'] })).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });

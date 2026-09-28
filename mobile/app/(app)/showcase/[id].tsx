@@ -20,6 +20,7 @@ import {
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
+import { ShowcaseFilm } from '@/components/ShowcaseFilm';
 import { KeepSheet } from '@/components/KeepSheet';
 import { CommentThread } from '@/components/CommentThread';
 import { useAuth, useLike, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
@@ -37,6 +38,8 @@ for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeOffIcon, HeartIcon, Trash2Ic
  * rest of the set and the rest of the note live.
  */
 export default function ShowcaseScreen() {
+  // The one film allowed to be playing; a set can hold several.
+  const [playing, setPlaying] = useState<string | null>(null);
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -137,11 +140,24 @@ export default function ShowcaseScreen() {
         <ScrollView contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
           {showcase.pieces.map((piece, i) => (
             <View key={piece.fileKey} className={i > 0 ? 'mt-1' : ''}>
-              <RemoteImage
-                source={{ uri: piece.url }}
-                style={{ width, height: Math.round(width * 1.25) }}
-                contentFit="cover"
-              />
+              {piece.kind === 'video' ? (
+                // Sound on here: getting this far is a decision, and a film
+                // watched silently is half of what its maker made.
+                <ShowcaseFilm
+                  piece={piece}
+                  width={width}
+                  height={Math.round(width * 1.25)}
+                  startMuted={false}
+                  active={playing === null || playing === piece.fileKey}
+                  onPlay={() => setPlaying(piece.fileKey)}
+                />
+              ) : (
+                <RemoteImage
+                  source={{ uri: piece.url }}
+                  style={{ width, height: Math.round(width * 1.25) }}
+                  contentFit="cover"
+                />
+              )}
             </View>
           ))}
 

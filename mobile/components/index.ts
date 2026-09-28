@@ -58,3 +58,4 @@ export { KeepSheet } from './KeepSheet';
 export { ProfileWorkTaste } from './ProfileWorkTaste';
 export { ShowcaseReportSheet } from './ShowcaseReportSheet';
 export { CommentThread } from './CommentThread';
+export { ShowcaseFilm } from './ShowcaseFilm';

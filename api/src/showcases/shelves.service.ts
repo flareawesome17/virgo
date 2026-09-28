@@ -75,8 +75,10 @@ export class ShelvesService {
               count(i.id)::text as count,
               (
                 -- The newest kept piece that can still be shown: its author may
-                -- have taken others down since.
-                select f.thumb_key
+                -- have taken others down since. A photograph shows its
+                -- thumbnail and a film its poster frame; on a shelf tile they
+                -- are the same thing, a still.
+                select coalesce(f.thumb_key, f.poster_key)
                   from shelf_items li
                   join showcases sc on sc.id = li.showcase_id
                                    and sc.published_at is not null
@@ -84,7 +86,8 @@ export class ShelvesService {
                                    and sc.hidden_at is null
                   join showcase_items si on si.showcase_id = sc.id
                   join user_files f on f.key = si.file_key and f.user_id = si.user_id
-                 where li.shelf_id = sh.id and f.thumb_key is not null
+                 where li.shelf_id = sh.id
+                   and coalesce(f.thumb_key, f.poster_key) is not null
                  order by li.created_at desc, si.position
                  limit 1
               ) as cover_thumb_key
@@ -164,10 +167,11 @@ export class ShelvesService {
               u.id as maker_id, u.display_name, u.handle,
               s.title, s.craft_tags,
               (
-                select f.thumb_key
+                select coalesce(f.thumb_key, f.poster_key)
                   from showcase_items si
                   join user_files f on f.key = si.file_key and f.user_id = si.user_id
-                 where si.showcase_id = s.id and f.thumb_key is not null
+                 where si.showcase_id = s.id
+                   and coalesce(f.thumb_key, f.poster_key) is not null
                  order by si.position, si.created_at
                  limit 1
               ) as thumb_key

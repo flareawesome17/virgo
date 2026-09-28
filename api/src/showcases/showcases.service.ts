@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { blockedBetween } from '../safety/block-sql';
+import { HlsService } from '../storage/hls.service';
 import { MediaLinkService } from '../storage/media-link.service';
 import { PUBLISHED_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
@@ -65,7 +66,16 @@ export const CONNECTED_TO_AUTHOR = connectedTo('$2', 's.user_id');
 
 export interface ShowcasePiece {
   fileKey: string;
+  kind: 'image' | 'video';
+  /** A still: the thumbnail for a photograph, the poster frame for a film. */
   url: string;
+  /**
+   * Where a film plays from: the adaptive ladder once it is built, the single
+   * proxy until then. Null on a photograph, and null on a film with neither —
+   * which is a film that is not served at all.
+   */
+  playbackUrl?: string | null;
+  durationMs?: number | null;
   displaySources: ReturnType<MediaLinkService['displaySources']>;
   /** False when this piece has no web copy, so the owner can see which one. */
   publiclyShown?: boolean;
@@ -138,7 +148,12 @@ export interface ShowcaseRow {
 interface PieceRow {
   showcase_id: string;
   file_key: string;
+  content_type: string | null;
   thumb_key: string | null;
+  poster_key: string | null;
+  proxy_key: string | null;
+  hls_prefix: string | null;
+  duration_ms: string | number | null;
   display_widths: number[] | null;
 }
 
@@ -152,6 +167,7 @@ export class ShowcasesService {
     private readonly storage: StorageService,
     private readonly mediaLink: MediaLinkService,
     private readonly thumbs: ThumbnailsService,
+    private readonly hls: HlsService,
   ) {}
 
   // ── reads ──────────────────────────────────────────────────────────────────
@@ -308,6 +324,7 @@ export class ShowcasesService {
       return showcaseId;
     });
 
+    this.queueLadders(keys);
     return this.byIdForOwner(userId, id);
   }
 
@@ -358,6 +375,7 @@ export class ShowcasesService {
       }
     });
 
+    if (keys) this.queueLadders(keys);
     return this.byIdForOwner(userId, id);
   }
 
@@ -434,12 +452,32 @@ export class ShowcasesService {
   }
 
   /**
+   * Ask for an adaptive ladder for any film that just went into a showcase.
+   *
+   * Deliberately not awaited: the ladder takes a minute or more to build and
+   * posting must not wait on it. Until one exists the piece plays from its
+   * 720p proxy, which is why a missing ladder is a quality question and never
+   * a broken post. Rejections are swallowed for the same reason — a queue that
+   * could not be written is not a reason to fail a post that is already saved.
+   */
+  private queueLadders(keys: string[]): void {
+    void this.hls.enqueueKeys(keys).catch(() => undefined);
+  }
+
+  /**
    * The keys that may go in, in the order they were given, deduplicated.
    *
-   * Every one is checked for ownership, for being an image, and for having a
-   * web copy — generating one now if it has none, the way the portfolio does,
-   * because a piece with no thumbnail is a piece the feed will not serve and
-   * finding that out after posting is what the portfolio got wrong.
+   * Every one is checked for ownership, for being a photograph or a film, and
+   * for having something a feed can draw — generating it now if it has none,
+   * the way the portfolio does, because a piece with no still is a piece the
+   * feed will not serve and finding that out after posting is what the
+   * portfolio got wrong.
+   *
+   * The two differ in what "something to draw" means and in who makes it. A
+   * photograph's thumbnail is made here, in the request, from the original. A
+   * film's poster frame is made by the media worker after the upload and
+   * cannot be made here at all, so a film that has not got one yet is refused
+   * rather than waited for.
    */
   private async usableKeys(userId: string, requested: string[]): Promise<string[]> {
     const keys = [...new Set(requested)];
@@ -455,10 +493,12 @@ export class ShowcasesService {
       content_type: string | null;
       size_bytes: string | number;
       thumb_key: string | null;
+      poster_key: string | null;
       display_widths: number[] | null;
       blur_data_url: string | null;
     }>(
-      `select key, content_type, size_bytes, thumb_key, display_widths, blur_data_url
+      `select key, content_type, size_bytes, thumb_key, poster_key,
+              display_widths, blur_data_url
          from user_files where user_id = $1 and key = any($2::text[])`,
       [userId, keys],
     );
@@ -468,9 +508,27 @@ export class ShowcasesService {
       const file = byKey.get(key);
       // Same answer whether it is somebody else's or does not exist.
       if (!file) throw new NotFoundException('File not found');
-      if (!file.content_type?.startsWith('image/')) {
-        throw new BadRequestException('Only photographs can go in a showcase.');
+      const isVideo = file.content_type?.startsWith('video/') ?? false;
+      if (!file.content_type?.startsWith('image/') && !isVideo) {
+        throw new BadRequestException('Only photographs and films can go in a showcase.');
       }
+
+      if (isVideo) {
+        // A film's poster is made by the media worker a minute or so after the
+        // upload, not in the request. Posting one before it exists would put a
+        // piece on a feed with nothing to draw, so it is refused with the one
+        // thing worth saying about it: wait a moment.
+        if (!file.poster_key) {
+          throw new BadRequestException({
+            statusCode: 400,
+            error: 'Bad Request',
+            code: 'SHOWCASE_FILM_NOT_READY',
+            message: 'That film is still being prepared. Try again in a moment.',
+          });
+        }
+        continue;
+      }
+
       if (file.thumb_key) continue;
 
       const size = Number(file.size_bytes);
@@ -521,7 +579,8 @@ export class ShowcasesService {
     if (rows.length === 0) return [];
 
     const pieces = await this.db.query<PieceRow>(
-      `select i.showcase_id, i.file_key, f.thumb_key, f.display_widths
+      `select i.showcase_id, i.file_key, f.content_type, f.thumb_key, f.poster_key,
+              f.proxy_key, f.hls_prefix, f.duration_ms, f.display_widths
          from showcase_items i
          join user_files f on f.key = i.file_key and f.user_id = i.user_id
         where i.showcase_id = any($1::uuid[])
@@ -570,6 +629,25 @@ export class ShowcasesService {
    * recognise is a tile they cannot remove.
    */
   private async presentPiece(row: PieceRow, forOwner: boolean): Promise<ShowcasePiece | null> {
+    if (row.content_type?.startsWith('video/')) {
+      // A still to show, and somewhere to play from. The ladder once it is
+      // built, the single proxy until then — the same order every player in
+      // this app already falls through. Never the original: it can be HEVC,
+      // ten-bit, or at edit-suite bitrate.
+      const url = await this.storage.mediaUrl(row.poster_key, PUBLISHED_URL_TTL_SECONDS);
+      if (!url) return null;
+      return {
+        fileKey: row.file_key,
+        kind: 'video',
+        url,
+        playbackUrl:
+          this.mediaLink.hlsUrl(row.hls_prefix) ?? this.mediaLink.url(row.proxy_key),
+        durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
+        displaySources: [],
+        ...(forOwner ? { publiclyShown: true } : {}),
+      };
+    }
+
     const displaySources = this.mediaLink.displaySources(
       row.file_key,
       row.display_widths,
@@ -583,6 +661,7 @@ export class ShowcasesService {
       );
       return {
         fileKey: row.file_key,
+        kind: 'image',
         url: url ?? '',
         displaySources,
         publiclyShown: row.thumb_key !== null,
@@ -591,7 +670,7 @@ export class ShowcasesService {
 
     const url = await this.storage.mediaUrl(row.thumb_key, PUBLISHED_URL_TTL_SECONDS);
     if (!url) return null;
-    return { fileKey: row.file_key, url, displaySources };
+    return { fileKey: row.file_key, kind: 'image', url, displaySources };
   }
 }
 

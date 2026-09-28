@@ -455,10 +455,15 @@ export class AdminService {
               (select count(*) from showcase_reports x where x.showcase_id = r.showcase_id)::int
                 as showcase_report_count,
               (
-                select f.thumb_key
+                -- A photograph's thumbnail, or a film's poster frame. A
+                -- moderator judging a reported film sees only that frame here;
+                -- the whole showcase is one tap away in the app, which is where
+                -- a decision that needs the footage has to be made.
+                select coalesce(f.thumb_key, f.poster_key)
                   from showcase_items si
                   join user_files f on f.key = si.file_key and f.user_id = si.user_id
-                 where si.showcase_id = s.id and f.thumb_key is not null
+                 where si.showcase_id = s.id
+                   and coalesce(f.thumb_key, f.poster_key) is not null
                  order by si.position, si.created_at
                  limit 1
               ) as thumb_key

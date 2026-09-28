@@ -14,16 +14,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { CheckIcon, XIcon } from 'lucide-react-native';
+import { CheckIcon, PlayIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { LoadFailed } from '@/components/LoadFailed';
 import { kindOf, useShowcaseActions, useTheme } from '@/src/hooks';
+import { clock } from '@/src/lib/media-grid';
 import { MAX_CRAFT_TAGS, MAX_SHOWCASE_ITEMS, storageApi } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [CheckIcon, XIcon]) {
+for (const Icon of [CheckIcon, PlayIcon, XIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -61,11 +62,23 @@ export default function NewShowcaseScreen() {
     queryFn: () => storageApi.listFiles({ limit: 200 }),
   });
 
+  /**
+   * What can go in: photographs, and films that have a poster frame.
+   *
+   * A film's poster is written by the media worker a minute or so after the
+   * upload, and the server refuses a film without one — there would be nothing
+   * for a feed to draw. Leaving those out of the grid is the same rule stated
+   * before it is broken rather than after, which is the difference between
+   * "not there yet" and a refusal on the Post button.
+   */
   const available = useMemo(
     () =>
-      (files.data?.data ?? []).filter(
-        (f) => kindOf(f.contentType) === 'image' && f.url && !PROFILE_PICTURE_KEY.test(f.key),
-      ),
+      (files.data?.data ?? []).filter((f) => {
+        if (PROFILE_PICTURE_KEY.test(f.key)) return false;
+        const kind = kindOf(f.contentType);
+        if (kind === 'image') return Boolean(f.url);
+        return kind === 'video' && Boolean(f.posterUrl);
+      }),
     [files.data],
   );
 
@@ -165,13 +178,13 @@ export default function NewShowcaseScreen() {
             </View>
           ) : files.isError || files.isPaused ? (
             <View className="px-5 pt-3">
-              <LoadFailed what="your photographs" onRetry={() => files.refetch()} compact />
+              <LoadFailed what="your work" onRetry={() => files.refetch()} compact />
             </View>
           ) : available.length === 0 ? (
             <View className="px-8 pt-8 items-center gap-4">
               <Text className="text-muted-foreground text-[13px] text-center leading-5">
-                Your photographs live in albums, and there are none here yet. Upload some
-                first and they will show up here.
+                Your photographs and films live in albums, and there are none here yet.
+                Upload some first and they will show up here.
               </Text>
               <Pressable
                 onPress={() => router.push('/albums/upload')}
@@ -179,7 +192,7 @@ export default function NewShowcaseScreen() {
                 className="min-h-11 bg-action rounded-xl px-5 items-center justify-center"
               >
                 <Text className="text-action-foreground text-[13px] font-bold">
-                  Upload photos
+                  Upload
                 </Text>
               </Pressable>
             </View>
@@ -194,6 +207,7 @@ export default function NewShowcaseScreen() {
                 {available.map((file) => {
                   const at = picked.indexOf(file.key);
                   const on = at >= 0;
+                  const film = kindOf(file.contentType) === 'video';
                   return (
                     <Pressable
                       key={file.key}
@@ -201,7 +215,11 @@ export default function NewShowcaseScreen() {
                       accessibilityRole="button"
                       accessibilityState={{ selected: on }}
                       accessibilityLabel={
-                        on ? `Chosen, number ${at + 1}. Remove.` : 'Choose this photograph'
+                        on
+                          ? `Chosen, number ${at + 1}. Remove.`
+                          : film
+                            ? 'Choose this film'
+                            : 'Choose this photograph'
                       }
                       style={{
                         width: '31.8%',
@@ -212,7 +230,26 @@ export default function NewShowcaseScreen() {
                         borderColor: on ? palette.primary : 'transparent',
                       }}
                     >
-                      <RemoteImage source={{ uri: file.url as string }} style={{ flex: 1 }} />
+                      <RemoteImage
+                        source={{ uri: (film ? file.posterUrl : file.url) as string }}
+                        style={{ flex: 1 }}
+                      />
+                      {film && (
+                        <>
+                          <View className="absolute inset-0 items-center justify-center">
+                            <View className="w-9 h-9 rounded-full bg-foreground/50 items-center justify-center">
+                              <PlayIcon size={15} color="#fff" fill="#fff" />
+                            </View>
+                          </View>
+                          {file.durationMs ? (
+                            <View className="absolute right-1.5 bottom-1.5 rounded-full bg-foreground/55 px-1.5 py-0.5">
+                              <Text className="text-background text-[9px] font-bold">
+                                {clock(file.durationMs / 1000)}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </>
+                      )}
                       {on && (
                         <View className="absolute right-1.5 top-1.5 w-6 h-6 rounded-full bg-action items-center justify-center">
                           <Text className="text-action-foreground text-[11px] font-bold">
