@@ -42,6 +42,24 @@ export const MAX_SHOWCASES = 100;
  */
 const PROFILE_PHOTO_KEY = /^users\/[^/]+\/(avatars|covers)\//;
 
+/**
+ * True when $2 and the showcase's author are actually connected.
+ *
+ * Both rows, always. A friendship is two rows and one accepted row on its own
+ * is what an unfriend leaves behind — trusting it is the bug MIRRORED_ACCEPTED_JOIN
+ * exists to prevent, and a connections-only showcase shown to somebody who
+ * unfriended its author is the version of it that matters here.
+ */
+export const CONNECTED_TO_AUTHOR = `exists (
+  select 1 from friends mine
+   join friends theirs
+     on theirs.user_id = mine.friend_user_id
+    and theirs.friend_user_id = mine.user_id
+    and theirs.status = 'accepted'
+  where mine.user_id = $2 and mine.friend_user_id = s.user_id
+    and mine.status = 'accepted'
+)`;
+
 export interface ShowcasePiece {
   fileKey: string;
   url: string;
@@ -69,7 +87,7 @@ export interface Showcase {
   createdAt: string;
 }
 
-interface ShowcaseRow {
+export interface ShowcaseRow {
   id: string;
   user_id: string;
   title: string | null;
@@ -139,14 +157,7 @@ export class ShowcasesService {
               and (u.disabled_until is null or u.disabled_until <= now())
               and u.suspended_at is null
               and not ${blockedBetween('$2', 's.user_id')}
-              and (
-                s.visibility = 'public'
-                or exists (
-                  select 1 from friends f
-                   where f.user_id = $2 and f.friend_user_id = s.user_id
-                     and f.status = 'accepted'
-                )
-              )
+              and (s.visibility = 'public' or ${CONNECTED_TO_AUTHOR})
             )
           )`,
       [id, viewerId],
@@ -404,7 +415,7 @@ export class ShowcasesService {
   }
 
   /** Rows plus their pieces, presented. One query for every piece, not one each. */
-  private async hydrate(rows: ShowcaseRow[], forOwner: boolean): Promise<Showcase[]> {
+  async hydrate(rows: ShowcaseRow[], forOwner: boolean): Promise<Showcase[]> {
     if (rows.length === 0) return [];
 
     const pieces = await this.db.query<PieceRow>(

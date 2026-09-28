@@ -231,5 +231,20 @@ export {
 } from './endpoints/chat';
 export { versionApi, type ServerVersion } from './endpoints/version';
 export { discoverApi, type NearbyPerson, type LocationStatus } from './endpoints/discover';
+export {
+  feedApi,
+  showcasesApi,
+  shelvesApi,
+  MAX_SHOWCASE_ITEMS,
+  MAX_CRAFT_TAGS,
+  type Showcase,
+  type ShowcasePiece,
+  type FeedItem,
+  type FeedMaker,
+  type FeedPage,
+  type ShelfSummary,
+  type ShelfEntry,
+  type NewShowcase,
+} from './endpoints/showcases';
 
 export type * from './types';

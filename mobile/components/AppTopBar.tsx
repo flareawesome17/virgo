@@ -41,6 +41,7 @@ export function AppTopBar() {
   // bottom-bar screens neither matches, and no tab is underlined.
   const onDashboard = pathname === '/';
   const onJobs = pathname.startsWith('/jobs');
+  const onFeed = pathname.startsWith('/feed');
 
   return (
     <>
@@ -71,6 +72,11 @@ export function AppTopBar() {
             label="Dashboard"
             active={onDashboard}
             onPress={() => router.navigate('/')}
+          />
+          <TopTab
+            label="Feed"
+            active={onFeed}
+            onPress={() => router.navigate('/feed')}
           />
           <TopTab
             label="Jobs"

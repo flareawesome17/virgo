@@ -125,6 +125,19 @@ export const queryKeys = {
   portfolio: {
     all: ['portfolio'] as const,
   },
+  showcases: {
+    /** The owner's own list, drafts included. */
+    mine: ['showcases', 'mine'] as const,
+    one: (id: string) => ['showcases', 'one', id] as const,
+  },
+  feed: {
+    all: ['feed'] as const,
+    scope: (scope: 'everyone' | 'connections') => ['feed', scope] as const,
+  },
+  shelves: {
+    mine: ['shelves', 'mine'] as const,
+    entries: (id: string) => ['shelves', 'entries', id] as const,
+  },
   profile: {
     /** Settings and the page together: a handle or a publish changes both. */
     all: ['profile'] as const,
