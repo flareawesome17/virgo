@@ -1,10 +1,21 @@
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 // expo-image rather than RN Image, as everywhere else in this app.
 import { Image } from 'expo-image';
-import { router, usePathname } from 'expo-router';
+import { router } from 'expo-router';
 import { NotificationBell } from '@/components/NotificationBell';
 import { UpdateBanner } from '@/components/UpdateBanner';
-import { useMarkJobsSeen, useUnseenJobs } from '@/src/hooks';
+import { MessageCircleIcon } from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
+import {
+  useAuth,
+  useIncomingFriendRequests,
+  usePromoOffers,
+  useUnreadCount,
+} from '@/src/hooks';
+
+cssInterop(MessageCircleIcon, {
+  className: { target: 'style', nativeStyleToProp: { color: true } },
+});
 
 /**
  * The mark itself, transparent — not assets/icon.png, which is the store
@@ -32,16 +43,13 @@ const LOGO = require('@/assets/splash-icon.png');
  * a bar that travels, Workspaces would be a screen with no way back to it.
  */
 export function AppTopBar() {
-  const pathname = usePathname();
-  const { count: unseenJobs } = useUnseenJobs();
-  const markSeen = useMarkJobsSeen();
-
-  // `/` is the Dashboard. Jobs owns its detail routes too, so a post opened
-  // from the board keeps the tab it was opened from underlined. On the four
-  // bottom-bar screens neither matches, and no tab is underlined.
-  const onDashboard = pathname === '/';
-  const onJobs = pathname.startsWith('/jobs');
-  const onFeed = pathname.startsWith('/feed');
+  const { profile } = useAuth();
+  const unread = useUnreadCount();
+  const { count: friendRequests } = useIncomingFriendRequests();
+  const { offers: rewards } = usePromoOffers();
+  // One dot for both: a message and a request are each somebody waiting on
+  // you, and two badges on one icon would be a puzzle rather than a count.
+  const connectAlerts = unread + friendRequests;
 
   return (
     <>
@@ -64,31 +72,50 @@ export function AppTopBar() {
             </Text>
           </Pressable>
 
-          <NotificationBell />
-        </View>
+          <View className="flex-row items-center">
+            <Pressable
+              onPress={() => router.navigate('/connect')}
+              accessibilityRole="button"
+              accessibilityLabel={
+                connectAlerts > 0
+                  ? `Connections, ${connectAlerts} waiting`
+                  : 'Connections'
+              }
+              className="w-11 h-11 items-center justify-center active:opacity-70"
+            >
+              <MessageCircleIcon size={22} className="text-foreground" />
+              {connectAlerts > 0 && <Dot count={connectAlerts} />}
+            </Pressable>
 
-        <View accessibilityRole="tablist" className="min-h-11 flex-row">
-          <TopTab
-            label="Dashboard"
-            active={onDashboard}
-            onPress={() => router.navigate('/')}
-          />
-          <TopTab
-            label="Feed"
-            active={onFeed}
-            onPress={() => router.navigate('/feed')}
-          />
-          <TopTab
-            label="Jobs"
-            active={onJobs}
-            badge={unseenJobs}
-            onPress={() => {
-              router.navigate('/jobs');
-              // Opening the tab is what "seen" means. The hook zeroes the cached
-              // count so the badge does not flash back mid-request.
-              if (unseenJobs > 0) markSeen.mutate();
-            }}
-          />
+            <NotificationBell />
+
+            {/* Your own photograph rather than a cog: Settings is where the
+                account lives, and this is the thing people already reach for
+                when they want it. It is also the way to the profile. */}
+            <Pressable
+              onPress={() => router.navigate('/settings')}
+              accessibilityRole="button"
+              accessibilityLabel={
+                rewards.length > 0 ? 'Settings, an offer is waiting' : 'Settings'
+              }
+              className="w-11 h-11 items-center justify-center active:opacity-70"
+            >
+              <View className="w-[30px] h-[30px] rounded-full overflow-hidden bg-primary/15 items-center justify-center border border-border">
+                {profile?.avatarUrl ? (
+                  <Image
+                    source={{ uri: profile.avatarUrl }}
+                    style={{ width: 30, height: 30 }}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <Text className="text-primary text-[12px] font-bold">
+                    {(profile?.displayName ?? '?').charAt(0).toUpperCase()}
+                  </Text>
+                )}
+              </View>
+              {rewards.length > 0 && <Dot count={rewards.length} />}
+            </Pressable>
+          </View>
         </View>
       </View>
       {/* Under the bar, not in it: the rows above are a fixed set of
@@ -102,54 +129,19 @@ export function AppTopBar() {
 }
 
 /**
- * One of the second-tier tabs.
+ * The count on an icon in the bar.
  *
- * Equal widths, so each is a large target and a "99+" badge fits without
- * pushing its neighbour. The underline is as wide as the label rather than
- * the cell: a full-width bar under half the screen reads as a divider, not
- * as "you are here". Same weight in both states, so switching tabs does not
- * make the labels jump.
+ * A small disc rather than a wide pill: these sit on 44 pt targets a few
+ * pixels apart, and a pill long enough for "99+" on one would touch its
+ * neighbour. Ringed in the background colour so it reads as sitting above
+ * the icon rather than punched into it.
  */
-function TopTab({
-  label,
-  active,
-  badge = 0,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  badge?: number;
-  onPress: () => void;
-}) {
+function Dot({ count }: { count: number }) {
   return (
-    <Pressable
-      onPress={onPress}
-      // 'tab' carries no trait on iOS; VoiceOver would read the name alone.
-      accessibilityRole={Platform.OS === 'ios' ? 'button' : 'tab'}
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={`${label}${badge > 0 ? `, ${badge} new` : ''}${Platform.OS === 'ios' ? ', tab' : ''}`}
-      className="flex-1 items-center active:opacity-70"
-    >
-      <View
-        className={`flex-1 min-h-11 flex-row items-center gap-1.5 border-b-[3px] ${
-          active ? 'border-primary' : 'border-transparent'
-        }`}
-      >
-        <Text
-          className={`text-[15px] font-semibold ${
-            active ? 'text-foreground' : 'text-muted-foreground'
-          }`}
-        >
-          {label}
-        </Text>
-        {badge > 0 && (
-          <View className="min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-action px-1.5">
-            <Text className="text-action-foreground text-[11px] font-bold">
-              {badge > 99 ? '99+' : badge}
-            </Text>
-          </View>
-        )}
-      </View>
-    </Pressable>
+    <View className="absolute right-1.5 top-1.5 min-w-[17px] h-[17px] items-center justify-center rounded-full bg-action border-2 border-background px-1">
+      <Text className="text-action-foreground text-[9px] font-bold" allowFontScaling={false}>
+        {count > 99 ? '99+' : count}
+      </Text>
+    </View>
   );
 }
