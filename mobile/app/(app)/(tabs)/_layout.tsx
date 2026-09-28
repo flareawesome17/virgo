@@ -22,8 +22,8 @@ for (const Icon of [FolderIcon, CalendarIcon, HomeIcon, LayoutGridIcon, Briefcas
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
-/** Icon + label area, excluding padding. */
-const TAB_CONTENT_HEIGHT = 52;
+/** Icon area, excluding padding. Shorter since the labels came off. */
+const TAB_CONTENT_HEIGHT = 44;
 const TAB_PADDING_TOP = 8;
 
 const badgeCount = (n: number) => (n > 0 ? (n > 99 ? '99+' : n) : undefined);
@@ -82,11 +82,11 @@ export default function TabsLayout() {
         },
         tabBarActiveTintColor: palette.primary,
         tabBarInactiveTintColor: palette.mutedForeground,
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
-          letterSpacing: 0.2,
-        },
+        // Icons alone, at five destinations. "Dashboard" and "Workspaces" do
+        // not fit a fifth of a phone at a legible size, and shrinking the type
+        // until they did would have made them unreadable rather than helpful.
+        // The title still names each tab to a screen reader.
+        tabBarShowLabel: false,
       }}
     >
       {/* The five places the work happens, in the order a day runs through
@@ -98,7 +98,7 @@ export default function TabsLayout() {
         options={{
           title: 'Dashboard',
           tabBarIcon: ({ focused, color }) => (
-            <HomeIcon color={color} size={22} strokeWidth={focused ? 2.5 : 2} />
+            <HomeIcon color={color} size={25} strokeWidth={focused ? 2.5 : 2} />
           ),
         }}
       />
@@ -107,7 +107,7 @@ export default function TabsLayout() {
         options={{
           title: 'Feed',
           tabBarIcon: ({ focused, color }) => (
-            <LayoutGridIcon color={color} size={22} strokeWidth={focused ? 2.5 : 2} />
+            <LayoutGridIcon color={color} size={25} strokeWidth={focused ? 2.5 : 2} />
           ),
         }}
       />
@@ -116,7 +116,7 @@ export default function TabsLayout() {
         options={{
           title: 'Jobs',
           tabBarIcon: ({ focused, color }) => (
-            <BriefcaseIcon color={color} size={22} strokeWidth={focused ? 2.5 : 2} />
+            <BriefcaseIcon color={color} size={25} strokeWidth={focused ? 2.5 : 2} />
           ),
           tabBarBadge: badgeCount(unseenJobs),
           tabBarBadgeStyle,
@@ -129,7 +129,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused, color }) => (
             <FolderIcon
               color={color}
-              size={22}
+              size={25}
               strokeWidth={focused ? 2.5 : 2}
             />
           ),
@@ -146,7 +146,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused, color }) => (
             <CalendarIcon
               color={color}
-              size={22}
+              size={25}
               strokeWidth={focused ? 2.5 : 2}
             />
           ),
