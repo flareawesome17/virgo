@@ -101,6 +101,9 @@ export default function TabsLayout() {
           rather than a pushed screen so the bar stays put while you are on it. */}
       <Tabs.Screen name="index" options={{ href: null }} />
       <Tabs.Screen name="jobs" options={{ href: null }} />
+      {/* Reached from the top bar, like Dashboard and Jobs — not a fifth
+          bottom-bar destination. */}
+      <Tabs.Screen name="feed" options={{ href: null }} />
       <Tabs.Screen
         name="workspaces"
         options={{

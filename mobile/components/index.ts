@@ -54,3 +54,4 @@ export {
   useCoverEditor,
   useAvatarEditor,
 } from '@/components/ProfilePhotoEditors'
+export { KeepSheet } from './KeepSheet';
