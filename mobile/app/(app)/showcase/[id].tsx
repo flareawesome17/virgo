@@ -21,6 +21,7 @@ import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { KeepSheet } from '@/components/KeepSheet';
+import { CommentThread } from '@/components/CommentThread';
 import { useAuth, useLike, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
@@ -271,6 +272,8 @@ export default function ShowcaseScreen() {
               </Text>
             )}
           </View>
+
+          <CommentThread showcaseId={showcase.id} isOwner={mine} />
         </ScrollView>
       )}
 

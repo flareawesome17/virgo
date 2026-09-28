@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import {
+  commentsApi,
   feedApi,
   likesApi,
   queryKeys,
@@ -14,6 +15,7 @@ import {
   type FeedItem,
   type FeedPage,
   type NewShowcase,
+  type Comment,
   type ShelfSummary,
   type Showcase,
 } from '@/api';
@@ -283,4 +285,54 @@ export function useLike() {
     // returns — which is the behaviour somebody expects from a tap.
     onError: (_error, variables) => write(variables.showcaseId, !variables.liked, variables.liked ? -1 : 1),
   });
+}
+
+/** The thread on a post. */
+export function useComments(showcaseId: string | undefined) {
+  const query = useQuery({
+    queryKey: queryKeys.showcases.comments(showcaseId ?? ''),
+    queryFn: () => commentsApi.list(showcaseId!),
+    enabled: Boolean(showcaseId),
+  });
+
+  return {
+    ...query,
+    comments: query.data?.data ?? [],
+    /** False when the author has turned commenting off. */
+    allowed: query.data?.allowed ?? true,
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+/**
+ * Saying something, and taking it back.
+ *
+ * Both answer with the whole thread, which is written straight into the
+ * cache — a comment that appears only after a refetch is one people send
+ * twice. The showcase itself is invalidated too, because its count is drawn
+ * on the card the reader came from.
+ */
+export function useCommentActions(showcaseId: string) {
+  const queryClient = useQueryClient();
+
+  const apply = (result: { data: Comment[] }) => {
+    queryClient.setQueryData(queryKeys.showcases.comments(showcaseId), {
+      data: result.data,
+      allowed: true,
+    });
+    queryClient.invalidateQueries({ queryKey: queryKeys.showcases.one(showcaseId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.feed.all });
+  };
+
+  const add = useMutation({
+    mutationFn: (body: string) => commentsApi.add(showcaseId, body),
+    onSuccess: apply,
+  });
+
+  const remove = useMutation({
+    mutationFn: (commentId: string) => commentsApi.remove(showcaseId, commentId),
+    onSuccess: apply,
+  });
+
+  return { add, remove };
 }

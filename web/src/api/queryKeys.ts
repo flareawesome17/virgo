@@ -130,6 +130,7 @@ export const queryKeys = {
     mine: ['showcases', 'mine'] as const,
     one: (id: string) => ['showcases', 'one', id] as const,
     ofHandle: (handle: string) => ['showcases', 'of', handle] as const,
+    comments: (id: string) => ['showcases', 'comments', id] as const,
   },
   feed: {
     all: ['feed'] as const,

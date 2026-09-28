@@ -40,6 +40,7 @@ export interface Showcase {
   hiddenAt: string | null;
   keptCount: number;
   likeCount: number;
+  commentCount: number;
   pieces: ShowcasePiece[];
   createdAt: string;
 }
@@ -229,5 +230,34 @@ export const showcaseReportsApi = {
     note?: string,
   ): Promise<{ reported: true }> {
     return api.post(`/showcases/${showcaseId}/report`, { body: { reason, note } });
+  },
+};
+
+export interface Comment {
+  id: string;
+  body: string;
+  createdAt: string;
+  author: { id: string; displayName: string; handle: string | null; avatarUrl: string | null };
+  /** Your own, or anything on a showcase of yours. */
+  canRemove: boolean;
+}
+
+export const commentsApi = {
+  /**
+   * The thread, oldest first.
+   *
+   * `allowed` is false when the author has turned commenting off — the thread
+   * is hidden rather than deleted, and they still see it themselves.
+   */
+  list(showcaseId: string): Promise<{ data: Comment[]; allowed: boolean }> {
+    return api.get(`/showcases/${showcaseId}/comments`);
+  },
+
+  add(showcaseId: string, body: string): Promise<{ data: Comment[] }> {
+    return api.post(`/showcases/${showcaseId}/comments`, { body: { body } });
+  },
+
+  remove(showcaseId: string, commentId: string): Promise<{ data: Comment[] }> {
+    return api.delete(`/showcases/${showcaseId}/comments/${commentId}`);
   },
 };

@@ -109,6 +109,7 @@ export interface Showcase {
   hiddenAt: string | null;
   keptCount: number;
   likeCount: number;
+  commentCount: number;
   pieces: ShowcasePiece[];
   createdAt: string;
 }
@@ -130,6 +131,7 @@ export interface ShowcaseRow {
   hidden_at: Date | string | null;
   kept_count: number;
   like_count: number;
+  comment_count: number;
   created_at: Date | string;
 }
 
@@ -553,6 +555,7 @@ export class ShowcasesService {
       hiddenAt: asIso(row.hidden_at),
       keptCount: Number(row.kept_count),
       likeCount: Number(row.like_count),
+      commentCount: Number(row.comment_count),
       pieces: grouped.get(row.id) ?? [],
       createdAt: asIso(row.created_at)!,
     }));

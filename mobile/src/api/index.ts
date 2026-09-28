@@ -231,6 +231,8 @@ export {
   showcasesApi,
   profileWorkApi,
   likesApi,
+  commentsApi,
+  type Comment,
   showcaseReportsApi,
   SHOWCASE_REPORT_REASONS,
   type ShowcaseReportReason,

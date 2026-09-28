@@ -337,7 +337,11 @@ function Placard({
             className="flex-1 min-h-12 flex-row items-center justify-center gap-1.5 active:opacity-70"
           >
             <ChevronUpIcon size={15} className="text-muted-foreground" />
-            <Text className="text-secondary-foreground text-[12px] font-bold">See it all</Text>
+            <Text className="text-secondary-foreground text-[12px] font-bold">
+              {item.commentCount > 0
+                ? `${item.commentCount} ${item.commentCount === 1 ? 'comment' : 'comments'}`
+                : 'See it all'}
+            </Text>
           </Pressable>
           <View className="w-px bg-border my-2.5" />
           <Pressable

@@ -11,7 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
   CreateShelfDto,
@@ -21,6 +21,7 @@ import {
   UpdateShowcaseDto,
 } from './dto/showcase.dto';
 import { FeedService } from './feed.service';
+import { CommentsService } from './comments.service';
 import { LikesService } from './likes.service';
 import {
   SHOWCASE_REPORT_REASONS,
@@ -288,5 +289,48 @@ export class ShowcaseReportsController {
     @Body() dto: ReportShowcaseDto,
   ) {
     return this.reports.report(userId, id, dto.reason, dto.note);
+  }
+}
+
+export class AddCommentDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1000)
+  body!: string;
+}
+
+/** The thread on a post. */
+@Controller('showcases/:id/comments')
+export class CommentsController {
+  constructor(private readonly comments: CommentsService) {}
+
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @Get()
+  list(@CurrentUser('id') viewerId: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.comments.list(viewerId, id);
+  }
+
+  // Tighter than reading: a comment is somebody else's notification.
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Post()
+  @HttpCode(200)
+  async add(
+    @CurrentUser('id') viewerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddCommentDto,
+  ) {
+    const data = await this.comments.add(viewerId, id, dto.body);
+    return { data };
+  }
+
+  @Delete(':commentId')
+  @HttpCode(200)
+  async remove(
+    @CurrentUser('id') viewerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+  ) {
+    const data = await this.comments.remove(viewerId, id, commentId);
+    return { data };
   }
 }
