@@ -4,25 +4,23 @@ import { BottomTabBar } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   FolderIcon,
-  UsersIcon,
   CalendarIcon,
-  SettingsIcon,
+  HomeIcon,
+  LayoutGridIcon,
+  BriefcaseIcon,
 } from 'lucide-react-native';
 import { cssInterop, useColorScheme } from 'nativewind';
 import {
   useCollaboratorInvitations,
   useEventInvitations,
-  useIncomingFriendRequests,
-  usePromoOffers,
-  useUnreadCount,
+  useUnseenJobs,
 } from '@/src/hooks';
 import { AppTabBar } from '@/components/AppTabBar';
 import { PALETTES } from '@/theme';
 
-cssInterop(FolderIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(SettingsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+for (const Icon of [FolderIcon, CalendarIcon, HomeIcon, LayoutGridIcon, BriefcaseIcon]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 /** Icon + label area, excluding padding. */
 const TAB_CONTENT_HEIGHT = 52;
@@ -34,19 +32,16 @@ export default function TabsLayout() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
-  const unread = useUnreadCount();
   // An invitation is invisible until answered — the workspace does not
   // show up anywhere else — so the count has to live on the tab itself.
   const { invitations } = useCollaboratorInvitations();
-  // Friend requests waiting on an answer, so the tab says so without
-  // being opened — the socket keeps it current.
-  const { count: friendRequests } = useIncomingFriendRequests();
   // Invitations to somebody else's shoot, waiting on an answer.
   const { invitations: eventInvites } = useEventInvitations();
-  // Rewards waiting to be claimed. Almost always an empty list, and the only
-  // thing that says an offer arrived while the app was closed.
-  const { offers: rewards } = usePromoOffers();
-  const connectAlerts = unread + friendRequests;
+  // Jobs posted since the board was last opened. It moved down here with the
+  // tab; the top bar no longer carries it.
+  const { count: unseenJobs } = useUnseenJobs();
+  // Unread messages, friend requests and waiting rewards all badge the top
+  // bar now rather than a tab, so this layout no longer counts them.
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
   // Used by the stock bar only; the iOS capsule draws its own.
@@ -94,20 +89,43 @@ export default function TabsLayout() {
         },
       }}
     >
-      {/* Dashboard is still the app's first screen, but not a bottom-bar
-          entry. The top bar carries Dashboard and Jobs, and listing either
-          below as well would be the same destination twice — the logo
-          returns to the Dashboard from wherever you are. Jobs is a tab route
-          rather than a pushed screen so the bar stays put while you are on it. */}
-      <Tabs.Screen name="index" options={{ href: null }} />
-      <Tabs.Screen name="jobs" options={{ href: null }} />
-      {/* Reached from the top bar, like Dashboard and Jobs — not a fifth
-          bottom-bar destination. */}
-      <Tabs.Screen name="feed" options={{ href: null }} />
+      {/* The five places the work happens, in the order a day runs through
+          them: what is on today, what other people are making, what is going,
+          what you are delivering, and when. Connect and Settings are in the
+          top bar instead — they are things you dip into, not places you live. */}
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Dashboard',
+          tabBarIcon: ({ focused, color }) => (
+            <HomeIcon color={color} size={22} strokeWidth={focused ? 2.5 : 2} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="feed"
+        options={{
+          title: 'Feed',
+          tabBarIcon: ({ focused, color }) => (
+            <LayoutGridIcon color={color} size={22} strokeWidth={focused ? 2.5 : 2} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="jobs"
+        options={{
+          title: 'Jobs',
+          tabBarIcon: ({ focused, color }) => (
+            <BriefcaseIcon color={color} size={22} strokeWidth={focused ? 2.5 : 2} />
+          ),
+          tabBarBadge: badgeCount(unseenJobs),
+          tabBarBadgeStyle,
+        }}
+      />
       <Tabs.Screen
         name="workspaces"
         options={{
-          title: 'Workspaces',
+          title: 'Work',
           tabBarIcon: ({ focused, color }) => (
             <FolderIcon
               color={color}
@@ -116,21 +134,6 @@ export default function TabsLayout() {
             />
           ),
           tabBarBadge: badgeCount(invitations.length),
-          tabBarBadgeStyle,
-        }}
-      />
-      <Tabs.Screen
-        name="connect"
-        options={{
-          title: 'Connect',
-          tabBarIcon: ({ focused, color }) => (
-            <UsersIcon
-              color={color}
-              size={22}
-              strokeWidth={focused ? 2.5 : 2}
-            />
-          ),
-          tabBarBadge: badgeCount(connectAlerts),
           tabBarBadgeStyle,
         }}
       />
@@ -149,27 +152,11 @@ export default function TabsLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Settings',
-          tabBarIcon: ({ focused, color }) => (
-            <SettingsIcon
-              color={color}
-              size={22}
-              strokeWidth={focused ? 2.5 : 2}
-            />
-          ),
-          // Rewards are one row into this tab, and an offer expires. The badge
-          // is carried on the tab and again on the Profile & account half, so
-          // it is never the case that something is waiting and nothing on
-          // screen says so.
-          tabBarBadge: badgeCount(rewards.length),
-          tabBarBadgeStyle,
-        }}
-      />
-      {/* Keep the original routes available for deep links and existing calls,
-          but remove them from primary navigation. Connect owns their UI. */}
+      {/* Reached from the top bar. Tab routes rather than pushed screens, so
+          the bar stays put and going back lands where you were. */}
+      <Tabs.Screen name="connect" options={{ href: null }} />
+      <Tabs.Screen name="settings" options={{ href: null }} />
+      {/* Kept for deep links and existing calls. Connect owns their UI. */}
       <Tabs.Screen name="network" options={{ href: null }} />
       <Tabs.Screen name="chat" options={{ href: null }} />
     </Tabs>

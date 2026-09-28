@@ -1,7 +1,9 @@
 import { View, Text, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 import { AppTopBar, JobsTabs } from '@/components';
+import { useMarkJobsSeen, useUnseenJobs } from '@/src/hooks';
 import { PlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 
@@ -16,11 +18,24 @@ cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color:
  * screen so the bottom bar stays put: leaving Jobs for Workspaces is one tap,
  * not a back gesture and then a tap.
  *
- * Hidden from the bottom bar itself (see _layout.tsx): Dashboard and Jobs are
- * the tabs in the top bar, and repeating one of them below would be the same
- * destination twice.
+ * One of the five destinations in the bottom bar.
  */
 export default function JobsScreen() {
+  const { count: unseenJobs } = useUnseenJobs();
+  const markSeen = useMarkJobsSeen();
+
+  // Opening the board is what "seen" means. This used to happen on the top
+  // bar's Jobs tab; the tab moved to the bottom bar, and without this the
+  // badge would have counted up for ever with nothing able to clear it.
+  useFocusEffect(
+    useCallback(() => {
+      if (unseenJobs > 0) markSeen.mutate();
+      // Deliberately not depending on the mutation: it is recreated each
+      // render, and depending on it would re-run this on every one.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [unseenJobs]),
+  );
+
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <AppTopBar />
