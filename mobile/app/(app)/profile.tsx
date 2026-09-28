@@ -30,7 +30,6 @@ import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { ActionSheet } from '@/components/WorkspaceBits';
 import {
-  PortfolioBlock,
   ProfileAvatar,
   ProfileCover,
   ProfileDetails,
@@ -194,7 +193,6 @@ export default function YourProfileScreen() {
   }
   rows.push({ icon: CalendarIcon, text: `On Virgo since ${new Date(profile.createdAt).getFullYear()}` });
 
-  const hidden = page?.portfolioHidden ?? 0;
   const bio = profile.bio?.trim() || null;
 
   return (
@@ -330,59 +328,11 @@ export default function YourProfileScreen() {
           </View>
         </View>
 
-        {/* What you made, and what you keep. Above the portfolio rather than
-            instead of it: portfolio_items still serves every profile, and
-            nothing anybody already put there is going to vanish because a new
-            object exists. */}
+        {/* Your posts, and what you keep. There is no portfolio any more:
+            a showcase is posted to the feed and the profile shows what you
+            posted, the way people expect a profile to work. Nothing to set up
+            separately, and nothing that can be on one and not the other. */}
         <ProfileWorkTaste handle={handle ?? undefined} isSelf firstName="You" />
-
-        <PortfolioBlock
-          header="Portfolio"
-          width={width}
-          action={{ label: 'Manage', onPress: () => router.push('/settings/public-profile') }}
-          items={page?.portfolio ?? []}
-          emptyState={
-            pageQuery.isLoading ? (
-              <View className="py-8 items-center">
-                <ActivityIndicator color={palette.primary} />
-              </View>
-            ) : pageQuery.loadFailed ? (
-              <View className="rounded-2xl border border-dashed border-border">
-                <LoadFailed compact what="your portfolio" onRetry={() => pageQuery.refetch()} />
-              </View>
-            ) : (
-              <View className="rounded-2xl border border-dashed border-border py-8 px-5 items-center">
-                <Text className="text-muted-foreground text-[13px] text-center leading-5">
-                  Add your best work — it's what people look at before they get in touch.
-                </Text>
-                <Pressable
-                  onPress={() => router.push('/settings/public-profile')}
-                  accessibilityRole="button"
-                  className="bg-action rounded-xl px-5 py-2.5 mt-4 active:opacity-90"
-                >
-                  <Text className="text-action-foreground text-[14px] font-bold">Add work</Text>
-                </Pressable>
-              </View>
-            )
-          }
-          footer={
-            hidden > 0 ? (
-              <View className="mx-5 mt-3 flex-row items-start gap-2.5 rounded-xl bg-muted px-3.5 py-3">
-                <InfoIcon size={15} className="text-muted-foreground" style={{ marginTop: 2 }} />
-                <Text className="flex-1 text-muted-foreground text-[12px] leading-5">
-                  {`${hidden} photo${hidden === 1 ? '' : 's'} can't be shown on your profile. Remove ${hidden === 1 ? 'it' : 'them'} in Manage, or add a JPEG copy instead.`}
-                </Text>
-                <Pressable
-                  onPress={() => router.push('/settings/public-profile')}
-                  accessibilityRole="button"
-                  hitSlop={14}
-                >
-                  <Text className="text-primary text-[12px] font-semibold">Manage</Text>
-                </Pressable>
-              </View>
-            ) : null
-          }
-        />
       </ScrollView>
 
       <ActionSheet
