@@ -41,6 +41,7 @@ import {
   ProfileStatsLine,
   type ProfileDetailRow,
 } from '@/components/ProfileParts';
+import { ProfileWorkTaste } from '@/components/ProfileWorkTaste';
 import { SITE, profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
@@ -241,6 +242,8 @@ export default function ProfileScreen() {
             <ProfileDetails rows={rows} />
           </View>
         </View>
+
+        <ProfileWorkTaste handle={person.handle} isSelf={isSelf} firstName={first} />
 
         <PortfolioBlock
           header="Portfolio"

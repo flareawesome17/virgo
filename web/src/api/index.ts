@@ -234,6 +234,7 @@ export { discoverApi, type NearbyPerson, type LocationStatus } from './endpoints
 export {
   feedApi,
   showcasesApi,
+  profileWorkApi,
   shelvesApi,
   MAX_SHOWCASE_ITEMS,
   MAX_CRAFT_TAGS,
