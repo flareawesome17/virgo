@@ -30,10 +30,9 @@ import {
   profileBanner,
   profileStatsLine,
   profileUrl,
-  type PortfolioAlbum,
-  type PortfolioImage,
   type ProfileView,
 } from '@/api';
+import { useProfileWork } from '@/hooks/useShowcases';
 import { usePublicProfile } from '@/hooks/useProfile';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
@@ -93,10 +92,6 @@ export default function AppProfilePage() {
   const person = q.profile;
   if (!person) return notFound;
 
-  const images = person.portfolio.filter((i): i is PortfolioImage => i.kind === 'image');
-  const albums = person.portfolio.filter(
-    (i): i is PortfolioAlbum => i.kind === 'album' && Boolean(i.url),
-  );
   const banner = profileBanner(person);
   const isSelf = person.viewer?.isSelf === true;
   const mutual = isSelf ? null : mutualConnectionsLine(person.mutualConnections);
@@ -269,27 +264,42 @@ export default function AppProfilePage() {
           </CardContent>
         </Card>
 
-        <ProfileWork images={images} albums={albums} person={person} />
+        <ProfileWork handle={person.handle} person={person} />
       </div>
     </AppShell>
   );
 }
 
-function ProfileWork({
-  images,
-  albums,
-  person,
-}: {
-  images: PortfolioImage[];
-  albums: PortfolioAlbum[];
-  person: ProfileView;
-}) {
-  if (images.length === 0 && albums.length === 0) {
+function ProfileWork({ handle, person }: { handle: string; person: ProfileView }) {
+  const { showcases, isLoading, loadFailed, refetch } = useProfileWork(handle);
+
+  if (isLoading) {
+    return (
+      <Card className="mt-4">
+        <div className="grid place-items-center py-14 text-muted-foreground">Loading…</div>
+      </Card>
+    );
+  }
+
+  if (loadFailed && showcases.length === 0) {
     return (
       <Card className="mt-4">
         <EmptyState
           icon={BriefcaseBusiness}
-          title={`${person.displayName.split(' ')[0]} has not added any work yet`}
+          title="Could not load this work"
+          description="Check your connection and try again."
+          action={<Button onClick={() => void refetch()}>Try again</Button>}
+        />
+      </Card>
+    );
+  }
+
+  if (showcases.length === 0) {
+    return (
+      <Card className="mt-4">
+        <EmptyState
+          icon={BriefcaseBusiness}
+          title={`${person.displayName.split(' ')[0]} has not posted anything yet`}
           description="You can still send an enquiry — tell them what the job is and see what they say."
         />
       </Card>
@@ -297,83 +307,41 @@ function ProfileWork({
   }
 
   return (
-    <div className="mt-4 space-y-4">
-      {images.length > 0 && (
-        <div>
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-            Portfolio
-          </h2>
-          {/* The same tight square grid the public page uses. Uniform crops are
-              what let somebody judge a dozen photographs at a glance.
-
-              `url` is the 640 px B2 copy, which next/image is allowed to load.
-              displaySources is never passed here: the media host is not in
-              its allow-list, and the images are already the size they need. */}
-          <div className="mt-2 grid grid-cols-3 gap-1 overflow-hidden rounded-xl">
-            {images.map((item) => (
-              <figure
-                key={item.id}
-                className="group relative aspect-square overflow-hidden bg-muted"
-              >
-                <Image
-                  src={item.url}
-                  alt={item.caption ?? ''}
-                  fill
-                  sizes="(max-width: 900px) 33vw, 300px"
-                  className="object-cover transition-transform duration-500 group-hover:scale-105"
-                />
-                {item.caption && (
-                  <figcaption className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/75 to-transparent p-2.5 text-[12px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-                    {item.caption}
-                  </figcaption>
-                )}
-              </figure>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {albums.length > 0 && (
-        <div>
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-            Galleries
-          </h2>
-          <div className="mt-2 grid gap-3 sm:grid-cols-2">
-            {albums.map((album) => (
-              <a
-                key={album.id}
-                href={album.url ?? undefined}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group relative flex aspect-[16/10] items-end overflow-hidden rounded-xl bg-muted"
-              >
-                {album.coverUrl ? (
-                  <Image
-                    src={album.coverUrl}
-                    alt=""
-                    fill
-                    sizes="(max-width: 900px) 100vw, 420px"
-                    className="object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                ) : (
-                  <div className="absolute inset-0 grid place-items-center bg-primary/10">
-                    <Layers className="size-7 text-primary/60" />
-                  </div>
-                )}
-                <div className="relative w-full bg-gradient-to-t from-black/85 to-transparent p-4 pt-10">
-                  <p className="flex items-center gap-1.5 text-[15px] font-bold text-white">
-                    {album.name}
-                    <ArrowUpRight className="size-4 shrink-0 text-white/60" />
-                  </p>
-                  <p className="mt-0.5 text-[12px] text-white/60">
-                    {album.itemCount} {album.itemCount === 1 ? 'photo' : 'photos'}
-                  </p>
-                </div>
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
+    <div className="mt-4">
+      <h2 className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+        Work
+      </h2>
+      {/* The cover of each showcase, in the same tight square grid the app
+          uses. `url` on a piece is the 640 px B2 copy, which next/image is
+          allowed to load; displaySources is never passed here, because the
+          media host is not in its allow-list and these are already the size
+          they need to be. */}
+      <div className="mt-2 grid grid-cols-3 gap-1 overflow-hidden rounded-xl">
+        {showcases.map((showcase) => (
+          <figure
+            key={showcase.id}
+            className="group relative aspect-square overflow-hidden bg-muted"
+          >
+            <Image
+              src={showcase.pieces[0].url}
+              alt={showcase.title ?? ''}
+              fill
+              sizes="(max-width: 900px) 33vw, 300px"
+              className="object-cover transition-transform duration-500 group-hover:scale-105"
+            />
+            {showcase.pieces.length > 1 && (
+              <span className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">
+                {showcase.pieces.length}
+              </span>
+            )}
+            {showcase.title && (
+              <figcaption className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/75 to-transparent p-2.5 text-[12px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+                {showcase.title}
+              </figcaption>
+            )}
+          </figure>
+        ))}
+      </div>
     </div>
   );
 }

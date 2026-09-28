@@ -9,8 +9,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import {
-  usePortfolio,
-  usePortfolioActions,
   useProfileSettings,
   useSetHandle,
   useSetPublished,
@@ -37,8 +35,6 @@ for (const Icon of [
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
-const MAX_IMAGES = 24;
-const MAX_ALBUMS = 12;
 
 /**
  * A profile photo or a cover. They are the account's own uploads too, but a
@@ -59,20 +55,6 @@ export default function PublicProfileScreen() {
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { settings, isLoading } = useProfileSettings();
   const setPublished = useSetPublished();
-  // `portfolioLoading` is not optional dressing. Without it the section falls
-  // straight to its empty branch while the list is still in flight, and tells
-  // somebody who has twenty photographs that there is nothing here yet.
-  const {
-    items,
-    images,
-    albums,
-    loadFailed,
-    refetch,
-    isLoading: portfolioLoading,
-  } = usePortfolio();
-  const { remove, reorder } = usePortfolioActions();
-
-  const [picking, setPicking] = useState<'images' | 'albums' | null>(null);
 
   if (isLoading || !settings) {
     return (
@@ -82,19 +64,6 @@ export default function PublicProfileScreen() {
     );
   }
 
-  const move = (index: number, delta: number) => {
-    const target = index + delta;
-    if (target < 0 || target >= items.length) return;
-    const next = [...items];
-    const [moved] = next.splice(index, 1);
-    next.splice(target, 0, moved);
-    reorder.mutate(next.map((i) => i.id), {
-      // Offline the row simply does not move, because React Query pauses the
-      // mutation rather than failing it — so the arrow tap produced nothing at
-      // all, and no explanation. This is the explanation.
-      onError: (error) => Alert.alert('Could not reorder', profileActionMessage(error, 'reorder')),
-    });
-  };
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
@@ -182,147 +151,12 @@ export default function PublicProfileScreen() {
 
         <HandleCard current={settings.handle} changedAt={settings.handleChangedAt} />
 
-        <View className="gap-3">
-          <View className="flex-row items-center justify-between">
-            <View>
-              <Text className="text-foreground text-[15px] font-bold">Portfolio</Text>
-              <Text className="text-muted-foreground text-[11px] mt-0.5">
-                {images.length}/{MAX_IMAGES} photos · {albums.length}/{MAX_ALBUMS} galleries
-              </Text>
-            </View>
-            <View className="flex-row gap-2">
-              <Pressable
-                className="bg-card rounded-xl px-3 py-2 flex-row items-center gap-1.5"
-                disabled={images.length >= MAX_IMAGES}
-                style={{ opacity: images.length >= MAX_IMAGES ? 0.4 : 1 }}
-                onPress={() => setPicking('images')}
-              >
-                <ImagePlusIcon size={14} className="text-primary" />
-                <Text className="text-foreground text-[12px] font-semibold">Photos</Text>
-              </Pressable>
-              <Pressable
-                className="bg-card rounded-xl px-3 py-2 flex-row items-center gap-1.5"
-                disabled={albums.length >= MAX_ALBUMS}
-                style={{ opacity: albums.length >= MAX_ALBUMS ? 0.4 : 1 }}
-                onPress={() => setPicking('albums')}
-              >
-                <LayersIcon size={14} className="text-primary" />
-                <Text className="text-foreground text-[12px] font-semibold">Gallery</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {/* Offline, React Query pauses a mutation instead of failing it, so
-              `onError` never runs and the tap looks ignored. Saying so is the
-              only feedback there is until the device is back. */}
-          {(reorder.isPaused || remove.isPaused) && (
-            <Text className="text-muted-foreground text-[11px] leading-4">
-              Waiting for a connection — your changes will be saved when you are back online.
-            </Text>
-          )}
-
-          {portfolioLoading ? (
-            <View className="rounded-2xl border border-dashed border-border py-8 items-center">
-              <ActivityIndicator color={palette.primary} />
-            </View>
-          ) : loadFailed && items.length === 0 ? (
-            <View className="rounded-2xl border border-dashed border-border">
-              <LoadFailed what="your portfolio" onRetry={() => refetch()} compact />
-            </View>
-          ) : items.length === 0 ? (
-            <View className="rounded-2xl border border-dashed border-border py-8 px-5 gap-3">
-              <Text className="text-muted-foreground text-[12px] text-center leading-5">
-                Nothing here yet. Add a few of your best photographs — this is
-                what someone judges before they get in touch.
-              </Text>
-              {/* The buttons that do this are in the header above, which is off
-                  screen by the time somebody has read this far. */}
-              <Pressable
-                className="bg-action rounded-xl py-2.5 items-center active:opacity-90 self-center px-5"
-                onPress={() => setPicking('images')}
-                accessibilityRole="button"
-              >
-                <Text className="text-action-foreground text-[13px] font-bold">Add photos</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <View className="gap-2">
-              {items.map((item, index) => (
-                <View key={item.id} className="bg-card rounded-2xl p-2.5 flex-row items-center gap-3">
-                  {item.kind === 'image' ? (
-                    <RemoteImage
-                      source={{ uri: item.url }}
-                      style={{ width: 44, height: 44, borderRadius: 8 }}
-                    />
-                  ) : item.coverUrl ? (
-                    <RemoteImage
-                      source={{ uri: item.coverUrl }}
-                      style={{ width: 44, height: 44, borderRadius: 8 }}
-                    />
-                  ) : (
-                    <View
-                      className="bg-primary/10 items-center justify-center"
-                      style={{ width: 44, height: 44, borderRadius: 8 }}
-                    >
-                      <LayersIcon size={16} className="text-primary" />
-                    </View>
-                  )}
-
-                  <View className="flex-1 min-w-0">
-                    <Text className="text-foreground text-[13px] font-semibold" numberOfLines={1}>
-                      {item.kind === 'album' ? item.name : (item.caption ?? 'Photo')}
-                    </Text>
-                    <Text className="text-muted-foreground text-[11px]">
-                      {item.kind === 'album'
-                        ? `Gallery · ${item.itemCount} ${item.itemCount === 1 ? 'photo' : 'photos'}`
-                        : 'Photo'}
-                    </Text>
-                    {/* Explicitly false only: an older API sends no flag, and
-                        that says nothing about whether the photo shows. */}
-                    {item.kind === 'image' && item.publiclyShown === false && (
-                      <Text className="text-warning text-[11px] leading-4 mt-0.5">
-                        Not shown on your profile. Remove it, or add a JPEG copy instead.
-                      </Text>
-                    )}
-                  </View>
-
-                  {/* Arrows, not drag: a long-press reorder inside a ScrollView
-                      fights the scroll gesture on a phone. */}
-                  <Pressable onPress={() => move(index, -1)} hitSlop={6} disabled={index === 0}
-                    style={{ opacity: index === 0 ? 0.25 : 1 }}>
-                    <ArrowUpIcon size={16} className="text-muted-foreground" />
-                  </Pressable>
-                  <Pressable onPress={() => move(index, 1)} hitSlop={6}
-                    disabled={index === items.length - 1}
-                    style={{ opacity: index === items.length - 1 ? 0.25 : 1 }}>
-                    <ArrowDownIcon size={16} className="text-muted-foreground" />
-                  </Pressable>
-                  <Pressable
-                    hitSlop={6}
-                    onPress={() =>
-                      remove.mutate(item.id, {
-                        onError: (error: Error) =>
-                          Alert.alert('Could not remove', profileActionMessage(error, 'unshowcase')),
-                      })
-                    }
-                  >
-                    <TrashIcon size={16} className="text-destructive" />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
+        {/* No portfolio here any more. Work goes on a profile by being
+            posted to the feed, which is one act rather than two — there is
+            nothing to set up, and nothing that can be in one place and not
+            the other. */}
       </ScrollView>
 
-      <PickerModal
-        mode={picking}
-        onClose={() => setPicking(null)}
-        chosenKeys={new Set(images.flatMap((i) => (i.kind === 'image' && i.fileKey ? [i.fileKey] : [])))}
-        chosenAlbums={new Set(albums.flatMap((a) => (a.kind === 'album' && a.albumId ? [a.albumId] : [])))}
-        roomForImages={MAX_IMAGES - images.length}
-        roomForAlbums={MAX_ALBUMS - albums.length}
-      />
     </SafeAreaView>
   );
 }
@@ -427,227 +261,5 @@ function HandleCard({
         </Text>
       ) : null}
     </View>
-  );
-}
-
-/** Picking photos or galleries to add. */
-function PickerModal({
-  mode, onClose, chosenKeys, chosenAlbums, roomForImages, roomForAlbums,
-}: {
-  mode: 'images' | 'albums' | null;
-  onClose: () => void;
-  chosenKeys: Set<string>;
-  chosenAlbums: Set<string>;
-  roomForImages: number;
-  roomForAlbums: number;
-}) {
-  const { addImage, addAlbum } = usePortfolioActions();
-  const { albums } = useAlbums();
-  const [selected, setSelected] = useState<string[]>([]);
-  const [atCap, setAtCap] = useState(false);
-  const { isDark } = useTheme();
-  const palette = isDark ? PALETTES.dark : PALETTES.light;
-
-  const files = useQuery({
-    queryKey: ['storage', 'files', 'all'],
-    queryFn: () => storageApi.listFiles({ limit: 200 }),
-    enabled: mode === 'images',
-  });
-
-  useEffect(() => {
-    if (!mode) {
-      setSelected([]);
-      setAtCap(false);
-    }
-  }, [mode]);
-
-  // The notice is about the selection, so it goes as soon as the selection
-  // leaves the ceiling — deselecting one makes room and says so by vanishing.
-  useEffect(() => {
-    if (selected.length < roomForImages) setAtCap(false);
-  }, [selected.length, roomForImages]);
-
-  const availableImages = (files.data?.data ?? []).filter(
-    (f) =>
-      kindOf(f.contentType) === 'image' &&
-      f.url &&
-      !chosenKeys.has(f.key) &&
-      !PROFILE_PICTURE_KEY.test(f.key),
-  );
-  const availableAlbums = albums.filter((a) => !chosenAlbums.has(a.id));
-
-  const saveImages = async () => {
-    // Sequential: each add re-checks the cap, so parallel writes race it.
-    for (const key of selected) {
-      try {
-        await addImage.mutateAsync({ fileKey: key });
-      } catch (error) {
-        // One refusal stops the run, so say which photographs did make it —
-        // otherwise "could not add" reads as though none of them did.
-        const done = selected.indexOf(key);
-        Alert.alert(
-          'Could not add',
-          done > 0
-            ? `${profileActionMessage(error, 'showcase')}\n\nThe first ${done} ${done === 1 ? 'photo was' : 'photos were'} added.`
-            : profileActionMessage(error, 'showcase'),
-        );
-        break;
-      }
-    }
-    onClose();
-  };
-
-  return (
-    <Modal visible={mode !== null} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView className="flex-1 bg-background">
-        <View className="flex-row items-center justify-between px-5 py-3">
-          <Pressable onPress={onClose} hitSlop={10}>
-            <Text className="text-muted-foreground text-[15px]">Cancel</Text>
-          </Pressable>
-          <Text className="text-foreground text-[15px] font-bold">
-            {mode === 'albums' ? 'Showcase a gallery' : 'Add work'}
-          </Text>
-          {mode === 'images' ? (
-            // Disabled while it runs as well as while empty: the adds are
-            // sequential, so a second tap on a slow connection started the
-            // whole run again and added each photograph twice.
-            <Pressable
-              onPress={saveImages}
-              disabled={selected.length === 0 || addImage.isPending}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityState={{ busy: addImage.isPending, disabled: selected.length === 0 }}
-            >
-              <Text
-                className="text-primary text-[15px] font-bold"
-                style={{ opacity: selected.length === 0 || addImage.isPending ? 0.4 : 1 }}
-              >
-                {addImage.isPending ? 'Adding…' : `Add ${selected.length || ''}`}
-              </Text>
-            </Pressable>
-          ) : (
-            <View style={{ width: 56 }} />
-          )}
-        </View>
-
-        {mode === 'images' ? (
-          files.isLoading ? (
-            <View className="flex-1 items-center justify-center">
-              <ActivityIndicator color={palette.primary} />
-            </View>
-          ) : availableImages.length === 0 ? (
-            // This used to be the sentence alone. Telling somebody their work
-            // has to go through an album and then leaving them to find where
-            // albums live is the longest dead end in the app.
-            <View className="mt-16 px-8 gap-4 items-center">
-              <Text className="text-muted-foreground text-center text-[13px] leading-5">
-                Your photographs live in albums, and there are none here yet to add
-                from. Upload some first and they will show up here.
-              </Text>
-              <Pressable
-                className="bg-action rounded-xl px-5 py-2.5 active:opacity-90"
-                accessibilityRole="button"
-                onPress={() => {
-                  onClose();
-                  router.push('/albums/upload');
-                }}
-              >
-                <Text className="text-action-foreground text-[13px] font-bold">Upload photos</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <>
-              {atCap && (
-                <Text className="text-warning text-[12px] leading-4 px-4 pt-1 text-center">
-                  {roomForImages === 0
-                    ? `Your portfolio is full at ${MAX_IMAGES} photos. Remove one to add another.`
-                    : `That is ${roomForImages} ${roomForImages === 1 ? 'photo' : 'photos'} — all the room left in your portfolio.`}
-                </Text>
-              )}
-              <ScrollView contentContainerStyle={{ padding: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {availableImages.map((file) => {
-                const isOn = selected.includes(file.key);
-                return (
-                  <Pressable
-                    key={file.key}
-                    onPress={() =>
-                      setSelected((current) => {
-                        if (current.includes(file.key)) {
-                          return current.filter((k) => k !== file.key);
-                        }
-                        // Past the cap the tap used to return `current`
-                        // unchanged — indistinguishable from a tap that missed.
-                        if (current.length >= roomForImages) {
-                          setAtCap(true);
-                          return current;
-                        }
-                        return [...current, file.key];
-                      })
-                    }
-                    style={{
-                      width: '31.5%', aspectRatio: 1, borderRadius: 10, overflow: 'hidden',
-                      borderWidth: 2, borderColor: isOn ? palette.primary : 'transparent',
-                    }}
-                  >
-                    <RemoteImage source={{ uri: file.url as string }} style={{ flex: 1 }} />
-                    {isOn && (
-                      <View
-                        className="bg-primary items-center justify-center"
-                        style={{
-                          position: 'absolute', top: 6, right: 6, width: 20, height: 20,
-                          borderRadius: 10,
-                        }}
-                      >
-                        <CheckIcon size={12} className="text-primary-foreground" />
-                      </View>
-                    )}
-                  </Pressable>
-                );
-                })}
-              </ScrollView>
-            </>
-          )
-        ) : (
-          <ScrollView contentContainerStyle={{ padding: 20, gap: 8 }}>
-            <Text className="text-muted-foreground text-[12px] leading-5 mb-1">
-              A separate public link is created for your profile — the link your
-              client already has stays private and untouched.
-            </Text>
-            {availableAlbums.length === 0 ? (
-              <Text className="text-muted-foreground text-center text-[13px] mt-10">
-                No albums left to showcase.
-              </Text>
-            ) : (
-              availableAlbums.map((album) => (
-                <Pressable
-                  key={album.id}
-                  disabled={roomForAlbums <= 0 || addAlbum.isPending}
-                  className="bg-card rounded-2xl p-3.5 flex-row items-center gap-3"
-                  onPress={() =>
-                    addAlbum.mutate(
-                      { albumId: album.id },
-                      {
-                        onSuccess: onClose,
-                        onError: (error: Error) => Alert.alert('Could not add', error.message),
-                      },
-                    )
-                  }
-                >
-                  <LayersIcon size={16} className="text-primary" />
-                  <View className="flex-1">
-                    <Text className="text-foreground text-[14px] font-semibold" numberOfLines={1}>
-                      {album.name}
-                    </Text>
-                    <Text className="text-muted-foreground text-[11px]">
-                      {album.item_count ?? 0} items
-                    </Text>
-                  </View>
-                </Pressable>
-              ))
-            )}
-          </ScrollView>
-        )}
-      </SafeAreaView>
-    </Modal>
   );
 }
