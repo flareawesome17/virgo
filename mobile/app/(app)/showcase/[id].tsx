@@ -1,5 +1,6 @@
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Pressable,
   ScrollView,
@@ -8,14 +9,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ArrowLeftIcon } from 'lucide-react-native';
+import { ArrowLeftIcon, EyeOffIcon, Trash2Icon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
-import { useShowcase, useTheme } from '@/src/hooks';
+import { useAuth, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
+import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon]) {
+for (const Icon of [ArrowLeftIcon, EyeOffIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -30,6 +32,42 @@ export default function ShowcaseScreen() {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { showcase, isLoading, loadFailed, refetch } = useShowcase(id);
+  const { user } = useAuth();
+  const { setPublished, remove } = useShowcaseActions();
+  const mine = Boolean(showcase && user && showcase.userId === user.id);
+
+  const confirmDelete = () => {
+    if (!showcase) return;
+    Alert.alert(
+      'Delete this showcase?',
+      'It goes from the feed, from your profile, and from every shelf anybody kept it on. Your photographs stay in your albums.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () =>
+            remove.mutate(showcase.id, {
+              onSuccess: () => router.back(),
+              onError: (error) =>
+                Alert.alert("Couldn't delete it", profileActionMessage(error, 'unshowcase')),
+            }),
+        },
+      ],
+    );
+  };
+
+  const togglePublished = () => {
+    if (!showcase) return;
+    const published = showcase.publishedAt !== null;
+    setPublished.mutate(
+      { id: showcase.id, published: !published },
+      {
+        onError: (error) =>
+          Alert.alert("Couldn't change that", profileActionMessage(error, 'setting')),
+      },
+    );
+  };
   const width = Dimensions.get('window').width;
 
   return (
@@ -47,6 +85,35 @@ export default function ShowcaseScreen() {
         <Text className="flex-1 text-foreground text-[15px] font-bold" numberOfLines={1}>
           {showcase?.title ?? 'Showcase'}
         </Text>
+        {/* Only on your own. Taking it down and deleting it are different
+            things and both are offered: unpublishing is reversible and keeps
+            the date it first went out, deleting is not. */}
+        {mine && (
+          <>
+            <Pressable
+              onPress={togglePublished}
+              disabled={setPublished.isPending}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={
+                showcase?.publishedAt ? 'Take this down' : 'Put this back up'
+              }
+              className="w-11 h-11 items-center justify-center active:opacity-70"
+            >
+              <EyeOffIcon size={19} className="text-muted-foreground" />
+            </Pressable>
+            <Pressable
+              onPress={confirmDelete}
+              disabled={remove.isPending}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Delete this showcase"
+              className="w-11 h-11 items-center justify-center active:opacity-70"
+            >
+              <Trash2Icon size={19} className="text-destructive" />
+            </Pressable>
+          </>
+        )}
       </View>
 
       {isLoading ? (

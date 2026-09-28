@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { blockedBetween } from '../safety/block-sql';
+import { LikesService } from './likes.service';
 import { ShelvesService } from './shelves.service';
 import {
   CONNECTED_TO_AUTHOR,
@@ -39,6 +40,7 @@ export interface FeedItem extends Showcase {
   };
   /** Whether this viewer already has it on a shelf, so the button draws right. */
   keptByMe: boolean;
+  likedByMe: boolean;
 }
 
 export interface FeedPage {
@@ -85,6 +87,7 @@ export class FeedService {
     private readonly db: DatabaseService,
     private readonly showcases: ShowcasesService,
     private readonly shelves: ShelvesService,
+    private readonly likes: LikesService,
   ) {}
 
   async page(
@@ -130,12 +133,14 @@ export class FeedService {
     const page = hasMore ? rows.slice(0, limit) : rows;
 
     const showcases = await this.showcases.hydrate(page, false);
-    const kept = new Set(
-      await this.shelves.keptAmong(
-        viewerId,
-        showcases.map((s) => s.id),
-      ),
-    );
+    const ids = showcases.map((s) => s.id);
+    // Both in one round trip rather than one query per card.
+    const [keptIds, likedIds] = await Promise.all([
+      this.shelves.keptAmong(viewerId, ids),
+      this.likes.likedAmong(viewerId, ids),
+    ]);
+    const kept = new Set(keptIds);
+    const liked = new Set(likedIds);
 
     const items: FeedItem[] = [];
     for (let i = 0; i < showcases.length; i++) {
@@ -155,6 +160,7 @@ export class FeedService {
           title: row.user_title,
         },
         keptByMe: kept.has(showcase.id),
+        likedByMe: liked.has(showcase.id),
       });
     }
 

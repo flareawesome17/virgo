@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-query';
 import {
   feedApi,
+  likesApi,
   queryKeys,
   profileWorkApi,
   shelvesApi,
@@ -238,4 +239,48 @@ export function useProfileTaste(handle: string | undefined) {
     shelves: query.data?.data ?? ([] as ShelfSummary[]),
     loadFailed: query.isError || query.isPaused,
   };
+}
+
+/**
+ * Liking, applied to the cached feed before the request goes.
+ *
+ * A heart that waits for a round trip before it fills is a heart people tap
+ * twice. The pages are rewritten in place rather than invalidated, because
+ * refetching the feed would reorder it under somebody mid-scroll.
+ */
+export function useLike() {
+  const queryClient = useQueryClient();
+
+  const write = (showcaseId: string, liked: boolean, delta: number) => {
+    for (const scope of ['everyone', 'connections'] as const) {
+      queryClient.setQueryData<{ pages: FeedPage[]; pageParams: unknown[] }>(
+        queryKeys.feed.scope(scope),
+        (old) =>
+          old && {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              items: page.items.map((item) =>
+                item.id === showcaseId
+                  ? { ...item, likedByMe: liked, likeCount: Math.max(0, item.likeCount + delta) }
+                  : item,
+              ),
+            })),
+          },
+      );
+    }
+  };
+
+  return useMutation({
+    mutationFn: ({ showcaseId, liked }: { showcaseId: string; liked: boolean }) =>
+      liked ? likesApi.like(showcaseId) : likesApi.unlike(showcaseId),
+    onMutate: ({ showcaseId, liked }) => {
+      write(showcaseId, liked, liked ? 1 : -1);
+      return { showcaseId, liked };
+    },
+    // Put it back on a real failure. Offline the mutation pauses rather than
+    // failing, so the heart stays filled and the request goes when the device
+    // returns — which is the behaviour somebody expects from a tap.
+    onError: (_error, variables) => write(variables.showcaseId, !variables.liked, variables.liked ? -1 : 1),
+  });
 }

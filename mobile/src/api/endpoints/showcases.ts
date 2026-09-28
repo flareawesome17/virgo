@@ -37,6 +37,7 @@ export interface Showcase {
   showHire: boolean;
   publishedAt: string | null;
   keptCount: number;
+  likeCount: number;
   pieces: ShowcasePiece[];
   createdAt: string;
 }
@@ -52,6 +53,7 @@ export interface FeedMaker {
 export interface FeedItem extends Showcase {
   maker: FeedMaker;
   keptByMe: boolean;
+  likedByMe: boolean;
 }
 
 export interface FeedPage {
@@ -182,5 +184,16 @@ export const profileWorkApi = {
   /** Their public shelves. Private ones are never returned to a visitor. */
   shelves(handle: string): Promise<{ data: ShelfSummary[]; total: number }> {
     return api.get(`/profiles/${encodeURIComponent(handle)}/shelves`);
+  },
+};
+
+/** Liking. Light, one tap, and distinct from keeping. */
+export const likesApi = {
+  like(showcaseId: string): Promise<{ likeCount: number; liked: boolean }> {
+    return api.post(`/showcases/${showcaseId}/like`);
+  },
+
+  unlike(showcaseId: string): Promise<{ likeCount: number; liked: boolean }> {
+    return api.delete(`/showcases/${showcaseId}/like`);
   },
 };

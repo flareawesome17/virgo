@@ -249,4 +249,5 @@ export {
   useShelfActions,
   useProfileWork,
   useProfileTaste,
+  useLike,
 } from './useShowcases';

@@ -235,6 +235,7 @@ export {
   feedApi,
   showcasesApi,
   profileWorkApi,
+  likesApi,
   shelvesApi,
   MAX_SHOWCASE_ITEMS,
   MAX_CRAFT_TAGS,

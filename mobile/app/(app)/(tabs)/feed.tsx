@@ -13,6 +13,7 @@ import { router } from 'expo-router';
 import {
   BookmarkIcon,
   ChevronUpIcon,
+  HeartIcon,
   ImageIcon,
   PlusIcon,
 } from 'lucide-react-native';
@@ -21,12 +22,12 @@ import { AppTopBar } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { KeepSheet } from '@/components/KeepSheet';
-import { useFeed, useTheme } from '@/src/hooks';
+import { useFeed, useLike, useTheme } from '@/src/hooks';
 import { useChrome } from '@/src/providers/ChromeProvider';
 import type { FeedItem } from '@/src/api';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [BookmarkIcon, ChevronUpIcon, ImageIcon, PlusIcon]) {
+for (const Icon of [BookmarkIcon, ChevronUpIcon, HeartIcon, ImageIcon, PlusIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -171,6 +172,7 @@ function ScopeTab({
  */
 function Placard({ item, onKeep }: { item: FeedItem; onKeep: () => void }) {
   const { isDark } = useTheme();
+  const like = useLike();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const width = Dimensions.get('window').width;
   const height = Math.round(width * 1.15);
@@ -283,6 +285,31 @@ function Placard({ item, onKeep }: { item: FeedItem; onKeep: () => void }) {
         </View>
 
         <View className="mt-3 border-t border-border flex-row items-stretch">
+          <Pressable
+            onPress={() => like.mutate({ showcaseId: item.id, liked: !item.likedByMe })}
+            accessibilityRole="button"
+            accessibilityState={{ selected: item.likedByMe }}
+            accessibilityLabel={
+              item.likedByMe
+                ? `Liked, ${item.likeCount}. Tap to unlike.`
+                : `Like. ${item.likeCount} so far.`
+            }
+            className="flex-1 min-h-12 flex-row items-center justify-center gap-1.5 active:opacity-70"
+          >
+            <HeartIcon
+              size={16}
+              className={item.likedByMe ? 'text-destructive' : 'text-muted-foreground'}
+              // A literal colour, not currentColor, which renders hollow on a
+              // device. Unfilled is the whole difference between the states.
+              fill={item.likedByMe ? palette.destructive : 'none'}
+            />
+            <Text
+              className={`text-[12px] font-bold ${item.likedByMe ? 'text-destructive' : 'text-secondary-foreground'}`}
+            >
+              {item.likeCount > 0 ? item.likeCount : 'Like'}
+            </Text>
+          </Pressable>
+          <View className="w-px bg-border my-2.5" />
           <Pressable
             onPress={() => router.push(`/showcase/${item.id}`)}
             accessibilityRole="button"
