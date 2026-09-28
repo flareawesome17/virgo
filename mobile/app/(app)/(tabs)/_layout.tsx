@@ -1,6 +1,6 @@
-import { Platform } from 'react-native';
+import { Animated, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
-import { BottomTabBar } from '@react-navigation/bottom-tabs';
+import { BottomTabBar, type BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   FolderIcon,
@@ -16,6 +16,7 @@ import {
   useUnseenJobs,
 } from '@/src/hooks';
 import { AppTabBar } from '@/components/AppTabBar';
+import { ChromeProvider, useChrome } from '@/src/providers/ChromeProvider';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [FolderIcon, CalendarIcon, HomeIcon, LayoutGridIcon, BriefcaseIcon]) {
@@ -23,12 +24,39 @@ for (const Icon of [FolderIcon, CalendarIcon, HomeIcon, LayoutGridIcon, Briefcas
 }
 
 /** Icon area, excluding padding. Shorter since the labels came off. */
-const TAB_CONTENT_HEIGHT = 44;
+const TAB_CONTENT_HEIGHT = 38;
 const TAB_PADDING_TOP = 8;
 
 const badgeCount = (n: number) => (n > 0 ? (n > 99 ? '99+' : n) : undefined);
 
-export default function TabsLayout() {
+/**
+ * The stock bar, on Android, with the same going-away behaviour as the iOS
+ * capsule.
+ *
+ * It sits in the navigator's own space rather than floating, so it slides down
+ * past the bottom edge. The space it leaves is not reclaimed — a list that
+ * reflowed every time the bar went would jump under the finger that sent it
+ * away.
+ */
+function SlidingBar(props: BottomTabBarProps) {
+  const { hidden } = useChrome();
+  const insets = useSafeAreaInsets();
+  const height = TAB_CONTENT_HEIGHT + TAB_PADDING_TOP + Math.max(insets.bottom, 8);
+
+  return (
+    <Animated.View
+      style={{
+        transform: [
+          { translateY: hidden.interpolate({ inputRange: [0, 1], outputRange: [0, height] }) },
+        ],
+      }}
+    >
+      <BottomTabBar {...props} />
+    </Animated.View>
+  );
+}
+
+function TabsLayoutInner() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
@@ -68,7 +96,7 @@ export default function TabsLayout() {
       // reports its own platform — keep the stock bar with the options below,
       // exactly as before.
       tabBar={(props) =>
-        Platform.OS === 'ios' ? <AppTabBar {...props} /> : <BottomTabBar {...props} />
+        Platform.OS === 'ios' ? <AppTabBar {...props} /> : <SlidingBar {...props} />
       }
       screenOptions={{
         headerShown: false,
@@ -98,7 +126,7 @@ export default function TabsLayout() {
         options={{
           title: 'Dashboard',
           tabBarIcon: ({ focused, color }) => (
-            <HomeIcon color={color} size={25} strokeWidth={focused ? 2.5 : 2} />
+            <HomeIcon color={color} size={23} strokeWidth={focused ? 2.5 : 2} />
           ),
         }}
       />
@@ -107,7 +135,7 @@ export default function TabsLayout() {
         options={{
           title: 'Feed',
           tabBarIcon: ({ focused, color }) => (
-            <LayoutGridIcon color={color} size={25} strokeWidth={focused ? 2.5 : 2} />
+            <LayoutGridIcon color={color} size={23} strokeWidth={focused ? 2.5 : 2} />
           ),
         }}
       />
@@ -116,7 +144,7 @@ export default function TabsLayout() {
         options={{
           title: 'Jobs',
           tabBarIcon: ({ focused, color }) => (
-            <BriefcaseIcon color={color} size={25} strokeWidth={focused ? 2.5 : 2} />
+            <BriefcaseIcon color={color} size={23} strokeWidth={focused ? 2.5 : 2} />
           ),
           tabBarBadge: badgeCount(unseenJobs),
           tabBarBadgeStyle,
@@ -129,7 +157,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused, color }) => (
             <FolderIcon
               color={color}
-              size={25}
+              size={23}
               strokeWidth={focused ? 2.5 : 2}
             />
           ),
@@ -146,7 +174,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused, color }) => (
             <CalendarIcon
               color={color}
-              size={25}
+              size={23}
               strokeWidth={focused ? 2.5 : 2}
             />
           ),
@@ -160,5 +188,18 @@ export default function TabsLayout() {
       <Tabs.Screen name="network" options={{ href: null }} />
       <Tabs.Screen name="chat" options={{ href: null }} />
     </Tabs>
+  );
+}
+
+/**
+ * The provider sits above the navigator so both bars and every screen under
+ * it share one value — the top bar is drawn inside each screen, the bottom
+ * one by the navigator, and neither can see a scroll view on its own.
+ */
+export default function TabsLayout() {
+  return (
+    <ChromeProvider>
+      <TabsLayoutInner />
+    </ChromeProvider>
   );
 }

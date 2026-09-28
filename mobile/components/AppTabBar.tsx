@@ -1,11 +1,12 @@
 import { useContext } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   BottomTabBarHeightCallbackContext,
   type BottomTabBarProps,
 } from '@react-navigation/bottom-tabs';
 import { CommonActions } from '@react-navigation/native';
 import { useTheme } from '@/src/hooks';
+import { useChrome } from '@/src/providers/ChromeProvider';
 import { PALETTES } from '@/theme';
 
 /**
@@ -15,7 +16,7 @@ import { PALETTES } from '@/theme';
  * this takes, so none of them needed to change.
  */
 const INSET = 21;
-const HEIGHT = 62;
+const HEIGHT = 54;
 /** iPad (supportsTablet) — a capsule the width of the screen is a shelf. */
 const MAX_WIDTH = 480;
 
@@ -46,12 +47,15 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
   // Dashboard and Jobs live in the top bar, so while one of them is showing
   // no bottom tab is selected — the same as the stock bar did.
   const focusedKey = state.routes[state.index]?.key;
+  const { hidden } = useChrome();
 
   return (
-    <View
+    <Animated.View
       pointerEvents="box-none"
       // Reported so useBottomTabBarHeight() means the space to keep clear,
-      // including the gap under the capsule, not the capsule alone.
+      // including the gap under the capsule, not the capsule alone. It keeps
+      // reporting the same height while hidden: a list that reflowed every
+      // time the bar went would jump under the finger that sent it away.
       onLayout={(e) => setTabBarHeight?.(e.nativeEvent.layout.height + INSET)}
       style={{
         position: 'absolute',
@@ -60,6 +64,18 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
         bottom: INSET,
         paddingHorizontal: INSET,
         alignItems: 'center',
+        // Slid out rather than faded: it is already floating clear of the
+        // content, so there is somewhere to go. Native driver, so it stays
+        // smooth while the list it is reacting to is moving.
+        transform: [
+          {
+            translateY: hidden.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, HEIGHT + INSET * 2],
+            }),
+          },
+        ],
+        opacity: hidden.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
       }}
     >
       <View
@@ -155,6 +171,6 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 }

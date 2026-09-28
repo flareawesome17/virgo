@@ -15,6 +15,7 @@ import {
   usePendingApplicants,
   useSetJobStatus,
 } from '@/src/hooks';
+import { useChrome } from '@/src/providers/ChromeProvider';
 import { budgetLabel, isRoleFilled, type JobApplication, type JobPost } from '@/src/api';
 import { APPLICATION_LABEL } from '@/src/lib/jobs-format';
 import { JobsFeed } from '@/components/JobsFeed';
@@ -61,6 +62,7 @@ export function JobsTabs({
   initialTab?: JobsTab;
   bottomPadding?: number;
 }) {
+  const chrome = useChrome();
   const [tab, setTab] = useState<JobsTab>(initialTab);
   const { jobs, isLoading, loadFailed, refetch } = useMyJobs();
   const [refreshing, setRefreshing] = useState(false);
@@ -137,6 +139,8 @@ export function JobsTabs({
           />
         ) : (
           <ScrollView
+            onScroll={chrome.onScroll}
+            scrollEventThrottle={16}
             contentContainerStyle={{ padding: 20, paddingBottom: bottomPadding, gap: 10 }}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#B66A40" />
@@ -551,6 +555,7 @@ function Applicants({ postId }: { postId: string }) {
 }
 
 function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => void }) {
+  const chrome = useChrome();
   const { applications, isLoading, loadFailed, refetch } = useMyApplications();
   // Every other tab pulls to refresh; this one did not, which reads as broken
   // on the screen most likely to be checked repeatedly for an answer.
@@ -587,6 +592,8 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
 
   return (
     <ScrollView
+            onScroll={chrome.onScroll}
+            scrollEventThrottle={16}
       contentContainerStyle={{ padding: 20, paddingBottom: bottom, gap: 10 }}
       refreshControl={
         <RefreshControl
