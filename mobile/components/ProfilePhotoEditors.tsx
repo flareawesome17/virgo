@@ -12,6 +12,7 @@ import {
   type AccessibilityActionEvent,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { useShade } from '@/components/BottomSheet';
 import { RemoteImage } from '@/components/RemoteImage';
 import {
   useAuth,
@@ -83,6 +84,7 @@ export function CoverPositionDialog({
 }) {
   const { width } = useWindowDimensions();
   const { isDark } = useTheme();
+  const shade = useShade();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
   // The card floats, so it has margins of its own as well as its padding, and
@@ -153,7 +155,8 @@ export function CoverPositionDialog({
         {/* Behind the card rather than around it, so a tap anywhere outside
             closes without the card having to stop the press itself. */}
         <Pressable
-          className="absolute top-0 bottom-0 left-0 right-0 bg-foreground/40"
+          className="absolute top-0 bottom-0 left-0 right-0"
+          style={{ backgroundColor: shade }}
           onPress={close}
           accessibilityLabel="Close"
         />

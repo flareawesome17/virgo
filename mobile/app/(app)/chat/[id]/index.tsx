@@ -8,10 +8,10 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
-  Modal,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BottomSheet } from '@/components/BottomSheet';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import * as Clipboard from 'expo-clipboard';
@@ -890,18 +890,8 @@ export default function ConversationScreen() {
       </KeyboardAvoidingView>
 
       {/* Long-press actions */}
-      <Modal
-        visible={!!acting}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setActing(null)}
-      >
-        <Pressable
-          className="flex-1"
-          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
-          onPress={() => setActing(null)}
-        />
-        <View className="bg-card rounded-t-3xl px-5 pt-4" style={{ paddingBottom: insets.bottom + 20 }}>
+      <BottomSheet visible={!!acting} onClose={() => setActing(null)}>
+        <View className="px-5 pt-2 pb-5">
           <Text className="text-muted-foreground text-xs mb-3" numberOfLines={2}>
             {acting?.body}
           </Text>
@@ -953,7 +943,7 @@ export default function ConversationScreen() {
             <Text className="text-foreground text-base font-semibold">Cancel</Text>
           </Pressable>
         </View>
-      </Modal>
+      </BottomSheet>
     </SafeAreaView>
   );
 }

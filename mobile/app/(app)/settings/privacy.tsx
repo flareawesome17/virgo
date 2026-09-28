@@ -7,11 +7,10 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
-  Modal,
   TextInput,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BottomSheet } from '@/components/BottomSheet';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -454,154 +453,148 @@ export default function PrivacyScreen() {
 
       {/* Confirmation. A sheet rather than an Alert: both need a password
           typed, and Alert.prompt is iOS-only. */}
-      <Modal
+      <BottomSheet
         visible={closing !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={dismissClosing}
+        onClose={dismissClosing}
+        surface="background"
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#00000066' }}
-        >
-          <View className="bg-background rounded-t-3xl px-5 pt-5 pb-8">
-            <Text className="text-foreground text-lg font-bold tracking-tight">
-              {closing === 'pause' ? 'Pause your account' : 'Delete your account'}
-            </Text>
-            <Text className="text-muted-foreground text-sm mt-1.5 leading-5">
-              {closing === 'pause'
-                ? 'You will be signed out on every device. Nobody can message you or invite you until it lifts.'
-                : 'Your workspaces, albums, messages and every uploaded file are erased. Share links stop working. This cannot be undone.'}
-            </Text>
+        <View className="px-5 pt-2 pb-3">
+          <Text className="text-foreground text-lg font-bold tracking-tight">
+            {closing === 'pause' ? 'Pause your account' : 'Delete your account'}
+          </Text>
+          <Text className="text-muted-foreground text-sm mt-1.5 leading-5">
+            {closing === 'pause'
+              ? 'You will be signed out on every device. Nobody can message you or invite you until it lifts.'
+              : 'Your workspaces, albums, messages and every uploaded file are erased. Share links stop working. This cannot be undone.'}
+          </Text>
 
-            {closing === 'pause' && (
-              <View className="mt-5">
-                <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2">
-                  For how long
-                </Text>
-                <View className="flex-row gap-2">
-                  {PAUSE_OPTIONS.map((days) => (
-                    <Pressable
-                      key={days}
-                      onPress={() => setPauseDays(days)}
-                      className={`flex-1 rounded-xl py-3 items-center active:scale-[0.96] ${
-                        pauseDays === days ? 'bg-action' : 'bg-card'
-                      }`}
-                    >
-                      <Text
-                        className={`text-sm font-bold ${
-                          pauseDays === days ? 'text-white' : 'text-foreground'
-                        }`}
-                      >
-                        {days}d
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <Text className="text-muted-foreground text-xs mt-2">
-                  Comes back on{' '}
-                  {new Date(Date.now() + pauseDays * 86400000)
-                    .toISOString()
-                    .slice(0, 10)}
-                  .
-                </Text>
-              </View>
-            )}
-
+          {closing === 'pause' && (
             <View className="mt-5">
               <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2">
-                Your password
+                For how long
               </Text>
-              <View className="bg-card rounded-2xl flex-row items-center px-4">
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  placeholder="Confirm it is you"
-                  placeholderTextColor="#A89489"
-                  autoCapitalize="none"
-                  className="flex-1 py-3.5 text-foreground text-base"
-                />
-                <Pressable
-                  onPress={() => setShowPassword((s) => !s)}
-                  className="pl-3 active:opacity-60"
-                >
-                  {showPassword ? (
-                    <EyeOffIcon size={17} className="text-muted-foreground" />
-                  ) : (
-                    <EyeIcon size={17} className="text-muted-foreground" />
-                  )}
-                </Pressable>
+              <View className="flex-row gap-2">
+                {PAUSE_OPTIONS.map((days) => (
+                  <Pressable
+                    key={days}
+                    onPress={() => setPauseDays(days)}
+                    className={`flex-1 rounded-xl py-3 items-center active:scale-[0.96] ${
+                      pauseDays === days ? 'bg-action' : 'bg-card'
+                    }`}
+                  >
+                    <Text
+                      className={`text-sm font-bold ${
+                        pauseDays === days ? 'text-white' : 'text-foreground'
+                      }`}
+                    >
+                      {days}d
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
+              <Text className="text-muted-foreground text-xs mt-2">
+                Comes back on{' '}
+                {new Date(Date.now() + pauseDays * 86400000)
+                  .toISOString()
+                  .slice(0, 10)}
+                .
+              </Text>
             </View>
+          )}
 
-            {closing === 'delete' && (
-              <View className="mt-4">
-                <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2">
-                  Type DELETE to confirm
-                </Text>
-                <TextInput
-                  value={typedConfirm}
-                  onChangeText={setTypedConfirm}
-                  placeholder="DELETE"
-                  placeholderTextColor="#A89489"
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-                />
-              </View>
-            )}
-
-            <View className="flex-row gap-3 mt-6">
+          <View className="mt-5">
+            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2">
+              Your password
+            </Text>
+            <View className="bg-card rounded-2xl flex-row items-center px-4">
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                placeholder="Confirm it is you"
+                placeholderTextColor="#A89489"
+                autoCapitalize="none"
+                className="flex-1 py-3.5 text-foreground text-base"
+              />
               <Pressable
-                onPress={dismissClosing}
-                className="flex-1 bg-card rounded-2xl py-3.5 items-center active:scale-[0.97]"
+                onPress={() => setShowPassword((s) => !s)}
+                className="pl-3 active:opacity-60"
               >
-                <Text className="text-foreground text-base font-semibold">Cancel</Text>
+                {showPassword ? (
+                  <EyeOffIcon size={17} className="text-muted-foreground" />
+                ) : (
+                  <EyeIcon size={17} className="text-muted-foreground" />
+                )}
               </Pressable>
-              {closing === 'pause' ? (
-                <Pressable
-                  onPress={confirmPause}
-                  disabled={!password || disableAccount.isPending}
-                  className={`flex-1 rounded-2xl py-3.5 items-center active:scale-[0.97] ${
-                    password ? 'bg-action' : 'bg-muted'
-                  }`}
-                >
-                  <Text
-                    className={`text-base font-bold ${
-                      password ? 'text-white' : 'text-muted-foreground'
-                    }`}
-                  >
-                    {disableAccount.isPending ? 'Pausing…' : `Pause ${pauseDays} days`}
-                  </Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  onPress={confirmDelete}
-                  disabled={
-                    !password || typedConfirm !== 'DELETE' || deleteAccount.isPending
-                  }
-                  className="flex-1 rounded-2xl py-3.5 items-center active:scale-[0.97]"
-                  style={{
-                    backgroundColor:
-                      password && typedConfirm === 'DELETE' ? '#C4776A' : undefined,
-                  }}
-                >
-                  <Text
-                    className={`text-base font-bold ${
-                      password && typedConfirm === 'DELETE'
-                        ? 'text-white'
-                        : 'text-muted-foreground'
-                    }`}
-                  >
-                    {deleteAccount.isPending ? 'Deleting…' : 'Delete forever'}
-                  </Text>
-                </Pressable>
-              )}
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+
+          {closing === 'delete' && (
+            <View className="mt-4">
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2">
+                Type DELETE to confirm
+              </Text>
+              <TextInput
+                value={typedConfirm}
+                onChangeText={setTypedConfirm}
+                placeholder="DELETE"
+                placeholderTextColor="#A89489"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
+              />
+            </View>
+          )}
+
+          <View className="flex-row gap-3 mt-6">
+            <Pressable
+              onPress={dismissClosing}
+              className="flex-1 bg-card rounded-2xl py-3.5 items-center active:scale-[0.97]"
+            >
+              <Text className="text-foreground text-base font-semibold">Cancel</Text>
+            </Pressable>
+            {closing === 'pause' ? (
+              <Pressable
+                onPress={confirmPause}
+                disabled={!password || disableAccount.isPending}
+                className={`flex-1 rounded-2xl py-3.5 items-center active:scale-[0.97] ${
+                  password ? 'bg-action' : 'bg-muted'
+                }`}
+              >
+                <Text
+                  className={`text-base font-bold ${
+                    password ? 'text-white' : 'text-muted-foreground'
+                  }`}
+                >
+                  {disableAccount.isPending ? 'Pausing…' : `Pause ${pauseDays} days`}
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={confirmDelete}
+                disabled={
+                  !password || typedConfirm !== 'DELETE' || deleteAccount.isPending
+                }
+                className="flex-1 rounded-2xl py-3.5 items-center active:scale-[0.97]"
+                style={{
+                  backgroundColor:
+                    password && typedConfirm === 'DELETE' ? '#C4776A' : undefined,
+                }}
+              >
+                <Text
+                  className={`text-base font-bold ${
+                    password && typedConfirm === 'DELETE'
+                      ? 'text-white'
+                      : 'text-muted-foreground'
+                  }`}
+                >
+                  {deleteAccount.isPending ? 'Deleting…' : 'Delete forever'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </BottomSheet>
     </SafeAreaView>
   );
 }

@@ -1,4 +1,4 @@
-import { View, Text, Pressable, Platform, Modal } from 'react-native';
+import { View, Text, Pressable, Platform } from 'react-native';
 import { useState } from 'react';
 import DateTimePicker, {
   type DateTimePickerEvent,
@@ -6,6 +6,7 @@ import DateTimePicker, {
 import { CalendarDaysIcon, ClockIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useTheme } from '@/src/hooks';
+import { BottomSheet } from '@/components/BottomSheet';
 
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -128,9 +129,8 @@ export function DateTimeField({
 
       {/* iOS gets a sheet so the inline spinner has somewhere to live. */}
       {Platform.OS === 'ios' && (
-        <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-          <Pressable className="flex-1" style={{ backgroundColor: 'rgba(0,0,0,0.35)' }} onPress={() => setOpen(false)} />
-          <View className="bg-card px-4 pb-8 pt-2 rounded-t-3xl">
+        <BottomSheet visible={open} onClose={() => setOpen(false)}>
+          <View className="px-4 pb-3">
             <View className="flex-row items-center justify-between px-1 pb-1">
               <Text className="text-muted-foreground text-sm">{label}</Text>
               <Pressable onPress={() => setOpen(false)} className="px-3 py-2 active:opacity-60">
@@ -151,7 +151,7 @@ export function DateTimeField({
               accentColor={isDark ? '#C17745' : '#B66A40'}
             />
           </View>
-        </Modal>
+        </BottomSheet>
       )}
     </View>
   );

@@ -1,8 +1,8 @@
-import { Modal, Platform, Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, Text, View } from 'react-native';
 import { useRef, type ReactNode } from 'react';
 import { CheckIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { BottomSheet } from '@/components/BottomSheet';
 import { RemoteImage } from '@/components/RemoteImage';
 
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -132,9 +132,9 @@ export function Pill({
  * A bottom sheet of actions. Alert cannot stand in: Android shows at most
  * three buttons, and a workspace's options are more than that.
  *
- * On iOS the chosen action runs once the sheet has finished closing. Most of
- * these open something else — a confirmation, another screen — and iOS will
- * not present an alert over a modal that is still on its way out.
+ * The chosen action runs once the sheet has finished closing. Most of these
+ * open something else — a confirmation, another screen — and iOS will not
+ * present an alert over a modal that is still on its way out.
  */
 export function ActionSheet({
   visible,
@@ -155,44 +155,33 @@ export function ActionSheet({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-      onDismiss={runChosen}
-    >
-      <Pressable className="flex-1 bg-foreground/40" onPress={onClose} accessibilityLabel="Close" />
-      <SafeAreaView edges={['bottom']} className="bg-card rounded-t-3xl">
-        <View className="px-5 pt-5 pb-3">
-          <Text className="text-muted-foreground text-xs font-semibold mb-1" numberOfLines={1}>
-            {title}
-          </Text>
-          {actions.map((action) => (
-            <Pressable
-              key={action.label}
-              accessibilityRole="button"
-              onPress={() => {
-                chosen.current = action.onPress;
-                onClose();
-                // onDismiss is iOS-only; Android has nothing to wait for.
-                if (Platform.OS !== 'ios') runChosen();
-              }}
-              className="py-3.5 active:opacity-70"
+    <BottomSheet visible={visible} onClose={onClose} onClosed={runChosen}>
+      <View className="px-5 pt-2 pb-3">
+        <Text className="text-muted-foreground text-xs font-semibold mb-1" numberOfLines={1}>
+          {title}
+        </Text>
+        {actions.map((action) => (
+          <Pressable
+            key={action.label}
+            accessibilityRole="button"
+            onPress={() => {
+              chosen.current = action.onPress;
+              onClose();
+            }}
+            className="py-3.5 active:opacity-70"
+          >
+            <Text
+              className={`text-base font-semibold ${action.destructive ? 'text-destructive' : 'text-foreground'}`}
             >
-              <Text
-                className={`text-base font-semibold ${action.destructive ? 'text-destructive' : 'text-foreground'}`}
-              >
-                {action.label}
-              </Text>
-            </Pressable>
-          ))}
-          <Pressable accessibilityRole="button" onPress={onClose} className="py-3.5 active:opacity-70">
-            <Text className="text-muted-foreground text-base">Cancel</Text>
+              {action.label}
+            </Text>
           </Pressable>
-        </View>
-      </SafeAreaView>
-    </Modal>
+        ))}
+        <Pressable accessibilityRole="button" onPress={onClose} className="py-3.5 active:opacity-70">
+          <Text className="text-muted-foreground text-base">Cancel</Text>
+        </Pressable>
+      </View>
+    </BottomSheet>
   );
 }
 
@@ -262,26 +251,23 @@ export function ChoiceSheet<T extends string>({
   onClose: () => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-foreground/40" onPress={onClose} accessibilityLabel="Close" />
-      <SafeAreaView edges={['bottom']} className="bg-card rounded-t-3xl">
-        <View className="px-5 pt-5 pb-3">
-          <Text className="text-foreground text-lg font-bold" accessibilityRole="header">
-            {title}
-          </Text>
-          {hint ? <Text className="text-muted-foreground text-xs mt-1">{hint}</Text> : null}
-          <View className="mt-3">
-            <ChoiceRows
-              options={options}
-              value={value}
-              onChoose={(chosen) => {
-                onChoose(chosen);
-                onClose();
-              }}
-            />
-          </View>
+    <BottomSheet visible={visible} onClose={onClose}>
+      <View className="px-5 pt-2 pb-3">
+        <Text className="text-foreground text-lg font-bold" accessibilityRole="header">
+          {title}
+        </Text>
+        {hint ? <Text className="text-muted-foreground text-xs mt-1">{hint}</Text> : null}
+        <View className="mt-3">
+          <ChoiceRows
+            options={options}
+            value={value}
+            onChoose={(chosen) => {
+              onChoose(chosen);
+              onClose();
+            }}
+          />
         </View>
-      </SafeAreaView>
-    </Modal>
+      </View>
+    </BottomSheet>
   );
 }
