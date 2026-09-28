@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useReminders, useScheduleEvents, useTheme, useUpdateReminder } from '@/src/hooks';
+import { useChrome } from '@/src/providers/ChromeProvider';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
@@ -56,6 +57,7 @@ const EVENT_ICONS: Record<string, LucideIcon> = {
 // rollover; the colour table had drifted into five copies.
 
 export default function ScheduleScreen() {
+  const chrome = useChrome();
   const { user } = useAuth();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -118,6 +120,8 @@ export default function ScheduleScreen() {
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       <AppTopBar />
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}
+        onScroll={chrome.onScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}>
         

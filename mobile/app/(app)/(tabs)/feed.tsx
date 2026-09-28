@@ -22,6 +22,7 @@ import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { KeepSheet } from '@/components/KeepSheet';
 import { useFeed, useTheme } from '@/src/hooks';
+import { useChrome } from '@/src/providers/ChromeProvider';
 import type { FeedItem } from '@/src/api';
 import { PALETTES } from '@/theme';
 
@@ -40,6 +41,7 @@ for (const Icon of [BookmarkIcon, ChevronUpIcon, ImageIcon, PlusIcon]) {
  * learn anything from is a photograph you scroll past.
  */
 export default function FeedScreen() {
+  const chrome = useChrome();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [scope, setScope] = useState<'everyone' | 'connections'>('everyone');
@@ -103,6 +105,8 @@ export default function FeedScreen() {
         <LoadFailed what="the feed" onRetry={() => refetch()} />
       ) : (
         <FlatList
+          onScroll={chrome.onScroll}
+          scrollEventThrottle={16}
           data={items}
           keyExtractor={(i) => i.id}
           renderItem={renderItem}

@@ -18,6 +18,7 @@ import {
   useUnseenJobs,
   useMarkJobsSeen,
 } from '@/src/hooks';
+import { useChrome } from '@/src/providers/ChromeProvider';
 import { formatBytes } from '@/src/api';
 import { useState } from 'react';
 import { router } from 'expo-router';
@@ -69,6 +70,7 @@ function formatTime(timeStr: string | null): string {
 }
 
 export default function DashboardScreen() {
+  const chrome = useChrome();
   const { count: unseenJobs } = useUnseenJobs();
   const markSeen = useMarkJobsSeen();
 
@@ -176,6 +178,8 @@ export default function DashboardScreen() {
       <AppTopBar />
 
       <ScrollView
+        onScroll={chrome.onScroll}
+        scrollEventThrottle={16}
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}

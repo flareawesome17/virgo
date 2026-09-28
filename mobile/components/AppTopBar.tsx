@@ -1,9 +1,11 @@
-import { Pressable, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Animated, Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
 // expo-image rather than RN Image, as everywhere else in this app.
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { NotificationBell } from '@/components/NotificationBell';
 import { UpdateBanner } from '@/components/UpdateBanner';
+import { useChrome } from '@/src/providers/ChromeProvider';
 import { MessageCircleIcon, SettingsIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -49,9 +51,38 @@ export function AppTopBar() {
   // you, and two badges on one icon would be a puzzle rather than a count.
   const connectAlerts = unread + friendRequests;
 
+  const { hidden } = useChrome();
+  // Measured rather than assumed: the row is min-h-11 but grows with the
+  // system font size, and collapsing to a guessed height would clip it or
+  // leave a band behind.
+  const [height, setHeight] = useState(0);
+  const onLayout = (event: LayoutChangeEvent) => {
+    const measured = event.nativeEvent.layout.height;
+    if (measured > 0 && measured !== height) setHeight(measured);
+  };
+
   return (
     <>
-      <View className="bg-background">
+      {/* Collapsing the height rather than sliding the bar up: the screen
+          below is in normal flow, so the content rises into the space as the
+          bar goes. Height is a layout property and cannot use the native
+          driver — the trade is one short animation off the UI thread against
+          every screen needing a top inset otherwise. */}
+      <Animated.View
+        className="bg-background overflow-hidden"
+        style={
+          height > 0
+            ? {
+                height: hidden.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [height, 0],
+                }),
+                opacity: hidden.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+              }
+            : undefined
+        }
+      >
+        <View onLayout={onLayout}>
         <View className="min-h-11 flex-row items-center justify-between pl-4 pr-1">
           <Pressable
             onPress={() => router.navigate('/')}
@@ -100,7 +131,8 @@ export function AppTopBar() {
             </Pressable>
           </View>
         </View>
-      </View>
+        </View>
+      </Animated.View>
       {/* Under the bar, not in it: the rows above are a fixed set of
           destinations, and this is news. Here rather than wrapping the
           navigator — unlike an upload, which starts from an album, a new

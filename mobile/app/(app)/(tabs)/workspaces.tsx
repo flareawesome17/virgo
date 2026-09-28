@@ -2,6 +2,7 @@ import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, TextInput 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppTopBar } from '@/components';
 import { useAuth, useCollaboratorInvitations, useTheme, useWorkspaces, usePlanLimits } from '@/src/hooks';
+import { useChrome } from '@/src/providers/ChromeProvider';
 import { useCallback, useMemo, useState } from 'react';
 import { router } from 'expo-router';
 import { ArchiveIcon, ChevronRightIcon, FolderPlusIcon, PlusIcon, SearchIcon } from 'lucide-react-native';
@@ -27,6 +28,7 @@ const SCOPES: { key: Scope; label: string }[] = [
 ];
 
 export default function WorkspacesScreen() {
+  const chrome = useChrome();
   const { guardWorkspaceCreate } = usePlanLimits();
   const { user } = useAuth();
   const { isDark } = useTheme();
@@ -91,6 +93,8 @@ export default function WorkspacesScreen() {
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       <AppTopBar />
       <FlatList
+        onScroll={chrome.onScroll}
+        scrollEventThrottle={16}
         data={visible}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingBottom: 120 }}
