@@ -23,6 +23,7 @@ import { MailModule } from './mail/mail.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { SafetyModule } from './safety/safety.module';
+import { ShowcasesModule } from './showcases/showcases.module';
 import { ScheduleEventsModule } from './schedule-events/schedule-events.module';
 import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -72,6 +73,7 @@ import { PromosModule } from './promos/promos.module';
     MessagesModule,
     BillingModule,
     ProfilesModule,
+    ShowcasesModule,
     HireModule,
     HiringModule,
     PromosModule,
