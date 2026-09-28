@@ -16,7 +16,18 @@ export const MAX_CRAFT_TAGS = 6;
 
 export interface ShowcasePiece {
   fileKey: string;
+  /** A photograph, or a film. */
+  kind: 'image' | 'video';
+  /** The still: a photograph's web copy, or a film's poster frame. */
   url: string;
+  /**
+   * Where a film plays from — an HLS ladder when one has been built, the 720p
+   * proxy until then. Absent or null on a photograph, and null on a film that
+   * has neither, which is a film with nothing to play.
+   */
+  playbackUrl?: string | null;
+  durationMs?: number | null;
+  /** Empty on a film: a still has no rendition ladder. */
   displaySources: { width: number; url: string }[];
   /** Only sent to the owner; false when this piece has no web copy. */
   publiclyShown?: boolean;
