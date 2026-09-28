@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Switch,
   Text,
   TextInput,
   View,
@@ -53,6 +54,7 @@ export default function NewShowcaseScreen() {
   const [caption, setCaption] = useState('');
   const [craftNote, setCraftNote] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  const [allowComments, setAllowComments] = useState(true);
 
   const files = useQuery({
     queryKey: ['storage', 'files', 'showcase-picker'],
@@ -94,6 +96,7 @@ export default function NewShowcaseScreen() {
         caption: caption.trim() || undefined,
         craftNote: craftNote.trim() || undefined,
         craftTags: tags.length > 0 ? tags : undefined,
+        allowComments,
         publish: true,
       },
       {
@@ -303,6 +306,25 @@ export default function NewShowcaseScreen() {
               Typed by you, never read off the file — what your camera recorded about where
               you were stays private.
             </Text>
+          </View>
+
+          {/* allow_comments has been a column since showcases shipped with
+              nothing able to set it. This is the switch it was describing. */}
+          <View className="mx-5 mt-5 mb-2 rounded-2xl border border-border overflow-hidden">
+            <View className="min-h-[52px] flex-row items-center gap-3 px-4 py-2.5">
+              <View className="flex-1">
+                <Text className="text-foreground text-[13.5px] font-semibold">Comments</Text>
+                <Text className="text-muted-foreground text-[11px] leading-4 mt-0.5">
+                  You can turn them off later. Nothing said is deleted — it stops being
+                  shown, and comes back if you turn them on again.
+                </Text>
+              </View>
+              <Switch
+                value={allowComments}
+                onValueChange={setAllowComments}
+                accessibilityLabel="Allow comments on this showcase"
+              />
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

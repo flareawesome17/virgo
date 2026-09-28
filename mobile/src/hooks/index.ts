@@ -250,4 +250,6 @@ export {
   useProfileWork,
   useProfileTaste,
   useLike,
+  useComments,
+  useCommentActions,
 } from './useShowcases';
