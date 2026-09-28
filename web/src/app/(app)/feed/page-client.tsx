@@ -7,6 +7,7 @@ import { Heart, ImageIcon, Loader2, MessageCircle, Bookmark } from 'lucide-react
 import { AppShell, PageHeader } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ShowcaseFilm } from '@/components/media/showcase-film';
 import { useFeed, useLike } from '@/hooks/useShowcases';
 import type { FeedItem } from '@/api';
 import { cn } from '@/lib/utils';
@@ -102,25 +103,38 @@ function Placard({ item }: { item: FeedItem }) {
 
   return (
     <Card className="overflow-hidden py-0">
-      {cover && (
-        <div className="relative aspect-[4/5] w-full bg-muted">
-          {/* `url` is the 640 px B2 copy, which next/image is allowed to load.
-              displaySources is never passed: the media host is not in its
-              allow-list. */}
-          <Image
-            src={cover.url}
-            alt={item.title ?? ''}
-            fill
-            sizes="(max-width: 768px) 100vw, 672px"
-            className="object-cover"
-          />
-          {item.pieces.length > 1 && (
-            <span className="absolute right-3 top-3 rounded-full bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
-              {item.pieces.length}
-            </span>
-          )}
-        </div>
-      )}
+      {cover &&
+        (cover.kind === 'video' ? (
+          // The film brings its own frame, so the count sits over it — and
+          // does not take clicks, which belong to play and pause.
+          <div className="relative">
+            <ShowcaseFilm piece={cover} alt={item.title ?? ''} />
+            {item.pieces.length > 1 && (
+              <span className="pointer-events-none absolute right-3 top-3 rounded-full bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
+                {item.pieces.length}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="relative aspect-[4/5] w-full bg-muted">
+            {/* `url` is the 640 px B2 copy, which next/image is allowed to load.
+                displaySources is never passed: the media host is not in its
+                allow-list. A film's `url` is its poster frame, written to the
+                same bucket, so it loads here on the same terms. */}
+            <Image
+              src={cover.url}
+              alt={item.title ?? ''}
+              fill
+              sizes="(max-width: 768px) 100vw, 672px"
+              className="object-cover"
+            />
+            {item.pieces.length > 1 && (
+              <span className="absolute right-3 top-3 rounded-full bg-black/55 px-2.5 py-1 text-xs font-bold text-white">
+                {item.pieces.length}
+              </span>
+            )}
+          </div>
+        ))}
 
       <div className="p-5">
         <div className="flex items-center gap-3">
