@@ -171,3 +171,16 @@ export const shelvesApi = {
     return api.delete(`/me/shelves/${shelfId}/items/${showcaseId}`);
   },
 };
+
+/** Somebody's profile, in its two halves. */
+export const profileWorkApi = {
+  /** What they have posted, newest first, as this viewer may see it. */
+  showcases(handle: string): Promise<{ data: Showcase[]; total: number }> {
+    return api.get(`/profiles/${encodeURIComponent(handle)}/showcases`);
+  },
+
+  /** Their public shelves. Private ones are never returned to a visitor. */
+  shelves(handle: string): Promise<{ data: ShelfSummary[]; total: number }> {
+    return api.get(`/profiles/${encodeURIComponent(handle)}/shelves`);
+  },
+};

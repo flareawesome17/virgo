@@ -204,3 +204,31 @@ export class FeedController {
     });
   }
 }
+
+/**
+ * Somebody's profile, in two halves: what they made and what they keep.
+ *
+ * By handle, because that is how a profile is addressed. Signed in, like
+ * /profiles/:handle itself.
+ */
+@Controller('profiles/:handle')
+export class ProfileWorkController {
+  constructor(
+    private readonly showcases: ShowcasesService,
+    private readonly shelves: ShelvesService,
+  ) {}
+
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Get('showcases')
+  async work(@CurrentUser('id') viewerId: string, @Param('handle') handle: string) {
+    const data = await this.showcases.byHandle(viewerId, handle);
+    return { data, total: data.length };
+  }
+
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Get('shelves')
+  async taste(@CurrentUser('id') viewerId: string, @Param('handle') handle: string) {
+    const data = await this.shelves.publicByHandle(viewerId, handle);
+    return { data, total: data.length };
+  }
+}

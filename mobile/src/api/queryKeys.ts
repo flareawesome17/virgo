@@ -129,6 +129,7 @@ export const queryKeys = {
     /** The owner's own list, drafts included. */
     mine: ['showcases', 'mine'] as const,
     one: (id: string) => ['showcases', 'one', id] as const,
+    ofHandle: (handle: string) => ['showcases', 'of', handle] as const,
   },
   feed: {
     all: ['feed'] as const,
@@ -136,6 +137,7 @@ export const queryKeys = {
   },
   shelves: {
     mine: ['shelves', 'mine'] as const,
+    ofHandle: (handle: string) => ['shelves', 'of', handle] as const,
     entries: (id: string) => ['shelves', 'entries', id] as const,
   },
   profile: {

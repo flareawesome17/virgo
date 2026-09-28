@@ -6,6 +6,7 @@ import {
   FeedController,
   MyShelvesController,
   MyShowcasesController,
+  ProfileWorkController,
   ShelvesController,
   ShowcasesController,
 } from './showcases.controller';
@@ -28,6 +29,7 @@ import { ShowcasesService } from './showcases.service';
     MyShelvesController,
     ShelvesController,
     FeedController,
+    ProfileWorkController,
   ],
   providers: [ShowcasesService, ShelvesService, FeedService],
   exports: [ShowcasesService, ShelvesService, FeedService],
