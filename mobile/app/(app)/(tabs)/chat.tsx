@@ -132,20 +132,19 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
               : `${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`}
           </Text>
         </View>
-        <Pressable
-          onPress={() => router.push('/chat/new')}
-          accessibilityRole="button"
-          accessibilityLabel="Start a new chat"
-          className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
-        >
-          <PlusIcon size={20} className="text-action-foreground" />
-        </Pressable>
       </View>}
 
-      {/* Search */}
-      <View className="px-5 pt-3 pb-2">
+      {/* Search, and the way to start a chat.
+          The button lives beside the search box rather than in the header
+          above, because that header is only drawn when this screen is a route
+          of its own. Embedded under Connect it is suppressed to avoid a second
+          title — and it used to take the only + with it, which left somebody
+          with one conversation no way at all to start another. The empty state
+          has its own button, so the gap opened the moment a first chat
+          existed. */}
+      <View className="px-5 pt-3 pb-2 flex-row items-center gap-3">
         <View
-          className="flex-row items-center bg-secondary rounded-xl px-4 h-12 gap-3"
+          className="flex-1 flex-row items-center bg-secondary rounded-xl px-4 h-12 gap-3"
         >
           <SearchIcon size={16} className="text-muted-foreground" />
           <TextInput
@@ -172,6 +171,14 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
             </Pressable>
           ) : null}
         </View>
+        <Pressable
+          onPress={() => router.push('/chat/new')}
+          accessibilityRole="button"
+          accessibilityLabel="Start a new chat"
+          className="w-12 h-12 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
+        >
+          <PlusIcon size={20} className="text-action-foreground" />
+        </Pressable>
       </View>
 
       <FlatList
