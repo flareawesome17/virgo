@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -18,6 +19,7 @@ import {
   UpdateShelfDto,
   UpdateShowcaseDto,
 } from './dto/showcase.dto';
+import { FeedService } from './feed.service';
 import { ShelvesService } from './shelves.service';
 import { ShowcasesService } from './showcases.service';
 
@@ -171,5 +173,34 @@ export class ShelvesController {
   ) {
     const data = await this.shelves.entries(viewerId, id);
     return { data, total: data.length };
+  }
+}
+
+/**
+ * The feed.
+ *
+ * Signed in. The open-web version needs media that is not behind a signed url,
+ * which is a storage migration; the feed people scroll inside the app is not
+ * waiting on it.
+ */
+@Controller('feed')
+export class FeedController {
+  constructor(private readonly feed: FeedService) {}
+
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @Get()
+  page(
+    @CurrentUser('id') viewerId: string,
+    @Query('scope') scope?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.feed.page(viewerId, {
+      scope: scope === 'connections' ? 'connections' : 'everyone',
+      cursor,
+      // A limit that is not a number is no limit at all, not a 400: the page
+      // size is a hint, and refusing the whole feed over it helps nobody.
+      limit: Number.isFinite(Number(limit)) ? Number(limit) : undefined,
+    });
   }
 }

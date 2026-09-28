@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { StorageModule } from '../storage/storage.module';
+import { FeedService } from './feed.service';
 import { ShelvesService } from './shelves.service';
 import {
+  FeedController,
   MyShelvesController,
   MyShowcasesController,
   ShelvesController,
@@ -25,8 +27,9 @@ import { ShowcasesService } from './showcases.service';
     ShowcasesController,
     MyShelvesController,
     ShelvesController,
+    FeedController,
   ],
-  providers: [ShowcasesService, ShelvesService],
-  exports: [ShowcasesService, ShelvesService],
+  providers: [ShowcasesService, ShelvesService, FeedService],
+  exports: [ShowcasesService, ShelvesService, FeedService],
 })
 export class ShowcasesModule {}
