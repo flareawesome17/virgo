@@ -12,21 +12,23 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { CheckIcon, PlayIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { LoadFailed } from '@/components/LoadFailed';
+import { DetailFallback } from '@/components/DetailFallback';
 import {
   albumFilesQueryKey,
   kindOf,
   useAlbums,
+  useShowcase,
   useShowcaseActions,
   useTheme,
 } from '@/src/hooks';
 import { clock } from '@/src/lib/media-grid';
-import { MAX_CRAFT_TAGS, MAX_SHOWCASE_ITEMS, storageApi } from '@/src/api';
+import { MAX_CRAFT_TAGS, MAX_SHOWCASE_ITEMS, storageApi, type Showcase } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
@@ -45,23 +47,58 @@ const TAG_SUGGESTIONS = [
 ];
 
 /**
- * Posting a showcase.
+ * Posting a showcase, or — with `?edit=<id>` — changing one.
  *
+ * Editing did not exist on the phone: a typo in a caption meant deleting the
+ * post, and with it every like, comment and keep. The API took changes all
+ * along.
+ */
+export default function NewShowcaseScreen() {
+  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const { showcase, error, loadFailed, refetch } = useShowcase(edit);
+
+  if (!edit) return <ShowcaseForm />;
+  if (!showcase) {
+    return (
+      <DetailFallback
+        title="Edit showcase"
+        what="this showcase"
+        gone="It has been deleted."
+        error={error}
+        failed={loadFailed}
+        onRetry={() => refetch()}
+      />
+    );
+  }
+  // Keyed, so the form starts from the showcase without an effect copying it in.
+  return <ShowcaseForm key={showcase.id} existing={showcase} />;
+}
+
+/**
  * The craft note has its own place rather than being folded into the caption,
  * because it is the thing the feed exists for: a caption says what this is, and
  * the note says what somebody else could do with it.
  */
-export default function NewShowcaseScreen() {
+function ShowcaseForm({ existing }: { existing?: Showcase }) {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { create } = useShowcaseActions();
+  const { create, update } = useShowcaseActions();
+  const editing = Boolean(existing);
+  const busy = create.isPending || update.isPending;
 
-  const [picked, setPicked] = useState<string[]>([]);
-  const [title, setTitle] = useState('');
-  const [caption, setCaption] = useState('');
-  const [craftNote, setCraftNote] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
-  const [allowComments, setAllowComments] = useState(true);
+  const [picked, setPicked] = useState<string[]>(
+    () => existing?.pieces.map((piece) => piece.fileKey) ?? [],
+  );
+  const [title, setTitle] = useState(existing?.title ?? '');
+  const [caption, setCaption] = useState(existing?.caption ?? '');
+  const [craftNote, setCraftNote] = useState(existing?.craftNote ?? '');
+  const [tags, setTags] = useState<string[]>(existing?.craftTags ?? []);
+  const [allowComments, setAllowComments] = useState(existing?.allowComments ?? true);
+  // A still for everything chosen, whichever album it was picked from — the
+  // grid only holds the album on screen.
+  const [stills, setStills] = useState<Record<string, string>>(() =>
+    Object.fromEntries(existing?.pieces.map((piece) => [piece.fileKey, piece.url]) ?? []),
+  );
 
   /*
    * Everything, a page at a time, or one album.
@@ -100,7 +137,8 @@ export default function NewShowcaseScreen() {
     [files.data],
   );
 
-  const toggle = (key: string) =>
+  const toggle = (key: string, still?: string) => {
+    if (still) setStills((current) => ({ ...current, [key]: still }));
     setPicked((current) =>
       current.includes(key)
         ? current.filter((k) => k !== key)
@@ -108,6 +146,7 @@ export default function NewShowcaseScreen() {
           ? current
           : [...current, key],
     );
+  };
 
   const toggleTag = (tag: string) =>
     setTags((current) =>
@@ -141,7 +180,37 @@ export default function NewShowcaseScreen() {
     );
   };
 
+  const save = () => {
+    if (!existing || picked.length === 0) return;
+    const before = existing.pieces.map((piece) => piece.fileKey);
+    const piecesChanged =
+      picked.length !== before.length || picked.some((key, i) => key !== before[i]);
+    update
+      .mutateAsync({
+        id: existing.id,
+        body: {
+          // Only when they changed: sending them rewrites every piece and
+          // queues its renditions again.
+          ...(piecesChanged ? { fileKeys: picked } : {}),
+          // Empty strings rather than undefined — that is how the API is told
+          // to clear a field.
+          title: title.trim(),
+          caption: caption.trim(),
+          craftNote: craftNote.trim(),
+          craftTags: tags,
+          allowComments,
+        },
+      })
+      .then(
+        () => router.back(),
+        (error) => Alert.alert("Couldn't save that", profileActionMessage(error, 'editShowcase')),
+      );
+  };
+
   const full = picked.length >= MAX_SHOWCASE_ITEMS;
+  // Tags typed on the web are not among the suggestions; they are shown too, so
+  // they can be taken off.
+  const tagChoices = [...tags.filter((tag) => !TAG_SUGGESTIONS.includes(tag)), ...TAG_SUGGESTIONS];
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -156,19 +225,21 @@ export default function NewShowcaseScreen() {
           <XIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="flex-1 text-center text-foreground text-[15px] font-bold">
-          New showcase
+          {editing ? 'Edit showcase' : 'New showcase'}
         </Text>
         <Pressable
-          onPress={post}
-          disabled={picked.length === 0 || create.isPending}
+          onPress={editing ? save : post}
+          disabled={picked.length === 0 || busy}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityState={{ busy: create.isPending, disabled: picked.length === 0 }}
+          accessibilityState={{ busy, disabled: picked.length === 0 }}
           className="min-h-11 px-3 items-center justify-center"
-          style={{ opacity: picked.length === 0 || create.isPending ? 0.4 : 1 }}
+          style={{ opacity: picked.length === 0 || busy ? 0.4 : 1 }}
         >
           <Text className="text-primary text-[14px] font-bold">
-            {create.isPending ? 'Posting…' : 'Post'}
+            {editing
+              ? update.isPending ? 'Saving…' : 'Save'
+              : create.isPending ? 'Posting…' : 'Post'}
           </Text>
         </Pressable>
       </View>
@@ -192,6 +263,34 @@ export default function NewShowcaseScreen() {
               {picked.length > 0 ? ' · the first one is the cover' : ''}
             </Text>
           </View>
+
+          {/* What is chosen, in order — including anything picked in another
+              album, which the grid below no longer shows. Tap one to drop it. */}
+          {picked.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 20, gap: 6, paddingTop: 10 }}
+            >
+              {picked.map((key, i) => (
+                <Pressable
+                  key={key}
+                  onPress={() => toggle(key)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Chosen, number ${i + 1}. Remove.`}
+                  className="bg-muted"
+                  style={{ width: 56, height: 56, borderRadius: 8, overflow: 'hidden' }}
+                >
+                  {stills[key] ? (
+                    <RemoteImage source={{ uri: stills[key] }} style={{ flex: 1 }} />
+                  ) : null}
+                  <View className="absolute right-1 top-1 w-5 h-5 rounded-full bg-action items-center justify-center">
+                    <Text className="text-action-foreground text-[10px] font-bold">{i + 1}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
 
           {/* Where to look. What is chosen stays chosen across albums. */}
           {albums.length > 0 && (
@@ -267,7 +366,9 @@ export default function NewShowcaseScreen() {
                   return (
                     <Pressable
                       key={file.key}
-                      onPress={() => toggle(file.key)}
+                      onPress={() =>
+                        toggle(file.key, (film ? file.posterUrl : file.url) ?? undefined)
+                      }
                       accessibilityRole="button"
                       accessibilityState={{ selected: on }}
                       accessibilityLabel={
@@ -390,7 +491,7 @@ export default function NewShowcaseScreen() {
             />
 
             <View className="flex-row flex-wrap gap-1.5 mt-3">
-              {TAG_SUGGESTIONS.map((tag) => {
+              {tagChoices.map((tag) => {
                 const on = tags.includes(tag);
                 return (
                   <Pressable

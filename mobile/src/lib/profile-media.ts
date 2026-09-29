@@ -157,6 +157,7 @@ export type ProfileAction =
   | 'accept'
   | 'message'
   | 'showcase'
+  | 'editShowcase'
   | 'unshowcase'
   | 'comment'
   | 'shelf'
@@ -175,6 +176,7 @@ const ACTION_COPY: Record<ProfileAction, string> = {
   // reporting all borrowed it — so every one of them apologised for not
   // adding something to a portfolio.
   showcase: "Couldn't post that. Try again.",
+  editShowcase: "Couldn't save your changes. Try again.",
   unshowcase: "Couldn't remove that. Try again.",
   comment: "Couldn't post your comment. Try again.",
   shelf: "Couldn't make that shelf. Try again.",

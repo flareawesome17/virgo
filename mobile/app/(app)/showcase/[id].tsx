@@ -19,6 +19,7 @@ import {
   EyeOffIcon,
   FlagIcon,
   HeartIcon,
+  PencilIcon,
   Trash2Icon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -33,7 +34,7 @@ import { makerOf, showcaseStatus } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeIcon, EyeOffIcon, FlagIcon, HeartIcon, Trash2Icon]) {
+for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeIcon, EyeOffIcon, FlagIcon, HeartIcon, PencilIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -226,6 +227,19 @@ export default function ShowcaseScreen() {
             the date it first went out, deleting is not. */}
         {mine && (
           <>
+            {status !== 'removed' && (
+              <Pressable
+                onPress={() =>
+                  router.push({ pathname: '/showcase/new', params: { edit: showcase.id } })
+                }
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Edit this showcase"
+                className="w-11 h-11 items-center justify-center active:opacity-70"
+              >
+                <PencilIcon size={18} className="text-muted-foreground" />
+              </Pressable>
+            )}
             {/* Not offered on one Virgo took down: publishing it again would
                 change nothing, because the moderation flag still hides it. */}
             {status !== 'removed' && (
