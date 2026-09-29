@@ -7,9 +7,15 @@ import { PUBLISHED_URL_TTL_SECONDS, signingWindowFor } from './storage.config';
 
 /**
  * Renditions live on a local volume, not in B2, and are reached through
- * media.virgo.ph — the one hostname that does not go through the tunnel.
+ * media.virgo.ph — an eighth `cloudflared` route, like every other hostname.
  * This is both ends of that: where a rendition is written, and how a URL for
  * it is signed.
+ *
+ * It very nearly had its own inbound port instead, to keep media off a CDN
+ * altogether; that design died with the static IP it needed, and this comment
+ * described it for longer than it was true. Serving film through Cloudflare's
+ * CDN from a non-Cloudflare origin is restricted by their terms — see the
+ * CDN terms section of docs/MEDIA_DELIVERY.md, which is where that stands.
  *
  * See docs/MEDIA_DELIVERY.md. The signing scheme has to match
  * `secure_link_md5` in deployment/media/nginx.conf.template and

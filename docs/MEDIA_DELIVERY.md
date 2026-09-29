@@ -105,8 +105,9 @@ address, no forward, and no cooperation from the router.
 
 **What it costs, stated plainly:** video served through Cloudflare's CDN that
 is not hosted on a Cloudflare service is restricted by their CDN terms. The
-direct route existed to avoid exactly that, and this accepts it knowingly.
-Worth revisiting only if a static IP becomes available.
+direct route existed to avoid exactly that, and this accepted it knowingly.
+**The public feed changed the size of that bet — see [The CDN terms
+question](#the-cdn-terms-question) below.**
 
 **What it saves:** no port forward, no static IP, no certbot, no DNS-01, no
 Cloudflare API token, no certificate to renew or notice expiring. The origin
@@ -137,6 +138,102 @@ and losing it costs CPU rather than customer work.
 Sizing: roughly 300 MB of ladder per film, so ~300 GB per thousand films.
 *The sweep*, below, is what bounds that: a dropped ladder costs one
 re-transcode, not a lost file.
+
+### The CDN terms question
+
+**Status: open. Nothing has been decided, and nothing here has been built.**
+
+Cloudflare's Service-Specific Terms, under *Content Delivery Network (Free,
+Pro, or Business)*, reserve the right to disable CDN access where a customer
+uses it "to serve video or a disproportionate percentage of pictures, audio
+files, or other large files" without one of the named paid services. Three are
+named as the sanctioned way to do it: **Developer Platform** (which is where R2
+sits), **Images**, and **Stream**. Enterprise is exempt. The stated remedy is
+that Cloudflare "will use reasonable efforts to provide you with notice" before
+disabling or limiting CDN access, or restricting end users' access.
+
+This replaced the older §2.8, which had no carve-out at all; the current wording
+is narrower and says plainly which services make it allowed.
+
+#### Why it is worth revisiting now
+
+The trade above was made when video meant a **client gallery**: a film
+delivered to one couple, watched a handful of times by people who were sent a
+link. That is a poor fit for "serve video" as the term describes it, and the
+risk was correspondingly small.
+
+The **public feed** is a different thing. Film posted to a showcase is served
+to strangers, at whatever scale the feed reaches, from an origin that is not a
+Cloudflare service. That is the fact pattern the term is about.
+
+**The blast radius is not video.** `media.virgo.ph`, `api.virgo.ph`,
+`virgo.ph`, the dashboard and the rest are one zone and one `cloudflared`
+tunnel. There is no published port behind any of them — that is the whole
+reason the tunnel exists. Losing CDN access for the zone is not "films stop
+playing", it is the product being unreachable. Notice first, per the terms, but
+the exposure is the entire deployment rather than one feature.
+
+#### The options, with numbers
+
+Sizing throughout: ~300 MB of ladder per film, ~300 GB per thousand films.
+
+| | What it is | Roughly | Keeps signing + TTLs | Self-hosted |
+|---|---|---|---|---|
+| **R2 + a Worker** | Renditions in R2; a Worker checks the same token nginx checks today | **~$10/mo** — R2 $0.015/GB-month (~$4.50 at 300 GB, egress free) + Workers Paid $5 | Yes | Pipeline yes, storage no |
+| **R2, public bucket** | Renditions in R2 on a custom domain, no token | ~$5/mo | **No** | Storage no |
+| **Cloudflare Stream** | Hand films to Stream; their ladder, their poster, their player | $5 per 1,000 min stored **plus** $1 per 1,000 min delivered — the second scales with the feed | N/A | No |
+| **A small VPS as the media edge** | The same nginx config on a box with a real IP; host reaches it over WireGuard | ~$6/mo plus bandwidth caps | Yes, unchanged | Yes |
+| **Accept it** | What is deployed today | $0 | Yes | Yes |
+
+**Recommended: R2 behind a Worker.** It is inside the named exception, it is
+the cheapest compliant option, and it is the only one that keeps the signing
+scheme intact — which matters more than it sounds, because that scheme is what
+stops a connections-only showcase or an undelivered client gallery being a
+public URL.
+
+A public R2 bucket is cheaper and is *not* a real option for the same reason: a
+rendition URL that never expires and is guessable by pattern would undo
+`visibility`, the delivery links and the sweep in one move.
+
+Stream is the sanctioned path and the most work to leave: uploads, poster
+frames and the ladder all become theirs, and the per-minute delivery charge is
+the one line here that grows with the feed rather than with the library.
+
+#### What R2 + a Worker would actually take
+
+The signing scheme is the interesting part; everything else is plumbing.
+
+1. **Write renditions to R2** as well as, or instead of, `MEDIA_ROOT`
+   ([media-link.service.ts](../api/src/storage/media-link.service.ts) owns both
+   ends of this already).
+2. **Port the two nginx locations to a Worker.**
+   [nginx.conf.template](../deployment/media/nginx.conf.template) has exactly
+   two: `^/(expires)/(sig)/(key)$` for a single file, and
+   `^/h/(expires)/(sig)/(dir-hls)/(rest)$` for a ladder, where the signature
+   covers the **directory** rather than each segment. Both are
+   `secure_link_md5` over `"$expires/$key $MEDIA_LINK_SECRET"`, and both split
+   403 (forged) from 410 (expired). A Worker doing the same MD5 and the same
+   split is a faithful port, and `MediaLinkService` needs no change at all —
+   it already produces both URL shapes.
+3. **Keep the directory-level ladder signature.** Per-object presigned S3 URLs
+   are not a substitute: a playlist's child URIs are relative, no player carries
+   anything from the manifest URL down to them, and rewriting a playlist to hold
+   presigned segment URLs makes it uncacheable and expiring mid-film. This is
+   the same reasoning as *Signing an HLS ladder*, below.
+4. **Decide about image derivatives.** Only film is the pressing part, but the
+   term also names "a disproportionate percentage of pictures". Moving the
+   1024/2048 WebP copies at the same time costs a little more storage and closes
+   that reading too.
+
+The local volume does not have to go away; R2 becoming the origin the CDN sees
+is what the term is about.
+
+#### What it gives up
+
+Renditions stop being free. They are a cache on a disk that is already paid
+for today; in R2 they are a bill, small and predictable but real, and *The
+sweep* below stops being purely a disk-space measure and starts being a cost
+measure too.
 
 **Use a Docker named volume, not a bind mount to `C:\`.** Docker Desktop on
 Windows proxies bind-mounted paths across the WSL2 boundary, and the I/O
