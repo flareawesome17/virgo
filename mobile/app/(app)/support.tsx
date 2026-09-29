@@ -118,8 +118,8 @@ function TicketList({ onOpen }: { onOpen: (id: string) => void }) {
             No requests yet
           </Text>
           <Text className="mt-1 text-center text-[12px] leading-5 text-muted-foreground">
-            If something is broken or confusing, tell us — during the
-            pre-release that is the most useful thing you can do.
+            If something is broken or confusing, tell us here. Every request
+            is read, and you will hear back in this screen.
           </Text>
         </View>
       ) : (

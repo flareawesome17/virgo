@@ -76,7 +76,11 @@ export function CommentThread({
   return (
     <View className="px-5 pt-6">
       <Text className="text-primary text-[10px] font-bold tracking-[1.5px]">
-        {comments.length > 0 ? `${comments.length} COMMENTS` : 'COMMENTS'}
+        {comments.length === 1
+          ? '1 COMMENT'
+          : comments.length > 0
+            ? `${comments.length} COMMENTS`
+            : 'COMMENTS'}
       </Text>
 
       {!allowed ? (
