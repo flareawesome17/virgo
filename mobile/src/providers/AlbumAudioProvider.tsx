@@ -9,11 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  setAudioModeAsync,
-  useAudioPlayer,
-  useAudioPlayerStatus,
-} from "expo-audio";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { enterAlbumMode, setAlbumPlaying } from "@/src/lib/audio-mode";
 import type { StoredFile } from "@/src/api";
 
 type RepeatMode = "off" | "all" | "one";
@@ -154,15 +151,16 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [current, player, status.isLoaded]);
 
+  /*
+   * The audio mode follows playback rather than being set once on mount: a
+   * chime takes the session over while nothing plays here (audio-mode.ts),
+   * and this takes it back the moment a track plays — however it started,
+   * lock-screen controls included.
+   */
   useEffect(() => {
-    setAudioModeAsync({
-      playsInSilentMode: true,
-      shouldPlayInBackground: true,
-      interruptionMode: "doNotMix",
-      allowsRecording: false,
-      shouldRouteThroughEarpiece: false,
-    }).catch(() => {});
-  }, [player]);
+    setAlbumPlaying(status.playing);
+    if (status.playing) void enterAlbumMode();
+  }, [status.playing]);
 
   /*
    * Clears the lock-screen controls as the provider goes away, which is
@@ -209,7 +207,7 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
         );
       }
       setCurrentIndex(index);
-      player.play();
+      void enterAlbumMode().then(() => player.play());
     },
     [albumName, artworkUrl, player, rate],
   );
@@ -242,7 +240,7 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
         );
       }
       setCurrentIndex(index);
-      player.play();
+      void enterAlbumMode().then(() => player.play());
     },
     [player, rate],
   );
