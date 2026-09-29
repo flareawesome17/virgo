@@ -297,10 +297,15 @@ export class MessagesService {
    *
    * Best-effort. A failed receipt must never fail the fetch that carries the
    * messages themselves.
+   *
+   * And said out loud, like a read. The receipt was written and never
+   * announced, so a sender's ticks only moved when their own app happened to
+   * refetch the thread — "delivered" in practice never showed. Each
+   * conversation whose receipt moved now tells the people in it.
    */
   private async markDelivered(userId: string, conversationId?: string): Promise<void> {
     try {
-      await this.db.query(
+      const moved = await this.db.query<{ conversation_id: string }>(
         `update conversation_participants p
             set last_delivered_at = now()
           where p.user_id = $1
@@ -311,9 +316,20 @@ export class MessagesService {
                      and m.sender_id <> $1
                      and (p.last_delivered_at is null
                           or m.created_at > p.last_delivered_at)
-                )`,
+                )
+          returning p.conversation_id`,
         [userId, conversationId ?? null],
       );
+      const at = new Date().toISOString();
+      for (const { conversation_id } of moved) {
+        // Not across a block, the same as a read.
+        this.realtime.emitToUsers(await this.participantIdsVisibleTo(conversation_id, userId), {
+          type: 'delivered',
+          conversationId: conversation_id,
+          userId,
+          at,
+        });
+      }
     } catch {
       // Swallowed on purpose — see above.
     }
@@ -963,7 +979,11 @@ export class MessagesService {
       message: row,
     });
 
-    await this.notify(userId, conversationId, text, mentions);
+    // Not awaited. It looked up and pushed to each recipient in turn, and the
+    // sender's request waited for all of it: in a group, sending was slow in
+    // proportion to its size. The message is stored and delivered live by
+    // now, and notify never throws.
+    void this.notify(userId, conversationId, text, mentions);
     return row!;
   }
 
@@ -1166,35 +1186,37 @@ export class MessagesService {
 
       const mentioned = new Set(mentions);
 
-      for (const r of recipients) {
-        const tokens = await this.push.tokensFor(r.user_id);
-        if (tokens.length === 0) continue;
-        await this.push.send(
-          tokens.map((to) => ({
-            to,
-            // Being named in a busy group is worth surfacing above the rest —
-            // it is the difference between a thread you skim and one that
-            // needs you.
-            title: mentioned.has(r.user_id)
-              ? `${sender} mentioned you${meta?.is_group && meta.title ? ` · ${meta.title}` : ''}`
-              : title,
-            // Truncated: a preview should not spill a long message onto a lock
-            // screen in full.
-            body: body.length > 140 ? `${body.slice(0, 137)}…` : body,
-            // Its own channel, not 'reminders' — that one is silent and does
-            // not vibrate by design, which is wrong for a message. Android
-            // fixes importance at channel creation, so a message needs a
-            // channel of its own rather than a louder send.
-            channelId: 'messages',
-            sound: 'default' as const,
-            // Otherwise Android may hold the message until the next
-            // maintenance window while the device is dozing.
-            priority: 'high' as const,
-            // `conversationId` is what the tap handler routes on.
-            data: { type: 'message', conversationId },
-          })),
-        );
-      }
+      // Every recipient's pushes in one send, which batches them itself —
+      // not a round trip to Expo per person.
+      const tokenLists = await Promise.all(
+        recipients.map(async (r) => ({ r, tokens: await this.push.tokensFor(r.user_id) })),
+      );
+      const messages = tokenLists.flatMap(({ r, tokens }) =>
+        tokens.map((to) => ({
+          to,
+          // Being named in a busy group is worth surfacing above the rest —
+          // it is the difference between a thread you skim and one that
+          // needs you.
+          title: mentioned.has(r.user_id)
+            ? `${sender} mentioned you${meta?.is_group && meta.title ? ` · ${meta.title}` : ''}`
+            : title,
+          // Truncated: a preview should not spill a long message onto a lock
+          // screen in full.
+          body: body.length > 140 ? `${body.slice(0, 137)}…` : body,
+          // Its own channel, not 'reminders' — that one is silent and does
+          // not vibrate by design, which is wrong for a message. Android
+          // fixes importance at channel creation, so a message needs a
+          // channel of its own rather than a louder send.
+          channelId: 'messages',
+          sound: 'default' as const,
+          // Otherwise Android may hold the message until the next
+          // maintenance window while the device is dozing.
+          priority: 'high' as const,
+          // `conversationId` is what the tap handler routes on.
+          data: { type: 'message', conversationId },
+        })),
+      );
+      if (messages.length > 0) await this.push.send(messages);
     } catch {
       // Swallowed on purpose — see above.
     }
