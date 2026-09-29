@@ -268,6 +268,10 @@ export default function InviteCollaboratorsScreen() {
             <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[1.5px] mx-1">Albums</Text>
             {albumsQuery.isLoading ? (
               <ActivityIndicator className="py-4" />
+            ) : albumsQuery.loadFailed && albums.length === 0 ? (
+              // Not "no albums yet": that invited somebody to a workspace with
+              // no albums picked, because the list of them had failed.
+              <LoadFailed what="the albums" onRetry={() => void albumsQuery.refetch()} compact />
             ) : albums.length === 0 ? (
               <Text className="text-muted-foreground text-sm mx-1">This workspace has no albums yet.</Text>
             ) : (

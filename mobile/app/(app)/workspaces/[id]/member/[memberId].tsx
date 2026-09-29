@@ -49,7 +49,12 @@ export default function MemberAccessScreen() {
   const insets = useSafeAreaInsets();
 
   const { data: workspace } = useWorkspace(id);
-  const { members, isLoading: loadingMembers } = useWorkspaceMembers(id);
+  const {
+    members,
+    isLoading: loadingMembers,
+    loadFailed: membersFailed,
+    refetch: refetchMembers,
+  } = useWorkspaceMembers(id);
   const member = members.find((m) => m.id === memberId && m.status === 'accepted');
   const albumsQuery = useCollaboratorAlbums(memberId ?? null);
   const albums = albumsQuery.albums;
@@ -72,6 +77,16 @@ export default function MemberAccessScreen() {
     return (
       <SafeAreaView edges={['top']} className="flex-1 bg-background items-center justify-center">
         <ActivityIndicator />
+      </SafeAreaView>
+    );
+  }
+
+  // A list that did not load has nobody in it; that is not "they left".
+  if (!member && membersFailed && members.length === 0) {
+    return (
+      <SafeAreaView edges={['top']} className="flex-1 bg-background">
+        <Header />
+        <LoadFailed what="this member" onRetry={() => void refetchMembers()} />
       </SafeAreaView>
     );
   }

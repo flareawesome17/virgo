@@ -30,7 +30,7 @@ import {
   useWorkspace,
   useWorkspaceMembers,
 } from '@/src/hooks';
-import { formatBytes, type Album, type ScheduleEvent, type Workspace, type WorkspaceMember } from '@/src/api';
+import { ApiError, formatBytes, type Album, type ScheduleEvent, type Workspace, type WorkspaceMember } from '@/src/api';
 import { isEventUpcoming } from '@/src/lib/calendar';
 import {
   ACCESS_LABEL,
@@ -802,7 +802,11 @@ function SharedView({ workspace }: { workspace: Workspace }) {
 
 export default function WorkspaceDetailScreen() {
   const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
-  const { data: workspace, isLoading } = useWorkspace(id);
+  const { data: workspace, isLoading, error, isError, isPaused, refetch } = useWorkspace(id);
+  // "It may have been deleted" is for a 404 or 403. Offline, or a server
+  // having a bad minute, it told people their workspace might be gone.
+  const gone =
+    error instanceof ApiError && (error.status === 404 || error.status === 403);
   const initialSegment: Segment = tab === 'members' || tab === 'albums' ? tab : 'overview';
 
   return (
@@ -816,6 +820,13 @@ export default function WorkspaceDetailScreen() {
       ) : isLoading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator />
+        </View>
+      ) : !gone && (isError || isPaused) ? (
+        <View className="flex-1">
+          <View className="px-2 pt-1">
+            <BackButton />
+          </View>
+          <LoadFailed what="this workspace" onRetry={() => void refetch()} />
         </View>
       ) : (
         // Deleted, left, removed, or never there: one answer, since the server
