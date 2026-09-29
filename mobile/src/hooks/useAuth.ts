@@ -14,6 +14,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
 } from '@tanstack/react-query';
 import {
   ApiError,
@@ -97,6 +98,32 @@ function toAuthError(err: unknown): AuthError {
   return new AuthError('Something went wrong. Please try again.');
 }
 
+/**
+ * Everything a session leaves on the device, gone. Signing out, pausing,
+ * deleting, and a session the server has stopped honouring all end here, so
+ * none of them can forget a step the others remember.
+ */
+function forgetSession(queryClient: QueryClient) {
+  queryClient.setQueryData(queryKeys.auth.session, null);
+  // Drop every non-auth query: the next user must not see the previous
+  // user's cached workspaces flash on screen before their own load.
+  queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+  // Otherwise this account's alarms keep firing on the device after it is
+  // gone, including for whoever signs in next.
+  void clearReminderNotifications();
+}
+
+/**
+ * How many mounted useAuth() calls hold the auth-failure handler.
+ *
+ * The client has one handler slot and about thirty screens call useAuth. Each
+ * used to empty the slot when it unmounted, so backing out of any of them left
+ * nobody handling a dead session: the UI stayed signed in while every request
+ * failed. Every holder installs the same handler, and the slot is only emptied
+ * when the last one goes — which is never while the root layout is mounted.
+ */
+let authFailureHolders = 0;
+
 export function useAuth() {
   const queryClient = useQueryClient();
   // True while the persisted cache is being read off disk. Safe without a
@@ -107,11 +134,12 @@ export function useAuth() {
   // Handling it centrally flips the app to the signed-out UI once, instead of
   // every screen separately discovering that its queries now fail.
   useEffect(() => {
-    setAuthFailureHandler(() => {
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
-    });
-    return () => setAuthFailureHandler(null);
+    authFailureHolders += 1;
+    setAuthFailureHandler(() => forgetSession(queryClient));
+    return () => {
+      authFailureHolders -= 1;
+      if (authFailureHolders === 0) setAuthFailureHandler(null);
+    };
   }, [queryClient]);
 
   const sessionQuery = useQuery<AuthUser | null>({
@@ -233,19 +261,45 @@ export function useAuth() {
     },
   });
 
+  /** Signs every other device out; this one keeps going on the pair it is handed. */
+  const changePassword = useMutation({
+    mutationFn: async ({
+      currentPassword,
+      newPassword,
+    }: {
+      currentPassword: string;
+      newPassword: string;
+    }) => {
+      try {
+        return await authApi.changePassword(currentPassword, newPassword);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.auth.session, result.user);
+    },
+  });
+
+  /** Only sends a link: the session's address stays as it is until it is opened. */
+  const requestEmailChange = useMutation({
+    mutationFn: async ({ password, newEmail }: { password: string; newEmail: string }) => {
+      try {
+        return await authApi.requestEmailChange(password, newEmail);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+  });
+
   const signOut = useMutation({
     mutationFn: async () => {
       await authApi.logout();
     },
-    onSuccess: () => {
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      // Drop every non-auth query: the next user must not see the previous
-      // user's cached workspaces flash on screen before their own load.
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
-      // Otherwise this account's alarms keep firing on the device after
-      // signing out, including for whoever signs in next.
-      void clearReminderNotifications();
-    },
+    // Settled, not success. logout clears the tokens whether or not the
+    // server heard it, then rethrows a network failure — so offline, the
+    // tokens were gone but the UI stayed signed in until a second tap.
+    onSettled: () => forgetSession(queryClient),
   });
 
   /**
@@ -260,8 +314,7 @@ export function useAuth() {
       authApi.disableAccount(password, days),
     onSuccess: async () => {
       await clearTokens();
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+      forgetSession(queryClient);
     },
   });
 
@@ -270,8 +323,7 @@ export function useAuth() {
     mutationFn: (password: string) => authApi.deleteAccount(password),
     onSuccess: async () => {
       await clearTokens();
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+      forgetSession(queryClient);
     },
   });
 
@@ -305,6 +357,8 @@ export function useAuth() {
     /** Full profile from /auth/me — includes displayName / avatarUrl. */
     profile: authUser,
     updateProfile,
+    changePassword,
+    requestEmailChange,
     disableAccount,
     deleteAccount,
     signIn,

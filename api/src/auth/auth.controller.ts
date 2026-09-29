@@ -3,6 +3,8 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import {
+  ChangeEmailDto,
+  ChangePasswordDto,
   DeleteAccountDto,
   DisableAccountDto,
   BeginTwoFactorSetupDto,
@@ -139,6 +141,45 @@ export class AuthController {
   @Post('verify-email')
   verifyEmail(@Body() dto: VerifyEmailDto) {
     return this.accounts.verifyEmail(dto.token);
+  }
+
+  /**
+   * Changes the password, signs every other device out, and hands this one a
+   * fresh pair so the person who asked stays signed in.
+   */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('me/password')
+  async changePassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    const user = await this.accounts.changePassword(
+      userId,
+      dto.currentPassword,
+      dto.newPassword,
+    );
+    return this.auth.sessionAfterPasswordChange(user);
+  }
+
+  /** Sends a confirmation link to a new address. Nothing changes until it is used. */
+  @Throttle({ default: { limit: 3, ttl: 5 * 60_000 } })
+  @HttpCode(202)
+  @Post('me/email')
+  requestEmailChange(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangeEmailDto,
+  ) {
+    return this.accounts.requestEmailChange(userId, dto.password, dto.newEmail);
+  }
+
+  /** Redeems the link from requestEmailChange. Public: it is opened from an inbox. */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('confirm-email')
+  confirmEmailChange(@Body() dto: VerifyEmailDto) {
+    return this.accounts.confirmEmailChange(dto.token);
   }
 
   /** Re-sends the verification link to the signed-in user's own address. */

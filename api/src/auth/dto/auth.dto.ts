@@ -436,3 +436,26 @@ export class VerifyEmailDto {
   @MaxLength(256)
   token!: string;
 }
+
+export class ChangePasswordDto {
+  @IsString()
+  @MaxLength(72)
+  currentPassword!: string;
+
+  // The same floor and 72-byte bcrypt ceiling as registration.
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  @MaxLength(72, { message: 'Password must be at most 72 characters' })
+  newPassword!: string;
+}
+
+/** The password is asked for again: a session alone must not be able to move the account's inbox. */
+export class ChangeEmailDto {
+  @IsString()
+  @MaxLength(72)
+  password!: string;
+
+  @IsEmail({}, { message: 'A valid email address is required' })
+  @MaxLength(255)
+  newEmail!: string;
+}

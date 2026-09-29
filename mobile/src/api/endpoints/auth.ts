@@ -233,6 +233,36 @@ export const authApi = {
     return api.patch<AuthUser>('/auth/me', { body: input });
   },
 
+  // ─── Credentials ───────────────────────────────────────────────────────────
+
+  /**
+   * Changes the password. Every other device is signed out; this one gets a
+   * fresh pair, stored here, because its old refresh token was revoked too.
+   *
+   * A wrong current password is a 403 with code WRONG_PASSWORD, not a 401, so
+   * the client does not mistake it for an expired session.
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<AuthResult> {
+    const result = await api.post<AuthResult>('/auth/me/password', {
+      body: { currentPassword, newPassword },
+    });
+    await setTokens(result.accessToken, result.refreshToken);
+    return result;
+  },
+
+  /**
+   * Sends a confirmation link to a new address. The account keeps its current
+   * address until that link is opened.
+   */
+  requestEmailChange(password: string, newEmail: string): Promise<{ pendingEmail: string }> {
+    return api.post('/auth/me/email', { body: { password, newEmail } });
+  },
+
+  /** Redeems the link from requestEmailChange. No session needed. */
+  confirmEmailChange(token: string): Promise<{ email: string }> {
+    return api.post('/auth/confirm-email', { body: { token }, anonymous: true });
+  },
+
   // ─── Closing the account ───────────────────────────────────────────────────
 
   /**

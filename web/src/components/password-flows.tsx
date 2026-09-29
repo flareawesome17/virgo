@@ -3,15 +3,15 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, CheckCircle2, Eye, EyeOff, Loader2, MailCheck, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { authApi, ApiError } from '@/api';
+import { authApi, ApiError, queryKeys } from '@/api';
 
 function message(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
@@ -341,6 +341,86 @@ export function VerifyEmailView() {
             <CheckCircle2 className="mx-auto size-9 text-success" />
             <p className="mt-4 text-sm text-muted-foreground">
               Nothing else to do — carry on where you left off.
+            </p>
+          </>
+        ) : (
+          <Loader2 className="mx-auto size-9 animate-spin text-primary" />
+        )}
+      </div>
+    </AuthShell>
+  );
+}
+
+/**
+ * Consumes an email-change link, sent to the new address from the app's
+ * account settings. Runs on load — the click was the consent.
+ */
+export function ConfirmEmailChangeView() {
+  const searchParams = useSearchParams();
+  const token = searchParams.get('token') ?? '';
+  const queryClient = useQueryClient();
+
+  const confirm = useMutation({
+    mutationFn: () => authApi.confirmEmailChange(token),
+    // A tab signed in to this account is still showing the old address.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.auth.session }),
+  });
+  const { mutate } = confirm;
+
+  // Once. The link is single-use, so a second call — a dev double effect, a
+  // re-render with the same token — would overwrite the success with "no
+  // longer valid".
+  const sent = useRef(false);
+  useEffect(() => {
+    if (!token || sent.current) return;
+    sent.current = true;
+    mutate();
+  }, [token, mutate]);
+
+  const heading = !token
+    ? 'Link is incomplete'
+    : confirm.isSuccess
+      ? 'Email changed'
+      : confirm.isError
+        ? 'That link did not work'
+        : 'Confirming…';
+
+  return (
+    <AuthShell
+      heading={heading}
+      intro={
+        confirm.isSuccess
+          ? 'Your account uses its new address from now on.'
+          : 'One moment while we check the link.'
+      }
+      footer={
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          <Link href="/" className="font-semibold text-primary hover:underline">
+            Go to Virgo
+          </Link>
+        </p>
+      }
+    >
+      <div className="py-2 text-center">
+        {!token || confirm.isError ? (
+          <>
+            <XCircle className="mx-auto size-9 text-destructive" />
+            <p className="mt-4 text-sm text-muted-foreground">
+              {!token
+                ? 'That link is missing its token. Copy the whole thing out of the email.'
+                : message(confirm.error, 'The link may have expired or already been used.')}
+            </p>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Your account still uses its old address. Ask for a new link from Settings, then
+              Account & security, in the app.
+            </p>
+          </>
+        ) : confirm.isSuccess ? (
+          <>
+            <CheckCircle2 className="mx-auto size-9 text-success" />
+            <p className="mt-4 text-sm text-muted-foreground">
+              Sign in with <span className="font-semibold text-foreground">{confirm.data.email}</span>{' '}
+              from now on. Your password has not changed.
             </p>
           </>
         ) : (

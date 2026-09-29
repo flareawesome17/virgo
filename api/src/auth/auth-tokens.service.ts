@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 
-export type TokenPurpose = 'verify_email' | 'reset_password';
+export type TokenPurpose = 'verify_email' | 'reset_password' | 'change_email';
 
 /** How long each kind of link lasts. */
 export const TOKEN_TTL_MS: Record<TokenPurpose, number> = {
@@ -11,6 +11,9 @@ export const TOKEN_TTL_MS: Record<TokenPurpose, number> = {
   // An hour. A reset link is a bearer credential for the whole account, so it
   // should not sit in an inbox for a day.
   reset_password: 60 * 60 * 1000,
+  // A day, like verification: it proves an inbox, and it cannot sign anybody
+  // in — the account's password was checked before it was sent.
+  change_email: 24 * 60 * 60 * 1000,
 };
 
 export interface IssuedToken {
@@ -40,7 +43,12 @@ export class AuthTokensService {
    * Superseding rather than accumulating: asking for a second reset email
    * should retire the first link, or a stale message in the inbox stays live.
    */
-  async issue(userId: string, purpose: TokenPurpose): Promise<IssuedToken> {
+  async issue(
+    userId: string,
+    purpose: TokenPurpose,
+    /** The address a change_email link confirms. Required for that purpose, refused for any other. */
+    newEmail: string | null = null,
+  ): Promise<IssuedToken> {
     // 32 bytes of CSPRNG, base64url so it survives a URL and a double-click
     // selection without punctuation breaking the copy.
     const token = randomBytes(32).toString('base64url');
@@ -53,13 +61,32 @@ export class AuthTokensService {
         [userId, purpose],
       );
       await client.query(
-        `insert into auth_tokens (user_id, purpose, token_hash, expires_at)
-         values ($1, $2, $3, $4)`,
-        [userId, purpose, this.hash(token), expiresAt],
+        `insert into auth_tokens (user_id, purpose, token_hash, expires_at, new_email)
+         values ($1, $2, $3, $4, $5)`,
+        [userId, purpose, this.hash(token), expiresAt, newEmail],
       );
     });
 
     return { token, expiresAt };
+  }
+
+  /**
+   * Redeems an email-change link, returning who it was for and the address it
+   * confirms. Single-use in one statement, like redeem.
+   */
+  async redeemEmailChange(
+    token: string,
+  ): Promise<{ userId: string; newEmail: string } | null> {
+    const row = await this.db.queryOne<{ user_id: string; new_email: string }>(
+      `update auth_tokens set used_at = now()
+        where token_hash = $1
+          and purpose = 'change_email'
+          and used_at is null
+          and expires_at > now()
+        returning user_id, new_email`,
+      [this.hash(token)],
+    );
+    return row ? { userId: row.user_id, newEmail: row.new_email } : null;
   }
 
   /**

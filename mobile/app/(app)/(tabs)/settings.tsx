@@ -199,7 +199,7 @@ function AccountHalf({ rewards }: { rewards: number }) {
         {
           icon: UserCogIcon,
           label: 'Account & security',
-          detail: 'Email and password',
+          detail: 'Email, password, pause or delete',
           route: '/settings/account',
           color: palette.primary,
         },

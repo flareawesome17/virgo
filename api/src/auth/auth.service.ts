@@ -387,6 +387,15 @@ export class AuthService {
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
   }
 
+  /**
+   * A fresh pair for the device that just changed the account's password,
+   * after every session — its own included — was revoked. Through issueTokens,
+   * so it is refused on the same terms as any other way in.
+   */
+  async sessionAfterPasswordChange(user: UserRow): Promise<AuthResult> {
+    return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
+  }
+
   async logout(refreshToken: string): Promise<void> {
     // Revoking an already-revoked or unknown token is a no-op, so logout is
     // idempotent and never reveals whether the token was real.
