@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { Redirect, Stack } from 'expo-router';
 import {
@@ -114,13 +115,25 @@ export default function AppLayout() {
  */
 function NotificationServices() {
   const { user } = useAuth();
-  const { reminders } = useReminders({
+  // Upcoming and not done, soonest first. This was the 100 oldest, completed
+  // and long past included, so from a busy account's hundredth reminder on the
+  // new ones were never scheduled. Fixed at mount so the query key is stable;
+  // anything that falls due during the session is skipped by the scheduler.
+  const [dueFrom] = useState(() => new Date(Date.now() - 60_000).toISOString());
+  const upcoming = useReminders({
+    is_completed: false,
+    due_from: dueFrom,
     orderBy: 'reminder_time',
     direction: 'asc',
     limit: 100,
   });
+  const list = upcoming.reminders;
 
-  useReminderNotifications(reminders);
+  useReminderNotifications(list, {
+    ready: upcoming.isSuccess,
+    // More exist than came back: nothing past the last one is known here.
+    listThrough: upcoming.total > list.length ? (list[list.length - 1]?.reminder_time ?? null) : null,
+  });
   usePushRegistration(user?.id ?? null);
   useNotificationRouting(true);
   useMessageAlerts(true);

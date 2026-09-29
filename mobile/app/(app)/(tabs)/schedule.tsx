@@ -73,8 +73,15 @@ export default function ScheduleScreen() {
     { enabled: !!user?.id },
   );
 
+  // Not done, from today on, soonest first. It was the 100 oldest, completed
+  // ones included, so a busy account's upcoming reminders fell off the end.
+  const [startOfToday] = useState(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return start.toISOString();
+  });
   const { reminders, refetch: refetchReminders } = useReminders(
-    { orderBy: 'reminder_time', direction: 'asc', limit: 100 },
+    { is_completed: false, due_from: startOfToday, orderBy: 'reminder_time', direction: 'asc', limit: 100 },
     { enabled: !!user?.id },
   );
 

@@ -69,6 +69,24 @@ export class PushService {
     );
   }
 
+  /**
+   * The phone holding this token has just scheduled its reminders locally, as
+   * far as `coveredUntil` (null: all it was given). See migration 076: the
+   * reminder sweep skips its push for what the phone already has.
+   */
+  async markRemindersSynced(
+    userId: string,
+    token: string,
+    coveredUntil: string | null,
+  ): Promise<void> {
+    await this.db.query(
+      `update push_tokens
+          set reminders_synced_at = now(), reminders_covered_until = $3
+        where user_id = $1 and token = $2`,
+      [userId, token, coveredUntil],
+    );
+  }
+
   async removeToken(userId: string, token: string): Promise<void> {
     await this.db.query(
       'delete from push_tokens where user_id = $1 and token = $2',

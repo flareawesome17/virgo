@@ -21,6 +21,8 @@ export interface ListOptions {
   offset?: number;
   /** Column name from `filterableColumns` mapped to an exact-match value. */
   filters?: Record<string, unknown>;
+  /** Column name from `rangeColumns` mapped to an inclusive lower bound. */
+  from?: Record<string, unknown>;
   /** Column name from `sortableColumns`. */
   orderBy?: string;
   direction?: 'asc' | 'desc';
@@ -56,6 +58,9 @@ export abstract class OwnedRepository<Row extends QueryResultRow> {
   /** Columns clients may filter on via query string. */
   protected readonly filterableColumns: readonly string[] = [];
 
+  /** Columns clients may bound from below (`column >= value`). */
+  protected readonly rangeColumns: readonly string[] = [];
+
   /** Columns clients may sort by. */
   protected readonly sortableColumns: readonly string[] = ['created_at'];
 
@@ -69,6 +74,20 @@ export abstract class OwnedRepository<Row extends QueryResultRow> {
     return assertIdentifier(this.table, 'table');
   }
 
+  /** `column >= value` for each whitelisted range column given a value. */
+  private pushLowerBounds(
+    from: Record<string, unknown> | undefined,
+    params: unknown[],
+    where: string[],
+  ): void {
+    for (const [column, value] of Object.entries(from ?? {})) {
+      if (value === undefined || value === null) continue;
+      if (!this.rangeColumns.includes(column)) continue;
+      params.push(value);
+      where.push(`${assertIdentifier(column, 'column')} >= $${params.length}`);
+    }
+  }
+
   async findAll(userId: string, options: ListOptions = {}): Promise<Row[]> {
     const params: unknown[] = [userId];
     const where: string[] = ['user_id = $1'];
@@ -79,6 +98,7 @@ export abstract class OwnedRepository<Row extends QueryResultRow> {
       params.push(value);
       where.push(`${assertIdentifier(column, 'column')} = $${params.length}`);
     }
+    this.pushLowerBounds(options.from, params, where);
 
     const orderColumn = this.sortableColumns.includes(options.orderBy ?? '')
       ? (options.orderBy as string)
@@ -105,6 +125,7 @@ export abstract class OwnedRepository<Row extends QueryResultRow> {
   async count(
     userId: string,
     filters: Record<string, unknown> = {},
+    from: Record<string, unknown> = {},
   ): Promise<number> {
     const params: unknown[] = [userId];
     const where: string[] = ['user_id = $1'];
@@ -115,6 +136,7 @@ export abstract class OwnedRepository<Row extends QueryResultRow> {
       params.push(value);
       where.push(`${assertIdentifier(column, 'column')} = $${params.length}`);
     }
+    this.pushLowerBounds(from, params, where);
 
     const row = await this.db.queryOne<{ count: string }>(
       `select count(*)::text as count from ${this.safeTable} where ${where.join(' and ')}`,

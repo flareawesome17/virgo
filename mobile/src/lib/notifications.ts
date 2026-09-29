@@ -131,7 +131,21 @@ export interface SchedulableReminder {
   /** ISO timestamp. */
   reminder_time: string;
   is_alarm_enabled: boolean;
+  has_push_notification: boolean;
   is_completed: boolean;
+}
+
+/**
+ * How many to schedule at once. iOS keeps 64 pending local notifications and
+ * silently drops the rest; a few are left for anything else the app schedules.
+ */
+const MAX_SCHEDULED = 60;
+
+/** What a sync did: how many it scheduled, and how far ahead that reaches. */
+export interface ReminderSync {
+  scheduled: number;
+  /** Null when every reminder it was given is scheduled. */
+  coveredUntil: string | null;
 }
 
 /**
@@ -377,6 +391,9 @@ export async function setPushTurnedOff(userId: string, off: boolean): Promise<vo
 
 function isSchedulable(reminder: SchedulableReminder): boolean {
   if (reminder.is_completed) return false;
+  // "Alarm" plays a sound and "Push notification" sends one; with both off the
+  // reminder is not meant to interrupt at all. It was scheduled regardless.
+  if (!reminder.is_alarm_enabled && !reminder.has_push_notification) return false;
   const when = new Date(reminder.reminder_time).getTime();
   // A trigger in the past fires immediately, which would ambush the user with
   // every overdue reminder the moment the app opens.
@@ -395,10 +412,15 @@ function isSchedulable(reminder: SchedulableReminder): boolean {
  */
 export async function syncReminderNotifications(
   reminders: SchedulableReminder[],
-): Promise<number> {
+  /**
+   * The latest reminder_time the list reaches, when the list stopped at its
+   * limit — nothing after it was given, so nothing after it is covered.
+   */
+  listThrough: string | null = null,
+): Promise<ReminderSync | null> {
   const N = loadNotifications();
-  if (!N) return 0;
-  if (!(await ensurePermissions())) return 0;
+  if (!N) return null;
+  if (!(await ensurePermissions())) return null;
   await ensureChannels();
 
   const scheduled = await N.getAllScheduledNotificationsAsync();
@@ -408,7 +430,17 @@ export async function syncReminderNotifications(
       .map((n) => N.cancelScheduledNotificationAsync(n.identifier)),
   );
 
-  const upcoming = reminders.filter(isSchedulable);
+  const due = reminders
+    .filter(isSchedulable)
+    .sort((a, b) => Date.parse(a.reminder_time) - Date.parse(b.reminder_time));
+  const upcoming = due.slice(0, MAX_SCHEDULED);
+  const capped = due.length > upcoming.length ? upcoming[upcoming.length - 1].reminder_time : null;
+  const coveredUntil =
+    capped && listThrough
+      ? Date.parse(capped) < Date.parse(listThrough)
+        ? capped
+        : listThrough
+      : (capped ?? listThrough);
 
   await Promise.all(
     upcoming.map((reminder) =>
@@ -428,7 +460,7 @@ export async function syncReminderNotifications(
     ),
   );
 
-  return upcoming.length;
+  return { scheduled: upcoming.length, coveredUntil };
 }
 
 /** Drops every reminder notification this app scheduled — used on sign-out. */
@@ -463,7 +495,21 @@ export interface PushRegistration {
  * native module is even loaded, so the unavailable path costs nothing and logs
  * nothing. Local notifications are unaffected in all of those cases.
  */
+/**
+ * The last token this session obtained. Asked for on every reminder sync, and
+ * each fresh request is a round trip to Expo; a token changes only on reinstall
+ * or a permission reset, both of which start a new session.
+ */
+let lastRegistration: PushRegistration | null = null;
+
 export async function getPushRegistration(): Promise<PushRegistration | null> {
+  if (lastRegistration) return lastRegistration;
+  const registration = await requestPushRegistration();
+  if (registration) lastRegistration = registration;
+  return registration;
+}
+
+async function requestPushRegistration(): Promise<PushRegistration | null> {
   if (isRunningInExpoGo()) return null;
   if (!Device.isDevice) return null;
 

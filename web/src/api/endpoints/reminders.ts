@@ -4,6 +4,11 @@ import type { ListParams, ListResponse, Reminder } from '../types';
 export interface ListRemindersParams extends ListParams {
   schedule_event_id?: string;
   is_completed?: boolean;
+  /**
+   * Only reminders due at or after this ISO moment. Without it a list is the
+   * oldest first — completed and long past included — and stops at 100.
+   */
+  due_from?: string;
 }
 
 export interface CreateReminderInput {
