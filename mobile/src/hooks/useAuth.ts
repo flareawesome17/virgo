@@ -185,7 +185,19 @@ export function useAuth() {
         throw err;
       }
     },
-    staleTime: 0,
+    /*
+     * Forty-odd components call useAuth, and with a staleTime of 0 every one
+     * of them mounting was a /auth/me round-trip — opening a screen cost two
+     * or three. A minute covers a burst of navigation.
+     *
+     * Coming back to the app refetches regardless of age: that is when the
+     * account can have changed somewhere else — an email confirmed from the
+     * mail app, a plan bought on the web — and the banner or the guard should
+     * know straight away, not a minute later. Nothing here is persisted, so a
+     * cold start always asks.
+     */
+    staleTime: 60_000,
+    refetchOnWindowFocus: 'always',
     /*
      * Fails fast offline, so the guard can say so.
      *
