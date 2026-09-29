@@ -12,12 +12,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useQueryClient } from '@tanstack/react-query';
 import { storageApi } from '@/src/api';
-import { usageQueryKey } from '@/src/hooks';
+import { useAuth, usageQueryKey } from '@/src/hooks';
 import {
   clearUploadProgress,
   showUploadFinished,
   showUploadProgress,
 } from '@/src/lib/notifications';
+import { LEGACY_UPLOAD_QUEUE_KEY, uploadQueueKey } from '@/src/lib/upload-queue-storage';
 
 export type UploadStatus = 'queued' | 'uploading' | 'done' | 'failed';
 
@@ -90,19 +91,23 @@ const UploadContext = createContext<UploadContextValue>(FALLBACK);
 /** Only rewrite the drawer when the number visibly moved. */
 const NOTIFY_EVERY_PERCENT = 5;
 
-/** Where the queue survives a process that ended without being asked. */
-const QUEUE_STORAGE_KEY = 'virgo.upload.queue.v1';
-
 /**
- * Reads the queue left behind by a previous launch.
+ * Reads the queue this account left behind on a previous launch.
  *
  * Anything unparseable is discarded rather than thrown: a queue we cannot read
  * is not worth failing the app's startup over, and the objects it described are
  * still recoverable by the server's own accounting.
  */
-async function loadPersisted(): Promise<UploadTask[]> {
+async function loadPersisted(userId: string): Promise<UploadTask[]> {
   try {
-    const raw = await AsyncStorage.getItem(QUEUE_STORAGE_KEY);
+    let raw = await AsyncStorage.getItem(uploadQueueKey(userId));
+    if (raw === null) {
+      // The one queue from before they were kept per account. It belongs to
+      // whoever was signed in when this version arrived — the same session,
+      // carried across the update — so the first account to load takes it.
+      raw = await AsyncStorage.getItem(LEGACY_UPLOAD_QUEUE_KEY);
+      if (raw !== null) await AsyncStorage.removeItem(LEGACY_UPLOAD_QUEUE_KEY);
+    }
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as UploadTask[]) : [];
@@ -135,6 +140,14 @@ async function loadPersisted(): Promise<UploadTask[]> {
 export function UploadProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  /**
+   * The account `tasks` belongs to. Set with the tasks it loaded, and cleared
+   * the moment the signed-in account changes, so nothing is saved under — or
+   * run for — the wrong one in between.
+   */
+  const [owner, setOwner] = useState<string | null>(null);
 
   // The loop reads these without re-subscribing. `running` is a ref rather
   // than state because two renders in the same tick must not both start an
@@ -193,11 +206,20 @@ export function UploadProvider({ children }: { children: ReactNode }) {
    */
   const [hydrated, setHydrated] = useState(false);
 
+  // Once per account: on launch, and again whenever someone else signs in.
+  // Signing out empties the list and loads nothing. An upload already in
+  // flight finishes or fails on its own; its row stays in its own account's
+  // saved queue, and that account picks it up — by its key, like any upload
+  // cut off by the process ending — the next time it signs in here.
   useEffect(() => {
     let cancelled = false;
+    setHydrated(false);
+    setOwner(null);
+    setTasks([]);
+    if (!userId) return;
 
     (async () => {
-      const saved = await loadPersisted();
+      const saved = await loadPersisted(userId);
       if (cancelled) return;
 
       // Settle each interrupted task against the server before the runner is
@@ -253,6 +275,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
       if (!cancelled) {
         setTasks(checked);
+        setOwner(userId);
         setHydrated(true);
       }
     })();
@@ -260,19 +283,19 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [userId]);
 
   // Written on every change, so a process that ends without warning leaves
   // behind whatever was true a moment ago. Finished rows are dropped: their
   // only purpose was to be displayed, and a batch from last week should not
   // greet somebody on launch.
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !owner) return;
     const worth = tasks.filter((task) => task.status !== 'done');
-    void AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(worth)).catch(
+    void AsyncStorage.setItem(uploadQueueKey(owner), JSON.stringify(worth)).catch(
       () => {},
     );
-  }, [tasks, hydrated]);
+  }, [tasks, hydrated, owner]);
 
   const patch = useCallback((id: string, next: Partial<UploadTask>) => {
     setTasks((prev) =>
@@ -314,8 +337,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   // busy.
   useEffect(() => {
     // Not before the previous launch has been settled, or a file already in
-    // the bucket gets sent again.
-    if (!hydrated) return;
+    // the bucket gets sent again. And only for the account signed in now.
+    if (!hydrated || !owner || owner !== userId) return;
     if (running.current) return;
     const next = tasks.find((task) => task.status === 'queued');
     if (!next) return;
@@ -384,7 +407,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // true once, and this effect has to re-run on that flip to pick up a queue
     // restored from the last launch. Without it a recovered upload would sit
     // there until something else changed `tasks`.
-  }, [tasks, patch, queryClient, hydrated]);
+  }, [tasks, patch, queryClient, hydrated, owner, userId]);
 
   const pending = tasks.filter((task) => task.status !== 'done');
   const active = pending.some(

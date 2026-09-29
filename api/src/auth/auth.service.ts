@@ -402,6 +402,11 @@ export class AuthService {
     await this.users.revokeRefreshToken(this.hashRefreshToken(refreshToken));
   }
 
+  /** Idempotent, and says nothing about whether either token was real. */
+  async forgetDevice(refreshToken: string, pushToken: string): Promise<void> {
+    await this.users.forgetPushToken(this.hashRefreshToken(refreshToken), pushToken);
+  }
+
   async me(userId: string): Promise<PublicUser> {
     const user = await this.users.findById(userId);
     if (!user) throw new UnauthorizedException();

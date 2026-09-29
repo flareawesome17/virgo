@@ -7,7 +7,8 @@
  * consuming it did not need to change.
  */
 
-import { clearReminderNotifications } from '@/src/lib/notifications';
+import { clearReminderNotifications, knownPushToken } from '@/src/lib/notifications';
+import { forgetUploadQueue } from '@/src/lib/upload-queue-storage';
 import { useEffect } from 'react';
 import {
   useIsRestoring,
@@ -21,6 +22,7 @@ import {
   clearTokens,
   authApi,
   getAccessToken,
+  getRefreshToken,
   hydrateTokens,
   queryKeys,
   setAuthFailureHandler,
@@ -114,6 +116,25 @@ function forgetSession(queryClient: QueryClient) {
 }
 
 /**
+ * Takes this phone off the account that is leaving it, so its pushes stop.
+ *
+ * Nothing did before. A signed-out phone went on showing the account's
+ * message previews on its lock screen — for good after a forced sign-out, or
+ * until the next person to sign in there claimed the token.
+ *
+ * Best effort and capped: signing out never waits on a bad connection, and
+ * a server from before the endpoint just answers 404.
+ */
+async function forgetThisDevice(refreshToken: string | null): Promise<void> {
+  if (!refreshToken) return;
+  const work = (async () => {
+    const pushToken = await knownPushToken();
+    if (pushToken) await authApi.forgetDevice(refreshToken, pushToken);
+  })().catch(() => {});
+  await Promise.race([work, new Promise((resolve) => setTimeout(resolve, 3000))]);
+}
+
+/**
  * How many mounted useAuth() calls hold the auth-failure handler.
  *
  * The client has one handler slot and about thirty screens call useAuth. Each
@@ -135,7 +156,10 @@ export function useAuth() {
   // every screen separately discovering that its queries now fail.
   useEffect(() => {
     authFailureHolders += 1;
-    setAuthFailureHandler(() => forgetSession(queryClient));
+    setAuthFailureHandler((refused) => {
+      void forgetThisDevice(refused);
+      forgetSession(queryClient);
+    });
     return () => {
       authFailureHolders -= 1;
       if (authFailureHolders === 0) setAuthFailureHandler(null);
@@ -309,6 +333,8 @@ export function useAuth() {
 
   const signOut = useMutation({
     mutationFn: async () => {
+      // First: it needs the refresh token, which logout revokes and clears.
+      await forgetThisDevice(getRefreshToken());
       await authApi.logout();
     },
     // Settled, not success. logout clears the tokens whether or not the
@@ -328,6 +354,9 @@ export function useAuth() {
     mutationFn: ({ password, days }: { password: string; days: number }) =>
       authApi.disableAccount(password, days),
     onSuccess: async () => {
+      // The server withholds a paused account's pushes anyway; this also
+      // means coming back registers the phone afresh.
+      await forgetThisDevice(getRefreshToken());
       await clearTokens();
       forgetSession(queryClient);
     },
@@ -336,7 +365,10 @@ export function useAuth() {
   /** Deletes the account for good, then signs out. */
   const deleteAccount = useMutation({
     mutationFn: (password: string) => authApi.deleteAccount(password),
+    // Push tokens go with the account row. Uploads it left queued would only
+    // ever fail, and a queue is kept per account, so it has to be cleared.
     onSuccess: async () => {
+      if (authUser) await forgetUploadQueue(authUser.id);
       await clearTokens();
       forgetSession(queryClient);
     },

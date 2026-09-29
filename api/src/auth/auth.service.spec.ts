@@ -40,6 +40,7 @@ function serviceFor(user: UserRow) {
     findActiveRefreshToken: jest.fn(async () => ({ id: 't1', user_id: user.id })),
     revokeRefreshToken: jest.fn(async () => undefined),
     storeRefreshToken: jest.fn(async () => undefined),
+    forgetPushToken: jest.fn(async () => undefined),
   };
   const jwt = { signAsync: jest.fn(async () => 'access-token') };
   const config = {
@@ -122,5 +123,19 @@ describe('AuthService and a suspended account', () => {
       expect.objectContaining({ accessToken: 'access-token' }),
     );
     expect(users.storeRefreshToken).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AuthService.forgetDevice', () => {
+  it('finds the session by the same hash logout revokes', async () => {
+    const { service, users } = serviceFor(userWith());
+
+    await service.logout('refresh-token');
+    await service.forgetDevice('refresh-token', 'ExponentPushToken[abc]');
+
+    const [revokedHash] = users.revokeRefreshToken.mock.calls[0] as unknown as [string];
+    expect(users.forgetPushToken).toHaveBeenCalledWith(revokedHash, 'ExponentPushToken[abc]');
+    // Never the raw token: the table only holds hashes.
+    expect(revokedHash).not.toBe('refresh-token');
   });
 });

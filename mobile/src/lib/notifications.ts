@@ -52,6 +52,8 @@ type LocalApi = {
   dismissNotificationAsync: NotificationsModule['dismissNotificationAsync'];
   addNotificationResponseReceivedListener: NotificationsModule['addNotificationResponseReceivedListener'];
   getLastNotificationResponseAsync: NotificationsModule['getLastNotificationResponseAsync'];
+  // Optional: the barrel fallback below may come from a version without it.
+  clearLastNotificationResponse?: NotificationsModule['clearLastNotificationResponse'];
   AndroidImportance: NotificationsModule['AndroidImportance'];
   AndroidNotificationVisibility: NotificationsModule['AndroidNotificationVisibility'];
   SchedulableTriggerInputTypes: NotificationsModule['SchedulableTriggerInputTypes'];
@@ -89,6 +91,7 @@ function loadNotifications(): LocalApi | null {
       addNotificationResponseReceivedListener:
         emitter.addNotificationResponseReceivedListener,
       getLastNotificationResponseAsync: emitter.getLastNotificationResponseAsync,
+      clearLastNotificationResponse: emitter.clearLastNotificationResponse,
       AndroidImportance: channelTypes.AndroidImportance,
       AndroidNotificationVisibility: channelTypes.AndroidNotificationVisibility,
       SchedulableTriggerInputTypes: types.SchedulableTriggerInputTypes,
@@ -487,6 +490,13 @@ export interface PushRegistration {
 }
 
 /**
+ * The last token this session obtained. Asked for on every reminder sync, and
+ * each fresh request is a round trip to Expo; a token changes only on reinstall
+ * or a permission reset, both of which start a new session.
+ */
+let lastRegistration: PushRegistration | null = null;
+
+/**
  * Obtains an Expo push token for server-side delivery.
  *
  * Returns null rather than throwing whenever remote push is unavailable — on a
@@ -495,18 +505,23 @@ export interface PushRegistration {
  * native module is even loaded, so the unavailable path costs nothing and logs
  * nothing. Local notifications are unaffected in all of those cases.
  */
-/**
- * The last token this session obtained. Asked for on every reminder sync, and
- * each fresh request is a round trip to Expo; a token changes only on reinstall
- * or a permission reset, both of which start a new session.
- */
-let lastRegistration: PushRegistration | null = null;
-
 export async function getPushRegistration(): Promise<PushRegistration | null> {
   if (lastRegistration) return lastRegistration;
   const registration = await requestPushRegistration();
   if (registration) lastRegistration = registration;
   return registration;
+}
+
+/**
+ * This phone's push token, if it has one, without asking for anything.
+ *
+ * For signing out. A phone that never granted permission has no token on the
+ * server to remove, and a permission prompt on the way out would be absurd.
+ */
+export async function knownPushToken(): Promise<string | null> {
+  if (lastRegistration) return lastRegistration.token;
+  if (!(await hasNotificationPermission())) return null;
+  return (await getPushRegistration())?.token ?? null;
 }
 
 async function requestPushRegistration(): Promise<PushRegistration | null> {
@@ -598,6 +613,26 @@ export interface NotificationPayload {
   url?: string;
 }
 
+/**
+ * Taps already acted on, by notification id.
+ *
+ * getLastNotificationResponseAsync keeps answering with the same tap for as
+ * long as the process lives. The listener below is set up each time the
+ * signed-in layout mounts — after signing out and back in, after the "can't
+ * reach the server" screen — and each time it opened the last notification
+ * tapped again, hours later, for whichever account was now signed in.
+ */
+const handledTaps = new Set<string>();
+
+function tapId(response: unknown): string | null {
+  const r = response as {
+    actionIdentifier?: string;
+    notification?: { request?: { identifier?: string } };
+  };
+  const id = r?.notification?.request?.identifier;
+  return id ? `${id}:${r.actionIdentifier ?? ''}` : null;
+}
+
 function payloadOf(response: unknown): NotificationPayload | null {
   const data = (
     response as {
@@ -625,20 +660,32 @@ export function onNotificationTap(
 
   let cancelled = false;
 
+  const act = (response: unknown) => {
+    const id = tapId(response);
+    if (id) {
+      if (handledTaps.has(id)) return;
+      handledTaps.add(id);
+    }
+    // Belt and braces for the set, which a new process starts without.
+    try {
+      N.clearLastNotificationResponse?.();
+    } catch {
+      // Not every platform keeps one.
+    }
+    const payload = payloadOf(response);
+    if (payload) handle(payload);
+  };
+
   void N.getLastNotificationResponseAsync()
     .then((last) => {
       if (cancelled || !last) return;
-      const payload = payloadOf(last);
-      if (payload) handle(payload);
+      act(last);
     })
     .catch(() => {
       // A missing launch response is normal; nothing to recover from.
     });
 
-  const sub = N.addNotificationResponseReceivedListener((response) => {
-    const payload = payloadOf(response);
-    if (payload) handle(payload);
-  });
+  const sub = N.addNotificationResponseReceivedListener(act);
 
   return () => {
     cancelled = true;

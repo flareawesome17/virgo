@@ -221,6 +221,20 @@ export const authApi = {
     }
   },
 
+  /**
+   * Takes this device's push token off the account it is leaving.
+   *
+   * By refresh token, which a forced sign-out still has even though the
+   * server no longer honours it. Callers treat it as best effort: a server
+   * from before the endpoint answers 404, and signing out goes ahead anyway.
+   */
+  forgetDevice(refreshToken: string, pushToken: string): Promise<void> {
+    return api.post<void>('/auth/forget-device', {
+      body: { refreshToken, pushToken },
+      anonymous: true,
+    });
+  },
+
   me(): Promise<AuthUser> {
     return api.get<AuthUser>('/auth/me');
   },

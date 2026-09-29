@@ -28,10 +28,15 @@ export interface RequestOptions {
  * Called when the session cannot be recovered. useAuth registers a handler that
  * clears cached queries so the app falls back to the signed-out UI, rather than
  * every screen independently discovering its queries now 401.
+ *
+ * It is given the refresh token the server just refused. It is no use for
+ * signing in, but it still says whose session this was, which is what taking
+ * the device off that account needs (authApi.forgetDevice).
  */
-let onAuthFailure: (() => void) | null = null;
+type AuthFailureHandler = (refusedRefreshToken: string | null) => void;
+let onAuthFailure: AuthFailureHandler | null = null;
 
-export function setAuthFailureHandler(handler: (() => void) | null): void {
+export function setAuthFailureHandler(handler: AuthFailureHandler | null): void {
   onAuthFailure = handler;
 }
 
@@ -224,8 +229,9 @@ export async function request<T>(
     if (refreshed === 'ok') {
       response = await send(method, path, options, getAccessToken());
     } else if (refreshed === 'rejected') {
+      const refused = getRefreshToken();
       await clearTokens();
-      onAuthFailure?.();
+      onAuthFailure?.(refused);
       throw new ApiError(401, 'Your session has expired. Please sign in again.');
     } else {
       // Still signed in; just not reachable. Status 0 is what every caller

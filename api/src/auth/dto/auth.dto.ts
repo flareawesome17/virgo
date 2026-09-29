@@ -206,6 +206,17 @@ export class RefreshDto {
   refreshToken!: string;
 }
 
+/** A device on its way out of an account. See AuthController.forgetDevice. */
+export class ForgetDeviceDto {
+  @IsString()
+  @MaxLength(512)
+  refreshToken!: string;
+
+  @IsString()
+  @MaxLength(4096)
+  pushToken!: string;
+}
+
 /**
  * Pausing an account.
  *

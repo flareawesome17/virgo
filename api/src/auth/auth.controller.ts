@@ -15,6 +15,7 @@ import {
   ForgotPasswordDto,
   LoginDto,
   RefreshDto,
+  ForgetDeviceDto,
   RegisterDto,
   ResetPasswordDto,
   UpdateProfileDto,
@@ -277,6 +278,27 @@ export class AuthController {
   @Post('logout')
   async logout(@Body() dto: RefreshDto): Promise<void> {
     await this.auth.logout(dto.refreshToken);
+  }
+
+  /**
+   * Stops a phone receiving an account's pushes as it signs out.
+   *
+   * Nothing did before: a signed-out phone kept showing the account's message
+   * previews on its lock screen until someone else signed in on it.
+   *
+   * Takes the refresh token, not the access token, because the sign-out that
+   * most needs this is the forced one — a password changed on another device,
+   * "sign out everywhere" — and by then neither token is honoured. A revoked
+   * refresh token still proves the caller held this account's session, which
+   * is all that removing its own push row needs. Separate from logout so that
+   * a server without it answers 404 rather than failing the sign-out.
+   */
+  @Public()
+  @HttpCode(204)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('forget-device')
+  async forgetDevice(@Body() dto: ForgetDeviceDto): Promise<void> {
+    await this.auth.forgetDevice(dto.refreshToken, dto.pushToken);
   }
 
   @Get('me')
