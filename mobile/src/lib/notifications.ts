@@ -62,6 +62,17 @@ type LocalApi = {
 let cached: LocalApi | null = null;
 let handlerSet = false;
 
+/**
+ * Decides, for a notification arriving while the app is open, whether it
+ * shows a banner and makes a sound; null for the defaults (both). Set by the
+ * realtime hook, which knows which chat is on screen and which are muted.
+ */
+type ForegroundRule = (data: NotificationPayload | null) => { banner: boolean; sound: boolean } | null;
+let foregroundRule: ForegroundRule | null = null;
+export function setForegroundNotificationRule(rule: ForegroundRule | null): void {
+  foregroundRule = rule;
+}
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 function loadNotifications(): LocalApi | null {
   if (cached) return cached;
@@ -111,12 +122,20 @@ function loadNotifications(): LocalApi | null {
     handlerSet = true;
     // Shows the notification even while the app is in the foreground.
     cached.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-      }),
+      handleNotification: async (notification) => {
+        let decided: { banner: boolean; sound: boolean } | null = null;
+        try {
+          decided = foregroundRule?.(payloadOf({ notification })) ?? null;
+        } catch {
+          // The defaults are the safe answer: showing it.
+        }
+        return {
+          shouldShowBanner: decided?.banner ?? true,
+          shouldShowList: true,
+          shouldPlaySound: decided?.sound ?? true,
+          shouldSetBadge: false,
+        };
+      },
     });
   }
 

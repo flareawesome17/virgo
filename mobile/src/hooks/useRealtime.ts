@@ -9,7 +9,12 @@ import {
   type ConversationMessage,
   type Thread,
 } from '@/src/api';
-import { chatKeys, getOpenConversation } from '@/src/hooks/useChat';
+import {
+  chatKeys,
+  getOpenConversation,
+  isConversationMuted,
+  noteLiveMessage,
+} from '@/src/hooks/useChat';
 import { useAuth } from '@/src/hooks/useAuth';
 import {
   registerTypingSender,
@@ -17,7 +22,7 @@ import {
   setPresence,
   setTyping,
 } from '@/src/lib/presence-store';
-import { buzzForMessage } from '@/src/lib/notifications';
+import { buzzForMessage, setForegroundNotificationRule } from '@/src/lib/notifications';
 import { loadSoundPreference, playAlert } from '@/src/lib/sounds';
 
 /*
@@ -164,6 +169,25 @@ export function useRealtime(enabled: boolean): void {
   const backoff = useRef(1000);
   const stopped = useRef(false);
 
+  /*
+   * What a message push does while the app is open.
+   *
+   * Every push showed its system banner and played its sound in the
+   * foreground — over the chat it was about, while that chat was on screen,
+   * and on top of the in-app chime for the same message. A message push now
+   * makes no sound here (the chime is the sound), and shows no banner for the
+   * open chat or a muted one.
+   */
+  useEffect(() => {
+    setForegroundNotificationRule((data) => {
+      if (data?.type !== 'message' || !data.conversationId) return null;
+      const looking = getOpenConversation() === data.conversationId;
+      const muted = isConversationMuted(queryClient, data.conversationId);
+      return { banner: !looking && !muted, sound: false };
+    });
+    return () => setForegroundNotificationRule(null);
+  }, [queryClient]);
+
   useEffect(() => {
     if (!enabled || !user?.id) return;
     stopped.current = false;
@@ -193,16 +217,18 @@ export function useRealtime(enabled: boolean): void {
 
           const mine = event.message.sender_id === user.id;
           const looking = getOpenConversation() === event.conversationId;
+          const quiet = isConversationMuted(queryClient, event.conversationId);
+          noteLiveMessage();
           // Sound whenever somebody else writes, including while their thread
           // is open. It sat inside the `!looking` guard below and was silent
           // for exactly the case people test first — sitting in a chat waiting
           // for a reply. Still nothing for your own message: you know you sent
           // it.
-          if (!mine) playAlert('chat');
+          if (!mine && !quiet) playAlert('chat');
 
           // The push notification covers a backgrounded app; this is the
           // foreground case, where no system notification is produced.
-          if (!mine && !looking) void buzzForMessage();
+          if (!mine && !looking && !quiet) void buzzForMessage();
           break;
         }
         case 'message-deleted':
