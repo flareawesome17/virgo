@@ -466,17 +466,27 @@ export async function syncReminderNotifications(
   return { scheduled: upcoming.length, coveredUntil };
 }
 
-/** Drops every reminder notification this app scheduled — used on sign-out. */
+/**
+ * Drops every reminder notification this app scheduled — used on sign-out.
+ *
+ * Never rejects. It is fired and forgotten on every way out of a session, so a
+ * failure here was an unhandled rejection in the middle of signing out — and
+ * on web, which cannot list scheduled notifications at all, it was every time.
+ */
 export async function clearReminderNotifications(): Promise<void> {
   const N = loadNotifications();
   if (!N) return;
 
-  const scheduled = await N.getAllScheduledNotificationsAsync();
-  await Promise.all(
-    scheduled
-      .filter((n) => (n.content.data as { tag?: string } | null)?.tag === VIRGO_TAG)
-      .map((n) => N.cancelScheduledNotificationAsync(n.identifier)),
-  );
+  try {
+    const scheduled = await N.getAllScheduledNotificationsAsync();
+    await Promise.all(
+      scheduled
+        .filter((n) => (n.content.data as { tag?: string } | null)?.tag === VIRGO_TAG)
+        .map((n) => N.cancelScheduledNotificationAsync(n.identifier)),
+    );
+  } catch {
+    // Nothing to do about it on the way out; the next sign-in reconciles.
+  }
 }
 
 export interface PushRegistration {

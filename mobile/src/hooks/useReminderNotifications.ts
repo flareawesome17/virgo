@@ -64,8 +64,16 @@ export function useReminderNotifications(
     queue.current = queue.current.then(async () => {
       const { reminders: now, listThrough: through, ready: loaded } = latest.current;
       if (!loaded) return;
-      const result = await syncReminderNotifications(now, through);
-      if (result) await reportSynced(result.coveredUntil);
+      // Caught here, not left to the chain: a rejected link skips every
+      // `.then` after it, so one failed schedule used to end reminder syncing
+      // for the rest of the session. The next change or return to the app
+      // tries again.
+      try {
+        const result = await syncReminderNotifications(now, through);
+        if (result) await reportSynced(result.coveredUntil);
+      } catch {
+        // Nothing useful to show; the alarms stay as they were.
+      }
     });
   };
 
