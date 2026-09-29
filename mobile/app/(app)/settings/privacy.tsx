@@ -171,7 +171,8 @@ export default function PrivacyScreen() {
     setPushBusy(true);
     try {
       if (next) {
-        if (!(await ensurePermissions())) {
+        // They just asked for it; no explainer in front of the system prompt.
+        if (!(await ensurePermissions({ explain: false }))) {
           Alert.alert(
             'Notifications are off',
             `Turn them on for Virgo in your ${Platform.OS === 'ios' ? 'iOS' : 'Android'} settings, then try again.`,

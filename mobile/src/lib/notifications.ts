@@ -2,7 +2,7 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isRunningInExpoGo } from 'expo';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 /**
  * Device notifications for reminders.
@@ -277,9 +277,10 @@ export async function showUploadProgress(
   // accepts the call and drops the notification, silently — which is exactly
   // what "no indicator, even in the drawer" looked like.
   //
-  // ensurePermissions never re-prompts once answered, so this is a cheap
-  // check on every call rather than a dialog.
-  if (!(await ensurePermissions())) return;
+  // Asks nothing: these post while the app is in the background, and a
+  // question about notifications appearing on the way back, out of nowhere,
+  // is not the moment to ask it. Permission comes from the explainer or Privacy.
+  if (!(await hasNotificationPermission())) return;
   await ensureChannels();
 
   try {
@@ -333,9 +334,10 @@ export async function showUploadFinished(
   // accepts the call and drops the notification, silently — which is exactly
   // what "no indicator, even in the drawer" looked like.
   //
-  // ensurePermissions never re-prompts once answered, so this is a cheap
-  // check on every call rather than a dialog.
-  if (!(await ensurePermissions())) return;
+  // Asks nothing: these post while the app is in the background, and a
+  // question about notifications appearing on the way back, out of nowhere,
+  // is not the moment to ask it. Permission comes from the explainer or Privacy.
+  if (!(await hasNotificationPermission())) return;
   await ensureChannels();
 
   try {
@@ -352,19 +354,67 @@ export async function showUploadFinished(
   }
 }
 
+/** When "Not now" was last chosen in the explainer below. */
+const EXPLAINED_KEY = 'virgo.notifications.notNowAt';
+/** How long "Not now" holds before the explainer may ask again. */
+const NOT_NOW_MS = 7 * 24 * 60 * 60 * 1000;
+let explaining: Promise<boolean> | null = null;
+
+/**
+ * Says what notifications are for before the system asks.
+ *
+ * The system prompt came up on first launch, over whatever was loading,
+ * with nothing to say why — and on iOS it is asked once: a reflexive "Don't
+ * Allow" there means no message, reminder or booking alert until somebody
+ * finds the switch in Settings. This asks first, in the app's own words; the
+ * system prompt only follows a yes, and "Not now" holds for a week.
+ */
+async function explainFirst(): Promise<boolean> {
+  try {
+    const at = Number(await AsyncStorage.getItem(EXPLAINED_KEY)) || 0;
+    if (Date.now() - at < NOT_NOW_MS) return false;
+  } catch {
+    // Unreadable: ask.
+  }
+  explaining ??= new Promise<boolean>((resolve) => {
+    Alert.alert(
+      'Turn on notifications?',
+      'Virgo uses them for new messages, reminders you set, bookings and replies from support. You can change this any time in Settings.',
+      [
+        {
+          text: 'Not now',
+          style: 'cancel',
+          onPress: () => {
+            void AsyncStorage.setItem(EXPLAINED_KEY, String(Date.now())).catch(() => {});
+            resolve(false);
+          },
+        },
+        { text: 'Continue', onPress: () => resolve(true) },
+      ],
+      { cancelable: false },
+    );
+  }).finally(() => {
+    explaining = null;
+  });
+  return explaining;
+}
+
 /**
  * Requests permission, returning whether it was granted.
  *
  * Never re-prompts once the user has answered: iOS only shows the system
- * dialog once, so asking again is a silent no.
+ * dialog once, so asking again is a silent no. Unless `explain` is false —
+ * for a switch the person just turned on themselves — the system prompt is
+ * preceded by explainFirst.
  */
-export async function ensurePermissions(): Promise<boolean> {
+export async function ensurePermissions({ explain = true }: { explain?: boolean } = {}): Promise<boolean> {
   const N = loadNotifications();
   if (!N) return false;
 
   const existing = await N.getPermissionsAsync();
   if (existing.granted) return true;
   if (!existing.canAskAgain) return false;
+  if (explain && !(await explainFirst())) return false;
 
   const asked = await N.requestPermissionsAsync({
     ios: { allowAlert: true, allowSound: true, allowBadge: false },
