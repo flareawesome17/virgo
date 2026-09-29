@@ -25,6 +25,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
+import { ScreenHeader } from '@/components/ScreenHeader';
 import { SITE, profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
@@ -53,8 +54,18 @@ export default function PublicProfileScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { settings, isLoading } = useProfileSettings();
+  const { settings, isLoading, loadFailed, refetch } = useProfileSettings();
   const setPublished = useSetPublished();
+
+  // It spun for as long as the settings were missing — forever, offline.
+  if (!settings && loadFailed) {
+    return (
+      <SafeAreaView className="flex-1 bg-background" edges={['top']}>
+        <ScreenHeader title="Public profile" />
+        <LoadFailed what="your public profile" onRetry={() => void refetch()} />
+      </SafeAreaView>
+    );
+  }
 
   if (isLoading || !settings) {
     return (
