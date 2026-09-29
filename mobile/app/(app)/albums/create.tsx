@@ -19,6 +19,7 @@ import {
   LayersIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -202,7 +203,8 @@ export default function CreateAlbumScreen() {
             <Text className="text-[#C76B4A] text-sm font-bold">{selectedWs?.name} is full</Text>
             <Text className="text-[#C76B4A] text-xs mt-1">
               The {plan} plan allows {albumLimit} album{albumLimit === 1 ? '' : 's'} in each
-              workspace. Choose another workspace, delete an album, or upgrade.
+              workspace. Choose another workspace or delete an album
+              {SELLS_PLANS_HERE ? ', or upgrade.' : '.'}
             </Text>
             <Pressable
               onPress={() => router.push('/settings/storage/plans')}

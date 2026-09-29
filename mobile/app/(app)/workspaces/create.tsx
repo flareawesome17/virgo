@@ -11,6 +11,7 @@ import {
   CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PaletteIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -106,7 +107,8 @@ export default function CreateWorkspaceScreen() {
             <Text className="text-[#C76B4A] text-sm font-bold">Workspace limit reached</Text>
             <Text className="text-[#C76B4A] text-xs mt-1">
               The {plan} plan includes {workspaceLimit} workspace
-              {workspaceLimit === 1 ? '' : 's'}. Delete one, or upgrade to add another.
+              {workspaceLimit === 1 ? '' : 's'}.{' '}
+              {SELLS_PLANS_HERE ? 'Delete one, or upgrade to add another.' : 'Delete one to add another.'}
             </Text>
             <Pressable
               onPress={() => router.push('/settings/storage/plans')}

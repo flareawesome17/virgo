@@ -8,6 +8,7 @@ import {
 import { cssInterop } from 'nativewind';
 import { formatBytes } from '@/src/api';
 import { useStorageBreakdown, useUsage, useTheme } from '@/src/hooks';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -97,13 +98,16 @@ export default function StorageOverviewScreen() {
           )}
         </View>
 
-        {/* Upgrade CTA */}
-        <Pressable onPress={() => router.push('/settings/storage/plans')}
-          className="mx-5 mt-4 bg-action rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.97]"
-          style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
-          <ZapIcon size={18} className="text-white" />
-          <Text className="text-white text-base font-bold">Upgrade Storage</Text>
-        </Pressable>
+        {/* Upgrade CTA. Only where a plan can be bought: see SELLS_PLANS_HERE.
+            The Plans row further down still compares them. */}
+        {SELLS_PLANS_HERE && (
+          <Pressable onPress={() => router.push('/settings/storage/plans')}
+            className="mx-5 mt-4 bg-action rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.97]"
+            style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
+            <ZapIcon size={18} className="text-white" />
+            <Text className="text-white text-base font-bold">Upgrade Storage</Text>
+          </Pressable>
+        )}
 
         {/* Media type breakdown */}
         <View className="px-5 mt-6">

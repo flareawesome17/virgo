@@ -17,6 +17,7 @@ import {
 } from '@/src/hooks';
 import { formatMoney, planCurrency, planPrice } from '@/src/api';
 import type { PlanInfo } from '@/src/api';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -165,7 +166,7 @@ export default function PlansScreen() {
           <View className="flex-1">
             <Text className="text-foreground text-[22px] font-bold tracking-tight">Plans</Text>
             <Text className="text-muted-foreground text-sm mt-0.5">
-              Billed monthly. Cancel any time.
+              {SELLS_PLANS_HERE ? 'Billed monthly. Cancel any time.' : 'What each plan includes.'}
             </Text>
           </View>
         </View>
@@ -258,14 +259,17 @@ export default function PlansScreen() {
                       </Text>
                     </View>
 
-                    <View className="items-end">
-                      <Text className="text-foreground text-2xl font-extrabold">
-                        {plan.comingSoon ? '—' : priceLabel(plan)}
-                      </Text>
-                      {(planPrice(plan) ?? 0) > 0 && !plan.comingSoon && (
-                        <Text className="text-muted-foreground text-[11px]">/month</Text>
-                      )}
-                    </View>
+                    {/* No prices where they cannot be paid: see SELLS_PLANS_HERE. */}
+                    {SELLS_PLANS_HERE && (
+                      <View className="items-end">
+                        <Text className="text-foreground text-2xl font-extrabold">
+                          {plan.comingSoon ? '—' : priceLabel(plan)}
+                        </Text>
+                        {(planPrice(plan) ?? 0) > 0 && !plan.comingSoon && (
+                          <Text className="text-muted-foreground text-[11px]">/month</Text>
+                        )}
+                      </View>
+                    )}
                   </View>
 
                   <View className="mt-4 gap-2">
@@ -292,7 +296,7 @@ export default function PlansScreen() {
                         Not available yet
                       </Text>
                     </View>
-                  ) : planPrice(plan) === 0 ? null : (
+                  ) : planPrice(plan) === 0 || !SELLS_PLANS_HERE ? null : (
                     <Pressable
                       onPress={() => upgrade(plan)}
                       disabled={

@@ -35,6 +35,7 @@ import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
 import { AppTopBar, StorageRing } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { CHART_COLORS, PALETTES } from '@/theme';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
 cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -260,12 +261,18 @@ export default function DashboardScreen() {
                 <Text className="text-muted-foreground text-xs font-medium">left</Text>
               </Text>
               {storageFraction >= 0.9 && (
+                // Where more cannot be bought (SELLS_PLANS_HERE), the useful
+                // move is seeing what is taking the space.
                 <Pressable
-                  onPress={() => router.push('/settings/storage/plans')}
+                  onPress={() =>
+                    router.push(SELLS_PLANS_HERE ? '/settings/storage/plans' : '/settings/storage')
+                  }
                   accessibilityRole="button"
                   className="active:opacity-70"
                 >
-                  <Text className="text-primary text-xs font-semibold">Get more storage</Text>
+                  <Text className="text-primary text-xs font-semibold">
+                    {SELLS_PLANS_HERE ? 'Get more storage' : 'Manage storage'}
+                  </Text>
                 </Pressable>
               )}
             </View>

@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
 import type { Workspace } from '@/src/api';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 import { useUsage } from './useUsage';
 
 /**
@@ -32,7 +33,7 @@ export function usePlanLimits() {
       'Workspace limit reached',
       `Your ${plan} plan includes ${workspaceLimit} workspace${
         workspaceLimit === 1 ? '' : 's'
-      }. Delete one or upgrade to add another.`,
+      }. ${SELLS_PLANS_HERE ? 'Delete one or upgrade to add another.' : 'Delete one to add another.'}`,
     );
   };
 
@@ -49,7 +50,7 @@ export function usePlanLimits() {
       if (!workspace || !isAlbumLimitReached(workspace.album_total)) return proceed();
       warn(
         'This workspace is full',
-        `${workspace.name} has ${albumLimit} album${albumLimit === 1 ? '' : 's'}, the most your ${plan} plan allows in one workspace. Delete one, use another workspace, or upgrade.`,
+        `${workspace.name} has ${albumLimit} album${albumLimit === 1 ? '' : 's'}, the most your ${plan} plan allows in one workspace. ${SELLS_PLANS_HERE ? 'Delete one, use another workspace, or upgrade.' : 'Delete one or use another workspace.'}`,
       );
     };
 
