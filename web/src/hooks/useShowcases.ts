@@ -5,12 +5,12 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import {
-  ApiError,
   commentsApi,
   feedApi,
   likesApi,
   queryKeys,
   profileWorkApi,
+  retryUnlessGone,
   shelvesApi,
   showcasesApi,
   type FeedItem,
@@ -21,14 +21,6 @@ import {
   type Showcase,
   type ShowcaseDetail,
 } from '@/api';
-
-/**
- * Retries, but not for an answer. A 404 or 403 on a post or a shelf means it
- * was taken down, deleted or made private; asking twice more only kept the
- * screen spinning for several seconds before it could say so.
- */
-const retryUnlessGone = (failures: number, error: unknown) =>
-  failures < 2 && !(error instanceof ApiError && (error.status === 404 || error.status === 403));
 
 /**
  * The feed, showcases, and shelves.

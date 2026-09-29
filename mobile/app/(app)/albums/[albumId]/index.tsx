@@ -75,6 +75,7 @@ import {
   type StoredMediaKind,
 } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
+import { DetailFallback } from '@/components/DetailFallback';
 import { ActionSheet, ChoiceSheet } from '@/components/WorkspaceBits';
 import {
   DEFAULT_DENSITY,
@@ -165,7 +166,8 @@ export default function AlbumScreen() {
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { user } = useAuth();
 
-  const { data: album, refetch: refetchAlbum } = useAlbum(albumId);
+  const albumQuery = useAlbum(albumId);
+  const { data: album, refetch: refetchAlbum } = albumQuery;
   const { data: workspace } = useWorkspace(album?.workspace_id);
   const sectionsQuery = useAlbumSections(albumId);
 
@@ -683,11 +685,18 @@ export default function AlbumScreen() {
     [selecting, selection],
   );
 
+  // A spinner was all this ever showed without the album — forever, for one
+  // that was deleted, one shared no longer, or a phone with no signal.
   if (!album) {
     return (
-      <SafeAreaView edges={['top']} className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color={palette.primary} />
-      </SafeAreaView>
+      <DetailFallback
+        title="Album"
+        what="this album"
+        gone="It was deleted, or it is no longer shared with you."
+        error={albumQuery.error}
+        failed={albumQuery.isError || albumQuery.isPaused}
+        onRetry={() => void refetchAlbum()}
+      />
     );
   }
 

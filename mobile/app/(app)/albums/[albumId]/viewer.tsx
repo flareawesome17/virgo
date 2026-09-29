@@ -35,10 +35,11 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAlbumFiles } from '@/src/hooks';
+import { useAlbumFiles, usageQueryKey } from '@/src/hooks';
 import {
   formatBytes,
   largestDisplaySource,
+  queryKeys,
   storageApi,
   type StoredFile,
 } from '@/src/api';
@@ -416,6 +417,10 @@ export default function PhotoViewerScreen() {
               await queryClient.invalidateQueries({
                 queryKey: ['storage', 'files', albumId],
               });
+              // The album's counts and cover, and the storage it used, all
+              // changed too; only the file list used to be refreshed.
+              void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
+              void queryClient.invalidateQueries({ queryKey: usageQueryKey });
               if (!neighbour) router.back();
             } catch (error) {
               Alert.alert(
@@ -430,15 +435,44 @@ export default function PhotoViewerScreen() {
   };
 
   if (!photo) {
+    // "No photos yet" was the answer to every way of having none to show: a
+    // load still running, or one that failed, said the album was empty.
+    const failed = filesQuery.loadFailed;
+    const loading = !failed && (filesQuery.isLoading || filesQuery.isFetching);
     return (
       <View className="flex-1 bg-black items-center justify-center px-8">
-        <Text className="text-white text-lg font-semibold">No photos yet</Text>
-        <Pressable
-          onPress={() => router.back()}
-          className="mt-6 bg-white/10 rounded-full px-6 py-3 active:opacity-70"
-        >
-          <Text className="text-white font-semibold">Go back</Text>
-        </Pressable>
+        {loading ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <>
+            <Text className="text-white text-lg font-semibold text-center">
+              {failed ? "Couldn't load these photos" : 'No photos yet'}
+            </Text>
+            {failed && (
+              <Text className="text-white/70 text-sm text-center mt-2">
+                Check your connection and try again.
+              </Text>
+            )}
+            <View className="flex-row gap-3 mt-6">
+              {failed && (
+                <Pressable
+                  onPress={() => void filesQuery.refetch()}
+                  accessibilityRole="button"
+                  className="bg-white rounded-full px-6 py-3 active:opacity-70"
+                >
+                  <Text className="text-black font-semibold">Try again</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={() => router.back()}
+                accessibilityRole="button"
+                className="bg-white/10 rounded-full px-6 py-3 active:opacity-70"
+              >
+                <Text className="text-white font-semibold">Go back</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
       </View>
     );
   }
