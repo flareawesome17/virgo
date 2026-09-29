@@ -143,7 +143,18 @@ export function ProfileWorkTaste({
           {taste.shelves.map((shelf) => (
             <Pressable
               key={shelf.id}
-              onPress={() => router.push(`/shelf/${shelf.id}`)}
+              onPress={() =>
+                // Somebody else's shelf has to be read through the public
+                // route: the default is your own, and asking /me/shelves for a
+                // shelf that is not yours answers 404 — every shelf on every
+                // other profile opened as "no longer available".
+                router.push({
+                  pathname: '/shelf/[id]',
+                  params: isSelf
+                    ? { id: shelf.id, name: shelf.name }
+                    : { id: shelf.id, name: shelf.name, own: '0' },
+                })
+              }
               accessibilityRole="button"
               accessibilityLabel={`${shelf.name}, ${shelf.count} kept`}
               style={{ width: '48%' }}
