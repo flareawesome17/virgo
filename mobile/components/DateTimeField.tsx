@@ -99,9 +99,10 @@ export function DateTimeField({
         style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
       >
         <Icon size={15} className="text-muted-foreground" />
+        {/* A colour either way: with none set, the chosen value fell back to
+            the platform default, black, and vanished on the dark card. */}
         <Text
-          className="text-sm flex-1"
-          style={{ color: value === null ? '#9ca3af' : undefined }}
+          className={`text-sm flex-1 ${value === null ? 'text-muted-foreground' : 'text-foreground'}`}
         >
           {display}
         </Text>

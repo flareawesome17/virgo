@@ -270,9 +270,11 @@ function Confirmed({ who, at }: { who: string; at: string | null }) {
   return (
     <View className="flex-row items-center justify-between gap-4">
       <Text className="text-muted-foreground text-[13px]">{who}</Text>
+      {/* "Not yet" had no colour of its own and fell back to black — invisible
+          on the dark card. */}
       <Text
-        className="text-[13px] font-semibold"
-        style={{ color: at ? '#10b981' : undefined }}
+        className={`text-[13px] font-semibold ${at ? '' : 'text-muted-foreground'}`}
+        style={at ? { color: '#10b981' } : undefined}
       >
         {at ? `Confirmed ${new Date(at).toLocaleDateString()}` : 'Not yet'}
       </Text>
