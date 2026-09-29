@@ -8,6 +8,7 @@ import {
   useDeleteFriend,
   useFriends,
   useFriendPresence,
+  useOpenDirectChat,
   useRespondToFriendRequest,
   useSendFriendRequest,
   usePeopleSearch,
@@ -23,6 +24,7 @@ import {
   UsersIcon,
   MapPinIcon,
   EllipsisIcon,
+  MessageCircleIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
@@ -39,6 +41,7 @@ cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: 
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(EllipsisIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner',
@@ -613,10 +616,28 @@ function FriendRow({
   // online — so they get no dot at all rather than a grey one implying they
   // are simply away.
   const hasAccount = !!friend.friend_user_id;
+  // The row was inert: no profile and no way to message a connection from
+  // the list of connections. Now the row opens their profile (when it is
+  // published) and the button opens the chat.
+  const handle = friend.friend_handle ?? null;
+  const openDirect = useOpenDirectChat();
+  const message = async () => {
+    if (!friend.friend_user_id || openDirect.isPending) return;
+    try {
+      const chat = await openDirect.mutateAsync(friend.friend_user_id);
+      router.push(`/chat/${chat.id}`);
+    } catch (err) {
+      Alert.alert("Couldn't open the chat", profileActionMessage(err, 'message'));
+    }
+  };
 
   return (
-    <View
-      className="px-4 py-3 flex-row items-center gap-3"
+    <Pressable
+      onPress={handle ? () => router.push(`/u/${handle}`) : undefined}
+      disabled={!handle}
+      accessibilityRole={handle ? 'button' : undefined}
+      accessibilityLabel={handle ? `${friend.friend_name}'s profile` : undefined}
+      className="px-4 py-3 flex-row items-center gap-3 active:bg-muted/40"
       style={
         last
           ? undefined
@@ -673,12 +694,30 @@ function FriendRow({
         </Text>
       </View>
 
+      {hasAccount && (
+        <Pressable
+          onPress={message}
+          disabled={openDirect.isPending}
+          accessibilityRole="button"
+          accessibilityLabel={`Message ${friend.friend_name}`}
+          hitSlop={4}
+          className="w-10 h-10 rounded-xl bg-primary/10 items-center justify-center active:scale-[0.94]"
+        >
+          {openDirect.isPending ? (
+            <ActivityIndicator size="small" color="#B66A40" />
+          ) : (
+            <MessageCircleIcon size={17} className="text-primary" />
+          )}
+        </Pressable>
+      )}
       <Pressable
         onPress={onRemove}
-        className="px-3 py-2 rounded-xl bg-muted active:scale-[0.94]"
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${friend.friend_name}`}
+        className="px-3 py-2 min-h-10 justify-center rounded-xl bg-muted active:scale-[0.94]"
       >
         <Text className="text-muted-foreground text-xs font-bold">Remove</Text>
       </Pressable>
-    </View>
+    </Pressable>
   );
 }
