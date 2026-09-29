@@ -352,6 +352,13 @@ export class JobActionsController {
     return this.hiring.respond(userId, id, dto.status);
   }
 
+  /** The applicant taking back one that has not been decided on. */
+  @HttpCode(200)
+  @Delete('applications/:id')
+  withdraw(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.hiring.withdraw(userId, id);
+  }
+
   @Throttle({ default: { limit: 10, ttl: 3_600_000 } })
   @HttpCode(202)
   @Post(':id/report')

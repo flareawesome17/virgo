@@ -1182,6 +1182,52 @@ export class HiringService {
   }
 
   /**
+   * Takes back an application the poster has not decided on.
+   *
+   * There was no way to do this at all: somebody who applied by mistake, or
+   * who took other work for the date, stayed in the poster's list until the
+   * post closed, and the only way out was to message a stranger asking to be
+   * declined.
+   *
+   * Deleted rather than marked, so the poster's list simply no longer has it,
+   * and so applying again later is possible — changing your mind twice is
+   * still a person, not a pattern. Only while it is new or shortlisted:
+   *
+   * - accepted means hired, with a booking hanging off the row, and walking
+   *   away from that is the booking's cancellation, not this;
+   * - declined stays, or deleting it would be a way to apply again to
+   *   somebody who has already said no.
+   *
+   * The status test is in the delete itself, so an acceptance that lands
+   * first wins — Postgres re-checks the row once the accept's lock is gone.
+   */
+  async withdraw(userId: string, applicationId: string): Promise<{ withdrawn: true }> {
+    const gone = await this.db.queryOne<{ id: string; post_id: string }>(
+      `delete from hiring_applications
+        where id = $1 and user_id = $2 and status in ('new', 'shortlisted')
+        returning id, post_id`,
+      [applicationId, userId],
+    );
+    if (gone) {
+      this.logger.log(`application ${gone.id} on post ${gone.post_id} withdrawn by ${userId}`);
+      return { withdrawn: true };
+    }
+
+    const row = await this.db.queryOne<{ status: string }>(
+      `select status from hiring_applications where id = $1 and user_id = $2`,
+      [applicationId, userId],
+    );
+    // Same answer for "not yours" and "does not exist", as respond() gives.
+    if (!row) throw new NotFoundException('Application not found');
+    if (row.status === 'accepted') {
+      throw new BadRequestException(
+        'You have been hired for this one — cancel the booking instead',
+      );
+    }
+    throw new BadRequestException('This application has already been answered');
+  }
+
+  /**
    * Applications on one of the caller's own posts.
    *
    * Across a block, or from a suspended applicant, only an accepted one is
