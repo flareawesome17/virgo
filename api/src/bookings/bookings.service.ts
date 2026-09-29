@@ -9,6 +9,7 @@ import type { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
 import { NotifyService } from '../notifications/notify.service';
 import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
+import { isPastCalendarDate } from '../common/validators/calendar-date';
 
 /** The two people on a booking, and which one the reader is. */
 export type BookingSide = 'poster' | 'creative';
@@ -290,6 +291,30 @@ export class BookingsService {
     );
     if (touches.length === 0) {
       throw new BadRequestException('Nothing to change');
+    }
+
+    /*
+     * Only what actually changed counts.
+     *
+     * Saving the form unchanged cleared both confirmations all the same, and
+     * told the creative the terms had moved when nothing had — so they had to
+     * agree again to exactly what they had already agreed to.
+     */
+    const stored: Record<keyof BookingPatch, unknown> = {
+      role: row.role,
+      eventDate: row.event_date,
+      location: row.location,
+      rateMinor: row.rate_minor,
+      notes: row.notes,
+    };
+    const changed = touches.filter((k) => (patch[k] ?? null) !== (stored[k] ?? null));
+    if (changed.length === 0) return this.byId(userId, id);
+    if (
+      changed.includes('eventDate') &&
+      patch.eventDate != null &&
+      isPastCalendarDate(patch.eventDate)
+    ) {
+      throw new BadRequestException('That date has already passed');
     }
     if (patch.rateMinor != null && patch.rateMinor < 0) {
       throw new BadRequestException('A rate cannot be negative');
