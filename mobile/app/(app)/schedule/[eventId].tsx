@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { eventColor, eventTypeLabel } from '@/src/lib/calendar';
+import { eventColor, eventTypeLabel, parseDateKey } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -50,8 +50,10 @@ function formatTime(timeStr: string | null): string {
   const hour = parseInt(h), ampm = hour >= 12 ? 'PM' : 'AM', h12 = hour % 12 || 12;
   return `${h12}:${m} ${ampm}`;
 }
+// As a local calendar day: new Date('2027-01-10') is UTC midnight, which is
+// the day before anywhere west of Greenwich.
 function formatDateFull(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  return parseDateKey(dateStr.slice(0, 10)).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 export default function EventDetailScreen() {

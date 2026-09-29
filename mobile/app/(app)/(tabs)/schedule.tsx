@@ -22,6 +22,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { AppTopBar, AttendeeSummary, EventInvitationsCard } from '@/components';
+import { LoadFailed } from '@/components/LoadFailed';
 import {
   DAY_DOT_SIZE,
   DAYS,
@@ -77,7 +78,7 @@ export default function ScheduleScreen() {
    * next 60 days.
    */
   const monthWeeks = getMonthWeeks(viewYear, viewMonth);
-  const { events, refetch: refetchEvents } = useScheduleEventRange(
+  const { events, refetch: refetchEvents, loadFailed: monthFailed } = useScheduleEventRange(
     monthWeeks[0]?.[0]?.key,
     monthWeeks[monthWeeks.length - 1]?.[6]?.key,
   );
@@ -86,7 +87,7 @@ export default function ScheduleScreen() {
     end.setDate(end.getDate() + 60);
     return { from: todayKey(), to: dateToKey(end) };
   });
-  const { events: soonEvents, refetch: refetchSoon } = useScheduleEventRange(
+  const { events: soonEvents, refetch: refetchSoon, loadFailed: soonFailed } = useScheduleEventRange(
     soonWindow.from,
     soonWindow.to,
   );
@@ -98,7 +99,7 @@ export default function ScheduleScreen() {
     start.setHours(0, 0, 0, 0);
     return start.toISOString();
   });
-  const { reminders, refetch: refetchReminders } = useReminders(
+  const { reminders, refetch: refetchReminders, loadFailed: remindersFailed } = useReminders(
     { is_completed: false, due_from: startOfToday, orderBy: 'reminder_time', direction: 'asc', limit: 100 },
     { enabled: !!user?.id },
   );
@@ -149,6 +150,15 @@ export default function ScheduleScreen() {
         contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}>
         
+        {/* A failed load drew "No upcoming events" and "No active reminders" —
+            a confident empty day, from requests that never arrived. */}
+        {(monthFailed || soonFailed || remindersFailed) &&
+          events.length === 0 && soonEvents.length === 0 && reminders.length === 0 && (
+          <View className="mx-5 mt-3 bg-card rounded-2xl">
+            <LoadFailed what="your schedule" onRetry={() => void onRefresh()} compact />
+          </View>
+        )}
+
         {/* Header */}
         <View className="px-5 pt-4 pb-1 flex-row items-center justify-between">
           <View>

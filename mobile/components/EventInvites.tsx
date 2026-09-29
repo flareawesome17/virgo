@@ -401,11 +401,27 @@ export function AttendeeSummary({ eventId }: { eventId: string }) {
  */
 export function EventInvitationsCard() {
   const { isDark } = useTheme();
-  const { invitations } = useEventInvitations();
+  const { invitations, loadFailed, refetch } = useEventInvitations();
   const respond = useRespondToEventInvitation();
   /** Which one is mid-flight, so only its buttons go quiet. */
   const [answering, setAnswering] = useState<string | null>(null);
 
+  // Nothing is the usual day, but a failed load is not nothing: it rendered
+  // exactly like having no invitations, and an invitation with a date on it
+  // went unseen.
+  if (invitations.length === 0 && loadFailed) {
+    return (
+      <Pressable
+        onPress={() => void refetch()}
+        accessibilityRole="button"
+        className="mx-5 mt-4 rounded-2xl bg-card px-4 py-3 active:opacity-70"
+      >
+        <Text className="text-muted-foreground text-xs">
+          Could not check for event invitations. <Text className="text-primary font-bold">Retry</Text>
+        </Text>
+      </Pressable>
+    );
+  }
   if (invitations.length === 0) return null;
 
   const answer = (eventId: string, accept: boolean) => {

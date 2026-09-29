@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { LoadFailed } from '@/components/LoadFailed';
 import {
   DAY_DOT_SIZE,
   DAYS,
@@ -49,7 +50,7 @@ export default function CalendarScreen() {
   // The days the grid draws, not the account's 100 oldest events — which
   // left every month from some point on empty for a busy account.
   const gridWeeks = getMonthWeeks(viewYear, viewMonth);
-  const { events } = useScheduleEventRange(
+  const { events, loadFailed, refetch } = useScheduleEventRange(
     gridWeeks[0]?.[0]?.key,
     gridWeeks[gridWeeks.length - 1]?.[6]?.key,
   );
@@ -163,7 +164,12 @@ export default function CalendarScreen() {
               <CalendarDaysIcon size={14} className="text-primary" />
             </Pressable>
           </View>
-          {selectedEvents.length === 0 ? (
+          {/* "This day is clear" only when it is known to be. */}
+          {loadFailed && events.length === 0 ? (
+            <View className="bg-card rounded-2xl">
+              <LoadFailed what="this month's events" onRetry={() => void refetch()} compact />
+            </View>
+          ) : selectedEvents.length === 0 ? (
             <View className="bg-card rounded-2xl p-8 items-center gap-4">
               <View className="w-14 h-14 rounded-full bg-muted items-center justify-center">
                 <CalendarDaysIcon size={24} className="text-muted-foreground" />
