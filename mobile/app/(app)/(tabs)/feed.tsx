@@ -85,7 +85,9 @@ export default function FeedScreen() {
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken<FeedItem>[] }) =>
-      setVisibleId(viewableItems[0]?.item.id ?? null),
+      // `item` is typed non-null but arrives null for a row that has just been
+      // removed, and this runs during that frame.
+      setVisibleId(viewableItems[0]?.item?.id ?? null),
   ).current;
 
   const renderItem = useCallback(

@@ -141,13 +141,10 @@ export default function ShowcaseScreen() {
           {showcase.pieces.map((piece, i) => (
             <View key={piece.fileKey} className={i > 0 ? 'mt-1' : ''}>
               {piece.kind === 'video' ? (
-                // Sound on here: getting this far is a decision, and a film
-                // watched silently is half of what its maker made.
                 <ShowcaseFilm
                   piece={piece}
                   width={width}
                   height={Math.round(width * 1.25)}
-                  startMuted={false}
                   active={playing === null || playing === piece.fileKey}
                   onPlay={() => setPlaying(piece.fileKey)}
                 />
