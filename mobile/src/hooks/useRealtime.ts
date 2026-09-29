@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   API_BASE_URL,
+  authApi,
   getAccessToken,
   hydrateTokens,
   queryKeys,
@@ -199,6 +200,8 @@ export function useRealtime(enabled: boolean): void {
 
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    /** The token a 4001 was answered for, so a refresh is tried once per token. */
+    let refusedToken: string | null = null;
 
     const apply = (event: ServerEvent) => {
       switch (event.type) {
@@ -288,6 +291,31 @@ export function useRealtime(enabled: boolean): void {
       const token = getAccessToken();
       if (!token) return;
 
+      /*
+       * One socket at a time. Coming back to the app while a socket was still
+       * connecting, or with a retry already scheduled, opened a second one —
+       * and every message then arrived, chimed and buzzed twice. The old one
+       * is closed with its handlers taken off, so its close does not schedule
+       * yet another.
+       */
+      if (retry) {
+        clearTimeout(retry);
+        retry = undefined;
+      }
+      if (socket) {
+        const previous = socket;
+        previous.onopen = null;
+        previous.onmessage = null;
+        previous.onclose = null;
+        previous.onerror = null;
+        try {
+          previous.close();
+        } catch {
+          // Already closed.
+        }
+        socket = null;
+      }
+
       try {
         socket = new WebSocket(socketUrl());
       } catch {
@@ -319,6 +347,7 @@ export function useRealtime(enabled: boolean): void {
         }
         if (event.type === 'ready') {
           backoff.current = 1000;
+          refusedToken = null;
           return;
         }
         apply(event);
@@ -326,10 +355,32 @@ export function useRealtime(enabled: boolean): void {
 
       socket.onclose = (closeEvent) => {
         socketRef.current = null;
-        // 4001 means the token was rejected. Reconnecting with the same one
-        // would loop; the REST layer's refresh fixes the session and the next
-        // mount reconnects.
-        if (closeEvent.code === 4001 || stopped.current) return;
+        socket = null;
+        if (stopped.current) return;
+        if (closeEvent.code === 4001) {
+          /*
+           * The token was refused — it expired while the socket was down, most
+           * often. Realtime used to stop there until something remounted it,
+           * so a phone left open went quiet within fifteen minutes. An ordinary
+           * request makes the client refresh the session; with a new token,
+           * connect again. Once per token, so a refusal that is not about
+           * expiry cannot loop, and a session that is really over is signed
+           * out by the client as usual.
+           */
+          if (refusedToken === token) return;
+          refusedToken = token;
+          void authApi
+            .me()
+            .then(() => {
+              if (!stopped.current && getAccessToken() && getAccessToken() !== token) {
+                void connect();
+              }
+            })
+            .catch(() => {
+              // Offline or signed out: the next return to the app tries again.
+            });
+          return;
+        }
         schedule();
       };
 
@@ -342,7 +393,9 @@ export function useRealtime(enabled: boolean): void {
     // tore down while it slept.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
-      if (socketRef.current?.readyState === WebSocket.OPEN) return;
+      const ready = socketRef.current?.readyState;
+      // Connecting counts: a second connect here was the duplicate socket.
+      if (ready === WebSocket.OPEN || ready === WebSocket.CONNECTING) return;
       backoff.current = 1000;
       void connect();
     });
