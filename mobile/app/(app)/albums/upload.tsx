@@ -23,7 +23,7 @@ import { cssInterop } from 'nativewind';
 import { contentTypeForAsset, formatBytes, isUploadable, MAX_UPLOAD_BYTES } from '@/src/api';
 import { useUploadQueue, type UploadTask } from '@/src/providers/UploadProvider';
 import { useHoldUpdates } from '@/src/lib/ota-updates';
-import { useAlbum, useAlbums, useUsage, useTheme } from '@/src/hooks';
+import { useAlbum, useAlbums, useAuth, useUsage, useTheme } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -271,6 +271,7 @@ export default function UploadScreen() {
     { enabled: !routeAlbumId },
   );
   const { usage, storageLimitBytes, storageUsedBytes } = useUsage();
+  const { user } = useAuth();
 
   const addPicked = (picked: UploadItem[]) =>
     setItems((prev) => [...prev, ...picked]);
@@ -374,8 +375,15 @@ export default function UploadScreen() {
   const overall = totalBytes > 0 ? sentBytes / totalBytes : 0;
 
   const queuedBytes = queued.reduce((s, i) => s + i.sizeBytes, 0);
+  // Only against your own storage when the album is yours. The server bills
+  // an upload into somebody else's album to that album's owner, so checking
+  // yours blocked uploads their storage had room for, and let through ones it
+  // did not. Theirs is checked by the server, and its answer shows in the queue.
+  const billedToMe = !album || (album.my_access ? album.my_access === 'owner' : album.user_id === user?.id);
   const wouldExceed =
-    storageLimitBytes != null && storageUsedBytes + queuedBytes > storageLimitBytes;
+    billedToMe &&
+    storageLimitBytes != null &&
+    storageUsedBytes + queuedBytes > storageLimitBytes;
 
   /**
    * Hands the files over and gets out of the way.
