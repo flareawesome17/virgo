@@ -176,8 +176,16 @@ is possible at all. `cloudflared` dials out, so none of that matters.
 
 The cost is recorded rather than hidden: video served through Cloudflare's CDN
 is not hosted on a Cloudflare service, which their CDN terms restrict. That
-trade was made knowingly, and it is the one thing about this hostname worth
-revisiting if a static IP ever becomes available.
+trade was made knowingly when video meant a client gallery watched by one
+couple. The public feed made it a larger bet, and losing CDN access would take
+the whole zone rather than this hostname — every route here is on the same
+tunnel, with no published port behind any of them.
+
+**This is open, and it is the one thing about this hostname worth deciding.**
+The options, their prices and a recommendation are in
+[MEDIA_DELIVERY.md](MEDIA_DELIVERY.md#the-cdn-terms-question). A static IP is
+no longer the only way out: R2 is a named exception in Cloudflare's own terms,
+and it needs nothing from the router.
 
 `CORS_ORIGINS` does not need an entry — nothing calls the API from this
 hostname. The reverse is true instead: the `map` in the nginx template lists
