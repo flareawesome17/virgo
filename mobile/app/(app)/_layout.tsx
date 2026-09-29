@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator } from 'react-native';
-import { Redirect, Stack } from 'expo-router';
+import { Redirect, Stack, router, type ErrorBoundaryProps } from 'expo-router';
 import {
   useAuth,
   useMessageAlerts,
@@ -16,12 +16,32 @@ import {
   VerifyEmailBanner,
   VideoSurface,
 } from '@/components';
+import { CrashScreen } from '@/components/CrashScreen';
 import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
 import { VideoPlayerProvider } from '@/src/providers/VideoPlayerProvider';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
 };
+
+/**
+ * Any signed-in screen that fails to draw lands here instead of closing the app.
+ *
+ * "Go to start" navigates first and retries second: this replaces the layout
+ * but not the route, so a retry alone would draw the screen that just failed.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <CrashScreen
+      error={error}
+      onRetry={() => void retry()}
+      onHome={() => {
+        router.replace('/(app)/(tabs)');
+        void retry();
+      }}
+    />
+  );
+}
 
 /**
  * Auth gate for every protected screen.

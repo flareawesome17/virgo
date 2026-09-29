@@ -1,4 +1,4 @@
-import { Stack } from "expo-router";
+import { Stack, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -13,6 +13,7 @@ import { ThemeProvider } from "@/src/providers/ThemeProvider";
 import { wireQueryFocusToAppState } from "@/src/lib/query-focus";
 import { wireOtaUpdates } from "@/src/lib/ota-updates";
 import { UploadProvider } from "@/src/providers/UploadProvider";
+import { CrashScreen } from "@/components/CrashScreen";
 
 /**
  * `index` resolves the session and redirects, so it must be the first route.
@@ -27,6 +28,23 @@ export const unstable_settings = {
 // is decided. Failures are ignored: if the splash cannot be held, the app
 // should still start.
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+/**
+ * The last line, for anything that throws outside a screen with a boundary of
+ * its own — the providers and the auth gate included.
+ *
+ * It replaces this whole layout, so there is no navigator to go home with,
+ * only a retry. And it has to let the splash go: the splash is held until
+ * RootLayoutNav says the session is known, and RootLayoutNav is exactly what
+ * this has replaced — without this an early crash sat behind the splash
+ * forever, which looks like a hang rather than an error.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
+  return <CrashScreen error={error} onRetry={() => void retry()} />;
+}
 
 function RootLayoutNav() {
   // Initialize offline monitoring
