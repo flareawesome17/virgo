@@ -294,6 +294,7 @@ export default function PhotoViewerScreen() {
   const [zoomed, setZoomed] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const chrome = useSharedValue(1);
 
   const photo = photos[currentIndex] ?? photos[0];
@@ -349,20 +350,43 @@ export default function PhotoViewerScreen() {
     pager.current?.scrollToIndex({ index, animated: true });
   }, []);
 
+  /**
+   * Shares the photograph itself.
+   *
+   * It shared the link to the private original — a signed URL that stopped
+   * working minutes later, handed to whoever received it — and it did so for
+   * people the album does not let download. Sending the file is a download,
+   * so it needs the same permission, and it is the file that is sent.
+   *
+   * iOS only: React Native's share sheet can carry a file there and only text
+   * on Android, where Save does the job until a native share module ships.
+   */
+  const canShare = Platform.OS === 'ios' && Boolean(photo?.capabilities.download);
   const sharePhoto = async () => {
-    if (!photo?.url) return;
+    const source = photo?.downloadUrl ?? photo?.url;
+    if (!source || sharing || !canShare || !photo) return;
+    setSharing(true);
+    let local: string | null = null;
     try {
-      await Share.share(
-        Platform.OS === 'ios'
-          ? { url: photo.url, message: photo.originalName }
-          : { message: `${photo.originalName} - ${photo.url}` },
+      const safeName = photo.originalName.replace(/[^a-z0-9._-]/gi, '_');
+      const result = await FileSystem.downloadAsync(
+        source,
+        `${FileSystem.cacheDirectory}share-${Date.now()}-${safeName}`,
       );
+      local = result.uri;
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error('The photo could not be downloaded.');
+      }
+      await Share.share({ url: result.uri });
     } catch (error) {
       // Cancelling the sheet rejects on some platforms, which is not a failure
       // worth interrupting anybody over. A real one is.
       if (error instanceof Error && !/cancel/i.test(error.message)) {
-        Alert.alert('Could not share', 'Please try again.');
+        Alert.alert('Could not share', 'Check your connection and try again.');
       }
+    } finally {
+      if (local) await FileSystem.deleteAsync(local, { idempotent: true }).catch(() => {});
+      setSharing(false);
     }
   };
 
@@ -630,9 +654,15 @@ export default function PhotoViewerScreen() {
           />
 
           <View className="flex-row items-center gap-2 px-4 pt-4 pb-2">
-            <Action onPress={sharePhoto} label="Share">
-              <Share2Icon size={19} color="#fff" />
-            </Action>
+            {canShare && (
+              <Action onPress={sharePhoto} label="Share" disabled={sharing}>
+                {sharing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Share2Icon size={19} color="#fff" />
+                )}
+              </Action>
+            )}
             {photo.capabilities.download && (
               <Action onPress={savePhoto} label="Save" disabled={saving}>
                 {saving ? (
