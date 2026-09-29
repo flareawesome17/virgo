@@ -13,6 +13,8 @@ import {
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
+import { DateTimeField } from '@/components/DateTimeField';
+import { dateToKey, parseDateKey } from '@/src/lib/calendar';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [ArrowLeftIcon, MapPinIcon, SendIcon, UserSearchIcon]) {
@@ -90,9 +92,6 @@ export default function HireScreen() {
   const firstName = person.displayName.split(' ')[0];
   const tooShort = message.trim().length < 10;
 
-  // The API takes YYYY-MM-DD; anything else is refused rather than silently
-  // landing on the wrong day.
-  const dateLooksRight = eventDate === '' || /^\d{4}-\d{2}-\d{2}$/.test(eventDate);
 
   const onSubmit = () => {
     send.mutate(
@@ -188,19 +187,17 @@ export default function HireScreen() {
           )}
 
           <View className="flex-row gap-3">
-            <View className="flex-1 gap-2">
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
-                Date
-              </Text>
-              <TextInput
-                value={eventDate}
-                onChangeText={setEventDate}
-                placeholder="2026-11-14"
-                placeholderTextColor={palette.mutedForeground}
-                autoCapitalize="none"
-                autoCorrect={false}
-                maxLength={10}
-                className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
+            {/* The picker, not typed text: an impossible date reached the
+                server as a 500, and one already gone by was accepted. */}
+            <View className="flex-1">
+              <DateTimeField
+                label="Date"
+                mode="date"
+                value={eventDate ? parseDateKey(eventDate) : null}
+                minimumDate={new Date()}
+                emptyLabel="Optional"
+                clearable
+                onChange={(picked) => setEventDate(picked ? dateToKey(picked) : '')}
               />
             </View>
             <View className="flex-1 gap-2">
@@ -217,12 +214,6 @@ export default function HireScreen() {
               />
             </View>
           </View>
-          {!dateLooksRight && (
-            <Text className="text-destructive text-[11px] -mt-4">
-              Use a date like 2026-11-14.
-            </Text>
-          )}
-
           <View className="gap-2">
             <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
               The brief
@@ -249,9 +240,9 @@ export default function HireScreen() {
           <Pressable
             className="rounded-2xl py-4 flex-row items-center justify-center gap-2 bg-action"
             style={{
-              opacity: tooShort || !dateLooksRight || send.isPending ? 0.4 : 1,
+              opacity: tooShort || send.isPending ? 0.4 : 1,
             }}
-            disabled={tooShort || !dateLooksRight || send.isPending}
+            disabled={tooShort || send.isPending}
             onPress={onSubmit}
           >
             {send.isPending

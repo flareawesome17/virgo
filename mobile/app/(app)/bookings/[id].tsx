@@ -21,6 +21,8 @@ import {
 import { ApiError, rateLabel, type Booking } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { DateTimeField } from '@/components/DateTimeField';
+import { dateToKey, parseDateKey } from '@/src/lib/calendar';
 
 /**
  * One booking, and the two things you can do to it.
@@ -295,19 +297,35 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
       Alert.alert('Check the rate', 'Give a number, or leave it blank.');
       return;
     }
-    update.mutate(
-      {
-        role: role.trim() || null,
-        eventDate: eventDate.trim() || null,
-        location: location.trim() || null,
-        rateMinor: parsed,
-        notes: notes.trim() || null,
-      },
-      {
-        onSuccess: onDone,
-        onError: (e: Error) => Alert.alert('Could not save', e.message),
-      },
+    // Only what changed. Saving the form as it stood still sent every field,
+    // which cleared the creative's confirmation for terms that had not moved.
+    const next = {
+      role: role.trim() || null,
+      eventDate: eventDate.trim() || null,
+      location: location.trim() || null,
+      rateMinor: parsed,
+      notes: notes.trim() || null,
+    };
+    const was = {
+      role: booking.role ?? null,
+      eventDate: booking.eventDate ?? null,
+      location: booking.location ?? null,
+      rateMinor: booking.rateMinor ?? null,
+      notes: booking.notes ?? null,
+    };
+    const changed = Object.fromEntries(
+      (Object.keys(next) as (keyof typeof next)[])
+        .filter((key) => next[key] !== was[key])
+        .map((key) => [key, next[key]]),
     );
+    if (Object.keys(changed).length === 0) {
+      onDone();
+      return;
+    }
+    update.mutate(changed, {
+      onSuccess: onDone,
+      onError: (e: Error) => Alert.alert('Could not save', e.message),
+    });
   };
 
   return (
@@ -322,7 +340,17 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
       </View>
 
       <Field label="Role" value={role} onChange={setRole} />
-      <Field label="Date (YYYY-MM-DD)" value={eventDate} onChange={setEventDate} />
+      {/* The picker, not typed text: "2026-02-30" used to reach the server
+          as a 500, and a date already gone by was accepted. */}
+      <DateTimeField
+        label="Date"
+        mode="date"
+        value={eventDate ? parseDateKey(eventDate) : null}
+        minimumDate={new Date()}
+        emptyLabel="Pick a date (optional)"
+        clearable
+        onChange={(picked) => setEventDate(picked ? dateToKey(picked) : '')}
+      />
       <Field label="Location" value={location} onChange={setLocation} />
       <Field
         label={`Rate (${booking.currency})`}
