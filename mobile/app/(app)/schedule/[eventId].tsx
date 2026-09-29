@@ -299,7 +299,7 @@ export default function EventDetailScreen() {
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
           >
             <PencilIcon size={15} className="text-primary" />
-            <Text className="text-primary text-sm font-semibold">Edit Event</Text>
+            <Text className="text-primary text-sm font-semibold">Edit event</Text>
           </Pressable>
           {!isOwner && (
             <Text className="text-muted-foreground text-[11px] text-center mt-2 leading-4">
@@ -322,7 +322,7 @@ export default function EventDetailScreen() {
           {isOwner && (
             <Pressable onPress={confirmDelete} className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]">
               <Trash2Icon size={15} className="text-destructive" />
-              <Text className="text-destructive text-sm font-semibold">Delete Event</Text>
+              <Text className="text-destructive text-sm font-semibold">Delete event</Text>
             </Pressable>
           )}
         </View>

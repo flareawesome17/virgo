@@ -359,7 +359,7 @@ export default function ProfileSettingsScreen() {
               optional here too — plenty of people freelance under the name on
               their passport. */}
           <View>
-            <FieldRow icon={Building2Icon} label="Studio Name" value={studioName} onChange={setStudioName} color={CHART_COLORS.brown} maxLength={120} />
+            <FieldRow icon={Building2Icon} label="Studio name" value={studioName} onChange={setStudioName} color={CHART_COLORS.brown} maxLength={120} />
             <Text className="text-muted-foreground text-xs ml-1 mt-1.5">
               Private unless Show studio on profile is on.
             </Text>
@@ -456,7 +456,7 @@ export default function ProfileSettingsScreen() {
             </Text>
           </View>
 
-          <FieldRow icon={MapPinIcon} label="Street Address" value={line1} onChange={setLine1} color="#C17745" maxLength={200} />
+          <FieldRow icon={MapPinIcon} label="Street address" value={line1} onChange={setLine1} color="#C17745" maxLength={200} />
           <FieldRow icon={HomeIcon} label="Apartment, Unit, Floor · optional" value={line2} onChange={setLine2} color="#8B5E3C" maxLength={200} />
           <FieldRow icon={MapPinIcon} label="City" value={city} onChange={setCity} color="#C17745" maxLength={120} />
           <FieldRow icon={MapPinIcon} label="Province" value={province} onChange={setProvince} color="#C17745" maxLength={120} />
@@ -498,7 +498,7 @@ export default function ProfileSettingsScreen() {
                   ? '✓  Saved'
                   : updateProfile.isPending
                     ? 'Saving…'
-                    : 'Save Changes'}
+                    : 'Save changes'}
           </Text>
         </Pressable>
       </View>

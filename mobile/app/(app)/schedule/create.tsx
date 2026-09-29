@@ -256,12 +256,12 @@ export default function CreateEventScreen() {
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
-          <Text className="text-foreground text-[22px] font-bold tracking-tight">{editing ? 'Edit Event' : 'New Event'}</Text>
+          <Text className="text-foreground text-[22px] font-bold tracking-tight">{editing ? 'Edit event' : 'New event'}</Text>
         </View>
 
         {/* Event Type */}
         <View className="px-5 mt-5">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Event Type</Text>
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Event type</Text>
           <View className="flex-row flex-wrap gap-2">
             {EVENT_TYPES.map(t => {
               const Icon = t.icon;
@@ -414,7 +414,7 @@ export default function CreateEventScreen() {
         </Pressable>
         <Pressable onPress={() => canSave && (editing ? handleUpdate() : handleCreate())} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-action' : 'bg-muted'}`} disabled={!canSave || saving}>
           <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>
-            {saving ? (editing ? 'Saving...' : 'Creating...') : editing ? 'Save Changes' : 'Create Event'}
+            {saving ? (editing ? 'Saving...' : 'Creating...') : editing ? 'Save changes' : 'Create event'}
           </Text>
         </Pressable>
       </View>

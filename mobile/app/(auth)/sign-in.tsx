@@ -101,7 +101,7 @@ export default function SignInScreen() {
               <ArrowLeftIcon size={18} className="text-foreground" />
             </Pressable>
             <View>
-              <Text className="text-foreground text-[28px] font-bold tracking-tight">Sign In</Text>
+              <Text className="text-foreground text-[28px] font-bold tracking-tight">Sign in</Text>
               <Text className="text-muted-foreground text-sm mt-0.5">Welcome back to Virgo</Text>
             </View>
           </View>
@@ -172,14 +172,14 @@ export default function SignInScreen() {
             accessibilityState={{ disabled: !canSubmit || signIn.isPending }}
             className={`min-h-12 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${canSubmit ? 'bg-action' : 'bg-muted'}`}>
             <Text className={`text-base font-bold ${canSubmit ? 'text-action-foreground' : 'text-muted-foreground'}`}>
-              {signIn.isPending ? 'Signing in...' : 'Sign In'}
+              {signIn.isPending ? 'Signing in...' : 'Sign in'}
             </Text>
             {!signIn.isPending && <ArrowRightIcon size={18} className={canSubmit ? 'text-action-foreground' : 'text-muted-foreground'} />}
           </Pressable>
           <View className="flex-row items-center justify-center gap-1">
             <Text className="text-muted-foreground text-sm">Don’t have an account?</Text>
             <Pressable onPress={() => router.push('/sign-up')} className="active:opacity-60">
-              <Text className="text-primary text-sm font-bold">Sign Up</Text>
+              <Text className="text-primary text-sm font-bold">Sign up</Text>
             </Pressable>
           </View>
         </View>

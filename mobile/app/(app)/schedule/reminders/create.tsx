@@ -216,7 +216,7 @@ export default function CreateReminderScreen() {
           </Pressable>
           <View>
             <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              {isEdit ? 'Edit Reminder' : 'New Reminder'}
+              {isEdit ? 'Edit reminder' : 'New reminder'}
             </Text>
             {event ? (
               <Text className="text-muted-foreground text-sm mt-0.5" numberOfLines={1}>
@@ -323,7 +323,7 @@ export default function CreateReminderScreen() {
           className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-action' : 'bg-muted'}`}
         >
           <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>
-            {saving ? 'Saving…' : isEdit ? 'Save Reminder' : 'Create Reminder'}
+            {saving ? 'Saving…' : isEdit ? 'Save reminder' : 'Create reminder'}
           </Text>
         </Pressable>
       </View>

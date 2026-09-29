@@ -383,11 +383,11 @@ function AppHalf() {
       ],
     },
     {
-      title: 'Storage & Sync',
+      title: 'Storage & sync',
       rows: [
         {
           icon: CloudIcon,
-          label: 'Offline Sync',
+          label: 'Offline sync',
           detail: 'What works without a connection',
           // Was a hardcoded green "Synced" chip on the Profile tab that said
           // the same thing with the network off.
@@ -409,7 +409,7 @@ function AppHalf() {
         },
         {
           icon: HelpCircleIcon,
-          label: 'Help Center',
+          label: 'Help center',
           detail: 'Answers to common questions',
           route: '/settings/help',
           color: palette.primary,

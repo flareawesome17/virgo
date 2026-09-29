@@ -160,7 +160,7 @@ export default function CalendarScreen() {
               {isSelToday ? 'Today' : new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
             </Text>
             <Pressable onPress={() => router.push(`/schedule/agenda?date=${selectedDate}`)} className="flex-row items-center gap-1 active:opacity-60">
-              <Text className="text-primary text-sm font-semibold">Day View</Text>
+              <Text className="text-primary text-sm font-semibold">Day view</Text>
               <CalendarDaysIcon size={14} className="text-primary" />
             </Pressable>
           </View>
@@ -180,7 +180,7 @@ export default function CalendarScreen() {
               </View>
               <Pressable onPress={() => router.push(`/schedule/create?date=${selectedDate}`)} className="bg-action rounded-xl px-5 py-3 flex-row items-center gap-2 active:scale-[0.96]">
                 <PlusIcon size={16} className="text-white" />
-                <Text className="text-white text-sm font-semibold">Add Event</Text>
+                <Text className="text-white text-sm font-semibold">Add event</Text>
               </Pressable>
             </View>
           ) : (

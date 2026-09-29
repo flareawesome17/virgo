@@ -119,7 +119,7 @@ export default function OfflineSyncScreen() {
           </Pressable>
           <View className="flex-1">
             <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              Offline Sync
+              Offline sync
             </Text>
             <Text className="text-muted-foreground text-sm mt-0.5">
               What works without a connection

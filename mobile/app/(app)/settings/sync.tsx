@@ -133,7 +133,7 @@ export default function SyncStorageScreen() {
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
           <Text className="text-foreground text-[22px] font-bold tracking-tight flex-1">
-            Sync & Storage
+            Sync & storage
           </Text>
           <Pressable accessibilityRole="button" accessibilityLabel="Refresh"
             onPress={refresh}

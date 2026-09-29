@@ -186,7 +186,7 @@ export default function ReminderDetailScreen() {
               <BellIcon size={15} className="text-primary" />
             </View>
             <View className="flex-1">
-              <Text className="text-muted-foreground text-[10px] font-bold uppercase">Linked Event</Text>
+              <Text className="text-muted-foreground text-[10px] font-bold uppercase">Linked event</Text>
               <Text className="text-foreground text-sm font-semibold">{event.title}</Text>
             </View>
           </Pressable>
@@ -218,7 +218,7 @@ export default function ReminderDetailScreen() {
                 <BellIcon size={14} color="#5B7B9A" />
               </View>
               <View>
-                <Text className="text-foreground text-sm font-semibold">Push Notification</Text>
+                <Text className="text-foreground text-sm font-semibold">Push notification</Text>
                 <Text className="text-muted-foreground text-xs mt-0.5">{reminder.has_push_notification ? 'Will send push alert' : 'No push alert'}</Text>
               </View>
             </View>
@@ -233,12 +233,12 @@ export default function ReminderDetailScreen() {
           <Pressable onPress={() => updateReminder({ is_completed: !reminder.is_completed })}
             className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${reminder.is_completed ? 'bg-muted' : 'bg-[#6B8E4E]'}`}>
             <Text className={`text-base font-bold ${reminder.is_completed ? 'text-muted-foreground' : 'text-white'}`}>
-              {reminder.is_completed ? 'Mark Incomplete' : 'Mark Complete'}
+              {reminder.is_completed ? 'Mark incomplete' : 'Mark complete'}
             </Text>
           </Pressable>
           <Pressable onPress={() => deleteReminder()} className="flex-row items-center justify-center gap-2 py-3 active:scale-[0.97]">
             <Trash2Icon size={15} className="text-destructive" />
-            <Text className="text-destructive text-sm font-semibold">Delete Reminder</Text>
+            <Text className="text-destructive text-sm font-semibold">Delete reminder</Text>
           </Pressable>
         </View>
       </ScrollView>

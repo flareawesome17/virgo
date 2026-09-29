@@ -292,7 +292,7 @@ export default function ScheduleScreen() {
                 className="min-h-11 bg-action rounded-xl px-5 py-2.5 flex-row items-center gap-2 active:scale-[0.98]"
               >
                 <PlusIcon size={15} className="text-action-foreground" />
-                <Text className="text-action-foreground text-sm font-semibold">Add Event</Text>
+                <Text className="text-action-foreground text-sm font-semibold">Add event</Text>
               </Pressable>
             </View>
           ) : (

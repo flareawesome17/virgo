@@ -189,7 +189,7 @@ export default function CreateAlbumScreen() {
           </Pressable>
           <View>
             <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              Create Album
+              Create album
             </Text>
             <Text className="text-muted-foreground text-sm mt-0.5">
               Organize and deliver creative work
@@ -314,7 +314,7 @@ export default function CreateAlbumScreen() {
           {/* Name */}
           <View>
             <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-              Album Name
+              Album name
             </Text>
             <TextInput
               value={name}
@@ -468,7 +468,7 @@ export default function CreateAlbumScreen() {
               canCreate ? 'text-white' : 'text-muted-foreground'
             }`}
           >
-            {createAlbum.isPending ? 'Creating...' : 'Create Album'}
+            {createAlbum.isPending ? 'Creating...' : 'Create album'}
           </Text>
         </Pressable>
       </View>

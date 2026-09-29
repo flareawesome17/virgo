@@ -194,7 +194,7 @@ export default function SignUpScreen() {
               <ArrowLeftIcon size={18} className="text-foreground" />
             </Pressable>
             <View>
-              <Text className="text-foreground text-[28px] font-bold tracking-tight">Create Account</Text>
+              <Text className="text-foreground text-[28px] font-bold tracking-tight">Create account</Text>
               <Text className="text-muted-foreground text-sm mt-0.5">Step {step + 1} of {STEPS.length}</Text>
             </View>
           </View>
@@ -221,7 +221,7 @@ export default function SignUpScreen() {
           <View className="px-6 gap-4">
             {step === 0 && (
               <>
-                <Field label="Full Name" icon={<UserIcon size={16} className="text-muted-foreground" />}>
+                <Field label="Full name" icon={<UserIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={name} onChangeText={setName} placeholder="Your name"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" autoCapitalize="words"
                     textContentType="name" autoComplete="name" />
@@ -254,7 +254,7 @@ export default function SignUpScreen() {
                     account they had just made, and the way back was the
                     password reset flow. */}
                 <Field
-                  label="Confirm Password"
+                  label="Confirm password"
                   icon={<LockIcon size={16} className="text-muted-foreground" />}
                   error={confirmPassword.length > 0 && confirmPassword !== password ? 'These do not match.' : undefined}
                 >
@@ -335,12 +335,12 @@ export default function SignUpScreen() {
 
             {step === 2 && (
               <>
-                <Field label="Street Address" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
+                <Field label="Street address" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={line1} onChangeText={setLine1} placeholder="123 Rizal Street, Barangay San Roque"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
                 </Field>
 
-                <Field label="Apartment, Unit, Floor" hint="Optional." icon={<HomeIcon size={16} className="text-muted-foreground" />}>
+                <Field label="Apartment, unit, floor" hint="Optional." icon={<HomeIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={line2} onChangeText={setLine2} placeholder="Unit 4B"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
                 </Field>
@@ -365,7 +365,7 @@ export default function SignUpScreen() {
                       no ZIP, and refusing somebody for that is refusing them
                       for where they live. */}
                   <View className="flex-1">
-                    <Field label="Postal Code" hint="Optional.">
+                    <Field label="Postal code" hint="Optional.">
                       <TextInput value={postal} onChangeText={setPostal} placeholder="6000"
                         placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                         keyboardType="number-pad" maxLength={20} />
@@ -380,7 +380,7 @@ export default function SignUpScreen() {
                   </View>
                 </View>
 
-                <Field label="Studio Name" hint="Optional — if you trade under one." icon={<Building2Icon size={16} className="text-muted-foreground" />}>
+                <Field label="Studio name" hint="Optional — if you trade under one." icon={<Building2Icon size={16} className="text-muted-foreground" />}>
                   <TextInput value={studioName} onChangeText={setStudioName} placeholder="Northlight Studio"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
                 </Field>
@@ -468,7 +468,7 @@ export default function SignUpScreen() {
               accessibilityState={{ disabled: !stepReady || signUp.isPending }}
               className={`min-h-12 flex-1 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${stepReady ? 'bg-action' : 'bg-muted'}`}>
               <Text className={`text-base font-bold ${stepReady ? 'text-action-foreground' : 'text-muted-foreground'}`}>
-                {signUp.isPending ? 'Creating account...' : isLast ? 'Create Account' : 'Continue'}
+                {signUp.isPending ? 'Creating account...' : isLast ? 'Create account' : 'Continue'}
               </Text>
               {!signUp.isPending && (
                 isLast
@@ -480,7 +480,7 @@ export default function SignUpScreen() {
           <View className="flex-row items-center justify-center gap-1">
             <Text className="text-muted-foreground text-sm">Already have an account?</Text>
             <Pressable onPress={() => router.push('/sign-in')} className="active:opacity-60">
-              <Text className="text-primary text-sm font-bold">Sign In</Text>
+              <Text className="text-primary text-sm font-bold">Sign in</Text>
             </Pressable>
           </View>
         </View>

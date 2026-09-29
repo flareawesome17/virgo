@@ -68,7 +68,7 @@ export default function CheckInboxScreen() {
         </View>
 
         <Text className="text-foreground text-[26px] font-extrabold tracking-tight text-center">
-          {fromSignIn ? 'Confirm your email first' : 'Check Your Inbox'}
+          {fromSignIn ? 'Confirm your email first' : 'Check your inbox'}
         </Text>
         <Text className="text-muted-foreground text-sm text-center mt-3 leading-relaxed px-2">
           {fromSignIn
@@ -93,7 +93,7 @@ export default function CheckInboxScreen() {
             Click the button below to verify your email address and activate your Virgo account. This link expires in 24 hours.
           </Text>
           <View className="mt-4 bg-primary/10 rounded-xl px-4 py-3 items-center">
-            <Text className="text-primary text-sm font-bold">Verify Email Address →</Text>
+            <Text className="text-primary text-sm font-bold">Verify email address →</Text>
           </View>
         </View>
 
@@ -106,7 +106,7 @@ export default function CheckInboxScreen() {
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <RefreshCwIcon size={16} className="text-primary" />
             <Text className="text-foreground text-sm font-semibold">
-              {resending ? 'Sending…' : fromSignIn ? 'Send a new link' : 'Resend Email'}
+              {resending ? 'Sending…' : fromSignIn ? 'Send a new link' : 'Resend email'}
             </Text>
           </Pressable>
           {resendNote && (
@@ -121,7 +121,7 @@ export default function CheckInboxScreen() {
           <Pressable onPress={() => router.push('/sign-in')} className="py-3 items-center active:scale-[0.97]">
             <Text className="text-muted-foreground text-sm">
               Already verified?{' '}
-              <Text className="text-primary font-bold">Sign In</Text>
+              <Text className="text-primary font-bold">Sign in</Text>
             </Text>
           </Pressable>
         </View>

@@ -142,7 +142,7 @@ export default function StorageOverviewScreen() {
             className="mx-5 mt-4 bg-action rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.97]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <ZapIcon size={18} className="text-white" />
-            <Text className="text-white text-base font-bold">Upgrade Storage</Text>
+            <Text className="text-white text-base font-bold">Upgrade storage</Text>
           </Pressable>
         )}
 
@@ -165,7 +165,7 @@ export default function StorageOverviewScreen() {
 
         {/* Media type breakdown */}
         <View className="px-5 mt-6">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Media Breakdown</Text>
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Media breakdown</Text>
           <View className="bg-card rounded-2xl p-4 gap-4" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             {breakdown.byType.length === 0 ? (
               <Text className="text-muted-foreground text-sm text-center py-2">
@@ -200,7 +200,7 @@ export default function StorageOverviewScreen() {
         {/* Album breakdown. Files are attached to albums, not workspaces, so
             this reports the level the data actually has. */}
         <View className="px-5 mt-6">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Album Breakdown</Text>
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Album breakdown</Text>
           <View className="bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             {breakdown.byAlbum.length === 0 ? (
               <Text className="text-muted-foreground text-sm text-center py-5">
@@ -234,7 +234,7 @@ export default function StorageOverviewScreen() {
             <CloudIcon size={18} color="#8B5E3C" />
           </View>
           <View className="flex-1">
-            <Text className="text-foreground text-sm font-semibold">Sync & Storage</Text>
+            <Text className="text-foreground text-sm font-semibold">Sync & storage</Text>
             <Text className="text-muted-foreground text-xs mt-0.5">Manage or wipe your cloud data</Text>
           </View>
           <ChevronRightIcon size={14} className="text-muted-foreground" />

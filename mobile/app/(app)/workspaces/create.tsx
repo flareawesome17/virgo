@@ -92,7 +92,7 @@ export default function CreateWorkspaceScreen() {
           </Pressable>
           <View>
             <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              New Workspace
+              New workspace
             </Text>
             <Text className="text-muted-foreground text-sm mt-0.5">
               Create a creative project space
@@ -125,7 +125,7 @@ export default function CreateWorkspaceScreen() {
           {/* Name */}
           <View>
             <Text className="text-foreground text-sm font-semibold mb-2 ml-1">
-              Workspace Name
+              Workspace name
             </Text>
             <TextInput
               value={name}
@@ -173,7 +173,7 @@ export default function CreateWorkspaceScreen() {
           <View>
             <View className="flex-row items-center gap-2 mb-2 ml-1">
               <PaletteIcon size={14} className="text-muted-foreground" />
-              <Text className="text-foreground text-sm font-semibold">Workspace Color</Text>
+              <Text className="text-foreground text-sm font-semibold">Workspace color</Text>
             </View>
             <View className="flex-row flex-wrap gap-3">
               {ACCENT_COLORS.map((c) => (

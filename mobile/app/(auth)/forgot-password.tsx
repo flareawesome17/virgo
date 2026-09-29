@@ -50,7 +50,7 @@ export default function ForgotPasswordScreen() {
               style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
               <ArrowLeftIcon size={18} className="text-foreground" />
             </Pressable>
-            <Text className="text-foreground text-[28px] font-bold tracking-tight">Reset Password</Text>
+            <Text className="text-foreground text-[28px] font-bold tracking-tight">Reset password</Text>
           </View>
 
           {sent ? (
@@ -59,7 +59,7 @@ export default function ForgotPasswordScreen() {
                 style={{ shadowColor: '#6B8E4E', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: 3 }, elevation: 5 }}>
                 <CheckCircleIcon size={36} color="#6B8E4E" />
               </View>
-              <Text className="text-foreground text-xl font-extrabold">Check Your Email</Text>
+              <Text className="text-foreground text-xl font-extrabold">Check your email</Text>
               <Text className="text-muted-foreground text-sm text-center mt-3 leading-relaxed px-4">
                 If an account exists for <Text className="text-foreground font-semibold">{email}</Text>, we’ve sent a password reset link.
               </Text>

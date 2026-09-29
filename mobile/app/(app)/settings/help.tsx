@@ -235,7 +235,7 @@ export default function HelpScreen() {
           </Pressable>
           <View className="flex-1">
             <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              Help Center
+              Help center
             </Text>
             <Text className="text-muted-foreground text-sm mt-0.5">
               How Virgo works, and how to reach us
