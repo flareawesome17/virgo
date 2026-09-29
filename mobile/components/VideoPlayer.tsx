@@ -20,6 +20,7 @@ import * as Haptics from 'expo-haptics';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import { canSaveToPhotos } from '@/src/lib/photo-permission';
+import { pauseAlbumAudio } from '@/src/providers/AlbumAudioProvider';
 import {
   useVideoPlayer,
   VideoView,
@@ -176,6 +177,8 @@ export function VideoPlayer({
 
   useEffect(() => {
     const playingSub = player.addListener('playingChange', ({ isPlaying }) => {
+      // Album audio would otherwise go on under the film.
+      if (isPlaying) pauseAlbumAudio();
       setPlaying(isPlaying);
       // A paused video is a video somebody is looking at deliberately. Leave
       // the controls up rather than timing them out from under them.

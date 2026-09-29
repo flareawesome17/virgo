@@ -5,6 +5,7 @@ import { PlayIcon, Volume2Icon, VolumeXIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { clock } from '@/src/lib/media-grid';
+import { pauseAlbumAudio } from '@/src/providers/AlbumAudioProvider';
 import type { ShowcasePiece } from '@/src/api';
 
 for (const Icon of [PlayIcon, Volume2Icon, VolumeXIcon]) {
@@ -75,6 +76,7 @@ export function ShowcaseFilm({
         playable={Boolean(source)}
         controlsInset={controlsInset}
         onPress={() => {
+          pauseAlbumAudio();
           setStarted(true);
           onPlay?.();
         }}
@@ -249,6 +251,7 @@ function Film({
           if (playing) {
             player.pause();
           } else {
+            pauseAlbumAudio();
             player.play();
             onPlay?.();
           }
