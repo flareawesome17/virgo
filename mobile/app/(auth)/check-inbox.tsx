@@ -16,10 +16,14 @@ cssInterop(RefreshCwIcon, { className: { target: 'style', nativeStyleToProp: { c
 export default function CheckInboxScreen() {
   // The address comes from the sign-in attempt when verification blocked it;
   // otherwise from the session, for someone who just registered.
-  const { email: emailParam } = useLocalSearchParams<{ email?: string }>();
+  const { email: emailParam, from } = useLocalSearchParams<{ email?: string; from?: string }>();
   const { user } = useAuth();
   const demoEmail = emailParam ?? user?.email ?? 'your email';
+  // Sent by this screen's own Resend, as opposed to at sign-up.
   const [sent, setSent] = useState(false);
+  // Arriving from a blocked sign-in, nothing has just been sent: the link, if
+  // any, went out at sign-up. It used to say "we sent a link" all the same.
+  const fromSignIn = from === 'sign-in' && !sent;
 
   /**
    * This awaited a 1000ms sleep and claimed success — no email was ever sent.
@@ -31,6 +35,16 @@ export default function CheckInboxScreen() {
     mutationFn: () => authApi.requestVerification(demoEmail),
     onSuccess: () => setSent(true),
   });
+  // Said under the button either way. Resend used to change nothing on screen
+  // when it worked and nothing when it failed, so people pressed it until the
+  // rate limit stopped them without saying so.
+  const resendNote = resend.isError
+    ? resend.error instanceof Error && resend.error.message
+      ? resend.error.message
+      : 'Could not send it. Try again in a moment.'
+    : sent
+      ? 'Sent. It can take a minute — check your spam folder too.'
+      : null;
 
   const resending = resend.isPending;
   const handleResend = () => {
@@ -54,11 +68,14 @@ export default function CheckInboxScreen() {
         </View>
 
         <Text className="text-foreground text-[26px] font-extrabold tracking-tight text-center">
-          Check Your Inbox
+          {fromSignIn ? 'Confirm your email first' : 'Check Your Inbox'}
         </Text>
         <Text className="text-muted-foreground text-sm text-center mt-3 leading-relaxed px-2">
-          We sent a verification link to{' '}
+          {fromSignIn
+            ? 'Open the confirmation link we emailed to '
+            : 'We sent a verification link to '}
           <Text className="text-foreground font-semibold">{demoEmail}</Text>
+          {fromSignIn ? ' when you signed up, or send a new one below.' : ''}
         </Text>
 
         {/* Visual email card */}
@@ -69,7 +86,7 @@ export default function CheckInboxScreen() {
             </View>
             <View className="flex-1">
               <Text className="text-foreground text-sm font-bold">Verify your email</Text>
-              <Text className="text-muted-foreground text-xs mt-0.5">From: Virgo • 1 min ago</Text>
+              <Text className="text-muted-foreground text-xs mt-0.5">From: Virgo</Text>
             </View>
           </View>
           <Text className="text-muted-foreground text-xs leading-relaxed">
@@ -89,9 +106,17 @@ export default function CheckInboxScreen() {
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <RefreshCwIcon size={16} className="text-primary" />
             <Text className="text-foreground text-sm font-semibold">
-              {resending ? 'Resending...' : 'Resend Email'}
+              {resending ? 'Sending…' : fromSignIn ? 'Send a new link' : 'Resend Email'}
             </Text>
           </Pressable>
+          {resendNote && (
+            <Text
+              accessibilityLiveRegion="polite"
+              className={`text-xs text-center ${resend.isError ? 'text-destructive' : 'text-muted-foreground'}`}
+            >
+              {resendNote}
+            </Text>
+          )}
 
           <Pressable onPress={() => router.push('/sign-in')} className="py-3 items-center active:scale-[0.97]">
             <Text className="text-muted-foreground text-sm">

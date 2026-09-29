@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useTheme } from '@/src/hooks';
 import { useQuery } from '@tanstack/react-query';
@@ -86,11 +86,15 @@ export default function SignUpScreen() {
    * the register endpoint validates against, so the form cannot offer
    * something that will be rejected.
    */
-  const { data: roleList } = useQuery({
+  const rolesQuery = useQuery({
     queryKey: ['auth', 'roles'],
     queryFn: () => authApi.listRoles(),
     staleTime: Infinity,
   });
+  const roleList = rolesQuery.data;
+  // Failed or paused (offline): either way there are no chips to pick, and
+  // this step used to be a blank that could not be finished or retried.
+  const rolesFailed = !roleList && (rolesQuery.isError || rolesQuery.isPaused);
 
   // <Redirect> rather than router.replace(): navigating during render mutates
   // the navigation container mid-render and triggers React's
@@ -288,6 +292,11 @@ export default function SignUpScreen() {
                 <Text className="text-muted-foreground text-xs mb-3 ml-1">
                   Pick every one that applies. It is how the right jobs find you.
                 </Text>
+                {rolesFailed ? (
+                  <LoadFailed what="the list of roles" onRetry={() => rolesQuery.refetch()} compact />
+                ) : !roleList ? (
+                  <ActivityIndicator color="#B66A40" style={{ paddingVertical: 24 }} />
+                ) : null}
                 <View className="flex-row flex-wrap gap-2">
                   {(roleList?.data ?? []).map((role) => {
                     const on = roles.includes(role);
@@ -307,13 +316,15 @@ export default function SignUpScreen() {
                     );
                   })}
                 </View>
-                <Text
-                  className={`text-xs mt-3 ml-1 ${roles.length === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
-                >
-                  {roles.length === 0
-                    ? 'Required — choose at least one.'
-                    : `${roles.length} selected — you can change these later.`}
-                </Text>
+                {roleList && (
+                  <Text
+                    className={`text-xs mt-3 ml-1 ${roles.length === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
+                  >
+                    {roles.length === 0
+                      ? 'Required — choose at least one.'
+                      : `${roles.length} selected — you can change these later.`}
+                  </Text>
+                )}
               </View>
             )}
 
