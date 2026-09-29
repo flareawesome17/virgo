@@ -228,14 +228,20 @@ export default function ConversationScreen() {
     void buzzForMessage();
   }, [messages, user?.id]);
 
-  const isGroup = participants.length > 2;
+  /*
+   * A group is a group because the server says so, not by head count: one
+   * with two members left rendered as a direct chat — the other person's name
+   * and presence where the group should be. And the group's own name was
+   * never shown; the header said "3 people".
+   */
+  const isGroup = conversation?.isGroup ?? participants.length > 2;
   const others = useMemo(
     () => participants.filter((p) => p.id !== user?.id),
     [participants, user?.id],
   );
   const title = isGroup
-    ? `${participants.length} people`
-    : (others[0]?.name ?? 'Conversation');
+    ? conversation?.title?.trim() || `${participants.length} people`
+    : (others[0]?.name ?? conversation?.title ?? 'Conversation');
   /** Who the frozen-thread notice names. */
   const noticeName = (!isGroup ? others[0]?.name : undefined) ?? conversation?.title ?? title;
 
