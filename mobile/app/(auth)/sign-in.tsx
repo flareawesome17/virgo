@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useTheme } from '@/src/hooks';
 import { Redirect, router } from 'expo-router';
@@ -36,11 +36,11 @@ export default function SignInScreen() {
 
   const passwordRef = useRef<TextInput>(null);
 
-  const handleSignIn = () => {
+  const handleSignIn = (unpause = false) => {
     if (!canSubmit) return;
     setErrorMsg('');
     signIn.mutate(
-      { email: email.trim(), password },
+      { email: email.trim(), password, ...(unpause ? { unpause: true } : {}) },
       {
         onSuccess: (result) => {
           if ('twoFactorRequired' in result) {
@@ -64,6 +64,19 @@ export default function SignInScreen() {
               // Nothing was sent by this attempt; the screen words it so.
               params: { email: err.email ?? email.trim(), from: 'sign-in' },
             });
+            return;
+          }
+          // Paused by its owner: there was no way back before the date. Offer
+          // it here, where they have just proved it is theirs.
+          if (err?.code === 'ACCOUNT_DISABLED' && !unpause) {
+            Alert.alert(
+              'This account is paused',
+              `${err?.reason || 'You paused this account.'} Unpause it now and sign in?`,
+              [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Unpause and sign in', onPress: () => handleSignIn(true) },
+              ],
+            );
             return;
           }
           const msg = err?.reason || err?.message || 'Sign in failed. Please check your credentials.';
@@ -124,7 +137,7 @@ export default function SignInScreen() {
                   placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                   secureTextEntry={!showPassword} autoCapitalize="none"
                   textContentType="password" autoComplete="current-password" returnKeyType="go"
-                  onSubmitEditing={handleSignIn} />
+                  onSubmitEditing={() => handleSignIn()} />
                 <Pressable
                   onPress={() => setShowPassword(!showPassword)}
                   accessibilityRole="button"
@@ -153,7 +166,7 @@ export default function SignInScreen() {
         {/* Bottom */}
         <View className="px-6 pb-10 pt-4 bg-background gap-4">
           <Pressable
-            onPress={handleSignIn}
+            onPress={() => handleSignIn()}
             disabled={!canSubmit || signIn.isPending}
             accessibilityRole="button"
             accessibilityState={{ disabled: !canSubmit || signIn.isPending }}

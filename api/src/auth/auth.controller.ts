@@ -198,7 +198,7 @@ export class AuthController {
   @HttpCode(200)
   @Post('login')
   login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password);
+    return this.auth.login(dto.email, dto.password, { unpause: dto.unpause === true });
   }
 
   @Public()

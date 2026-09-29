@@ -214,12 +214,15 @@ export function useAuth() {
     mutationFn: async ({
       email,
       password,
+      unpause,
     }: {
       email: string;
       password: string;
+      /** Lift a pause of your own on the way in. */
+      unpause?: boolean;
     }) => {
       try {
-        return await authApi.login({ email, password });
+        return await authApi.login(unpause ? { email, password, unpause } : { email, password });
       } catch (err) {
         throw toAuthError(err);
       }

@@ -41,6 +41,7 @@ function serviceFor(user: UserRow) {
     revokeRefreshToken: jest.fn(async () => undefined),
     storeRefreshToken: jest.fn(async () => undefined),
     forgetPushToken: jest.fn(async () => undefined),
+    enable: jest.fn(async () => ({ ...user, disabled_until: null })),
   };
   const jwt = { signAsync: jest.fn(async () => 'access-token') };
   const config = {
@@ -137,5 +138,33 @@ describe('AuthService.forgetDevice', () => {
     expect(users.forgetPushToken).toHaveBeenCalledWith(revokedHash, 'ExponentPushToken[abc]');
     // Never the raw token: the table only holds hashes.
     expect(revokedHash).not.toBe('refresh-token');
+  });
+});
+
+describe('AuthService.login and a paused account', () => {
+  const PAUSED = { disabled_until: new Date(Date.now() + 30 * 86_400_000) };
+
+  it('refuses sign-in during a pause, as before', async () => {
+    const { service, users } = serviceFor(userWith(PAUSED));
+    await expect(service.login('mika@example.com', PASSWORD)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ACCOUNT_DISABLED' }),
+    });
+    expect(users.enable).not.toHaveBeenCalled();
+  });
+
+  // There was no way back before the date: lifting it needed a session.
+  it('lifts the pause and signs in when asked to', async () => {
+    const { service, users } = serviceFor(userWith(PAUSED));
+    const result = await service.login('mika@example.com', PASSWORD, { unpause: true });
+    expect(users.enable).toHaveBeenCalledWith('user-1');
+    expect(result).toHaveProperty('accessToken');
+  });
+
+  it('never lifts a suspension', async () => {
+    const { service, users } = serviceFor(userWith({ ...PAUSED, ...SUSPENDED }));
+    await expect(
+      service.login('mika@example.com', PASSWORD, { unpause: true }),
+    ).rejects.toEqual(suspendedRefusal);
+    expect(users.enable).not.toHaveBeenCalled();
   });
 });

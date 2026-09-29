@@ -125,7 +125,8 @@ export const authApi = {
     return api.post('/auth/request-verification', { body: { email }, anonymous: true });
   },
 
-  async login(credentials: Credentials): Promise<LoginResult> {
+  /** `unpause` lifts a pause of your own and signs in (the API checks it is only that). */
+  async login(credentials: Credentials & { unpause?: boolean }): Promise<LoginResult> {
     const result = await api.post<LoginResult>('/auth/login', {
       body: credentials,
       anonymous: true,

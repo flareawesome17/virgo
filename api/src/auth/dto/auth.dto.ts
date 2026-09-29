@@ -149,6 +149,11 @@ export class LoginDto {
   @IsString()
   @MaxLength(72)
   password!: string;
+
+  /** Lift a pause of your own and sign in. See AuthService.login. */
+  @IsOptional()
+  @IsBoolean()
+  unpause?: boolean;
 }
 
 export class CompleteTwoFactorLoginDto {

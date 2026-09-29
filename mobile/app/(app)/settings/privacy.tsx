@@ -91,7 +91,7 @@ export default function PrivacyScreen() {
           dismissClosing();
           Alert.alert(
             'Account paused',
-            `You are signed out everywhere. You can sign in again on ${disabledUntil.slice(0, 10)}.`,
+            `You are signed out everywhere. It lifts on ${disabledUntil.slice(0, 10)}, or sooner if you sign in again — you will be asked whether to unpause.`,
             [{ text: 'OK', onPress: () => router.replace('/(auth)/welcome') }],
           );
         },
@@ -445,7 +445,7 @@ export default function PrivacyScreen() {
                 </Text>
                 <Text className="text-muted-foreground text-xs mt-0.5 leading-4">
                   Sign out everywhere for a set number of days. Nothing is
-                  deleted and it comes back on its own
+                  deleted, and signing in again lifts it early
                 </Text>
               </View>
               <ChevronRightIcon size={14} className="text-muted-foreground" />
@@ -486,7 +486,7 @@ export default function PrivacyScreen() {
           </Text>
           <Text className="text-muted-foreground text-sm mt-1.5 leading-5">
             {closing === 'pause'
-              ? 'You will be signed out on every device. Nobody can message you or invite you until it lifts.'
+              ? 'You will be signed out on every device. Nobody can message you or invite you until it lifts — on the date, or when you sign in again and choose to unpause.'
               : 'Your workspaces, albums, messages and every uploaded file are erased. Share links stop working. This cannot be undone.'}
           </Text>
 
