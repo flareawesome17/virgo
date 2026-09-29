@@ -7,7 +7,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -109,6 +109,7 @@ export function VideoPlayer({
 }) {
   const { width, height } = useWindowDimensions();
   const viewRef = useRef<VideoViewType>(null);
+  const insets = useSafeAreaInsets();
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [playing, setPlaying] = useState(true);
   const [position, setPosition] = useState(0);
@@ -398,7 +399,10 @@ export function VideoPlayer({
         onPress={onExpand}
         accessibilityRole="button"
         accessibilityLabel={`${file.mediaTitle || file.originalName}, tap to expand`}
-        className="flex-row items-center gap-3 border-t border-white/10 bg-[#221d1a] px-2.5 py-2 active:opacity-90"
+        className="flex-row items-center gap-3 border-t border-white/10 bg-[#221d1a] px-2.5 pt-2 active:opacity-90"
+        // The strip is the bottom of the screen when docked (VideoSurface),
+        // and its controls sat under the iPhone's home indicator.
+        style={{ paddingBottom: 8 + insets.bottom }}
       >
         <View className="h-[34px] w-[58px] overflow-hidden rounded-md bg-black">
           <VideoView
@@ -450,8 +454,9 @@ export function VideoPlayer({
           <XIcon size={17} color="rgba(255,255,255,.55)" />
         </Pressable>
 
-        {/* The only progress a strip this size has room for. */}
-        <View className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/10">
+        {/* The only progress a strip this size has room for. Along the top
+            edge, where the home indicator cannot hide it. */}
+        <View className="absolute top-0 left-0 right-0 h-[2px] bg-white/10">
           <View
             className="h-full bg-[#C17745]"
             style={{
