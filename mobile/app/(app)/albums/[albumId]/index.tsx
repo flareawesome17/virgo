@@ -75,6 +75,7 @@ import {
   type StoredMediaKind,
 } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
+import { ActionSheet, ChoiceSheet } from '@/components/WorkspaceBits';
 import {
   DEFAULT_DENSITY,
   DENSITIES,
@@ -211,6 +212,13 @@ export default function AlbumScreen() {
   const deleteSection = useDeleteSection(albumId);
   const updateAlbum = useUpdateAlbum();
   const deleteAlbum = useDeleteAlbum();
+  // Sheets, not Alerts. An Android Alert shows three buttons at most, and the
+  // album menu had six: Set status, Delete album and Cancel were unreachable,
+  // and the dialog could not be dismissed. The section menu lost its middle.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [sectionMenuFor, setSectionMenuFor] = useState<string | null>(null);
 
   const isOwner = !!album && !!user && album.user_id === user.id;
   const canManage = isOwner || files.some((file) => file.capabilities.manage);
@@ -452,36 +460,43 @@ export default function AlbumScreen() {
   const sectionMenu = (id: string) => {
     const current = sectionsQuery.sections.find((s) => s.id === id);
     if (!current || !canManage) return;
-    const index = sectionsQuery.sections.indexOf(current);
-    const last = sectionsQuery.sections.length - 1;
     void Haptics.selectionAsync();
-    Alert.alert(current.name, plural(current.count, 'file', 'files'), [
-      { text: 'Rename', onPress: () => setNaming({ id, initial: current.name }) },
-      ...(index > 0 ? [{ text: 'Move left', onPress: () => nudgeSection(id, -1) }] : []),
-      ...(index < last ? [{ text: 'Move right', onPress: () => nudgeSection(id, 1) }] : []),
-      {
-        text: 'Delete section',
-        style: 'destructive' as const,
-        onPress: () =>
-          Alert.alert(
-            `Delete “${current.name}”?`,
-            'Only the section goes. Its files stay in the album, unsorted.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Delete',
-                style: 'destructive',
-                onPress: () =>
-                  deleteSection.mutate(id, {
-                    onError: (error) => Alert.alert('Could not delete', problem(error)),
-                  }),
-              },
-            ],
-          ),
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    setSectionMenuFor(id);
   };
+
+  const menuSection = sectionsQuery.sections.find((s) => s.id === sectionMenuFor);
+  const menuSectionIndex = menuSection ? sectionsQuery.sections.indexOf(menuSection) : -1;
+  const sectionActions = menuSection
+    ? [
+        { label: 'Rename', onPress: () => setNaming({ id: menuSection.id, initial: menuSection.name }) },
+        ...(menuSectionIndex > 0
+          ? [{ label: 'Move left', onPress: () => nudgeSection(menuSection.id, -1) }]
+          : []),
+        ...(menuSectionIndex < sectionsQuery.sections.length - 1
+          ? [{ label: 'Move right', onPress: () => nudgeSection(menuSection.id, 1) }]
+          : []),
+        {
+          label: 'Delete section',
+          destructive: true,
+          onPress: () =>
+            Alert.alert(
+              `Delete “${menuSection.name}”?`,
+              'Only the section goes. Its files stay in the album, unsorted.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: () =>
+                    deleteSection.mutate(menuSection.id, {
+                      onError: (error) => Alert.alert('Could not delete', problem(error)),
+                    }),
+                },
+              ],
+            ),
+        },
+      ]
+    : [];
 
   // ── Album menu, client link ──────────────────────────────────────────────
 
@@ -581,30 +596,33 @@ export default function AlbumScreen() {
       ],
     );
 
-  const albumMenu = () =>
-    Alert.alert(album?.name ?? 'Album', undefined, [
-      { text: 'Client link…', onPress: openLinkSheet },
-      { text: 'Turn off client link', onPress: revokeLink },
-      {
-        text: 'Choose cover',
-        onPress: () => {
-          setSelecting(true);
-          Alert.alert('Choose a cover', 'Select one photograph, then tap Cover.');
-        },
+  const albumMenu = () => setMenuOpen(true);
+
+  // Owner-only, like the server: a collaborator was offered all of these and
+  // every one came back "Album not found".
+  const albumActions = [
+    { label: 'Edit name and description', onPress: () => setEditingDetails(true) },
+    { label: 'Client link…', onPress: () => void openLinkSheet() },
+    { label: 'Turn off client link', onPress: revokeLink },
+    {
+      label: 'Choose cover',
+      onPress: () => {
+        setSelecting(true);
+        Alert.alert('Choose a cover', 'Select one photograph, then tap Cover.');
       },
+    },
+    { label: 'Set status', onPress: () => setStatusOpen(true) },
+    { label: 'Delete album', destructive: true, onPress: confirmDeleteAlbum },
+  ];
+
+  const saveDetails = (name: string, description: string) =>
+    updateAlbum.mutate(
+      { id: albumId, name, description },
       {
-        text: 'Set status',
-        onPress: () =>
-          Alert.alert('Set status', 'Where is this album in your workflow?', [
-            { text: 'Draft', onPress: () => setStatus('draft') },
-            { text: 'In review', onPress: () => setStatus('review') },
-            { text: 'Delivered', onPress: () => setStatus('delivered') },
-            { text: 'Cancel', style: 'cancel' },
-          ]),
+        onSuccess: () => setEditingDetails(false),
+        onError: (error) => Alert.alert('Could not save the album', problem(error)),
       },
-      { text: 'Delete album', style: 'destructive', onPress: confirmDeleteAlbum },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    );
 
   // ── Rendering ────────────────────────────────────────────────────────────
 
@@ -753,15 +771,17 @@ export default function AlbumScreen() {
                 {album.name}
               </Text>
             </View>
-            <Pressable
-              onPress={albumMenu}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Album options"
-              className="w-10 h-10 rounded-full bg-muted items-center justify-center active:opacity-70"
-            >
-              <MoreHorizontalIcon size={18} className="text-foreground" />
-            </Pressable>
+            {isOwner && (
+              <Pressable
+                onPress={albumMenu}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Album options"
+                className="w-10 h-10 rounded-full bg-muted items-center justify-center active:opacity-70"
+              >
+                <MoreHorizontalIcon size={18} className="text-foreground" />
+              </Pressable>
+            )}
           </View>
 
           <View className="flex-row items-center gap-2 flex-wrap">
@@ -1042,6 +1062,42 @@ export default function AlbumScreen() {
           </Pressable>
         </View>
       </Sheet>
+
+      {/* ── Album menu, status, details, section menu ── */}
+      <ActionSheet
+        visible={menuOpen}
+        title={album?.name ?? 'Album'}
+        actions={albumActions}
+        onClose={() => setMenuOpen(false)}
+      />
+      <ChoiceSheet
+        visible={statusOpen}
+        title="Set status"
+        hint="Where is this album in your workflow?"
+        options={[
+          { value: 'draft', label: 'Draft', description: 'Still shooting or editing.' },
+          { value: 'review', label: 'In review', description: 'With the client for picks or approval.' },
+          { value: 'delivered', label: 'Delivered', description: 'Finished and handed over.' },
+        ]}
+        value={(album?.status as 'draft' | 'review' | 'delivered' | undefined) ?? null}
+        onChoose={setStatus}
+        onClose={() => setStatusOpen(false)}
+      />
+      <AlbumDetailsSheet
+        key={editingDetails ? 'open' : 'closed'}
+        visible={editingDetails}
+        initialName={album?.name ?? ''}
+        initialDescription={album?.description ?? ''}
+        saving={updateAlbum.isPending}
+        onCancel={() => setEditingDetails(false)}
+        onSave={saveDetails}
+      />
+      <ActionSheet
+        visible={!!menuSection}
+        title={menuSection ? `${menuSection.name} · ${plural(menuSection.count, 'file', 'files')}` : ''}
+        actions={sectionActions}
+        onClose={() => setSectionMenuFor(null)}
+      />
 
       {/* ── Name a section ── */}
       <NameSheet
@@ -1352,6 +1408,97 @@ function NameSheet({
                 className={`flex-[2] rounded-2xl py-3.5 items-center ${ready ? 'bg-action active:opacity-85' : 'bg-muted'}`}
               >
                 <Text className={`text-base font-bold ${ready ? 'text-action-foreground' : 'text-muted-foreground'}`}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * The album's name and description. A card at the top of the screen, like
+ * NameSheet and for the same reason: the fields focus, and the keyboard would
+ * cover a bottom sheet whole.
+ *
+ * Renaming used to be impossible on the phone: the API took a new name all
+ * along, and nothing sent one.
+ */
+function AlbumDetailsSheet({
+  visible,
+  initialName,
+  initialDescription,
+  saving,
+  onCancel,
+  onSave,
+}: {
+  visible: boolean;
+  initialName: string;
+  initialDescription: string;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (name: string, description: string) => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [description, setDescription] = useState(initialDescription);
+  const insets = useSafeAreaInsets();
+  const shade = useShade();
+  const changed = name.trim() !== initialName || description.trim() !== initialDescription;
+  const ready = name.trim().length > 0 && changed && !saving;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onCancel}>
+      <View className="flex-1">
+        <Pressable
+          className="absolute inset-0"
+          style={{ backgroundColor: shade }}
+          onPress={onCancel}
+          accessibilityLabel="Cancel"
+        />
+        <View pointerEvents="box-none" className="px-4" style={{ paddingTop: insets.top + 24 }}>
+          <View className="bg-card rounded-3xl px-5 pt-5 pb-4">
+            <Text className="text-foreground text-lg font-bold mb-4" accessibilityRole="header">
+              Edit album
+            </Text>
+            <Text className="text-muted-foreground text-xs font-semibold mb-1.5 ml-1">Name</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              autoFocus
+              maxLength={200}
+              placeholder="Santos wedding"
+              returnKeyType="next"
+              accessibilityLabel="Album name"
+              className="rounded-2xl border border-input bg-background px-4 py-3.5 text-foreground text-base"
+            />
+            <Text className="text-muted-foreground text-xs font-semibold mb-1.5 ml-1 mt-4">
+              Description
+            </Text>
+            <TextInput
+              value={description}
+              onChangeText={setDescription}
+              maxLength={2000}
+              multiline
+              placeholder="Optional — the venue, the date, anything worth remembering."
+              accessibilityLabel="Album description"
+              className="rounded-2xl border border-input bg-background px-4 py-3 text-foreground text-base min-h-24 max-h-40"
+              style={{ textAlignVertical: 'top' }}
+            />
+            <View className="flex-row gap-3 mt-5">
+              <Pressable onPress={onCancel} className="flex-1 bg-muted rounded-2xl py-3.5 items-center active:opacity-70">
+                <Text className="text-foreground text-base font-semibold">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => ready && onSave(name.trim(), description.trim())}
+                disabled={!ready}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !ready }}
+                className={`flex-[2] rounded-2xl py-3.5 items-center ${ready ? 'bg-action active:opacity-85' : 'bg-muted'}`}
+              >
+                <Text className={`text-base font-bold ${ready ? 'text-action-foreground' : 'text-muted-foreground'}`}>
+                  {saving ? 'Saving…' : 'Save'}
+                </Text>
               </Pressable>
             </View>
           </View>
