@@ -342,14 +342,29 @@ function JobRow({ job }: { job: JobPost }) {
           )}
         </Pressable>
 
+        {/* The poster's controls were bare 12pt words, a few points tall —
+            easy to miss, and easy to hit the wrong one of. Each is a full
+            44pt target now. */}
         {job.status === 'open' ? (
-          <View className="ml-auto flex-row items-center gap-4">
-            <Pressable disabled={setStatus.isPending} onPress={() => end('filled')}>
+          <View className="ml-auto flex-row items-center gap-1">
+            <Pressable
+              disabled={setStatus.isPending}
+              onPress={() => end('filled')}
+              accessibilityRole="button"
+              hitSlop={4}
+              className="min-h-11 justify-center px-2.5 active:opacity-60"
+            >
               <Text className="text-muted-foreground text-[12px] font-semibold">
                 Mark filled
               </Text>
             </Pressable>
-            <Pressable disabled={setStatus.isPending} onPress={() => end('closed')}>
+            <Pressable
+              disabled={setStatus.isPending}
+              onPress={() => end('closed')}
+              accessibilityRole="button"
+              hitSlop={4}
+              className="min-h-11 justify-center px-2.5 active:opacity-60"
+            >
               <Text className="text-muted-foreground text-[12px] font-semibold">
                 Close
               </Text>
@@ -359,7 +374,9 @@ function JobRow({ job }: { job: JobPost }) {
           /* Reopening was never offered, so a misclicked "Mark filled" was
              irreversible from the UI even though the API allows it. */
           <Pressable
-            className="ml-auto"
+            className="ml-auto min-h-11 justify-center px-2.5 active:opacity-60"
+            accessibilityRole="button"
+            hitSlop={4}
             disabled={setStatus.isPending}
             onPress={() =>
               setStatus.mutate({ id: job.id, status: 'open' }, {
@@ -494,9 +511,10 @@ function Applicants({ postId }: { postId: string }) {
           {app.status !== 'accepted' && app.status !== 'declined' && (
             <View className="flex-row items-center gap-2">
               <Pressable
-                className="rounded-lg px-3 py-2 flex-row items-center gap-1.5"
+                className="rounded-lg px-3 min-h-11 flex-row items-center gap-1.5"
                 style={{ backgroundColor: '#B66A40' }}
                 disabled={respond.isPending}
+                accessibilityRole="button"
                 onPress={() => answer(app.id, 'accepted')}
               >
                 {acting === app.id
@@ -506,8 +524,9 @@ function Applicants({ postId }: { postId: string }) {
               </Pressable>
               {app.status !== 'shortlisted' && (
                 <Pressable
-                  className="flex-row items-center gap-1.5"
+                  className="min-h-11 px-2.5 flex-row items-center gap-1.5 active:opacity-60"
                   disabled={respond.isPending}
+                  accessibilityRole="button"
                   onPress={() => answer(app.id, 'shortlisted')}
                 >
                   <StarIcon size={13} className="text-muted-foreground" />
@@ -515,8 +534,9 @@ function Applicants({ postId }: { postId: string }) {
                 </Pressable>
               )}
               <Pressable
-                className="flex-row items-center gap-1.5 ml-auto"
+                className="min-h-11 px-2.5 flex-row items-center gap-1.5 ml-auto active:opacity-60"
                 disabled={respond.isPending}
+                accessibilityRole="button"
                 onPress={() => answer(app.id, 'declined')}
               >
                 <XIcon size={13} className="text-muted-foreground" />
