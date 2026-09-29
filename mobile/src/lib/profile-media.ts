@@ -158,6 +158,10 @@ export type ProfileAction =
   | 'message'
   | 'showcase'
   | 'unshowcase'
+  | 'comment'
+  | 'shelf'
+  | 'keep'
+  | 'report'
   | 'reorder';
 
 const ACTION_COPY: Record<ProfileAction, string> = {
@@ -167,8 +171,15 @@ const ACTION_COPY: Record<ProfileAction, string> = {
   connect: "Couldn't send the request. Try again.",
   accept: "Couldn't accept the request. Try again.",
   message: "Couldn't open the chat. Try again.",
-  showcase: "Couldn't add that to your portfolio. Try again.",
+  // 'showcase' was once the portfolio, and posting, commenting, keeping and
+  // reporting all borrowed it — so every one of them apologised for not
+  // adding something to a portfolio.
+  showcase: "Couldn't post that. Try again.",
   unshowcase: "Couldn't remove that. Try again.",
+  comment: "Couldn't post your comment. Try again.",
+  shelf: "Couldn't make that shelf. Try again.",
+  keep: "Couldn't keep it. Try again.",
+  report: "Couldn't send the report. Try again.",
   reorder: "Couldn't save the new order. Try again.",
 };
 
@@ -241,5 +252,8 @@ export function profileActionMessage(err: unknown, action: ProfileAction): strin
   }
   if (status === 429) return "You're doing that a lot. Wait a moment and try again.";
   if (action === 'connect' && status === 404) return "This profile isn't available any more.";
+  if ((action === 'comment' || action === 'keep' || action === 'report') && status === 404) {
+    return "This showcase isn't available any more.";
+  }
   return ACTION_COPY[action];
 }

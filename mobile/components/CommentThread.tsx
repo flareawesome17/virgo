@@ -50,7 +50,7 @@ export function CommentThread({
       // typed is the version of this people rewrite from memory.
       onSuccess: () => setDraft(''),
       onError: (error) =>
-        Alert.alert("Couldn't post that", profileActionMessage(error, 'showcase')),
+        Alert.alert("Couldn't post that", profileActionMessage(error, 'comment')),
     });
   };
 
