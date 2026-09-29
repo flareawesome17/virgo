@@ -80,7 +80,8 @@ export const queryClient = new QueryClient({
  */
 // v4: showcases gained unpublishedAt, and a maker's handle can now be null for
 // an unpublished profile.
-const CACHE_VERSION = 'v4-showcases-unpublished-at';
+// v5: the job board is paged, and a saved board has no pages.
+const CACHE_VERSION = 'v5-jobs-paged';
 
 /**
  * Queries never written to disk, whatever their staleTime says.
