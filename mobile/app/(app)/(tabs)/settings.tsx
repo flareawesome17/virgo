@@ -322,9 +322,15 @@ function AppHalf() {
   const rateVirgo = async () => {
     try {
       const storeUrl = StoreReview.storeUrl();
-      if (storeUrl && await Linking.canOpenURL(storeUrl)) {
-        await Linking.openURL(storeUrl);
-        return;
+      // Tried, not asked about: see help.tsx — canOpenURL says no on Android
+      // 11+ for anything the manifest does not declare.
+      if (storeUrl) {
+        try {
+          await Linking.openURL(storeUrl);
+          return;
+        } catch {
+          // Fall through to the in-app review.
+        }
       }
       if (await StoreReview.isAvailableAsync()) {
         await StoreReview.requestReview();

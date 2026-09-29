@@ -192,9 +192,11 @@ export default function HelpScreen() {
     const subject = encodeURIComponent('Virgo support');
     const body = encodeURIComponent(`\n\n---\n${diagnostics}\n`);
     const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+    // Opened directly, not asked about first: on Android 11 and later
+    // canOpenURL answers no for mailto unless the app declares it in its
+    // manifest, which this one does not — so everyone with a mail app was told
+    // they had none. openURL rejects when there really is nothing to open it.
     try {
-      const can = await Linking.canOpenURL(url);
-      if (!can) throw new Error('no mail client');
       await Linking.openURL(url);
     } catch {
       // A device with no mail app should still be able to reach support.
