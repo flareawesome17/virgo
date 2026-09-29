@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import {
   useOpenTicket,
   useReplyToTicket,
@@ -40,12 +41,13 @@ const STATUS_LABEL: Record<string, string> = {
  * request people cannot see the state of gets sent three more times.
  *
  * One screen holding both the list and the open thread, rather than a second
- * route. The thread is only ever reached from the list, so going back from it
- * — the header's arrow or Android's back button — returns to the list rather
- * than leaving Support.
+ * route. Going back from a thread — the header's arrow or Android's back
+ * button — returns to the list rather than leaving Support. A "support
+ * replied" notification opens straight onto its thread (`?ticket=`).
  */
 export default function SupportScreen() {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const { ticket } = useLocalSearchParams<{ ticket?: string }>();
+  const [openId, setOpenId] = useState<string | null>(ticket ?? null);
 
   useEffect(() => {
     if (!openId) return;

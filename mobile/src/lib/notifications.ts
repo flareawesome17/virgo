@@ -531,6 +531,10 @@ export interface NotificationPayload {
     | 'client_picks'
     /** An update announcement for this app. */
     | 'app-update'
+    | 'booking'
+    | 'support_reply'
+    | 'billing'
+    | 'retention'
     | string;
   conversationId?: string;
   albumId?: string;
@@ -538,6 +542,11 @@ export interface NotificationPayload {
   eventId?: string;
   workspaceId?: string;
   fromUserId?: string;
+  bookingId?: string;
+  /** For 'support_reply': the request that was answered. */
+  ticketId?: string;
+  /** A reward; sent with no type at all. */
+  promoId?: string;
   /** For 'app-update': the announcement, and what to open from it. */
   updateId?: string;
   url?: string;
