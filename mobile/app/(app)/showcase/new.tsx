@@ -13,12 +13,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { CheckIcon, PlayIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { LoadFailed } from '@/components/LoadFailed';
-import { kindOf, useShowcaseActions, useTheme } from '@/src/hooks';
+import {
+  albumFilesQueryKey,
+  kindOf,
+  useAlbums,
+  useShowcaseActions,
+  useTheme,
+} from '@/src/hooks';
 import { clock } from '@/src/lib/media-grid';
 import { MAX_CRAFT_TAGS, MAX_SHOWCASE_ITEMS, storageApi } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
@@ -57,9 +63,21 @@ export default function NewShowcaseScreen() {
   const [tags, setTags] = useState<string[]>([]);
   const [allowComments, setAllowComments] = useState(true);
 
-  const files = useQuery({
-    queryKey: ['storage', 'files', 'showcase-picker'],
-    queryFn: () => storageApi.listFiles({ limit: 200 }),
+  /*
+   * Everything, a page at a time, or one album.
+   *
+   * This asked for 200 in one request, which the server clamps to 100, newest
+   * first — so most of a working photographer's library could never be posted.
+   * The key is the album screens' own, so a page already loaded there is not
+   * fetched twice.
+   */
+  const [albumId, setAlbumId] = useState<string | undefined>(undefined);
+  const { albums } = useAlbums({ orderBy: 'created_at', direction: 'desc', limit: 100 });
+  const files = useInfiniteQuery({
+    queryKey: albumFilesQueryKey(albumId),
+    queryFn: ({ pageParam }) => storageApi.listFiles({ albumId, cursor: pageParam, limit: 100 }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 
   /**
@@ -73,7 +91,7 @@ export default function NewShowcaseScreen() {
    */
   const available = useMemo(
     () =>
-      (files.data?.data ?? []).filter((f) => {
+      (files.data?.pages.flatMap((page) => page.data) ?? []).filter((f) => {
         if (PROFILE_PICTURE_KEY.test(f.key)) return false;
         const kind = kindOf(f.contentType);
         if (kind === 'image') return Boolean(f.url);
@@ -172,6 +190,36 @@ export default function NewShowcaseScreen() {
             </Text>
           </View>
 
+          {/* Where to look. What is chosen stays chosen across albums. */}
+          {albums.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingTop: 12 }}
+            >
+              {[{ id: undefined, name: 'All uploads' }, ...albums].map((album) => {
+                const on = album.id === albumId;
+                return (
+                  <Pressable
+                    key={album.id ?? 'all'}
+                    onPress={() => setAlbumId(album.id)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    className={`min-h-9 px-3.5 rounded-full items-center justify-center ${on ? 'bg-action' : 'bg-secondary'}`}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      className={`text-[12px] font-bold ${on ? 'text-action-foreground' : 'text-secondary-foreground'}`}
+                      style={{ maxWidth: 160 }}
+                    >
+                      {album.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+
           {files.isLoading ? (
             <View className="py-10 items-center">
               <ActivityIndicator color={palette.primary} />
@@ -180,6 +228,11 @@ export default function NewShowcaseScreen() {
             <View className="px-5 pt-3">
               <LoadFailed what="your work" onRetry={() => files.refetch()} compact />
             </View>
+          ) : available.length === 0 && albumId ? (
+            <Text className="px-8 pt-8 text-muted-foreground text-[13px] text-center leading-5">
+              Nothing in this album can be posted yet. Photographs show here once they are
+              uploaded, and films once their preview is ready.
+            </Text>
           ) : available.length === 0 ? (
             <View className="px-8 pt-8 items-center gap-4">
               <Text className="text-muted-foreground text-[13px] text-center leading-5">
@@ -268,6 +321,22 @@ export default function NewShowcaseScreen() {
                   );
                 })}
               </View>
+              {files.hasNextPage && (
+                <Pressable
+                  onPress={() => void files.fetchNextPage()}
+                  disabled={files.isFetchingNextPage}
+                  accessibilityRole="button"
+                  className="mx-5 mt-3 min-h-11 rounded-xl bg-secondary items-center justify-center active:opacity-80"
+                >
+                  {files.isFetchingNextPage ? (
+                    <ActivityIndicator color={palette.primary} />
+                  ) : (
+                    <Text className="text-secondary-foreground text-[13px] font-bold">
+                      Show more
+                    </Text>
+                  )}
+                </Pressable>
+              )}
             </>
           )}
 
