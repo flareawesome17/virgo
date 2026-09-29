@@ -319,6 +319,29 @@ export default function PhotoViewerScreen() {
     }
   }, [currentIndex, photos.length]);
 
+  /**
+   * Where to land once a removal has been refetched.
+   *
+   * By key, because the list shifts under the pager. Removing the third of
+   * five left the pager on what had been the fourth while the index stepped
+   * back to the second — so the next Remove deleted a photograph nobody was
+   * looking at. Applied only once the removed one is gone from the list: the
+   * neighbour's index changes with it.
+   */
+  const landAfterRemove = useRef<{ removed: string; next: string; index: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    const pending = landAfterRemove.current;
+    if (!pending || photos.some((p) => p.key === pending.removed)) return;
+    landAfterRemove.current = null;
+    const found = photos.findIndex((p) => p.key === pending.next);
+    const at = found >= 0 ? found : Math.min(pending.index, photos.length - 1);
+    if (at < 0) return;
+    setCurrentIndex(at);
+    pager.current?.scrollToIndex({ index: at, animated: false });
+  }, [photos]);
+
   const goTo = useCallback((index: number) => {
     setCurrentIndex(index);
     setShowInfo(false);
@@ -378,13 +401,22 @@ export default function PhotoViewerScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
+            const at = photos.findIndex((p) => p.key === photo.key);
+            // The one after it, as a gallery does; the one before if it was last.
+            const neighbour = photos[at + 1] ?? photos[at - 1] ?? null;
             try {
               await storageApi.remove(photo.key);
+              if (neighbour) {
+                landAfterRemove.current = {
+                  removed: photo.key,
+                  next: neighbour.key,
+                  index: Math.max(at, 0),
+                };
+              }
               await queryClient.invalidateQueries({
                 queryKey: ['storage', 'files', albumId],
               });
-              if (photos.length <= 1) router.back();
-              else setCurrentIndex((value) => Math.max(0, value - 1));
+              if (!neighbour) router.back();
             } catch (error) {
               Alert.alert(
                 'Could not remove photo',
