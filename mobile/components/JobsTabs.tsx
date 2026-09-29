@@ -14,6 +14,7 @@ import {
   useRespondToApplication,
   usePendingApplicants,
   useSetJobStatus,
+  useWithdrawApplication,
 } from '@/src/hooks';
 import { useChrome } from '@/src/providers/ChromeProvider';
 import { budgetLabel, isRoleFilled, type JobApplication, type JobPost } from '@/src/api';
@@ -599,9 +600,30 @@ function Applicants({ postId }: { postId: string }) {
 function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => void }) {
   const chrome = useChrome();
   const { applications, isLoading, loadFailed, refetch } = useMyApplications();
+  const withdraw = useWithdrawApplication();
   // Every other tab pulls to refresh; this one did not, which reads as broken
   // on the screen most likely to be checked repeatedly for an answer.
   const [refreshing, setRefreshing] = useState(false);
+
+  const confirmWithdraw = (app: JobApplication) =>
+    Alert.alert(
+      'Withdraw this application?',
+      `${app.postTitle} will no longer show you as an applicant. You can apply again while it is open.`,
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Withdraw',
+          style: 'destructive',
+          onPress: () => {
+            // mutateAsync, not per-call callbacks: those are dropped if the
+            // tab unmounts before the answer lands, and a failure would vanish.
+            withdraw.mutateAsync(app.id).catch((e: Error) =>
+              Alert.alert('Could not withdraw it', e.message),
+            );
+          },
+        },
+      ],
+    );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -684,6 +706,20 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
 
             {app.message && (
               <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
+            )}
+
+            {unanswered && !postGone && (
+              <Pressable
+                className="self-start py-1"
+                hitSlop={8}
+                accessibilityRole="button"
+                disabled={withdraw.isPending && withdraw.variables === app.id}
+                onPress={() => confirmWithdraw(app)}
+              >
+                <Text className="text-muted-foreground text-[12px] font-semibold">
+                  {withdraw.isPending && withdraw.variables === app.id ? 'Withdrawing…' : 'Withdraw'}
+                </Text>
+              </Pressable>
             )}
 
             {app.status === 'accepted' && <BookingLink applicationId={app.id} />}

@@ -285,6 +285,11 @@ export const jobsApi = {
     return api.post(`/jobs/applications/${applicationId}/respond`, { body: { status } });
   },
 
+  /** Takes back one of your own that has not been decided on. */
+  withdraw(applicationId: string): Promise<{ withdrawn: true }> {
+    return api.delete(`/jobs/applications/${applicationId}`);
+  },
+
   report(postId: string, reason: ReportReason, note?: string): Promise<{ reported: boolean }> {
     return api.post(`/jobs/${postId}/report`, { body: { reason, note } });
   },

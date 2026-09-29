@@ -235,6 +235,22 @@ export function useRespondToApplication() {
 }
 
 /**
+ * Taking back an application the poster has not answered yet.
+ *
+ * The post carries your applications (`myApplications`) as well as the list
+ * of them, so the whole jobs tree is stale, not just one query.
+ */
+export function useWithdrawApplication() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => jobsApi.withdraw(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+    },
+  });
+}
+
+/**
  * The Jobs badge: postings you have not seen, plus applications waiting on you.
  *
  * `total` is what the nav shows. It has to include both, because an
