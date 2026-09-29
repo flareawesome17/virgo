@@ -80,7 +80,8 @@ export default function ForgotPasswordScreen() {
                   <MailIcon size={16} className="text-muted-foreground" />
                   <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
                     placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
-                    keyboardType="email-address" autoCapitalize="none" autoFocus />
+                    keyboardType="email-address" autoCapitalize="none" autoFocus
+                    autoCorrect={false} textContentType="username" autoComplete="email" />
                 </View>
               </View>
 

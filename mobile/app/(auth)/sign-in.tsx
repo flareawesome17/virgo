@@ -2,7 +2,7 @@ import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Pla
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useTheme } from '@/src/hooks';
 import { Redirect, router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ArrowLeftIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
 } from 'lucide-react-native';
@@ -34,6 +34,8 @@ export default function SignInScreen() {
 
   const canSubmit = email.trim().length > 0 && password.length > 0;
 
+  const passwordRef = useRef<TextInput>(null);
+
   const handleSignIn = () => {
     if (!canSubmit) return;
     setErrorMsg('');
@@ -59,7 +61,8 @@ export default function SignInScreen() {
           if (err?.code === 'EMAIL_NOT_VERIFIED') {
             router.push({
               pathname: '/check-inbox',
-              params: { email: err.email ?? email.trim() },
+              // Nothing was sent by this attempt; the screen words it so.
+              params: { email: err.email ?? email.trim(), from: 'sign-in' },
             });
             return;
           }
@@ -106,7 +109,9 @@ export default function SignInScreen() {
                 <MailIcon size={16} className="text-muted-foreground" />
                 <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
                   placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                  keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+                  keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
+                  textContentType="username" autoComplete="email" returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()} submitBehavior="submit" />
               </View>
             </View>
 
@@ -115,9 +120,11 @@ export default function SignInScreen() {
               <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Password</Text>
               <View className="bg-secondary rounded-xl px-4 py-3.5 flex-row items-center gap-3">
                 <LockIcon size={16} className="text-muted-foreground" />
-                <TextInput value={password} onChangeText={setPassword} placeholder="Your password"
+                <TextInput ref={passwordRef} value={password} onChangeText={setPassword} placeholder="Your password"
                   placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                  secureTextEntry={!showPassword} autoCapitalize="none" />
+                  secureTextEntry={!showPassword} autoCapitalize="none"
+                  textContentType="password" autoComplete="current-password" returnKeyType="go"
+                  onSubmitEditing={handleSignIn} />
                 <Pressable
                   onPress={() => setShowPassword(!showPassword)}
                   accessibilityRole="button"

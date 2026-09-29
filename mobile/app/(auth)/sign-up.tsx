@@ -223,19 +223,23 @@ export default function SignUpScreen() {
               <>
                 <Field label="Full Name" icon={<UserIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={name} onChangeText={setName} placeholder="Your name"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" autoCapitalize="words" />
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" autoCapitalize="words"
+                    textContentType="name" autoComplete="name" />
                 </Field>
 
                 <Field label="Email" icon={<MailIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+                    keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
+                    textContentType="username" autoComplete="email" />
                 </Field>
 
                 <Field label="Password" icon={<LockIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={password} onChangeText={setPassword} placeholder="Min. 8 characters"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    secureTextEntry={!showPassword} autoCapitalize="none" />
+                    secureTextEntry={!showPassword} autoCapitalize="none"
+                    textContentType="newPassword" autoComplete="new-password"
+                    passwordRules="minlength: 8;" />
                   <Pressable
                     onPress={() => setShowPassword(!showPassword)}
                     accessibilityRole="button"
@@ -256,7 +260,8 @@ export default function SignUpScreen() {
                 >
                   <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Re-enter password"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    secureTextEntry={!showPassword} autoCapitalize="none" />
+                    secureTextEntry={!showPassword} autoCapitalize="none"
+                    textContentType="newPassword" autoComplete="new-password" />
                 </Field>
 
                 {/* On the first step rather than with the other optional fields
