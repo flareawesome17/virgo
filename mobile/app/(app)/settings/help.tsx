@@ -141,7 +141,7 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
       },
       {
         q: 'How do I delete everything I have uploaded?',
-        a: 'Settings, Sync & Storage, then Wipe cloud data. It asks you to type DELETE first because it cannot be undone.',
+        a: 'Settings, Storage & plan, Sync & Storage, then Wipe cloud data. It asks you to type DELETE first because it cannot be undone.',
         route: '/settings/sync',
         routeLabel: 'Open Sync & Storage',
       },
