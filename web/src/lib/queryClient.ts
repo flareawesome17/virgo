@@ -71,10 +71,14 @@ export const queryClient = new QueryClient({
  * the whole persisted cache away on next launch.
  */
 /*
- * Bumped for the workspaces redesign: a workspace now carries who owns it,
- * its members and its activity, and screens read those without a fallback.
+ * Bumped for showcases: the payload gained a maker (the byline), a like count,
+ * a comment count, and pieces that say whether they are a photograph or a
+ * film. It had not been touched since the workspaces redesign, so phones were
+ * drawing showcases saved before any of that — and a byline read off one of
+ * them threw, which took the whole app down until the screen learned to catch
+ * it. Bump this in the same commit as a payload change, not after one.
  */
-const CACHE_VERSION = 'v2-workspaces-redesign';
+const CACHE_VERSION = 'v3-showcases-maker-and-film';
 
 /**
  * Queries never written to disk, whatever their staleTime says.

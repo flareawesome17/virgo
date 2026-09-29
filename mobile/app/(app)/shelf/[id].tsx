@@ -6,6 +6,7 @@ import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { useShelfEntries, useTheme } from '@/src/hooks';
+import { makerOf } from '@/src/api';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [ArrowLeftIcon, BookmarkIcon]) {
@@ -81,18 +82,18 @@ export default function ShelfScreen() {
               <View className="flex-row items-center gap-2 mt-2">
                 <View className="w-6 h-6 rounded-full bg-primary/15 items-center justify-center">
                   <Text className="text-primary text-[10px] font-bold">
-                    {entry.maker.displayName.charAt(0).toUpperCase()}
+                    {makerOf(entry).displayName.charAt(0).toUpperCase()}
                   </Text>
                 </View>
                 <Pressable
                   onPress={() =>
-                    entry.maker.handle ? router.push(`/u/${entry.maker.handle}`) : undefined
+                    makerOf(entry).handle ? router.push(`/u/${makerOf(entry).handle}`) : undefined
                   }
                   accessibilityRole="button"
                   className="flex-1 min-w-0"
                 >
                   <Text className="text-foreground text-[12px] font-bold" numberOfLines={1}>
-                    {entry.maker.displayName}
+                    {makerOf(entry).displayName}
                   </Text>
                 </Pressable>
                 {entry.craftTags.length > 0 && (

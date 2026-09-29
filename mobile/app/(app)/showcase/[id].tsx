@@ -24,6 +24,7 @@ import { ShowcaseFilm } from '@/components/ShowcaseFilm';
 import { KeepSheet } from '@/components/KeepSheet';
 import { CommentThread } from '@/components/CommentThread';
 import { useAuth, useLike, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
+import { makerOf } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
@@ -100,6 +101,8 @@ export default function ShowcaseScreen() {
   const [keeping, setKeeping] = useState(false);
   const { setPublished, remove } = useShowcaseActions();
   const mine = Boolean(showcase && user && showcase.userId === user.id);
+  // Never read straight off the payload: see makerOf.
+  const maker = makerOf(showcase);
 
   const confirmDelete = () => {
     if (!showcase) return;
@@ -214,36 +217,36 @@ export default function ShowcaseScreen() {
           <View className="px-5 pt-4 flex-row items-center gap-2.5">
             <Pressable
               onPress={() =>
-                showcase.maker.handle ? router.push(`/u/${showcase.maker.handle}`) : undefined
+                maker.handle ? router.push(`/u/${maker.handle}`) : undefined
               }
               accessibilityRole="button"
-              accessibilityLabel={`${showcase.maker.displayName}'s profile`}
+              accessibilityLabel={`${maker.displayName}'s profile`}
               className="w-10 h-10 rounded-full overflow-hidden bg-primary/15 items-center justify-center"
             >
-              {showcase.maker.avatarUrl ? (
+              {maker.avatarUrl ? (
                 <RemoteImage
-                  source={{ uri: showcase.maker.avatarUrl }}
+                  source={{ uri: maker.avatarUrl }}
                   style={{ width: 40, height: 40 }}
                 />
               ) : (
                 <Text className="text-primary text-[15px] font-bold">
-                  {showcase.maker.displayName.charAt(0).toUpperCase()}
+                  {maker.displayName.charAt(0).toUpperCase()}
                 </Text>
               )}
             </Pressable>
             <View className="flex-1 min-w-0">
               <Text className="text-foreground text-[14px] font-bold" numberOfLines={1}>
-                {showcase.maker.displayName}
+                {maker.displayName}
               </Text>
-              {showcase.maker.title ? (
+              {maker.title ? (
                 <Text className="text-muted-foreground text-[11px]" numberOfLines={1}>
-                  {showcase.maker.title}
+                  {maker.title}
                 </Text>
               ) : null}
             </View>
-            {showcase.showHire && showcase.maker.handle && !mine && (
+            {showcase.showHire && maker.handle && !mine && (
               <Pressable
-                onPress={() => router.push(`/hire/${showcase.maker.handle}`)}
+                onPress={() => router.push(`/hire/${maker.handle}`)}
                 accessibilityRole="button"
                 className="min-h-9 px-3.5 rounded-full bg-action items-center justify-center active:opacity-90"
               >

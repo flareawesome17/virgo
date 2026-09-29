@@ -239,6 +239,8 @@ export {
   shelvesApi,
   MAX_SHOWCASE_ITEMS,
   MAX_CRAFT_TAGS,
+  UNKNOWN_MAKER,
+  makerOf,
   type Showcase,
   type ShowcasePiece,
   type FeedItem,

@@ -79,6 +79,37 @@ export interface FeedItem extends Showcase {
  */
 export type ShowcaseDetail = FeedItem;
 
+/**
+ * Somebody to name when the payload has no maker on it.
+ *
+ * The query cache is persisted, so a showcase saved before the byline existed
+ * comes back off disk without one and is rendered before the refetch that
+ * would replace it lands. `CACHE_VERSION` is what stops that happening, and
+ * this is what stops it being fatal when it does: a byline reading "Someone"
+ * for a moment is a blemish, and the alternative was the screen throwing.
+ */
+export const UNKNOWN_MAKER: FeedMaker = {
+  id: '',
+  displayName: 'Someone',
+  handle: null,
+  avatarUrl: null,
+  title: null,
+};
+
+/**
+ * The maker of a showcase, or somebody to name in their place.
+ *
+ * Generic over the maker, because a shelf entry carries a narrower one than a
+ * feed item does and both want the same guard. What comes back always has an
+ * id, a name and a handle, which is every field a caller reads without first
+ * knowing which of the two it has.
+ */
+export function makerOf<M extends { id: string; displayName: string; handle: string | null }>(
+  item: { maker?: M | null } | null | undefined,
+): M | FeedMaker {
+  return item?.maker ?? UNKNOWN_MAKER;
+}
+
 export interface FeedPage {
   items: FeedItem[];
   nextCursor: string | null;
