@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type ErrorBoundaryProps } from 'expo-router';
 import {
   ArrowLeftIcon,
   BookmarkIcon,
@@ -29,6 +29,57 @@ import { PALETTES } from '@/theme';
 
 for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeOffIcon, HeartIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
+
+/**
+ * What this screen does instead of taking the app down with it.
+ *
+ * expo-router renders this in place of the route when its tree throws. Without
+ * it a render error here is fatal to the whole app, which is what opening a
+ * showcase was doing — and a release build says nothing on the way out, so the
+ * one fact that would have identified it never reached anybody.
+ *
+ * The house rule is not to show people raw error text, and this is the one
+ * place it earns its keep: the alternative is not a gentler message, it is the
+ * app disappearing. So the plain sentence comes first and the technical line
+ * sits under it, marked as something to send on rather than something to read.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <SafeAreaView edges={['top']} className="flex-1 bg-background px-8 justify-center">
+      <Text className="text-foreground text-[17px] font-bold">This showcase would not open</Text>
+      <Text className="text-muted-foreground text-[13px] leading-5 mt-2">
+        Something went wrong drawing it. Nothing is lost — the post is still there, and
+        everything else in the app still works.
+      </Text>
+
+      <View className="mt-5 rounded-xl bg-card p-4">
+        <Text className="text-primary text-[10px] font-bold tracking-[1.5px]">
+          WHAT WENT WRONG
+        </Text>
+        <Text className="text-muted-foreground text-[12px] leading-[18px] mt-2" selectable>
+          {error.message || 'No message'}
+        </Text>
+      </View>
+
+      <View className="flex-row gap-2.5 mt-6">
+        <Pressable
+          onPress={() => void retry()}
+          accessibilityRole="button"
+          className="flex-1 min-h-11 rounded-xl bg-action items-center justify-center active:opacity-90"
+        >
+          <Text className="text-action-foreground text-[13px] font-bold">Try again</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          className="flex-1 min-h-11 rounded-xl border border-border items-center justify-center active:opacity-70"
+        >
+          <Text className="text-foreground text-[13px] font-bold">Go back</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
 }
 
 /**
