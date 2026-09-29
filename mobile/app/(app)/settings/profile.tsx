@@ -354,7 +354,7 @@ export default function ProfileSettingsScreen() {
             </View>
           </View>
           <FieldRow icon={PhoneIcon} label="Phone" value={phone} onChange={setPhone} color="#6B8E4E" keyboardType="phone-pad" maxLength={40} />
-          <FieldRow icon={GlobeIcon} label="Website" value={website} onChange={setWebsite} color="#5B7B9A" maxLength={255} />
+          <FieldRow icon={GlobeIcon} label="Website" value={website} onChange={setWebsite} color="#5B7B9A" maxLength={255} autoCapitalize="none" keyboardType="url" />
           {/* Both collected at sign-up and both optional there, so they are
               optional here too — plenty of people freelance under the name on
               their passport. */}
@@ -364,7 +364,7 @@ export default function ProfileSettingsScreen() {
               Private unless Show studio on profile is on.
             </Text>
           </View>
-          <FieldRow icon={AtSignIcon} label="Social" value={socialHandle} onChange={setSocialHandle} color="#5B7B9A" maxLength={200} />
+          <FieldRow icon={AtSignIcon} label="Social" value={socialHandle} onChange={setSocialHandle} color="#5B7B9A" maxLength={200} autoCapitalize="none" />
           <FieldRow icon={MapPinIcon} label="Location" value={location} onChange={setLocation} color="#C17745" maxLength={160} />
 
           {/* Bio */}
@@ -463,7 +463,7 @@ export default function ProfileSettingsScreen() {
           {/* Optional on purpose, as at sign-up: plenty of Philippine
               addresses have no ZIP. */}
           <FieldRow icon={HashIcon} label="Postal Code · optional" value={postal} onChange={setPostal} color="#6B8E4E" keyboardType="number-pad" maxLength={20} />
-          <FieldRow icon={GlobeIcon} label="Country" value={country} onChange={(v) => setCountry(v.toUpperCase())} color="#5B7B9A" maxLength={2} />
+          <FieldRow icon={GlobeIcon} label="Country" value={country} onChange={(v) => setCountry(v.toUpperCase())} color="#5B7B9A" maxLength={2} autoCapitalize="characters" />
 
           {addressMissing.length > 0 && (
             <Text style={{ color: '#C4776A' }} className="text-xs ml-1 leading-4">
@@ -543,10 +543,17 @@ function FlagCard({
 function FieldRow({
   icon: IconComp, label, value, onChange, color, keyboardType, maxLength,
   placeholder,
+  autoCapitalize = 'words',
 }: {
   icon: LucideIcon; label: string; value: string;
   onChange: (v: string) => void; color: string; keyboardType?: string;
   maxLength?: number;
+  /**
+   * Words by default: every field here was "none", so a name, a city or a
+   * studio came out lower case unless typed otherwise. Links and handles pass
+   * "none"; the country code passes "characters".
+   */
+  autoCapitalize?: 'none' | 'words' | 'sentences' | 'characters';
   /** Shown when the field is empty. Used by Title to suggest the roles. */
   placeholder?: string;
 }) {
@@ -570,7 +577,7 @@ function FieldRow({
           className="text-foreground text-sm flex-1"
           keyboardType={keyboardType as any}
           maxLength={maxLength}
-          autoCapitalize="none"
+          autoCapitalize={autoCapitalize}
         />
       </View>
     </View>
