@@ -120,10 +120,10 @@ function ProgressBar({ fraction, status }: { fraction: number; status: ItemStatu
 /**
  * One file in the running queue, with what can still be done about it.
  *
- * A file already sending cannot be stopped from here — the transfer runs
- * natively — so it offers nothing; everything else can be removed, and a
- * failure can be tried again. The reason for a failure is shown in full: it is
- * usually something the person can fix (no space left, a file that has gone).
+ * Anything not finished can be removed — a file already sending is stopped —
+ * and a failure can be tried again. The reason for a failure is shown in full:
+ * it is usually something the person can fix (no space left, a file that has
+ * gone).
  */
 function QueueRow({
   task,
@@ -163,9 +163,20 @@ function QueueRow({
         {task.status === 'done' ? (
           <CheckCircleIcon size={18} className="text-[#6B8E4E]" />
         ) : task.status === 'uploading' ? (
-          <Text className="text-primary text-xs font-bold">
-            {Math.round(task.progress * 100)}%
-          </Text>
+          <View className="flex-row items-center gap-2">
+            <Text className="text-primary text-xs font-bold">
+              {Math.round(task.progress * 100)}%
+            </Text>
+            <Pressable
+              onPress={onRemove}
+              accessibilityRole="button"
+              accessibilityLabel={`Stop uploading ${task.name}`}
+              hitSlop={6}
+              className="w-7 h-7 rounded-full bg-muted items-center justify-center active:scale-[0.9]"
+            >
+              <XIcon size={13} className="text-muted-foreground" />
+            </Pressable>
+          </View>
         ) : (
           <View className="flex-row items-center gap-2">
             {failed && (

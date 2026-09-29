@@ -445,6 +445,12 @@ export const storageApi = {
        * in the bucket under a key only the dead process knew.
        */
       onTicket?: (key: string) => void;
+      /**
+       * Handed a way to stop the transfer once one is running, and again for
+       * a second attempt. Stopping it ends the upload with "Upload was
+       * cancelled".
+       */
+      onCancelable?: (cancel: () => void) => void;
     },
   ): Promise<UploadResult> {
     // `size` is returned on FileInfo whenever the file exists; it is not an
@@ -500,20 +506,28 @@ export const storageApi = {
         headers: withoutContentLength(ticket.requiredHeaders),
       };
 
-      // createUploadTask reports real bytes-sent; uploadAsync gives no progress.
-      const response = options.onProgress
-        ? await FileSystem.createUploadTask(
-            ticket.uploadUrl,
-            fileUri,
-            uploadOptions,
-            (data) => {
-              const total = data.totalBytesExpectedToSend || contentLength;
-              if (total > 0) {
-                options.onProgress?.(Math.min(data.totalBytesSent / total, 1));
-              }
-            },
-          ).uploadAsync()
-        : await FileSystem.uploadAsync(ticket.uploadUrl, fileUri, uploadOptions);
+      // createUploadTask reports real bytes-sent, and can be stopped;
+      // uploadAsync can do neither.
+      let response;
+      if (options.onProgress || options.onCancelable) {
+        const task = FileSystem.createUploadTask(
+          ticket.uploadUrl,
+          fileUri,
+          uploadOptions,
+          (data) => {
+            const total = data.totalBytesExpectedToSend || contentLength;
+            if (total > 0) {
+              options.onProgress?.(Math.min(data.totalBytesSent / total, 1));
+            }
+          },
+        );
+        options.onCancelable?.(() => {
+          void task.cancelAsync().catch(() => {});
+        });
+        response = await task.uploadAsync();
+      } else {
+        response = await FileSystem.uploadAsync(ticket.uploadUrl, fileUri, uploadOptions);
+      }
 
       return { ticket, response };
     };

@@ -191,6 +191,17 @@ export function UploadProvider({ children }: { children: ReactNode }) {
    */
   const lastPatchedPercent = useRef(-1);
 
+  /**
+   * How to stop the upload in flight, and which task it belongs to.
+   *
+   * Removing a task used to leave a running upload running: the row went, the
+   * bytes kept going, and the file then turned up in the album anyway.
+   * `cancelled` catches a task removed before its transfer had started, so it
+   * is stopped the moment it does.
+   */
+  const inFlight = useRef<{ id: string; cancel: () => void } | null>(null);
+  const cancelled = useRef(new Set<string>());
+
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       appState.current = next;
@@ -306,7 +317,13 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const enqueue = useCallback((items: NewUpload[]) => {
     if (items.length === 0) return;
     setTasks((prev) => [
-      ...prev,
+      // A batch started after the last one finished begins from nothing. The
+      // finished rows were only there for its "3 of 5"; left in, they counted
+      // toward the new batch, which then started at 90-odd percent. Failures
+      // stay until they are retried or removed.
+      ...(prev.some((task) => task.status === 'queued' || task.status === 'uploading')
+        ? prev
+        : prev.filter((task) => task.status !== 'done')),
       ...items.map((item) => ({
         ...item,
         // Date.now() alone collides when twenty files are added in one tick.
@@ -322,10 +339,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     [patch],
   );
 
-  const remove = useCallback(
-    (id: string) => setTasks((prev) => prev.filter((task) => task.id !== id)),
-    [],
-  );
+  const remove = useCallback((id: string) => {
+    cancelled.current.add(id);
+    if (inFlight.current?.id === id) inFlight.current.cancel();
+    setTasks((prev) => prev.filter((task) => task.id !== id));
+  }, []);
 
   const clearFinished = useCallback(
     () => setTasks((prev) => prev.filter((task) => task.status !== 'done')),
@@ -361,6 +379,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           // thing that makes the upload findable afterwards, so it has to be
           // written even on the way out.
           onTicket: (key) => patch(next.id, { key }),
+          onCancelable: (cancel) => {
+            if (cancelled.current.has(next.id)) cancel();
+            else inFlight.current = { id: next.id, cancel };
+          },
           onProgress: (fraction) => {
             if (!mounted.current) return;
             const percent = Math.round(fraction * 100);
@@ -390,6 +412,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         }
       } finally {
         running.current = false;
+        inFlight.current = null;
+        cancelled.current.delete(next.id);
         // Nudges this effect to look for the next one. Without it the queue
         // stops after the first file, because nothing else changes `tasks`
         // once the last patch has landed.
@@ -423,13 +447,16 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   // zero bytes, which pinned the bar at 0% for the whole upload no matter how
   // much real progress had been reported. An unweighted average is less
   // truthful about the remaining time; it is not silently wrong.
-  const totalBytes = tasks.reduce((sum, task) => sum + task.sizeBytes, 0);
+  // Failures are left out: one stuck at 40% held the bar short of the end
+  // of a batch that had otherwise finished.
+  const batch = tasks.filter((task) => task.status !== 'failed');
+  const totalBytes = batch.reduce((sum, task) => sum + task.sizeBytes, 0);
   const overall =
     totalBytes > 0
-      ? tasks.reduce((sum, task) => sum + task.sizeBytes * task.progress, 0) /
+      ? batch.reduce((sum, task) => sum + task.sizeBytes * task.progress, 0) /
         totalBytes
-      : tasks.length > 0
-        ? tasks.reduce((sum, task) => sum + task.progress, 0) / tasks.length
+      : batch.length > 0
+        ? batch.reduce((sum, task) => sum + task.progress, 0) / batch.length
         : 0;
   const remaining = pending.filter((task) => task.status !== 'failed').length;
 
