@@ -395,3 +395,28 @@ describe('HiringService.setStatus', () => {
     );
   });
 });
+
+describe('HiringService.remove', () => {
+  // Deleting cascaded into bookings — agreements with another person —
+  // without telling them.
+  it('refuses to delete a post somebody is booked on', async () => {
+    const { service, ran } = harness();
+    jest.spyOn(service as never, 'ownedPost').mockResolvedValue({} as never);
+    jest.spyOn(service, 'endingCost').mockResolvedValue({ count: 0, applications: 2, bookings: 1 });
+
+    await expect(service.remove(ME, POST)).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'POST_HAS_BOOKINGS', bookings: 1 }),
+    });
+    expect(ran(/delete from hiring_posts/)).toHaveLength(0);
+  });
+
+  it('deletes one with no bookings', async () => {
+    const { service, ran } = harness();
+    jest.spyOn(service as never, 'ownedPost').mockResolvedValue({} as never);
+    jest.spyOn(service, 'endingCost').mockResolvedValue({ count: 0, applications: 2, bookings: 0 });
+
+    await expect(service.remove(ME, POST)).resolves.toEqual({ deleted: true });
+    expect(ran(/delete from hiring_posts/)).toHaveLength(1);
+  });
+});

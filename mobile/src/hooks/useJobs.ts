@@ -190,6 +190,8 @@ export function useDeleteJob() {
     mutationFn: (id: string) => jobsApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+      // Cancelled bookings made from its applications go with it.
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.all });
     },
   });
 }

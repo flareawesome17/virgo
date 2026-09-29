@@ -238,16 +238,27 @@ function JobRow({ job }: { job: JobPost }) {
       // Ask anyway, just without the numbers.
     }
 
-    const losses = [
-      cost.applications &&
-        `${cost.applications} application${cost.applications === 1 ? '' : 's'}`,
-      cost.bookings && `${cost.bookings} booking${cost.bookings === 1 ? '' : 's'}`,
-    ].filter(Boolean) as string[];
+    // A post somebody is booked on is not deleted (the server refuses: it
+    // would erase the booking without telling them). Say so, and offer the
+    // thing that keeps their booking.
+    if (cost.bookings > 0) {
+      Alert.alert(
+        `Close “${job.title}” instead?`,
+        cost.bookings === 1
+          ? 'Somebody is booked on this post, and deleting it would delete their booking without telling them. Closing it takes it off the board and keeps the booking. To end the booking, cancel it from Bookings.'
+          : `${cost.bookings} people are booked on this post, and deleting it would delete their bookings without telling them. Closing it takes it off the board and keeps the bookings. To end one, cancel it from Bookings.`,
+        [
+          { text: 'Keep it', style: 'cancel' },
+          ...(job.status === 'open' ? [{ text: 'Close the post', onPress: () => end('closed') }] : []),
+        ],
+      );
+      return;
+    }
 
     Alert.alert(
       `Delete “${job.title}”?`,
-      losses.length
-        ? `This also deletes ${losses.join(' and ')}, for good. The people involved lose their copy as well.`
+      cost.applications
+        ? `This also deletes ${cost.applications} application${cost.applications === 1 ? '' : 's'}, for good. The people who applied lose their copy as well.`
         : 'This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },

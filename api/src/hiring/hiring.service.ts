@@ -1004,13 +1004,32 @@ export class HiringService {
   async remove(userId: string, id: string): Promise<{ deleted: boolean }> {
     await this.ownedPost(userId, id);
     const cost = await this.endingCost(userId, id);
+    /*
+     * Not while somebody is booked on it.
+     *
+     * A booking is an agreement with another person, and deleting the post
+     * deleted it by cascade — without a word to the creative, whose booking
+     * simply vanished. Closing the post keeps the bookings; cancelling one
+     * tells them. Either is available; silently erasing an agreement is not.
+     */
+    if (cost.bookings > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'POST_HAS_BOOKINGS',
+        bookings: cost.bookings,
+        message:
+          cost.bookings === 1
+            ? 'Somebody is booked on this post. Close it instead, or cancel the booking first — deleting it would delete the booking without telling them.'
+            : `${cost.bookings} people are booked on this post. Close it instead, or cancel the bookings first — deleting it would delete them without telling anyone.`,
+      });
+    }
     await this.db.query('delete from hiring_posts where id = $1 and user_id = $2', [
       id,
       userId,
     ]);
     this.logger.warn(
       `job post ${id} deleted by ${userId} ` +
-        `(${cost.applications} application(s), ${cost.bookings} booking(s) went with it)`,
+        `(${cost.applications} application(s) went with it)`,
     );
     return { deleted: true };
   }
