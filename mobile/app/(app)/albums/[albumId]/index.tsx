@@ -26,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import { canSaveToPhotos } from '@/src/lib/photo-permission';
 import * as WebBrowser from 'expo-web-browser';
 import {
   ArrowDownUpIcon,
@@ -368,11 +369,7 @@ export default function AlbumScreen() {
       (file) => file.capabilities.download && (file.downloadUrl ?? file.url),
     );
     if (targets.length === 0) return;
-    const permission = await MediaLibrary.requestPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to save to your library.');
-      return;
-    }
+    if (!(await canSaveToPhotos('these files'))) return;
     let saved = 0;
     setSaving({ done: 0, total: targets.length });
     for (const file of targets) {

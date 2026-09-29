@@ -140,14 +140,13 @@ export default function UploadScreen() {
   const addPicked = (picked: UploadItem[]) =>
     setItems((prev) => [...prev, ...picked]);
 
-  /** Photos and videos come from the media library. */
+  /**
+   * Photos and videos come from the media library, through the system picker.
+   * It needs no photo permission: the person chooses, and only what they chose
+   * reaches the app. Asking anyway put a full-library prompt in front of it, and
+   * a refusal made uploading impossible.
+   */
   const pickMedia = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to choose files.');
-      return;
-    }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
       allowsMultipleSelection: true,

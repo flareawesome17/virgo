@@ -16,6 +16,7 @@ import { RemoteImage } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import { canSaveToPhotos } from '@/src/lib/photo-permission';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   interpolate,
@@ -346,11 +347,7 @@ export default function PhotoViewerScreen() {
     if (!source || saving || !photo?.capabilities.download) return;
     setSaving(true);
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permission needed', 'Allow photo access to save images.');
-        return;
-      }
+      if (!(await canSaveToPhotos('this photo'))) return;
       const safeName = photo.originalName.replace(/[^a-z0-9._-]/gi, '_');
       const target = `${FileSystem.cacheDirectory}${safeName}`;
       const result = await FileSystem.downloadAsync(source, target);

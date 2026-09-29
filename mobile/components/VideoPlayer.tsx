@@ -19,6 +19,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import { canSaveToPhotos } from '@/src/lib/photo-permission';
 import {
   useVideoPlayer,
   VideoView,
@@ -240,11 +241,7 @@ export function VideoPlayer({
     if (!source || saving) return;
     setSaving(true);
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permission needed', 'Allow photo access to save videos.');
-        return;
-      }
+      if (!(await canSaveToPhotos('this video'))) return;
       const safeName = file.originalName.replace(/[^a-z0-9._-]/gi, '_');
       const result = await FileSystem.downloadAsync(
         source,

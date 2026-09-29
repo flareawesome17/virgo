@@ -254,13 +254,8 @@ export function useCoverEditor() {
   const [rendering, setRendering] = useState(false);
   const [source, setSource] = useState<CoverSource | null>(null);
 
+  // No permission asked: the system picker hands over only what is chosen.
   const choose = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to choose a cover.');
-      return;
-    }
-
     // Picked whole: the iOS editor only crops square, and the framing happens
     // in the sheet instead. quality 1 so the working copy starts from the
     // best there is; nothing picked here is uploaded as it is.
@@ -364,13 +359,8 @@ export function useAvatarEditor() {
   const upload = useUpload();
   const { updateProfile } = useAuth();
 
+  // No permission asked: the system picker hands over only what is chosen.
   const choose = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to set an avatar.');
-      return;
-    }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
