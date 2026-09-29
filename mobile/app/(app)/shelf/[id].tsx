@@ -6,8 +6,12 @@ import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { useShelfEntries, useTheme } from '@/src/hooks';
-import { makerOf } from '@/src/api';
+import { ApiError, makerOf } from '@/src/api';
 import { PALETTES } from '@/theme';
+
+/** The API answers "not yours" and "not there" alike, so ids cannot be probed. */
+const isGone = (error: unknown) =>
+  error instanceof ApiError && (error.status === 404 || error.status === 403);
 
 for (const Icon of [ArrowLeftIcon, BookmarkIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -27,7 +31,7 @@ export default function ShelfScreen() {
   // Somebody else's shelf reads through the public route, which returns the
   // public ones only. Defaults to your own, which is where most of these open
   // from.
-  const { entries, isLoading, loadFailed, refetch } = useShelfEntries(id, {
+  const { entries, isLoading, loadFailed, error, refetch } = useShelfEntries(id, {
     own: own !== '0',
   });
 
@@ -49,6 +53,17 @@ export default function ShelfScreen() {
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color={palette.primary} />
+        </View>
+      ) : loadFailed && entries.length === 0 && isGone(error) ? (
+        // Deleted, or made private since the link was shared. Not a
+        // connection problem, and a Retry could only fail again.
+        <View className="items-center px-10 mt-20">
+          <Text className="text-foreground text-[15px] font-bold text-center">
+            This shelf is no longer available
+          </Text>
+          <Text className="text-muted-foreground text-[13px] text-center mt-2 leading-5">
+            Whoever made it deleted it or made it private.
+          </Text>
         </View>
       ) : loadFailed && entries.length === 0 ? (
         <LoadFailed what="this shelf" onRetry={() => refetch()} />

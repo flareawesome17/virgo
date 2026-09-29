@@ -29,9 +29,12 @@ for (const Icon of [SendIcon, Trash2Icon]) {
 export function CommentThread({
   showcaseId,
   isOwner,
+  onComposerFocus,
 }: {
   showcaseId: string;
   isOwner: boolean;
+  /** For a parent that has to scroll the box into view above the keyboard. */
+  onComposerFocus?: () => void;
 }) {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -151,6 +154,7 @@ export function CommentThread({
               onChangeText={setDraft}
               placeholder="Say something"
               placeholderTextColor={palette.mutedForeground}
+              onFocus={onComposerFocus}
               multiline
               maxLength={1000}
               className="flex-1 bg-card rounded-2xl px-4 py-3 min-h-11 text-foreground text-[13.5px] leading-5"

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -16,21 +17,23 @@ import {
   BookmarkIcon,
   EyeIcon,
   EyeOffIcon,
+  FlagIcon,
   HeartIcon,
   Trash2Icon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
 import { KeepSheet } from '@/components/KeepSheet';
 import { CommentThread } from '@/components/CommentThread';
+import { DetailFallback } from '@/components/DetailFallback';
+import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
 import { useAuth, useLike, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
 import { makerOf, showcaseStatus } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeIcon, EyeOffIcon, HeartIcon, Trash2Icon]) {
+for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeIcon, EyeOffIcon, FlagIcon, HeartIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -100,10 +103,14 @@ export default function ShowcaseScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { showcase, isLoading, loadFailed, refetch } = useShowcase(id);
+  const { showcase, error, loadFailed, refetch } = useShowcase(id);
   const { user } = useAuth();
   const like = useLike();
   const [keeping, setKeeping] = useState(false);
+  // Only reachable from the feed card before: somebody who opened the post
+  // to look properly had nowhere to report it from.
+  const [reporting, setReporting] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
   const { setPublished, remove } = useShowcaseActions();
   const mine = Boolean(showcase && user && showcase.userId === user.id);
   // Never read straight off the payload: see makerOf.
@@ -173,6 +180,21 @@ export default function ShowcaseScreen() {
   };
   const width = Dimensions.get('window').width;
 
+  // Gone is not offline. A post taken down or deleted used to say "check your
+  // connection", with a Retry that could only ever fail again.
+  if (!showcase) {
+    return (
+      <DetailFallback
+        title="Showcase"
+        what="this showcase"
+        gone="The person who posted it took it down or deleted it."
+        error={error}
+        failed={loadFailed}
+        onRetry={() => refetch()}
+      />
+    );
+  }
+
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       <View className="flex-row items-center pl-1 pr-3 border-b border-border">
@@ -186,8 +208,19 @@ export default function ShowcaseScreen() {
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="flex-1 text-foreground text-[15px] font-bold" numberOfLines={1}>
-          {showcase?.title ?? 'Showcase'}
+          {showcase.title ?? 'Showcase'}
         </Text>
+        {!mine && (
+          <Pressable
+            onPress={() => setReporting(showcase.id)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Report this showcase"
+            className="w-11 h-11 items-center justify-center active:opacity-70"
+          >
+            <FlagIcon size={18} className="text-muted-foreground" />
+          </Pressable>
+        )}
         {/* Only on your own. Taking it down and deleting it are different
             things and both are offered: unpublishing is reversible and keeps
             the date it first went out, deleting is not. */}
@@ -231,14 +264,18 @@ export default function ShowcaseScreen() {
         )}
       </View>
 
-      {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={palette.primary} />
-        </View>
-      ) : loadFailed || !showcase ? (
-        <LoadFailed what="this showcase" onRetry={() => refetch()} />
-      ) : (
-        <ScrollView contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
+      {/* Padding on iOS, where nothing else moves the comment box out from
+          under the keyboard; Android resizes the window itself. */}
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={{ paddingBottom: 110 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {mine && status !== 'live' && (
             <StatusBanner
               status={status}
@@ -393,14 +430,23 @@ export default function ShowcaseScreen() {
             )}
           </View>
 
-          <CommentThread showcaseId={showcase.id} isOwner={mine} />
+          <CommentThread
+            showcaseId={showcase.id}
+            isOwner={mine}
+            // The box is the last thing on the page: once the keyboard has
+            // taken its share of the screen, bring the box up into what is left.
+            onComposerFocus={() =>
+              setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)
+            }
+          />
         </ScrollView>
-      )}
+      </KeyboardAvoidingView>
 
       <KeepSheet
-        item={keeping && showcase ? showcase : null}
+        item={keeping ? showcase : null}
         onClose={() => setKeeping(false)}
       />
+      <ShowcaseReportSheet showcaseId={reporting} onClose={() => setReporting(null)} />
     </SafeAreaView>
   );
 }
