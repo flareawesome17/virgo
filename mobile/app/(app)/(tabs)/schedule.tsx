@@ -354,9 +354,21 @@ export default function ScheduleScreen() {
           )}
         </View>
 
-        {/* Reminders */}
+        {/* Reminders. Their own, not only from inside an event: a reminder
+            to back up a card or send an invoice belongs to no event. */}
         <View className="px-5 mt-6">
-          <Text className="text-foreground text-lg font-bold tracking-tight mb-3">Reminders</Text>
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-foreground text-lg font-bold tracking-tight">Reminders</Text>
+            <Pressable
+              onPress={() => router.push('/schedule/reminders/create')}
+              accessibilityRole="button"
+              accessibilityLabel="New reminder"
+              hitSlop={8}
+              className="min-h-11 justify-center px-1 active:opacity-60"
+            >
+              <Text className="text-primary text-sm font-bold">+ New</Text>
+            </Pressable>
+          </View>
           {activeReminders.length === 0 ? (
             <View className="bg-card rounded-2xl p-6 items-center gap-2">
               <BellIcon size={20} className="text-muted-foreground" />

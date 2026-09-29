@@ -114,7 +114,17 @@ export default function ReminderDetailScreen() {
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
-          <Text className="text-foreground text-[22px] font-bold tracking-tight">Reminder</Text>
+          <Text className="text-foreground text-[22px] font-bold tracking-tight flex-1">Reminder</Text>
+          {/* It could not be changed at all; a wrong time meant deleting it. */}
+          <Pressable
+            onPress={() => router.push(`/schedule/reminders/create?edit=${reminder.id}`)}
+            accessibilityRole="button"
+            accessibilityLabel="Edit this reminder"
+            hitSlop={8}
+            className="min-h-11 justify-center px-2 active:opacity-60"
+          >
+            <Text className="text-primary text-sm font-bold">Edit</Text>
+          </Pressable>
         </View>
 
         {/* Hero card */}
