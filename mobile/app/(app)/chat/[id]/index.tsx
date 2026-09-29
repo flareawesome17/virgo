@@ -49,7 +49,8 @@ import { JobAcceptedCard, PresenceLine, TypingIndicator } from '@/components';
 import { askToUnblock, safetyError } from '@/components/PersonSafetySheet';
 import { sendTyping } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
-import { chatApi, chatRefusal, type ConversationMessage, type Participant } from '@/src/api';
+import { ApiError, chatApi, chatRefusal, type ConversationMessage, type Participant } from '@/src/api';
+import { LoadFailed } from '@/components/LoadFailed';
 
 /** How many the thread's own query loads: chatApi.messages' default. */
 const FIRST_PAGE = 100;
@@ -125,10 +126,27 @@ export default function ConversationScreen() {
     messages: newest,
     lastReadAt,
     isLoading,
-    canSend,
+    canSend: threadAllowsSending,
     blockedByMe,
     blockId,
+    data: threadData,
+    error: threadError,
+    loadFailed: threadFailed,
+    refetch: refetchThread,
   } = useThread(id);
+  /*
+   * Nothing is said, and nothing can be sent, until the thread has arrived.
+   *
+   * `canSend` is true when the server does not say — so a thread that failed
+   * to load, or one you are no longer in, showed "No messages yet. Say hello."
+   * over a composer that failed every send.
+   */
+  const threadReady = threadData !== undefined;
+  const canSend = threadReady && threadAllowsSending;
+  const threadGone =
+    !threadReady &&
+    threadError instanceof ApiError &&
+    (threadError.status === 404 || threadError.status === 403);
 
   /*
    * Everything before the newest page, loaded by scrolling back.
@@ -606,7 +624,7 @@ export default function ConversationScreen() {
         {isOffline && (
           <View className="px-5 py-2" style={{ backgroundColor: '#C76B4A18' }}>
             <Text className="text-[#C76B4A] text-xs font-semibold text-center">
-              No connection — messages will send when you are back online
+              No connection — messages won't send until you're back online
             </Text>
           </View>
         )}
@@ -615,6 +633,17 @@ export default function ConversationScreen() {
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator size="small" color="#B66A40" />
           </View>
+        ) : threadGone ? (
+          <View className="flex-1 items-center justify-center px-10">
+            <Text className="text-foreground text-[15px] font-bold text-center">
+              This conversation isn't available
+            </Text>
+            <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
+              It was deleted, or you are no longer in it.
+            </Text>
+          </View>
+        ) : !threadReady && threadFailed ? (
+          <LoadFailed what="this conversation" onRetry={() => void refetchThread()} />
         ) : (
           <FlatList
             data={rows}
@@ -917,7 +946,7 @@ export default function ConversationScreen() {
               <SendIcon size={17} className={draft.trim() ? 'text-white' : 'text-muted-foreground'} />
             </Pressable>
           </View>
-        ) : (
+        ) : !threadReady ? null : (
           <View
             className="bg-muted px-5 py-4 border-t border-border"
             style={{ paddingBottom: insets.bottom + 16 }}

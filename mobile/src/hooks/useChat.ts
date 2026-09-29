@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { chatApi, chatRefusal, type SendMessageInput, type Thread } from '@/src/api';
+import { chatApi, chatRefusal, retryUnlessGone, type SendMessageInput, type Thread } from '@/src/api';
 import { seedPresence } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
 
@@ -101,6 +101,8 @@ export function useThread(conversationId: string | undefined) {
     queryKey: chatKeys.thread(conversationId ?? ''),
     queryFn: () => chatApi.messages(conversationId!),
     enabled: !!conversationId,
+    // A deleted conversation, or one you were removed from, is an answer.
+    retry: retryUnlessGone,
     // The socket pushes new messages; this only backstops a dropped one.
     refetchInterval: 45_000,
   });
