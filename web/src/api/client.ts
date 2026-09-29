@@ -22,6 +22,8 @@ export interface RequestOptions {
   /** Skips the Authorization header and the refresh-retry. Used by auth calls. */
   anonymous?: boolean;
   signal?: AbortSignal;
+  /** For the few calls that are slow by design; everything else gets REQUEST_TIMEOUT_MS. */
+  timeoutMs?: number;
 }
 
 /**
@@ -106,7 +108,7 @@ async function rawFetch(
   token: string | null,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   // Honour a caller-supplied signal (React Query passes one on unmount) while
   // still enforcing our own timeout.

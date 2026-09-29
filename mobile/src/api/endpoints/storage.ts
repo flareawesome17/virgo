@@ -3,6 +3,9 @@ import { api } from '../client';
 import { API_BASE_URL } from '../config';
 import { ApiError } from '../errors';
 
+/** How long a confirm may take; see storageApi.confirm. */
+const CONFIRM_TIMEOUT_MS = 120_000;
+
 /**
  * Where an upload goes. 'avatars' and 'covers' land in the public bucket and
  * are re-encoded on confirm; an older API refuses 'covers' at upload-url, so
@@ -326,7 +329,14 @@ export const storageApi = {
     size: number;
     contentType?: string;
   }> {
-    return api.post('/storage/confirm', { body: { key, albumId, originalName } });
+    // Two minutes, not the usual twenty seconds: the server makes the
+    // thumbnail before it answers, and a large photograph or a film's poster
+    // took longer than that — so an upload that had worked was marked failed,
+    // and its retry sent every byte again.
+    return api.post('/storage/confirm', {
+      body: { key, albumId, originalName },
+      timeoutMs: CONFIRM_TIMEOUT_MS,
+    });
   },
 
   /** Objects the user has stored, optionally narrowed to one album. */
