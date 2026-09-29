@@ -4,6 +4,9 @@ import { useAuth, useCreateAlbum, useWorkspaces, useTheme,
   usePlanLimits,
 } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
+import { ApiError } from '@/src/api';
+import { LoadFailed } from '@/components/LoadFailed';
+import { ScreenHeader } from '@/components/ScreenHeader';
 import { useState } from 'react';
 import {
   ArrowLeftIcon,
@@ -51,7 +54,12 @@ export default function CreateAlbumScreen() {
   // Only your own: an album can only be made in a workspace you own, and
   // offering one shared with you ended in "Unknown workspace" at the end of
   // the form. Archived ones are left out by the list itself.
-  const { workspaces: listed } = useWorkspaces(
+  const {
+    workspaces: listed,
+    isSuccess: workspacesLoaded,
+    loadFailed: workspacesFailed,
+    refetch: refetchWorkspaces,
+  } = useWorkspaces(
     { orderBy: 'name', direction: 'asc', limit: 100 },
     { enabled: !!user?.id },
   );
@@ -94,11 +102,57 @@ export default function CreateAlbumScreen() {
       },
       {
         onSuccess: (album) => router.replace(`/albums/${album.id}`),
-        onError: () =>
-          Alert.alert('Error', 'Could not create album. Please try again.'),
+        // The server's own words when it refused (a full workspace, a name too
+        // long); a generic line only when it could not be reached.
+        onError: (error) =>
+          Alert.alert(
+            'Could not create the album',
+            error instanceof ApiError && error.status > 0 && error.status < 500
+              ? error.message
+              : 'Check your connection and try again.',
+          ),
       },
     );
   };
+
+  /*
+   * No workspace of your own: say so, and offer the way out.
+   *
+   * New accounts, and people who only collaborate on someone else's, got an
+   * empty workspace picker and a Create button that could never turn on, with
+   * nothing saying why.
+   */
+  if (workspacesFailed && listed.length === 0) {
+    return (
+      <SafeAreaView edges={['top']} className="flex-1 bg-background">
+        <ScreenHeader title="Create album" />
+        <LoadFailed what="your workspaces" onRetry={() => void refetchWorkspaces()} />
+      </SafeAreaView>
+    );
+  }
+  if (workspacesLoaded && workspaces.length === 0) {
+    return (
+      <SafeAreaView edges={['top']} className="flex-1 bg-background">
+        <ScreenHeader title="Create album" />
+        <View className="flex-1 items-center justify-center px-8">
+          <Text className="text-foreground text-[17px] font-bold text-center">
+            Make a workspace first
+          </Text>
+          <Text className="text-muted-foreground text-[14px] leading-[21px] text-center mt-2">
+            Albums live in workspaces — one for a client, a brand, or a season of work. Albums
+            shared with you stay in the workspace of whoever shared them.
+          </Text>
+          <Pressable
+            onPress={() => router.push('/workspaces/create')}
+            accessibilityRole="button"
+            className="mt-6 min-h-12 px-6 rounded-xl bg-action items-center justify-center active:opacity-90"
+          >
+            <Text className="text-action-foreground text-[15px] font-bold">Create a workspace</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
