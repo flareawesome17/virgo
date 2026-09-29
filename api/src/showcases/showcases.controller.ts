@@ -11,7 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
   CreateShelfDto,
@@ -106,14 +106,21 @@ export class ShowcasesController {
   }
 }
 
+class MyShelvesQueryDto {
+  /** A showcase to ask about: each shelf then says whether it holds it. */
+  @IsOptional()
+  @IsUUID('all')
+  holding?: string;
+}
+
 /** The shelves somebody keeps other people's work on. */
 @Controller('me/shelves')
 export class MyShelvesController {
   constructor(private readonly shelves: ShelvesService) {}
 
   @Get()
-  async list(@CurrentUser('id') userId: string) {
-    const data = await this.shelves.list(userId, userId);
+  async list(@CurrentUser('id') userId: string, @Query() query: MyShelvesQueryDto) {
+    const data = await this.shelves.list(userId, userId, query.holding);
     return { data, total: data.length };
   }
 

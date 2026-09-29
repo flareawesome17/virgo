@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View 
 import { BookmarkIcon, CheckIcon, GlobeIcon, LockIcon, PlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { BottomSheet } from '@/components/BottomSheet';
+import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { useShelfActions, useShelves, useTheme } from '@/src/hooks';
 import type { FeedItem } from '@/src/api';
@@ -22,12 +23,20 @@ for (const Icon of [BookmarkIcon, CheckIcon, GlobeIcon, LockIcon, PlusIcon]) {
  *
  * What is kept is a pointer, never a copy. The sheet says so, because people
  * are right to wonder what happens to their work when a stranger keeps it.
+ *
+ * It also takes things off again. The shelves come back saying which already
+ * hold this showcase; tapping one of those asks, then removes it. Before, a
+ * kept post offered "Change where" and could only be kept somewhere else.
  */
 export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: () => void }) {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { shelves, isLoading } = useShelves();
-  const { keep, createShelf } = useShelfActions();
+  const { shelves, isLoading, loadFailed, refetch } = useShelves({
+    holding: item?.id,
+    enabled: item !== null,
+  });
+  const { keep, unkeep, createShelf } = useShelfActions();
+  const keptOn = shelves.filter((shelf) => shelf.holds);
 
   const [chosen, setChosen] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -58,7 +67,26 @@ export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: (
     },
   };
 
-  const busy = keep.isPending || createShelf.isPending;
+  const busy = keep.isPending || createShelf.isPending || unkeep.isPending;
+
+  const takeOff = (shelfId: string, name: string) => {
+    if (!item) return;
+    Alert.alert(`Take it off ${name}?`, 'It stays in the feed and on their profile.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Take off',
+        style: 'destructive',
+        onPress: () =>
+          unkeep.mutate(
+            { shelfId, showcaseId: item.id },
+            {
+              onError: (error) =>
+                Alert.alert("Couldn't take it off", profileActionMessage(error, 'keep')),
+            },
+          ),
+      },
+    ]);
+  };
 
   const addShelf = () => {
     const name = newName.trim();
@@ -75,7 +103,7 @@ export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: (
           if (made) setChosen(made.id);
         },
         onError: (error) =>
-          Alert.alert("Couldn't add that shelf", profileActionMessage(error, 'showcase')),
+          Alert.alert("Couldn't add that shelf", profileActionMessage(error, 'shelf')),
       },
     );
   };
@@ -87,7 +115,7 @@ export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: (
       {
         onSuccess: onClose,
         onError: (error) =>
-          Alert.alert("Couldn't keep it", profileActionMessage(error, 'showcase')),
+          Alert.alert("Couldn't keep it", profileActionMessage(error, 'keep')),
       },
     );
   };
@@ -106,6 +134,12 @@ export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: (
           {item?.maker?.displayName ?? 'the maker'}. They can take the work down; it is
           never copied out of their hands.
         </Text>
+        {keptOn.length > 0 && (
+          <Text className="text-foreground text-[12px] leading-[17px] mt-2">
+            Kept on {keptOn.map((shelf) => shelf.name).join(', ')}. Tap a shelf with a
+            tick to take it off.
+          </Text>
+        )}
       </View>
 
       <ScrollView
@@ -121,16 +155,23 @@ export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: (
           <View className="py-8 items-center">
             <ActivityIndicator color={palette.primary} />
           </View>
+        ) : loadFailed && shelves.length === 0 ? (
+          // Not "no shelves": that offered only New shelf, and a second
+          // shelf of the same name is how a failed load turned into clutter.
+          <LoadFailed what="your shelves" onRetry={() => refetch()} compact />
         ) : (
           <View className="px-3">
             {shelves.map((shelf) => {
               const on = chosen === shelf.id;
+              const holds = Boolean(shelf.holds);
               return (
                 <Pressable
                   key={shelf.id}
-                  onPress={() => setChosen(shelf.id)}
+                  onPress={() => (holds ? takeOff(shelf.id, shelf.name) : setChosen(shelf.id))}
+                  disabled={busy}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
+                  accessibilityState={{ selected: on || holds }}
+                  accessibilityHint={holds ? 'Kept here. Double tap to take it off.' : undefined}
                   className={`min-h-16 flex-row items-center gap-3 rounded-2xl px-2.5 ${on ? 'bg-secondary' : ''}`}
                 >
                   {shelf.coverUrl ? (
@@ -154,10 +195,16 @@ export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: (
                         <LockIcon size={11} className="text-muted-foreground" />
                       )}
                       <Text className="text-muted-foreground text-[11px]">
+                        {holds ? 'Kept here · ' : ''}
                         {shelf.count} kept · {shelf.isPublic ? 'Public' : 'Private'}
                       </Text>
                     </View>
                   </View>
+                  {holds && !on && (
+                    <View className="w-6 h-6 rounded-full border border-primary items-center justify-center">
+                      <CheckIcon size={13} className="text-primary" />
+                    </View>
+                  )}
                   {on && (
                     <View className="w-6 h-6 rounded-full bg-action items-center justify-center">
                       <CheckIcon size={13} className="text-action-foreground" />

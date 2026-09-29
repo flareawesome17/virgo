@@ -146,6 +146,8 @@ export interface ShelfSummary {
   isPublic: boolean;
   count: number;
   coverUrl: string | null;
+  /** Only when asked about a showcase (mine(holding)): whether this shelf holds it. */
+  holds?: boolean;
 }
 
 export interface ShelfEntry {
@@ -219,8 +221,9 @@ export const showcasesApi = {
 };
 
 export const shelvesApi = {
-  mine(): Promise<{ data: ShelfSummary[]; total: number }> {
-    return api.get('/me/shelves');
+  /** With `holding`, each shelf also says whether it holds that showcase. */
+  mine(holding?: string): Promise<{ data: ShelfSummary[]; total: number }> {
+    return api.get('/me/shelves', holding ? { query: { holding } } : undefined);
   },
 
   create(name: string, isPublic?: boolean): Promise<{ data: ShelfSummary[] }> {

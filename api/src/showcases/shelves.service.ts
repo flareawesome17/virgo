@@ -55,6 +55,12 @@ export interface ShelfSummary {
   count: number;
   /** The most recently kept piece, for the shelf's face. Null on an empty one. */
   coverUrl: string | null;
+  /**
+   * Whether this shelf holds the showcase asked about, when one was. It is how
+   * the Keep sheet knows where something is already kept, so it can be taken
+   * off again — without it, keeping was a one-way door.
+   */
+  holds?: boolean;
 }
 
 export interface ShelfEntry {
@@ -84,7 +90,7 @@ export class ShelvesService {
    * `viewerId === ownerId` is the owner looking at their own, which is the only
    * case that sees the private ones.
    */
-  async list(viewerId: string, ownerId: string): Promise<ShelfSummary[]> {
+  async list(viewerId: string, ownerId: string, holding?: string): Promise<ShelfSummary[]> {
     const own = viewerId === ownerId;
     const rows = await this.db.query<{
       id: string;
@@ -92,6 +98,7 @@ export class ShelvesService {
       is_public: boolean;
       count: string;
       cover_thumb_key: string | null;
+      holds: boolean | null;
     }>(
       `select sh.id, sh.name, sh.is_public,
               -- What this viewer will find inside, not every row: the count
@@ -120,11 +127,17 @@ export class ShelvesService {
                    and coalesce(f.thumb_key, f.poster_key) is not null
                  order by li.created_at desc, si.position
                  limit 1
-              ) as cover_thumb_key
+              ) as cover_thumb_key,
+              case when $4::uuid is null then null
+                   else exists (
+                     select 1 from shelf_items hi
+                      where hi.shelf_id = sh.id and hi.showcase_id = $4::uuid
+                   )
+              end as holds
          from shelves sh
         where sh.user_id = $1 and ($2 or sh.is_public)
         order by sh.position, sh.created_at`,
-      [ownerId, own, viewerId],
+      [ownerId, own, viewerId, holding ?? null],
     );
 
     return Promise.all(
@@ -134,6 +147,7 @@ export class ShelvesService {
         isPublic: r.is_public,
         count: Number(r.count),
         coverUrl: await this.storage.mediaUrl(r.cover_thumb_key, PUBLISHED_URL_TTL_SECONDS),
+        ...(r.holds === null ? {} : { holds: r.holds }),
       })),
     );
   }

@@ -144,10 +144,14 @@ export function useShowcaseActions() {
 }
 
 /** The shelves somebody keeps other people's work on. */
-export function useShelves(opts: { enabled?: boolean } = {}) {
+/**
+ * Your shelves. With `holding`, each also says whether it holds that showcase —
+ * which is what lets the Keep sheet take something off a shelf again.
+ */
+export function useShelves(opts: { enabled?: boolean; holding?: string } = {}) {
   const query = useQuery({
-    queryKey: queryKeys.shelves.mine,
-    queryFn: () => shelvesApi.mine(),
+    queryKey: opts.holding ? queryKeys.shelves.holding(opts.holding) : queryKeys.shelves.mine,
+    queryFn: () => shelvesApi.mine(opts.holding),
     enabled: opts.enabled ?? true,
   });
 

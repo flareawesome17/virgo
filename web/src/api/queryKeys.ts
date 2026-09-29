@@ -142,6 +142,7 @@ export const queryKeys = {
     /** Every shelf query: your own, somebody's profile, and a shelf's entries. */
     all: ['shelves'] as const,
     mine: ['shelves', 'mine'] as const,
+    holding: (showcaseId: string) => ['shelves', 'mine', 'holding', showcaseId] as const,
     ofHandle: (handle: string) => ['shelves', 'of', handle] as const,
     entries: (id: string) => ['shelves', 'entries', id] as const,
   },
