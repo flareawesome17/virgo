@@ -164,7 +164,11 @@ export class ShelvesService {
       thumb_key: string | null;
     }>(
       `select i.showcase_id, i.note, i.created_at,
-              u.id as maker_id, u.display_name, u.handle,
+              u.id as maker_id, u.display_name,
+              -- A handle is only a link once the profile is published: /profiles/:handle
+              -- and hire both refuse an unpublished one, so handing it out made the
+              -- avatar and Hire lead to "Profile not found".
+              case when u.public_profile then u.handle end as handle,
               s.title, s.craft_tags,
               (
                 select coalesce(f.thumb_key, f.poster_key)

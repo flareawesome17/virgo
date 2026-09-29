@@ -116,6 +116,12 @@ export interface Showcase {
   allowComments: boolean;
   showHire: boolean;
   publishedAt: string | null;
+  /**
+   * Set while the author has it taken down. published_at is kept through a
+   * take-down, so without this nothing could tell a live post from one that
+   * is down, and the owner's "put it back up" could never be offered.
+   */
+  unpublishedAt: string | null;
   hiddenAt: string | null;
   keptCount: number;
   likeCount: number;
@@ -138,6 +144,7 @@ export interface ShowcaseRow {
   allow_comments: boolean;
   show_hire: boolean;
   published_at: Date | string | null;
+  unpublished_at: Date | string | null;
   hidden_at: Date | string | null;
   kept_count: number;
   like_count: number;
@@ -202,7 +209,11 @@ export class ShowcasesService {
       }
     >(
       `select s.*,
-              u.display_name, u.handle, u.avatar_url, u.title as user_title,
+              u.display_name, u.avatar_url, u.title as user_title,
+              -- A handle is only a link once the profile is published: /profiles/:handle
+              -- and hire both refuse an unpublished one, so handing it out made the
+              -- avatar and Hire lead to "Profile not found".
+              case when u.public_profile then u.handle end as handle,
               exists (
                 select 1 from shelf_items i
                  where i.showcase_id = s.id and i.user_id = $2
@@ -611,6 +622,7 @@ export class ShowcasesService {
       allowComments: row.allow_comments,
       showHire: row.show_hire,
       publishedAt: asIso(row.published_at),
+      unpublishedAt: asIso(row.unpublished_at),
       hiddenAt: asIso(row.hidden_at),
       keptCount: Number(row.kept_count),
       likeCount: Number(row.like_count),

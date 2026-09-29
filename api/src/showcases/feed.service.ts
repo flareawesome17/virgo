@@ -103,7 +103,11 @@ export class FeedService {
     // against that position; keep it second.
     const rows = await this.db.query<MakerRow>(
       `select s.*,
-              u.display_name, u.handle, u.avatar_url, u.title as user_title
+              u.display_name, u.avatar_url, u.title as user_title,
+              -- A handle is only a link once the profile is published: /profiles/:handle
+              -- and hire both refuse an unpublished one, so handing it out made the
+              -- avatar and Hire lead to "Profile not found".
+              case when u.public_profile then u.handle end as handle
          from showcases s
          join users u on u.id = s.user_id
         where s.published_at is not null

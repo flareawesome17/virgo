@@ -72,7 +72,11 @@ export class CommentsService {
       avatar_url: string | null;
     }>(
       `select c.id, c.body, c.created_at,
-              u.id as author_id, u.display_name, u.handle, u.avatar_url
+              u.id as author_id, u.display_name, u.avatar_url,
+              -- A handle is only a link once the profile is published: /profiles/:handle
+              -- and hire both refuse an unpublished one, so handing it out made the
+              -- avatar and Hire lead to "Profile not found".
+              case when u.public_profile then u.handle end as handle
          from showcase_comments c
          join users u on u.id = c.user_id
         where c.showcase_id = $1
