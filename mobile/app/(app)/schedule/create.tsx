@@ -164,7 +164,9 @@ export default function CreateEventScreen() {
   const createEvent = useCreateScheduleEvent();
   const updateEvent = useUpdateScheduleEvent();
   const inviteToEvent = useInviteToEvent();
-  const saving = editing ? updateEvent.isPending : createEvent.isPending;
+  const saving = editing
+    ? updateEvent.isPending
+    : createEvent.isPending || inviteToEvent.isPending;
 
   const handleUpdate = () => {
     if (!eventId) return;
@@ -205,21 +207,24 @@ export default function CreateEventScreen() {
         ...(selectedWsId ? { workspace_id: selectedWsId } : {}),
       },
       {
-        onSuccess: (event) => {
+        onSuccess: async (event) => {
           // A second call on purpose: the event exists either way, so a failure
           // here costs the invitations, not the event. The detail screen the
           // user lands on shows who was actually invited.
+          //
+          // Awaited before leaving. It was fired and then the screen replaced
+          // at once, and a mutation's own callbacks do not run once the screen
+          // that made it is gone — so this alert could never appear, and a
+          // failed invitation went unmentioned.
           if (guests.length > 0) {
-            inviteToEvent.mutate(
-              { eventId: event.id, userIds: guests },
-              {
-                onError: (err: any) =>
-                  Alert.alert(
-                    'Event created, but the invitations failed',
-                    err?.message || 'Try inviting them from the event.',
-                  ),
-              },
-            );
+            try {
+              await inviteToEvent.mutateAsync({ eventId: event.id, userIds: guests });
+            } catch (err: any) {
+              Alert.alert(
+                'Event created, but the invitations failed',
+                err?.message || 'Try inviting them from the event.',
+              );
+            }
           }
           router.replace(`/schedule/${event.id}`);
         },
