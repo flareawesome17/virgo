@@ -107,8 +107,14 @@ export async function dismissUpdate(version: string): Promise<void> {
  * iOS goes to the App Store listing. A TestFlight build cannot be linked to
  * directly — Apple gives no URL scheme for "open this app in TestFlight" —
  * so a tester is told where to look rather than sent somewhere that will not
- * work. Android goes to the page that serves the APK, because there is no
- * Play Store listing yet.
+ * work.
+ *
+ * Android goes to the Play Store listing. It used to go to the page serving
+ * the APK, from before there was one — and a Play build that sends people to
+ * download an APK is a Play policy violation, besides installing something
+ * Play cannot then update. The https link rather than market://, which opens
+ * the Play Store app where there is one and a browser where there is not
+ * (market:// just fails there).
  */
 export function updateDestination(): { url: string; label: string } {
   if (Platform.OS === 'ios') {
@@ -117,5 +123,10 @@ export function updateDestination(): { url: string; label: string } {
       label: 'Open the App Store',
     };
   }
-  return { url: 'https://virgo.ph/download', label: 'Download the update' };
+  return {
+    url:
+      Constants.expoConfig?.android?.playStoreUrl ??
+      'https://play.google.com/store/apps/details?id=com.virgo.app',
+    label: 'Open the Play Store',
+  };
 }
