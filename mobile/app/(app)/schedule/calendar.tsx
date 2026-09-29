@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth, useScheduleEvents, useTheme } from '@/src/hooks';
+import { useAuth, useScheduleEventRange, useTheme } from '@/src/hooks';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
@@ -46,9 +46,12 @@ export default function CalendarScreen() {
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState(todayKey());
 
-  const { events } = useScheduleEvents(
-    { orderBy: 'event_date', direction: 'asc', limit: 100 },
-    { enabled: !!user?.id },
+  // The days the grid draws, not the account's 100 oldest events — which
+  // left every month from some point on empty for a busy account.
+  const gridWeeks = getMonthWeeks(viewYear, viewMonth);
+  const { events } = useScheduleEventRange(
+    gridWeeks[0]?.[0]?.key,
+    gridWeeks[gridWeeks.length - 1]?.[6]?.key,
   );
 
   const eventsByDate = useMemo(() => {

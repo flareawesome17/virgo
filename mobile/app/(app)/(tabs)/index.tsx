@@ -1,10 +1,12 @@
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
 import {
+  dateToKey,
   eventColor,
   eventTypeLabel,
   formatTime,
   isEventUpcoming,
   parseDateKey,
+  todayKey,
 } from '@/src/lib/calendar';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
@@ -16,7 +18,7 @@ import {
   useBookings,
   useFriends,
   useMyJobs,
-  useScheduleEvents,
+  useScheduleEventRange,
   useTheme,
   useUsage,
   useWorkspaces,
@@ -115,17 +117,19 @@ export default function DashboardScreen() {
     enabled,
   );
 
-  // Fetches a window rather than 4: sorted ascending, the first few rows are
-  // the *oldest* events, so a small limit could return nothing but past ones
-  // and leave Upcoming permanently empty once they were filtered out.
+  // The next 60 days, by date. It fetched the 50 earliest events: for an
+  // account with 50 behind it, nothing ahead was ever among them, and Upcoming
+  // stayed empty however full the calendar was.
+  const [soonWindow] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 60);
+    return { from: todayKey(), to: dateToKey(end) };
+  });
   const {
     events,
     loadFailed: eventsFailed,
     refetch: refetchEvents,
-  } = useScheduleEvents(
-    { orderBy: 'event_date', direction: 'asc', limit: 50 },
-    enabled,
-  );
+  } = useScheduleEventRange(soonWindow.from, soonWindow.to);
 
   const onRefresh = async () => {
     setRefreshing(true);

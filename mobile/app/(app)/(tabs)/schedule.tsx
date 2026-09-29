@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth, useReminders, useScheduleEvents, useTheme, useUpdateReminder } from '@/src/hooks';
+import { useAuth, useReminders, useScheduleEventRange, useTheme, useUpdateReminder } from '@/src/hooks';
 import { useChrome } from '@/src/providers/ChromeProvider';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
@@ -31,7 +31,7 @@ import {
   formatTime,
   getMonthWeeks,
   labelForDateKey,
-  todayKey, isEventUpcoming, eventTypeLabel } from '@/src/lib/calendar';
+  todayKey, isEventUpcoming, eventTypeLabel, dateToKey } from '@/src/lib/calendar';
 import { PALETTES } from '@/theme';
 
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -68,9 +68,27 @@ export default function ScheduleScreen() {
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState(todayKey);
 
-  const { events, refetch: refetchEvents } = useScheduleEvents(
-    { orderBy: 'event_date', direction: 'asc', limit: 100 },
-    { enabled: !!user?.id },
+  /*
+   * The month on screen, and the weeks ahead — not the account's 100 oldest.
+   *
+   * Both came from one list of the 100 earliest events, so an account with a
+   * past behind it saw no events this month or later at all, and Upcoming
+   * sat empty. The grid asks for exactly the days it draws; Upcoming for the
+   * next 60 days.
+   */
+  const monthWeeks = getMonthWeeks(viewYear, viewMonth);
+  const { events, refetch: refetchEvents } = useScheduleEventRange(
+    monthWeeks[0]?.[0]?.key,
+    monthWeeks[monthWeeks.length - 1]?.[6]?.key,
+  );
+  const [soonWindow] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 60);
+    return { from: todayKey(), to: dateToKey(end) };
+  });
+  const { events: soonEvents, refetch: refetchSoon } = useScheduleEventRange(
+    soonWindow.from,
+    soonWindow.to,
   );
 
   // Not done, from today on, soonest first. It was the 100 oldest, completed
@@ -92,7 +110,7 @@ export default function ScheduleScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetchEvents(), refetchReminders()]);
+    await Promise.all([refetchEvents(), refetchSoon(), refetchReminders()]);
     setRefreshing(false);
   };
 
@@ -105,11 +123,10 @@ export default function ScheduleScreen() {
     return m;
   }, [events]);
 
-  const monthWeeks = getMonthWeeks(viewYear, viewMonth);
   const selectedEvents = eventsByDate[selectedDate] || [];
   // Compared against the moment, not the date: a 9am event was still listed as
   // upcoming that same evening.
-  const upcomingEvents = events
+  const upcomingEvents = soonEvents
     .filter((e) => isEventUpcoming(e.event_date, e.event_time))
     .slice(0, 3);
   const activeReminders = reminders.filter(r => !r.is_completed);
