@@ -313,28 +313,35 @@ export default function ConversationScreen() {
     ];
   }, [messages, outbox, lastReadAt, user?.id]);
 
-  /** Sends, keeping the text on screen until the server has it. */
+  /**
+   * Sends, keeping the text on screen until the server has it.
+   *
+   * mutateAsync, not mutate with callbacks: TanStack v5 runs a mutate() call's
+   * own onSuccess/onError only for the latest call. Two messages sent quickly
+   * left the first "Sending…" forever beside the real one, and a first one
+   * that failed never offered its retry — the message was silently lost.
+   * Each send's promise is its own.
+   */
   const dispatch = (item: Outgoing) => {
     setOutbox((prev) =>
       prev.map((o) => (o.tempId === item.tempId ? { ...o, status: 'sending' } : o)),
     );
-    send.mutate(
-      { body: item.body, replyToId: item.replyToId, mentionIds: item.mentionIds },
-      {
-        // The real message is written into the cache by the mutation, so the
-        // placeholder can go without leaving a gap.
-        onSuccess: () =>
-          setOutbox((prev) => prev.filter((o) => o.tempId !== item.tempId)),
+    send
+      .mutateAsync({ body: item.body, replyToId: item.replyToId, mentionIds: item.mentionIds })
+      .then(
+        // The real message is written into the cache by the mutation (its
+        // own onSuccess runs before this resolves), so the placeholder can go
+        // without leaving a gap.
+        () => setOutbox((prev) => prev.filter((o) => o.tempId !== item.tempId)),
         // Kept, not discarded. A failed send with the text thrown away is how
         // people lose messages they thought they had sent.
-        onError: (err) => {
+        (err: unknown) => {
           const status = chatRefusal(err) ? 'refused' : 'failed';
           setOutbox((prev) =>
             prev.map((o) => (o.tempId === item.tempId ? { ...o, status } : o)),
           );
         },
-      },
-    );
+      );
   };
 
   // Monotonic, so two identical messages sent back to back cannot share a key.
@@ -835,6 +842,9 @@ export default function ConversationScreen() {
                 placeholder={isGroup ? 'Message — use @ to mention' : 'Message'}
                 placeholderTextColor="#A89489"
                 multiline
+                // The server's limit. Past it the send was refused, and the
+                // bubble offered a retry that could only fail again.
+                maxLength={4000}
                 className="text-foreground text-sm"
                 style={{ maxHeight: 100 }}
               />
