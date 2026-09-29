@@ -2,6 +2,7 @@ import { View, Text, ScrollView, RefreshControl, Pressable, Alert } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useDeleteScheduleEvent,
+  useRespondToEventInvitation,
   useReminders,
   useScheduleEvent,
   useTheme,
@@ -80,6 +81,7 @@ export default function EventDetailScreen() {
     updateReminder.mutate({ id, is_completed });
 
   const deleteEventMutation = useDeleteScheduleEvent();
+  const respond = useRespondToEventInvitation();
 
   /**
    * Confirm first.
@@ -139,6 +141,28 @@ export default function EventDetailScreen() {
   const wsAccent = workspace?.accent_color || color;
   // Undefined on a just-created event, which is always yours.
   const isOwner = event.is_owner !== false;
+  /*
+   * A guest who accepted could not back out: the event sat on their calendar
+   * with no way off it short of asking the organiser to remove them. The API
+   * already takes a decline after an accept; this is the button for it.
+   */
+  const cantMakeIt = () =>
+    Alert.alert("Can't make it?", 'The organiser is told, and the event leaves your schedule.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: "Can't make it",
+        style: 'destructive',
+        onPress: () =>
+          respond.mutate(
+            { eventId: event.id, accept: false },
+            {
+              onSuccess: () => goBackOr('/(app)/(tabs)/schedule'),
+              onError: (err: any) =>
+                Alert.alert('Could not change that', err?.message || 'Please try again.'),
+            },
+          ),
+      },
+    ]);
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -280,6 +304,18 @@ export default function EventDetailScreen() {
               This is not your event. The organiser and everyone going will be
               told what you change.
             </Text>
+          )}
+          {!isOwner && (
+            <Pressable
+              onPress={cantMakeIt}
+              disabled={respond.isPending}
+              accessibilityRole="button"
+              className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]"
+            >
+              <Text className="text-destructive text-sm font-semibold">
+                {respond.isPending ? 'Leaving…' : "Can't make it"}
+              </Text>
+            </Pressable>
           )}
           {isOwner && (
             <Pressable onPress={confirmDelete} className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]">
