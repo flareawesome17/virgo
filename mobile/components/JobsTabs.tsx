@@ -603,48 +603,73 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
         />
       }
     >
-      {applications.map((app) => (
-        <View key={app.id} className="bg-card rounded-2xl p-4 gap-2">
-          <View className="flex-row items-start gap-3">
-            <Pressable className="flex-1 min-w-0" onPress={() => router.push(`/jobs/${app.postSlug}`)}>
-              <Text className="text-foreground text-[14px] font-bold leading-snug">
-                {app.postTitle}
+      {applications.map((app) => {
+        /*
+         * An application nobody answered outlives its post. It went on saying
+         * "Applied" after the post expired, closed or filled, and tapping it
+         * opened a post that was no longer there — "Job not found". What
+         * happened to the post is the answer, so it is what the row says, and
+         * a post that is gone is not offered as a link.
+         */
+        const postGone = app.postStatus !== 'open';
+        const unanswered = app.status === 'new' || app.status === 'shortlisted';
+        const label =
+          postGone && unanswered ? POST_ENDED_LABEL[app.postStatus] : APPLICATION_LABEL[app.status];
+        return (
+          <View key={app.id} className="bg-card rounded-2xl p-4 gap-2">
+            <View className="flex-row items-start gap-3">
+              <Pressable
+                className="flex-1 min-w-0"
+                disabled={postGone && unanswered}
+                onPress={() => router.push(`/jobs/${app.postSlug}`)}
+              >
+                <Text className="text-foreground text-[14px] font-bold leading-snug">
+                  {app.postTitle}
+                </Text>
+                <Text className="text-muted-foreground text-[11px] mt-0.5">
+                  {/* Which role, since applying to a post that wanted three of
+                      them was otherwise unrecorded on your own side. */}
+                  {[app.role, `Applied ${new Date(app.createdAt).toLocaleDateString()}`]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+              </Pressable>
+              <Text className="text-[10px] font-bold uppercase"
+                style={{ color: app.status === 'accepted' ? '#10b981' : '#9ca3af' }}>
+                {label}
               </Text>
-              <Text className="text-muted-foreground text-[11px] mt-0.5">
-                {/* Which role, since applying to a post that wanted three of
-                    them was otherwise unrecorded on your own side. */}
-                {[app.role, `Applied ${new Date(app.createdAt).toLocaleDateString()}`]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </Text>
-            </Pressable>
-            <Text className="text-[10px] font-bold uppercase"
-              style={{ color: app.status === 'accepted' ? '#10b981' : '#9ca3af' }}>
-              {APPLICATION_LABEL[app.status]}
-            </Text>
+            </View>
+
+            {app.message && (
+              <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
+            )}
+
+            {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
+            {app.status === 'accepted' && app.conversationId && (
+              <Pressable
+                className="flex-row items-center gap-1.5"
+                onPress={() => router.push(`/chat/${app.conversationId}`)}
+              >
+                <MessageCircleIcon size={13} color="#B66A40" />
+                <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+                  Open chat
+                </Text>
+              </Pressable>
+            )}
           </View>
-
-          {app.message && (
-            <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
-          )}
-
-          {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
-          {app.status === 'accepted' && app.conversationId && (
-            <Pressable
-              className="flex-row items-center gap-1.5"
-              onPress={() => router.push(`/chat/${app.conversationId}`)}
-            >
-              <MessageCircleIcon size={13} color="#B66A40" />
-              <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-                Open chat
-              </Text>
-            </Pressable>
-          )}
-        </View>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }
+
+/** What an unanswered application says once its post has ended. */
+const POST_ENDED_LABEL: Record<string, string> = {
+  open: 'Applied',
+  filled: 'Post filled',
+  closed: 'Post closed',
+  expired: 'Post expired',
+};
 
 function Empty({
   title, body, cta, onPress,
