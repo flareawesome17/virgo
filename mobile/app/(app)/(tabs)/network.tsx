@@ -15,7 +15,7 @@ import {
   useTheme,
   useWorkspaces,
 } from '@/src/hooks';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { router } from 'expo-router';
 import {
   SearchIcon,
@@ -59,6 +59,21 @@ const ROLE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
   client: { bg: '#6B8E4E18', text: '#6B8E4E' },
 };
 
+/**
+ * A value once it has stopped changing for `ms`.
+ *
+ * For the people search: every keystroke was a request, and typing a name at
+ * speed hit the rate limit, which came back as a search error.
+ */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
+
 export default function NetworkScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const sendRequest = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
@@ -70,6 +85,46 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
     requested_by: 'them',
     limit: 50,
   });
+  // Requests I sent, so they can be taken back. Nothing listed them, and the
+  // "Requested" chip in search did nothing when tapped.
+  const { friends: outgoing } = useFriends({
+    status: 'pending',
+    requested_by: 'me',
+    limit: 50,
+  });
+
+  const withdraw = (row: Friend) =>
+    Alert.alert('Withdraw your request?', `${row.friend_name} will no longer see it.`, [
+      { text: 'Keep it', style: 'cancel' },
+      {
+        text: 'Withdraw',
+        style: 'destructive',
+        onPress: () =>
+          removeFriend.mutate(row.id, {
+            onError: (err) =>
+              Alert.alert("Couldn't withdraw it", profileActionMessage(err, 'connect')),
+          }),
+      },
+    ]);
+
+  /**
+   * Accepting or declining, once.
+   *
+   * The buttons had no pending state, so a second tap while the first was on
+   * its way sent the answer twice, and a failure said nothing at all.
+   */
+  const answer = (id: string, accept: boolean) =>
+    respond.mutate(
+      { id, accept },
+      {
+        onError: (err) =>
+          Alert.alert(
+            accept ? "Couldn't accept the request" : "Couldn't decline the request",
+            profileActionMessage(err, 'accept'),
+          ),
+      },
+    );
+
   /** The incoming request whose More menu is open. */
   const [safetyFor, setSafetyFor] = useState<Friend | null>(null);
 
@@ -99,7 +154,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
   const acceptFromSearch = (userId: string) => {
     const match = incoming.find((f) => f.friend_user_id === userId);
     if (!match) return;
-    respond.mutate({ id: match.id, accept: true });
+    answer(match.id, true);
   };
 
   /*
@@ -179,6 +234,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  const settledSearch = useSettled(search, 300);
 
   // The same box filters collaborators and finds people to add — searching
   // for someone is how you reach them, which is what this screen is for.
@@ -187,7 +243,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
     isFetching: isSearching,
     loadFailed: peopleFailed,
     refetch: refetchPeople,
-  } = usePeopleSearch(search);
+  } = usePeopleSearch(settledSearch);
 
   const enabled = { enabled: !!user?.id };
 
@@ -346,13 +402,23 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                         <Text className="text-success text-xs font-bold">Connected</Text>
                       </View>
                     ) : p.relationship === 'pending_out' ? (
-                      <View className="px-3 py-1.5 rounded-full bg-muted">
+                      <Pressable
+                        onPress={() => {
+                          const row = outgoing.find((f) => f.friend_user_id === p.id);
+                          if (row) withdraw(row);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityHint="Withdraws your request"
+                        className="px-3 py-1.5 rounded-full bg-muted active:opacity-70"
+                      >
                         <Text className="text-muted-foreground text-xs font-bold">Requested</Text>
-                      </View>
+                      </Pressable>
                     ) : p.relationship === 'pending_in' ? (
                       <Pressable
                         onPress={() => acceptFromSearch(p.id)}
+                        disabled={respond.isPending}
                         className="px-3 py-2 rounded-xl bg-action active:scale-[0.94]"
+                        style={{ opacity: respond.isPending ? 0.5 : 1 }}
                       >
                         <Text className="text-white text-xs font-bold">Accept</Text>
                       </Pressable>
@@ -401,16 +467,26 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                     </Text>
                   </View>
                   <Pressable
-                    onPress={() => respond.mutate({ id: req.id, accept: false })}
-                    className="px-3 py-2 rounded-xl bg-muted active:scale-[0.94]"
+                    onPress={() => answer(req.id, false)}
+                    disabled={respond.isPending}
+                    accessibilityRole="button"
+                    className="px-3 py-2 min-h-9 justify-center rounded-xl bg-muted active:scale-[0.94]"
+                    style={{ opacity: respond.isPending ? 0.5 : 1 }}
                   >
                     <Text className="text-muted-foreground text-xs font-bold">Decline</Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => respond.mutate({ id: req.id, accept: true })}
-                    className="px-3 py-2 rounded-xl bg-action active:scale-[0.94]"
+                    onPress={() => answer(req.id, true)}
+                    disabled={respond.isPending}
+                    accessibilityRole="button"
+                    className="px-3 py-2 min-h-9 min-w-[64px] items-center justify-center rounded-xl bg-action active:scale-[0.94]"
+                    style={{ opacity: respond.isPending && respond.variables?.id !== req.id ? 0.5 : 1 }}
                   >
-                    <Text className="text-white text-xs font-bold">Accept</Text>
+                    {respond.isPending && respond.variables?.id === req.id ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text className="text-white text-xs font-bold">Accept</Text>
+                    )}
                   </Pressable>
                   {/* A request is often all you have of a stranger — no
                       profile if theirs is unpublished, no chat until you
@@ -429,6 +505,40 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
                       <EllipsisIcon size={16} className="text-muted-foreground" />
                     </Pressable>
                   ) : null}
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Requests you sent and are still waiting on. */}
+        {search.trim().length < 2 && outgoing.length > 0 && (
+          <View className="px-5 pb-4">
+            <Text className="text-foreground text-[13px] font-semibold mb-2 ml-1">
+              Sent requests
+            </Text>
+            <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
+              {outgoing.map((row, i) => (
+                <View
+                  key={row.id}
+                  className="px-4 py-3 flex-row items-center gap-3"
+                  style={i < outgoing.length - 1 ? { borderBottomWidth: 1, borderBottomColor: palette.border } : undefined}
+                >
+                  <View className="flex-1 min-w-0">
+                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                      {row.friend_name}
+                    </Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">Waiting for them</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => withdraw(row)}
+                    disabled={removeFriend.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Withdraw your request to ${row.friend_name}`}
+                    className="px-3 py-2 min-h-9 justify-center rounded-xl bg-muted active:scale-[0.94]"
+                  >
+                    <Text className="text-muted-foreground text-xs font-bold">Withdraw</Text>
+                  </Pressable>
                 </View>
               ))}
             </View>
