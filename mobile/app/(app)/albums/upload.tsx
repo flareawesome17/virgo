@@ -19,7 +19,7 @@ import {
   ChevronDownIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { contentTypeForAsset, formatBytes, MAX_UPLOAD_BYTES } from '@/src/api';
+import { contentTypeForAsset, formatBytes, isUploadable, MAX_UPLOAD_BYTES } from '@/src/api';
 import { useUploadQueue } from '@/src/providers/UploadProvider';
 import { useAlbum, useAlbums, useUsage, useTheme } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
@@ -62,11 +62,36 @@ interface UploadItem {
 function splitBySize(picked: UploadItem[]): {
   ok: UploadItem[];
   tooBig: UploadItem[];
+  unsupported: UploadItem[];
 } {
+  // The type too, for the same reason: refused by the API's allow-list, a file
+  // sat in the queue as "did not finish" with the reason never shown.
+  const uploadable = picked.filter((item) => isUploadable(item.mimeType));
   return {
-    ok: picked.filter((item) => item.sizeBytes <= MAX_UPLOAD_BYTES),
-    tooBig: picked.filter((item) => item.sizeBytes > MAX_UPLOAD_BYTES),
+    ok: uploadable.filter((item) => item.sizeBytes <= MAX_UPLOAD_BYTES),
+    tooBig: uploadable.filter((item) => item.sizeBytes > MAX_UPLOAD_BYTES),
+    unsupported: picked.filter((item) => !isUploadable(item.mimeType)),
   };
+}
+
+/** One message for everything left out of a pick, so there is one dialog. */
+function explainLeftOut(tooBig: UploadItem[], unsupported: UploadItem[]) {
+  const parts: string[] = [];
+  if (tooBig.length > 0) {
+    parts.push(
+      `Over the ${formatBytes(MAX_UPLOAD_BYTES)} limit:\n${tooBig
+        .map((item) => `${item.name} (${formatBytes(item.sizeBytes)})`)
+        .join('\n')}`,
+    );
+  }
+  if (unsupported.length > 0) {
+    parts.push(
+      `Not a format Virgo takes:\n${unsupported.map((item) => item.name).join('\n')}\n\nPhotos (JPEG, PNG, HEIC, WebP, TIFF), videos (MP4, MOV, WebM), audio (MP3, M4A, WAV, AAC, FLAC, OGG) and PDFs.`,
+    );
+  }
+  if (parts.length === 0) return;
+  const count = tooBig.length + unsupported.length;
+  Alert.alert(count === 1 ? 'One file was left out' : `${count} files were left out`, parts.join('\n\n'));
 }
 
 function kindOf(mime: string): 'image' | 'video' | 'audio' | 'other' {
@@ -163,20 +188,15 @@ export default function UploadScreen() {
         id: `${asset.assetId ?? asset.uri}-${picked.length}-${items.length}`,
         uri: asset.uri,
         name: asset.fileName ?? asset.uri.split('/').pop() ?? 'file',
-        mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType }),
+        mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType, name: asset.fileName }),
         sizeBytes,
         progress: 0,
         status: 'queued',
       });
     }
 
-    const { ok, tooBig } = splitBySize(picked);
-    if (tooBig.length > 0) {
-      Alert.alert(
-        tooBig.length === 1 ? 'That file is too large' : 'Some files are too large',
-        `${tooBig.map((item) => `${item.name} (${formatBytes(item.sizeBytes)})`).join('\n')}\n\nThe limit is ${formatBytes(MAX_UPLOAD_BYTES)} per file.`,
-      );
-    }
+    const { ok, tooBig, unsupported } = splitBySize(picked);
+    explainLeftOut(tooBig, unsupported);
     addPicked(ok);
 
   };
@@ -200,20 +220,15 @@ export default function UploadScreen() {
       id: `${asset.uri}-${i}-${items.length}`,
       uri: asset.uri,
       name: asset.name ?? asset.uri.split('/').pop() ?? 'audio',
-      mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType }),
+      mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType, name: asset.name }),
       // DocumentPicker reports size directly; fall back to 0 if absent.
       sizeBytes: asset.size ?? 0,
       progress: 0,
       status: 'queued',
     }));
 
-    const { ok, tooBig } = splitBySize(picked);
-    if (tooBig.length > 0) {
-      Alert.alert(
-        tooBig.length === 1 ? 'That file is too large' : 'Some files are too large',
-        `${tooBig.map((item) => `${item.name} (${formatBytes(item.sizeBytes)})`).join('\n')}\n\nThe limit is ${formatBytes(MAX_UPLOAD_BYTES)} per file.`,
-      );
-    }
+    const { ok, tooBig, unsupported } = splitBySize(picked);
+    explainLeftOut(tooBig, unsupported);
     addPicked(ok);
 
   };
