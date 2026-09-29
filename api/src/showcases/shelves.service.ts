@@ -5,10 +5,32 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { blockedBetween } from '../safety/block-sql';
 import { PUBLISHED_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
 import type { CreateShelfDto, KeepShowcaseDto, UpdateShelfDto } from './dto/showcase.dto';
-import { ShowcasesService } from './showcases.service';
+import { ShowcasesService, connectedTo } from './showcases.service';
+
+/**
+ * Whether `viewer` may see a kept showcase `sc`, made by `mu`.
+ *
+ * Keeping asks once, as the keeper (ShowcasesService.one). But a shelf is read
+ * by other people, later, and only publishing and suspension were asked then:
+ * a public shelf showed connections-only posts to anyone who opened it, and
+ * posts by people who had blocked the viewer. These are the same gates as
+ * reading the showcase itself, asked on every read of the shelf — entries,
+ * cover and count alike, so the three never disagree.
+ */
+const keptVisibleTo = (viewer: string, sc: string, mu: string): string => `(
+  ${sc}.published_at is not null
+  and ${sc}.unpublished_at is null
+  and ${sc}.hidden_at is null
+  and ${mu}.suspended_at is null
+  and (${mu}.disabled_until is null or ${mu}.disabled_until <= now())
+  and (${sc}.user_id = ${viewer}
+       or (not ${blockedBetween(viewer, `${sc}.user_id`)}
+           and (${sc}.visibility = 'public' or ${connectedTo(viewer, `${sc}.user_id`)})))
+)`;
 
 /**
  * Shelves: what somebody keeps of other people's work.
@@ -72,31 +94,37 @@ export class ShelvesService {
       cover_thumb_key: string | null;
     }>(
       `select sh.id, sh.name, sh.is_public,
-              count(i.id)::text as count,
+              -- What this viewer will find inside, not every row: the count
+              -- used to include pieces the shelf would never show them.
               (
-                -- The newest kept piece that can still be shown: its author may
-                -- have taken others down since. A photograph shows its
-                -- thumbnail and a film its poster frame; on a shelf tile they
-                -- are the same thing, a still.
+                select count(*)
+                  from shelf_items li
+                  join showcases sc on sc.id = li.showcase_id
+                  join users mu on mu.id = sc.user_id
+                 where li.shelf_id = sh.id
+                   and ${keptVisibleTo('$3', 'sc', 'mu')}
+              )::text as count,
+              (
+                -- The newest kept piece this viewer can see: its author may
+                -- have taken others down since, or shown them to connections
+                -- only. A photograph shows its thumbnail and a film its poster
+                -- frame; on a shelf tile they are the same thing, a still.
                 select coalesce(f.thumb_key, f.poster_key)
                   from shelf_items li
                   join showcases sc on sc.id = li.showcase_id
-                                   and sc.published_at is not null
-                                   and sc.unpublished_at is null
-                                   and sc.hidden_at is null
+                  join users mu on mu.id = sc.user_id
                   join showcase_items si on si.showcase_id = sc.id
                   join user_files f on f.key = si.file_key and f.user_id = si.user_id
                  where li.shelf_id = sh.id
+                   and ${keptVisibleTo('$3', 'sc', 'mu')}
                    and coalesce(f.thumb_key, f.poster_key) is not null
                  order by li.created_at desc, si.position
                  limit 1
               ) as cover_thumb_key
          from shelves sh
-         left join shelf_items i on i.shelf_id = sh.id
         where sh.user_id = $1 and ($2 or sh.is_public)
-        group by sh.id
         order by sh.position, sh.created_at`,
-      [ownerId, own],
+      [ownerId, own, viewerId],
     );
 
     return Promise.all(
@@ -181,15 +209,11 @@ export class ShelvesService {
               ) as thumb_key
          from shelf_items i
          join showcases s on s.id = i.showcase_id
-                         and s.published_at is not null
-                         and s.unpublished_at is null
-                         and s.hidden_at is null
          join users u on u.id = s.user_id
-                     and u.suspended_at is null
-                     and (u.disabled_until is null or u.disabled_until <= now())
         where i.shelf_id = $1
+          and ${keptVisibleTo('$2', 's', 'u')}
         order by i.created_at desc`,
-      [shelfId],
+      [shelfId, viewerId],
     );
 
     const out: ShelfEntry[] = [];
