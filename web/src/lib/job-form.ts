@@ -3,6 +3,13 @@ export const JOB_TITLE_MIN = 3;
 export const JOB_DESCRIPTION_MIN = 30;
 
 /**
+ * The most one role's budget may be, in centavos: ₱100,000. MAX_BUDGET in the
+ * API's hiring service; kept in step by hand. It was only found out on
+ * submit, as "higher than we allow", with the form already filled.
+ */
+export const MAX_ROLE_BUDGET_MINOR = 100_000_00;
+
+/**
  * Why the "Post it" button is disabled, in the user's own words.
  *
  * The form used to just grey the button out. Every rule here is also enforced
@@ -18,6 +25,8 @@ export function jobPostBlockers(input: {
   description: string;
   rolesWanted: readonly string[];
   budgetBackwards: boolean;
+  /** A figure over MAX_ROLE_BUDGET_MINOR. */
+  budgetTooHigh?: boolean;
   /**
    * Mobile types the date by hand, so it can be malformed in a way the web
    * date input cannot. Defaults to true for callers that cannot get it wrong.
@@ -49,6 +58,7 @@ export function jobPostBlockers(input: {
     );
   }
   if (input.budgetBackwards) reasons.push('a budget that runs low to high');
+  if (input.budgetTooHigh) reasons.push('a budget of ₱100,000 or less per role');
   if (input.dateLooksRight === false) reasons.push('a date as YYYY-MM-DD');
 
   return reasons;

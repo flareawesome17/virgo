@@ -10,10 +10,12 @@ import { ArrowLeftIcon, SendIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   JOB_TITLE_MIN,
+  MAX_ROLE_BUDGET_MINOR,
   jobPostBlockers,
   joinBlockers,
 } from '@/src/lib/job-form';
 import { DateTimeField } from '@/components/DateTimeField';
+import { LoadFailed } from '@/components/LoadFailed';
 import { LocationField } from '@/components/LocationField';
 import { useHoldUpdates } from '@/src/lib/ota-updates';
 
@@ -39,7 +41,12 @@ export default function NewJobScreen() {
   useHoldUpdates();
   const insets = useSafeAreaInsets();
   const create = useCreateJob();
-  const { roles: allRoles } = useRoles();
+  const {
+    roles: allRoles,
+    isLoading: rolesLoading,
+    loadFailed: rolesFailed,
+    refetch: refetchRoles,
+  } = useRoles();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -72,6 +79,11 @@ export default function NewJobScreen() {
     const { min, max } = pair(role);
     return min != null && max != null && min > max;
   });
+  // Said while typing, not on submit.
+  const budgetTooHigh = rolesWanted.some((role) => {
+    const { min, max } = pair(role);
+    return (min ?? 0) > MAX_ROLE_BUDGET_MINOR || (max ?? 0) > MAX_ROLE_BUDGET_MINOR;
+  });
   // Always well-formed now: the value only ever comes from the picker.
   const dateLooksRight = true;
 
@@ -80,6 +92,7 @@ export default function NewJobScreen() {
     description,
     rolesWanted,
     budgetBackwards,
+    budgetTooHigh,
     dateLooksRight,
   });
   const ready = blockers.length === 0;
@@ -157,6 +170,13 @@ export default function NewJobScreen() {
           </Field>
 
           <Field label="Which roles are you hiring for?">
+            {/* Without the list there is nothing to pick, and a post needs a
+                role — the form was a dead end with no way to try again. */}
+            {rolesFailed && allRoles.length === 0 ? (
+              <LoadFailed what="the list of roles" onRetry={() => void refetchRoles()} compact />
+            ) : rolesLoading && allRoles.length === 0 ? (
+              <ActivityIndicator color="#B66A40" style={{ paddingVertical: 12 }} />
+            ) : null}
             <View className="flex-row flex-wrap gap-2">
               {allRoles.map((role) => {
                 const on = rolesWanted.includes(role);
@@ -244,11 +264,13 @@ export default function NewJobScreen() {
               ))}
               <Text
                 className="text-[11px]"
-                style={{ color: budgetBackwards ? '#ef4444' : '#9ca3af' }}
+                style={{ color: budgetBackwards || budgetTooHigh ? '#ef4444' : '#9ca3af' }}
               >
                 {budgetBackwards
                   ? 'The lower figure needs to be the smaller one.'
-                  : 'Optional, but a role with a number gets far better applications.'}
+                  : budgetTooHigh
+                    ? 'Each role can be up to ₱100,000.'
+                    : 'Optional, but a role with a number gets far better applications.'}
               </Text>
             </View>
           )}
