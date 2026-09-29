@@ -375,10 +375,25 @@ export default function AlbumScreen() {
    * mobile data. Running them in parallel is how every one of them times out.
    */
   const saveSelection = async () => {
-    const targets = selectedFiles.filter(
+    const downloadable = selectedFiles.filter(
       (file) => file.capabilities.download && (file.downloadUrl ?? file.url),
     );
-    if (targets.length === 0) return;
+    // Photos takes photographs and films and nothing else. Audio and PDFs
+    // used to be downloaded, refused by the library, and counted as failures
+    // "on an unsteady connection" — which sent people off to fix their signal.
+    const targets = downloadable.filter(
+      (file) => file.contentType?.startsWith('image/') || file.contentType?.startsWith('video/'),
+    );
+    const skipped = downloadable.length - targets.length;
+    if (targets.length === 0) {
+      if (skipped > 0) {
+        Alert.alert(
+          'Nothing to save to Photos',
+          'Photos only holds photos and videos. Audio and documents can be downloaded from Virgo on the web.',
+        );
+      }
+      return;
+    }
     if (!(await canSaveToPhotos('these files'))) return;
     let saved = 0;
     setSaving({ done: 0, total: targets.length });
@@ -402,11 +417,16 @@ export default function AlbumScreen() {
     }
     setSaving(null);
     leaveSelection();
+    const skippedNote =
+      skipped > 0
+        ? ` ${plural(skipped, 'file was', 'files were')} left out — Photos only holds photos and videos.`
+        : '';
     Alert.alert(
       saved === targets.length ? 'Saved' : 'Saved some',
-      saved === targets.length
+      (saved === targets.length
         ? `${plural(saved, 'file is', 'files are')} in your library.`
-        : `${saved} of ${targets.length} saved. The rest could not be downloaded — try them again on a steadier connection.`,
+        : `${saved} of ${targets.length} saved. The rest could not be downloaded — try them again on a steadier connection.`) +
+        skippedNote,
     );
   };
 
