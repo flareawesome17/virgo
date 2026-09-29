@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ShowcaseFilm } from '@/components/media/showcase-film';
 import { useFeed, useLike } from '@/hooks/useShowcases';
-import type { FeedItem } from '@/api';
+import { makerOf, type FeedItem } from '@/api';
 import { cn } from '@/lib/utils';
 
 /**
@@ -100,6 +100,8 @@ export default function PageClient() {
 function Placard({ item }: { item: FeedItem }) {
   const like = useLike();
   const cover = item.pieces[0];
+  // Never read straight off the payload: see makerOf.
+  const maker = makerOf(item);
 
   return (
     <Card className="overflow-hidden py-0">
@@ -139,27 +141,27 @@ function Placard({ item }: { item: FeedItem }) {
       <div className="p-5">
         <div className="flex items-center gap-3">
           <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/15 text-sm font-bold text-primary">
-            {item.maker.avatarUrl ? (
-              <Image src={item.maker.avatarUrl} alt="" width={36} height={36} />
+            {maker.avatarUrl ? (
+              <Image src={maker.avatarUrl} alt="" width={36} height={36} />
             ) : (
-              item.maker.displayName.charAt(0).toUpperCase()
+              maker.displayName.charAt(0).toUpperCase()
             )}
           </span>
           <div className="min-w-0 flex-1">
-            {item.maker.handle ? (
-              <Link href={`/u/${item.maker.handle}`} className="text-sm font-bold hover:underline">
-                {item.maker.displayName}
+            {maker.handle ? (
+              <Link href={`/u/${maker.handle}`} className="text-sm font-bold hover:underline">
+                {maker.displayName}
               </Link>
             ) : (
-              <p className="text-sm font-bold">{item.maker.displayName}</p>
+              <p className="text-sm font-bold">{maker.displayName}</p>
             )}
             <p className="truncate text-xs text-muted-foreground">
-              {[item.maker.title, item.location].filter(Boolean).join(' · ')}
+              {[maker.title, item.location].filter(Boolean).join(' · ')}
             </p>
           </div>
-          {item.showHire && item.maker.handle && (
+          {item.showHire && maker.handle && (
             <Button asChild size="sm">
-              <Link href={`/hire/${item.maker.handle}`}>Hire</Link>
+              <Link href={`/hire/${maker.handle}`}>Hire</Link>
             </Button>
           )}
         </div>

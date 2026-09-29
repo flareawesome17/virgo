@@ -103,7 +103,7 @@ export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: (
         <Text className="text-foreground text-[19px] font-semibold">Keep it on a shelf</Text>
         <Text className="text-muted-foreground text-[12px] leading-[17px] mt-1">
           What you keep is public and always credits{' '}
-          {item?.maker.displayName ?? 'the maker'}. They can take the work down; it is
+          {item?.maker?.displayName ?? 'the maker'}. They can take the work down; it is
           never copied out of their hands.
         </Text>
       </View>

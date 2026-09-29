@@ -28,7 +28,7 @@ import { KeepSheet } from '@/components/KeepSheet';
 import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
 import { useFeed, useLike, useTheme } from '@/src/hooks';
 import { useChrome } from '@/src/providers/ChromeProvider';
-import type { FeedItem } from '@/src/api';
+import { makerOf, type FeedItem } from '@/src/api';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [BookmarkIcon, ChevronUpIcon, FlagIcon, HeartIcon, ImageIcon, PlusIcon]) {
@@ -218,6 +218,8 @@ function Placard({
   const width = Dimensions.get('window').width;
   const height = Math.round(width * 1.15);
   const cover = item.pieces[0];
+  // Never read straight off the payload: see makerOf.
+  const maker = makerOf(item);
 
   return (
     <View className="mb-5">
@@ -266,30 +268,30 @@ function Placard({
           <View className="flex-row items-center gap-2.5">
             <Pressable
               onPress={() =>
-                item.maker.handle ? router.push(`/u/${item.maker.handle}`) : undefined
+                maker.handle ? router.push(`/u/${maker.handle}`) : undefined
               }
               accessibilityRole="button"
-              accessibilityLabel={`${item.maker.displayName}'s profile`}
+              accessibilityLabel={`${maker.displayName}'s profile`}
               className="w-9 h-9 rounded-full overflow-hidden bg-primary/15 items-center justify-center"
             >
-              {item.maker.avatarUrl ? (
+              {maker.avatarUrl ? (
                 <RemoteImage
-                  source={{ uri: item.maker.avatarUrl }}
+                  source={{ uri: maker.avatarUrl }}
                   style={{ width: 36, height: 36 }}
                 />
               ) : (
                 <Text className="text-primary text-[14px] font-bold">
-                  {item.maker.displayName.charAt(0).toUpperCase()}
+                  {maker.displayName.charAt(0).toUpperCase()}
                 </Text>
               )}
             </Pressable>
             <View className="flex-1 min-w-0">
               <Text className="text-foreground text-[14px] font-bold" numberOfLines={1}>
-                {item.maker.displayName}
+                {maker.displayName}
               </Text>
-              {item.maker.title ? (
+              {maker.title ? (
                 <Text className="text-muted-foreground text-[11px]" numberOfLines={1}>
-                  {item.maker.title}
+                  {maker.title}
                   {item.location ? ` · ${item.location}` : ''}
                 </Text>
               ) : item.location ? (
@@ -307,9 +309,9 @@ function Placard({
             >
               <FlagIcon size={15} className="text-muted-foreground" />
             </Pressable>
-            {item.showHire && item.maker.handle && (
+            {item.showHire && maker.handle && (
               <Pressable
-                onPress={() => router.push(`/hire/${item.maker.handle}`)}
+                onPress={() => router.push(`/hire/${maker.handle}`)}
                 accessibilityRole="button"
                 className="min-h-9 px-3.5 rounded-full bg-action items-center justify-center active:opacity-90"
               >
