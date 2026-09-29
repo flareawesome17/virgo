@@ -11,7 +11,7 @@ export interface NearbyPerson {
   avatarUrl: string | null;
   /** Only when their profile is published, so the link cannot 404. */
   handle: string | null;
-  /** Kilometres, one decimal. Deliberately not coordinates. */
+  /** Whole kilometres, 0 meaning under one. Deliberately not coordinates. */
   distanceKm: number;
   relationship: 'none' | 'pending_out' | 'pending_in' | 'accepted';
   /** What they do on a shoot. The point of the whole screen. */
@@ -21,6 +21,24 @@ export interface NearbyPerson {
 /** Beyond this the result set stops being "nearby" and starts being a directory. */
 const MAX_RADIUS_KM = 200;
 const DEFAULT_RADIUS_KM = 50;
+
+/**
+ * How finely a device position is kept: two decimal places, about 1.1 km.
+ *
+ * The exact fix used to be stored, and the distance to it shown to a tenth of
+ * a kilometre. Anyone sharing could move their own point — the endpoint takes
+ * whatever coordinates it is sent — read the distance to someone from three
+ * places, and put them within about 100 m: their home, most likely. Kept to a
+ * cell of about a kilometre and shown in whole kilometres, the most that can
+ * be worked out is the cell, which is what "nearby" promised to begin with.
+ * Migration 077 rounds the positions stored before this.
+ */
+const POSITION_DECIMALS = 2;
+
+function snapToGrid(degrees: number): number {
+  const scale = 10 ** POSITION_DECIMALS;
+  return Math.round(degrees * scale) / scale;
+}
 
 /**
  * Finding people to work with nearby.
@@ -82,7 +100,7 @@ export class DiscoverService {
           set latitude = $2, longitude = $3, location_place = null,
               location_updated_at = now(), shares_location = true
         where id = $1`,
-      [userId, latitude, longitude],
+      [userId, snapToGrid(latitude), snapToGrid(longitude)],
     );
     return { sharing: true, place: null };
   }
@@ -230,6 +248,7 @@ export class DiscoverService {
                 -- showed an orphaned request as incoming, and a half-pair as
                 -- a friend.
                 ${relationshipCase('f', 'theirs')} as relationship,
+                -- Whole kilometres. See POSITION_DECIMALS.
                 round((
                   6371 * acos(
                     least(1, greatest(-1,
@@ -238,7 +257,7 @@ export class DiscoverService {
                       + sin(radians($2)) * sin(radians(u.latitude))
                     ))
                   )
-                )::numeric, 1) as distance_km
+                )::numeric) as distance_km
            from users u
            left join friends f
              on f.user_id = $1 and f.friend_user_id = u.id
