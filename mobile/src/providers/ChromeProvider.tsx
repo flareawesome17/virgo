@@ -17,7 +17,11 @@ export interface Chrome {
   hidden: Animated.Value;
   /** Attach to a scrolling view, with `scrollEventThrottle={16}`. */
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
-  /** Put the bars back. For leaving a screen, or anything that must be reachable. */
+  /**
+   * Put the bars back. The tabs call it whenever a screen comes into focus, so
+   * no screen — least of all one that never reports its scrolling — can open
+   * with its navigation already gone.
+   */
   reveal: () => void;
 }
 
@@ -58,7 +62,12 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
   // Refs, not state: this runs on every scroll frame, and re-rendering the
   // whole tab tree sixty times a second to move two bars would cost far more
   // than the bars are worth.
-  const lastY = useRef(0);
+  //
+  // Null after a reveal: the next scroll may come from a list that is already
+  // far down — the screen just returned to, or another tab entirely. Measured
+  // against 0 it read as one huge downward scroll and hid the bars again on
+  // the first frame, so the first event only records where the list is.
+  const lastY = useRef<number | null>(0);
   const isHidden = useRef(false);
 
   const value = useMemo<Chrome>(() => {
@@ -72,6 +81,10 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
       hidden,
       onScroll: (event) => {
         const y = event.nativeEvent.contentOffset.y;
+        if (lastY.current === null) {
+          lastY.current = y;
+          return;
+        }
         const delta = y - lastY.current;
         // Only update the mark once something has actually happened, so a
         // slow drag accumulates towards the threshold instead of resetting
@@ -84,7 +97,7 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
         else to(delta > 0);
       },
       reveal: () => {
-        lastY.current = 0;
+        lastY.current = null;
         to(false);
       },
     };
