@@ -45,6 +45,12 @@ export function ShowcaseFilm({
    * the thing a set of pieces on one screen makes easy to do by accident.
    */
   onPlay,
+  /**
+   * How far up to lift the running time and the sound control, for a parent
+   * that lays something over the foot of the film. The feed's placard covers
+   * its bottom 32 points, and both controls sat underneath it.
+   */
+  controlsInset = 0,
 }: {
   piece: ShowcasePiece;
   width: number;
@@ -52,6 +58,7 @@ export function ShowcaseFilm({
   loop?: boolean;
   active?: boolean;
   onPlay?: () => void;
+  controlsInset?: number;
 }) {
   const [started, setStarted] = useState(false);
   const source = piece.playbackUrl ?? null;
@@ -66,6 +73,7 @@ export function ShowcaseFilm({
         width={width}
         height={height}
         playable={Boolean(source)}
+        controlsInset={controlsInset}
         onPress={() => {
           setStarted(true);
           onPlay?.();
@@ -82,6 +90,7 @@ export function ShowcaseFilm({
       height={height}
       loop={loop}
       active={active}
+      controlsInset={controlsInset}
       onPlay={onPlay}
       // Back to the still, which is the honest answer to a proxy that is
       // missing or a ladder that is half-written — not a black rectangle.
@@ -96,12 +105,14 @@ function Poster({
   width,
   height,
   playable,
+  controlsInset,
   onPress,
 }: {
   piece: ShowcasePiece;
   width: number;
   height: number;
   playable: boolean;
+  controlsInset: number;
   onPress: () => void;
 }) {
   return (
@@ -125,7 +136,10 @@ function Poster({
           <PlayIcon size={26} color="#fff" fill="#fff" />
         </View>
         {piece.durationMs ? (
-          <View className="absolute left-3 bottom-3 rounded-full bg-foreground/55 px-2 py-0.5">
+          <View
+            className="absolute left-3 rounded-full bg-foreground/55 px-2 py-0.5"
+            style={{ bottom: 12 + controlsInset }}
+          >
             <Text className="text-background text-[11px] font-bold">
               {clock(piece.durationMs / 1000)}
             </Text>
@@ -151,6 +165,7 @@ function Film({
   height,
   loop,
   active,
+  controlsInset,
   onPlay,
   onFailed,
 }: {
@@ -160,6 +175,7 @@ function Film({
   height: number;
   loop: boolean;
   active: boolean;
+  controlsInset: number;
   onPlay?: () => void;
   onFailed: () => void;
 }) {
@@ -253,7 +269,8 @@ function Film({
         accessibilityRole="button"
         accessibilityLabel={muted ? 'Turn the sound on' : 'Turn the sound off'}
         hitSlop={8}
-        className="absolute right-3 bottom-3 w-9 h-9 rounded-full bg-foreground/55 items-center justify-center active:opacity-80"
+        className="absolute right-3 w-9 h-9 rounded-full bg-foreground/55 items-center justify-center active:opacity-80"
+        style={{ bottom: 12 + controlsInset }}
       >
         {muted ? (
           <VolumeXIcon size={16} className="text-background" />

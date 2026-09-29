@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import {
   BookmarkIcon,
   ChevronUpIcon,
@@ -92,17 +93,26 @@ export default function FeedScreen() {
       setVisibleId(viewableItems[0]?.item?.id ?? null),
   ).current;
 
+  /**
+   * Whether the Feed is the screen being looked at.
+   *
+   * Tabs stay mounted, and so does a screen with another pushed over it, so
+   * "the card on screen" alone kept a film playing — sound and all — after
+   * switching tabs or opening the post, with its controls nowhere in sight.
+   */
+  const focused = useIsFocused();
+
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => (
       <Placard
         item={item}
         mine={item.userId === userId}
-        visible={item.id === visibleId}
+        visible={focused && item.id === visibleId}
         onKeep={() => setKeeping(item)}
         onReport={() => setReporting(item.id)}
       />
     ),
-    [visibleId, userId],
+    [visibleId, userId, focused],
   );
 
   return (
@@ -140,7 +150,7 @@ export default function FeedScreen() {
           data={items}
           keyExtractor={(i) => i.id}
           renderItem={renderItem}
-          extraData={visibleId}
+          extraData={`${visibleId}:${focused}`}
           viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={onViewableItemsChanged}
           contentContainerStyle={{ paddingBottom: 130 }}
@@ -239,7 +249,14 @@ function Placard({
           opens it, as does "See it all". */}
       {cover?.kind === 'video' ? (
         <View style={{ width, height }}>
-          <ShowcaseFilm piece={cover} width={width} height={height} active={visible} />
+          {/* Lifted clear of the placard, which overlaps the foot by 32. */}
+          <ShowcaseFilm
+            piece={cover}
+            width={width}
+            height={height}
+            active={visible}
+            controlsInset={32}
+          />
           {item.pieces.length > 1 && (
             <View
               className="absolute right-3 top-3 flex-row items-center gap-1 rounded-full bg-foreground/55 px-2.5 py-1"

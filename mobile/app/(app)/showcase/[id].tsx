@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams, type ErrorBoundaryProps } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import {
   ArrowLeftIcon,
   BookmarkIcon,
@@ -93,6 +94,9 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 export default function ShowcaseScreen() {
   // The one film allowed to be playing; a set can hold several.
   const [playing, setPlaying] = useState<string | null>(null);
+  // Another screen pushed over this one (a profile, the report sheet's
+  // destination) must not leave a film talking behind it.
+  const focused = useIsFocused();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -249,7 +253,7 @@ export default function ShowcaseScreen() {
                   piece={piece}
                   width={width}
                   height={Math.round(width * 1.25)}
-                  active={playing === null || playing === piece.fileKey}
+                  active={focused && (playing === null || playing === piece.fileKey)}
                   onPlay={() => setPlaying(piece.fileKey)}
                 />
               ) : (
