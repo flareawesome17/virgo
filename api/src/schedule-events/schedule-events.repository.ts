@@ -137,6 +137,10 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
       ? (options.orderBy as string)
       : this.defaultOrderBy;
     const direction = options.direction === 'desc' ? 'DESC' : 'ASC';
+    // Within a day, by time: ordering by date alone left a day's events in
+    // whatever order the rows came, so 4 pm could list above 9 am. The id makes
+    // the order stable, so paging never repeats or skips a row.
+    const timeWithinDay = orderBy === 'event_date' ? `, e.event_time ${direction} nulls last` : '';
 
     params.push(Math.min(Math.max(options.limit ?? 50, 1), this.maxLimit));
     params.push(Math.max(options.offset ?? 0, 0));
@@ -144,7 +148,7 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     return this.db.query<VisibleScheduleEventRow>(
       `select e.*, (e.user_id = $1) as is_owner
        ${ScheduleEventsRepository.VISIBLE}${where}
-       order by e.${orderBy} ${direction}
+       order by e.${orderBy} ${direction}${timeWithinDay}, e.id
        limit $${params.length - 1} offset $${params.length}`,
       params,
     );
