@@ -7,7 +7,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { formatBytes } from '@/src/api';
-import { useStorageBreakdown, useUsage, useTheme } from '@/src/hooks';
+import { useStorageBreakdown, useUnassignedFiles, useUsage, useTheme } from '@/src/hooks';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 import { LoadFailed } from '@/components/LoadFailed';
 
@@ -51,6 +51,8 @@ export default function StorageOverviewScreen() {
     loadFailed: breakdownFailed,
     refetch: refetchBreakdown,
   } = useStorageBreakdown();
+  // Files in no album: still billed, and only reachable from here.
+  const { total: unfiled } = useUnassignedFiles();
   // A failed load drew zeros and "Nothing stored yet" — a confident claim
   // about somebody's files, made from a request that never arrived.
   const failed = (usageFailed && !usage) || (breakdownFailed && !breakdownData);
@@ -141,6 +143,23 @@ export default function StorageOverviewScreen() {
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <ZapIcon size={18} className="text-white" />
             <Text className="text-white text-base font-bold">Upgrade Storage</Text>
+          </Pressable>
+        )}
+
+        {unfiled > 0 && (
+          <Pressable
+            onPress={() => router.push('/settings/storage/unfiled')}
+            accessibilityRole="button"
+            className="mx-5 mt-4 bg-card rounded-2xl p-4 flex-row items-center gap-3 active:scale-[0.98]"
+            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+          >
+            <View className="flex-1">
+              <Text className="text-foreground text-sm font-semibold">Not in an album</Text>
+              <Text className="text-muted-foreground text-xs mt-0.5">
+                {unfiled} {unfiled === 1 ? 'file' : 'files'} still counted in your storage
+              </Text>
+            </View>
+            <Text className="text-primary text-xs font-bold">Review</Text>
           </Pressable>
         )}
 

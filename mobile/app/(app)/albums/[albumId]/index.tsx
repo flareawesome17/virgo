@@ -603,7 +603,7 @@ export default function AlbumScreen() {
       'Delete album',
       // Say what survives: the files are billed either way, so implying the
       // delete frees space would be misleading.
-      `“${album?.name ?? 'This album'}” will be removed. Uploaded files stay in your storage and can be filed into another album.`,
+      `“${album?.name ?? 'This album'}” will be removed. Its files stay in your storage — find them under Settings › Storage › Not in an album, to file or delete.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
