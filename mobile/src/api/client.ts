@@ -41,6 +41,15 @@ export function setAuthFailureHandler(handler: AuthFailureHandler | null): void 
 }
 
 /**
+ * For a call that ends this session on purpose — turning two-factor off
+ * revokes every session, this one included. Runs the same handler as a
+ * refused refresh, so the device is tidied up the same way.
+ */
+export function sessionEnded(refusedRefreshToken: string | null): void {
+  onAuthFailure?.(refusedRefreshToken);
+}
+
+/**
  * In-flight refresh, shared across callers.
  *
  * Screens fire several queries at once, so an expired access token produces a

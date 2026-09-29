@@ -1,4 +1,4 @@
-import { api } from '../client';
+import { api, sessionEnded } from '../client';
 import { clearTokens, getRefreshToken, setTokens } from '../tokens';
 import type {
   AuthResult,
@@ -192,7 +192,12 @@ export const authApi = {
     const result = await api.delete<{ disabled: true; user: AuthUser }>('/auth/2fa', {
       body: { challengeToken, code },
     });
+    // Every session is revoked with it. Clearing the tokens alone left this
+    // device's alarms and push registration behind for an account it was no
+    // longer signed in to.
+    const refused = getRefreshToken();
     await clearTokens();
+    sessionEnded(refused);
     return result;
   },
 
