@@ -750,6 +750,12 @@ export class MessagesService {
     userId: string,
     conversationId: string,
     limit = 100,
+    /**
+     * Only messages older than this one, for paging back. By id rather than a
+     * timestamp: (created_at, id) is compared exactly, so two messages sent in
+     * the same millisecond are never skipped at a page boundary.
+     */
+    before?: string,
   ): Promise<Thread> {
     const state = await this.sendState(conversationId, userId);
 
@@ -781,9 +787,18 @@ export class MessagesService {
                   or m.created_at > (select cleared_at from conversation_participants
                                       where conversation_id = $1 and user_id = $3)
                 )
-          order by m.created_at desc
+            -- Paging back. A cursor from another conversation matches no row,
+            -- so the comparison is null and the page is empty.
+            and (
+                  $4::uuid is null
+                  or (m.created_at, m.id) < (
+                       select b.created_at, b.id from messages b
+                        where b.id = $4 and b.conversation_id = $1
+                     )
+                )
+          order by m.created_at desc, m.id desc
           limit $2`,
-        [conversationId, Math.min(Math.max(limit, 1), 200), userId],
+        [conversationId, Math.min(Math.max(limit, 1), 200), userId, before ?? null],
       ),
       this.db.queryOne<{ last_read_at: Date | null }>(
         `select last_read_at from conversation_participants

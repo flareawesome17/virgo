@@ -152,8 +152,9 @@ export const chatApi = {
     return api.post('/messages/groups', { body: { title, memberIds } });
   },
 
-  messages(id: string, limit = 100): Promise<Thread> {
-    return api.get(`/messages/${id}/messages`, { query: { limit } });
+  /** The newest `limit`, or with `before` (a message id) the ones older than it. */
+  messages(id: string, limit = 100, before?: string): Promise<Thread> {
+    return api.get(`/messages/${id}/messages`, { query: { limit, before } });
   },
 
   participants(id: string): Promise<{ data: Participant[]; total: number }> {

@@ -49,7 +49,12 @@ import { JobAcceptedCard, PresenceLine, TypingIndicator } from '@/components';
 import { askToUnblock, safetyError } from '@/components/PersonSafetySheet';
 import { sendTyping } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
-import { chatRefusal, type ConversationMessage, type Participant } from '@/src/api';
+import { chatApi, chatRefusal, type ConversationMessage, type Participant } from '@/src/api';
+
+/** How many the thread's own query loads: chatApi.messages' default. */
+const FIRST_PAGE = 100;
+/** How many each scroll back asks for. */
+const OLDER_PAGE = 50;
 
 for (const Icon of [
   ArrowLeftIcon, SendIcon, UsersIcon, CheckIcon, CheckCheckIcon, ClockIcon,
@@ -116,7 +121,50 @@ export default function ConversationScreen() {
   const { user } = useAuth();
   const { isOffline } = useOffline();
 
-  const { messages, lastReadAt, isLoading, canSend, blockedByMe, blockId } = useThread(id);
+  const {
+    messages: newest,
+    lastReadAt,
+    isLoading,
+    canSend,
+    blockedByMe,
+    blockId,
+  } = useThread(id);
+
+  /*
+   * Everything before the newest page, loaded by scrolling back.
+   *
+   * The thread was its newest 100 messages and nothing else — older ones could
+   * not be reached, which reads as "my messages are gone". They are kept here
+   * rather than in the thread's query because that query refetches after every
+   * send and on a timer, and would throw the older pages away each time.
+   */
+  const [older, setOlder] = useState<ConversationMessage[]>([]);
+  const [olderDone, setOlderDone] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const messages = useMemo(() => {
+    if (older.length === 0) return newest;
+    const shown = new Set(newest.map((m) => m.id));
+    return [...newest, ...older.filter((m) => !shown.has(m.id))];
+  }, [newest, older]);
+
+  const loadOlder = async () => {
+    if (!id || loadingOlder || olderDone || messages.length === 0) return;
+    // A first page that was not full is the whole conversation.
+    if (older.length === 0 && newest.length < FIRST_PAGE) {
+      setOlderDone(true);
+      return;
+    }
+    setLoadingOlder(true);
+    try {
+      const page = await chatApi.messages(id, OLDER_PAGE, messages[messages.length - 1].id);
+      setOlder((current) => [...current, ...page.data]);
+      if (page.data.length < OLDER_PAGE) setOlderDone(true);
+    } catch {
+      // Left to the next time the top is reached; nothing on screen is lost.
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
   const { participants } = useParticipants(id);
   const { conversation } = useConversation(id);
   const send = useSendMessage(id);
@@ -583,6 +631,16 @@ export default function ConversationScreen() {
             // newest message.
             ListHeaderComponent={
               <TypingIndicator conversationId={id} meId={user?.id} />
+            }
+            // Inverted, so the end is the top: the oldest message loaded.
+            onEndReached={() => void loadOlder()}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              loadingOlder ? (
+                <View className="py-3 items-center">
+                  <ActivityIndicator size="small" color="#B66A40" />
+                </View>
+              ) : null
             }
             contentContainerStyle={{ padding: 16, gap: 8 }}
             keyboardShouldPersistTaps="handled"
