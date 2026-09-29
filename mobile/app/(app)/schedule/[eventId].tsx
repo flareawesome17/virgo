@@ -9,6 +9,8 @@ import {
   useWorkspace,
 } from '@/src/hooks';
 import { EventAttendeesSection } from '@/components';
+import { DetailFallback } from '@/components/DetailFallback';
+import { goBackOr } from '@/components/ScreenHeader';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -58,7 +60,13 @@ export default function EventDetailScreen() {
 
   // A 404 here now means "not yours or not there" — the API does not
   // distinguish the two, deliberately, so record ids cannot be enumerated.
-  const { data: event, refetch: refetchEvent } = useScheduleEvent(eventId);
+  const {
+    data: event,
+    refetch: refetchEvent,
+    error: eventError,
+    isError: eventFailed,
+    isPaused: eventPaused,
+  } = useScheduleEvent(eventId);
 
   const { data: workspace } = useWorkspace(event?.workspace_id ?? undefined);
 
@@ -95,7 +103,7 @@ export default function EventDetailScreen() {
           style: 'destructive',
           onPress: () =>
             deleteEventMutation.mutate(eventId, {
-              onSuccess: () => router.back(),
+              onSuccess: () => goBackOr(),
               onError: (err: Error) =>
                 Alert.alert(
                   'Could not delete the event',
@@ -114,7 +122,16 @@ export default function EventDetailScreen() {
   };
 
   if (!event) {
-    return <SafeAreaView edges={['top']} className="flex-1 bg-background"><View className="flex-1 items-center justify-center"><Text className="text-muted-foreground text-sm">Loading...</Text></View></SafeAreaView>;
+    return (
+      <DetailFallback
+        title="Event"
+        what="this event"
+        gone="It was deleted, or you are no longer invited."
+        error={eventError}
+        failed={eventFailed || eventPaused}
+        onRetry={() => void refetchEvent()}
+      />
+    );
   }
 
   const color = eventColor(event.event_type);
@@ -130,9 +147,13 @@ export default function EventDetailScreen() {
 
         {/* Hero color block */}
         <View style={{ backgroundColor: `${color}14`, paddingTop: 4, paddingBottom: 24, paddingHorizontal: 20 }}>
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-white items-center justify-center mb-4 active:scale-[0.94]"
+          {/* bg-card, not bg-white with a fixed dark arrow: that was a white
+              slab on the dark theme. goBackOr, because a notification can
+              open this screen with nothing behind it. */}
+          <Pressable onPress={() => goBackOr()} accessibilityRole="button" accessibilityLabel="Go back"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center mb-4 active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <ArrowLeftIcon size={18} color="#1E1B18" />
+            <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
           <View className="flex-row items-center gap-4">
             <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: `${color}22`, alignItems: 'center', justifyContent: 'center' }}>

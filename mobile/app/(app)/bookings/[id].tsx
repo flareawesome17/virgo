@@ -11,14 +11,16 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   useBooking,
   useCancelBooking,
   useConfirmBooking,
   useUpdateBooking,
 } from '@/src/hooks';
-import { rateLabel, type Booking } from '@/src/api';
+import { ApiError, rateLabel, type Booking } from '@/src/api';
+import { LoadFailed } from '@/components/LoadFailed';
+import { ScreenHeader } from '@/components/ScreenHeader';
 
 /**
  * One booking, and the two things you can do to it.
@@ -29,23 +31,32 @@ import { rateLabel, type Booking } from '@/src/api';
  */
 export default function BookingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { booking, isLoading, loadFailed } = useBooking(id);
+  const { booking, isLoading, loadFailed, error, refetch } = useBooking(id);
   const [editing, setEditing] = useState(false);
+  // Gone for good, as opposed to not reachable right now. Only the second is
+  // worth a retry.
+  const missing = error instanceof ApiError && error.status === 404;
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
-      <Stack.Screen options={{ title: 'Booking', headerBackTitle: 'Back' }} />
+      <ScreenHeader
+        title={editing ? 'Edit terms' : 'Booking'}
+        // Out of the form first, then off the screen: the form is a step of
+        // this screen, not a screen of its own.
+        onBack={editing ? () => setEditing(false) : undefined}
+      />
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
       >
         {isLoading ? (
           <ActivityIndicator color="#B66A40" className="mt-10" />
-        ) : loadFailed || !booking ? (
-          <Text className="text-muted-foreground mt-10 text-center text-[13px]">
-            That booking is not available.
+        ) : missing ? (
+          <Text className="text-muted-foreground mt-10 px-8 text-center text-[13px] leading-5">
+            That booking is not available. It may have been removed along with its job post.
           </Text>
+        ) : loadFailed || !booking ? (
+          <LoadFailed what="this booking" onRetry={() => void refetch()} />
         ) : editing && booking.yourSide === 'poster' ? (
           /* `editing` is only ever set by a button the creative does not get,
              but the check is here too — a form that 403s on save is a worse
@@ -105,7 +116,7 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
   const canEdit = booking.yourSide === 'poster';
 
   return (
-    <ScrollView contentContainerClassName="p-5 pb-14 gap-4">
+    <ScrollView contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
       <View>
         <Text className="text-foreground text-[18px] font-bold">
           {booking.postTitle}
@@ -300,7 +311,7 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
   };
 
   return (
-    <ScrollView contentContainerClassName="p-5 pb-14 gap-4">
+    <ScrollView contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
       <View>
         <Text className="text-foreground text-[17px] font-bold">Edit the terms</Text>
         <Text className="text-muted-foreground mt-1 text-[12px] leading-5">

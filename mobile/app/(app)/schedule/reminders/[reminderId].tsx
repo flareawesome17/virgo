@@ -1,6 +1,8 @@
-import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { UpdateReminderInput } from '@/src/api';
+import { DetailFallback } from '@/components/DetailFallback';
+import { goBackOr } from '@/components/ScreenHeader';
 import {
   useDeleteReminder,
   useReminder,
@@ -39,7 +41,13 @@ export default function ReminderDetailScreen() {
   const { isDark } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: reminder, refetch: refetchReminder } = useReminder(reminderId);
+  const {
+    data: reminder,
+    refetch: refetchReminder,
+    error: reminderError,
+    isError: reminderFailed,
+    isPaused: reminderPaused,
+  } = useReminder(reminderId);
 
   const { data: event } = useScheduleEvent(
     reminder?.schedule_event_id ?? undefined,
@@ -51,10 +59,21 @@ export default function ReminderDetailScreen() {
     updateReminderMutation.mutate({ id: reminderId, ...updates });
 
   const deleteReminderMutation = useDeleteReminder();
+  // Asked first: it went on the first tap, with no undo, and failed silently.
   const deleteReminder = () =>
-    deleteReminderMutation.mutate(reminderId, {
-      onSuccess: () => router.back(),
-    });
+    Alert.alert('Delete reminder', `"${reminder?.title ?? 'This reminder'}" and its alarm will be removed.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () =>
+          deleteReminderMutation.mutate(reminderId, {
+            onSuccess: () => goBackOr(),
+            onError: () =>
+              Alert.alert('Could not delete the reminder', 'Check your connection and try again.'),
+          }),
+      },
+    ]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -63,7 +82,16 @@ export default function ReminderDetailScreen() {
   };
 
   if (!reminder) {
-    return <SafeAreaView edges={['top']} className="flex-1 bg-background"><View className="flex-1 items-center justify-center"><Text className="text-muted-foreground text-sm">Loading...</Text></View></SafeAreaView>;
+    return (
+      <DetailFallback
+        title="Reminder"
+        what="this reminder"
+        gone="It was deleted, perhaps along with its event."
+        error={reminderError}
+        failed={reminderFailed || reminderPaused}
+        onRetry={() => void refetchReminder()}
+      />
+    );
   }
 
   const { date, time } = formatDateTime(reminder.reminder_time);
@@ -81,7 +109,8 @@ export default function ReminderDetailScreen() {
         }>
         {/* Header */}
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+          <Pressable onPress={() => goBackOr()} accessibilityRole="button" accessibilityLabel="Go back"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>

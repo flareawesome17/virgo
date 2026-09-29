@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,17 +11,23 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, router } from 'expo-router';
 import {
   useOpenTicket,
   useReplyToTicket,
   useSupportThread,
   useSupportTickets,
 } from '@/src/hooks';
+import { ScreenHeader } from '@/components/ScreenHeader';
 
+/**
+ * What each status means to the person who raised the request.
+ *
+ * `pending` is what a support reply sets, so it is the customer's move, not
+ * ours — it read "Waiting on us" while support was waiting on them.
+ */
 const STATUS_LABEL: Record<string, string> = {
   open: 'Open',
-  pending: 'Waiting on us',
+  pending: 'Waiting on you',
   resolved: 'Resolved',
   closed: 'Closed',
 };
@@ -33,27 +40,34 @@ const STATUS_LABEL: Record<string, string> = {
  * request people cannot see the state of gets sent three more times.
  *
  * One screen holding both the list and the open thread, rather than a second
- * route. The thread is only ever reached from the list, and a stack entry for
- * it would put a back button where the phone's own gesture already goes.
+ * route. The thread is only ever reached from the list, so going back from it
+ * — the header's arrow or Android's back button — returns to the list rather
+ * than leaving Support.
  */
 export default function SupportScreen() {
   const [openId, setOpenId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!openId) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setOpenId(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [openId]);
+
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
-      <Stack.Screen
-        options={{
-          title: openId ? 'Request' : 'Support',
-          headerBackTitle: 'Back',
-        }}
+      <ScreenHeader
+        title={openId ? 'Request' : 'Support'}
+        onBack={openId ? () => setOpenId(null) : undefined}
       />
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
       >
         {openId ? (
-          <Thread id={openId} onBack={() => setOpenId(null)} />
+          <Thread id={openId} />
         ) : (
           <TicketList onOpen={setOpenId} />
         )}
@@ -122,13 +136,13 @@ function TicketList({ onOpen }: { onOpen: (id: string) => void }) {
                   {t.messages ?? 0} message{(t.messages ?? 0) === 1 ? '' : 's'}
                 </Text>
               </View>
+              {/* Semantic colours: the grey chip's text had none, so it drew
+                  black on the dark theme's card and vanished. */}
               <View
-                className="rounded-full px-2 py-1"
-                style={{ backgroundColor: t.status === 'open' ? '#B66A40' : '#8882' }}
+                className={`rounded-full px-2 py-1 ${t.status === 'open' ? 'bg-action' : 'bg-muted'}`}
               >
                 <Text
-                  className="text-[10px] font-bold"
-                  style={{ color: t.status === 'open' ? '#fff' : undefined }}
+                  className={`text-[10px] font-bold ${t.status === 'open' ? 'text-action-foreground' : 'text-muted-foreground'}`}
                 >
                   {STATUS_LABEL[t.status] ?? t.status}
                 </Text>
@@ -197,18 +211,14 @@ function Compose({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Thread({ id, onBack }: { id: string; onBack: () => void }) {
+function Thread({ id }: { id: string }) {
   const { ticket, messages, isLoading, loadFailed } = useSupportThread(id);
   const reply = useReplyToTicket(id);
   const [body, setBody] = useState('');
 
   return (
     <View className="flex-1">
-      <ScrollView contentContainerClassName="p-5 pb-4">
-        <Pressable onPress={onBack} className="mb-4">
-          <Text className="text-[13px] text-muted-foreground">← All requests</Text>
-        </Pressable>
-
+      <ScrollView contentContainerClassName="p-5 pb-4" keyboardShouldPersistTaps="handled">
         {isLoading ? (
           <ActivityIndicator color="#B66A40" className="mt-10" />
         ) : loadFailed ? (
@@ -247,6 +257,12 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
         )}
       </ScrollView>
 
+      {!loadFailed && !isLoading && reply.isError && (
+        // The text stays in the box, so trying again is one tap.
+        <Text className="px-4 pt-2 text-[12px] text-destructive">
+          That did not send. Check your connection and try again.
+        </Text>
+      )}
       {!loadFailed && !isLoading && (
         <View className="flex-row items-end gap-2 border-t border-border p-3">
           <TextInput

@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
-import { Stack } from 'expo-router';
 import {
   CheckIcon,
   CopyIcon,
@@ -36,6 +35,7 @@ import {
   useReferralCode,
 } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
+import { ScreenHeader } from '@/components/ScreenHeader';
 
 const interop = { className: { target: 'style', nativeStyleToProp: { color: true } } } as const;
 cssInterop(CheckIcon, interop);
@@ -364,11 +364,11 @@ export default function RewardsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
-      <Stack.Screen options={{ title: 'Rewards', headerBackTitle: 'Back' }} />
+      <ScreenHeader title="Rewards" />
 
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator />
+          <ActivityIndicator color="#B66A40" />
         </View>
       ) : loadFailed ? (
         <LoadFailed what="your rewards" onRetry={() => void refetch()} />
