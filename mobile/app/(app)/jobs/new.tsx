@@ -15,6 +15,7 @@ import {
 } from '@/src/lib/job-form';
 import { DateTimeField } from '@/components/DateTimeField';
 import { LocationField } from '@/components/LocationField';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 /** Local parts — toISOString would shift the day west of Greenwich. */
 function toIsoDay(d: Date): string {
@@ -34,6 +35,8 @@ function toCentavos(value: string): number | undefined {
 }
 
 export default function NewJobScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const insets = useSafeAreaInsets();
   const create = useCreateJob();
   const { roles: allRoles } = useRoles();

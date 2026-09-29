@@ -22,6 +22,7 @@ import {
 import { cssInterop } from 'nativewind';
 import { contentTypeForAsset, formatBytes, isUploadable, MAX_UPLOAD_BYTES } from '@/src/api';
 import { useUploadQueue, type UploadTask } from '@/src/providers/UploadProvider';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 import { useAlbum, useAlbums, useUsage, useTheme } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
 
@@ -226,6 +227,8 @@ export default function UploadScreen() {
   }>();
 
   const [items, setItems] = useState<UploadItem[]>([]);
+  // Files picked and not yet handed to the queue would be lost to a restart.
+  useHoldUpdates(items.length > 0);
   // The queue that outlives this screen. `active` stands in for the local
   // isUploading this screen used to keep: coming back here mid-upload should
   // find the picker disabled, and that fact now lives in the provider.

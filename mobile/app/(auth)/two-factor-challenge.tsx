@@ -18,6 +18,7 @@ import {
 import { cssInterop } from 'nativewind';
 import { useAuth, useTheme } from '@/src/hooks';
 import { PALETTES } from '@/theme';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 for (const Icon of [ArrowLeftIcon, ArrowRightIcon, KeyRoundIcon, MailIcon]) {
   cssInterop(Icon, {
@@ -34,6 +35,8 @@ function messageOf(error: unknown): string {
 }
 
 export default function TwoFactorChallengeScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const params = useLocalSearchParams<{ challenge?: string; email?: string }>();
   const { completeTwoFactorSignIn, resendTwoFactorCode } = useAuth();
   const { isDark } = useTheme();

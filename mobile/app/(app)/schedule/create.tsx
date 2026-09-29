@@ -25,6 +25,7 @@ import {
   dateToTimeString,
   parseDateKey,
 } from '@/src/lib/calendar';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -50,6 +51,8 @@ const OTHER_LABEL_MAX = 40;
 
 
 export default function CreateEventScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   // workspaceId arrives when this is opened from a workspace's quick actions,

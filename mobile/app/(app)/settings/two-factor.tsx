@@ -35,6 +35,7 @@ import {
 } from '@/src/hooks';
 import { PALETTES } from '@/theme';
 import type { TwoFactorSetup } from '@/src/api';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 for (const Icon of [
   ArrowLeftIcon,
@@ -60,6 +61,8 @@ function messageOf(error: unknown): string {
 }
 
 export default function TwoFactorSettingsScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const { user } = useAuth();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;

@@ -11,6 +11,8 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PALETTES } from '@/theme';
+import { LoadFailed } from '@/components/LoadFailed';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -48,6 +50,8 @@ cssInterop(GiftIcon, { className: { target: 'style', nativeStyleToProp: { color:
 const STEPS = ['You', 'What you do', 'Where you are'] as const;
 
 export default function SignUpScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const { signUp, user } = useAuth();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
