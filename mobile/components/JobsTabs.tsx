@@ -358,6 +358,17 @@ function JobRow({ job }: { job: JobPost }) {
             44pt target now. */}
         {job.status === 'open' ? (
           <View className="ml-auto flex-row items-center gap-1">
+            {/* Editing keeps the applications; deleting to fix a typo did not. */}
+            <Pressable
+              onPress={() => router.push(`/jobs/new?edit=${job.slug}`)}
+              accessibilityRole="button"
+              hitSlop={4}
+              className="min-h-11 justify-center px-2.5 active:opacity-60"
+            >
+              <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+                Edit
+              </Text>
+            </Pressable>
             <Pressable
               disabled={setStatus.isPending}
               onPress={() => end('filled')}

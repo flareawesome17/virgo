@@ -3,9 +3,10 @@ import {
   ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { useCreateJob, useRoles } from '@/src/hooks';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { useCreateJob, useJob, useRoles, useUpdateJob } from '@/src/hooks';
+import { DetailFallback } from '@/components/DetailFallback';
 import { ArrowLeftIcon, SendIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -41,6 +42,17 @@ export default function NewJobScreen() {
   useHoldUpdates();
   const insets = useSafeAreaInsets();
   const create = useCreateJob();
+  /*
+   * Editing, when opened with ?edit=<slug>.
+   *
+   * A post could not be edited at all: a typo in the title, a wrong date or a
+   * budget that needed moving meant deleting it — and deleting took every
+   * application with it. The same form, filled from the post, saves over it.
+   */
+  const { edit: editSlug } = useLocalSearchParams<{ edit?: string }>();
+  const editing = useJob(editSlug);
+  const update = useUpdateJob();
+  const isEdit = Boolean(editSlug);
   const {
     roles: allRoles,
     isLoading: rolesLoading,
@@ -63,6 +75,28 @@ export default function NewJobScreen() {
   const [roleBudgets, setRoleBudgets] = useState<
     Record<string, { min: string; max: string }>
   >({});
+
+  // Filled once, from the post as it arrived; after that the form is theirs.
+  const filled = useRef(false);
+  useEffect(() => {
+    const post = editing.data;
+    if (!post || filled.current) return;
+    filled.current = true;
+    setTitle(post.title);
+    setDescription(post.description);
+    setRolesWanted(post.rolesWanted);
+    setEventDate(post.eventDate ?? '');
+    setLocation(post.location ?? '');
+    const pesos = (minor?: number | null) => (minor == null ? '' : String(minor / 100));
+    setRoleBudgets(
+      Object.fromEntries(
+        Object.entries(post.roleBudgets ?? {}).map(([role, range]) => [
+          role,
+          { min: pesos(range?.min), max: pesos(range?.max) },
+        ]),
+      ),
+    );
+  }, [editing.data]);
 
   const setRoleBudget = (role: string, end: 'min' | 'max', value: string) =>
     setRoleBudgets((current) => ({
@@ -96,6 +130,7 @@ export default function NewJobScreen() {
     dateLooksRight,
   });
   const ready = blockers.length === 0;
+  const saving = create.isPending || update.isPending;
 
   const submit = () => {
     const budgets: Record<string, { min?: number; max?: number }> = {};
@@ -105,6 +140,26 @@ export default function NewJobScreen() {
       budgets[role] = {};
       if (min != null) budgets[role].min = min;
       if (max != null) budgets[role].max = max;
+    }
+
+    if (isEdit && editing.data) {
+      update.mutate(
+        {
+          id: editing.data.id,
+          title: title.trim(),
+          description: description.trim(),
+          rolesWanted,
+          // Sent whole: a role left without figures is one the poster cleared.
+          roleBudgets: budgets,
+          eventDate: eventDate || null,
+          location: location.trim() || null,
+        },
+        {
+          onSuccess: () => router.back(),
+          onError: (error: Error) => Alert.alert('Could not save', error.message),
+        },
+      );
+      return;
     }
 
     create.mutate(
@@ -126,13 +181,28 @@ export default function NewJobScreen() {
     );
   };
 
+  if (isEdit && !editing.data) {
+    return (
+      <DetailFallback
+        title="Edit job"
+        what="this post"
+        gone="It was deleted, or it has ended."
+        error={editing.error}
+        failed={editing.isError || editing.isPaused}
+        onRetry={() => void editing.refetch()}
+      />
+    );
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <View className="flex-row items-center gap-3 px-5 py-3">
         <Pressable onPress={() => router.back()} hitSlop={10}>
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
-        <Text className="text-foreground text-lg font-bold">Post a job</Text>
+        <Text className="text-foreground text-lg font-bold">
+          {isEdit ? 'Edit job' : 'Post a job'}
+        </Text>
       </View>
 
       <KeyboardAvoidingView
@@ -296,14 +366,16 @@ export default function NewJobScreen() {
 
           <Pressable
             className="rounded-2xl py-4 flex-row items-center justify-center gap-2"
-            style={{ backgroundColor: '#B66A40', opacity: !ready || create.isPending ? 0.4 : 1 }}
-            disabled={!ready || create.isPending}
+            style={{ backgroundColor: '#B66A40', opacity: !ready || saving ? 0.4 : 1 }}
+            disabled={!ready || saving}
             onPress={submit}
           >
-            {create.isPending
+            {saving
               ? <ActivityIndicator size="small" color="#fff" />
               : <SendIcon size={16} color="#fff" />}
-            <Text className="text-white text-[15px] font-bold">Post it</Text>
+            <Text className="text-white text-[15px] font-bold">
+              {isEdit ? 'Save changes' : 'Post it'}
+            </Text>
           </Pressable>
 
           <Text className="text-muted-foreground text-[11px] text-center">
