@@ -17,9 +17,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { AppShell } from '@/components/app-shell';
 
+// `pending` is what a support reply sets: the customer's move, not ours.
 const STATUS_LABEL: Record<string, string> = {
   open: 'Open',
-  pending: 'Waiting on us',
+  pending: 'Waiting on you',
   resolved: 'Resolved',
   closed: 'Closed',
 };

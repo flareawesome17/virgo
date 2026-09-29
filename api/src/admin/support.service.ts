@@ -95,11 +95,13 @@ export class SupportService {
       [ticketId, userId, user.display_name?.trim() || user.email, body.trim()],
     );
     // Back to open: a customer replying to something marked resolved is
-    // telling you it was not.
+    // telling you it was not. And to something pending — waiting on them,
+    // which is what an admin reply sets — it means the ball is back with us;
+    // left pending, the app went on telling them it was waiting on them.
     await this.db.query(
       `update support_tickets
           set updated_at = now(),
-              status = case when status in ('resolved','closed') then 'open' else status end
+              status = case when status in ('resolved','closed','pending') then 'open' else status end
         where id = $1`,
       [ticketId],
     );
