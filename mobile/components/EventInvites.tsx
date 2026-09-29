@@ -315,7 +315,7 @@ export function EventAttendeesSection({ eventId }: { eventId: string }) {
                   {STATUS_LABEL[person.status]}
                 </Text>
               </View>
-              <Pressable
+              <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${person.name}`} hitSlop={8}
                 onPress={() => remove(person.user_id, person.name)}
                 className="w-8 h-8 items-center justify-center active:opacity-60"
               >

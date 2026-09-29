@@ -373,9 +373,9 @@ export function VideoPlayer({
             <Text className="text-white font-semibold">Save the original</Text>
           </Pressable>
         )}
-        <Pressable
+        <Pressable accessibilityRole="button" accessibilityLabel="Close"
           onPress={onClose}
-          className="absolute top-12 left-4 w-10 h-10 rounded-full bg-white/10 items-center justify-center active:opacity-70"
+          className="absolute top-12 left-4 w-11 h-11 rounded-full bg-white/10 items-center justify-center active:opacity-70"
         >
           <XIcon size={19} color="#fff" />
         </Pressable>
@@ -571,7 +571,7 @@ export function VideoPlayer({
               {SKIP}
             </Text>
           </Pressable>
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel={playing ? 'Pause' : 'Play'}
             onPress={() => {
               if (playing) player.pause();
               else player.play();

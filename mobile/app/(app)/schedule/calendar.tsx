@@ -73,7 +73,7 @@ export default function CalendarScreen() {
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Header */}
         <View className="px-5 pt-4 pb-1 flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
@@ -81,7 +81,7 @@ export default function CalendarScreen() {
             <Text className="text-foreground text-[22px] font-bold tracking-tight">Calendar</Text>
             <Text className="text-muted-foreground text-sm mt-0.5">{events.length} events scheduled</Text>
           </View>
-          <Pressable onPress={() => router.push('/schedule/create')} className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
+          <Pressable accessibilityRole="button" accessibilityLabel="New event" onPress={() => router.push('/schedule/create')} className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <PlusIcon size={20} className="text-white" />
           </Pressable>
@@ -90,11 +90,11 @@ export default function CalendarScreen() {
         {/* Full Calendar */}
         <View className="mx-5 mt-4 bg-card rounded-2xl p-5" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}>
           <View className="flex-row items-center justify-between mb-5">
-            <Pressable onPress={goPrev} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
+            <Pressable accessibilityRole="button" accessibilityLabel="Previous month" onPress={goPrev} className="w-11 h-11 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
               <Text className="text-foreground text-lg font-bold">‹</Text>
             </Pressable>
             <Text className="text-foreground text-lg font-extrabold tracking-tight">{MONTHS_LONG[viewMonth]} {viewYear}</Text>
-            <Pressable onPress={goNext} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
+            <Pressable accessibilityRole="button" accessibilityLabel="Next month" onPress={goNext} className="w-11 h-11 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
               <Text className="text-foreground text-lg font-bold">›</Text>
             </Pressable>
           </View>

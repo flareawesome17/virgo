@@ -212,7 +212,7 @@ export default function AlbumsListScreen() {
                     onPress={() => router.back()}
                     accessibilityRole="button"
                     accessibilityLabel="Back"
-                    className="w-10 h-10 rounded-2xl bg-card border border-border items-center justify-center active:opacity-70"
+                    className="w-11 h-11 rounded-2xl bg-card border border-border items-center justify-center active:opacity-70"
                   >
                     <ArrowLeftIcon size={18} className="text-foreground" />
                   </Pressable>

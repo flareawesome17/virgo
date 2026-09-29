@@ -567,10 +567,10 @@ export default function PhotoViewerScreen() {
 
         <SafeAreaView edges={['top']} className="absolute top-0 left-0 right-0">
           <View className="px-4 pt-2 flex-row items-center gap-3">
-            <Pressable
+            <Pressable accessibilityRole="button" accessibilityLabel="Close"
               onPress={() => router.back()}
               hitSlop={8}
-              className="w-10 h-10 rounded-full bg-black/45 items-center justify-center active:opacity-70"
+              className="w-11 h-11 rounded-full bg-black/45 items-center justify-center active:opacity-70"
             >
               <XIcon size={19} color="#fff" />
             </Pressable>

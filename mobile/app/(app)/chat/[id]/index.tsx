@@ -585,9 +585,9 @@ export default function ConversationScreen() {
           className="px-5 pt-2 pb-3 flex-row items-center gap-3 border-b"
           style={{ borderBottomColor: border }}
         >
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
@@ -619,9 +619,9 @@ export default function ConversationScreen() {
               </View>
             ) : null}
           </Pressable>
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Conversation details"
             onPress={() => router.push(`/chat/${id}/info`)}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
           >
             <InfoIcon size={17} className="text-foreground" />
           </Pressable>
@@ -910,7 +910,7 @@ export default function ConversationScreen() {
                 {replyTo.body}
               </Text>
             </View>
-            <Pressable onPress={() => setReplyTo(null)} hitSlop={8}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Cancel reply" onPress={() => setReplyTo(null)} hitSlop={8}>
               <XIcon size={15} className="text-muted-foreground" />
             </Pressable>
           </View>
@@ -942,7 +942,7 @@ export default function ConversationScreen() {
                 style={{ maxHeight: 100 }}
               />
             </View>
-            <Pressable
+            <Pressable accessibilityRole="button" accessibilityLabel="Send message"
               onPress={submit}
               disabled={!draft.trim()}
               className={`w-11 h-11 rounded-full items-center justify-center active:scale-[0.94] ${

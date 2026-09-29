@@ -197,7 +197,7 @@ export default function EditWorkspaceScreen() {
                     accessibilityRole="radio"
                     accessibilityLabel={c.name}
                     accessibilityState={{ checked: on }}
-                    className="w-10 h-10 rounded-full items-center justify-center"
+                    className="w-11 h-11 rounded-full items-center justify-center"
                     style={{
                       backgroundColor: c.hex,
                       borderWidth: on ? 3 : 0,

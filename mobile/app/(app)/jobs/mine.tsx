@@ -39,7 +39,7 @@ export default function MyJobsScreen() {
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <View className="flex-row items-center gap-3 px-5 py-3">
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={10}>
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="text-foreground text-lg font-bold flex-1">My jobs</Text>

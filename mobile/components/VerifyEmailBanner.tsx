@@ -73,7 +73,7 @@ export function VerifyEmailBanner({ children }: { children: ReactNode }) {
           <Text className="text-white text-[11px] font-bold">Resend</Text>
         )}
       </Pressable>
-      <Pressable onPress={() => setDismissed(true)} hitSlop={8}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => setDismissed(true)} hitSlop={8}>
         <XIcon size={15} className="text-muted-foreground" />
       </Pressable>
     </View>

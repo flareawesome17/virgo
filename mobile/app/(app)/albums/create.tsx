@@ -176,7 +176,7 @@ export default function CreateAlbumScreen() {
             onPress={() => router.back()}
             accessibilityRole="button"
             accessibilityLabel="Back"
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{
               shadowColor: '#000',
               shadowOpacity: 0.04,

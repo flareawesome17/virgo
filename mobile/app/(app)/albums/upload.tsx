@@ -448,7 +448,7 @@ export default function UploadScreen() {
             onPress={() => router.back()}
             accessibilityRole="button"
             accessibilityLabel="Back"
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
           >
             <ArrowLeftIcon size={18} className="text-foreground" />

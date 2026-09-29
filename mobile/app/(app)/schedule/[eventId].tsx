@@ -268,7 +268,7 @@ export default function EventDetailScreen() {
                 <Pressable key={rem.id} onPress={() => router.push(`/schedule/reminders/${rem.id}`)}
                   className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
                   style={i < reminders.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
-                  <Pressable onPress={() => toggleReminder(rem.id, !rem.is_completed)} className="active:scale-[0.85]">
+                  <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: rem.is_completed }} accessibilityLabel={`${rem.title}, done`} hitSlop={10} onPress={() => toggleReminder(rem.id, !rem.is_completed)} className="active:scale-[0.85]">
                     {rem.is_completed ? <CheckCircleIcon size={18} className="text-[#6B8E4E]" /> : <CircleIcon size={18} className="text-muted-foreground" />}
                   </Pressable>
                   <View className="flex-1 min-w-0">

@@ -75,9 +75,9 @@ export default function ResetPasswordScreen() {
     return (
       <SafeAreaView edges={['top']} className="flex-1 bg-background">
         <View className="px-6 pt-4">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.replace('/(auth)/sign-in')}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
@@ -140,9 +140,9 @@ export default function ResetPasswordScreen() {
           contentContainerStyle={{ paddingBottom: 40 }}
         >
           <View className="px-6 pt-4 pb-2 flex-row items-center gap-3">
-            <Pressable
+            <Pressable accessibilityRole="button" accessibilityLabel="Back"
               onPress={() => router.replace('/(auth)/sign-in')}
-              className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+              className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
               style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
             >
               <ArrowLeftIcon size={18} className="text-foreground" />
@@ -178,7 +178,7 @@ export default function ResetPasswordScreen() {
                   autoCapitalize="none"
                   autoFocus
                 />
-                <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
+                <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'} onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
                   {showPassword ? (
                     <EyeOffIcon size={16} className="text-muted-foreground" />
                   ) : (
