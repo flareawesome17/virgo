@@ -17,6 +17,7 @@ import {
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
 import { RemoteImage } from '@/components/RemoteImage';
+import { BottomSheet, useShade } from '@/components/BottomSheet';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -1003,7 +1004,7 @@ export default function AlbumScreen() {
       <Sheet
         visible={moving}
         onClose={() => setMoving(false)}
-        onDismiss={() => {
+        onClosed={() => {
           if (!nameAfterMove) return;
           setNameAfterMove(false);
           setNaming({ initial: '' });
@@ -1032,12 +1033,10 @@ export default function AlbumScreen() {
           <Pressable
             onPress={() => {
               setMoving(false);
-              // iOS presents a modal from the same place this sheet is leaving
-              // from, and refuses to while it is still sliding away — the name
-              // sheet would never appear. So it waits for onDismiss, which
-              // only iOS sends; Android has no such limit.
-              if (Platform.OS === 'ios') setNameAfterMove(true);
-              else setNaming({ initial: '' });
+              // The name sheet waits for this one to be gone: iOS presents a
+              // modal from the same place this sheet is leaving from, and
+              // refuses to while it is still on its way down.
+              setNameAfterMove(true);
             }}
             className="flex-row items-center gap-2 rounded-2xl border border-dashed border-border px-4 py-3.5 active:opacity-70"
           >
@@ -1255,33 +1254,36 @@ function BulkButton({
   );
 }
 
-/** A bottom sheet: a scrim that closes it, and a card that does not. */
+/**
+ * A bottom sheet with a title. It scrolls, for an album with more sections
+ * than a phone is tall.
+ */
 function Sheet({
   visible,
   onClose,
-  onDismiss,
+  onClosed,
   title,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
-  /** Once it has finished closing. iOS only — Android never calls it. */
-  onDismiss?: () => void;
+  /** Once it has fully gone. */
+  onClosed?: () => void;
   title: string;
   children: ReactNode;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
-      <Pressable className="flex-1 bg-foreground/40" onPress={onClose} accessibilityLabel="Close" />
-      <SafeAreaView edges={['bottom']} className="bg-card rounded-t-3xl">
-        <View className="px-5 pt-5 pb-4">
-          <Text className="text-foreground text-lg font-bold mb-4" accessibilityRole="header">
-            {title}
-          </Text>
-          {children}
-        </View>
-      </SafeAreaView>
-    </Modal>
+    <BottomSheet visible={visible} onClose={onClose} onClosed={onClosed}>
+      <ScrollView
+        alwaysBounceVertical={false}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 }}
+      >
+        <Text className="text-foreground text-lg font-bold mb-4" accessibilityRole="header">
+          {title}
+        </Text>
+        {children}
+      </ScrollView>
+    </BottomSheet>
   );
 }
 
@@ -1313,12 +1315,18 @@ function NameSheet({
 }) {
   const [value, setValue] = useState(initial);
   const insets = useSafeAreaInsets();
+  const shade = useShade();
   const ready = value.trim().length > 0;
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onCancel}>
       <View className="flex-1">
-        <Pressable className="absolute inset-0 bg-foreground/40" onPress={onCancel} accessibilityLabel="Cancel" />
+        <Pressable
+          className="absolute inset-0"
+          style={{ backgroundColor: shade }}
+          onPress={onCancel}
+          accessibilityLabel="Cancel"
+        />
         {/* box-none: a tap beside the card falls through to the scrim and closes it. */}
         <View pointerEvents="box-none" className="px-4" style={{ paddingTop: insets.top + 24 }}>
           <View className="bg-card rounded-3xl px-5 pt-5 pb-4">

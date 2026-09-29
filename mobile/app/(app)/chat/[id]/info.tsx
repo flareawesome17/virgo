@@ -6,12 +6,10 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BottomSheet } from '@/components/BottomSheet';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
@@ -83,7 +81,6 @@ function mutedUntilLabel(iso: string | null): string {
  */
 export default function ConversationInfoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { user } = useAuth();
@@ -560,18 +557,8 @@ export default function ConversationInfoScreen() {
       </ScrollView>
 
       {/* Mute duration */}
-      <Modal
-        visible={muteOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setMuteOpen(false)}
-      >
-        <Pressable
-          className="flex-1"
-          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
-          onPress={() => setMuteOpen(false)}
-        />
-        <View className="bg-card rounded-t-3xl px-5 pt-5" style={{ paddingBottom: insets.bottom + 20 }}>
+      <BottomSheet visible={muteOpen} onClose={() => setMuteOpen(false)}>
+        <View className="px-5 pt-2 pb-5">
           <Text className="text-foreground text-lg font-bold">Mute for how long?</Text>
           <Text className="text-muted-foreground text-sm mt-1">
             Messages keep arriving and still count as unread. They just will not
@@ -596,73 +583,61 @@ export default function ConversationInfoScreen() {
             <Text className="text-foreground text-base font-semibold">Cancel</Text>
           </Pressable>
         </View>
-      </Modal>
+      </BottomSheet>
 
       {/* Add members */}
-      <Modal
-        visible={addOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setAddOpen(false)}
-      >
-        <Pressable
-          className="flex-1"
-          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
-          onPress={() => setAddOpen(false)}
-        />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View className="bg-card rounded-t-3xl px-5 pt-5" style={{ paddingBottom: insets.bottom + 20 }}>
-            <Text className="text-foreground text-lg font-bold">Add to group</Text>
-            <Text className="text-muted-foreground text-sm mt-1">
-              Only people you are friends with can be added.
+      <BottomSheet visible={addOpen} onClose={() => setAddOpen(false)}>
+        <View className="px-5 pt-2 pb-5">
+          <Text className="text-foreground text-lg font-bold">Add to group</Text>
+          <Text className="text-muted-foreground text-sm mt-1">
+            Only people you are friends with can be added.
+          </Text>
+
+          {addable.length === 0 ? (
+            <Text className="text-muted-foreground text-sm text-center py-8">
+              Everyone you are friends with is already in this group.
             </Text>
-
-            {addable.length === 0 ? (
-              <Text className="text-muted-foreground text-sm text-center py-8">
-                Everyone you are friends with is already in this group.
-              </Text>
-            ) : (
-              <ScrollView style={{ maxHeight: 320 }} className="mt-4">
-                {addable.map((f, i) => (
-                  <Pressable
-                    key={f.id}
-                    onPress={() =>
-                      addMember.mutate(f.friend_user_id!, {
-                        onSuccess: () => setAddOpen(false),
-                        onError: (err: any) =>
-                          Alert.alert('Could not add', err?.message || 'Please try again.'),
-                      })
-                    }
-                    className="py-3 flex-row items-center gap-3 active:opacity-60"
-                    style={i < addable.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
-                  >
-                    <View className="w-9 h-9 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
-                      <Text style={{ color: '#B66A40', fontWeight: '700' }}>
-                        {f.friend_name.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
-                      {f.friend_name}
+          ) : (
+            <ScrollView style={{ maxHeight: 320 }} className="mt-4">
+              {addable.map((f, i) => (
+                <Pressable
+                  key={f.id}
+                  onPress={() =>
+                    addMember.mutate(f.friend_user_id!, {
+                      onSuccess: () => setAddOpen(false),
+                      onError: (err: any) =>
+                        Alert.alert('Could not add', err?.message || 'Please try again.'),
+                    })
+                  }
+                  className="py-3 flex-row items-center gap-3 active:opacity-60"
+                  style={i < addable.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
+                >
+                  <View className="w-9 h-9 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
+                    <Text style={{ color: '#B66A40', fontWeight: '700' }}>
+                      {f.friend_name.charAt(0).toUpperCase()}
                     </Text>
-                    {addMember.isPending ? (
-                      <ActivityIndicator size="small" color="#B66A40" />
-                    ) : (
-                      <CheckIcon size={15} className="text-muted-foreground" />
-                    )}
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
+                  </View>
+                  <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
+                    {f.friend_name}
+                  </Text>
+                  {addMember.isPending ? (
+                    <ActivityIndicator size="small" color="#B66A40" />
+                  ) : (
+                    <CheckIcon size={15} className="text-muted-foreground" />
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
 
-            <Pressable
-              onPress={() => setAddOpen(false)}
-              className="mt-4 bg-muted rounded-2xl py-3.5 items-center active:scale-[0.97]"
-            >
-              <Text className="text-foreground text-base font-semibold">Done</Text>
-            </Pressable>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+          <Pressable
+            onPress={() => setAddOpen(false)}
+            className="mt-4 bg-muted rounded-2xl py-3.5 items-center active:scale-[0.97]"
+          >
+            <Text className="text-foreground text-base font-semibold">Done</Text>
+          </Pressable>
+        </View>
+      </BottomSheet>
 
       {directSafety.sheets}
 
