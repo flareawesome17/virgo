@@ -17,6 +17,7 @@ import {
 import { cssInterop } from 'nativewind';
 import { formatBytes } from '@/src/api';
 import { useStorageBreakdown, useUsage, useWipeStorage, useTheme } from '@/src/hooks';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CloudIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -54,10 +55,18 @@ export default function SyncStorageScreen() {
     storageFraction,
     usage,
     isFetching: usageFetching,
+    loadFailed: usageFailed,
     refetch: refetchUsage,
   } = useUsage();
-  const { breakdown, isFetching: breakdownFetching, refetch: refetchBreakdown } =
-    useStorageBreakdown();
+  const {
+    breakdown,
+    data: breakdownData,
+    isFetching: breakdownFetching,
+    loadFailed: breakdownFailed,
+    refetch: refetchBreakdown,
+  } = useStorageBreakdown();
+  // See the Storage screen: a failed load is not an empty account.
+  const failed = (usageFailed && !usage) || (breakdownFailed && !breakdownData);
   const wipe = useWipeStorage();
 
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -140,8 +149,14 @@ export default function SyncStorageScreen() {
           </Pressable>
         </View>
 
+        {failed && (
+          <View className="mx-5 mt-4 bg-card rounded-2xl">
+            <LoadFailed what="your storage" onRetry={refresh} compact />
+          </View>
+        )}
+
         {/* Cloud usage */}
-        <View className="px-5 mt-4">
+        <View className="px-5 mt-4" style={usage ? undefined : { display: 'none' }}>
           <View
             className="bg-card rounded-3xl p-5"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}
@@ -201,7 +216,7 @@ export default function SyncStorageScreen() {
             {breakdown.byType.length === 0 ? (
               <View className="px-4 py-5">
                 <Text className="text-muted-foreground text-sm text-center">
-                  Nothing stored yet.
+                  {breakdownData ? 'Nothing stored yet.' : breakdownFailed ? 'Could not load this.' : 'Loading…'}
                 </Text>
               </View>
             ) : (
@@ -246,7 +261,7 @@ export default function SyncStorageScreen() {
             {breakdown.byAlbum.length === 0 ? (
               <View className="px-4 py-5">
                 <Text className="text-muted-foreground text-sm text-center">
-                  Nothing stored yet.
+                  {breakdownData ? 'Nothing stored yet.' : breakdownFailed ? 'Could not load this.' : 'Loading…'}
                 </Text>
               </View>
             ) : (
@@ -310,7 +325,9 @@ export default function SyncStorageScreen() {
                 <Text className="text-white text-sm font-bold">
                   {hasFiles
                     ? `Wipe ${fileCount} file${fileCount === 1 ? '' : 's'} (${formatBytes(storageUsedBytes)})`
-                    : 'Nothing to wipe'}
+                    : usage
+                      ? 'Nothing to wipe'
+                      : 'Storage not loaded'}
                 </Text>
               </Pressable>
             ) : (

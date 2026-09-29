@@ -18,6 +18,7 @@ import {
 import { formatMoney, planCurrency, planPrice } from '@/src/api';
 import type { PlanInfo } from '@/src/api';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -66,7 +67,7 @@ function dateLabel(iso: string | null): string {
  * the screen shows what the server says.
  */
 export default function PlansScreen() {
-  const { plans, isLoading } = usePlans();
+  const { plans, isLoading, loadFailed: plansFailed, refetch: refetchPlans } = usePlans();
   const { usage } = useUsage();
   const { billing } = useBilling();
   const subscribe = useSubscribe('mobile');
@@ -187,7 +188,8 @@ export default function PlansScreen() {
             </Text>
             <Text className="text-muted-foreground text-xs mt-1 leading-4">
               {subscription.status === 'past_due'
-                ? 'Your last payment did not go through. Update your card to keep this plan.'
+                ? // There is no card screen to send anybody to; say what happens.
+                  'Your last payment did not go through. If it is not paid, the account returns to Free at the end of the period.'
                 : subscription.cancelledAt
                   ? `Cancelled — your access runs until ${dateLabel(subscription.currentPeriodEnd)}.`
                   : subscription.renews
@@ -213,6 +215,9 @@ export default function PlansScreen() {
           <View className="pt-16 items-center">
             <ActivityIndicator size="small" color="#B66A40" />
           </View>
+        ) : plansFailed && plans.length === 0 ? (
+          // Not an empty screen with only the footnote on it.
+          <LoadFailed what="the plans" onRetry={() => void refetchPlans()} compact />
         ) : (
           <View className="px-5 mt-5 gap-4">
             {plans.map((plan) => {
