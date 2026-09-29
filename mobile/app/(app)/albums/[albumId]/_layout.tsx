@@ -4,7 +4,6 @@ export default function AlbumMediaLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="gallery" />
       <Stack.Screen name="viewer" />
       <Stack.Screen name="videos" />
       <Stack.Screen name="audio" />

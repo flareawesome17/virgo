@@ -2,7 +2,6 @@
  * Components
  */
 
-export { ThemeToggle } from '@/components/ThemeToggle'
 export { DateTimeField } from '@/components/DateTimeField'
 export {
   InvitePeoplePicker,
@@ -47,7 +46,6 @@ export {
   ProfileAvatar,
   ProfileStatsLine,
   ProfileDetails,
-  PortfolioBlock,
   type ProfileDetailRow,
 } from '@/components/ProfileParts'
 export {
