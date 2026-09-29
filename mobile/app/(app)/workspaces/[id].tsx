@@ -298,7 +298,7 @@ function OwnerView({
         style: 'destructive',
         onPress: () =>
           remove.mutate(id, {
-            onSuccess: () => router.replace('/(app)/(tabs)/workspaces'),
+            onSuccess: () => router.dismissTo('/(app)/(tabs)/workspaces'),
             onError: (err: Error) => Alert.alert('Could not delete', err.message),
           }),
       },
@@ -663,7 +663,7 @@ function SharedView({ workspace }: { workspace: Workspace }) {
           style: 'destructive',
           onPress: () =>
             leave.mutate(id, {
-              onSuccess: () => router.replace('/(app)/(tabs)/workspaces'),
+              onSuccess: () => router.dismissTo('/(app)/(tabs)/workspaces'),
               onError: (err: Error) => Alert.alert('Could not leave', err.message),
             }),
         },
@@ -831,7 +831,7 @@ export default function WorkspaceDetailScreen() {
               It may have been deleted, or you are no longer a member.
             </Text>
             <Pressable
-              onPress={() => router.replace('/(app)/(tabs)/workspaces')}
+              onPress={() => router.dismissTo('/(app)/(tabs)/workspaces')}
               accessibilityRole="button"
               className="mt-2 bg-action rounded-2xl px-5 py-3 active:scale-[0.96]"
             >

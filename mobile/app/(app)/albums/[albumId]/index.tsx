@@ -589,7 +589,7 @@ export default function AlbumScreen() {
           style: 'destructive',
           onPress: () =>
             deleteAlbum.mutate(albumId, {
-              onSuccess: () => router.replace('/albums'),
+              onSuccess: () => router.dismissTo('/albums'),
               onError: (error) => Alert.alert('Could not delete the album', problem(error)),
             }),
         },

@@ -159,7 +159,7 @@ export default function ConversationInfoScreen() {
             leave.mutate(id, {
               // Back twice: past the thread as well, which no longer exists
               // for this account.
-              onSuccess: () => router.replace('/(app)/(tabs)/connect?view=messages'),
+              onSuccess: () => router.dismissTo('/(app)/(tabs)/connect?view=messages'),
               onError: (err: any) =>
                 Alert.alert('Could not leave', err?.message || 'Please try again.'),
             }),
@@ -181,7 +181,7 @@ export default function ConversationInfoScreen() {
           style: 'destructive',
           onPress: () =>
             remove.mutate(id, {
-              onSuccess: () => router.replace('/(app)/(tabs)/connect?view=messages'),
+              onSuccess: () => router.dismissTo('/(app)/(tabs)/connect?view=messages'),
               onError: (err: any) =>
                 Alert.alert('Could not delete', err?.message || 'Please try again.'),
             }),

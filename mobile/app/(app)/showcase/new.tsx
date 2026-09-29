@@ -131,7 +131,10 @@ export default function NewShowcaseScreen() {
         publish: true,
       },
       {
-        onSuccess: () => router.replace('/feed'),
+        // Back to the tabs already underneath, on the Feed. replace() swapped
+        // this screen for a second tab navigator, so Back from the Feed led to
+        // the first one, and each post stacked another.
+        onSuccess: () => router.dismissTo('/feed'),
         onError: (error) =>
           Alert.alert("Couldn't post that", profileActionMessage(error, 'showcase')),
       },

@@ -112,7 +112,7 @@ export default function EditWorkspaceScreen() {
               `${workspace.name} is archived`,
               'Find it under Archived at the bottom of your workspaces. Albums and sharing are as they were.',
             );
-            router.replace('/(app)/(tabs)/workspaces');
+            router.dismissTo('/(app)/(tabs)/workspaces');
           }
         },
         onError: (err: Error) => Alert.alert('Could not change that', err.message),
@@ -127,7 +127,7 @@ export default function EditWorkspaceScreen() {
         style: 'destructive',
         onPress: () =>
           remove.mutate(workspace.id, {
-            onSuccess: () => router.replace('/(app)/(tabs)/workspaces'),
+            onSuccess: () => router.dismissTo('/(app)/(tabs)/workspaces'),
             onError: (err: Error) => Alert.alert('Could not delete', err.message),
           }),
       },
