@@ -286,6 +286,12 @@ export default function UploadScreen() {
       mediaTypes: ['images', 'videos'],
       allowsMultipleSelection: true,
       quality: 1,
+      // The original, not a copy iOS made more compatible: a HEIC was handed
+      // over as a JPEG, which is not what a photographer means by delivering
+      // the file. The server thumbnails HEIC itself (ffmpeg), and a film is
+      // passed through untranscoded by default.
+      preferredAssetRepresentationMode:
+        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
     });
     if (result.canceled) return;
 
