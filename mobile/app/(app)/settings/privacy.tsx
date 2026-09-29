@@ -40,7 +40,10 @@ import { api } from '@/src/api/client';
 import {
   ensurePermissions,
   getPushRegistration,
+  hasNotificationPermission,
+  isPushTurnedOff,
   isRemotePushAvailable,
+  setPushTurnedOff,
 } from '@/src/lib/notifications';
 
 for (const Icon of [
@@ -119,7 +122,10 @@ export default function PrivacyScreen() {
 
   const discoverable = profile?.discoverable ?? true;
 
-  // Whether this device is currently registered to receive push.
+  // Whether this device receives push for this account: allowed by the system,
+  // and not switched off here. Both read without asking for anything — this
+  // used to call getPushRegistration, which prompts, just to draw the switch.
+  const userId = profile?.id ?? null;
   const [pushOn, setPushOn] = useState<boolean | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const pushPossible = isRemotePushAvailable();
@@ -127,17 +133,20 @@ export default function PrivacyScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      if (!pushPossible) {
+      if (!pushPossible || !userId) {
         if (!cancelled) setPushOn(false);
         return;
       }
-      const registration = await getPushRegistration();
-      if (!cancelled) setPushOn(!!registration);
+      const [off, allowed] = await Promise.all([
+        isPushTurnedOff(userId),
+        hasNotificationPermission(),
+      ]);
+      if (!cancelled) setPushOn(!off && allowed);
     })();
     return () => {
       cancelled = true;
     };
-  }, [pushPossible]);
+  }, [pushPossible, userId]);
 
   const toggleDiscoverable = (next: boolean) => {
     updateProfile.mutate(
@@ -158,6 +167,7 @@ export default function PrivacyScreen() {
   };
 
   const togglePush = async (next: boolean) => {
+    if (!userId) return;
     setPushBusy(true);
     try {
       if (next) {
@@ -172,22 +182,33 @@ export default function PrivacyScreen() {
         if (!registration) {
           Alert.alert(
             'Not available here',
-            'Push needs a development build on a real device. Reminders still alarm locally.',
+            'Push notifications are not available on this device. Reminders still go off on this phone.',
           );
           return;
         }
         await api.post('/notifications/token', { body: registration });
+        await setPushTurnedOff(userId, false);
         setPushOn(true);
         return;
       }
 
-      const registration = await getPushRegistration();
+      // Without permission there is no token to forget, and asking for one
+      // just to switch push off would be backwards.
+      const registration = (await hasNotificationPermission())
+        ? await getPushRegistration()
+        : null;
       if (registration) {
         await api.delete('/notifications/token', { body: { token: registration.token } });
       }
+      // Only once the server has let go of the token: remembered first, a
+      // failed delete would show Off while push kept arriving.
+      await setPushTurnedOff(userId, true);
       setPushOn(false);
-    } catch (err: any) {
-      Alert.alert('Could not change notifications', err?.message || 'Please try again.');
+    } catch {
+      Alert.alert(
+        'Could not change notifications',
+        'Check your connection and try again.',
+      );
     } finally {
       setPushBusy(false);
     }
@@ -329,7 +350,7 @@ export default function PrivacyScreen() {
               title="Push to this device"
               detail={
                 !pushPossible
-                  ? 'Unavailable in Expo Go and on simulators'
+                  ? 'Not available on this device'
                   : pushOn
                     ? 'Messages and reminders reach you when the app is closed'
                     : 'This device will not receive push. Local alarms still fire'

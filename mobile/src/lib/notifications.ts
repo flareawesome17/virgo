@@ -1,5 +1,6 @@
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
 
@@ -333,6 +334,45 @@ export async function ensurePermissions(): Promise<boolean> {
     ios: { allowAlert: true, allowSound: true, allowBadge: false },
   });
   return asked.granted;
+}
+
+/**
+ * Whether notifications are allowed, without asking.
+ *
+ * For showing state. ensurePermissions prompts, and a settings screen that
+ * pops the system dialog just by being opened has asked at the worst moment.
+ */
+export async function hasNotificationPermission(): Promise<boolean> {
+  const N = loadNotifications();
+  if (!N) return false;
+  try {
+    return (await N.getPermissionsAsync()).granted;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * "Push to this device" switched off, remembered on this device for this
+ * account.
+ *
+ * The server forgets the token when push is turned off, but every launch
+ * registers again, so without this the switch was back on by the next open.
+ * Per account: whoever signs in on this phone next did not ask for silence.
+ */
+const pushOffKey = (userId: string) => `virgo.push.off.${userId}`;
+
+export async function isPushTurnedOff(userId: string): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(pushOffKey(userId))) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export async function setPushTurnedOff(userId: string, off: boolean): Promise<void> {
+  if (off) await AsyncStorage.setItem(pushOffKey(userId), '1');
+  else await AsyncStorage.removeItem(pushOffKey(userId));
 }
 
 function isSchedulable(reminder: SchedulableReminder): boolean {

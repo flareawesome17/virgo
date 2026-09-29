@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { api } from '@/src/api/client';
 import {
   getPushRegistration,
+  isPushTurnedOff,
   syncReminderNotifications,
   type SchedulableReminder,
 } from '@/src/lib/notifications';
@@ -44,19 +45,23 @@ export function useReminderNotifications(reminders: SchedulableReminder[]) {
 }
 
 /**
- * Registers this device for server-sent push, once per session.
+ * Registers this device for server-sent push, once per signed-in account.
  *
  * Silently does nothing where remote push is unavailable (Expo Go, simulators,
- * permission denied) — the local alarm covers those cases.
+ * permission denied) — the local alarm covers those cases — and when this
+ * account turned push off on this device in Privacy.
  */
-export function usePushRegistration(enabled: boolean) {
-  const registered = useRef(false);
+export function usePushRegistration(userId: string | null) {
+  const registeredFor = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!enabled || registered.current) return;
-    registered.current = true;
+    if (!userId || registeredFor.current === userId) return;
+    registeredFor.current = userId;
 
     void (async () => {
+      // Checked before getPushRegistration, which asks for permission: an
+      // account that switched push off should not be prompted for it either.
+      if (await isPushTurnedOff(userId)) return;
       const registration = await getPushRegistration();
       if (!registration) return;
       try {
@@ -64,8 +69,8 @@ export function usePushRegistration(enabled: boolean) {
       } catch {
         // A failed registration must not break the app; the local alarm and
         // the next launch's retry both still work.
-        registered.current = false;
+        registeredFor.current = null;
       }
     })();
-  }, [enabled]);
+  }, [userId]);
 }

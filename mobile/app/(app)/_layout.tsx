@@ -113,6 +113,7 @@ export default function AppLayout() {
  * hooks cannot be called conditionally.
  */
 function NotificationServices() {
+  const { user } = useAuth();
   const { reminders } = useReminders({
     orderBy: 'reminder_time',
     direction: 'asc',
@@ -120,7 +121,7 @@ function NotificationServices() {
   });
 
   useReminderNotifications(reminders);
-  usePushRegistration(true);
+  usePushRegistration(user?.id ?? null);
   useNotificationRouting(true);
   useMessageAlerts(true);
   useRealtime(true);
