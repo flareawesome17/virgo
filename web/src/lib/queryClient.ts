@@ -78,7 +78,9 @@ export const queryClient = new QueryClient({
  * them threw, which took the whole app down until the screen learned to catch
  * it. Bump this in the same commit as a payload change, not after one.
  */
-const CACHE_VERSION = 'v3-showcases-maker-and-film';
+// v4: showcases gained unpublishedAt, and a maker's handle can now be null for
+// an unpublished profile.
+const CACHE_VERSION = 'v4-showcases-unpublished-at';
 
 /**
  * Queries never written to disk, whatever their staleTime says.

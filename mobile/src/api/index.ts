@@ -241,6 +241,8 @@ export {
   MAX_CRAFT_TAGS,
   UNKNOWN_MAKER,
   makerOf,
+  showcaseStatus,
+  type ShowcaseStatus,
   type Showcase,
   type ShowcasePiece,
   type FeedItem,

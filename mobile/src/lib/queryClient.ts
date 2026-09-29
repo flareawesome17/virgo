@@ -102,7 +102,9 @@ export const asyncStoragePersister = createAsyncStoragePersister({
  * them threw, which took the whole app down until the screen learned to catch
  * it. Bump this in the same commit as a payload change, not after one.
  */
-const CACHE_VERSION = 'v5-showcases-maker-and-film'
+// v6: showcases gained unpublishedAt, and a maker's handle can now be null for
+// an unpublished profile.
+const CACHE_VERSION = 'v6-showcases-unpublished-at'
 
 /**
  * Never written to disk, whatever their staleTime says.

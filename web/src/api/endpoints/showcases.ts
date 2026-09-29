@@ -47,6 +47,11 @@ export interface Showcase {
   allowComments: boolean;
   showHire: boolean;
   publishedAt: string | null;
+  /**
+   * Set while the author has it taken down. publishedAt survives a take-down,
+   * so this is what tells a live post from one that is down.
+   */
+  unpublishedAt: string | null;
   /** Set when Virgo has taken it down. Only its author ever sees this. */
   hiddenAt: string | null;
   keptCount: number;
@@ -54,6 +59,26 @@ export interface Showcase {
   commentCount: number;
   pieces: ShowcasePiece[];
   createdAt: string;
+}
+
+/**
+ * Where a showcase stands, as its author needs to know it.
+ *
+ * Visitors only ever receive live ones; the owner's own list carries the rest,
+ * and each needs saying differently — a draft was never out, a take-down can
+ * be undone by its author, and a moderation take-down cannot.
+ */
+export type ShowcaseStatus = 'live' | 'draft' | 'down' | 'removed';
+
+export function showcaseStatus(
+  s: Pick<Showcase, 'publishedAt' | 'unpublishedAt' | 'hiddenAt'>,
+): ShowcaseStatus {
+  if (s.hiddenAt) return 'removed';
+  if (!s.publishedAt) return 'draft';
+  // Absent, not null, on a payload cached before the field existed: read as
+  // live, which is what every showcase a visitor can see is.
+  if (s.unpublishedAt) return 'down';
+  return 'live';
 }
 
 export interface FeedMaker {

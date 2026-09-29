@@ -13,6 +13,7 @@ import { router, useLocalSearchParams, type ErrorBoundaryProps } from 'expo-rout
 import {
   ArrowLeftIcon,
   BookmarkIcon,
+  EyeIcon,
   EyeOffIcon,
   HeartIcon,
   Trash2Icon,
@@ -24,11 +25,11 @@ import { ShowcaseFilm } from '@/components/ShowcaseFilm';
 import { KeepSheet } from '@/components/KeepSheet';
 import { CommentThread } from '@/components/CommentThread';
 import { useAuth, useLike, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
-import { makerOf } from '@/src/api';
+import { makerOf, showcaseStatus } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeOffIcon, HeartIcon, Trash2Icon]) {
+for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeIcon, EyeOffIcon, HeartIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -103,6 +104,8 @@ export default function ShowcaseScreen() {
   const mine = Boolean(showcase && user && showcase.userId === user.id);
   // Never read straight off the payload: see makerOf.
   const maker = makerOf(showcase);
+  // Only ever not 'live' for the owner: nobody else is sent anything else.
+  const status = showcase ? showcaseStatus(showcase) : 'live';
 
   const confirmDelete = () => {
     if (!showcase) return;
@@ -125,16 +128,44 @@ export default function ShowcaseScreen() {
     );
   };
 
-  const togglePublished = () => {
+  const setLive = (published: boolean) => {
     if (!showcase) return;
-    const published = showcase.publishedAt !== null;
     setPublished.mutate(
-      { id: showcase.id, published: !published },
+      { id: showcase.id, published },
       {
         onError: (error) =>
           Alert.alert("Couldn't change that", profileActionMessage(error, 'setting')),
       },
     );
+  };
+
+  /*
+   * Down, or back up.
+   *
+   * This asked publishedAt, which a take-down keeps — so it always read "up",
+   * always sent "take down", and a post taken down could never be put back.
+   * Taking down is asked first; putting back up is not, since it undoes itself.
+   */
+  const togglePublished = () => {
+    if (status === 'live') {
+      Alert.alert(
+        'Take this down?',
+        'It leaves the feed, your profile and the shelves it was kept on. Only you will see it, and you can put it back up any time — its likes, comments and date stay.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Take down', style: 'destructive', onPress: () => setLive(false) },
+        ],
+      );
+    } else if (status === 'down' || status === 'draft') {
+      setLive(true);
+    }
+  };
+
+  const openMaker = () => {
+    // Your own avatar goes to your own profile, which needs no published
+    // handle; somebody else's only has somewhere to go if they published one.
+    if (mine) router.push('/profile');
+    else if (maker.handle) router.push(`/u/${maker.handle}`);
   };
   const width = Dimensions.get('window').width;
 
@@ -158,18 +189,30 @@ export default function ShowcaseScreen() {
             the date it first went out, deleting is not. */}
         {mine && (
           <>
-            <Pressable
-              onPress={togglePublished}
-              disabled={setPublished.isPending}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={
-                showcase?.publishedAt ? 'Take this down' : 'Put this back up'
-              }
-              className="w-11 h-11 items-center justify-center active:opacity-70"
-            >
-              <EyeOffIcon size={19} className="text-muted-foreground" />
-            </Pressable>
+            {/* Not offered on one Virgo took down: publishing it again would
+                change nothing, because the moderation flag still hides it. */}
+            {status !== 'removed' && (
+              <Pressable
+                onPress={togglePublished}
+                disabled={setPublished.isPending}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  status === 'live'
+                    ? 'Take this down'
+                    : status === 'draft'
+                      ? 'Post this'
+                      : 'Put this back up'
+                }
+                className="w-11 h-11 items-center justify-center active:opacity-70"
+              >
+                {status === 'live' ? (
+                  <EyeOffIcon size={19} className="text-muted-foreground" />
+                ) : (
+                  <EyeIcon size={19} className="text-primary" />
+                )}
+              </Pressable>
+            )}
             <Pressable
               onPress={confirmDelete}
               disabled={remove.isPending}
@@ -192,6 +235,13 @@ export default function ShowcaseScreen() {
         <LoadFailed what="this showcase" onRetry={() => refetch()} />
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
+          {mine && status !== 'live' && (
+            <StatusBanner
+              status={status}
+              pending={setPublished.isPending}
+              onRestore={() => setLive(true)}
+            />
+          )}
           {showcase.pieces.map((piece, i) => (
             <View key={piece.fileKey} className={i > 0 ? 'mt-1' : ''}>
               {piece.kind === 'video' ? (
@@ -216,9 +266,8 @@ export default function ShowcaseScreen() {
               no maker, so this is the only place a reader can credit them. */}
           <View className="px-5 pt-4 flex-row items-center gap-2.5">
             <Pressable
-              onPress={() =>
-                maker.handle ? router.push(`/u/${maker.handle}`) : undefined
-              }
+              onPress={openMaker}
+              disabled={!mine && !maker.handle}
               accessibilityRole="button"
               accessibilityLabel={`${maker.displayName}'s profile`}
               className="w-10 h-10 rounded-full overflow-hidden bg-primary/15 items-center justify-center"
@@ -349,5 +398,62 @@ export default function ShowcaseScreen() {
         onClose={() => setKeeping(false)}
       />
     </SafeAreaView>
+  );
+}
+
+/**
+ * What the owner is told about a post that is not live. Nobody else ever sees
+ * one, so this is the only place its state is said out loud.
+ */
+function StatusBanner({
+  status,
+  pending,
+  onRestore,
+}: {
+  status: 'draft' | 'down' | 'removed';
+  pending: boolean;
+  onRestore: () => void;
+}) {
+  if (status === 'removed') {
+    return (
+      <View className="mx-4 my-3 rounded-xl bg-destructive/10 p-4">
+        <Text className="text-destructive text-[13px] font-bold">Virgo took this down</Text>
+        <Text className="text-foreground text-[12px] leading-[18px] mt-1">
+          It was reported and reviewed, and only you can see it now. If you think that was a
+          mistake, tell us.
+        </Text>
+        <Pressable
+          onPress={() => router.push('/support')}
+          accessibilityRole="link"
+          hitSlop={8}
+          className="self-start mt-2"
+        >
+          <Text className="text-primary text-[12px] font-bold">Contact support</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  return (
+    <View className="mx-4 my-3 rounded-xl bg-secondary p-4 flex-row items-center gap-3">
+      <View className="flex-1">
+        <Text className="text-foreground text-[13px] font-bold">
+          {status === 'draft' ? 'Not posted yet' : 'Taken down'}
+        </Text>
+        <Text className="text-muted-foreground text-[12px] leading-[18px] mt-0.5">
+          Only you can see it.
+        </Text>
+      </View>
+      <Pressable
+        onPress={onRestore}
+        disabled={pending}
+        accessibilityRole="button"
+        className="min-h-10 px-4 rounded-full bg-action items-center justify-center active:opacity-90"
+        style={{ opacity: pending ? 0.6 : 1 }}
+      >
+        <Text className="text-action-foreground text-[12px] font-bold">
+          {status === 'draft' ? 'Post it' : 'Put back up'}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
