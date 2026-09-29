@@ -40,7 +40,14 @@ export const unstable_settings = {
  *                 the network hiccups.
  */
 export default function AppLayout() {
-  const { isAuthenticated, isLoading, isSessionError, retrySession } = useAuth();
+  const {
+    isAuthenticated,
+    isLoading,
+    isSessionError,
+    isCheckingSession,
+    retrySession,
+    signOut,
+  } = useAuth();
 
   if (isLoading) {
     return (
@@ -51,6 +58,11 @@ export default function AppLayout() {
   }
 
   if (isSessionError && !isAuthenticated) {
+    // Retry used to give no sign it had been pressed: the request failed again
+    // in a moment and the screen looked exactly as before. And there was no
+    // way off this screen at all — someone who wanted a different account, or
+    // whose server really was gone for good, could only uninstall.
+    const busy = isCheckingSession || signOut.isPending;
     return (
       <View className="flex-1 items-center justify-center bg-background px-10">
         <Text className="text-foreground text-lg font-bold">Can’t reach the server</Text>
@@ -59,9 +71,28 @@ export default function AppLayout() {
         </Text>
         <Pressable
           onPress={() => retrySession()}
-          className="mt-6 bg-action rounded-2xl px-8 py-3.5 active:scale-[0.96]"
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityState={{ busy: isCheckingSession, disabled: busy }}
+          className="mt-6 min-w-[140px] items-center bg-action rounded-2xl px-8 py-3.5 active:scale-[0.96]"
+          style={{ opacity: signOut.isPending ? 0.5 : 1 }}
         >
-          <Text className="text-white text-base font-bold">Retry</Text>
+          {isCheckingSession ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text className="text-white text-base font-bold">Retry</Text>
+          )}
+        </Pressable>
+        <Pressable
+          onPress={() => signOut.mutate()}
+          disabled={busy}
+          accessibilityRole="button"
+          hitSlop={8}
+          className="mt-4 px-4 py-2"
+        >
+          <Text className="text-muted-foreground text-sm font-semibold">
+            {signOut.isPending ? 'Signing out…' : 'Sign out'}
+          </Text>
         </Pressable>
       </View>
     );

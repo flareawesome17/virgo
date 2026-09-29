@@ -162,8 +162,23 @@ export function useAuth() {
       }
     },
     staleTime: 0,
-    // One retry covers a transient blip; more would stall the splash screen.
-    retry: 1,
+    /*
+     * Fails fast offline, so the guard can say so.
+     *
+     * The app-wide default is 'offlineFirst', which runs the first attempt and
+     * then *pauses* the retry until the device is back online. A paused query
+     * is still pending and has no error, so a phone opened on a plane sat on
+     * the launch spinner indefinitely — never reaching the "Can't reach the
+     * server" screen that exists for exactly that case.
+     *
+     * 'always' never pauses, and a connection failure is not retried: the
+     * answer will not change in a second, and the screen it lands on retries
+     * by itself when the connection comes back (refetchOnReconnect). One retry
+     * is kept for anything else — a 502 during a deploy, say.
+     */
+    networkMode: 'always',
+    retry: (failures, err) =>
+      failures < 1 && !(err instanceof ApiError && err.isNetworkError),
   });
 
   const authUser = sessionQuery.data ?? null;
@@ -353,6 +368,8 @@ export function useAuth() {
      * offers a retry instead of redirecting to login.
      */
     isSessionError: sessionQuery.isError,
+    /** True while a session check is running, including a retry. */
+    isCheckingSession: sessionQuery.isFetching,
     retrySession: sessionQuery.refetch,
     /** Full profile from /auth/me — includes displayName / avatarUrl. */
     profile: authUser,

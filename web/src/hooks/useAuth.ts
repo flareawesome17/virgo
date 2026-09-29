@@ -147,7 +147,21 @@ export function useAuth() {
       }
     },
     staleTime: 0,
-    retry: 1,
+    /*
+     * Fails fast offline, so the guard can say so.
+     *
+     * The default network mode here is 'online', which does not even start a
+     * query while the browser reports no connection — it parks it as pending
+     * and not fetching. `isLoading` is false for that, and so is `isError`,
+     * so the guard read an offline page load as "signed out" and sent a
+     * signed-in person to the sign-in page.
+     *
+     * 'always' runs it and lets it fail. A connection failure is not retried;
+     * the guard's screen retries on its own when the connection returns.
+     */
+    networkMode: 'always',
+    retry: (failures, err) =>
+      failures < 1 && !(err instanceof ApiError && err.isNetworkError),
   });
 
   const authUser = sessionQuery.data ?? null;
@@ -295,6 +309,8 @@ export function useAuth() {
      * offers a retry instead of redirecting to the login page.
      */
     isSessionError: sessionQuery.isError,
+    /** True while a session check is running, including a retry. */
+    isCheckingSession: sessionQuery.isFetching,
     retrySession: sessionQuery.refetch,
     signIn,
     completeTwoFactorSignIn,
