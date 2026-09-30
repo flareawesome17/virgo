@@ -90,8 +90,8 @@ export default function SupportPage() {
           <LifeBuoy className="mx-auto size-6 text-muted-foreground" />
           <p className="mt-3 text-sm font-medium">No requests yet</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            If something is broken or confusing, tell us — during the
-            pre-release that is the most useful thing you can do.
+            If something is broken or confusing, tell us — it is the most
+            useful thing you can do.
           </p>
         </div>
       ) : (

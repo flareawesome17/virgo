@@ -56,10 +56,16 @@ const FREELANCE: PlanLimits = {
  * usage endpoint maps it to `null` explicitly rather than leaking NaN.
  */
 export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
+  /*
+   * Freelancer's counts on Free's storage, for the free launch. Nothing can be
+   * bought yet, so Free is a ceiling rather than a floor, and 1 workspace with
+   * 2 albums is a week of a working photographer's jobs. Albums and workspaces
+   * cost nothing to hold; storage is what costs, so that is what stays small.
+   */
   free: {
     storageBytes: 15 * GB,
-    workspaces: 1,
-    albumsPerWorkspace: 2,
+    workspaces: 3,
+    albumsPerWorkspace: 10,
   },
   freelance: FREELANCE,
   // An alias, not a separate tier — same limits.
@@ -100,7 +106,7 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
     currency: 'PHP',
     comingSoon: false,
     ...PLAN_LIMITS.free,
-    features: ['15 GB cloud storage', '1 workspace', '2 albums', 'Client share links'],
+    features: ['15 GB cloud storage', '3 workspaces', '10 albums per workspace', 'Client share links'],
   },
   {
     name: 'freelance',
@@ -166,7 +172,7 @@ export const PURCHASABLE_PLANS = PLAN_CATALOGUE.filter(
 /** Why a purchase was refused, phrased for whichever case is true today. */
 export const PURCHASE_REFUSAL = PURCHASABLE_PLANS.length
   ? `Choose one of: ${PURCHASABLE_PLANS.map((p) => p.name).join(', ')}`
-  : 'Paid plans are not available yet — Virgo is free during the pre-release.';
+  : 'Paid plans are not available yet — Virgo is free for now.';
 
 export function planInfo(name: string): PlanInfo | undefined {
   return PLAN_CATALOGUE.find((plan) => plan.name === name);

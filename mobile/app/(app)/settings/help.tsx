@@ -135,15 +135,15 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
       },
       {
         q: 'I hit my album or workspace limit',
-        a: 'Album limits are counted per workspace, not in total. Free includes 1 workspace with 2 albums; Freelance includes 2 workspaces with 5 albums each.',
+        a: 'Album limits are counted per workspace, not in total. Free includes 3 workspaces with up to 10 albums in each.',
         route: '/settings/storage/plans',
         routeLabel: 'See plans',
       },
       {
         q: 'How do I delete everything I have uploaded?',
-        a: 'Settings, Storage & plan, Sync & Storage, then Wipe cloud data. It asks you to type DELETE first because it cannot be undone.',
+        a: 'Settings, Storage & plan, Sync & storage, then Wipe cloud data. It asks you to type DELETE first because it cannot be undone.',
         route: '/settings/sync',
-        routeLabel: 'Open Sync & Storage',
+        routeLabel: 'Open Sync & storage',
       },
     ],
   },

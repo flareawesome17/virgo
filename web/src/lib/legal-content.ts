@@ -17,7 +17,7 @@ export interface Clause {
 }
 
 export const CONTACT_EMAIL = 'support@virgo.ph';
-export const LAST_UPDATED = '29 September 2026';
+export const LAST_UPDATED = '30 September 2026';
 
 export const TERMS: Clause[] = [
   {
@@ -64,7 +64,7 @@ export const TERMS: Clause[] = [
   {
     heading: 'Plans and limits',
     body: [
-      'Virgo is free during the pre-release, with 15 GB of storage, 1 workspace and 2 albums in it.',
+      'Virgo is free for now, with 15 GB of storage and 3 workspaces of up to 10 albums each.',
       'Paid plans are not on sale yet. When they are, the price and what it includes will be shown before you pay, and payment will be handled by PayMongo.',
       'Album limits are counted per workspace, not in total. When you reach a limit, creating more is blocked until you delete something or change plan.',
       'Rewards and referral bonuses add to your limits. We may take back a bonus gained by abuse, such as referring accounts you made yourself.',

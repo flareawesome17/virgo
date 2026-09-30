@@ -18,7 +18,7 @@ const SITE = 'https://virgo.ph';
 export const FAQS: { q: string; a: string }[] = [
   {
     q: 'Is Virgo free?',
-    a: 'Yes. Virgo is free for everyone during the pre-release — 15 GB of storage, a workspace and two albums, with no card required. Paid tiers arrive later; nothing is charged today.',
+    a: 'Yes. Virgo is free for everyone for now — 15 GB of storage and three workspaces of up to ten albums each, with no card required. Paid tiers arrive later; nothing is charged today.',
   },
   {
     q: 'Do my clients need an account to see their photos?',
@@ -73,7 +73,7 @@ export function StructuredData() {
       price: '0',
       priceCurrency: 'PHP',
       description:
-        'Free during the pre-release: 15 GB storage, one workspace, two albums.',
+        'Free for now: 15 GB storage, three workspaces, ten albums in each.',
     },
   };
 
