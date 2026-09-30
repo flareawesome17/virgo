@@ -40,6 +40,8 @@ function serviceFor(user: UserRow) {
     findActiveRefreshToken: jest.fn(async () => ({ id: 't1', user_id: user.id })),
     revokeRefreshToken: jest.fn(async () => undefined),
     storeRefreshToken: jest.fn(async () => undefined),
+    forgetPushToken: jest.fn(async () => undefined),
+    enable: jest.fn(async () => ({ ...user, disabled_until: null })),
   };
   const jwt = { signAsync: jest.fn(async () => 'access-token') };
   const config = {
@@ -122,5 +124,47 @@ describe('AuthService and a suspended account', () => {
       expect.objectContaining({ accessToken: 'access-token' }),
     );
     expect(users.storeRefreshToken).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AuthService.forgetDevice', () => {
+  it('finds the session by the same hash logout revokes', async () => {
+    const { service, users } = serviceFor(userWith());
+
+    await service.logout('refresh-token');
+    await service.forgetDevice('refresh-token', 'ExponentPushToken[abc]');
+
+    const [revokedHash] = users.revokeRefreshToken.mock.calls[0] as unknown as [string];
+    expect(users.forgetPushToken).toHaveBeenCalledWith(revokedHash, 'ExponentPushToken[abc]');
+    // Never the raw token: the table only holds hashes.
+    expect(revokedHash).not.toBe('refresh-token');
+  });
+});
+
+describe('AuthService.login and a paused account', () => {
+  const PAUSED = { disabled_until: new Date(Date.now() + 30 * 86_400_000) };
+
+  it('refuses sign-in during a pause, as before', async () => {
+    const { service, users } = serviceFor(userWith(PAUSED));
+    await expect(service.login('mika@example.com', PASSWORD)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ACCOUNT_DISABLED' }),
+    });
+    expect(users.enable).not.toHaveBeenCalled();
+  });
+
+  // There was no way back before the date: lifting it needed a session.
+  it('lifts the pause and signs in when asked to', async () => {
+    const { service, users } = serviceFor(userWith(PAUSED));
+    const result = await service.login('mika@example.com', PASSWORD, { unpause: true });
+    expect(users.enable).toHaveBeenCalledWith('user-1');
+    expect(result).toHaveProperty('accessToken');
+  });
+
+  it('never lifts a suspension', async () => {
+    const { service, users } = serviceFor(userWith({ ...PAUSED, ...SUSPENDED }));
+    await expect(
+      service.login('mika@example.com', PASSWORD, { unpause: true }),
+    ).rejects.toEqual(suspendedRefusal);
+    expect(users.enable).not.toHaveBeenCalled();
   });
 });

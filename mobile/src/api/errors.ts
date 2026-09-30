@@ -28,6 +28,18 @@ export class ApiError extends Error {
 }
 
 /**
+ * A retry rule for reads of one thing — a post, a shelf, an album.
+ *
+ * Retries a failure, but not an answer. A 404 or 403 means it was deleted,
+ * taken down or made private (the API answers "not yours" and "not there"
+ * alike); asking twice more only kept a screen spinning for several seconds
+ * before it could say so.
+ */
+export function retryUnlessGone(failures: number, error: unknown): boolean {
+  return failures < 2 && !(error instanceof ApiError && (error.status === 404 || error.status === 403));
+}
+
+/**
  * Pulls a human-readable message out of a Nest error payload.
  * ValidationPipe returns `message` as an array of strings.
  */

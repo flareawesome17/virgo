@@ -5,7 +5,14 @@ import { BookmarkIcon, ImageIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
-import { useProfileTaste, useProfileWork, useTheme } from '@/src/hooks';
+import {
+  useMyShowcases,
+  useProfileTaste,
+  useProfileWork,
+  useShelves,
+  useTheme,
+} from '@/src/hooks';
+import { showcaseStatus, type ShowcaseStatus } from '@/src/api';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [BookmarkIcon, ImageIcon]) {
@@ -22,6 +29,11 @@ for (const Icon of [BookmarkIcon, ImageIcon]) {
  * Neither half is the portfolio. `portfolio_items` still exists and still
  * renders below this; showcases are a different object and both are shown until
  * the old one is migrated across.
+ *
+ * Your own profile reads your own lists rather than the by-handle ones. Those
+ * need a handle, and posting does not — so anybody without one saw "You have
+ * not posted anything yet" over posts they had made. Your own list also keeps
+ * what you took down, marked, which is the only place left to find it again.
  */
 export function ProfileWorkTaste({
   handle,
@@ -36,8 +48,14 @@ export function ProfileWorkTaste({
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
-  const work = useProfileWork(handle);
-  const taste = useProfileTaste(handle);
+  // Both pairs are called, one of them disabled: hooks cannot be chosen by
+  // a condition, only switched off by one.
+  const visitorWork = useProfileWork(isSelf ? undefined : handle);
+  const visitorTaste = useProfileTaste(isSelf ? undefined : handle);
+  const ownWork = useMyShowcases({ enabled: isSelf });
+  const ownTaste = useShelves({ enabled: isSelf });
+  const work = isSelf ? ownWork : visitorWork;
+  const taste = isSelf ? ownTaste : visitorTaste;
 
   return (
     <View className="mt-6">
@@ -80,6 +98,7 @@ export function ProfileWorkTaste({
                     style={{ width: '100%', height: 132 }}
                     contentFit="cover"
                   />
+                  {isSelf && <StatusBadge status={showcaseStatus(showcase)} />}
                   {showcase.pieces.length > 1 && (
                     <View className="absolute right-1.5 top-1.5 rounded-full bg-foreground/55 px-2 py-0.5">
                       <Text className="text-background text-[10px] font-bold">
@@ -124,7 +143,18 @@ export function ProfileWorkTaste({
           {taste.shelves.map((shelf) => (
             <Pressable
               key={shelf.id}
-              onPress={() => router.push(`/shelf/${shelf.id}`)}
+              onPress={() =>
+                // Somebody else's shelf has to be read through the public
+                // route: the default is your own, and asking /me/shelves for a
+                // shelf that is not yours answers 404 — every shelf on every
+                // other profile opened as "no longer available".
+                router.push({
+                  pathname: '/shelf/[id]',
+                  params: isSelf
+                    ? { id: shelf.id, name: shelf.name }
+                    : { id: shelf.id, name: shelf.name, own: '0' },
+                })
+              }
               accessibilityRole="button"
               accessibilityLabel={`${shelf.name}, ${shelf.count} kept`}
               style={{ width: '48%' }}
@@ -208,6 +238,24 @@ function Empty({
           <Text className="text-action-foreground text-[13px] font-bold">{action.label}</Text>
         </Pressable>
       )}
+    </View>
+  );
+}
+
+/** Only drawn on your own work, and only when it is not out for everyone. */
+function StatusBadge({ status }: { status: ShowcaseStatus }) {
+  if (status === 'live') return null;
+  const label =
+    status === 'draft' ? 'Draft' : status === 'down' ? 'Taken down' : 'Removed by Virgo';
+  return (
+    <View
+      className={`absolute left-1.5 bottom-1.5 rounded-full px-2 py-0.5 ${status === 'removed' ? 'bg-destructive' : 'bg-foreground/70'}`}
+    >
+      <Text
+        className={`text-[10px] font-bold ${status === 'removed' ? 'text-destructive-foreground' : 'text-background'}`}
+      >
+        {label}
+      </Text>
     </View>
   );
 }

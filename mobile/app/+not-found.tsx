@@ -29,7 +29,8 @@ export default function NotFoundScreen() {
 
         <Text className="text-foreground text-xl font-extrabold">Screen not found</Text>
         <Text className="text-muted-foreground text-sm text-center mt-2">
-          Nothing is routed at this address yet.
+          This link does not lead anywhere in the app. It may be old, or
+          mistyped.
         </Text>
 
         {pathname ? (

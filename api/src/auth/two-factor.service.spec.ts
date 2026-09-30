@@ -105,4 +105,30 @@ describe('TwoFactorService email challenges', () => {
     ).rejects.toThrow('This code request expired. Start again.');
     expect(users.consumeTwoFactorChallenge).not.toHaveBeenCalled();
   });
+
+  // A 401 with a session makes the client refresh and resend, so a typo would
+  // count twice against the attempt limit. Sign-in has no session to refresh.
+  it('refuses a wrong code with 403 when signed in, and 401 at sign-in', async () => {
+    const { service, mail } = createSubject();
+    const signIn = await service.createLoginChallenge(user);
+    const sent = mail.send.mock.calls[0][1].subject.slice(0, 6);
+    const wrong = sent === '000000' ? '000001' : '000000';
+
+    await expect(service.completeLoginChallenge(signIn.challengeToken, wrong)).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(service.disable(user.id, signIn.challengeToken, wrong)).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'CODE_EXPIRED' }),
+    });
+  });
+
+  it('refuses a wrong password with 403, not 401', async () => {
+    const { service } = createSubject();
+
+    await expect(service.beginSetup(user.id, 'wrong password')).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({ code: 'WRONG_PASSWORD' }),
+    });
+  });
 });

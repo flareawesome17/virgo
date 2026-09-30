@@ -215,6 +215,11 @@ export interface Friend {
   friend_name: string;
   friend_email: string | null;
   friend_avatar_url: string | null;
+  /**
+   * Their profile's handle, once they have published it. Absent from an API
+   * that predates it, so it is optional: no link, not a crash.
+   */
+  friend_handle?: string | null;
   status: FriendStatus;
   requested_by: RequestedBy;
   created_at: string;

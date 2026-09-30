@@ -34,8 +34,8 @@ const TOPICS: Record<
   NotificationTopic,
   { icon: Icon; href: string | ((d: Record<string, unknown>) => string) }
 > = {
-  'friend-request': { icon: UserPlusIcon, href: '/friends' },
-  'friend-accepted': { icon: UserPlusIcon, href: '/friends' },
+  'friend-request': { icon: UserPlusIcon, href: '/(app)/(tabs)/connect?view=people' },
+  'friend-accepted': { icon: UserPlusIcon, href: '/(app)/(tabs)/connect?view=people' },
   'collaborator-invite': { icon: UsersIcon, href: '/workspaces' },
   'collaborator-response': {
     icon: UsersIcon,

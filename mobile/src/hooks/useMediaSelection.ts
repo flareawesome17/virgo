@@ -3,6 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys, storageApi } from '@/src/api';
 import { usageQueryKey } from './useUsage';
 
+/** The most keys one request may carry (ArrayMaxSize on the API's DTOs). */
+const BULK_LIMIT = 500;
+
 /**
  * Which files are chosen, for acting on several at once.
  *
@@ -99,7 +102,17 @@ export function useSelection() {
 export function useDeleteFiles(albumId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (keys: string[]) => storageApi.removeMany(keys),
+    // In batches of the API's 500. A bigger selection was refused whole, with
+    // the validator's own words for an error.
+    mutationFn: async (keys: string[]) => {
+      const total = { deleted: 0, failed: 0 };
+      for (let i = 0; i < keys.length; i += BULK_LIMIT) {
+        const part = await storageApi.removeMany(keys.slice(i, i + BULK_LIMIT));
+        total.deleted += part.deleted;
+        total.failed += part.failed;
+      }
+      return total;
+    },
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ['storage', 'files', albumId ?? 'all'] }),

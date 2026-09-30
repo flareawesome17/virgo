@@ -3,13 +3,19 @@ import { AppState } from 'react-native';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   API_BASE_URL,
+  authApi,
   getAccessToken,
   hydrateTokens,
   queryKeys,
   type ConversationMessage,
   type Thread,
 } from '@/src/api';
-import { chatKeys, getOpenConversation } from '@/src/hooks/useChat';
+import {
+  chatKeys,
+  getOpenConversation,
+  isConversationMuted,
+  noteLiveMessage,
+} from '@/src/hooks/useChat';
 import { useAuth } from '@/src/hooks/useAuth';
 import {
   registerTypingSender,
@@ -17,7 +23,7 @@ import {
   setPresence,
   setTyping,
 } from '@/src/lib/presence-store';
-import { buzzForMessage } from '@/src/lib/notifications';
+import { buzzForMessage, setForegroundNotificationRule } from '@/src/lib/notifications';
 import { loadSoundPreference, playAlert } from '@/src/lib/sounds';
 
 /*
@@ -100,14 +106,14 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   reminder: [queryKeys.reminders.all],
   // These two exist on the server and were missing here, so their notifications
   // arrived without refreshing anything.
-  billing: [['usage'], ['plans']],
+  billing: [['me', 'usage'], ['plans']],
   retention: [queryKeys.albums.all],
   // The picks are on each file's row, so the album's grids are stale as well
   // as its counts.
   'client-picks': [queryKeys.albums.all, ['storage', 'files']],
   // Usage too: an offer is not a reward yet, but the Rewards screen shows both
   // what is waiting and what the account currently gets.
-  promo: [queryKeys.promos.all, ['usage']],
+  promo: [queryKeys.promos.all, ['me', 'usage']],
   // Never arrives over the socket: announcements are aimed at a platform and
   // version, and a frame reaches every session an account has open. Listed
   // so the table stays complete; it reaches the list through the feed.
@@ -164,6 +170,25 @@ export function useRealtime(enabled: boolean): void {
   const backoff = useRef(1000);
   const stopped = useRef(false);
 
+  /*
+   * What a message push does while the app is open.
+   *
+   * Every push showed its system banner and played its sound in the
+   * foreground — over the chat it was about, while that chat was on screen,
+   * and on top of the in-app chime for the same message. A message push now
+   * makes no sound here (the chime is the sound), and shows no banner for the
+   * open chat or a muted one.
+   */
+  useEffect(() => {
+    setForegroundNotificationRule((data) => {
+      if (data?.type !== 'message' || !data.conversationId) return null;
+      const looking = getOpenConversation() === data.conversationId;
+      const muted = isConversationMuted(queryClient, data.conversationId);
+      return { banner: !looking && !muted, sound: false };
+    });
+    return () => setForegroundNotificationRule(null);
+  }, [queryClient]);
+
   useEffect(() => {
     if (!enabled || !user?.id) return;
     stopped.current = false;
@@ -175,6 +200,8 @@ export function useRealtime(enabled: boolean): void {
 
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    /** The token a 4001 was answered for, so a refresh is tried once per token. */
+    let refusedToken: string | null = null;
 
     const apply = (event: ServerEvent) => {
       switch (event.type) {
@@ -193,16 +220,18 @@ export function useRealtime(enabled: boolean): void {
 
           const mine = event.message.sender_id === user.id;
           const looking = getOpenConversation() === event.conversationId;
+          const quiet = isConversationMuted(queryClient, event.conversationId);
+          noteLiveMessage();
           // Sound whenever somebody else writes, including while their thread
           // is open. It sat inside the `!looking` guard below and was silent
           // for exactly the case people test first — sitting in a chat waiting
           // for a reply. Still nothing for your own message: you know you sent
           // it.
-          if (!mine) playAlert('chat');
+          if (!mine && !quiet) playAlert('chat');
 
           // The push notification covers a backgrounded app; this is the
           // foreground case, where no system notification is produced.
-          if (!mine && !looking) void buzzForMessage();
+          if (!mine && !looking && !quiet) void buzzForMessage();
           break;
         }
         case 'message-deleted':
@@ -262,6 +291,31 @@ export function useRealtime(enabled: boolean): void {
       const token = getAccessToken();
       if (!token) return;
 
+      /*
+       * One socket at a time. Coming back to the app while a socket was still
+       * connecting, or with a retry already scheduled, opened a second one —
+       * and every message then arrived, chimed and buzzed twice. The old one
+       * is closed with its handlers taken off, so its close does not schedule
+       * yet another.
+       */
+      if (retry) {
+        clearTimeout(retry);
+        retry = undefined;
+      }
+      if (socket) {
+        const previous = socket;
+        previous.onopen = null;
+        previous.onmessage = null;
+        previous.onclose = null;
+        previous.onerror = null;
+        try {
+          previous.close();
+        } catch {
+          // Already closed.
+        }
+        socket = null;
+      }
+
       try {
         socket = new WebSocket(socketUrl());
       } catch {
@@ -293,6 +347,7 @@ export function useRealtime(enabled: boolean): void {
         }
         if (event.type === 'ready') {
           backoff.current = 1000;
+          refusedToken = null;
           return;
         }
         apply(event);
@@ -300,10 +355,32 @@ export function useRealtime(enabled: boolean): void {
 
       socket.onclose = (closeEvent) => {
         socketRef.current = null;
-        // 4001 means the token was rejected. Reconnecting with the same one
-        // would loop; the REST layer's refresh fixes the session and the next
-        // mount reconnects.
-        if (closeEvent.code === 4001 || stopped.current) return;
+        socket = null;
+        if (stopped.current) return;
+        if (closeEvent.code === 4001) {
+          /*
+           * The token was refused — it expired while the socket was down, most
+           * often. Realtime used to stop there until something remounted it,
+           * so a phone left open went quiet within fifteen minutes. An ordinary
+           * request makes the client refresh the session; with a new token,
+           * connect again. Once per token, so a refusal that is not about
+           * expiry cannot loop, and a session that is really over is signed
+           * out by the client as usual.
+           */
+          if (refusedToken === token) return;
+          refusedToken = token;
+          void authApi
+            .me()
+            .then(() => {
+              if (!stopped.current && getAccessToken() && getAccessToken() !== token) {
+                void connect();
+              }
+            })
+            .catch(() => {
+              // Offline or signed out: the next return to the app tries again.
+            });
+          return;
+        }
         schedule();
       };
 
@@ -316,7 +393,9 @@ export function useRealtime(enabled: boolean): void {
     // tore down while it slept.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
-      if (socketRef.current?.readyState === WebSocket.OPEN) return;
+      const ready = socketRef.current?.readyState;
+      // Connecting counts: a second connect here was the duplicate socket.
+      if (ready === WebSocket.OPEN || ready === WebSocket.CONNECTING) return;
       backoff.current = 1000;
       void connect();
     });

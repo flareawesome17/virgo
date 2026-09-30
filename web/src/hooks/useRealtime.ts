@@ -165,7 +165,7 @@ const TOPICS: Record<
   // These two exist on the server and were missing here, so their notifications
   // arrived without refreshing anything.
   // There is no /settings/billing; plans and what you are paying live here.
-  billing: { keys: [['usage'], ['plans']], href: '/settings/plans' },
+  billing: { keys: [['me', 'usage'], ['plans']], href: '/settings/plans' },
   retention: { keys: [queryKeys.albums.all], href: '/albums' },
   // The picks are on each file's row, so the album's grids are stale as well
   // as its counts.
@@ -176,7 +176,7 @@ const TOPICS: Record<
   },
   // Usage too: an offer is not a reward yet, but the Rewards page shows both
   // what is waiting and what the account currently gets.
-  promo: { keys: [queryKeys.promos.all, ['usage']], href: '/rewards' },
+  promo: { keys: [queryKeys.promos.all, ['me', 'usage']], href: '/rewards' },
   // Never arrives over the socket: announcements are aimed at a platform and
   // version, and a frame reaches every session an account has open. Listed
   // so the table stays complete; it reaches the list through the feed.

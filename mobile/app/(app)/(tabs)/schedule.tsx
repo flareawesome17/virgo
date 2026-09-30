@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth, useReminders, useScheduleEvents, useTheme, useUpdateReminder } from '@/src/hooks';
+import { useAuth, useReminders, useScheduleEventRange, useTheme, useUpdateReminder } from '@/src/hooks';
 import { useChrome } from '@/src/providers/ChromeProvider';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { AppTopBar, AttendeeSummary, EventInvitationsCard } from '@/components';
+import { LoadFailed } from '@/components/LoadFailed';
 import {
   DAY_DOT_SIZE,
   DAYS,
@@ -31,7 +32,7 @@ import {
   formatTime,
   getMonthWeeks,
   labelForDateKey,
-  todayKey, isEventUpcoming, eventTypeLabel } from '@/src/lib/calendar';
+  todayKey, isEventUpcoming, eventTypeLabel, dateToKey } from '@/src/lib/calendar';
 import { PALETTES } from '@/theme';
 
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -68,13 +69,38 @@ export default function ScheduleScreen() {
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState(todayKey);
 
-  const { events, refetch: refetchEvents } = useScheduleEvents(
-    { orderBy: 'event_date', direction: 'asc', limit: 100 },
-    { enabled: !!user?.id },
+  /*
+   * The month on screen, and the weeks ahead — not the account's 100 oldest.
+   *
+   * Both came from one list of the 100 earliest events, so an account with a
+   * past behind it saw no events this month or later at all, and Upcoming
+   * sat empty. The grid asks for exactly the days it draws; Upcoming for the
+   * next 60 days.
+   */
+  const monthWeeks = getMonthWeeks(viewYear, viewMonth);
+  const { events, refetch: refetchEvents, loadFailed: monthFailed } = useScheduleEventRange(
+    monthWeeks[0]?.[0]?.key,
+    monthWeeks[monthWeeks.length - 1]?.[6]?.key,
+  );
+  const [soonWindow] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 60);
+    return { from: todayKey(), to: dateToKey(end) };
+  });
+  const { events: soonEvents, refetch: refetchSoon, loadFailed: soonFailed } = useScheduleEventRange(
+    soonWindow.from,
+    soonWindow.to,
   );
 
-  const { reminders, refetch: refetchReminders } = useReminders(
-    { orderBy: 'reminder_time', direction: 'asc', limit: 100 },
+  // Not done, from today on, soonest first. It was the 100 oldest, completed
+  // ones included, so a busy account's upcoming reminders fell off the end.
+  const [startOfToday] = useState(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return start.toISOString();
+  });
+  const { reminders, refetch: refetchReminders, loadFailed: remindersFailed } = useReminders(
+    { is_completed: false, due_from: startOfToday, orderBy: 'reminder_time', direction: 'asc', limit: 100 },
     { enabled: !!user?.id },
   );
 
@@ -85,7 +111,7 @@ export default function ScheduleScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetchEvents(), refetchReminders()]);
+    await Promise.all([refetchEvents(), refetchSoon(), refetchReminders()]);
     setRefreshing(false);
   };
 
@@ -98,11 +124,10 @@ export default function ScheduleScreen() {
     return m;
   }, [events]);
 
-  const monthWeeks = getMonthWeeks(viewYear, viewMonth);
   const selectedEvents = eventsByDate[selectedDate] || [];
   // Compared against the moment, not the date: a 9am event was still listed as
   // upcoming that same evening.
-  const upcomingEvents = events
+  const upcomingEvents = soonEvents
     .filter((e) => isEventUpcoming(e.event_date, e.event_time))
     .slice(0, 3);
   const activeReminders = reminders.filter(r => !r.is_completed);
@@ -125,6 +150,15 @@ export default function ScheduleScreen() {
         contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}>
         
+        {/* A failed load drew "No upcoming events" and "No active reminders" —
+            a confident empty day, from requests that never arrived. */}
+        {(monthFailed || soonFailed || remindersFailed) &&
+          events.length === 0 && soonEvents.length === 0 && reminders.length === 0 && (
+          <View className="mx-5 mt-3 bg-card rounded-2xl">
+            <LoadFailed what="your schedule" onRetry={() => void onRefresh()} compact />
+          </View>
+        )}
+
         {/* Header */}
         <View className="px-5 pt-4 pb-1 flex-row items-center justify-between">
           <View>
@@ -258,7 +292,7 @@ export default function ScheduleScreen() {
                 className="min-h-11 bg-action rounded-xl px-5 py-2.5 flex-row items-center gap-2 active:scale-[0.98]"
               >
                 <PlusIcon size={15} className="text-action-foreground" />
-                <Text className="text-action-foreground text-sm font-semibold">Add Event</Text>
+                <Text className="text-action-foreground text-sm font-semibold">Add event</Text>
               </Pressable>
             </View>
           ) : (
@@ -330,9 +364,21 @@ export default function ScheduleScreen() {
           )}
         </View>
 
-        {/* Reminders */}
+        {/* Reminders. Their own, not only from inside an event: a reminder
+            to back up a card or send an invoice belongs to no event. */}
         <View className="px-5 mt-6">
-          <Text className="text-foreground text-lg font-bold tracking-tight mb-3">Reminders</Text>
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-foreground text-lg font-bold tracking-tight">Reminders</Text>
+            <Pressable
+              onPress={() => router.push('/schedule/reminders/create')}
+              accessibilityRole="button"
+              accessibilityLabel="New reminder"
+              hitSlop={8}
+              className="min-h-11 justify-center px-1 active:opacity-60"
+            >
+              <Text className="text-primary text-sm font-bold">+ New</Text>
+            </Pressable>
+          </View>
           {activeReminders.length === 0 ? (
             <View className="bg-card rounded-2xl p-6 items-center gap-2">
               <BellIcon size={20} className="text-muted-foreground" />

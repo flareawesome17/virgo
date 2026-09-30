@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -10,25 +11,30 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams, type ErrorBoundaryProps } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import {
   ArrowLeftIcon,
   BookmarkIcon,
+  EyeIcon,
   EyeOffIcon,
+  FlagIcon,
   HeartIcon,
+  PencilIcon,
   Trash2Icon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
 import { KeepSheet } from '@/components/KeepSheet';
 import { CommentThread } from '@/components/CommentThread';
+import { DetailFallback } from '@/components/DetailFallback';
+import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
 import { useAuth, useLike, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
-import { makerOf } from '@/src/api';
+import { makerOf, showcaseStatus } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeOffIcon, HeartIcon, Trash2Icon]) {
+for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeIcon, EyeOffIcon, FlagIcon, HeartIcon, PencilIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -92,17 +98,26 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 export default function ShowcaseScreen() {
   // The one film allowed to be playing; a set can hold several.
   const [playing, setPlaying] = useState<string | null>(null);
+  // Another screen pushed over this one (a profile, the report sheet's
+  // destination) must not leave a film talking behind it.
+  const focused = useIsFocused();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { showcase, isLoading, loadFailed, refetch } = useShowcase(id);
+  const { showcase, error, loadFailed, refetch } = useShowcase(id);
   const { user } = useAuth();
   const like = useLike();
   const [keeping, setKeeping] = useState(false);
+  // Only reachable from the feed card before: somebody who opened the post
+  // to look properly had nowhere to report it from.
+  const [reporting, setReporting] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
   const { setPublished, remove } = useShowcaseActions();
   const mine = Boolean(showcase && user && showcase.userId === user.id);
   // Never read straight off the payload: see makerOf.
   const maker = makerOf(showcase);
+  // Only ever not 'live' for the owner: nobody else is sent anything else.
+  const status = showcase ? showcaseStatus(showcase) : 'live';
 
   const confirmDelete = () => {
     if (!showcase) return;
@@ -125,18 +140,61 @@ export default function ShowcaseScreen() {
     );
   };
 
-  const togglePublished = () => {
+  const setLive = (published: boolean) => {
     if (!showcase) return;
-    const published = showcase.publishedAt !== null;
     setPublished.mutate(
-      { id: showcase.id, published: !published },
+      { id: showcase.id, published },
       {
         onError: (error) =>
           Alert.alert("Couldn't change that", profileActionMessage(error, 'setting')),
       },
     );
   };
+
+  /*
+   * Down, or back up.
+   *
+   * This asked publishedAt, which a take-down keeps — so it always read "up",
+   * always sent "take down", and a post taken down could never be put back.
+   * Taking down is asked first; putting back up is not, since it undoes itself.
+   */
+  const togglePublished = () => {
+    if (status === 'live') {
+      Alert.alert(
+        'Take this down?',
+        'It leaves the feed, your profile and the shelves it was kept on. Only you will see it, and you can put it back up any time — its likes, comments and date stay.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Take down', style: 'destructive', onPress: () => setLive(false) },
+        ],
+      );
+    } else if (status === 'down' || status === 'draft') {
+      setLive(true);
+    }
+  };
+
+  const openMaker = () => {
+    // Your own avatar goes to your own profile, which needs no published
+    // handle; somebody else's only has somewhere to go if they published one.
+    if (mine) router.push('/profile');
+    else if (maker.handle) router.push(`/u/${maker.handle}`);
+  };
   const width = Dimensions.get('window').width;
+
+  // Gone is not offline. A post taken down or deleted used to say "check your
+  // connection", with a Retry that could only ever fail again.
+  if (!showcase) {
+    return (
+      <DetailFallback
+        title="Showcase"
+        what="this showcase"
+        gone="The person who posted it took it down or deleted it."
+        error={error}
+        failed={loadFailed}
+        onRetry={() => refetch()}
+      />
+    );
+  }
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -151,25 +209,61 @@ export default function ShowcaseScreen() {
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="flex-1 text-foreground text-[15px] font-bold" numberOfLines={1}>
-          {showcase?.title ?? 'Showcase'}
+          {showcase.title ?? 'Showcase'}
         </Text>
+        {!mine && (
+          <Pressable
+            onPress={() => setReporting(showcase.id)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Report this showcase"
+            className="w-11 h-11 items-center justify-center active:opacity-70"
+          >
+            <FlagIcon size={18} className="text-muted-foreground" />
+          </Pressable>
+        )}
         {/* Only on your own. Taking it down and deleting it are different
             things and both are offered: unpublishing is reversible and keeps
             the date it first went out, deleting is not. */}
         {mine && (
           <>
-            <Pressable
-              onPress={togglePublished}
-              disabled={setPublished.isPending}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={
-                showcase?.publishedAt ? 'Take this down' : 'Put this back up'
-              }
-              className="w-11 h-11 items-center justify-center active:opacity-70"
-            >
-              <EyeOffIcon size={19} className="text-muted-foreground" />
-            </Pressable>
+            {status !== 'removed' && (
+              <Pressable
+                onPress={() =>
+                  router.push({ pathname: '/showcase/new', params: { edit: showcase.id } })
+                }
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Edit this showcase"
+                className="w-11 h-11 items-center justify-center active:opacity-70"
+              >
+                <PencilIcon size={18} className="text-muted-foreground" />
+              </Pressable>
+            )}
+            {/* Not offered on one Virgo took down: publishing it again would
+                change nothing, because the moderation flag still hides it. */}
+            {status !== 'removed' && (
+              <Pressable
+                onPress={togglePublished}
+                disabled={setPublished.isPending}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  status === 'live'
+                    ? 'Take this down'
+                    : status === 'draft'
+                      ? 'Post this'
+                      : 'Put this back up'
+                }
+                className="w-11 h-11 items-center justify-center active:opacity-70"
+              >
+                {status === 'live' ? (
+                  <EyeOffIcon size={19} className="text-muted-foreground" />
+                ) : (
+                  <EyeIcon size={19} className="text-primary" />
+                )}
+              </Pressable>
+            )}
             <Pressable
               onPress={confirmDelete}
               disabled={remove.isPending}
@@ -184,14 +278,25 @@ export default function ShowcaseScreen() {
         )}
       </View>
 
-      {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={palette.primary} />
-        </View>
-      ) : loadFailed || !showcase ? (
-        <LoadFailed what="this showcase" onRetry={() => refetch()} />
-      ) : (
-        <ScrollView contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
+      {/* Padding on iOS, where nothing else moves the comment box out from
+          under the keyboard; Android resizes the window itself. */}
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={{ paddingBottom: 110 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {mine && status !== 'live' && (
+            <StatusBanner
+              status={status}
+              pending={setPublished.isPending}
+              onRestore={() => setLive(true)}
+            />
+          )}
           {showcase.pieces.map((piece, i) => (
             <View key={piece.fileKey} className={i > 0 ? 'mt-1' : ''}>
               {piece.kind === 'video' ? (
@@ -199,7 +304,7 @@ export default function ShowcaseScreen() {
                   piece={piece}
                   width={width}
                   height={Math.round(width * 1.25)}
-                  active={playing === null || playing === piece.fileKey}
+                  active={focused && (playing === null || playing === piece.fileKey)}
                   onPlay={() => setPlaying(piece.fileKey)}
                 />
               ) : (
@@ -216,9 +321,8 @@ export default function ShowcaseScreen() {
               no maker, so this is the only place a reader can credit them. */}
           <View className="px-5 pt-4 flex-row items-center gap-2.5">
             <Pressable
-              onPress={() =>
-                maker.handle ? router.push(`/u/${maker.handle}`) : undefined
-              }
+              onPress={openMaker}
+              disabled={!mine && !maker.handle}
               accessibilityRole="button"
               accessibilityLabel={`${maker.displayName}'s profile`}
               className="w-10 h-10 rounded-full overflow-hidden bg-primary/15 items-center justify-center"
@@ -340,14 +444,80 @@ export default function ShowcaseScreen() {
             )}
           </View>
 
-          <CommentThread showcaseId={showcase.id} isOwner={mine} />
+          <CommentThread
+            showcaseId={showcase.id}
+            isOwner={mine}
+            // The box is the last thing on the page: once the keyboard has
+            // taken its share of the screen, bring the box up into what is left.
+            onComposerFocus={() =>
+              setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250)
+            }
+          />
         </ScrollView>
-      )}
+      </KeyboardAvoidingView>
 
       <KeepSheet
-        item={keeping && showcase ? showcase : null}
+        item={keeping ? showcase : null}
         onClose={() => setKeeping(false)}
       />
+      <ShowcaseReportSheet showcaseId={reporting} onClose={() => setReporting(null)} />
     </SafeAreaView>
+  );
+}
+
+/**
+ * What the owner is told about a post that is not live. Nobody else ever sees
+ * one, so this is the only place its state is said out loud.
+ */
+function StatusBanner({
+  status,
+  pending,
+  onRestore,
+}: {
+  status: 'draft' | 'down' | 'removed';
+  pending: boolean;
+  onRestore: () => void;
+}) {
+  if (status === 'removed') {
+    return (
+      <View className="mx-4 my-3 rounded-xl bg-destructive/10 p-4">
+        <Text className="text-destructive text-[13px] font-bold">Virgo took this down</Text>
+        <Text className="text-foreground text-[12px] leading-[18px] mt-1">
+          It was reported and reviewed, and only you can see it now. If you think that was a
+          mistake, tell us.
+        </Text>
+        <Pressable
+          onPress={() => router.push('/support')}
+          accessibilityRole="link"
+          hitSlop={8}
+          className="self-start mt-2"
+        >
+          <Text className="text-primary text-[12px] font-bold">Contact support</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  return (
+    <View className="mx-4 my-3 rounded-xl bg-secondary p-4 flex-row items-center gap-3">
+      <View className="flex-1">
+        <Text className="text-foreground text-[13px] font-bold">
+          {status === 'draft' ? 'Not posted yet' : 'Taken down'}
+        </Text>
+        <Text className="text-muted-foreground text-[12px] leading-[18px] mt-0.5">
+          Only you can see it.
+        </Text>
+      </View>
+      <Pressable
+        onPress={onRestore}
+        disabled={pending}
+        accessibilityRole="button"
+        className="min-h-10 px-4 rounded-full bg-action items-center justify-center active:opacity-90"
+        style={{ opacity: pending ? 0.6 : 1 }}
+      >
+        <Text className="text-action-foreground text-[12px] font-bold">
+          {status === 'draft' ? 'Post it' : 'Put back up'}
+        </Text>
+      </Pressable>
+    </View>
   );
 }

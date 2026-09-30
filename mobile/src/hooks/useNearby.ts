@@ -26,6 +26,8 @@ export function useLocationSharing() {
     sharing: query.data?.sharing ?? false,
     /** The city they picked, or null when the position came from the device. */
     place: query.data?.place ?? null,
+    /** When the device last reported a position; they expire after 30 days. */
+    updatedAt: query.data?.updatedAt ?? null,
   };
 }
 
@@ -41,11 +43,17 @@ export function useShareLocation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const { granted } = await Location.requestForegroundPermissionsAsync();
+      const { granted, canAskAgain } = await Location.requestForegroundPermissionsAsync();
       if (!granted) {
-        throw new Error(
-          'Location permission is needed to find collaborators near you.',
-        );
+        // Refused for good, the system prompt never shows again: the screen
+        // offers Settings for that one, rather than an error with no way out.
+        const error = new Error(
+          canAskAgain
+            ? 'Location permission is needed to find collaborators near you.'
+            : 'Location is turned off for Virgo. Turn it on in Settings, or name your city instead.',
+        ) as Error & { code?: string };
+        error.code = canAskAgain ? 'LOCATION_DENIED' : 'LOCATION_BLOCKED';
+        throw error;
       }
       // Balanced accuracy: a few hundred metres is plenty for a distance in km,
       // and asking for the highest accuracy costs battery for no visible gain.

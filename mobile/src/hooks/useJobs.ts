@@ -1,5 +1,6 @@
 import {
   keepPreviousData,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -26,18 +27,38 @@ import {
  * which the UI can show as a quiet inline hint rather than a full-screen
  * spinner. Going back to a term searched moments ago is instant, since that
  * key is still in cache.
+ *
+ * A page at a time. It asked for one page and the API's default is 30, so the
+ * header said "42 open jobs" and the twelve after the thirtieth — the farthest,
+ * since the board is nearest first — could never be reached. Offsets, because
+ * that is what the board's ordering by distance supports; a post that shifts
+ * the list between pages is shown once, not twice.
  */
+const JOBS_PAGE = 30;
+
 export function useJobs(params: ListJobsParams = {}) {
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: queryKeys.jobs.list(params),
-    queryFn: () => jobsApi.list(params),
+    queryFn: ({ pageParam }) => jobsApi.list({ ...params, limit: JOBS_PAGE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, page) => n + page.data.length, 0);
+      return last.data.length > 0 && loaded < last.total ? loaded : undefined;
+    },
     placeholderData: keepPreviousData,
   });
 
+  const seen = new Set<string>();
+  // \`pages\` is checked, not assumed: a board saved to disk before this was
+  // paged has none, and reads as empty until it refetches.
+  const jobs = (query.data?.pages ?? []).flatMap((page) =>
+    page.data.filter((job) => (seen.has(job.id) ? false : (seen.add(job.id), true))),
+  );
+
   return {
     ...query,
-    jobs: query.data?.data ?? ([] as JobPost[]),
-    total: query.data?.total ?? 0,
+    jobs: jobs as JobPost[],
+    total: query.data?.pages?.[0]?.total ?? 0,
     /** True while a *different* filter is loading and older results are shown. */
     isRefiltering: query.isPlaceholderData,
     /**
@@ -169,6 +190,8 @@ export function useDeleteJob() {
     mutationFn: (id: string) => jobsApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+      // Cancelled bookings made from its applications go with it.
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.all });
     },
   });
 }
@@ -207,6 +230,22 @@ export function useRespondToApplication() {
       // A new connection changes their Connect button and both counts.
       queryClient.invalidateQueries({ queryKey: queryKeys.publicProfiles.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.profile.page });
+    },
+  });
+}
+
+/**
+ * Taking back an application the poster has not answered yet.
+ *
+ * The post carries your applications (`myApplications`) as well as the list
+ * of them, so the whole jobs tree is stale, not just one query.
+ */
+export function useWithdrawApplication() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => jobsApi.withdraw(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
     },
   });
 }

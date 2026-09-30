@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { BackHandler, StyleSheet, View } from 'react-native';
+import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
 
@@ -26,6 +27,15 @@ import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
  */
 export function VideoSurface({ children }: { children: ReactNode }) {
   const { current, mode, close, minimise, expand } = useVideoPlayback();
+  const insets = useSafeAreaInsets();
+  /*
+   * Docked, the strip is the bottom of the screen: it takes the home
+   * indicator's inset and the screens above stop padding for it — the tab bar
+   * would otherwise leave a second gap over the strip. The same mirror image
+   * of what UploadBar does with the notch. The provider is always rendered,
+   * only its value changes, so the navigator inside is never remounted.
+   */
+  const docked = Boolean(current) && mode === 'mini';
 
   // Android's back button, which a full-screen overlay does not get for free
   // the way a Modal would. Minimising rather than closing matches the swipe,
@@ -41,7 +51,9 @@ export function VideoSurface({ children }: { children: ReactNode }) {
 
   return (
     <View className="flex-1">
-      <View className="flex-1">{children}</View>
+      <SafeAreaInsetsContext.Provider value={docked ? { ...insets, bottom: 0 } : insets}>
+        <View className="flex-1">{children}</View>
+      </SafeAreaInsetsContext.Provider>
 
       {current && (
         <View

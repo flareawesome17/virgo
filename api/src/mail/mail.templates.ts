@@ -243,6 +243,63 @@ export function passwordChanged(options: { when: string }): RenderedEmail {
   };
 }
 
+/** Sent to the address somebody asked to move their account to. */
+export function confirmEmailChange(options: {
+  name: string;
+  url: string;
+  expiresInHours: number;
+}): RenderedEmail {
+  const intro = `${options.name ? `${options.name}, confirm` : 'Confirm'} this is the address you want to use for Virgo. Your account keeps its old address until you do.`;
+  return {
+    subject: 'Confirm your new email address',
+    html: layout({
+      heading: 'Confirm your new email',
+      intro,
+      cta: { label: 'Use this address', url: options.url },
+      fineprint: [
+        `This link expires in ${options.expiresInHours} hours and can be used once.`,
+        `If the button does not work, paste this into your browser: ${options.url}`,
+      ],
+      outro: 'If you did not ask for this, ignore it — nothing changes.',
+    }),
+    text: [
+      'Confirm your new email',
+      '',
+      intro,
+      '',
+      options.url,
+      '',
+      `This link expires in ${options.expiresInHours} hours and can be used once.`,
+      'If you did not ask for this, ignore it — nothing changes.',
+    ].join('\n'),
+  };
+}
+
+/**
+ * Sent to the address an account is leaving, when the move is asked for and
+ * again when it happens. The old inbox is the owner's only warning if it was
+ * not them.
+ */
+export function emailChangeNotice(options: {
+  newEmail: string;
+  stage: 'requested' | 'changed';
+}): RenderedEmail {
+  const requested = options.stage === 'requested';
+  const heading = requested ? 'Email change requested' : 'Your email was changed';
+  const intro = requested
+    ? `Somebody signed in to your Virgo account asked to change its email address to ${options.newEmail}. Nothing changes until that address confirms.`
+    : `The email address on your Virgo account is now ${options.newEmail}. Sign in with that address from now on.`;
+  const outro =
+    'If this was not you, reset your password immediately and contact support@virgo.ph.';
+  return {
+    subject: requested
+      ? 'A change to your Virgo email was requested'
+      : 'Your Virgo email address was changed',
+    html: layout({ heading, intro, outro }),
+    text: [heading, '', intro, '', outro].join('\n'),
+  };
+}
+
 export function collaboratorInvite(options: {
   inviterName: string;
   workspaceName: string;

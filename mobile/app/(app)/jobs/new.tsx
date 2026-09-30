@@ -3,18 +3,22 @@ import {
   ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { useCreateJob, useRoles } from '@/src/hooks';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { useCreateJob, useJob, useRoles, useUpdateJob } from '@/src/hooks';
+import { DetailFallback } from '@/components/DetailFallback';
 import { ArrowLeftIcon, SendIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   JOB_TITLE_MIN,
+  MAX_ROLE_BUDGET_MINOR,
   jobPostBlockers,
   joinBlockers,
 } from '@/src/lib/job-form';
 import { DateTimeField } from '@/components/DateTimeField';
+import { LoadFailed } from '@/components/LoadFailed';
 import { LocationField } from '@/components/LocationField';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 /** Local parts — toISOString would shift the day west of Greenwich. */
 function toIsoDay(d: Date): string {
@@ -34,9 +38,27 @@ function toCentavos(value: string): number | undefined {
 }
 
 export default function NewJobScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const insets = useSafeAreaInsets();
   const create = useCreateJob();
-  const { roles: allRoles } = useRoles();
+  /*
+   * Editing, when opened with ?edit=<slug>.
+   *
+   * A post could not be edited at all: a typo in the title, a wrong date or a
+   * budget that needed moving meant deleting it — and deleting took every
+   * application with it. The same form, filled from the post, saves over it.
+   */
+  const { edit: editSlug } = useLocalSearchParams<{ edit?: string }>();
+  const editing = useJob(editSlug);
+  const update = useUpdateJob();
+  const isEdit = Boolean(editSlug);
+  const {
+    roles: allRoles,
+    isLoading: rolesLoading,
+    loadFailed: rolesFailed,
+    refetch: refetchRoles,
+  } = useRoles();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -54,6 +76,28 @@ export default function NewJobScreen() {
     Record<string, { min: string; max: string }>
   >({});
 
+  // Filled once, from the post as it arrived; after that the form is theirs.
+  const filled = useRef(false);
+  useEffect(() => {
+    const post = editing.data;
+    if (!post || filled.current) return;
+    filled.current = true;
+    setTitle(post.title);
+    setDescription(post.description);
+    setRolesWanted(post.rolesWanted);
+    setEventDate(post.eventDate ?? '');
+    setLocation(post.location ?? '');
+    const pesos = (minor?: number | null) => (minor == null ? '' : String(minor / 100));
+    setRoleBudgets(
+      Object.fromEntries(
+        Object.entries(post.roleBudgets ?? {}).map(([role, range]) => [
+          role,
+          { min: pesos(range?.min), max: pesos(range?.max) },
+        ]),
+      ),
+    );
+  }, [editing.data]);
+
   const setRoleBudget = (role: string, end: 'min' | 'max', value: string) =>
     setRoleBudgets((current) => ({
       ...current,
@@ -69,6 +113,11 @@ export default function NewJobScreen() {
     const { min, max } = pair(role);
     return min != null && max != null && min > max;
   });
+  // Said while typing, not on submit.
+  const budgetTooHigh = rolesWanted.some((role) => {
+    const { min, max } = pair(role);
+    return (min ?? 0) > MAX_ROLE_BUDGET_MINOR || (max ?? 0) > MAX_ROLE_BUDGET_MINOR;
+  });
   // Always well-formed now: the value only ever comes from the picker.
   const dateLooksRight = true;
 
@@ -77,9 +126,11 @@ export default function NewJobScreen() {
     description,
     rolesWanted,
     budgetBackwards,
+    budgetTooHigh,
     dateLooksRight,
   });
   const ready = blockers.length === 0;
+  const saving = create.isPending || update.isPending;
 
   const submit = () => {
     const budgets: Record<string, { min?: number; max?: number }> = {};
@@ -89,6 +140,26 @@ export default function NewJobScreen() {
       budgets[role] = {};
       if (min != null) budgets[role].min = min;
       if (max != null) budgets[role].max = max;
+    }
+
+    if (isEdit && editing.data) {
+      update.mutate(
+        {
+          id: editing.data.id,
+          title: title.trim(),
+          description: description.trim(),
+          rolesWanted,
+          // Sent whole: a role left without figures is one the poster cleared.
+          roleBudgets: budgets,
+          eventDate: eventDate || null,
+          location: location.trim() || null,
+        },
+        {
+          onSuccess: () => router.back(),
+          onError: (error: Error) => Alert.alert('Could not save', error.message),
+        },
+      );
+      return;
     }
 
     create.mutate(
@@ -110,13 +181,28 @@ export default function NewJobScreen() {
     );
   };
 
+  if (isEdit && !editing.data) {
+    return (
+      <DetailFallback
+        title="Edit job"
+        what="this post"
+        gone="It was deleted, or it has ended."
+        error={editing.error}
+        failed={editing.isError || editing.isPaused}
+        onRetry={() => void editing.refetch()}
+      />
+    );
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <View className="flex-row items-center gap-3 px-5 py-3">
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={10}>
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
-        <Text className="text-foreground text-lg font-bold">Post a job</Text>
+        <Text className="text-foreground text-lg font-bold">
+          {isEdit ? 'Edit job' : 'Post a job'}
+        </Text>
       </View>
 
       <KeyboardAvoidingView
@@ -154,6 +240,13 @@ export default function NewJobScreen() {
           </Field>
 
           <Field label="Which roles are you hiring for?">
+            {/* Without the list there is nothing to pick, and a post needs a
+                role — the form was a dead end with no way to try again. */}
+            {rolesFailed && allRoles.length === 0 ? (
+              <LoadFailed what="the list of roles" onRetry={() => void refetchRoles()} compact />
+            ) : rolesLoading && allRoles.length === 0 ? (
+              <ActivityIndicator color="#B66A40" style={{ paddingVertical: 12 }} />
+            ) : null}
             <View className="flex-row flex-wrap gap-2">
               {allRoles.map((role) => {
                 const on = rolesWanted.includes(role);
@@ -241,11 +334,13 @@ export default function NewJobScreen() {
               ))}
               <Text
                 className="text-[11px]"
-                style={{ color: budgetBackwards ? '#ef4444' : '#9ca3af' }}
+                style={{ color: budgetBackwards || budgetTooHigh ? '#ef4444' : '#9ca3af' }}
               >
                 {budgetBackwards
                   ? 'The lower figure needs to be the smaller one.'
-                  : 'Optional, but a role with a number gets far better applications.'}
+                  : budgetTooHigh
+                    ? 'Each role can be up to ₱500,000.'
+                    : 'Optional, but a role with a number gets far better applications.'}
               </Text>
             </View>
           )}
@@ -271,14 +366,16 @@ export default function NewJobScreen() {
 
           <Pressable
             className="rounded-2xl py-4 flex-row items-center justify-center gap-2"
-            style={{ backgroundColor: '#B66A40', opacity: !ready || create.isPending ? 0.4 : 1 }}
-            disabled={!ready || create.isPending}
+            style={{ backgroundColor: '#B66A40', opacity: !ready || saving ? 0.4 : 1 }}
+            disabled={!ready || saving}
             onPress={submit}
           >
-            {create.isPending
+            {saving
               ? <ActivityIndicator size="small" color="#fff" />
               : <SendIcon size={16} color="#fff" />}
-            <Text className="text-white text-[15px] font-bold">Post it</Text>
+            <Text className="text-white text-[15px] font-bold">
+              {isEdit ? 'Save changes' : 'Post it'}
+            </Text>
           </Pressable>
 
           <Text className="text-muted-foreground text-[11px] text-center">

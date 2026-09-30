@@ -395,3 +395,80 @@ describe('HiringService.setStatus', () => {
     );
   });
 });
+
+describe('HiringService.remove', () => {
+  // Deleting cascaded into bookings — agreements with another person —
+  // without telling them.
+  it('refuses to delete a post somebody is booked on', async () => {
+    const { service, ran } = harness();
+    jest.spyOn(service as never, 'ownedPost').mockResolvedValue({} as never);
+    jest.spyOn(service, 'endingCost').mockResolvedValue({ count: 0, applications: 2, bookings: 1 });
+
+    await expect(service.remove(ME, POST)).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'POST_HAS_BOOKINGS', bookings: 1 }),
+    });
+    expect(ran(/delete from hiring_posts/)).toHaveLength(0);
+  });
+
+  it('deletes one with no bookings', async () => {
+    const { service, ran } = harness();
+    jest.spyOn(service as never, 'ownedPost').mockResolvedValue({} as never);
+    jest.spyOn(service, 'endingCost').mockResolvedValue({ count: 0, applications: 2, bookings: 0 });
+
+    await expect(service.remove(ME, POST)).resolves.toEqual({ deleted: true });
+    expect(ran(/delete from hiring_posts/)).toHaveLength(1);
+  });
+});
+
+describe('HiringService.withdraw', () => {
+  const deleted = (sql: string) =>
+    /delete from hiring_applications/.test(sql) ? [{ id: APPLICATION, post_id: POST }] : undefined;
+  const statusIs = (status: string) => (sql: string) =>
+    /select status from hiring_applications/.test(sql) ? [{ status }] : undefined;
+
+  it('deletes only the caller’s own, and only while it is undecided', async () => {
+    const { service, ran } = harness({ pool: deleted });
+
+    await expect(service.withdraw(THEM, APPLICATION)).resolves.toEqual({ withdrawn: true });
+
+    const [del] = ran(/delete from hiring_applications/);
+    expect(del.params).toEqual([APPLICATION, THEM]);
+    expect(del.sql).toMatch(/user_id = \$2 and status in \('new', 'shortlisted'\)/);
+  });
+
+  it('tells nobody', async () => {
+    const { service, notifier } = harness({ pool: deleted });
+
+    await service.withdraw(THEM, APPLICATION);
+
+    expect(notifier.notify).not.toHaveBeenCalled();
+  });
+
+  it('points a hired applicant at the booking instead', async () => {
+    const { service } = harness({ pool: statusIs('accepted') });
+
+    await expect(service.withdraw(THEM, APPLICATION)).rejects.toThrow(
+      new BadRequestException('You have been hired for this one — cancel the booking instead'),
+    );
+  });
+
+  // Deleting a declined one would be a way to apply again to somebody who said no.
+  it('keeps a declined one', async () => {
+    const { service } = harness({ pool: statusIs('declined') });
+
+    await expect(service.withdraw(THEM, APPLICATION)).rejects.toThrow(
+      new BadRequestException('This application has already been answered'),
+    );
+  });
+
+  it('answers someone else’s as if it were not there', async () => {
+    const { service, ran } = harness();
+
+    await expect(service.withdraw(ME, APPLICATION)).rejects.toThrow(
+      new NotFoundException('Application not found'),
+    );
+    const [lookup] = ran(/select status from hiring_applications/);
+    expect(lookup.params).toEqual([APPLICATION, ME]);
+  });
+});

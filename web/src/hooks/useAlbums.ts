@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   albumsApi,
   queryKeys,
+  retryUnlessGone,
   type Album,
   type CreateAlbumInput,
   type ListAlbumsParams,
@@ -70,6 +71,7 @@ export function useAlbum(id: string | undefined) {
     queryKey: queryKeys.albums.detail(id ?? ''),
     queryFn: () => albumsApi.get(id as string),
     enabled: !!id,
+    retry: retryUnlessGone,
   });
 }
 

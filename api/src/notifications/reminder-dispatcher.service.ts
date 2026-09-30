@@ -9,6 +9,7 @@ interface DueReminder {
   title: string;
   description: string | null;
   reminder_time: Date;
+  updated_at: Date;
   is_alarm_enabled: boolean;
 }
 
@@ -17,8 +18,9 @@ interface DueReminder {
  *
  * Runs on the API rather than only on the device so a reminder still arrives
  * when the app has been force-quit, reinstalled, or is being used from a second
- * device. The device also schedules a local notification as a belt-and-braces
- * path for when it is offline; `data.reminderId` lets the client dedupe.
+ * device. The phone also schedules a local notification, which is exact and
+ * works offline; a phone that reports it has done so (migration 076) is left
+ * out of the push, or the reminder rang twice on it.
  *
  * Delivery goes through NotifyService, so a reminder reaches an open web tab
  * over the socket as well — the web app has no Expo token and used to get
@@ -76,11 +78,34 @@ export class ReminderDispatcherService {
            limit 200
            for update skip locked
         )
-        returning id, user_id, title, description, reminder_time, is_alarm_enabled`,
+        returning id, user_id, title, description, reminder_time, updated_at, is_alarm_enabled`,
       [],
     );
 
     if (due.length === 0) return { reminders: 0, sent: 0, failed: 0 };
+
+    // The phones that already have each reminder as a local alarm: they
+    // scheduled after it last changed, before it was due (a reminder already
+    // past is never scheduled), and far enough ahead to include it.
+    const covered = await this.db.query<{ id: string; token: string }>(
+      `select r.id, t.token
+         from unnest($1::text[], $2::uuid[], $3::timestamptz[], $4::timestamptz[])
+                as r(id, user_id, updated_at, reminder_time)
+         join push_tokens t
+           on t.user_id = r.user_id
+          and t.reminders_synced_at >= r.updated_at
+          and t.reminders_synced_at < r.reminder_time
+          and (t.reminders_covered_until is null
+               or t.reminders_covered_until >= r.reminder_time)`,
+      [
+        due.map((r) => r.id),
+        due.map((r) => r.user_id),
+        due.map((r) => r.updated_at),
+        due.map((r) => r.reminder_time),
+      ],
+    );
+    const skip = new Map<string, string[]>();
+    for (const row of covered) skip.set(row.id, [...(skip.get(row.id) ?? []), row.token]);
 
     const deliveries: Delivery[] = due.map((reminder) => ({
       userId: reminder.user_id,
@@ -92,6 +117,7 @@ export class ReminderDispatcherService {
       channelId: reminder.is_alarm_enabled ? ('alarms' as const) : ('reminders' as const),
       sound: reminder.is_alarm_enabled ? ('default' as const) : null,
       data: { reminderId: reminder.id, type: 'reminder' },
+      skipTokens: skip.get(reminder.id),
     }));
 
     const { sent, failed } = await this.notifier.deliver(deliveries);

@@ -77,7 +77,7 @@ export default function WelcomeScreen() {
             accessibilityRole="button"
             className="min-h-12 bg-action rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
           >
-            <Text className="text-action-foreground text-base font-bold">Create Account</Text>
+            <Text className="text-action-foreground text-base font-bold">Create account</Text>
             <ArrowRightIcon size={18} className="text-action-foreground" />
           </Pressable>
         </View>

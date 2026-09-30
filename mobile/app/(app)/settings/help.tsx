@@ -135,15 +135,15 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
       },
       {
         q: 'I hit my album or workspace limit',
-        a: 'Album limits are counted per workspace, not in total. Free includes 1 workspace with 2 albums; Freelance includes 2 workspaces with 5 albums each.',
+        a: 'Album limits are counted per workspace, not in total. Free includes 3 workspaces with up to 10 albums in each.',
         route: '/settings/storage/plans',
         routeLabel: 'See plans',
       },
       {
         q: 'How do I delete everything I have uploaded?',
-        a: 'Settings, Sync & Storage, then Wipe cloud data. It asks you to type DELETE first because it cannot be undone.',
+        a: 'Settings, Storage & plan, Sync & storage, then Wipe cloud data. It asks you to type DELETE first because it cannot be undone.',
         route: '/settings/sync',
-        routeLabel: 'Open Sync & Storage',
+        routeLabel: 'Open Sync & storage',
       },
     ],
   },
@@ -192,9 +192,11 @@ export default function HelpScreen() {
     const subject = encodeURIComponent('Virgo support');
     const body = encodeURIComponent(`\n\n---\n${diagnostics}\n`);
     const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+    // Opened directly, not asked about first: on Android 11 and later
+    // canOpenURL answers no for mailto unless the app declares it in its
+    // manifest, which this one does not — so everyone with a mail app was told
+    // they had none. openURL rejects when there really is nothing to open it.
     try {
-      const can = await Linking.canOpenURL(url);
-      if (!can) throw new Error('no mail client');
       await Linking.openURL(url);
     } catch {
       // A device with no mail app should still be able to reach support.
@@ -224,16 +226,16 @@ export default function HelpScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={cardShadow}
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
           <View className="flex-1">
             <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              Help Center
+              Help center
             </Text>
             <Text className="text-muted-foreground text-sm mt-0.5">
               How Virgo works, and how to reach us

@@ -1,6 +1,11 @@
 import { useEffect } from 'react';
 import { track } from '@/lib/analytics';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import {
   ApiError,
   clearTokens,
@@ -73,6 +78,29 @@ function toAuthError(err: unknown): AuthError {
 }
 
 /**
+ * Everything a session leaves in the tab, gone. Signing out, pausing,
+ * deleting, another tab signing out, and a session the server has stopped
+ * honouring all end here.
+ */
+function forgetSession(queryClient: QueryClient) {
+  queryClient.setQueryData(queryKeys.auth.session, null);
+  // Drop every non-auth query: the next user must not see the previous
+  // user's cached workspaces flash on screen before their own load.
+  queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+}
+
+/**
+ * How many mounted useAuth() calls hold the auth-failure handler.
+ *
+ * The client has one handler slot and many components call useAuth. Each used
+ * to empty the slot when it unmounted, so leaving any of them left nobody
+ * handling a dead session: the UI stayed signed in while every request failed.
+ * Every holder installs the same handler, and the slot is only emptied when
+ * the last one goes.
+ */
+let authFailureHolders = 0;
+
+/**
  * Authentication against the NestJS API.
  *
  * Mirrors the mobile hook, with one addition the browser needs: signing out in
@@ -86,19 +114,16 @@ export function useAuth() {
   // Handling it centrally flips the app to the signed-out UI once, instead of
   // every route separately discovering that its queries now fail.
   useEffect(() => {
-    setAuthFailureHandler(() => {
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
-    });
-    return () => setAuthFailureHandler(null);
+    authFailureHolders += 1;
+    setAuthFailureHandler(() => forgetSession(queryClient));
+    return () => {
+      authFailureHolders -= 1;
+      if (authFailureHolders === 0) setAuthFailureHandler(null);
+    };
   }, [queryClient]);
 
   useEffect(
-    () =>
-      watchTokensAcrossTabs(() => {
-        queryClient.setQueryData(queryKeys.auth.session, null);
-        queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
-      }),
+    () => watchTokensAcrossTabs(() => forgetSession(queryClient)),
     [queryClient],
   );
 
@@ -122,7 +147,21 @@ export function useAuth() {
       }
     },
     staleTime: 0,
-    retry: 1,
+    /*
+     * Fails fast offline, so the guard can say so.
+     *
+     * The default network mode here is 'online', which does not even start a
+     * query while the browser reports no connection — it parks it as pending
+     * and not fetching. `isLoading` is false for that, and so is `isError`,
+     * so the guard read an offline page load as "signed out" and sent a
+     * signed-in person to the sign-in page.
+     *
+     * 'always' runs it and lets it fail. A connection failure is not retried;
+     * the guard's screen retries on its own when the connection returns.
+     */
+    networkMode: 'always',
+    retry: (failures, err) =>
+      failures < 1 && !(err instanceof ApiError && err.isNetworkError),
   });
 
   const authUser = sessionQuery.data ?? null;
@@ -228,12 +267,10 @@ export function useAuth() {
     mutationFn: async () => {
       await authApi.logout();
     },
-    onSuccess: () => {
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      // Drop every non-auth query: the next user must not see the previous
-      // user's cached workspaces flash on screen before their own load.
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
-    },
+    // Settled, not success. logout clears the tokens whether or not the
+    // server heard it, then rethrows a network failure — so offline, the
+    // tokens were gone but the UI stayed signed in until a second click.
+    onSettled: () => forgetSession(queryClient),
   });
 
   /**
@@ -248,8 +285,7 @@ export function useAuth() {
       authApi.disableAccount(password, days),
     onSuccess: async () => {
       await clearTokens();
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+      forgetSession(queryClient);
     },
   });
 
@@ -258,8 +294,7 @@ export function useAuth() {
     mutationFn: (password: string) => authApi.deleteAccount(password),
     onSuccess: async () => {
       await clearTokens();
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+      forgetSession(queryClient);
     },
   });
 
@@ -274,6 +309,8 @@ export function useAuth() {
      * offers a retry instead of redirecting to the login page.
      */
     isSessionError: sessionQuery.isError,
+    /** True while a session check is running, including a retry. */
+    isCheckingSession: sessionQuery.isFetching,
     retrySession: sessionQuery.refetch,
     signIn,
     completeTwoFactorSignIn,

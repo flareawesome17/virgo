@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import {
   BookmarkIcon,
   ChevronUpIcon,
@@ -26,7 +27,7 @@ import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
 import { KeepSheet } from '@/components/KeepSheet';
 import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
-import { useFeed, useLike, useTheme } from '@/src/hooks';
+import { useAuth, useFeed, useLike, useTheme } from '@/src/hooks';
 import { useChrome } from '@/src/providers/ChromeProvider';
 import { makerOf, type FeedItem } from '@/src/api';
 import { PALETTES } from '@/theme';
@@ -47,6 +48,8 @@ for (const Icon of [BookmarkIcon, ChevronUpIcon, FlagIcon, HeartIcon, ImageIcon,
  */
 export default function FeedScreen() {
   const chrome = useChrome();
+  const { user } = useAuth();
+  const userId = user?.id;
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [scope, setScope] = useState<'everyone' | 'connections'>('everyone');
@@ -90,16 +93,26 @@ export default function FeedScreen() {
       setVisibleId(viewableItems[0]?.item?.id ?? null),
   ).current;
 
+  /**
+   * Whether the Feed is the screen being looked at.
+   *
+   * Tabs stay mounted, and so does a screen with another pushed over it, so
+   * "the card on screen" alone kept a film playing — sound and all — after
+   * switching tabs or opening the post, with its controls nowhere in sight.
+   */
+  const focused = useIsFocused();
+
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => (
       <Placard
         item={item}
-        visible={item.id === visibleId}
+        mine={item.userId === userId}
+        visible={focused && item.id === visibleId}
         onKeep={() => setKeeping(item)}
         onReport={() => setReporting(item.id)}
       />
     ),
-    [visibleId],
+    [visibleId, userId, focused],
   );
 
   return (
@@ -137,7 +150,7 @@ export default function FeedScreen() {
           data={items}
           keyExtractor={(i) => i.id}
           renderItem={renderItem}
-          extraData={visibleId}
+          extraData={`${visibleId}:${focused}`}
           viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={onViewableItemsChanged}
           contentContainerStyle={{ paddingBottom: 130 }}
@@ -202,11 +215,18 @@ function ScopeTab({
  */
 function Placard({
   item,
+  mine,
   visible,
   onKeep,
   onReport,
 }: {
   item: FeedItem;
+  /**
+   * Your own post. Your own work is in the feed, and the card offered to keep
+   * it, hire you and report you — the first and second refused by the server,
+   * the third absurd.
+   */
+  mine: boolean;
   /** Whether this card is the one on screen; a film that is not, stops. */
   visible: boolean;
   onKeep: () => void;
@@ -229,7 +249,14 @@ function Placard({
           opens it, as does "See it all". */}
       {cover?.kind === 'video' ? (
         <View style={{ width, height }}>
-          <ShowcaseFilm piece={cover} width={width} height={height} active={visible} />
+          {/* Lifted clear of the placard, which overlaps the foot by 32. */}
+          <ShowcaseFilm
+            piece={cover}
+            width={width}
+            height={height}
+            active={visible}
+            controlsInset={32}
+          />
           {item.pieces.length > 1 && (
             <View
               className="absolute right-3 top-3 flex-row items-center gap-1 rounded-full bg-foreground/55 px-2.5 py-1"
@@ -267,11 +294,15 @@ function Placard({
         <View className="px-4 pt-3.5">
           <View className="flex-row items-center gap-2.5">
             <Pressable
-              onPress={() =>
-                maker.handle ? router.push(`/u/${maker.handle}`) : undefined
-              }
+              onPress={() => {
+                // Your own profile needs no published handle; anybody else's
+                // is only reachable once they have published one.
+                if (mine) router.push('/profile');
+                else if (maker.handle) router.push(`/u/${maker.handle}`);
+              }}
+              disabled={!mine && !maker.handle}
               accessibilityRole="button"
-              accessibilityLabel={`${maker.displayName}'s profile`}
+              accessibilityLabel={mine ? 'Your profile' : `${maker.displayName}'s profile`}
               className="w-9 h-9 rounded-full overflow-hidden bg-primary/15 items-center justify-center"
             >
               {maker.avatarUrl ? (
@@ -300,16 +331,18 @@ function Placard({
                 </Text>
               ) : null}
             </View>
-            <Pressable
-              onPress={onReport}
-              accessibilityRole="button"
-              accessibilityLabel="Report this post"
-              hitSlop={8}
-              className="w-9 h-9 items-center justify-center active:opacity-60"
-            >
-              <FlagIcon size={15} className="text-muted-foreground" />
-            </Pressable>
-            {item.showHire && maker.handle && (
+            {!mine && (
+              <Pressable
+                onPress={onReport}
+                accessibilityRole="button"
+                accessibilityLabel="Report this post"
+                hitSlop={8}
+                className="w-9 h-9 items-center justify-center active:opacity-60"
+              >
+                <FlagIcon size={15} className="text-muted-foreground" />
+              </Pressable>
+            )}
+            {item.showHire && maker.handle && !mine && (
               <Pressable
                 onPress={() => router.push(`/hire/${maker.handle}`)}
                 accessibilityRole="button"
@@ -393,29 +426,47 @@ function Placard({
                 : 'See it all'}
             </Text>
           </Pressable>
-          <View className="w-px bg-border my-2.5" />
-          <Pressable
-            onPress={onKeep}
-            accessibilityRole="button"
-            accessibilityState={{ selected: item.keptByMe }}
-            accessibilityLabel={item.keptByMe ? 'Kept. Change where.' : 'Keep this'}
-            className={`flex-[1.2] min-h-12 flex-row items-center justify-center gap-1.5 active:opacity-90 ${item.keptByMe ? 'bg-secondary' : 'bg-action'}`}
-          >
-            <BookmarkIcon
-              size={15}
-              className={item.keptByMe ? 'text-primary' : 'text-action-foreground'}
-              // Filled once it is yours: an outline that means "kept" and an
-              // outline that means "keep" are the same picture. A literal
-              // colour, not currentColor — that renders hollow on a device.
-              fill={item.keptByMe ? palette.primary : 'none'}
-            />
-            <Text
-              className={`text-[12px] font-bold ${item.keptByMe ? 'text-primary' : 'text-action-foreground'}`}
-            >
-              {item.keptByMe ? 'Kept' : 'Keep'}
-              {item.keptCount > 0 ? ` · ${item.keptCount}` : ''}
-            </Text>
-          </Pressable>
+          {mine ? (
+            // Keeping your own work is refused, so it is not offered; how many
+            // people kept it is what is worth seeing on your own post.
+            item.keptCount > 0 ? (
+              <>
+                <View className="w-px bg-border my-2.5" />
+                <View className="flex-[1.2] min-h-12 flex-row items-center justify-center gap-1.5">
+                  <BookmarkIcon size={15} className="text-muted-foreground" />
+                  <Text className="text-muted-foreground text-[12px] font-bold">
+                    {item.keptCount} kept
+                  </Text>
+                </View>
+              </>
+            ) : null
+          ) : (
+            <>
+              <View className="w-px bg-border my-2.5" />
+              <Pressable
+                onPress={onKeep}
+                accessibilityRole="button"
+                accessibilityState={{ selected: item.keptByMe }}
+                accessibilityLabel={item.keptByMe ? 'Kept. Change where.' : 'Keep this'}
+                className={`flex-[1.2] min-h-12 flex-row items-center justify-center gap-1.5 active:opacity-90 ${item.keptByMe ? 'bg-secondary' : 'bg-action'}`}
+              >
+                <BookmarkIcon
+                  size={15}
+                  className={item.keptByMe ? 'text-primary' : 'text-action-foreground'}
+                  // Filled once it is yours: an outline that means "kept" and an
+                  // outline that means "keep" are the same picture. A literal
+                  // colour, not currentColor — that renders hollow on a device.
+                  fill={item.keptByMe ? palette.primary : 'none'}
+                />
+                <Text
+                  className={`text-[12px] font-bold ${item.keptByMe ? 'text-primary' : 'text-action-foreground'}`}
+                >
+                  {item.keptByMe ? 'Kept' : 'Keep'}
+                  {item.keptCount > 0 ? ` · ${item.keptCount}` : ''}
+                </Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </View>
     </View>

@@ -43,7 +43,17 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
     return () => clearTimeout(id);
   }, [place]);
 
-  const { jobs, total, isLoading, loadFailed, isRefiltering, refetch } = useJobs({
+  const {
+    jobs,
+    total,
+    isLoading,
+    loadFailed,
+    isRefiltering,
+    refetch,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useJobs({
     roles: role ? [role] : [],
     location: debouncedPlace || undefined,
   });
@@ -125,6 +135,22 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
             {total} open {total === 1 ? 'job' : 'jobs'}
           </Text>
           {jobs.map((job) => <JobCard key={job.id} job={job} />)}
+          {hasNextPage && (
+            <Pressable
+              onPress={() => void fetchNextPage()}
+              disabled={isFetchingNextPage}
+              accessibilityRole="button"
+              className="min-h-11 rounded-xl bg-secondary items-center justify-center active:opacity-80"
+            >
+              {isFetchingNextPage ? (
+                <ActivityIndicator color="#B66A40" />
+              ) : (
+                <Text className="text-secondary-foreground text-[13px] font-bold">
+                  Show more ({jobs.length} of {total})
+                </Text>
+              )}
+            </Pressable>
+          )}
         </ScrollView>
       )}
     </View>

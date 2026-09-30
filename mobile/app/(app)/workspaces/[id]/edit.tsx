@@ -16,6 +16,7 @@ import { ArchiveIcon, ArrowLeftIcon, CheckIcon, ChevronDownIcon, Trash2Icon } fr
 import { cssInterop } from 'nativewind';
 import { useAlbums, useDeleteWorkspace, useTheme, useUpdateWorkspace, useWorkspace } from '@/src/hooks';
 import { ACCENT_COLORS, deleteConsequence } from '@/src/lib/workspaces';
+import { DetailFallback } from '@/components/DetailFallback';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ChoiceSheet } from '@/components/WorkspaceBits';
 import { PALETTES } from '@/theme';
@@ -41,7 +42,7 @@ export default function EditWorkspaceScreen() {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const insets = useSafeAreaInsets();
-  const { data: workspace, isLoading } = useWorkspace(id);
+  const { data: workspace, error, isError, isPaused, refetch } = useWorkspace(id);
   const { albums } = useAlbums({ workspace_id: id, orderBy: 'created_at', direction: 'desc', limit: 100 }, { enabled: !!id });
   const update = useUpdateWorkspace();
   const remove = useDeleteWorkspace();
@@ -54,15 +55,18 @@ export default function EditWorkspaceScreen() {
   const [cover, setCover] = useState<string | null>(null);
   const [choosingCover, setChoosingCover] = useState(false);
 
-  if (isLoading || !workspace) {
+  // With a header and a way back in every state: "isn't available" used to
+  // sit alone on the screen, and offline read as the workspace being gone.
+  if (!workspace) {
     return (
-      <SafeAreaView edges={['top']} className="flex-1 bg-background items-center justify-center">
-        {isLoading ? (
-          <ActivityIndicator />
-        ) : (
-          <Text className="text-muted-foreground text-sm">This workspace isn’t available.</Text>
-        )}
-      </SafeAreaView>
+      <DetailFallback
+        title="Edit workspace"
+        what="this workspace"
+        gone="It was deleted, or you no longer have access to it."
+        error={error}
+        failed={isError || isPaused}
+        onRetry={() => void refetch()}
+      />
     );
   }
 
@@ -108,7 +112,7 @@ export default function EditWorkspaceScreen() {
               `${workspace.name} is archived`,
               'Find it under Archived at the bottom of your workspaces. Albums and sharing are as they were.',
             );
-            router.replace('/(app)/(tabs)/workspaces');
+            router.dismissTo('/(app)/(tabs)/workspaces');
           }
         },
         onError: (err: Error) => Alert.alert('Could not change that', err.message),
@@ -123,7 +127,7 @@ export default function EditWorkspaceScreen() {
         style: 'destructive',
         onPress: () =>
           remove.mutate(workspace.id, {
-            onSuccess: () => router.replace('/(app)/(tabs)/workspaces'),
+            onSuccess: () => router.dismissTo('/(app)/(tabs)/workspaces'),
             onError: (err: Error) => Alert.alert('Could not delete', err.message),
           }),
       },
@@ -193,7 +197,7 @@ export default function EditWorkspaceScreen() {
                     accessibilityRole="radio"
                     accessibilityLabel={c.name}
                     accessibilityState={{ checked: on }}
-                    className="w-10 h-10 rounded-full items-center justify-center"
+                    className="w-11 h-11 rounded-full items-center justify-center"
                     style={{
                       backgroundColor: c.hex,
                       borderWidth: on ? 3 : 0,

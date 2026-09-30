@@ -107,6 +107,14 @@ export class ThreadQueryDto {
   @Min(1)
   @Max(200)
   limit?: number;
+
+  /**
+   * A message id: only messages older than it. The thread was the newest 100
+   * and nothing more, so anything before that could not be reached at all.
+   */
+  @IsOptional()
+  @IsUUID('all')
+  before?: string;
 }
 
 export class ConversationsQueryDto {
@@ -164,7 +172,7 @@ export class MessagesController {
     @Query() query: ThreadQueryDto,
   ) {
     return this.messages
-      .messages(userId, id, query.limit)
+      .messages(userId, id, query.limit, query.before)
       .then(({ messages, lastReadAt, canSend, blockedByMe, blockId }) => ({
         data: messages,
         total: messages.length,

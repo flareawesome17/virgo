@@ -11,6 +11,7 @@ import {
   CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PaletteIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -76,9 +77,9 @@ export default function CreateWorkspaceScreen() {
       >
         {/* Header */}
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{
               shadowColor: '#000',
               shadowOpacity: 0.04,
@@ -91,7 +92,7 @@ export default function CreateWorkspaceScreen() {
           </Pressable>
           <View>
             <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              New Workspace
+              New workspace
             </Text>
             <Text className="text-muted-foreground text-sm mt-0.5">
               Create a creative project space
@@ -106,7 +107,8 @@ export default function CreateWorkspaceScreen() {
             <Text className="text-[#C76B4A] text-sm font-bold">Workspace limit reached</Text>
             <Text className="text-[#C76B4A] text-xs mt-1">
               The {plan} plan includes {workspaceLimit} workspace
-              {workspaceLimit === 1 ? '' : 's'}. Delete one, or upgrade to add another.
+              {workspaceLimit === 1 ? '' : 's'}.{' '}
+              {SELLS_PLANS_HERE ? 'Delete one, or upgrade to add another.' : 'Delete one to add another.'}
             </Text>
             <Pressable
               onPress={() => router.push('/settings/storage/plans')}
@@ -123,7 +125,7 @@ export default function CreateWorkspaceScreen() {
           {/* Name */}
           <View>
             <Text className="text-foreground text-sm font-semibold mb-2 ml-1">
-              Workspace Name
+              Workspace name
             </Text>
             <TextInput
               value={name}
@@ -171,7 +173,7 @@ export default function CreateWorkspaceScreen() {
           <View>
             <View className="flex-row items-center gap-2 mb-2 ml-1">
               <PaletteIcon size={14} className="text-muted-foreground" />
-              <Text className="text-foreground text-sm font-semibold">Workspace Color</Text>
+              <Text className="text-foreground text-sm font-semibold">Workspace color</Text>
             </View>
             <View className="flex-row flex-wrap gap-3">
               {ACCENT_COLORS.map((c) => (

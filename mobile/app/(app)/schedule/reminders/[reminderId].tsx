@@ -1,6 +1,8 @@
-import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { UpdateReminderInput } from '@/src/api';
+import { DetailFallback } from '@/components/DetailFallback';
+import { goBackOr } from '@/components/ScreenHeader';
 import {
   useDeleteReminder,
   useReminder,
@@ -39,7 +41,13 @@ export default function ReminderDetailScreen() {
   const { isDark } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: reminder, refetch: refetchReminder } = useReminder(reminderId);
+  const {
+    data: reminder,
+    refetch: refetchReminder,
+    error: reminderError,
+    isError: reminderFailed,
+    isPaused: reminderPaused,
+  } = useReminder(reminderId);
 
   const { data: event } = useScheduleEvent(
     reminder?.schedule_event_id ?? undefined,
@@ -51,10 +59,21 @@ export default function ReminderDetailScreen() {
     updateReminderMutation.mutate({ id: reminderId, ...updates });
 
   const deleteReminderMutation = useDeleteReminder();
+  // Asked first: it went on the first tap, with no undo, and failed silently.
   const deleteReminder = () =>
-    deleteReminderMutation.mutate(reminderId, {
-      onSuccess: () => router.back(),
-    });
+    Alert.alert('Delete reminder', `"${reminder?.title ?? 'This reminder'}" and its alarm will be removed.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () =>
+          deleteReminderMutation.mutate(reminderId, {
+            onSuccess: () => goBackOr(),
+            onError: () =>
+              Alert.alert('Could not delete the reminder', 'Check your connection and try again.'),
+          }),
+      },
+    ]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -63,7 +82,16 @@ export default function ReminderDetailScreen() {
   };
 
   if (!reminder) {
-    return <SafeAreaView edges={['top']} className="flex-1 bg-background"><View className="flex-1 items-center justify-center"><Text className="text-muted-foreground text-sm">Loading...</Text></View></SafeAreaView>;
+    return (
+      <DetailFallback
+        title="Reminder"
+        what="this reminder"
+        gone="It was deleted, perhaps along with its event."
+        error={reminderError}
+        failed={reminderFailed || reminderPaused}
+        onRetry={() => void refetchReminder()}
+      />
+    );
   }
 
   const { date, time } = formatDateTime(reminder.reminder_time);
@@ -81,11 +109,22 @@ export default function ReminderDetailScreen() {
         }>
         {/* Header */}
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+          <Pressable onPress={() => goBackOr()} accessibilityRole="button" accessibilityLabel="Go back"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
-          <Text className="text-foreground text-[22px] font-bold tracking-tight">Reminder</Text>
+          <Text className="text-foreground text-[22px] font-bold tracking-tight flex-1">Reminder</Text>
+          {/* It could not be changed at all; a wrong time meant deleting it. */}
+          <Pressable
+            onPress={() => router.push(`/schedule/reminders/create?edit=${reminder.id}`)}
+            accessibilityRole="button"
+            accessibilityLabel="Edit this reminder"
+            hitSlop={8}
+            className="min-h-11 justify-center px-2 active:opacity-60"
+          >
+            <Text className="text-primary text-sm font-bold">Edit</Text>
+          </Pressable>
         </View>
 
         {/* Hero card */}
@@ -147,7 +186,7 @@ export default function ReminderDetailScreen() {
               <BellIcon size={15} className="text-primary" />
             </View>
             <View className="flex-1">
-              <Text className="text-muted-foreground text-[10px] font-bold uppercase">Linked Event</Text>
+              <Text className="text-muted-foreground text-[10px] font-bold uppercase">Linked event</Text>
               <Text className="text-foreground text-sm font-semibold">{event.title}</Text>
             </View>
           </Pressable>
@@ -179,7 +218,7 @@ export default function ReminderDetailScreen() {
                 <BellIcon size={14} color="#5B7B9A" />
               </View>
               <View>
-                <Text className="text-foreground text-sm font-semibold">Push Notification</Text>
+                <Text className="text-foreground text-sm font-semibold">Push notification</Text>
                 <Text className="text-muted-foreground text-xs mt-0.5">{reminder.has_push_notification ? 'Will send push alert' : 'No push alert'}</Text>
               </View>
             </View>
@@ -194,12 +233,12 @@ export default function ReminderDetailScreen() {
           <Pressable onPress={() => updateReminder({ is_completed: !reminder.is_completed })}
             className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${reminder.is_completed ? 'bg-muted' : 'bg-[#6B8E4E]'}`}>
             <Text className={`text-base font-bold ${reminder.is_completed ? 'text-muted-foreground' : 'text-white'}`}>
-              {reminder.is_completed ? 'Mark Incomplete' : 'Mark Complete'}
+              {reminder.is_completed ? 'Mark incomplete' : 'Mark complete'}
             </Text>
           </Pressable>
           <Pressable onPress={() => deleteReminder()} className="flex-row items-center justify-center gap-2 py-3 active:scale-[0.97]">
             <Trash2Icon size={15} className="text-destructive" />
-            <Text className="text-destructive text-sm font-semibold">Delete Reminder</Text>
+            <Text className="text-destructive text-sm font-semibold">Delete reminder</Text>
           </Pressable>
         </View>
       </ScrollView>

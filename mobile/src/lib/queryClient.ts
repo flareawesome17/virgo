@@ -64,14 +64,69 @@ export const queryClient = new QueryClient({
 // AsyncStorage Persister
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The most the cache may write, in characters.
+ *
+ * The whole cache is one AsyncStorage row, and on Android a row over about
+ * 2 MB cannot be read back ("Row too big to fit into CursorWindow") — the
+ * restore fails and every query starts from nothing. A big album's file list
+ * was enough to get there. Kept well under the line.
+ */
+const ROW_LIMIT = 1_500_000
+
+type PersistedQuery = { queryKey: readonly unknown[]; state: { data?: unknown } }
+type Persisted = { clientState: { queries: PersistedQuery[] } }
+
+/**
+ * Only the first page of a paged list goes to disk.
+ *
+ * It is all a cold start draws before refetching, and the rest is what made
+ * an album or a long thread outgrow the row. Paging carries on from page one.
+ */
+function firstPageOnly(query: PersistedQuery): PersistedQuery {
+  const data = query.state.data as { pages?: unknown[]; pageParams?: unknown[] } | undefined
+  if (!data || !Array.isArray(data.pages) || data.pages.length <= 1) return query
+  return {
+    ...query,
+    state: {
+      ...query.state,
+      data: { ...data, pages: data.pages.slice(0, 1), pageParams: (data.pageParams ?? []).slice(0, 1) },
+    },
+  }
+}
+
+function serializeForDisk(client: unknown): string {
+  const persisted = client as Persisted
+  const queries = persisted.clientState.queries.map(firstPageOnly)
+  let text = JSON.stringify({ ...persisted, clientState: { ...persisted.clientState, queries } })
+  if (text.length <= ROW_LIMIT) return text
+
+  // Still too big: the largest go first, until it fits. A smaller cache is a
+  // slower first screen; an unreadable one is no cache at all.
+  const sized = queries
+    .map((query) => ({ query, size: JSON.stringify(query).length }))
+    .sort((a, b) => b.size - a.size)
+  let over = text.length - ROW_LIMIT
+  const dropped = new Set<PersistedQuery>()
+  for (const { query, size } of sized) {
+    if (over <= 0) break
+    dropped.add(query)
+    over -= size
+  }
+  text = JSON.stringify({
+    ...persisted,
+    clientState: { ...persisted.clientState, queries: queries.filter((q) => !dropped.has(q)) },
+  })
+  return text
+}
+
 export const asyncStoragePersister = createAsyncStoragePersister({
   storage: AsyncStorage,
   // Key used to store the cache
   key: 'REACT_QUERY_OFFLINE_CACHE',
   // Throttle writes to storage (prevents excessive writes)
   throttleTime: 1000,
-  // Optional: serialize/deserialize functions
-  serialize: (data) => JSON.stringify(data),
+  serialize: serializeForDisk,
   deserialize: (data) => JSON.parse(data),
 })
 
@@ -102,7 +157,10 @@ export const asyncStoragePersister = createAsyncStoragePersister({
  * them threw, which took the whole app down until the screen learned to catch
  * it. Bump this in the same commit as a payload change, not after one.
  */
-const CACHE_VERSION = 'v5-showcases-maker-and-film'
+// v6: showcases gained unpublishedAt, and a maker's handle can now be null for
+// an unpublished profile.
+// v7: the job board is paged, and a saved board has no pages.
+const CACHE_VERSION = 'v7-jobs-paged'
 
 /**
  * Never written to disk, whatever their staleTime says.

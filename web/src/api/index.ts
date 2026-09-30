@@ -10,7 +10,7 @@
  */
 
 export { api, request, setAuthFailureHandler } from './client';
-export { ApiError, chatRefusal, type ChatRefusal } from './errors';
+export { ApiError, chatRefusal, retryUnlessGone, type ChatRefusal } from './errors';
 export { API_BASE_URL } from './config';
 export {
   clearTokens,
@@ -246,6 +246,8 @@ export {
   MAX_CRAFT_TAGS,
   UNKNOWN_MAKER,
   makerOf,
+  showcaseStatus,
+  type ShowcaseStatus,
   type Showcase,
   type ShowcasePiece,
   type FeedItem,

@@ -199,7 +199,7 @@ function AccountHalf({ rewards }: { rewards: number }) {
         {
           icon: UserCogIcon,
           label: 'Account & security',
-          detail: 'Email and password',
+          detail: 'Email, password, pause or delete',
           route: '/settings/account',
           color: palette.primary,
         },
@@ -322,9 +322,15 @@ function AppHalf() {
   const rateVirgo = async () => {
     try {
       const storeUrl = StoreReview.storeUrl();
-      if (storeUrl && await Linking.canOpenURL(storeUrl)) {
-        await Linking.openURL(storeUrl);
-        return;
+      // Tried, not asked about: see help.tsx — canOpenURL says no on Android
+      // 11+ for anything the manifest does not declare.
+      if (storeUrl) {
+        try {
+          await Linking.openURL(storeUrl);
+          return;
+        } catch {
+          // Fall through to the in-app review.
+        }
       }
       if (await StoreReview.isAvailableAsync()) {
         await StoreReview.requestReview();
@@ -377,11 +383,11 @@ function AppHalf() {
       ],
     },
     {
-      title: 'Storage & Sync',
+      title: 'Storage & sync',
       rows: [
         {
           icon: CloudIcon,
-          label: 'Offline Sync',
+          label: 'Offline sync',
           detail: 'What works without a connection',
           // Was a hardcoded green "Synced" chip on the Profile tab that said
           // the same thing with the network off.
@@ -403,7 +409,7 @@ function AppHalf() {
         },
         {
           icon: HelpCircleIcon,
-          label: 'Help Center',
+          label: 'Help center',
           detail: 'Answers to common questions',
           route: '/settings/help',
           color: palette.primary,

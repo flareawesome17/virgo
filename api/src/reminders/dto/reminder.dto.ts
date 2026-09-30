@@ -97,4 +97,9 @@ export class ListRemindersDto extends ListQueryDto {
   @Transform(toBoolean)
   @IsBoolean()
   is_completed?: boolean;
+
+  /** Only reminders due at or after this moment. */
+  @IsOptional()
+  @IsDateString()
+  due_from?: string;
 }

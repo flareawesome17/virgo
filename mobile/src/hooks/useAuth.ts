@@ -7,19 +7,22 @@
  * consuming it did not need to change.
  */
 
-import { clearReminderNotifications } from '@/src/lib/notifications';
+import { clearReminderNotifications, knownPushToken } from '@/src/lib/notifications';
+import { forgetUploadQueue } from '@/src/lib/upload-queue-storage';
 import { useEffect } from 'react';
 import {
   useIsRestoring,
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
 } from '@tanstack/react-query';
 import {
   ApiError,
   clearTokens,
   authApi,
   getAccessToken,
+  getRefreshToken,
   hydrateTokens,
   queryKeys,
   setAuthFailureHandler,
@@ -97,6 +100,51 @@ function toAuthError(err: unknown): AuthError {
   return new AuthError('Something went wrong. Please try again.');
 }
 
+/**
+ * Everything a session leaves on the device, gone. Signing out, pausing,
+ * deleting, and a session the server has stopped honouring all end here, so
+ * none of them can forget a step the others remember.
+ */
+function forgetSession(queryClient: QueryClient) {
+  queryClient.setQueryData(queryKeys.auth.session, null);
+  // Drop every non-auth query: the next user must not see the previous
+  // user's cached workspaces flash on screen before their own load.
+  queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+  // Otherwise this account's alarms keep firing on the device after it is
+  // gone, including for whoever signs in next.
+  void clearReminderNotifications();
+}
+
+/**
+ * Takes this phone off the account that is leaving it, so its pushes stop.
+ *
+ * Nothing did before. A signed-out phone went on showing the account's
+ * message previews on its lock screen — for good after a forced sign-out, or
+ * until the next person to sign in there claimed the token.
+ *
+ * Best effort and capped: signing out never waits on a bad connection, and
+ * a server from before the endpoint just answers 404.
+ */
+async function forgetThisDevice(refreshToken: string | null): Promise<void> {
+  if (!refreshToken) return;
+  const work = (async () => {
+    const pushToken = await knownPushToken();
+    if (pushToken) await authApi.forgetDevice(refreshToken, pushToken);
+  })().catch(() => {});
+  await Promise.race([work, new Promise((resolve) => setTimeout(resolve, 3000))]);
+}
+
+/**
+ * How many mounted useAuth() calls hold the auth-failure handler.
+ *
+ * The client has one handler slot and about thirty screens call useAuth. Each
+ * used to empty the slot when it unmounted, so backing out of any of them left
+ * nobody handling a dead session: the UI stayed signed in while every request
+ * failed. Every holder installs the same handler, and the slot is only emptied
+ * when the last one goes — which is never while the root layout is mounted.
+ */
+let authFailureHolders = 0;
+
 export function useAuth() {
   const queryClient = useQueryClient();
   // True while the persisted cache is being read off disk. Safe without a
@@ -107,11 +155,15 @@ export function useAuth() {
   // Handling it centrally flips the app to the signed-out UI once, instead of
   // every screen separately discovering that its queries now fail.
   useEffect(() => {
-    setAuthFailureHandler(() => {
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+    authFailureHolders += 1;
+    setAuthFailureHandler((refused) => {
+      void forgetThisDevice(refused);
+      forgetSession(queryClient);
     });
-    return () => setAuthFailureHandler(null);
+    return () => {
+      authFailureHolders -= 1;
+      if (authFailureHolders === 0) setAuthFailureHandler(null);
+    };
   }, [queryClient]);
 
   const sessionQuery = useQuery<AuthUser | null>({
@@ -133,9 +185,36 @@ export function useAuth() {
         throw err;
       }
     },
-    staleTime: 0,
-    // One retry covers a transient blip; more would stall the splash screen.
-    retry: 1,
+    /*
+     * Forty-odd components call useAuth, and with a staleTime of 0 every one
+     * of them mounting was a /auth/me round-trip — opening a screen cost two
+     * or three. A minute covers a burst of navigation.
+     *
+     * Coming back to the app refetches regardless of age: that is when the
+     * account can have changed somewhere else — an email confirmed from the
+     * mail app, a plan bought on the web — and the banner or the guard should
+     * know straight away, not a minute later. Nothing here is persisted, so a
+     * cold start always asks.
+     */
+    staleTime: 60_000,
+    refetchOnWindowFocus: 'always',
+    /*
+     * Fails fast offline, so the guard can say so.
+     *
+     * The app-wide default is 'offlineFirst', which runs the first attempt and
+     * then *pauses* the retry until the device is back online. A paused query
+     * is still pending and has no error, so a phone opened on a plane sat on
+     * the launch spinner indefinitely — never reaching the "Can't reach the
+     * server" screen that exists for exactly that case.
+     *
+     * 'always' never pauses, and a connection failure is not retried: the
+     * answer will not change in a second, and the screen it lands on retries
+     * by itself when the connection comes back (refetchOnReconnect). One retry
+     * is kept for anything else — a 502 during a deploy, say.
+     */
+    networkMode: 'always',
+    retry: (failures, err) =>
+      failures < 1 && !(err instanceof ApiError && err.isNetworkError),
   });
 
   const authUser = sessionQuery.data ?? null;
@@ -147,12 +226,15 @@ export function useAuth() {
     mutationFn: async ({
       email,
       password,
+      unpause,
     }: {
       email: string;
       password: string;
+      /** Lift a pause of your own on the way in. */
+      unpause?: boolean;
     }) => {
       try {
-        return await authApi.login({ email, password });
+        return await authApi.login(unpause ? { email, password, unpause } : { email, password });
       } catch (err) {
         throw toAuthError(err);
       }
@@ -233,19 +315,47 @@ export function useAuth() {
     },
   });
 
+  /** Signs every other device out; this one keeps going on the pair it is handed. */
+  const changePassword = useMutation({
+    mutationFn: async ({
+      currentPassword,
+      newPassword,
+    }: {
+      currentPassword: string;
+      newPassword: string;
+    }) => {
+      try {
+        return await authApi.changePassword(currentPassword, newPassword);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.auth.session, result.user);
+    },
+  });
+
+  /** Only sends a link: the session's address stays as it is until it is opened. */
+  const requestEmailChange = useMutation({
+    mutationFn: async ({ password, newEmail }: { password: string; newEmail: string }) => {
+      try {
+        return await authApi.requestEmailChange(password, newEmail);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+  });
+
   const signOut = useMutation({
     mutationFn: async () => {
+      // First: it needs the refresh token, which logout revokes and clears.
+      await forgetThisDevice(getRefreshToken());
       await authApi.logout();
     },
-    onSuccess: () => {
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      // Drop every non-auth query: the next user must not see the previous
-      // user's cached workspaces flash on screen before their own load.
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
-      // Otherwise this account's alarms keep firing on the device after
-      // signing out, including for whoever signs in next.
-      void clearReminderNotifications();
-    },
+    // Settled, not success. logout clears the tokens whether or not the
+    // server heard it, then rethrows a network failure — so offline, the
+    // tokens were gone but the UI stayed signed in until a second tap.
+    onSettled: () => forgetSession(queryClient),
   });
 
   /**
@@ -259,19 +369,23 @@ export function useAuth() {
     mutationFn: ({ password, days }: { password: string; days: number }) =>
       authApi.disableAccount(password, days),
     onSuccess: async () => {
+      // The server withholds a paused account's pushes anyway; this also
+      // means coming back registers the phone afresh.
+      await forgetThisDevice(getRefreshToken());
       await clearTokens();
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+      forgetSession(queryClient);
     },
   });
 
   /** Deletes the account for good, then signs out. */
   const deleteAccount = useMutation({
     mutationFn: (password: string) => authApi.deleteAccount(password),
+    // Push tokens go with the account row. Uploads it left queued would only
+    // ever fail, and a queue is kept per account, so it has to be cleared.
     onSuccess: async () => {
+      if (authUser) await forgetUploadQueue(authUser.id);
       await clearTokens();
-      queryClient.setQueryData(queryKeys.auth.session, null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+      forgetSession(queryClient);
     },
   });
 
@@ -301,10 +415,14 @@ export function useAuth() {
      * offers a retry instead of redirecting to login.
      */
     isSessionError: sessionQuery.isError,
+    /** True while a session check is running, including a retry. */
+    isCheckingSession: sessionQuery.isFetching,
     retrySession: sessionQuery.refetch,
     /** Full profile from /auth/me — includes displayName / avatarUrl. */
     profile: authUser,
     updateProfile,
+    changePassword,
+    requestEmailChange,
     disableAccount,
     deleteAccount,
     signIn,

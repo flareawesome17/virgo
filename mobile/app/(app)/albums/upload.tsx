@@ -17,11 +17,13 @@ import {
   PlusIcon,
   FolderIcon,
   ChevronDownIcon,
+  RotateCwIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { contentTypeForAsset, formatBytes, MAX_UPLOAD_BYTES } from '@/src/api';
-import { useUploadQueue } from '@/src/providers/UploadProvider';
-import { useAlbum, useAlbums, useUsage, useTheme } from '@/src/hooks';
+import { contentTypeForAsset, formatBytes, isUploadable, MAX_UPLOAD_BYTES } from '@/src/api';
+import { useUploadQueue, type UploadTask } from '@/src/providers/UploadProvider';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
+import { useAlbum, useAlbums, useAuth, useUsage, useTheme } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -35,6 +37,7 @@ cssInterop(XIcon, { className: { target: 'style', nativeStyleToProp: { color: tr
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronDownIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(RotateCwIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 type ItemStatus = 'queued' | 'uploading' | 'done' | 'failed';
 
@@ -62,11 +65,36 @@ interface UploadItem {
 function splitBySize(picked: UploadItem[]): {
   ok: UploadItem[];
   tooBig: UploadItem[];
+  unsupported: UploadItem[];
 } {
+  // The type too, for the same reason: refused by the API's allow-list, a file
+  // sat in the queue as "did not finish" with the reason never shown.
+  const uploadable = picked.filter((item) => isUploadable(item.mimeType));
   return {
-    ok: picked.filter((item) => item.sizeBytes <= MAX_UPLOAD_BYTES),
-    tooBig: picked.filter((item) => item.sizeBytes > MAX_UPLOAD_BYTES),
+    ok: uploadable.filter((item) => item.sizeBytes <= MAX_UPLOAD_BYTES),
+    tooBig: uploadable.filter((item) => item.sizeBytes > MAX_UPLOAD_BYTES),
+    unsupported: picked.filter((item) => !isUploadable(item.mimeType)),
   };
+}
+
+/** One message for everything left out of a pick, so there is one dialog. */
+function explainLeftOut(tooBig: UploadItem[], unsupported: UploadItem[]) {
+  const parts: string[] = [];
+  if (tooBig.length > 0) {
+    parts.push(
+      `Over the ${formatBytes(MAX_UPLOAD_BYTES)} limit:\n${tooBig
+        .map((item) => `${item.name} (${formatBytes(item.sizeBytes)})`)
+        .join('\n')}`,
+    );
+  }
+  if (unsupported.length > 0) {
+    parts.push(
+      `Not a format Virgo takes:\n${unsupported.map((item) => item.name).join('\n')}\n\nPhotos (JPEG, PNG, HEIC, WebP, TIFF), videos (MP4, MOV, WebM), audio (MP3, M4A, WAV, AAC, FLAC, OGG) and PDFs.`,
+    );
+  }
+  if (parts.length === 0) return;
+  const count = tooBig.length + unsupported.length;
+  Alert.alert(count === 1 ? 'One file was left out' : `${count} files were left out`, parts.join('\n\n'));
 }
 
 function kindOf(mime: string): 'image' | 'video' | 'audio' | 'other' {
@@ -85,6 +113,106 @@ function ProgressBar({ fraction, status }: { fraction: number; status: ItemStatu
         className="h-full rounded-full"
         style={{ width: `${Math.round(Math.min(fraction, 1) * 100)}%`, backgroundColor: color }}
       />
+    </View>
+  );
+}
+
+/**
+ * One file in the running queue, with what can still be done about it.
+ *
+ * Anything not finished can be removed — a file already sending is stopped —
+ * and a failure can be tried again. The reason for a failure is shown in full:
+ * it is usually something the person can fix (no space left, a file that has
+ * gone).
+ */
+function QueueRow({
+  task,
+  onRetry,
+  onRemove,
+}: {
+  task: UploadTask;
+  onRetry: () => void;
+  onRemove: () => void;
+}) {
+  const kind = kindOf(task.mimeType);
+  const Icon = kind === 'video' ? VideoIcon : kind === 'audio' ? MusicIcon : ImageIcon;
+  const failed = task.status === 'failed';
+  return (
+    <View
+      className="bg-card rounded-2xl p-3.5"
+      style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+    >
+      <View className="flex-row items-center gap-3">
+        <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: failed ? '#C76B4A18' : '#B66A4018', alignItems: 'center', justifyContent: 'center' }}>
+          {failed ? (
+            <AlertCircleIcon size={16} className="text-[#C76B4A]" />
+          ) : (
+            <Icon size={16} className="text-primary" />
+          )}
+        </View>
+        <View className="flex-1 min-w-0">
+          <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+            {task.name}
+          </Text>
+          <Text className="text-muted-foreground text-[11px] mt-0.5" numberOfLines={1}>
+            {formatBytes(task.sizeBytes)}
+            {task.status === 'queued' ? ' · Waiting' : task.status === 'done' ? ' · Uploaded' : ''}
+          </Text>
+        </View>
+
+        {task.status === 'done' ? (
+          <CheckCircleIcon size={18} className="text-[#6B8E4E]" />
+        ) : task.status === 'uploading' ? (
+          <View className="flex-row items-center gap-2">
+            <Text className="text-primary text-xs font-bold">
+              {Math.round(task.progress * 100)}%
+            </Text>
+            <Pressable
+              onPress={onRemove}
+              accessibilityRole="button"
+              accessibilityLabel={`Stop uploading ${task.name}`}
+              hitSlop={6}
+              className="w-7 h-7 rounded-full bg-muted items-center justify-center active:scale-[0.9]"
+            >
+              <XIcon size={13} className="text-muted-foreground" />
+            </Pressable>
+          </View>
+        ) : (
+          <View className="flex-row items-center gap-2">
+            {failed && (
+              <Pressable
+                onPress={onRetry}
+                accessibilityRole="button"
+                accessibilityLabel={`Try ${task.name} again`}
+                hitSlop={6}
+                className="w-7 h-7 rounded-full bg-primary/10 items-center justify-center active:scale-[0.9]"
+              >
+                <RotateCwIcon size={13} className="text-primary" />
+              </Pressable>
+            )}
+            <Pressable
+              onPress={onRemove}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${task.name} from uploads`}
+              hitSlop={6}
+              className="w-7 h-7 rounded-full bg-muted items-center justify-center active:scale-[0.9]"
+            >
+              <XIcon size={13} className="text-muted-foreground" />
+            </Pressable>
+          </View>
+        )}
+      </View>
+
+      {failed && (
+        <Text className="text-[#C76B4A] text-xs mt-2" numberOfLines={3}>
+          {task.error || 'This file did not upload.'}
+        </Text>
+      )}
+      {task.status === 'uploading' && (
+        <View className="mt-2.5">
+          <ProgressBar fraction={task.progress} status="uploading" />
+        </View>
+      )}
     </View>
   );
 }
@@ -110,6 +238,8 @@ export default function UploadScreen() {
   }>();
 
   const [items, setItems] = useState<UploadItem[]>([]);
+  // Files picked and not yet handed to the queue would be lost to a restart.
+  useHoldUpdates(items.length > 0);
   // The queue that outlives this screen. `active` stands in for the local
   // isUploading this screen used to keep: coming back here mid-upload should
   // find the picker disabled, and that fact now lives in the provider.
@@ -118,7 +248,12 @@ export default function UploadScreen() {
     tasks: queueTasks,
     active: isUploading,
     overall: queueOverall,
+    retry: retryTask,
+    remove: removeTask,
+    clearFinished,
   } = useUploadQueue();
+  const queueFailed = queueTasks.filter((task) => task.status === 'failed');
+  const queueDone = queueTasks.filter((task) => task.status === 'done').length;
   // Chosen on this screen when we did not arrive from inside an album — the
   // home and workspace quick actions both land here with no album. Previously
   // this screen only warned about that, so those uploads stored fine and then
@@ -136,22 +271,28 @@ export default function UploadScreen() {
     { enabled: !routeAlbumId },
   );
   const { usage, storageLimitBytes, storageUsedBytes } = useUsage();
+  const { user } = useAuth();
 
   const addPicked = (picked: UploadItem[]) =>
     setItems((prev) => [...prev, ...picked]);
 
-  /** Photos and videos come from the media library. */
+  /**
+   * Photos and videos come from the media library, through the system picker.
+   * It needs no photo permission: the person chooses, and only what they chose
+   * reaches the app. Asking anyway put a full-library prompt in front of it, and
+   * a refusal made uploading impossible.
+   */
   const pickMedia = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to choose files.');
-      return;
-    }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
       allowsMultipleSelection: true,
       quality: 1,
+      // The original, not a copy iOS made more compatible: a HEIC was handed
+      // over as a JPEG, which is not what a photographer means by delivering
+      // the file. The server thumbnails HEIC itself (ffmpeg), and a film is
+      // passed through untranscoded by default.
+      preferredAssetRepresentationMode:
+        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
     });
     if (result.canceled) return;
 
@@ -164,20 +305,15 @@ export default function UploadScreen() {
         id: `${asset.assetId ?? asset.uri}-${picked.length}-${items.length}`,
         uri: asset.uri,
         name: asset.fileName ?? asset.uri.split('/').pop() ?? 'file',
-        mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType }),
+        mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType, name: asset.fileName }),
         sizeBytes,
         progress: 0,
         status: 'queued',
       });
     }
 
-    const { ok, tooBig } = splitBySize(picked);
-    if (tooBig.length > 0) {
-      Alert.alert(
-        tooBig.length === 1 ? 'That file is too large' : 'Some files are too large',
-        `${tooBig.map((item) => `${item.name} (${formatBytes(item.sizeBytes)})`).join('\n')}\n\nThe limit is ${formatBytes(MAX_UPLOAD_BYTES)} per file.`,
-      );
-    }
+    const { ok, tooBig, unsupported } = splitBySize(picked);
+    explainLeftOut(tooBig, unsupported);
     addPicked(ok);
 
   };
@@ -201,20 +337,15 @@ export default function UploadScreen() {
       id: `${asset.uri}-${i}-${items.length}`,
       uri: asset.uri,
       name: asset.name ?? asset.uri.split('/').pop() ?? 'audio',
-      mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType }),
+      mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType, name: asset.name }),
       // DocumentPicker reports size directly; fall back to 0 if absent.
       sizeBytes: asset.size ?? 0,
       progress: 0,
       status: 'queued',
     }));
 
-    const { ok, tooBig } = splitBySize(picked);
-    if (tooBig.length > 0) {
-      Alert.alert(
-        tooBig.length === 1 ? 'That file is too large' : 'Some files are too large',
-        `${tooBig.map((item) => `${item.name} (${formatBytes(item.sizeBytes)})`).join('\n')}\n\nThe limit is ${formatBytes(MAX_UPLOAD_BYTES)} per file.`,
-      );
-    }
+    const { ok, tooBig, unsupported } = splitBySize(picked);
+    explainLeftOut(tooBig, unsupported);
     addPicked(ok);
 
   };
@@ -244,8 +375,15 @@ export default function UploadScreen() {
   const overall = totalBytes > 0 ? sentBytes / totalBytes : 0;
 
   const queuedBytes = queued.reduce((s, i) => s + i.sizeBytes, 0);
+  // Only against your own storage when the album is yours. The server bills
+  // an upload into somebody else's album to that album's owner, so checking
+  // yours blocked uploads their storage had room for, and let through ones it
+  // did not. Theirs is checked by the server, and its answer shows in the queue.
+  const billedToMe = !album || (album.my_access ? album.my_access === 'owner' : album.user_id === user?.id);
   const wouldExceed =
-    storageLimitBytes != null && storageUsedBytes + queuedBytes > storageLimitBytes;
+    billedToMe &&
+    storageLimitBytes != null &&
+    storageUsedBytes + queuedBytes > storageLimitBytes;
 
   /**
    * Hands the files over and gets out of the way.
@@ -310,7 +448,7 @@ export default function UploadScreen() {
             onPress={() => router.back()}
             accessibilityRole="button"
             accessibilityLabel="Back"
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
@@ -344,6 +482,50 @@ export default function UploadScreen() {
               </Text>
             </View>
             <ProgressBar fraction={cardFraction} status={isUploading ? 'uploading' : 'queued'} />
+          </View>
+        )}
+
+        {/* The queue itself. The upload bar lands here, and all this screen
+            used to show was a count: a failed file could not be retried or
+            removed, its reason was never shown, and the red bar stayed —
+            across restarts — with nothing that would make it go. */}
+        {queueTasks.length > 0 && (
+          <View className="px-5 mt-5">
+            <View className="flex-row items-center mb-2 ml-1">
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] flex-1">
+                Uploads
+              </Text>
+              {queueFailed.length > 1 && (
+                <Pressable
+                  onPress={() => queueFailed.forEach((task) => retryTask(task.id))}
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  className="ml-4 active:opacity-60"
+                >
+                  <Text className="text-primary text-xs font-bold">Retry all</Text>
+                </Pressable>
+              )}
+              {queueDone > 0 && (
+                <Pressable
+                  onPress={clearFinished}
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  className="ml-4 active:opacity-60"
+                >
+                  <Text className="text-primary text-xs font-bold">Clear finished</Text>
+                </Pressable>
+              )}
+            </View>
+            <View className="gap-2">
+              {queueTasks.map((task) => (
+                <QueueRow
+                  key={task.id}
+                  task={task}
+                  onRetry={() => retryTask(task.id)}
+                  onRemove={() => removeTask(task.id)}
+                />
+              ))}
+            </View>
           </View>
         )}
 

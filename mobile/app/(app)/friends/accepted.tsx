@@ -22,7 +22,7 @@ export default function FriendRequestAcceptedScreen() {
           <UserCheckIcon size={40} color="#6B8E4E" />
         </View>
 
-        <Text className="text-foreground text-[26px] font-extrabold tracking-tight">Now Connected!</Text>
+        <Text className="text-foreground text-[26px] font-extrabold tracking-tight">Now connected!</Text>
         <Text className="text-muted-foreground text-sm text-center mt-2 px-8">
           You're now connected with {name}. You can invite them to albums and workspaces.
         </Text>
@@ -41,7 +41,7 @@ export default function FriendRequestAcceptedScreen() {
 
         {/* Actions */}
         <View className="mt-8 w-full gap-3">
-          <Pressable onPress={() => router.push('/friends')}
+          <Pressable onPress={() => router.dismissTo('/(app)/(tabs)/connect?view=people')}
             className="bg-action rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <UsersIcon size={18} className="text-white" />
@@ -52,12 +52,12 @@ export default function FriendRequestAcceptedScreen() {
             className="bg-card rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <UserCheckIcon size={16} className="text-muted-foreground" />
-            <Text className="text-foreground text-sm font-semibold">Back to Requests</Text>
+            <Text className="text-foreground text-sm font-semibold">Back to requests</Text>
           </Pressable>
 
           <Pressable onPress={() => router.navigate('/')}
             className="py-3 items-center active:scale-[0.97]">
-            <Text className="text-primary text-sm font-semibold">Go to Dashboard</Text>
+            <Text className="text-primary text-sm font-semibold">Go to dashboard</Text>
           </Pressable>
         </View>
       </View>

@@ -1,8 +1,8 @@
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useTheme } from '@/src/hooks';
 import { Redirect, router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ArrowLeftIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
 } from 'lucide-react-native';
@@ -34,11 +34,13 @@ export default function SignInScreen() {
 
   const canSubmit = email.trim().length > 0 && password.length > 0;
 
-  const handleSignIn = () => {
+  const passwordRef = useRef<TextInput>(null);
+
+  const handleSignIn = (unpause = false) => {
     if (!canSubmit) return;
     setErrorMsg('');
     signIn.mutate(
-      { email: email.trim(), password },
+      { email: email.trim(), password, ...(unpause ? { unpause: true } : {}) },
       {
         onSuccess: (result) => {
           if ('twoFactorRequired' in result) {
@@ -59,8 +61,22 @@ export default function SignInScreen() {
           if (err?.code === 'EMAIL_NOT_VERIFIED') {
             router.push({
               pathname: '/check-inbox',
-              params: { email: err.email ?? email.trim() },
+              // Nothing was sent by this attempt; the screen words it so.
+              params: { email: err.email ?? email.trim(), from: 'sign-in' },
             });
+            return;
+          }
+          // Paused by its owner: there was no way back before the date. Offer
+          // it here, where they have just proved it is theirs.
+          if (err?.code === 'ACCOUNT_DISABLED' && !unpause) {
+            Alert.alert(
+              'This account is paused',
+              `${err?.reason || 'You paused this account.'} Unpause it now and sign in?`,
+              [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Unpause and sign in', onPress: () => handleSignIn(true) },
+              ],
+            );
             return;
           }
           const msg = err?.reason || err?.message || 'Sign in failed. Please check your credentials.';
@@ -85,7 +101,7 @@ export default function SignInScreen() {
               <ArrowLeftIcon size={18} className="text-foreground" />
             </Pressable>
             <View>
-              <Text className="text-foreground text-[28px] font-bold tracking-tight">Sign In</Text>
+              <Text className="text-foreground text-[28px] font-bold tracking-tight">Sign in</Text>
               <Text className="text-muted-foreground text-sm mt-0.5">Welcome back to Virgo</Text>
             </View>
           </View>
@@ -106,7 +122,9 @@ export default function SignInScreen() {
                 <MailIcon size={16} className="text-muted-foreground" />
                 <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
                   placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                  keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+                  keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
+                  textContentType="username" autoComplete="email" returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()} submitBehavior="submit" />
               </View>
             </View>
 
@@ -115,9 +133,11 @@ export default function SignInScreen() {
               <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Password</Text>
               <View className="bg-secondary rounded-xl px-4 py-3.5 flex-row items-center gap-3">
                 <LockIcon size={16} className="text-muted-foreground" />
-                <TextInput value={password} onChangeText={setPassword} placeholder="Your password"
+                <TextInput ref={passwordRef} value={password} onChangeText={setPassword} placeholder="Your password"
                   placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                  secureTextEntry={!showPassword} autoCapitalize="none" />
+                  secureTextEntry={!showPassword} autoCapitalize="none"
+                  textContentType="password" autoComplete="current-password" returnKeyType="go"
+                  onSubmitEditing={() => handleSignIn()} />
                 <Pressable
                   onPress={() => setShowPassword(!showPassword)}
                   accessibilityRole="button"
@@ -146,20 +166,20 @@ export default function SignInScreen() {
         {/* Bottom */}
         <View className="px-6 pb-10 pt-4 bg-background gap-4">
           <Pressable
-            onPress={handleSignIn}
+            onPress={() => handleSignIn()}
             disabled={!canSubmit || signIn.isPending}
             accessibilityRole="button"
             accessibilityState={{ disabled: !canSubmit || signIn.isPending }}
             className={`min-h-12 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${canSubmit ? 'bg-action' : 'bg-muted'}`}>
             <Text className={`text-base font-bold ${canSubmit ? 'text-action-foreground' : 'text-muted-foreground'}`}>
-              {signIn.isPending ? 'Signing in...' : 'Sign In'}
+              {signIn.isPending ? 'Signing in...' : 'Sign in'}
             </Text>
             {!signIn.isPending && <ArrowRightIcon size={18} className={canSubmit ? 'text-action-foreground' : 'text-muted-foreground'} />}
           </Pressable>
           <View className="flex-row items-center justify-center gap-1">
             <Text className="text-muted-foreground text-sm">Don’t have an account?</Text>
             <Pressable onPress={() => router.push('/sign-up')} className="active:opacity-60">
-              <Text className="text-primary text-sm font-bold">Sign Up</Text>
+              <Text className="text-primary text-sm font-bold">Sign up</Text>
             </Pressable>
           </View>
         </View>

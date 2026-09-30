@@ -232,9 +232,9 @@ export default function ProfileSettingsScreen() {
       >
         {/* Header */}
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
@@ -312,7 +312,7 @@ export default function ProfileSettingsScreen() {
                 </Text>
               </View>
             )}
-            <Pressable
+            <Pressable hitSlop={8}
               onPress={() => void avatar.choose()}
               disabled={busy}
               accessibilityRole="button"
@@ -354,17 +354,17 @@ export default function ProfileSettingsScreen() {
             </View>
           </View>
           <FieldRow icon={PhoneIcon} label="Phone" value={phone} onChange={setPhone} color="#6B8E4E" keyboardType="phone-pad" maxLength={40} />
-          <FieldRow icon={GlobeIcon} label="Website" value={website} onChange={setWebsite} color="#5B7B9A" maxLength={255} />
+          <FieldRow icon={GlobeIcon} label="Website" value={website} onChange={setWebsite} color="#5B7B9A" maxLength={255} autoCapitalize="none" keyboardType="url" />
           {/* Both collected at sign-up and both optional there, so they are
               optional here too — plenty of people freelance under the name on
               their passport. */}
           <View>
-            <FieldRow icon={Building2Icon} label="Studio Name" value={studioName} onChange={setStudioName} color={CHART_COLORS.brown} maxLength={120} />
+            <FieldRow icon={Building2Icon} label="Studio name" value={studioName} onChange={setStudioName} color={CHART_COLORS.brown} maxLength={120} />
             <Text className="text-muted-foreground text-xs ml-1 mt-1.5">
               Private unless Show studio on profile is on.
             </Text>
           </View>
-          <FieldRow icon={AtSignIcon} label="Social" value={socialHandle} onChange={setSocialHandle} color="#5B7B9A" maxLength={200} />
+          <FieldRow icon={AtSignIcon} label="Social" value={socialHandle} onChange={setSocialHandle} color="#5B7B9A" maxLength={200} autoCapitalize="none" />
           <FieldRow icon={MapPinIcon} label="Location" value={location} onChange={setLocation} color="#C17745" maxLength={160} />
 
           {/* Bio */}
@@ -456,14 +456,14 @@ export default function ProfileSettingsScreen() {
             </Text>
           </View>
 
-          <FieldRow icon={MapPinIcon} label="Street Address" value={line1} onChange={setLine1} color="#C17745" maxLength={200} />
+          <FieldRow icon={MapPinIcon} label="Street address" value={line1} onChange={setLine1} color="#C17745" maxLength={200} />
           <FieldRow icon={HomeIcon} label="Apartment, Unit, Floor · optional" value={line2} onChange={setLine2} color="#8B5E3C" maxLength={200} />
           <FieldRow icon={MapPinIcon} label="City" value={city} onChange={setCity} color="#C17745" maxLength={120} />
           <FieldRow icon={MapPinIcon} label="Province" value={province} onChange={setProvince} color="#C17745" maxLength={120} />
           {/* Optional on purpose, as at sign-up: plenty of Philippine
               addresses have no ZIP. */}
           <FieldRow icon={HashIcon} label="Postal Code · optional" value={postal} onChange={setPostal} color="#6B8E4E" keyboardType="number-pad" maxLength={20} />
-          <FieldRow icon={GlobeIcon} label="Country" value={country} onChange={(v) => setCountry(v.toUpperCase())} color="#5B7B9A" maxLength={2} />
+          <FieldRow icon={GlobeIcon} label="Country" value={country} onChange={(v) => setCountry(v.toUpperCase())} color="#5B7B9A" maxLength={2} autoCapitalize="characters" />
 
           {addressMissing.length > 0 && (
             <Text style={{ color: '#C4776A' }} className="text-xs ml-1 leading-4">
@@ -498,7 +498,7 @@ export default function ProfileSettingsScreen() {
                   ? '✓  Saved'
                   : updateProfile.isPending
                     ? 'Saving…'
-                    : 'Save Changes'}
+                    : 'Save changes'}
           </Text>
         </Pressable>
       </View>
@@ -543,10 +543,17 @@ function FlagCard({
 function FieldRow({
   icon: IconComp, label, value, onChange, color, keyboardType, maxLength,
   placeholder,
+  autoCapitalize = 'words',
 }: {
   icon: LucideIcon; label: string; value: string;
   onChange: (v: string) => void; color: string; keyboardType?: string;
   maxLength?: number;
+  /**
+   * Words by default: every field here was "none", so a name, a city or a
+   * studio came out lower case unless typed otherwise. Links and handles pass
+   * "none"; the country code passes "characters".
+   */
+  autoCapitalize?: 'none' | 'words' | 'sentences' | 'characters';
   /** Shown when the field is empty. Used by Title to suggest the roles. */
   placeholder?: string;
 }) {
@@ -570,7 +577,7 @@ function FieldRow({
           className="text-foreground text-sm flex-1"
           keyboardType={keyboardType as any}
           maxLength={maxLength}
-          autoCapitalize="none"
+          autoCapitalize={autoCapitalize}
         />
       </View>
     </View>

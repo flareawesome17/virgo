@@ -20,7 +20,7 @@ import { track } from '@/lib/analytics';
 import { ApplicationBadge } from '@/components/jobs/application-state';
 import { BookingCard } from '@/components/jobs/booking-card';
 import { useBookings } from '@/hooks/useBookings';
-import type { Booking } from '@/api';
+import type { Booking, JobApplication } from '@/api';
 
 /** The booking for one application, or undefined if there is none yet. */
 const bookingFor = (bookings: Booking[], applicationId: string) =>
@@ -51,6 +51,7 @@ import {
   usePendingApplicants,
   useSetJobStatus,
   useUnseenJobs,
+  useWithdrawApplication,
 } from '@/hooks/useJobs';
 import { useRoles } from '@/hooks/useRoles';
 
@@ -610,6 +611,15 @@ function MyApplications({ onBrowse }: { onBrowse: () => void }) {
   const { bookings } = useBookings();
   const router = useRouter();
   const { applications, isLoading, loadFailed, refetch } = useMyApplications();
+  const withdraw = useWithdrawApplication();
+
+  const onWithdraw = (app: JobApplication) => {
+    if (!confirm(`Withdraw your application to “${app.postTitle}”? You can apply again while it is open.`)) return;
+    withdraw.mutate(app.id, {
+      onSuccess: () => toast.success('Application withdrawn'),
+      onError: (e: Error) => toast.error(e.message),
+    });
+  };
 
   if (isLoading && applications.length === 0) return <ListSkeleton rows={2} />;
 
@@ -665,6 +675,18 @@ function MyApplications({ onBrowse }: { onBrowse: () => void }) {
               <p className="whitespace-pre-line rounded-lg bg-muted/40 p-3 text-sm leading-relaxed">
                 {app.message}
               </p>
+            )}
+
+            {(app.status === 'new' || app.status === 'shortlisted') && app.postStatus === 'open' && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="-ml-2 text-muted-foreground"
+                disabled={withdraw.isPending && withdraw.variables === app.id}
+                onClick={() => onWithdraw(app)}
+              >
+                {withdraw.isPending && withdraw.variables === app.id ? 'Withdrawing…' : 'Withdraw'}
+              </Button>
             )}
 
             {app.status === 'accepted' && (

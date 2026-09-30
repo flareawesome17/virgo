@@ -1,17 +1,29 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { DatabaseService } from '../database/database.service';
 import { MailConfig } from '../mail/mail.config';
 import { MailService } from '../mail/mail.service';
 import {
+  confirmEmailChange,
+  emailChangeNotice,
   passwordChanged,
   resetPassword,
   verifyEmail,
 } from '../mail/mail.templates';
 import { PromosService } from '../promos/promos.service';
 import { AuthTokensService, TOKEN_TTL_MS } from './auth-tokens.service';
-import { UsersRepository } from './users.repository';
+import { UsersRepository, type UserRow } from './users.repository';
+
+/** Postgres unique_violation. */
+const UNIQUE_VIOLATION = '23505';
 
 /**
  * Email verification and password reset.
@@ -193,19 +205,162 @@ export class AccountFlowsService {
     });
 
     const user = await this.users.findById(userId);
-    if (user) {
-      await this.mail.send(
-        user.email,
-        passwordChanged({
-          when: new Date().toLocaleString('en-US', {
-            dateStyle: 'long',
-            timeStyle: 'short',
-            timeZone: 'UTC',
-          }) + ' UTC',
-        }),
+    if (user) await this.mail.send(user.email, passwordChanged({ when: this.now() }));
+
+    return { reset: true };
+  }
+
+  private now(): string {
+    return (
+      new Date().toLocaleString('en-US', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+        timeZone: 'UTC',
+      }) + ' UTC'
+    );
+  }
+
+  /**
+   * The signed-in user, provided the password they typed is theirs.
+   *
+   * A wrong password is a 403, never a 401. A 401 tells the client its session
+   * is dead, so it refreshes and resends the same wrong password — spending
+   * two of the throttle's tries on one typo.
+   */
+  private async withPassword(userId: string, password: string): Promise<UserRow> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new UnauthorizedException();
+    if (!(await bcrypt.compare(password, user.password_hash))) {
+      throw new ForbiddenException({
+        message: 'That password is not correct.',
+        code: 'WRONG_PASSWORD',
+        statusCode: 403,
+      });
+    }
+    return user;
+  }
+
+  /**
+   * Changes the password of a signed-in account.
+   *
+   * Every refresh token is revoked, as on a reset: someone changing a password
+   * they think was seen wants every other device out. The caller issues this
+   * device a fresh pair, so the person who asked stays signed in.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<UserRow> {
+    const user = await this.withPassword(userId, currentPassword);
+    if (await bcrypt.compare(newPassword, user.password_hash)) {
+      throw new BadRequestException('Choose a password you are not already using.');
+    }
+
+    const rounds = Number(this.config.get('BCRYPT_ROUNDS', '12'));
+    const passwordHash = await bcrypt.hash(newPassword, rounds);
+
+    await this.db.transaction(async (client) => {
+      await client.query('update users set password_hash = $2 where id = $1', [
+        userId,
+        passwordHash,
+      ]);
+      await client.query(
+        `update refresh_tokens set revoked_at = now()
+          where user_id = $1 and revoked_at is null`,
+        [userId],
+      );
+    });
+
+    // Best-effort: the password has changed whether or not the notice lands.
+    void this.mail.send(user.email, passwordChanged({ when: this.now() }));
+    return user;
+  }
+
+  /**
+   * Starts moving an account to a new address.
+   *
+   * Nothing on the account changes here. The new address gets a link, and the
+   * old one is told — if somebody else is signed in as you, that email is how
+   * you find out before they can finish.
+   *
+   * Saying an address is taken does reveal that it has an account, but only to
+   * somebody who already holds a session and its password, and registration
+   * says the same thing to anyone.
+   */
+  async requestEmailChange(
+    userId: string,
+    password: string,
+    newEmail: string,
+  ): Promise<{ pendingEmail: string }> {
+    const user = await this.withPassword(userId, password);
+    const normalized = newEmail.trim().toLowerCase();
+
+    if (normalized === user.email) {
+      throw new BadRequestException('That is already the address on your account.');
+    }
+    if (await this.users.findByEmail(normalized)) {
+      throw new ConflictException('An account with that email already exists.');
+    }
+
+    const { token } = await this.tokens.issue(userId, 'change_email', normalized);
+    await this.mail.send(
+      normalized,
+      confirmEmailChange({
+        name: this.displayName(user),
+        url: this.link('/confirm-email', token),
+        expiresInHours: Math.round(TOKEN_TTL_MS.change_email / 3_600_000),
+      }),
+    );
+    void this.mail.send(
+      user.email,
+      emailChangeNotice({ newEmail: normalized, stage: 'requested' }),
+    );
+
+    return { pendingEmail: normalized };
+  }
+
+  /**
+   * Redeems an email-change link: the new inbox has answered, so the account
+   * moves to it.
+   *
+   * Sessions are left alone. The email in an access token is only a label —
+   * every lookup goes by id — and the next refresh carries the new one.
+   */
+  async confirmEmailChange(token: string): Promise<{ email: string }> {
+    const redeemed = await this.tokens.redeemEmailChange(token);
+    if (!redeemed) {
+      throw new BadRequestException(
+        'That link is no longer valid. Ask for a new one from your account settings.',
       );
     }
 
-    return { reset: true };
+    const before = await this.users.findById(redeemed.userId);
+    if (!before) {
+      throw new BadRequestException('That account no longer exists.');
+    }
+
+    try {
+      // Reaching the link proves the inbox, which is what verification proves.
+      await this.db.query(
+        `update users set email = $2, email_verified_at = now() where id = $1`,
+        [redeemed.userId, redeemed.newEmail],
+      );
+    } catch (err) {
+      // Free when asked for, taken since by a new signup.
+      if ((err as { code?: string }).code === UNIQUE_VIOLATION) {
+        throw new ConflictException(
+          'Another account started using that address in the meantime.',
+        );
+      }
+      throw err;
+    }
+
+    void this.mail.send(
+      before.email,
+      emailChangeNotice({ newEmail: redeemed.newEmail, stage: 'changed' }),
+    );
+    this.logger.log(`Account ${redeemed.userId} moved to a new address`);
+    return { email: redeemed.newEmail };
   }
 }

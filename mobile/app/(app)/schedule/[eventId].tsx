@@ -2,6 +2,7 @@ import { View, Text, ScrollView, RefreshControl, Pressable, Alert } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useDeleteScheduleEvent,
+  useRespondToEventInvitation,
   useReminders,
   useScheduleEvent,
   useTheme,
@@ -9,6 +10,8 @@ import {
   useWorkspace,
 } from '@/src/hooks';
 import { EventAttendeesSection } from '@/components';
+import { DetailFallback } from '@/components/DetailFallback';
+import { goBackOr } from '@/components/ScreenHeader';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -18,7 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { eventColor, eventTypeLabel } from '@/src/lib/calendar';
+import { eventColor, eventTypeLabel, parseDateKey } from '@/src/lib/calendar';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -47,8 +50,10 @@ function formatTime(timeStr: string | null): string {
   const hour = parseInt(h), ampm = hour >= 12 ? 'PM' : 'AM', h12 = hour % 12 || 12;
   return `${h12}:${m} ${ampm}`;
 }
+// As a local calendar day: new Date('2027-01-10') is UTC midnight, which is
+// the day before anywhere west of Greenwich.
 function formatDateFull(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  return parseDateKey(dateStr.slice(0, 10)).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 export default function EventDetailScreen() {
@@ -58,7 +63,13 @@ export default function EventDetailScreen() {
 
   // A 404 here now means "not yours or not there" — the API does not
   // distinguish the two, deliberately, so record ids cannot be enumerated.
-  const { data: event, refetch: refetchEvent } = useScheduleEvent(eventId);
+  const {
+    data: event,
+    refetch: refetchEvent,
+    error: eventError,
+    isError: eventFailed,
+    isPaused: eventPaused,
+  } = useScheduleEvent(eventId);
 
   const { data: workspace } = useWorkspace(event?.workspace_id ?? undefined);
 
@@ -72,6 +83,7 @@ export default function EventDetailScreen() {
     updateReminder.mutate({ id, is_completed });
 
   const deleteEventMutation = useDeleteScheduleEvent();
+  const respond = useRespondToEventInvitation();
 
   /**
    * Confirm first.
@@ -95,7 +107,7 @@ export default function EventDetailScreen() {
           style: 'destructive',
           onPress: () =>
             deleteEventMutation.mutate(eventId, {
-              onSuccess: () => router.back(),
+              onSuccess: () => goBackOr(),
               onError: (err: Error) =>
                 Alert.alert(
                   'Could not delete the event',
@@ -114,7 +126,16 @@ export default function EventDetailScreen() {
   };
 
   if (!event) {
-    return <SafeAreaView edges={['top']} className="flex-1 bg-background"><View className="flex-1 items-center justify-center"><Text className="text-muted-foreground text-sm">Loading...</Text></View></SafeAreaView>;
+    return (
+      <DetailFallback
+        title="Event"
+        what="this event"
+        gone="It was deleted, or you are no longer invited."
+        error={eventError}
+        failed={eventFailed || eventPaused}
+        onRetry={() => void refetchEvent()}
+      />
+    );
   }
 
   const color = eventColor(event.event_type);
@@ -122,6 +143,28 @@ export default function EventDetailScreen() {
   const wsAccent = workspace?.accent_color || color;
   // Undefined on a just-created event, which is always yours.
   const isOwner = event.is_owner !== false;
+  /*
+   * A guest who accepted could not back out: the event sat on their calendar
+   * with no way off it short of asking the organiser to remove them. The API
+   * already takes a decline after an accept; this is the button for it.
+   */
+  const cantMakeIt = () =>
+    Alert.alert("Can't make it?", 'The organiser is told, and the event leaves your schedule.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: "Can't make it",
+        style: 'destructive',
+        onPress: () =>
+          respond.mutate(
+            { eventId: event.id, accept: false },
+            {
+              onSuccess: () => goBackOr('/(app)/(tabs)/schedule'),
+              onError: (err: any) =>
+                Alert.alert('Could not change that', err?.message || 'Please try again.'),
+            },
+          ),
+      },
+    ]);
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -130,9 +173,13 @@ export default function EventDetailScreen() {
 
         {/* Hero color block */}
         <View style={{ backgroundColor: `${color}14`, paddingTop: 4, paddingBottom: 24, paddingHorizontal: 20 }}>
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-white items-center justify-center mb-4 active:scale-[0.94]"
+          {/* bg-card, not bg-white with a fixed dark arrow: that was a white
+              slab on the dark theme. goBackOr, because a notification can
+              open this screen with nothing behind it. */}
+          <Pressable onPress={() => goBackOr()} accessibilityRole="button" accessibilityLabel="Go back"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center mb-4 active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <ArrowLeftIcon size={18} color="#1E1B18" />
+            <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
           <View className="flex-row items-center gap-4">
             <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: `${color}22`, alignItems: 'center', justifyContent: 'center' }}>
@@ -221,7 +268,7 @@ export default function EventDetailScreen() {
                 <Pressable key={rem.id} onPress={() => router.push(`/schedule/reminders/${rem.id}`)}
                   className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
                   style={i < reminders.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
-                  <Pressable onPress={() => toggleReminder(rem.id, !rem.is_completed)} className="active:scale-[0.85]">
+                  <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: rem.is_completed }} accessibilityLabel={`${rem.title}, done`} hitSlop={10} onPress={() => toggleReminder(rem.id, !rem.is_completed)} className="active:scale-[0.85]">
                     {rem.is_completed ? <CheckCircleIcon size={18} className="text-[#6B8E4E]" /> : <CircleIcon size={18} className="text-muted-foreground" />}
                   </Pressable>
                   <View className="flex-1 min-w-0">
@@ -252,7 +299,7 @@ export default function EventDetailScreen() {
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
           >
             <PencilIcon size={15} className="text-primary" />
-            <Text className="text-primary text-sm font-semibold">Edit Event</Text>
+            <Text className="text-primary text-sm font-semibold">Edit event</Text>
           </Pressable>
           {!isOwner && (
             <Text className="text-muted-foreground text-[11px] text-center mt-2 leading-4">
@@ -260,10 +307,22 @@ export default function EventDetailScreen() {
               told what you change.
             </Text>
           )}
+          {!isOwner && (
+            <Pressable
+              onPress={cantMakeIt}
+              disabled={respond.isPending}
+              accessibilityRole="button"
+              className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]"
+            >
+              <Text className="text-destructive text-sm font-semibold">
+                {respond.isPending ? 'Leaving…' : "Can't make it"}
+              </Text>
+            </Pressable>
+          )}
           {isOwner && (
             <Pressable onPress={confirmDelete} className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]">
               <Trash2Icon size={15} className="text-destructive" />
-              <Text className="text-destructive text-sm font-semibold">Delete Event</Text>
+              <Text className="text-destructive text-sm font-semibold">Delete event</Text>
             </Pressable>
           )}
         </View>

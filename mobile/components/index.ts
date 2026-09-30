@@ -2,7 +2,6 @@
  * Components
  */
 
-export { ThemeToggle } from '@/components/ThemeToggle'
 export { DateTimeField } from '@/components/DateTimeField'
 export {
   InvitePeoplePicker,
@@ -24,6 +23,7 @@ export { JobsFeed } from '@/components/JobsFeed'
 export { JobAcceptedCard } from '@/components/JobAcceptedCard'
 export { JobsTabs } from '@/components/JobsTabs'
 export { LoadFailed } from '@/components/LoadFailed'
+export { ScreenHeader, goBackOr } from '@/components/ScreenHeader'
 export { NotificationBell } from '@/components/NotificationBell'
 export { AppTopBar } from '@/components/AppTopBar'
 export { AppTabBar } from '@/components/AppTabBar'
@@ -46,7 +46,6 @@ export {
   ProfileAvatar,
   ProfileStatsLine,
   ProfileDetails,
-  PortfolioBlock,
   type ProfileDetailRow,
 } from '@/components/ProfileParts'
 export {

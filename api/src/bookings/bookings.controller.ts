@@ -11,13 +11,13 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
   Min,
   ValidateIf,
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { BookingsService } from './bookings.service';
+import { IsCalendarDate } from '../common/validators/calendar-date';
 
 /**
  * Editing the terms.
@@ -35,7 +35,9 @@ class UpdateBookingDto {
 
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use a date like 2027-02-14' })
+  // A past date is refused in the service, and only when the date changed:
+  // the rest of an old booking's terms can still be corrected.
+  @IsCalendarDate()
   eventDate?: string | null;
 
   @IsOptional()

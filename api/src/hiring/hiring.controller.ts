@@ -17,13 +17,13 @@ import {
   IsObject,
   IsOptional,
   IsString,
-  Matches,
   ValidateIf,
   MaxLength,
   MinLength,
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { HiringService } from './hiring.service';
+import { IsCalendarDate } from '../common/validators/calendar-date';
 
 /*
  * `roleBudgets` is validated in HiringService, not here.
@@ -66,7 +66,7 @@ export class UpdateJobDto {
 
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use a date like 2026-11-14' })
+  @IsCalendarDate()
   eventDate?: string | null;
 
   @IsOptional()
@@ -107,7 +107,7 @@ export class CreateJobDto {
 
   /** A calendar day, not an instant — see the same note on hire enquiries. */
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use a date like 2026-11-14' })
+  @IsCalendarDate({ notPast: true })
   eventDate?: string;
 
   @IsOptional()
@@ -350,6 +350,13 @@ export class JobActionsController {
     @Body() dto: RespondDto,
   ) {
     return this.hiring.respond(userId, id, dto.status);
+  }
+
+  /** The applicant taking back one that has not been decided on. */
+  @HttpCode(200)
+  @Delete('applications/:id')
+  withdraw(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.hiring.withdraw(userId, id);
   }
 
   @Throttle({ default: { limit: 10, ttl: 3_600_000 } })

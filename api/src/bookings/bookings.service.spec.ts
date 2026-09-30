@@ -40,3 +40,48 @@ describe('BookingsService.jobsDoneCount', () => {
     await expect(service.jobsDoneCount('creative-1')).resolves.toBe(0);
   });
 });
+
+describe('BookingsService.update', () => {
+  function withRow() {
+    const query = jest.fn(async () => []);
+    const notify = jest.fn(async () => undefined);
+    const service = new BookingsService(
+      { query } as unknown as DatabaseService,
+      { notify } as unknown as NotifyService,
+    );
+    const row = {
+      poster_id: 'poster-1', creative_id: 'creative-1', post_title: 'Wedding',
+      role: 'Lead', event_date: '2027-02-14', location: 'Cebu', rate_minor: 1500000,
+      notes: null, locked_at: new Date(),
+    };
+    jest.spyOn(service as never, 'requireOpen').mockResolvedValue(row as never);
+    jest.spyOn(service as never, 'byId').mockResolvedValue({ id: 'b1' } as never);
+    return { service, query, notify };
+  }
+
+  // Saving unchanged used to clear both confirmations and tell the creative
+  // the terms had moved.
+  it('changes nothing, and tells nobody, when nothing changed', async () => {
+    const { service, query, notify } = withRow();
+    await service.update('poster-1', 'b1', {
+      role: 'Lead', eventDate: '2027-02-14', location: 'Cebu', rateMinor: 1500000, notes: null,
+    });
+    expect(query).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('clears the confirmations when something did change', async () => {
+    const { service, query, notify } = withRow();
+    await service.update('poster-1', 'b1', { rateMinor: 1800000 });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses moving the date into the past', async () => {
+    const { service, query } = withRow();
+    await expect(service.update('poster-1', 'b1', { eventDate: '2020-01-01' })).rejects.toThrow(
+      'That date has already passed',
+    );
+    expect(query).not.toHaveBeenCalled();
+  });
+});

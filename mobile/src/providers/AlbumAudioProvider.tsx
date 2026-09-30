@@ -9,14 +9,31 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  setAudioModeAsync,
-  useAudioPlayer,
-  useAudioPlayerStatus,
-} from "expo-audio";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { enterAlbumMode, setAlbumPlaying } from "@/src/lib/audio-mode";
 import type { StoredFile } from "@/src/api";
 
 type RepeatMode = "off" | "all" | "one";
+
+/**
+ * How long a track may take to load before it is called unplayable.
+ *
+ * expo-audio reports no error for a file it cannot decode — it simply never
+ * becomes loaded — so the play button spun for as long as anyone watched it.
+ */
+const LOAD_GIVE_UP_MS = 15_000;
+
+/**
+ * Pauses album audio from outside the provider.
+ *
+ * For films, which start from components that sit above this provider in the
+ * tree (the video surface) or nowhere near it (a showcase). Album audio kept
+ * playing under a film that was playing too, the two talking over each other.
+ */
+let pauseHook: (() => void) | null = null;
+export function pauseAlbumAudio(): void {
+  pauseHook?.();
+}
 
 interface AlbumAudioContextValue {
   queue: StoredFile[];
@@ -30,6 +47,8 @@ interface AlbumAudioContextValue {
    * being slow.
    */
   loading: boolean;
+  /** The current track would not load (see LOAD_GIVE_UP_MS). */
+  unplayable: boolean;
   position: number;
   duration: number;
   shuffle: boolean;
@@ -101,16 +120,47 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
   const [rate, setRateState] = useState(1);
   const finishing = useRef(false);
   const current = currentIndex >= 0 ? (queue[currentIndex] ?? null) : null;
+  const [unplayableKey, setUnplayableKey] = useState<string | null>(null);
+  const unplayable = current !== null && unplayableKey === current.key;
 
   useEffect(() => {
-    setAudioModeAsync({
-      playsInSilentMode: true,
-      shouldPlayInBackground: true,
-      interruptionMode: "doNotMix",
-      allowsRecording: false,
-      shouldRouteThroughEarpiece: false,
-    }).catch(() => {});
+    pauseHook = () => {
+      try {
+        player.pause();
+      } catch {
+        // Released: nothing is playing.
+      }
+    };
+    return () => {
+      pauseHook = null;
+    };
   }, [player]);
+
+  // Gives a track that never loads a verdict instead of a spinner.
+  useEffect(() => {
+    if (!current || status.isLoaded) return;
+    const key = current.key;
+    const timer = setTimeout(() => {
+      setUnplayableKey(key);
+      try {
+        player.pause();
+      } catch {
+        // Released.
+      }
+    }, LOAD_GIVE_UP_MS);
+    return () => clearTimeout(timer);
+  }, [current, player, status.isLoaded]);
+
+  /*
+   * The audio mode follows playback rather than being set once on mount: a
+   * chime takes the session over while nothing plays here (audio-mode.ts),
+   * and this takes it back the moment a track plays — however it started,
+   * lock-screen controls included.
+   */
+  useEffect(() => {
+    setAlbumPlaying(status.playing);
+    if (status.playing) void enterAlbumMode();
+  }, [status.playing]);
 
   /*
    * Clears the lock-screen controls as the provider goes away, which is
@@ -157,7 +207,7 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
         );
       }
       setCurrentIndex(index);
-      player.play();
+      void enterAlbumMode().then(() => player.play());
     },
     [albumName, artworkUrl, player, rate],
   );
@@ -190,7 +240,7 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
         );
       }
       setCurrentIndex(index);
-      player.play();
+      void enterAlbumMode().then(() => player.play());
     },
     [player, rate],
   );
@@ -256,7 +306,9 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
       playing: status.playing,
       loading:
         currentIndex >= 0 &&
+        !unplayable &&
         (!status.isLoaded || (status.isBuffering && !status.playing)),
+      unplayable,
       position: status.currentTime,
       duration: status.duration,
       shuffle,
@@ -298,6 +350,7 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
       status.isLoaded,
       status.playing,
       stop,
+      unplayable,
     ],
   );
 

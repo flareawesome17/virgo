@@ -95,6 +95,12 @@ export class DiscoverController {
     return this.discover.sharingStatus(userId);
   }
 
+  /**
+   * Throttled to what a person does by hand. Moving your own point and reading
+   * the distances is how a position is worked out, so it should not be cheap
+   * to do many times over; the app only sends one when a toggle is tapped.
+   */
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
   @HttpCode(200)
   @Post('location')
   update(@CurrentUser('id') userId: string, @Body() dto: UpdateLocationDto) {

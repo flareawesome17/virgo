@@ -310,6 +310,23 @@ export class UsersRepository {
     );
   }
 
+  /**
+   * Removes a push token from the account a refresh token belongs to.
+   *
+   * Revoked and expired refresh tokens count on purpose (see
+   * AuthController.forgetDevice); they are never deleted, so the lookup still
+   * finds the owner. Only that account's row goes: a token that has since
+   * moved to whoever signed in next is left alone.
+   */
+  async forgetPushToken(refreshTokenHash: string, pushToken: string): Promise<void> {
+    await this.db.query(
+      `delete from push_tokens
+        where token = $2
+          and user_id in (select user_id from refresh_tokens where token_hash = $1)`,
+      [refreshTokenHash, pushToken],
+    );
+  }
+
   /** Used on password change, "sign out everywhere", disable and delete. */
   async revokeAllForUser(userId: string): Promise<void> {
     await this.db.query(

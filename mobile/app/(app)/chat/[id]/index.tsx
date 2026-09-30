@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheet } from '@/components/BottomSheet';
@@ -49,7 +50,13 @@ import { JobAcceptedCard, PresenceLine, TypingIndicator } from '@/components';
 import { askToUnblock, safetyError } from '@/components/PersonSafetySheet';
 import { sendTyping } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
-import { chatRefusal, type ConversationMessage, type Participant } from '@/src/api';
+import { ApiError, chatApi, chatRefusal, type ConversationMessage, type Participant } from '@/src/api';
+import { LoadFailed } from '@/components/LoadFailed';
+
+/** How many the thread's own query loads: chatApi.messages' default. */
+const FIRST_PAGE = 100;
+/** How many each scroll back asks for. */
+const OLDER_PAGE = 50;
 
 for (const Icon of [
   ArrowLeftIcon, SendIcon, UsersIcon, CheckIcon, CheckCheckIcon, ClockIcon,
@@ -116,7 +123,93 @@ export default function ConversationScreen() {
   const { user } = useAuth();
   const { isOffline } = useOffline();
 
-  const { messages, lastReadAt, isLoading, canSend, blockedByMe, blockId } = useThread(id);
+  /*
+   * The composer sat about 80 pt above the iOS keyboard. Two causes, both here:
+   *
+   * - keyboardVerticalOffset was insets.top. The avoiding view measures itself
+   *   inside this SafeAreaView, which already starts below the status bar, so
+   *   the top inset was counted twice. What the offset has to be is where this
+   *   screen starts in the window: 0, or the verify-email banner's height when
+   *   that pushes everything down.
+   * - the composer kept the home-indicator padding with the keyboard up, when
+   *   the keyboard covers that strip.
+   *
+   * iOS only. Android lays out its keyboard differently and was not reported.
+   */
+  const rootRef = useRef<View>(null);
+  const [screenTop, setScreenTop] = useState(0);
+  const [keyboardUp, setKeyboardUp] = useState(false);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const shown = Keyboard.addListener('keyboardWillShow', () => setKeyboardUp(true));
+    const hidden = Keyboard.addListener('keyboardWillHide', () => setKeyboardUp(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+
+  const {
+    messages: newest,
+    lastReadAt,
+    isLoading,
+    canSend: threadAllowsSending,
+    blockedByMe,
+    blockId,
+    data: threadData,
+    error: threadError,
+    loadFailed: threadFailed,
+    refetch: refetchThread,
+  } = useThread(id);
+  /*
+   * Nothing is said, and nothing can be sent, until the thread has arrived.
+   *
+   * `canSend` is true when the server does not say — so a thread that failed
+   * to load, or one you are no longer in, showed "No messages yet. Say hello."
+   * over a composer that failed every send.
+   */
+  const threadReady = threadData !== undefined;
+  const canSend = threadReady && threadAllowsSending;
+  const threadGone =
+    !threadReady &&
+    threadError instanceof ApiError &&
+    (threadError.status === 404 || threadError.status === 403);
+
+  /*
+   * Everything before the newest page, loaded by scrolling back.
+   *
+   * The thread was its newest 100 messages and nothing else — older ones could
+   * not be reached, which reads as "my messages are gone". They are kept here
+   * rather than in the thread's query because that query refetches after every
+   * send and on a timer, and would throw the older pages away each time.
+   */
+  const [older, setOlder] = useState<ConversationMessage[]>([]);
+  const [olderDone, setOlderDone] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const messages = useMemo(() => {
+    if (older.length === 0) return newest;
+    const shown = new Set(newest.map((m) => m.id));
+    return [...newest, ...older.filter((m) => !shown.has(m.id))];
+  }, [newest, older]);
+
+  const loadOlder = async () => {
+    if (!id || loadingOlder || olderDone || messages.length === 0) return;
+    // A first page that was not full is the whole conversation.
+    if (older.length === 0 && newest.length < FIRST_PAGE) {
+      setOlderDone(true);
+      return;
+    }
+    setLoadingOlder(true);
+    try {
+      const page = await chatApi.messages(id, OLDER_PAGE, messages[messages.length - 1].id);
+      setOlder((current) => [...current, ...page.data]);
+      if (page.data.length < OLDER_PAGE) setOlderDone(true);
+    } catch {
+      // Left to the next time the top is reached; nothing on screen is lost.
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
   const { participants } = useParticipants(id);
   const { conversation } = useConversation(id);
   const send = useSendMessage(id);
@@ -162,14 +255,20 @@ export default function ConversationScreen() {
     void buzzForMessage();
   }, [messages, user?.id]);
 
-  const isGroup = participants.length > 2;
+  /*
+   * A group is a group because the server says so, not by head count: one
+   * with two members left rendered as a direct chat — the other person's name
+   * and presence where the group should be. And the group's own name was
+   * never shown; the header said "3 people".
+   */
+  const isGroup = conversation?.isGroup ?? participants.length > 2;
   const others = useMemo(
     () => participants.filter((p) => p.id !== user?.id),
     [participants, user?.id],
   );
   const title = isGroup
-    ? `${participants.length} people`
-    : (others[0]?.name ?? 'Conversation');
+    ? conversation?.title?.trim() || `${participants.length} people`
+    : (others[0]?.name ?? conversation?.title ?? 'Conversation');
   /** Who the frozen-thread notice names. */
   const noticeName = (!isGroup ? others[0]?.name : undefined) ?? conversation?.title ?? title;
 
@@ -313,28 +412,35 @@ export default function ConversationScreen() {
     ];
   }, [messages, outbox, lastReadAt, user?.id]);
 
-  /** Sends, keeping the text on screen until the server has it. */
+  /**
+   * Sends, keeping the text on screen until the server has it.
+   *
+   * mutateAsync, not mutate with callbacks: TanStack v5 runs a mutate() call's
+   * own onSuccess/onError only for the latest call. Two messages sent quickly
+   * left the first "Sending…" forever beside the real one, and a first one
+   * that failed never offered its retry — the message was silently lost.
+   * Each send's promise is its own.
+   */
   const dispatch = (item: Outgoing) => {
     setOutbox((prev) =>
       prev.map((o) => (o.tempId === item.tempId ? { ...o, status: 'sending' } : o)),
     );
-    send.mutate(
-      { body: item.body, replyToId: item.replyToId, mentionIds: item.mentionIds },
-      {
-        // The real message is written into the cache by the mutation, so the
-        // placeholder can go without leaving a gap.
-        onSuccess: () =>
-          setOutbox((prev) => prev.filter((o) => o.tempId !== item.tempId)),
+    send
+      .mutateAsync({ body: item.body, replyToId: item.replyToId, mentionIds: item.mentionIds })
+      .then(
+        // The real message is written into the cache by the mutation (its
+        // own onSuccess runs before this resolves), so the placeholder can go
+        // without leaving a gap.
+        () => setOutbox((prev) => prev.filter((o) => o.tempId !== item.tempId)),
         // Kept, not discarded. A failed send with the text thrown away is how
         // people lose messages they thought they had sent.
-        onError: (err) => {
+        (err: unknown) => {
           const status = chatRefusal(err) ? 'refused' : 'failed';
           setOutbox((prev) =>
             prev.map((o) => (o.tempId === item.tempId ? { ...o, status } : o)),
           );
         },
-      },
-    );
+      );
   };
 
   // Monotonic, so two identical messages sent back to back cannot share a key.
@@ -495,20 +601,27 @@ export default function ConversationScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <SafeAreaView
+      ref={rootRef}
+      edges={['top']}
+      className="flex-1 bg-background"
+      onLayout={() =>
+        rootRef.current?.measureInWindow((_x, y) => setScreenTop(Math.max(0, Math.round(y))))
+      }
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
-        keyboardVerticalOffset={insets.top}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? screenTop : insets.top}
       >
         {/* Header */}
         <View
           className="px-5 pt-2 pb-3 flex-row items-center gap-3 border-b"
           style={{ borderBottomColor: border }}
         >
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
@@ -540,9 +653,9 @@ export default function ConversationScreen() {
               </View>
             ) : null}
           </Pressable>
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Conversation details"
             onPress={() => router.push(`/chat/${id}/info`)}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
           >
             <InfoIcon size={17} className="text-foreground" />
           </Pressable>
@@ -551,7 +664,7 @@ export default function ConversationScreen() {
         {isOffline && (
           <View className="px-5 py-2" style={{ backgroundColor: '#C76B4A18' }}>
             <Text className="text-[#C76B4A] text-xs font-semibold text-center">
-              No connection — messages will send when you are back online
+              No connection — messages won't send until you're back online
             </Text>
           </View>
         )}
@@ -560,6 +673,17 @@ export default function ConversationScreen() {
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator size="small" color="#B66A40" />
           </View>
+        ) : threadGone ? (
+          <View className="flex-1 items-center justify-center px-10">
+            <Text className="text-foreground text-[15px] font-bold text-center">
+              This conversation isn't available
+            </Text>
+            <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
+              It was deleted, or you are no longer in it.
+            </Text>
+          </View>
+        ) : !threadReady && threadFailed ? (
+          <LoadFailed what="this conversation" onRetry={() => void refetchThread()} />
         ) : (
           <FlatList
             data={rows}
@@ -576,6 +700,16 @@ export default function ConversationScreen() {
             // newest message.
             ListHeaderComponent={
               <TypingIndicator conversationId={id} meId={user?.id} />
+            }
+            // Inverted, so the end is the top: the oldest message loaded.
+            onEndReached={() => void loadOlder()}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              loadingOlder ? (
+                <View className="py-3 items-center">
+                  <ActivityIndicator size="small" color="#B66A40" />
+                </View>
+              ) : null
             }
             contentContainerStyle={{ padding: 16, gap: 8 }}
             keyboardShouldPersistTaps="handled"
@@ -810,7 +944,7 @@ export default function ConversationScreen() {
                 {replyTo.body}
               </Text>
             </View>
-            <Pressable onPress={() => setReplyTo(null)} hitSlop={8}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Cancel reply" onPress={() => setReplyTo(null)} hitSlop={8}>
               <XIcon size={15} className="text-muted-foreground" />
             </Pressable>
           </View>
@@ -822,7 +956,7 @@ export default function ConversationScreen() {
         {canSend ? (
           <View
             className="px-4 pt-2 flex-row items-end gap-2 border-t bg-background"
-            style={{ paddingBottom: insets.bottom + 8, borderTopColor: border }}
+            style={{ paddingBottom: (keyboardUp ? 0 : insets.bottom) + 8, borderTopColor: border }}
           >
             <View className="flex-1 bg-card rounded-2xl px-4 py-2.5">
               <TextInput
@@ -835,11 +969,14 @@ export default function ConversationScreen() {
                 placeholder={isGroup ? 'Message — use @ to mention' : 'Message'}
                 placeholderTextColor="#A89489"
                 multiline
+                // The server's limit. Past it the send was refused, and the
+                // bubble offered a retry that could only fail again.
+                maxLength={4000}
                 className="text-foreground text-sm"
                 style={{ maxHeight: 100 }}
               />
             </View>
-            <Pressable
+            <Pressable accessibilityRole="button" accessibilityLabel="Send message"
               onPress={submit}
               disabled={!draft.trim()}
               className={`w-11 h-11 rounded-full items-center justify-center active:scale-[0.94] ${
@@ -849,7 +986,7 @@ export default function ConversationScreen() {
               <SendIcon size={17} className={draft.trim() ? 'text-white' : 'text-muted-foreground'} />
             </Pressable>
           </View>
-        ) : (
+        ) : !threadReady ? null : (
           <View
             className="bg-muted px-5 py-4 border-t border-border"
             style={{ paddingBottom: insets.bottom + 16 }}

@@ -16,6 +16,7 @@ import { RemoteImage } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import { canSaveToPhotos } from '@/src/lib/photo-permission';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   interpolate,
@@ -34,10 +35,11 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAlbumFiles } from '@/src/hooks';
+import { useAlbumFiles, usageQueryKey } from '@/src/hooks';
 import {
   formatBytes,
   largestDisplaySource,
+  queryKeys,
   storageApi,
   type StoredFile,
 } from '@/src/api';
@@ -292,6 +294,7 @@ export default function PhotoViewerScreen() {
   const [zoomed, setZoomed] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const chrome = useSharedValue(1);
 
   const photo = photos[currentIndex] ?? photos[0];
@@ -318,26 +321,72 @@ export default function PhotoViewerScreen() {
     }
   }, [currentIndex, photos.length]);
 
+  /**
+   * Where to land once a removal has been refetched.
+   *
+   * By key, because the list shifts under the pager. Removing the third of
+   * five left the pager on what had been the fourth while the index stepped
+   * back to the second — so the next Remove deleted a photograph nobody was
+   * looking at. Applied only once the removed one is gone from the list: the
+   * neighbour's index changes with it.
+   */
+  const landAfterRemove = useRef<{ removed: string; next: string; index: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    const pending = landAfterRemove.current;
+    if (!pending || photos.some((p) => p.key === pending.removed)) return;
+    landAfterRemove.current = null;
+    const found = photos.findIndex((p) => p.key === pending.next);
+    const at = found >= 0 ? found : Math.min(pending.index, photos.length - 1);
+    if (at < 0) return;
+    setCurrentIndex(at);
+    pager.current?.scrollToIndex({ index: at, animated: false });
+  }, [photos]);
+
   const goTo = useCallback((index: number) => {
     setCurrentIndex(index);
     setShowInfo(false);
     pager.current?.scrollToIndex({ index, animated: true });
   }, []);
 
+  /**
+   * Shares the photograph itself.
+   *
+   * It shared the link to the private original — a signed URL that stopped
+   * working minutes later, handed to whoever received it — and it did so for
+   * people the album does not let download. Sending the file is a download,
+   * so it needs the same permission, and it is the file that is sent.
+   *
+   * iOS only: React Native's share sheet can carry a file there and only text
+   * on Android, where Save does the job until a native share module ships.
+   */
+  const canShare = Platform.OS === 'ios' && Boolean(photo?.capabilities.download);
   const sharePhoto = async () => {
-    if (!photo?.url) return;
+    const source = photo?.downloadUrl ?? photo?.url;
+    if (!source || sharing || !canShare || !photo) return;
+    setSharing(true);
+    let local: string | null = null;
     try {
-      await Share.share(
-        Platform.OS === 'ios'
-          ? { url: photo.url, message: photo.originalName }
-          : { message: `${photo.originalName} - ${photo.url}` },
+      const safeName = photo.originalName.replace(/[^a-z0-9._-]/gi, '_');
+      const result = await FileSystem.downloadAsync(
+        source,
+        `${FileSystem.cacheDirectory}share-${Date.now()}-${safeName}`,
       );
+      local = result.uri;
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error('The photo could not be downloaded.');
+      }
+      await Share.share({ url: result.uri });
     } catch (error) {
       // Cancelling the sheet rejects on some platforms, which is not a failure
       // worth interrupting anybody over. A real one is.
       if (error instanceof Error && !/cancel/i.test(error.message)) {
-        Alert.alert('Could not share', 'Please try again.');
+        Alert.alert('Could not share', 'Check your connection and try again.');
       }
+    } finally {
+      if (local) await FileSystem.deleteAsync(local, { idempotent: true }).catch(() => {});
+      setSharing(false);
     }
   };
 
@@ -346,11 +395,7 @@ export default function PhotoViewerScreen() {
     if (!source || saving || !photo?.capabilities.download) return;
     setSaving(true);
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permission needed', 'Allow photo access to save images.');
-        return;
-      }
+      if (!(await canSaveToPhotos('this photo'))) return;
       const safeName = photo.originalName.replace(/[^a-z0-9._-]/gi, '_');
       const target = `${FileSystem.cacheDirectory}${safeName}`;
       const result = await FileSystem.downloadAsync(source, target);
@@ -381,13 +426,26 @@ export default function PhotoViewerScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
+            const at = photos.findIndex((p) => p.key === photo.key);
+            // The one after it, as a gallery does; the one before if it was last.
+            const neighbour = photos[at + 1] ?? photos[at - 1] ?? null;
             try {
               await storageApi.remove(photo.key);
+              if (neighbour) {
+                landAfterRemove.current = {
+                  removed: photo.key,
+                  next: neighbour.key,
+                  index: Math.max(at, 0),
+                };
+              }
               await queryClient.invalidateQueries({
                 queryKey: ['storage', 'files', albumId],
               });
-              if (photos.length <= 1) router.back();
-              else setCurrentIndex((value) => Math.max(0, value - 1));
+              // The album's counts and cover, and the storage it used, all
+              // changed too; only the file list used to be refreshed.
+              void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
+              void queryClient.invalidateQueries({ queryKey: usageQueryKey });
+              if (!neighbour) router.back();
             } catch (error) {
               Alert.alert(
                 'Could not remove photo',
@@ -401,15 +459,44 @@ export default function PhotoViewerScreen() {
   };
 
   if (!photo) {
+    // "No photos yet" was the answer to every way of having none to show: a
+    // load still running, or one that failed, said the album was empty.
+    const failed = filesQuery.loadFailed;
+    const loading = !failed && (filesQuery.isLoading || filesQuery.isFetching);
     return (
       <View className="flex-1 bg-black items-center justify-center px-8">
-        <Text className="text-white text-lg font-semibold">No photos yet</Text>
-        <Pressable
-          onPress={() => router.back()}
-          className="mt-6 bg-white/10 rounded-full px-6 py-3 active:opacity-70"
-        >
-          <Text className="text-white font-semibold">Go back</Text>
-        </Pressable>
+        {loading ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <>
+            <Text className="text-white text-lg font-semibold text-center">
+              {failed ? "Couldn't load these photos" : 'No photos yet'}
+            </Text>
+            {failed && (
+              <Text className="text-white/70 text-sm text-center mt-2">
+                Check your connection and try again.
+              </Text>
+            )}
+            <View className="flex-row gap-3 mt-6">
+              {failed && (
+                <Pressable
+                  onPress={() => void filesQuery.refetch()}
+                  accessibilityRole="button"
+                  className="bg-white rounded-full px-6 py-3 active:opacity-70"
+                >
+                  <Text className="text-black font-semibold">Try again</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={() => router.back()}
+                accessibilityRole="button"
+                className="bg-white/10 rounded-full px-6 py-3 active:opacity-70"
+              >
+                <Text className="text-white font-semibold">Go back</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
       </View>
     );
   }
@@ -480,10 +567,10 @@ export default function PhotoViewerScreen() {
 
         <SafeAreaView edges={['top']} className="absolute top-0 left-0 right-0">
           <View className="px-4 pt-2 flex-row items-center gap-3">
-            <Pressable
+            <Pressable accessibilityRole="button" accessibilityLabel="Close"
               onPress={() => router.back()}
               hitSlop={8}
-              className="w-10 h-10 rounded-full bg-black/45 items-center justify-center active:opacity-70"
+              className="w-11 h-11 rounded-full bg-black/45 items-center justify-center active:opacity-70"
             >
               <XIcon size={19} color="#fff" />
             </Pressable>
@@ -567,9 +654,15 @@ export default function PhotoViewerScreen() {
           />
 
           <View className="flex-row items-center gap-2 px-4 pt-4 pb-2">
-            <Action onPress={sharePhoto} label="Share">
-              <Share2Icon size={19} color="#fff" />
-            </Action>
+            {canShare && (
+              <Action onPress={sharePhoto} label="Share" disabled={sharing}>
+                {sharing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Share2Icon size={19} color="#fff" />
+                )}
+              </Action>
+            )}
             {photo.capabilities.download && (
               <Action onPress={savePhoto} label="Save" disabled={saving}>
                 {saving ? (

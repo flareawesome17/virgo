@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -198,16 +199,31 @@ export class TwoFactorService {
     };
   }
 
+  /**
+   * A refusal about the code, not the session.
+   *
+   * Sign-in has no session yet, so a 401 there is honest. With a session (`expectedUserId`,
+   * setting up, turning off, new recovery codes), a 401 told the client the session had
+   * lapsed: it refreshed and sent the same wrong code again, so every typo counted twice
+   * against the attempt limit. A 403 is "you are signed in, and this is wrong".
+   */
+  private codeRefusal(message: string, code: string, signedIn: boolean): Error {
+    return signedIn
+      ? new ForbiddenException({ message, code, statusCode: 403 })
+      : new UnauthorizedException(message);
+  }
+
   private async verifyEmailChallenge(
     challengeToken: string,
     code: string,
     purpose: TwoFactorPurpose,
     expectedUserId?: string,
   ): Promise<UserRow> {
+    const signedIn = expectedUserId !== undefined;
     const tokenHash = this.hashToken(challengeToken);
     const challenge = await this.users.findActiveTwoFactorChallenge(tokenHash);
     if (!challenge || challenge.purpose !== purpose || (expectedUserId && challenge.user_id !== expectedUserId)) {
-      throw new UnauthorizedException('This code request expired. Start again.');
+      throw this.codeRefusal('This code request expired. Start again.', 'CODE_EXPIRED', signedIn);
     }
 
     const supplied = this.hashEmailCode(challengeToken, code.trim());
@@ -217,12 +233,12 @@ export class TwoFactorService {
         !(await this.consumeRecoveryCode(await this.requireUser(challenge.user_id), code))
       ) {
         await this.users.recordTwoFactorFailure(tokenHash);
-        throw new UnauthorizedException('That email or recovery code is not valid');
+        throw this.codeRefusal('That email or recovery code is not valid', 'WRONG_CODE', signedIn);
       }
     }
 
     if (!(await this.users.consumeTwoFactorChallenge(tokenHash))) {
-      throw new UnauthorizedException('This code has already been used');
+      throw this.codeRefusal('This code has already been used', 'CODE_USED', signedIn);
     }
     return this.requireUser(challenge.user_id);
   }
@@ -257,8 +273,13 @@ export class TwoFactorService {
 
   private async requireUserAndPassword(userId: string, password: string): Promise<UserRow> {
     const user = await this.requireUser(userId);
+    // 403, not 401: see codeRefusal. Same shape as AccountFlowsService's.
     if (!(await bcrypt.compare(password, user.password_hash))) {
-      throw new UnauthorizedException('Password is not correct');
+      throw new ForbiddenException({
+        message: 'That password is not correct.',
+        code: 'WRONG_PASSWORD',
+        statusCode: 403,
+      });
     }
     return user;
   }

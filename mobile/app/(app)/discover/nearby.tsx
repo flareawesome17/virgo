@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Switch,
+  Linking,
 } from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -91,7 +92,24 @@ export default function NearbyScreen() {
   /** Separate box, separate job: this one publishes a position. */
   const [myCityInput, setMyCityInput] = useState('');
 
-  const { sharing, place: myPlace, isLoading: loadingStatus } = useLocationSharing();
+  const {
+    sharing,
+    place: myPlace,
+    updatedAt: myUpdatedAt,
+    isLoading: loadingStatus,
+  } = useLocationSharing();
+  /*
+   * A device position stops counting after 30 days (the server leaves it out
+   * of everyone's search), and nothing said so: people dropped off Nearby and
+   * never knew. The age is shown, and from 25 days on, a way to refresh it.
+   * A city picked by hand never expires.
+   */
+  const positionAgeDays =
+    sharing && !myPlace && myUpdatedAt
+      ? Math.floor((Date.now() - new Date(myUpdatedAt).getTime()) / 86_400_000)
+      : null;
+  const positionExpired = positionAgeDays !== null && positionAgeDays >= 30;
+  const positionAgeing = positionAgeDays !== null && positionAgeDays >= 25;
   const startSharing = useShareLocation();
   const setPlace = useSetLocationPlace();
   const stopSharing = useStopSharingLocation();
@@ -160,6 +178,12 @@ export default function NearbyScreen() {
           Alert.alert(
             'Could not turn on sharing',
             err?.message || 'Please try again.',
+            err?.code === 'LOCATION_BLOCKED'
+              ? [
+                  { text: 'Not now', style: 'cancel' },
+                  { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+                ]
+              : undefined,
           ),
       });
       return;
@@ -174,6 +198,7 @@ export default function NearbyScreen() {
     sendRequest.mutate(
       { userId: person.id },
       {
+        // The row turns to "Requested" once Nearby refreshes (useFriends).
         onSuccess: () =>
           Alert.alert('Request sent', `${person.name} will see it in their network.`),
         onError: (err: any) =>
@@ -355,9 +380,9 @@ export default function NearbyScreen() {
         }
       >
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
@@ -392,9 +417,26 @@ export default function NearbyScreen() {
                   {sharing
                     ? myPlace
                       ? `Discoverable · ${myPlace}`
-                      : 'Discoverable · from this device'
+                      : positionExpired
+                        ? 'Not shown to others — your position is over 30 days old'
+                        : positionAgeDays !== null && positionAgeDays > 0
+                          ? `Discoverable · from this device, ${positionAgeDays} ${positionAgeDays === 1 ? 'day' : 'days'} ago`
+                          : 'Discoverable · from this device'
                     : 'You are not discoverable'}
                 </Text>
+                {positionAgeing && (
+                  <Pressable
+                    onPress={() => toggleSharing(true)}
+                    disabled={startSharing.isPending}
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    className="mt-1.5 self-start"
+                  >
+                    <Text className="text-primary text-xs font-bold">
+                      {positionExpired ? 'Update my position' : 'Update it before it expires'}
+                    </Text>
+                  </Pressable>
+                )}
               </View>
               {startSharing.isPending ||
               stopSharing.isPending ||

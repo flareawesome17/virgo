@@ -119,6 +119,8 @@ export function useSendFriendRequest() {
     mutationFn: (target: FriendRequestTarget) => friendsApi.request(target),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+      // Nearby shows the same relationship as a chip (Add, Requested, Accept).
+      queryClient.invalidateQueries({ queryKey: ['discover'] });
       invalidateProfiles(queryClient);
     },
   });
@@ -132,6 +134,8 @@ export function useRespondToFriendRequest() {
     onSuccess: () => {
       // Both sides change, and collaborator pickers read the accepted list.
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+      // Nearby shows the same relationship as a chip (Add, Requested, Accept).
+      queryClient.invalidateQueries({ queryKey: ['discover'] });
       queryClient.invalidateQueries({ queryKey: queryKeys.collaborators.all });
       invalidateProfiles(queryClient);
     },

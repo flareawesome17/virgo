@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth, useScheduleEvents, useTheme } from '@/src/hooks';
+import { useAuth, useScheduleEventRange, useTheme } from '@/src/hooks';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { LoadFailed } from '@/components/LoadFailed';
 import {
   DAY_DOT_SIZE,
   DAYS,
@@ -46,9 +47,12 @@ export default function CalendarScreen() {
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState(todayKey());
 
-  const { events } = useScheduleEvents(
-    { orderBy: 'event_date', direction: 'asc', limit: 100 },
-    { enabled: !!user?.id },
+  // The days the grid draws, not the account's 100 oldest events — which
+  // left every month from some point on empty for a busy account.
+  const gridWeeks = getMonthWeeks(viewYear, viewMonth);
+  const { events, loadFailed, refetch } = useScheduleEventRange(
+    gridWeeks[0]?.[0]?.key,
+    gridWeeks[gridWeeks.length - 1]?.[6]?.key,
   );
 
   const eventsByDate = useMemo(() => {
@@ -69,7 +73,7 @@ export default function CalendarScreen() {
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Header */}
         <View className="px-5 pt-4 pb-1 flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
@@ -77,7 +81,7 @@ export default function CalendarScreen() {
             <Text className="text-foreground text-[22px] font-bold tracking-tight">Calendar</Text>
             <Text className="text-muted-foreground text-sm mt-0.5">{events.length} events scheduled</Text>
           </View>
-          <Pressable onPress={() => router.push('/schedule/create')} className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
+          <Pressable accessibilityRole="button" accessibilityLabel="New event" onPress={() => router.push('/schedule/create')} className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <PlusIcon size={20} className="text-white" />
           </Pressable>
@@ -86,11 +90,11 @@ export default function CalendarScreen() {
         {/* Full Calendar */}
         <View className="mx-5 mt-4 bg-card rounded-2xl p-5" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}>
           <View className="flex-row items-center justify-between mb-5">
-            <Pressable onPress={goPrev} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
+            <Pressable accessibilityRole="button" accessibilityLabel="Previous month" onPress={goPrev} className="w-11 h-11 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
               <Text className="text-foreground text-lg font-bold">‹</Text>
             </Pressable>
             <Text className="text-foreground text-lg font-extrabold tracking-tight">{MONTHS_LONG[viewMonth]} {viewYear}</Text>
-            <Pressable onPress={goNext} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
+            <Pressable accessibilityRole="button" accessibilityLabel="Next month" onPress={goNext} className="w-11 h-11 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
               <Text className="text-foreground text-lg font-bold">›</Text>
             </Pressable>
           </View>
@@ -156,11 +160,16 @@ export default function CalendarScreen() {
               {isSelToday ? 'Today' : new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
             </Text>
             <Pressable onPress={() => router.push(`/schedule/agenda?date=${selectedDate}`)} className="flex-row items-center gap-1 active:opacity-60">
-              <Text className="text-primary text-sm font-semibold">Day View</Text>
+              <Text className="text-primary text-sm font-semibold">Day view</Text>
               <CalendarDaysIcon size={14} className="text-primary" />
             </Pressable>
           </View>
-          {selectedEvents.length === 0 ? (
+          {/* "This day is clear" only when it is known to be. */}
+          {loadFailed && events.length === 0 ? (
+            <View className="bg-card rounded-2xl">
+              <LoadFailed what="this month's events" onRetry={() => void refetch()} compact />
+            </View>
+          ) : selectedEvents.length === 0 ? (
             <View className="bg-card rounded-2xl p-8 items-center gap-4">
               <View className="w-14 h-14 rounded-full bg-muted items-center justify-center">
                 <CalendarDaysIcon size={24} className="text-muted-foreground" />
@@ -171,7 +180,7 @@ export default function CalendarScreen() {
               </View>
               <Pressable onPress={() => router.push(`/schedule/create?date=${selectedDate}`)} className="bg-action rounded-xl px-5 py-3 flex-row items-center gap-2 active:scale-[0.96]">
                 <PlusIcon size={16} className="text-white" />
-                <Text className="text-white text-sm font-semibold">Add Event</Text>
+                <Text className="text-white text-sm font-semibold">Add event</Text>
               </Pressable>
             </View>
           ) : (

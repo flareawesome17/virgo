@@ -1,5 +1,33 @@
+import { useEffect } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import * as Updates from 'expo-updates';
+
+/**
+ * Screens that would lose something if the app restarted under them.
+ *
+ * Time away was the only test, and the flows that send people out of the app
+ * are the ones that fail it: fetching a sign-in code from the mail app takes
+ * longer than thirty seconds, and coming back to a restarted app threw away
+ * the challenge, or three steps of sign-up. While anything holds, a waiting
+ * update stays waiting; it applies on the first return after the hold ends.
+ */
+let holds = 0;
+
+/**
+ * Keeps a downloaded update from restarting the app while `active`.
+ *
+ * For screens with input that leaving the app should not cost: a code being
+ * fetched from email, a long form half filled.
+ */
+export function useHoldUpdates(active = true): void {
+  useEffect(() => {
+    if (!active) return;
+    holds += 1;
+    return () => {
+      holds -= 1;
+    };
+  }, [active]);
+}
 
 /**
  * How long the app must have been in the background before a downloaded update
@@ -94,7 +122,7 @@ export function wireOtaUpdates(): () => void {
     const away = leftAt === null ? 0 : Date.now() - leftAt;
     leftAt = null;
 
-    if (downloaded && away >= SETTLED_AWAY_MS) {
+    if (downloaded && away >= SETTLED_AWAY_MS && holds === 0) {
       // Nothing after this line runs: the app restarts on the new bundle.
       Updates.reloadAsync().catch(() => {
         // A reload that fails leaves the app running the old bundle, which is

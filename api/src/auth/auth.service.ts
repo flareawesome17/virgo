@@ -264,9 +264,10 @@ export class AuthService {
   async login(
     email: string,
     password: string,
+    options: { unpause?: boolean } = {},
   ): Promise<AuthResult | TwoFactorLoginRequired> {
     const normalized = this.normalizeEmail(email);
-    const user = await this.users.findByEmail(normalized);
+    let user = await this.users.findByEmail(normalized);
 
     // Compare against a dummy hash when the user is absent so that a missing
     // account and a wrong password take the same time. Returning early here
@@ -284,6 +285,24 @@ export class AuthService {
     // would otherwise only reach after a suspended account had been emailed a
     // login code.
     this.assertVerified(user);
+
+    /*
+     * Coming back early, by choice.
+     *
+     * A pause ended every session and refused sign-in until its date, and
+     * lifting it early needed a session — so pausing for 90 days meant 90
+     * days locked out of your own account, with no undo. With the password in
+     * hand and the choice made, the pause is lifted here. Only a pause: a
+     * suspension is the console's, and is refused below as before.
+     */
+    if (
+      options.unpause &&
+      !user.suspended_at &&
+      user.disabled_until &&
+      new Date(user.disabled_until).getTime() > Date.now()
+    ) {
+      user = (await this.users.enable(user.id)) ?? user;
+    }
     this.assertNotDisabled(user);
 
     if (user.two_factor_enabled_at) {
@@ -387,10 +406,24 @@ export class AuthService {
     return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
   }
 
+  /**
+   * A fresh pair for the device that just changed the account's password,
+   * after every session — its own included — was revoked. Through issueTokens,
+   * so it is refused on the same terms as any other way in.
+   */
+  async sessionAfterPasswordChange(user: UserRow): Promise<AuthResult> {
+    return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
+  }
+
   async logout(refreshToken: string): Promise<void> {
     // Revoking an already-revoked or unknown token is a no-op, so logout is
     // idempotent and never reveals whether the token was real.
     await this.users.revokeRefreshToken(this.hashRefreshToken(refreshToken));
+  }
+
+  /** Idempotent, and says nothing about whether either token was real. */
+  async forgetDevice(refreshToken: string, pushToken: string): Promise<void> {
+    await this.users.forgetPushToken(this.hashRefreshToken(refreshToken), pushToken);
   }
 
   async me(userId: string): Promise<PublicUser> {

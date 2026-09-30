@@ -7,7 +7,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -19,6 +19,8 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import { canSaveToPhotos } from '@/src/lib/photo-permission';
+import { pauseAlbumAudio } from '@/src/providers/AlbumAudioProvider';
 import {
   useVideoPlayer,
   VideoView,
@@ -108,6 +110,7 @@ export function VideoPlayer({
 }) {
   const { width, height } = useWindowDimensions();
   const viewRef = useRef<VideoViewType>(null);
+  const insets = useSafeAreaInsets();
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [playing, setPlaying] = useState(true);
   const [position, setPosition] = useState(0);
@@ -174,6 +177,8 @@ export function VideoPlayer({
 
   useEffect(() => {
     const playingSub = player.addListener('playingChange', ({ isPlaying }) => {
+      // Album audio would otherwise go on under the film.
+      if (isPlaying) pauseAlbumAudio();
       setPlaying(isPlaying);
       // A paused video is a video somebody is looking at deliberately. Leave
       // the controls up rather than timing them out from under them.
@@ -240,11 +245,7 @@ export function VideoPlayer({
     if (!source || saving) return;
     setSaving(true);
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permission needed', 'Allow photo access to save videos.');
-        return;
-      }
+      if (!(await canSaveToPhotos('this video'))) return;
       const safeName = file.originalName.replace(/[^a-z0-9._-]/gi, '_');
       const result = await FileSystem.downloadAsync(
         source,
@@ -372,9 +373,9 @@ export function VideoPlayer({
             <Text className="text-white font-semibold">Save the original</Text>
           </Pressable>
         )}
-        <Pressable
+        <Pressable accessibilityRole="button" accessibilityLabel="Close"
           onPress={onClose}
-          className="absolute top-12 left-4 w-10 h-10 rounded-full bg-white/10 items-center justify-center active:opacity-70"
+          className="absolute top-12 left-4 w-11 h-11 rounded-full bg-white/10 items-center justify-center active:opacity-70"
         >
           <XIcon size={19} color="#fff" />
         </Pressable>
@@ -401,7 +402,10 @@ export function VideoPlayer({
         onPress={onExpand}
         accessibilityRole="button"
         accessibilityLabel={`${file.mediaTitle || file.originalName}, tap to expand`}
-        className="flex-row items-center gap-3 border-t border-white/10 bg-[#221d1a] px-2.5 py-2 active:opacity-90"
+        className="flex-row items-center gap-3 border-t border-white/10 bg-[#221d1a] px-2.5 pt-2 active:opacity-90"
+        // The strip is the bottom of the screen when docked (VideoSurface),
+        // and its controls sat under the iPhone's home indicator.
+        style={{ paddingBottom: 8 + insets.bottom }}
       >
         <View className="h-[34px] w-[58px] overflow-hidden rounded-md bg-black">
           <VideoView
@@ -453,8 +457,9 @@ export function VideoPlayer({
           <XIcon size={17} color="rgba(255,255,255,.55)" />
         </Pressable>
 
-        {/* The only progress a strip this size has room for. */}
-        <View className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/10">
+        {/* The only progress a strip this size has room for. Along the top
+            edge, where the home indicator cannot hide it. */}
+        <View className="absolute top-0 left-0 right-0 h-[2px] bg-white/10">
           <View
             className="h-full bg-[#C17745]"
             style={{
@@ -566,7 +571,7 @@ export function VideoPlayer({
               {SKIP}
             </Text>
           </Pressable>
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel={playing ? 'Pause' : 'Play'}
             onPress={() => {
               if (playing) player.pause();
               else player.play();

@@ -24,6 +24,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { DetailFallback } from '@/components/DetailFallback';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { ActionSheet } from '@/components/WorkspaceBits';
 import { ReportSheet } from '@/components/ReportSheet';
@@ -78,26 +79,18 @@ export default function JobDetailScreen() {
     onBlocked: () => router.back(),
   });
 
-  if (job.isLoading) {
+  // "Job not found" answered every failure, a dropped connection included,
+  // with no way to try again.
+  if (!job.data) {
     return (
-      <SafeAreaView className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color="#B66A40" />
-      </SafeAreaView>
-    );
-  }
-
-  if (job.isError || !job.data) {
-    return (
-      <SafeAreaView className="flex-1 bg-background items-center justify-center px-10">
-        <BriefcaseIcon size={30} className="text-muted-foreground" />
-        <Text className="text-foreground text-[15px] font-bold mt-3">Job not found</Text>
-        <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
-          This post has been filled, closed, or taken down.
-        </Text>
-        <Pressable className="mt-5" onPress={() => router.back()}>
-          <Text className="text-[13px] font-bold" style={{ color: '#B66A40' }}>Go back</Text>
-        </Pressable>
-      </SafeAreaView>
+      <DetailFallback
+        title="Job"
+        what="this job"
+        gone="This post has been filled, closed, or taken down."
+        error={job.error}
+        failed={job.isError || job.isPaused}
+        onRetry={() => void job.refetch()}
+      />
     );
   }
 
@@ -148,7 +141,7 @@ export default function JobDetailScreen() {
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <View className="flex-row items-center gap-3 px-5 py-3">
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={10}>
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="text-foreground text-lg font-bold flex-1">Job</Text>

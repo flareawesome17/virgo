@@ -20,7 +20,8 @@ import { useAuth } from '@/hooks/useAuth';
  *                 flaky network.
  */
 export function AuthGuard({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading, isSessionError, retrySession } = useAuth();
+  const { isAuthenticated, isLoading, isSessionError, isCheckingSession, retrySession } =
+    useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -49,7 +50,12 @@ export function AuthGuard({ children }: { children: ReactNode }) {
           <p className="mt-2 text-sm text-muted-foreground">
             Check your connection and try again. You are still signed in.
           </p>
-          <Button className="mt-6" onClick={() => retrySession()}>
+          <Button
+            className="mt-6"
+            onClick={() => retrySession()}
+            disabled={isCheckingSession}
+          >
+            {isCheckingSession && <Loader2 className="size-4 animate-spin" />}
             Retry
           </Button>
         </div>

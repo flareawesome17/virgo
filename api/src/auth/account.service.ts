@@ -1,11 +1,12 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { BillingService } from '../billing/billing.service';
 import { MailConfig } from '../mail/mail.config';
 import { MailService } from '../mail/mail.service';
 import { accountDisabled, accountDeleted } from '../mail/mail.templates';
@@ -33,14 +34,21 @@ export class AccountService {
     private readonly storage: StorageService,
     private readonly mail: MailService,
     private readonly mailConfig: MailConfig,
+    private readonly billing: BillingService,
   ) {}
 
   private async assertPassword(userId: string, password: string) {
     const user = await this.users.findById(userId);
     if (!user) throw new NotFoundException('Account not found');
 
+    // 403, not 401: a 401 reads to the client as an expired session, which it
+    // refreshes and resends — two of the throttle's five tries for one typo.
     if (!(await bcrypt.compare(password, user.password_hash))) {
-      throw new UnauthorizedException('That password is not correct');
+      throw new ForbiddenException({
+        message: 'That password is not correct',
+        code: 'WRONG_PASSWORD',
+        statusCode: 403,
+      });
     }
     return user;
   }
@@ -105,7 +113,10 @@ export class AccountService {
   /**
    * Deletes the account and everything in it.
    *
-   * Storage first, then the row. The order matters: the keys to the uploaded
+   * Any auto-renewing plan is cancelled first, for the same reason files go
+   * before the row: afterwards there is nothing left to do it from.
+   *
+   * Storage next, then the row. The order matters: the keys to the uploaded
    * objects are derived from data in Postgres, so deleting the row first would
    * strand every file in the bucket with nothing left pointing at it — paid
    * for, unreachable, and impossible to find again.
@@ -119,6 +130,17 @@ export class AccountService {
     password: string,
   ): Promise<{ deleted: true; filesDeleted: number }> {
     const user = await this.assertPassword(userId, password);
+
+    // Before anything is deleted: once the account is gone there is nothing
+    // left to cancel a plan from, and PayMongo would keep charging the card.
+    try {
+      await this.billing.cancelBeforeDeletion(userId);
+    } catch (err) {
+      this.logger.error(`Delete aborted for ${userId}, plan not cancelled: ${String(err)}`);
+      throw new BadRequestException(
+        'Your paid plan could not be cancelled, so the account was left untouched. Try again in a few minutes.',
+      );
+    }
 
     let filesDeleted = 0;
     try {

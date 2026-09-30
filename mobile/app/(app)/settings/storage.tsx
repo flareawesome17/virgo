@@ -7,7 +7,9 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { formatBytes } from '@/src/api';
-import { useStorageBreakdown, useUsage, useTheme } from '@/src/hooks';
+import { useStorageBreakdown, useUnassignedFiles, useUsage, useTheme } from '@/src/hooks';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
+import { LoadFailed } from '@/components/LoadFailed';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -35,8 +37,25 @@ export default function StorageOverviewScreen() {
   const { isDark } = useTheme();
   // Every number on this screen used to be hardcoded — 254.4 GB of 512 GB with
   // an invented workspace breakdown, shown identically to every account.
-  const { storageUsedBytes, storageLimitBytes, storageFraction, usage } = useUsage();
-  const { breakdown } = useStorageBreakdown();
+  const {
+    storageUsedBytes,
+    storageLimitBytes,
+    storageFraction,
+    usage,
+    loadFailed: usageFailed,
+    refetch: refetchUsage,
+  } = useUsage();
+  const {
+    breakdown,
+    data: breakdownData,
+    loadFailed: breakdownFailed,
+    refetch: refetchBreakdown,
+  } = useStorageBreakdown();
+  // Files in no album: still billed, and only reachable from here.
+  const { total: unfiled } = useUnassignedFiles();
+  // A failed load drew zeros and "Nothing stored yet" — a confident claim
+  // about somebody's files, made from a request that never arrived.
+  const failed = (usageFailed && !usage) || (breakdownFailed && !breakdownData);
 
   const usedPct = Math.round(storageFraction * 100);
   const remainingBytes =
@@ -48,7 +67,7 @@ export default function StorageOverviewScreen() {
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Header */}
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
@@ -58,60 +77,99 @@ export default function StorageOverviewScreen() {
           </View>
         </View>
 
-        {/* Hero gauge. The old version layered a fixed 45°-rotated arc over the
-            ring, so the graphic showed the same amount whatever the real usage
-            was — only the linear bar below tracks the number. */}
-        <View className="mx-5 mt-4 bg-card rounded-3xl p-6 items-center" style={{ shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 5 }}>
-          <View className="items-center justify-center mb-4" style={{ width: 140, height: 140, borderRadius: 70, borderWidth: 14, borderColor: isDark ? '#2A2522' : '#F0E8E2' }}>
-            <Text className="text-foreground text-4xl font-extrabold">
-              {storageLimitBytes != null ? usedPct : fileCount}
-              <Text className="text-muted-foreground text-lg">{storageLimitBytes != null ? '%' : ''}</Text>
-            </Text>
-            <Text className="text-muted-foreground text-xs mt-0.5">
-              {storageLimitBytes != null ? 'used' : `file${fileCount === 1 ? '' : 's'}`}
-            </Text>
+        {failed && (
+          <View className="mx-5 mt-4 bg-card rounded-2xl">
+            <LoadFailed
+              what="your storage"
+              onRetry={() => {
+                void refetchUsage();
+                void refetchBreakdown();
+              }}
+              compact
+            />
           </View>
-          <Text className="text-foreground text-lg font-bold">
-            {formatBytes(storageUsedBytes)}
-            {storageLimitBytes != null && (
-              <Text className="text-muted-foreground text-sm font-medium"> of {formatBytes(storageLimitBytes)}</Text>
-            )}
-          </Text>
-          {storageLimitBytes != null && (
-            <>
-              <View className="w-full h-2.5 bg-muted rounded-full mt-4 overflow-hidden">
-                <View className="h-full rounded-full" style={{ width: `${usedPct}%`, backgroundColor: usedPct > 80 ? '#C76B4A' : '#B66A40' }} />
-              </View>
-              <Text className="text-muted-foreground text-xs mt-2 font-medium">
-                {formatBytes(remainingBytes ?? 0)} remaining
-              </Text>
-              {/* Where the extra came from. Without this the ceiling silently
-                  changes after claiming a reward, and a limit that moved for
-                  no visible reason reads as a bug. */}
-              {!!usage?.bonus?.storageBytes && (
-                <Text className="text-muted-foreground text-xs mt-1">
-                  Includes {formatBytes(usage.bonus.storageBytes)} from rewards
-                </Text>
-              )}
-            </>
-          )}
-        </View>
+        )}
 
-        {/* Upgrade CTA */}
-        <Pressable onPress={() => router.push('/settings/storage/plans')}
-          className="mx-5 mt-4 bg-action rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.97]"
-          style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
-          <ZapIcon size={18} className="text-white" />
-          <Text className="text-white text-base font-bold">Upgrade Storage</Text>
-        </Pressable>
+        {/* The gauge only for figures that arrived: 0 B of a default is not one. */}
+        {usage ? (
+          <>
+            {/* Hero gauge. The old version layered a fixed 45°-rotated arc over the
+                ring, so the graphic showed the same amount whatever the real usage
+                was — only the linear bar below tracks the number. */}
+            <View className="mx-5 mt-4 bg-card rounded-3xl p-6 items-center" style={{ shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 5 }}>
+              <View className="items-center justify-center mb-4" style={{ width: 140, height: 140, borderRadius: 70, borderWidth: 14, borderColor: isDark ? '#2A2522' : '#F0E8E2' }}>
+                <Text className="text-foreground text-4xl font-extrabold">
+                  {storageLimitBytes != null ? usedPct : fileCount}
+                  <Text className="text-muted-foreground text-lg">{storageLimitBytes != null ? '%' : ''}</Text>
+                </Text>
+                <Text className="text-muted-foreground text-xs mt-0.5">
+                  {storageLimitBytes != null ? 'used' : `file${fileCount === 1 ? '' : 's'}`}
+                </Text>
+              </View>
+              <Text className="text-foreground text-lg font-bold">
+                {formatBytes(storageUsedBytes)}
+                {storageLimitBytes != null && (
+                  <Text className="text-muted-foreground text-sm font-medium"> of {formatBytes(storageLimitBytes)}</Text>
+                )}
+              </Text>
+              {storageLimitBytes != null && (
+                <>
+                  <View className="w-full h-2.5 bg-muted rounded-full mt-4 overflow-hidden">
+                    <View className="h-full rounded-full" style={{ width: `${usedPct}%`, backgroundColor: usedPct > 80 ? '#C76B4A' : '#B66A40' }} />
+                  </View>
+                  <Text className="text-muted-foreground text-xs mt-2 font-medium">
+                    {formatBytes(remainingBytes ?? 0)} remaining
+                  </Text>
+                  {/* Where the extra came from. Without this the ceiling silently
+                      changes after claiming a reward, and a limit that moved for
+                      no visible reason reads as a bug. */}
+                  {!!usage?.bonus?.storageBytes && (
+                    <Text className="text-muted-foreground text-xs mt-1">
+                      Includes {formatBytes(usage.bonus.storageBytes)} from rewards
+                    </Text>
+                  )}
+                </>
+              )}
+            </View>
+
+          </>
+        ) : null}
+
+        {/* Upgrade CTA. Only where a plan can be bought: see SELLS_PLANS_HERE.
+            The Plans row further down still compares them. */}
+        {SELLS_PLANS_HERE && (
+          <Pressable onPress={() => router.push('/settings/storage/plans')}
+            className="mx-5 mt-4 bg-action rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.97]"
+            style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
+            <ZapIcon size={18} className="text-white" />
+            <Text className="text-white text-base font-bold">Upgrade storage</Text>
+          </Pressable>
+        )}
+
+        {unfiled > 0 && (
+          <Pressable
+            onPress={() => router.push('/settings/storage/unfiled')}
+            accessibilityRole="button"
+            className="mx-5 mt-4 bg-card rounded-2xl p-4 flex-row items-center gap-3 active:scale-[0.98]"
+            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+          >
+            <View className="flex-1">
+              <Text className="text-foreground text-sm font-semibold">Not in an album</Text>
+              <Text className="text-muted-foreground text-xs mt-0.5">
+                {unfiled} {unfiled === 1 ? 'file' : 'files'} still counted in your storage
+              </Text>
+            </View>
+            <Text className="text-primary text-xs font-bold">Review</Text>
+          </Pressable>
+        )}
 
         {/* Media type breakdown */}
         <View className="px-5 mt-6">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Media Breakdown</Text>
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Media breakdown</Text>
           <View className="bg-card rounded-2xl p-4 gap-4" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             {breakdown.byType.length === 0 ? (
               <Text className="text-muted-foreground text-sm text-center py-2">
-                Nothing stored yet.
+                {breakdownData ? 'Nothing stored yet.' : breakdownFailed ? 'Could not load this.' : 'Loading…'}
               </Text>
             ) : (
               breakdown.byType.map((row) => {
@@ -142,11 +200,11 @@ export default function StorageOverviewScreen() {
         {/* Album breakdown. Files are attached to albums, not workspaces, so
             this reports the level the data actually has. */}
         <View className="px-5 mt-6">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Album Breakdown</Text>
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Album breakdown</Text>
           <View className="bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             {breakdown.byAlbum.length === 0 ? (
               <Text className="text-muted-foreground text-sm text-center py-5">
-                Nothing stored yet.
+                {breakdownData ? 'Nothing stored yet.' : breakdownFailed ? 'Could not load this.' : 'Loading…'}
               </Text>
             ) : (
               breakdown.byAlbum.map((row, i) => (
@@ -176,7 +234,7 @@ export default function StorageOverviewScreen() {
             <CloudIcon size={18} color="#8B5E3C" />
           </View>
           <View className="flex-1">
-            <Text className="text-foreground text-sm font-semibold">Sync & Storage</Text>
+            <Text className="text-foreground text-sm font-semibold">Sync & storage</Text>
             <Text className="text-muted-foreground text-xs mt-0.5">Manage or wipe your cloud data</Text>
           </View>
           <ChevronRightIcon size={14} className="text-muted-foreground" />

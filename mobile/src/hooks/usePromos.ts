@@ -54,7 +54,7 @@ export function useClaimPromo() {
     mutationFn: (grantId: string) => promosApi.claim(grantId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.promos.all });
-      void queryClient.invalidateQueries({ queryKey: ['usage'] });
+      void queryClient.invalidateQueries({ queryKey: ['me', 'usage'] });
     },
   });
 }

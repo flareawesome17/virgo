@@ -11,14 +11,18 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   useBooking,
   useCancelBooking,
   useConfirmBooking,
   useUpdateBooking,
 } from '@/src/hooks';
-import { rateLabel, type Booking } from '@/src/api';
+import { ApiError, rateLabel, type Booking } from '@/src/api';
+import { LoadFailed } from '@/components/LoadFailed';
+import { ScreenHeader } from '@/components/ScreenHeader';
+import { DateTimeField } from '@/components/DateTimeField';
+import { dateToKey, parseDateKey } from '@/src/lib/calendar';
 
 /**
  * One booking, and the two things you can do to it.
@@ -29,23 +33,32 @@ import { rateLabel, type Booking } from '@/src/api';
  */
 export default function BookingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { booking, isLoading, loadFailed } = useBooking(id);
+  const { booking, isLoading, loadFailed, error, refetch } = useBooking(id);
   const [editing, setEditing] = useState(false);
+  // Gone for good, as opposed to not reachable right now. Only the second is
+  // worth a retry.
+  const missing = error instanceof ApiError && error.status === 404;
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
-      <Stack.Screen options={{ title: 'Booking', headerBackTitle: 'Back' }} />
+      <ScreenHeader
+        title={editing ? 'Edit terms' : 'Booking'}
+        // Out of the form first, then off the screen: the form is a step of
+        // this screen, not a screen of its own.
+        onBack={editing ? () => setEditing(false) : undefined}
+      />
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
       >
         {isLoading ? (
           <ActivityIndicator color="#B66A40" className="mt-10" />
-        ) : loadFailed || !booking ? (
-          <Text className="text-muted-foreground mt-10 text-center text-[13px]">
-            That booking is not available.
+        ) : missing ? (
+          <Text className="text-muted-foreground mt-10 px-8 text-center text-[13px] leading-5">
+            That booking is not available. It may have been removed along with its job post.
           </Text>
+        ) : loadFailed || !booking ? (
+          <LoadFailed what="this booking" onRetry={() => void refetch()} />
         ) : editing && booking.yourSide === 'poster' ? (
           /* `editing` is only ever set by a button the creative does not get,
              but the check is here too — a form that 403s on save is a worse
@@ -105,7 +118,7 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
   const canEdit = booking.yourSide === 'poster';
 
   return (
-    <ScrollView contentContainerClassName="p-5 pb-14 gap-4">
+    <ScrollView contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
       <View>
         <Text className="text-foreground text-[18px] font-bold">
           {booking.postTitle}
@@ -257,9 +270,11 @@ function Confirmed({ who, at }: { who: string; at: string | null }) {
   return (
     <View className="flex-row items-center justify-between gap-4">
       <Text className="text-muted-foreground text-[13px]">{who}</Text>
+      {/* "Not yet" had no colour of its own and fell back to black — invisible
+          on the dark card. */}
       <Text
-        className="text-[13px] font-semibold"
-        style={{ color: at ? '#10b981' : undefined }}
+        className={`text-[13px] font-semibold ${at ? '' : 'text-muted-foreground'}`}
+        style={at ? { color: '#10b981' } : undefined}
       >
         {at ? `Confirmed ${new Date(at).toLocaleDateString()}` : 'Not yet'}
       </Text>
@@ -284,23 +299,39 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
       Alert.alert('Check the rate', 'Give a number, or leave it blank.');
       return;
     }
-    update.mutate(
-      {
-        role: role.trim() || null,
-        eventDate: eventDate.trim() || null,
-        location: location.trim() || null,
-        rateMinor: parsed,
-        notes: notes.trim() || null,
-      },
-      {
-        onSuccess: onDone,
-        onError: (e: Error) => Alert.alert('Could not save', e.message),
-      },
+    // Only what changed. Saving the form as it stood still sent every field,
+    // which cleared the creative's confirmation for terms that had not moved.
+    const next = {
+      role: role.trim() || null,
+      eventDate: eventDate.trim() || null,
+      location: location.trim() || null,
+      rateMinor: parsed,
+      notes: notes.trim() || null,
+    };
+    const was = {
+      role: booking.role ?? null,
+      eventDate: booking.eventDate ?? null,
+      location: booking.location ?? null,
+      rateMinor: booking.rateMinor ?? null,
+      notes: booking.notes ?? null,
+    };
+    const changed = Object.fromEntries(
+      (Object.keys(next) as (keyof typeof next)[])
+        .filter((key) => next[key] !== was[key])
+        .map((key) => [key, next[key]]),
     );
+    if (Object.keys(changed).length === 0) {
+      onDone();
+      return;
+    }
+    update.mutate(changed, {
+      onSuccess: onDone,
+      onError: (e: Error) => Alert.alert('Could not save', e.message),
+    });
   };
 
   return (
-    <ScrollView contentContainerClassName="p-5 pb-14 gap-4">
+    <ScrollView contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
       <View>
         <Text className="text-foreground text-[17px] font-bold">Edit the terms</Text>
         <Text className="text-muted-foreground mt-1 text-[12px] leading-5">
@@ -311,7 +342,17 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
       </View>
 
       <Field label="Role" value={role} onChange={setRole} />
-      <Field label="Date (YYYY-MM-DD)" value={eventDate} onChange={setEventDate} />
+      {/* The picker, not typed text: "2026-02-30" used to reach the server
+          as a 500, and a date already gone by was accepted. */}
+      <DateTimeField
+        label="Date"
+        mode="date"
+        value={eventDate ? parseDateKey(eventDate) : null}
+        minimumDate={new Date()}
+        emptyLabel="Pick a date (optional)"
+        clearable
+        onChange={(picked) => setEventDate(picked ? dateToKey(picked) : '')}
+      />
       <Field label="Location" value={location} onChange={setLocation} />
       <Field
         label={`Rate (${booking.currency})`}

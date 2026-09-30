@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useTheme } from '@/src/hooks';
 import { useQuery } from '@tanstack/react-query';
@@ -11,6 +11,8 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PALETTES } from '@/theme';
+import { LoadFailed } from '@/components/LoadFailed';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -48,6 +50,8 @@ cssInterop(GiftIcon, { className: { target: 'style', nativeStyleToProp: { color:
 const STEPS = ['You', 'What you do', 'Where you are'] as const;
 
 export default function SignUpScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const { signUp, user } = useAuth();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -82,11 +86,15 @@ export default function SignUpScreen() {
    * the register endpoint validates against, so the form cannot offer
    * something that will be rejected.
    */
-  const { data: roleList } = useQuery({
+  const rolesQuery = useQuery({
     queryKey: ['auth', 'roles'],
     queryFn: () => authApi.listRoles(),
     staleTime: Infinity,
   });
+  const roleList = rolesQuery.data;
+  // Failed or paused (offline): either way there are no chips to pick, and
+  // this step used to be a blank that could not be finished or retried.
+  const rolesFailed = !roleList && (rolesQuery.isError || rolesQuery.isPaused);
 
   // <Redirect> rather than router.replace(): navigating during render mutates
   // the navigation container mid-render and triggers React's
@@ -186,7 +194,7 @@ export default function SignUpScreen() {
               <ArrowLeftIcon size={18} className="text-foreground" />
             </Pressable>
             <View>
-              <Text className="text-foreground text-[28px] font-bold tracking-tight">Create Account</Text>
+              <Text className="text-foreground text-[28px] font-bold tracking-tight">Create account</Text>
               <Text className="text-muted-foreground text-sm mt-0.5">Step {step + 1} of {STEPS.length}</Text>
             </View>
           </View>
@@ -213,21 +221,25 @@ export default function SignUpScreen() {
           <View className="px-6 gap-4">
             {step === 0 && (
               <>
-                <Field label="Full Name" icon={<UserIcon size={16} className="text-muted-foreground" />}>
+                <Field label="Full name" icon={<UserIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={name} onChangeText={setName} placeholder="Your name"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" autoCapitalize="words" />
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" autoCapitalize="words"
+                    textContentType="name" autoComplete="name" />
                 </Field>
 
                 <Field label="Email" icon={<MailIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+                    keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
+                    textContentType="username" autoComplete="email" />
                 </Field>
 
                 <Field label="Password" icon={<LockIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={password} onChangeText={setPassword} placeholder="Min. 8 characters"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    secureTextEntry={!showPassword} autoCapitalize="none" />
+                    secureTextEntry={!showPassword} autoCapitalize="none"
+                    textContentType="newPassword" autoComplete="new-password"
+                    passwordRules="minlength: 8;" />
                   <Pressable
                     onPress={() => setShowPassword(!showPassword)}
                     accessibilityRole="button"
@@ -242,13 +254,14 @@ export default function SignUpScreen() {
                     account they had just made, and the way back was the
                     password reset flow. */}
                 <Field
-                  label="Confirm Password"
+                  label="Confirm password"
                   icon={<LockIcon size={16} className="text-muted-foreground" />}
                   error={confirmPassword.length > 0 && confirmPassword !== password ? 'These do not match.' : undefined}
                 >
                   <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Re-enter password"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    secureTextEntry={!showPassword} autoCapitalize="none" />
+                    secureTextEntry={!showPassword} autoCapitalize="none"
+                    textContentType="newPassword" autoComplete="new-password" />
                 </Field>
 
                 {/* On the first step rather than with the other optional fields
@@ -284,6 +297,11 @@ export default function SignUpScreen() {
                 <Text className="text-muted-foreground text-xs mb-3 ml-1">
                   Pick every one that applies. It is how the right jobs find you.
                 </Text>
+                {rolesFailed ? (
+                  <LoadFailed what="the list of roles" onRetry={() => rolesQuery.refetch()} compact />
+                ) : !roleList ? (
+                  <ActivityIndicator color="#B66A40" style={{ paddingVertical: 24 }} />
+                ) : null}
                 <View className="flex-row flex-wrap gap-2">
                   {(roleList?.data ?? []).map((role) => {
                     const on = roles.includes(role);
@@ -303,24 +321,26 @@ export default function SignUpScreen() {
                     );
                   })}
                 </View>
-                <Text
-                  className={`text-xs mt-3 ml-1 ${roles.length === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
-                >
-                  {roles.length === 0
-                    ? 'Required — choose at least one.'
-                    : `${roles.length} selected — you can change these later.`}
-                </Text>
+                {roleList && (
+                  <Text
+                    className={`text-xs mt-3 ml-1 ${roles.length === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
+                  >
+                    {roles.length === 0
+                      ? 'Required — choose at least one.'
+                      : `${roles.length} selected — you can change these later.`}
+                  </Text>
+                )}
               </View>
             )}
 
             {step === 2 && (
               <>
-                <Field label="Street Address" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
+                <Field label="Street address" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={line1} onChangeText={setLine1} placeholder="123 Rizal Street, Barangay San Roque"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
                 </Field>
 
-                <Field label="Apartment, Unit, Floor" hint="Optional." icon={<HomeIcon size={16} className="text-muted-foreground" />}>
+                <Field label="Apartment, unit, floor" hint="Optional." icon={<HomeIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={line2} onChangeText={setLine2} placeholder="Unit 4B"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
                 </Field>
@@ -345,7 +365,7 @@ export default function SignUpScreen() {
                       no ZIP, and refusing somebody for that is refusing them
                       for where they live. */}
                   <View className="flex-1">
-                    <Field label="Postal Code" hint="Optional.">
+                    <Field label="Postal code" hint="Optional.">
                       <TextInput value={postal} onChangeText={setPostal} placeholder="6000"
                         placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
                         keyboardType="number-pad" maxLength={20} />
@@ -360,7 +380,7 @@ export default function SignUpScreen() {
                   </View>
                 </View>
 
-                <Field label="Studio Name" hint="Optional — if you trade under one." icon={<Building2Icon size={16} className="text-muted-foreground" />}>
+                <Field label="Studio name" hint="Optional — if you trade under one." icon={<Building2Icon size={16} className="text-muted-foreground" />}>
                   <TextInput value={studioName} onChangeText={setStudioName} placeholder="Northlight Studio"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
                 </Field>
@@ -448,7 +468,7 @@ export default function SignUpScreen() {
               accessibilityState={{ disabled: !stepReady || signUp.isPending }}
               className={`min-h-12 flex-1 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${stepReady ? 'bg-action' : 'bg-muted'}`}>
               <Text className={`text-base font-bold ${stepReady ? 'text-action-foreground' : 'text-muted-foreground'}`}>
-                {signUp.isPending ? 'Creating account...' : isLast ? 'Create Account' : 'Continue'}
+                {signUp.isPending ? 'Creating account...' : isLast ? 'Create account' : 'Continue'}
               </Text>
               {!signUp.isPending && (
                 isLast
@@ -460,7 +480,7 @@ export default function SignUpScreen() {
           <View className="flex-row items-center justify-center gap-1">
             <Text className="text-muted-foreground text-sm">Already have an account?</Text>
             <Pressable onPress={() => router.push('/sign-in')} className="active:opacity-60">
-              <Text className="text-primary text-sm font-bold">Sign In</Text>
+              <Text className="text-primary text-sm font-bold">Sign in</Text>
             </Pressable>
           </View>
         </View>

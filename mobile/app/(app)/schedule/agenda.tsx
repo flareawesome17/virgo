@@ -2,45 +2,42 @@ import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useReminders, useScheduleEventRange, useTheme } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
-import {
-  ArrowLeftIcon, PlusIcon, CalendarDaysIcon, ClockIcon, BellIcon,
-  TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
-  type LucideIcon,
-} from 'lucide-react-native';
+import { ArrowLeftIcon, PlusIcon, BellIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { eventColor, eventTypeLabel } from '@/src/lib/calendar';
+import {
+  dateToKey,
+  eventColor,
+  eventTypeLabel,
+  isSameDayKey,
+  labelForDateKey,
+  parseDateKey,
+} from '@/src/lib/calendar';
+import { goBackOr } from '@/components/ScreenHeader';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const EVENT_ICONS: Record<string, LucideIcon> = {
-  event: CalendarDaysIcon, editing: ScissorsIcon, review: EyeIcon,
-  delivery: PackageIcon, meeting: PresentationIcon, other: TagIcon,
-};
 function formatTime(timeStr: string | null): string {
   if (!timeStr) return '';
   const [h, m] = timeStr.split(':');
   const hour = parseInt(h), ampm = hour >= 12 ? 'PM' : 'AM', h12 = hour % 12 || 12;
   return `${h12}:${m} ${ampm}`;
 }
-function isTodayDate(dateStr: string): boolean { return new Date(dateStr).toDateString() === new Date().toDateString(); }
-function isTomorrowDate(dateStr: string): boolean { const t = new Date(); t.setDate(t.getDate() + 1); return new Date(dateStr).toDateString() === t.toDateString(); }
-function dateLabel(dateStr: string): string {
-  if (isTodayDate(dateStr)) return 'Today';
-  if (isTomorrowDate(dateStr)) return 'Tomorrow';
-  return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-}
+/*
+ * The day's own label and "today", from the date key as a LOCAL date. These
+ * parsed `YYYY-MM-DD` with new Date(), which is UTC midnight — the day before
+ * anywhere west of UTC.
+ */
+const dateLabel = (key: string) => {
+  const label = labelForDateKey(key);
+  return label === 'Today' || label === 'Tomorrow'
+    ? label
+    : parseDateKey(key).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+};
 
-// Build timeline slots
-const HOURS = Array.from({ length: 18 }, (_, i) => i + 6); // 6 AM to 11 PM
+/** Where the timeline starts when nothing is earlier. */
+const DAY_STARTS = 6;
 
 export default function AgendaScreen() {
   const { date } = useLocalSearchParams<{ date: string }>();
@@ -51,29 +48,59 @@ export default function AgendaScreen() {
   // orders by event_date then event_time, which is what this screen wants.
   const { events } = useScheduleEventRange(date, date);
 
+  // This day's reminders, from its local midnight. It read the 100 oldest
+  // reminders and grouped them by UTC date, so in the Philippines anything
+  // before 8 AM landed on the day before, and a busy account saw none at all.
   const { reminders } = useReminders(
-    { orderBy: 'reminder_time', direction: 'asc', limit: 100 },
-    { enabled: !!user?.id },
+    {
+      due_from: date ? parseDateKey(date).toISOString() : undefined,
+      orderBy: 'reminder_time',
+      direction: 'asc',
+      limit: 100,
+    },
+    { enabled: !!user?.id && !!date },
   );
+  const dayReminders = reminders.filter((r) => dateToKey(new Date(r.reminder_time)) === date);
 
-  const dayReminders = reminders.filter(r => {
-    const rt = new Date(r.reminder_time);
-    return rt.toISOString().slice(0, 10) === date;
-  });
-
+  // Untimed events are all-day, and get a row of their own. They went into an
+  // hour -1 that was never drawn, and so did anything before 6 AM — a 5 AM
+  // call time vanished while the header still counted it.
+  const allDay = events.filter((ev) => !ev.event_time);
   const eventsByHour: Record<number, typeof events> = {};
   for (const ev of events) {
-    const hour = ev.event_time ? parseInt(ev.event_time.split(':')[0]) : -1;
+    if (!ev.event_time) continue;
+    const hour = parseInt(ev.event_time.split(':')[0], 10);
     if (!eventsByHour[hour]) eventsByHour[hour] = [];
     eventsByHour[hour].push(ev);
   }
+  const earliest = Math.min(DAY_STARTS, ...Object.keys(eventsByHour).map(Number));
+  const HOURS = Array.from({ length: 24 - earliest }, (_, i) => i + earliest);
+
+  const renderEvent = (ev: (typeof events)[number]) => {
+    const color = eventColor(ev.event_type);
+    return (
+      <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
+        className="bg-card rounded-2xl p-3 flex-row items-center gap-3 active:scale-[0.98]"
+        style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+        <View style={{ width: 3, height: 34, borderRadius: 2, backgroundColor: color }} />
+        <View className="flex-1 min-w-0">
+          <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{ev.title}</Text>
+          {ev.description ? <Text className="text-muted-foreground text-[11px] mt-0.5" numberOfLines={1}>{ev.description}</Text> : null}
+        </View>
+        <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: `${color}14` }}>
+          <Text numberOfLines={1} style={{ color, fontSize: 9, fontWeight: '700', textTransform: ev.event_type_other ? 'none' : 'uppercase' }}>{eventTypeLabel(ev)}</Text>
+        </View>
+      </Pressable>
+    );
+  };
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Header */}
         <View className="px-5 pt-4 pb-1 flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+          <Pressable onPress={() => goBackOr()} accessibilityRole="button" accessibilityLabel="Go back"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
@@ -81,11 +108,25 @@ export default function AgendaScreen() {
             <Text className="text-foreground text-[22px] font-bold tracking-tight">{date ? dateLabel(date) : 'Agenda'}</Text>
             <Text className="text-muted-foreground text-sm mt-0.5">{events.length} events · {dayReminders.length} reminders</Text>
           </View>
-          <Pressable onPress={() => router.push(`/schedule/create?date=${date}`)} className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
+          {/* Without a date (a bare deep link) this sent "date=undefined", an
+              Invalid Date in the new event's pickers. */}
+          <Pressable onPress={() => router.push(date ? `/schedule/create?date=${date}` : '/schedule/create')}
+            accessibilityRole="button" accessibilityLabel="New event"
+            className="w-11 h-11 rounded-2xl bg-action items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#B66A40', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
             <PlusIcon size={20} className="text-white" />
           </Pressable>
         </View>
+
+        {/* All day */}
+        {allDay.length > 0 && (
+          <View className="px-5 mt-5 flex-row gap-3">
+            <View className="w-[52px] items-end pt-1">
+              <Text className="text-xs font-bold text-muted-foreground">All day</Text>
+            </View>
+            <View className="flex-1 ml-3 gap-2">{allDay.map(renderEvent)}</View>
+          </View>
+        )}
 
         {/* Timeline */}
         <View className="px-5 mt-5">
@@ -95,7 +136,7 @@ export default function AgendaScreen() {
             const h12 = hour % 12 || 12;
             const label = `${h12}:00 ${ampm}`;
             const now = new Date();
-            const isNow = date && isTodayDate(date) && now.getHours() === hour;
+            const isNow = date && isSameDayKey(date, now) && now.getHours() === hour;
 
             return (
               <View key={hour} className="flex-row gap-3 min-h-[48px]">
@@ -107,26 +148,7 @@ export default function AgendaScreen() {
                 {/* Events column */}
                 <View className="flex-1 pb-3" style={hour < 23 ? { borderLeftWidth: 1, borderLeftColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
                   {hourEvents.length > 0 ? (
-                    <View className="ml-3 gap-2">
-                      {hourEvents.map(ev => {
-                        const IconComp = EVENT_ICONS[ev.event_type] || CalendarDaysIcon;
-                        const color = eventColor(ev.event_type);
-                        return (
-                          <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
-                            className="bg-card rounded-2xl p-3 flex-row items-center gap-3 active:scale-[0.98]"
-                            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-                            <View style={{ width: 3, height: 34, borderRadius: 2, backgroundColor: color }} />
-                            <View className="flex-1 min-w-0">
-                              <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{ev.title}</Text>
-                              {ev.description ? <Text className="text-muted-foreground text-[11px] mt-0.5" numberOfLines={1}>{ev.description}</Text> : null}
-                            </View>
-                            <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: `${color}14` }}>
-                              <Text numberOfLines={1} style={{ color, fontSize: 9, fontWeight: '700', textTransform: ev.event_type_other ? 'none' : 'uppercase' }}>{eventTypeLabel(ev)}</Text>
-                            </View>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                    <View className="ml-3 gap-2">{hourEvents.map(renderEvent)}</View>
                   ) : (
                     <View className="ml-3 h-6" />
                   )}

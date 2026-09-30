@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { chatApi, chatRefusal, type SendMessageInput, type Thread } from '@/src/api';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { chatApi, chatRefusal, retryUnlessGone, type SendMessageInput, type Thread } from '@/src/api';
 import { seedPresence } from '@/src/lib/presence-store';
 import { buzzForMessage } from '@/src/lib/notifications';
 
@@ -92,6 +92,38 @@ export function setOpenConversation(id: string | null): void {
   openConversationId = id;
 }
 
+/**
+ * Whether a conversation is muted, from whichever conversation list is cached.
+ *
+ * Muting only reached push. In the app a muted chat chimed and buzzed like any
+ * other, which is exactly what somebody muting a busy group was trying to stop.
+ */
+export function isConversationMuted(queryClient: QueryClient, conversationId: string): boolean {
+  const lists = queryClient.getQueriesData<{
+    data?: { id: string; muted?: boolean; mutedUntil?: string | null }[];
+  }>({ queryKey: chatKeys.allConversations });
+  for (const [, list] of lists) {
+    const found = list?.data?.find((c) => c.id === conversationId);
+    if (found) {
+      return Boolean(found.muted) &&
+        (!found.mutedUntil || new Date(found.mutedUntil).getTime() > Date.now());
+    }
+  }
+  return false;
+}
+
+/**
+ * When the socket last delivered a message.
+ *
+ * It chimes, buzzes or deliberately stays quiet for that message itself. The
+ * unread count rising a moment later is the same message, and useMessageAlerts
+ * buzzing for it again was a second buzz — or the only one, for a muted chat.
+ */
+let lastLiveMessageAt = 0;
+export function noteLiveMessage(): void {
+  lastLiveMessageAt = Date.now();
+}
+
 export function getOpenConversation(): string | null {
   return openConversationId;
 }
@@ -101,6 +133,8 @@ export function useThread(conversationId: string | undefined) {
     queryKey: chatKeys.thread(conversationId ?? ''),
     queryFn: () => chatApi.messages(conversationId!),
     enabled: !!conversationId,
+    // A deleted conversation, or one you were removed from, is an answer.
+    retry: retryUnlessGone,
     // The socket pushes new messages; this only backstops a dropped one.
     refetchInterval: 45_000,
   });
@@ -334,6 +368,8 @@ export function useMessageAlerts(enabled: boolean): void {
     if (before === null || unread <= before) return;
     // The thread on screen already shows the message and buzzes for itself.
     if (getOpenConversation()) return;
+    // The socket already dealt with it (see noteLiveMessage).
+    if (Date.now() - lastLiveMessageAt < 15_000) return;
 
     void buzzForMessage();
   }, [enabled, unread]);

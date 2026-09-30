@@ -17,6 +17,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsIn,
   IsOptional,
   IsString,
@@ -72,6 +73,17 @@ export class UnregisterPushTokenDto {
   @IsString()
   @MaxLength(256)
   token!: string;
+}
+
+export class RemindersSyncedDto {
+  @IsString()
+  @MaxLength(256)
+  token!: string;
+
+  /** How far ahead the phone scheduled, when it could not take them all. */
+  @IsOptional()
+  @IsDateString()
+  coveredUntil?: string;
 }
 
 export class MarkReadDto {
@@ -230,6 +242,19 @@ export class NotificationsController {
     @Body() dto: RegisterPushTokenDto,
   ): Promise<void> {
     await this.push.registerToken(userId, dto.token, dto.platform, dto.appVersion);
+  }
+
+  /**
+   * The app has scheduled its reminders on this device. Its push for those is
+   * skipped, so a reminder rings once, not twice.
+   */
+  @HttpCode(204)
+  @Post('token/reminders-synced')
+  async remindersSynced(
+    @CurrentUser('id') userId: string,
+    @Body() dto: RemindersSyncedDto,
+  ): Promise<void> {
+    await this.push.markRemindersSynced(userId, dto.token, dto.coveredUntil ?? null);
   }
 
   /** Called on sign-out so a shared device stops receiving the old account. */

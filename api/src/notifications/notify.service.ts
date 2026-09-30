@@ -38,6 +38,12 @@ export interface Notification {
    * not, and neither is anything that fires on a schedule.
    */
   email?: RenderedEmail;
+  /**
+   * Push tokens to leave out: devices that already deliver this themselves.
+   * A reminder the phone scheduled as a local alarm rang twice when it was
+   * pushed as well.
+   */
+  skipTokens?: readonly string[];
 }
 
 /** One notification aimed at one person. */
@@ -176,6 +182,7 @@ export class NotifyService {
       const messages: PushMessage[] = [];
       for (const d of pushed) {
         for (const to of tokensByUser.get(d.userId) ?? []) {
+          if (d.skipTokens?.includes(to)) continue;
           messages.push({
             to,
             title: d.title,

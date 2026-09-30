@@ -4,6 +4,7 @@ import { DeleteObjectsCommand, S3Client } from '@aws-sdk/client-s3';
 import * as bcrypt from 'bcryptjs';
 import { AccountService } from '../auth/account.service';
 import type { UsersRepository } from '../auth/users.repository';
+import type { BillingService } from '../billing/billing.service';
 import type { MailConfig } from '../mail/mail.config';
 import type { MailService } from '../mail/mail.service';
 import type { QuotaService } from '../quota/quota.service';
@@ -403,7 +404,10 @@ describe('AccountService.remove and the profile cover', () => {
   });
   afterEach(() => jest.restoreAllMocks());
 
-  function accountOver(world: Parameters<typeof wipeOf>[0]) {
+  function accountOver(
+    world: Parameters<typeof wipeOf>[0],
+    options: { planCancel?: () => Promise<number> } = {},
+  ) {
     const wipe = wipeOf(world);
     const users = {
       findById: jest.fn(async () => ({
@@ -414,14 +418,45 @@ describe('AccountService.remove and the profile cover', () => {
       })),
       remove: jest.fn(async () => true),
     };
+    const billing = {
+      cancelBeforeDeletion: jest.fn(options.planCancel ?? (async () => 0)),
+    };
     const account = new AccountService(
       users as unknown as UsersRepository,
       wipe.storage,
       { send: jest.fn(async () => undefined) } as unknown as MailService,
       { appUrl: 'https://app.virgo.test' } as unknown as MailConfig,
+      billing as unknown as BillingService,
     );
-    return { account, users, wipe };
+    return { account, users, wipe, billing };
   }
+
+  it('cancels any paid plan before a single file is touched', async () => {
+    const { account, billing, wipe } = accountOver({ files: [upload(PHOTOGRAPHER, 'ceremony')] });
+    await account.remove(PHOTOGRAPHER, PASSWORD);
+    expect(billing.cancelBeforeDeletion).toHaveBeenCalledWith(PHOTOGRAPHER);
+    expect(wipe.askedToDelete().length).toBeGreaterThan(0);
+  });
+
+  it('leaves everything in place when the plan will not cancel', async () => {
+    const { account, users, wipe } = accountOver(
+      { files: [upload(PHOTOGRAPHER, 'ceremony')] },
+      { planCancel: async () => Promise.reject(new Error('PayMongo is down')) },
+    );
+
+    await expect(account.remove(PHOTOGRAPHER, PASSWORD)).rejects.toThrow(
+      'Your paid plan could not be cancelled, so the account was left untouched.',
+    );
+    expect(wipe.askedToDelete()).toEqual([]);
+    expect(users.remove).not.toHaveBeenCalled();
+  });
+
+  it('refuses a wrong password with a 403 and cancels nothing', async () => {
+    const { account, billing, users } = accountOver({ files: [] });
+    await expect(account.remove(PHOTOGRAPHER, 'wrong')).rejects.toMatchObject({ status: 403 });
+    expect(billing.cancelBeforeDeletion).not.toHaveBeenCalled();
+    expect(users.remove).not.toHaveBeenCalled();
+  });
 
   it('deletes an untracked cover along with everything else', async () => {
     const { account, users, wipe } = accountOver({

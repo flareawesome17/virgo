@@ -40,7 +40,10 @@ import { api } from '@/src/api/client';
 import {
   ensurePermissions,
   getPushRegistration,
+  hasNotificationPermission,
+  isPushTurnedOff,
   isRemotePushAvailable,
+  setPushTurnedOff,
 } from '@/src/lib/notifications';
 
 for (const Icon of [
@@ -88,7 +91,7 @@ export default function PrivacyScreen() {
           dismissClosing();
           Alert.alert(
             'Account paused',
-            `You are signed out everywhere. You can sign in again on ${disabledUntil.slice(0, 10)}.`,
+            `You are signed out everywhere. It lifts on ${disabledUntil.slice(0, 10)}, or sooner if you sign in again — you will be asked whether to unpause.`,
             [{ text: 'OK', onPress: () => router.replace('/(auth)/welcome') }],
           );
         },
@@ -119,7 +122,10 @@ export default function PrivacyScreen() {
 
   const discoverable = profile?.discoverable ?? true;
 
-  // Whether this device is currently registered to receive push.
+  // Whether this device receives push for this account: allowed by the system,
+  // and not switched off here. Both read without asking for anything — this
+  // used to call getPushRegistration, which prompts, just to draw the switch.
+  const userId = profile?.id ?? null;
   const [pushOn, setPushOn] = useState<boolean | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const pushPossible = isRemotePushAvailable();
@@ -127,17 +133,20 @@ export default function PrivacyScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      if (!pushPossible) {
+      if (!pushPossible || !userId) {
         if (!cancelled) setPushOn(false);
         return;
       }
-      const registration = await getPushRegistration();
-      if (!cancelled) setPushOn(!!registration);
+      const [off, allowed] = await Promise.all([
+        isPushTurnedOff(userId),
+        hasNotificationPermission(),
+      ]);
+      if (!cancelled) setPushOn(!off && allowed);
     })();
     return () => {
       cancelled = true;
     };
-  }, [pushPossible]);
+  }, [pushPossible, userId]);
 
   const toggleDiscoverable = (next: boolean) => {
     updateProfile.mutate(
@@ -158,10 +167,12 @@ export default function PrivacyScreen() {
   };
 
   const togglePush = async (next: boolean) => {
+    if (!userId) return;
     setPushBusy(true);
     try {
       if (next) {
-        if (!(await ensurePermissions())) {
+        // They just asked for it; no explainer in front of the system prompt.
+        if (!(await ensurePermissions({ explain: false }))) {
           Alert.alert(
             'Notifications are off',
             `Turn them on for Virgo in your ${Platform.OS === 'ios' ? 'iOS' : 'Android'} settings, then try again.`,
@@ -172,22 +183,33 @@ export default function PrivacyScreen() {
         if (!registration) {
           Alert.alert(
             'Not available here',
-            'Push needs a development build on a real device. Reminders still alarm locally.',
+            'Push notifications are not available on this device. Reminders still go off on this phone.',
           );
           return;
         }
         await api.post('/notifications/token', { body: registration });
+        await setPushTurnedOff(userId, false);
         setPushOn(true);
         return;
       }
 
-      const registration = await getPushRegistration();
+      // Without permission there is no token to forget, and asking for one
+      // just to switch push off would be backwards.
+      const registration = (await hasNotificationPermission())
+        ? await getPushRegistration()
+        : null;
       if (registration) {
         await api.delete('/notifications/token', { body: { token: registration.token } });
       }
+      // Only once the server has let go of the token: remembered first, a
+      // failed delete would show Off while push kept arriving.
+      await setPushTurnedOff(userId, true);
       setPushOn(false);
-    } catch (err: any) {
-      Alert.alert('Could not change notifications', err?.message || 'Please try again.');
+    } catch {
+      Alert.alert(
+        'Could not change notifications',
+        'Check your connection and try again.',
+      );
     } finally {
       setPushBusy(false);
     }
@@ -259,9 +281,9 @@ export default function PrivacyScreen() {
         contentContainerStyle={{ paddingBottom: 60 }}
       >
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={cardShadow}
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
@@ -329,7 +351,7 @@ export default function PrivacyScreen() {
               title="Push to this device"
               detail={
                 !pushPossible
-                  ? 'Unavailable in Expo Go and on simulators'
+                  ? 'Not available on this device'
                   : pushOn
                     ? 'Messages and reminders reach you when the app is closed'
                     : 'This device will not receive push. Local alarms still fire'
@@ -423,7 +445,7 @@ export default function PrivacyScreen() {
                 </Text>
                 <Text className="text-muted-foreground text-xs mt-0.5 leading-4">
                   Sign out everywhere for a set number of days. Nothing is
-                  deleted and it comes back on its own
+                  deleted, and signing in again lifts it early
                 </Text>
               </View>
               <ChevronRightIcon size={14} className="text-muted-foreground" />
@@ -464,7 +486,7 @@ export default function PrivacyScreen() {
           </Text>
           <Text className="text-muted-foreground text-sm mt-1.5 leading-5">
             {closing === 'pause'
-              ? 'You will be signed out on every device. Nobody can message you or invite you until it lifts.'
+              ? 'You will be signed out on every device. Nobody can message you or invite you until it lifts — on the date, or when you sign in again and choose to unpause.'
               : 'Your workspaces, albums, messages and every uploaded file are erased. Share links stop working. This cannot be undone.'}
           </Text>
 
@@ -516,7 +538,7 @@ export default function PrivacyScreen() {
                 autoCapitalize="none"
                 className="flex-1 py-3.5 text-foreground text-base"
               />
-              <Pressable
+              <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
                 onPress={() => setShowPassword((s) => !s)}
                 className="pl-3 active:opacity-60"
               >

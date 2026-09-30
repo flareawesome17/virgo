@@ -25,13 +25,15 @@ import { canonicalLocation, coordsFor, locationKey } from './locations';
 const DEFAULT_LIFETIME_DAYS = 30;
 
 /**
- * Ten million centavos is ₱100,000 — well past any rate on this market.
+ * Fifty million centavos is ₱500,000. It is there to catch a slipped zero, not
+ * to set a price: ₱100,000 refused real posts, since a premium wedding
+ * photographer or videographer can charge more than that for one role.
  *
  * The same ceiling the controller used to apply to the post-level budget.
  * Enforced here now, because the shape it guards is a map keyed by role name
  * and a DTO cannot describe one.
  */
-const MAX_BUDGET = 100_000_00;
+const MAX_BUDGET = 500_000_00;
 
 /** What a stranger sees on the board. Deliberately not a `users` row. */
 /**
@@ -1004,13 +1006,32 @@ export class HiringService {
   async remove(userId: string, id: string): Promise<{ deleted: boolean }> {
     await this.ownedPost(userId, id);
     const cost = await this.endingCost(userId, id);
+    /*
+     * Not while somebody is booked on it.
+     *
+     * A booking is an agreement with another person, and deleting the post
+     * deleted it by cascade — without a word to the creative, whose booking
+     * simply vanished. Closing the post keeps the bookings; cancelling one
+     * tells them. Either is available; silently erasing an agreement is not.
+     */
+    if (cost.bookings > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'POST_HAS_BOOKINGS',
+        bookings: cost.bookings,
+        message:
+          cost.bookings === 1
+            ? 'Somebody is booked on this post. Close it instead, or cancel the booking first — deleting it would delete the booking without telling them.'
+            : `${cost.bookings} people are booked on this post. Close it instead, or cancel the bookings first — deleting it would delete them without telling anyone.`,
+      });
+    }
     await this.db.query('delete from hiring_posts where id = $1 and user_id = $2', [
       id,
       userId,
     ]);
     this.logger.warn(
       `job post ${id} deleted by ${userId} ` +
-        `(${cost.applications} application(s), ${cost.bookings} booking(s) went with it)`,
+        `(${cost.applications} application(s) went with it)`,
     );
     return { deleted: true };
   }
@@ -1160,6 +1181,52 @@ export class HiringService {
 
     this.logger.log(`application ${row!.id} on post ${post.id} by ${userId}`);
     return this.applicationById(row!.id, userId);
+  }
+
+  /**
+   * Takes back an application the poster has not decided on.
+   *
+   * There was no way to do this at all: somebody who applied by mistake, or
+   * who took other work for the date, stayed in the poster's list until the
+   * post closed, and the only way out was to message a stranger asking to be
+   * declined.
+   *
+   * Deleted rather than marked, so the poster's list simply no longer has it,
+   * and so applying again later is possible — changing your mind twice is
+   * still a person, not a pattern. Only while it is new or shortlisted:
+   *
+   * - accepted means hired, with a booking hanging off the row, and walking
+   *   away from that is the booking's cancellation, not this;
+   * - declined stays, or deleting it would be a way to apply again to
+   *   somebody who has already said no.
+   *
+   * The status test is in the delete itself, so an acceptance that lands
+   * first wins — Postgres re-checks the row once the accept's lock is gone.
+   */
+  async withdraw(userId: string, applicationId: string): Promise<{ withdrawn: true }> {
+    const gone = await this.db.queryOne<{ id: string; post_id: string }>(
+      `delete from hiring_applications
+        where id = $1 and user_id = $2 and status in ('new', 'shortlisted')
+        returning id, post_id`,
+      [applicationId, userId],
+    );
+    if (gone) {
+      this.logger.log(`application ${gone.id} on post ${gone.post_id} withdrawn by ${userId}`);
+      return { withdrawn: true };
+    }
+
+    const row = await this.db.queryOne<{ status: string }>(
+      `select status from hiring_applications where id = $1 and user_id = $2`,
+      [applicationId, userId],
+    );
+    // Same answer for "not yours" and "does not exist", as respond() gives.
+    if (!row) throw new NotFoundException('Application not found');
+    if (row.status === 'accepted') {
+      throw new BadRequestException(
+        'You have been hired for this one — cancel the booking instead',
+      );
+    }
+    throw new BadRequestException('This application has already been answered');
   }
 
   /**

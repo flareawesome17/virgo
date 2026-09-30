@@ -3,6 +3,9 @@ import { api } from '../client';
 import { API_BASE_URL } from '../config';
 import { ApiError } from '../errors';
 
+/** How long a confirm may take; see storageApi.confirm. */
+const CONFIRM_TIMEOUT_MS = 120_000;
+
 /**
  * Where an upload goes. 'avatars' and 'covers' land in the public bucket and
  * are re-encoded on confirm; an older API refuses 'covers' at upload-url, so
@@ -326,7 +329,14 @@ export const storageApi = {
     size: number;
     contentType?: string;
   }> {
-    return api.post('/storage/confirm', { body: { key, albumId, originalName } });
+    // Two minutes, not the usual twenty seconds: the server makes the
+    // thumbnail before it answers, and a large photograph or a film's poster
+    // took longer than that — so an upload that had worked was marked failed,
+    // and its retry sent every byte again.
+    return api.post('/storage/confirm', {
+      body: { key, albumId, originalName },
+      timeoutMs: CONFIRM_TIMEOUT_MS,
+    });
   },
 
   /** Objects the user has stored, optionally narrowed to one album. */
@@ -435,6 +445,12 @@ export const storageApi = {
        * in the bucket under a key only the dead process knew.
        */
       onTicket?: (key: string) => void;
+      /**
+       * Handed a way to stop the transfer once one is running, and again for
+       * a second attempt. Stopping it ends the upload with "Upload was
+       * cancelled".
+       */
+      onCancelable?: (cancel: () => void) => void;
     },
   ): Promise<UploadResult> {
     // `size` is returned on FileInfo whenever the file exists; it is not an
@@ -490,20 +506,28 @@ export const storageApi = {
         headers: withoutContentLength(ticket.requiredHeaders),
       };
 
-      // createUploadTask reports real bytes-sent; uploadAsync gives no progress.
-      const response = options.onProgress
-        ? await FileSystem.createUploadTask(
-            ticket.uploadUrl,
-            fileUri,
-            uploadOptions,
-            (data) => {
-              const total = data.totalBytesExpectedToSend || contentLength;
-              if (total > 0) {
-                options.onProgress?.(Math.min(data.totalBytesSent / total, 1));
-              }
-            },
-          ).uploadAsync()
-        : await FileSystem.uploadAsync(ticket.uploadUrl, fileUri, uploadOptions);
+      // createUploadTask reports real bytes-sent, and can be stopped;
+      // uploadAsync can do neither.
+      let response;
+      if (options.onProgress || options.onCancelable) {
+        const task = FileSystem.createUploadTask(
+          ticket.uploadUrl,
+          fileUri,
+          uploadOptions,
+          (data) => {
+            const total = data.totalBytesExpectedToSend || contentLength;
+            if (total > 0) {
+              options.onProgress?.(Math.min(data.totalBytesSent / total, 1));
+            }
+          },
+        );
+        options.onCancelable?.(() => {
+          void task.cancelAsync().catch(() => {});
+        });
+        response = await task.uploadAsync();
+      } else {
+        response = await FileSystem.uploadAsync(ticket.uploadUrl, fileUri, uploadOptions);
+      }
 
       return { ticket, response };
     };
@@ -541,35 +565,117 @@ export const storageApi = {
   },
 };
 
-/** Maps an expo-image-picker asset to a content type the API accepts. */
+/**
+ * What the API accepts. Mirrors ALLOWED_CONTENT_TYPES in
+ * api/src/storage/storage.config.ts — change both together.
+ */
+export const UPLOADABLE_CONTENT_TYPES: ReadonlySet<string> = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/avif',
+  'image/heic',
+  'image/heif',
+  'image/gif',
+  'image/tiff',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/wav',
+  'audio/aac',
+  'audio/flac',
+  'audio/ogg',
+  'application/pdf',
+]);
+
+/**
+ * Names the pickers use for types the API knows by another.
+ *
+ * iOS reports an m4a as audio/x-m4a, Android's file browser a wav as
+ * audio/x-wav or audio/vnd.wave, and so on. Passed through as they came, the
+ * API's allow-list refused them at the ticket, after they were queued, and the
+ * person was never told why.
+ */
+const CONTENT_TYPE_ALIASES: Record<string, string> = {
+  'image/jpg': 'image/jpeg',
+  'image/pjpeg': 'image/jpeg',
+  'image/x-png': 'image/png',
+  'image/heic-sequence': 'image/heic',
+  'image/heif-sequence': 'image/heif',
+  'image/x-tiff': 'image/tiff',
+  'video/x-m4v': 'video/mp4',
+  'audio/x-m4a': 'audio/mp4',
+  'audio/m4a': 'audio/mp4',
+  'audio/x-mp4': 'audio/mp4',
+  'audio/mp3': 'audio/mpeg',
+  'audio/x-mp3': 'audio/mpeg',
+  'audio/mpeg3': 'audio/mpeg',
+  'audio/x-mpeg': 'audio/mpeg',
+  'audio/x-wav': 'audio/wav',
+  'audio/wave': 'audio/wav',
+  'audio/vnd.wave': 'audio/wav',
+  'audio/x-aac': 'audio/aac',
+  'audio/aacp': 'audio/aac',
+  'audio/x-flac': 'audio/flac',
+  'audio/vorbis': 'audio/ogg',
+  'application/ogg': 'audio/ogg',
+  'application/x-pdf': 'application/pdf',
+};
+
+const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  heic: 'image/heic',
+  heif: 'image/heif',
+  gif: 'image/gif',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  wav: 'audio/wav',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
+  ogg: 'audio/ogg',
+  pdf: 'application/pdf',
+};
+
+/**
+ * Maps a picked asset to a content type the API accepts, when it has one.
+ *
+ * The picker's own type first, with aliases folded to the API's name and any
+ * parameters (`; codecs=…`) dropped. When the picker gave nothing usable —
+ * nothing at all, or the generic octet-stream a file browser falls back to —
+ * the extension of the file name, then of the uri, decides.
+ */
 export function contentTypeForAsset(asset: {
   mimeType?: string | null;
   uri: string;
+  /** The file's own name, which keeps its extension when the uri does not. */
+  name?: string | null;
 }): string {
-  if (asset.mimeType) return asset.mimeType;
+  const reported = asset.mimeType?.split(';')[0].trim().toLowerCase() ?? '';
+  const folded = CONTENT_TYPE_ALIASES[reported] ?? reported;
+  if (UPLOADABLE_CONTENT_TYPES.has(folded)) return folded;
 
-  const ext = asset.uri.split('.').pop()?.toLowerCase() ?? '';
-  const byExt: Record<string, string> = {
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    png: 'image/png',
-    webp: 'image/webp',
-    avif: 'image/avif',
-    heic: 'image/heic',
-    heif: 'image/heif',
-    gif: 'image/gif',
-    tif: 'image/tiff',
-    tiff: 'image/tiff',
-    mp4: 'video/mp4',
-    mov: 'video/quicktime',
-    webm: 'video/webm',
-    mp3: 'audio/mpeg',
-    m4a: 'audio/mp4',
-    wav: 'audio/wav',
-    aac: 'audio/aac',
-    flac: 'audio/flac',
-    ogg: 'audio/ogg',
-    pdf: 'application/pdf',
-  };
-  return byExt[ext] ?? 'application/octet-stream';
+  for (const source of [asset.name, asset.uri]) {
+    const ext = source?.split(/[?#]/)[0].split('.').pop()?.toLowerCase() ?? '';
+    const byExt = CONTENT_TYPE_BY_EXTENSION[ext];
+    if (byExt) return byExt;
+  }
+  // Something the API will refuse; returned as it was so it can be named.
+  return folded || 'application/octet-stream';
+}
+
+/** Whether the API will take a file of this type. */
+export function isUploadable(contentType: string): boolean {
+  return UPLOADABLE_CONTENT_TYPES.has(contentType);
 }

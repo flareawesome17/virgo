@@ -14,6 +14,7 @@ import {
   useRespondToApplication,
   usePendingApplicants,
   useSetJobStatus,
+  useWithdrawApplication,
 } from '@/src/hooks';
 import { useChrome } from '@/src/providers/ChromeProvider';
 import { budgetLabel, isRoleFilled, type JobApplication, type JobPost } from '@/src/api';
@@ -238,16 +239,27 @@ function JobRow({ job }: { job: JobPost }) {
       // Ask anyway, just without the numbers.
     }
 
-    const losses = [
-      cost.applications &&
-        `${cost.applications} application${cost.applications === 1 ? '' : 's'}`,
-      cost.bookings && `${cost.bookings} booking${cost.bookings === 1 ? '' : 's'}`,
-    ].filter(Boolean) as string[];
+    // A post somebody is booked on is not deleted (the server refuses: it
+    // would erase the booking without telling them). Say so, and offer the
+    // thing that keeps their booking.
+    if (cost.bookings > 0) {
+      Alert.alert(
+        `Close “${job.title}” instead?`,
+        cost.bookings === 1
+          ? 'Somebody is booked on this post, and deleting it would delete their booking without telling them. Closing it takes it off the board and keeps the booking. To end the booking, cancel it from Bookings.'
+          : `${cost.bookings} people are booked on this post, and deleting it would delete their bookings without telling them. Closing it takes it off the board and keeps the bookings. To end one, cancel it from Bookings.`,
+        [
+          { text: 'Keep it', style: 'cancel' },
+          ...(job.status === 'open' ? [{ text: 'Close the post', onPress: () => end('closed') }] : []),
+        ],
+      );
+      return;
+    }
 
     Alert.alert(
       `Delete “${job.title}”?`,
-      losses.length
-        ? `This also deletes ${losses.join(' and ')}, for good. The people involved lose their copy as well.`
+      cost.applications
+        ? `This also deletes ${cost.applications} application${cost.applications === 1 ? '' : 's'}, for good. The people who applied lose their copy as well.`
         : 'This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -342,14 +354,40 @@ function JobRow({ job }: { job: JobPost }) {
           )}
         </Pressable>
 
+        {/* The poster's controls were bare 12pt words, a few points tall —
+            easy to miss, and easy to hit the wrong one of. Each is a full
+            44pt target now. */}
         {job.status === 'open' ? (
-          <View className="ml-auto flex-row items-center gap-4">
-            <Pressable disabled={setStatus.isPending} onPress={() => end('filled')}>
+          <View className="ml-auto flex-row items-center gap-1">
+            {/* Editing keeps the applications; deleting to fix a typo did not. */}
+            <Pressable
+              onPress={() => router.push(`/jobs/new?edit=${job.slug}`)}
+              accessibilityRole="button"
+              hitSlop={4}
+              className="min-h-11 justify-center px-2.5 active:opacity-60"
+            >
+              <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+                Edit
+              </Text>
+            </Pressable>
+            <Pressable
+              disabled={setStatus.isPending}
+              onPress={() => end('filled')}
+              accessibilityRole="button"
+              hitSlop={4}
+              className="min-h-11 justify-center px-2.5 active:opacity-60"
+            >
               <Text className="text-muted-foreground text-[12px] font-semibold">
                 Mark filled
               </Text>
             </Pressable>
-            <Pressable disabled={setStatus.isPending} onPress={() => end('closed')}>
+            <Pressable
+              disabled={setStatus.isPending}
+              onPress={() => end('closed')}
+              accessibilityRole="button"
+              hitSlop={4}
+              className="min-h-11 justify-center px-2.5 active:opacity-60"
+            >
               <Text className="text-muted-foreground text-[12px] font-semibold">
                 Close
               </Text>
@@ -359,7 +397,9 @@ function JobRow({ job }: { job: JobPost }) {
           /* Reopening was never offered, so a misclicked "Mark filled" was
              irreversible from the UI even though the API allows it. */
           <Pressable
-            className="ml-auto"
+            className="ml-auto min-h-11 justify-center px-2.5 active:opacity-60"
+            accessibilityRole="button"
+            hitSlop={4}
             disabled={setStatus.isPending}
             onPress={() =>
               setStatus.mutate({ id: job.id, status: 'open' }, {
@@ -494,9 +534,10 @@ function Applicants({ postId }: { postId: string }) {
           {app.status !== 'accepted' && app.status !== 'declined' && (
             <View className="flex-row items-center gap-2">
               <Pressable
-                className="rounded-lg px-3 py-2 flex-row items-center gap-1.5"
+                className="rounded-lg px-3 min-h-11 flex-row items-center gap-1.5"
                 style={{ backgroundColor: '#B66A40' }}
                 disabled={respond.isPending}
+                accessibilityRole="button"
                 onPress={() => answer(app.id, 'accepted')}
               >
                 {acting === app.id
@@ -506,8 +547,9 @@ function Applicants({ postId }: { postId: string }) {
               </Pressable>
               {app.status !== 'shortlisted' && (
                 <Pressable
-                  className="flex-row items-center gap-1.5"
+                  className="min-h-11 px-2.5 flex-row items-center gap-1.5 active:opacity-60"
                   disabled={respond.isPending}
+                  accessibilityRole="button"
                   onPress={() => answer(app.id, 'shortlisted')}
                 >
                   <StarIcon size={13} className="text-muted-foreground" />
@@ -515,8 +557,9 @@ function Applicants({ postId }: { postId: string }) {
                 </Pressable>
               )}
               <Pressable
-                className="flex-row items-center gap-1.5 ml-auto"
+                className="min-h-11 px-2.5 flex-row items-center gap-1.5 ml-auto active:opacity-60"
                 disabled={respond.isPending}
+                accessibilityRole="button"
                 onPress={() => answer(app.id, 'declined')}
               >
                 <XIcon size={13} className="text-muted-foreground" />
@@ -557,9 +600,30 @@ function Applicants({ postId }: { postId: string }) {
 function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => void }) {
   const chrome = useChrome();
   const { applications, isLoading, loadFailed, refetch } = useMyApplications();
+  const withdraw = useWithdrawApplication();
   // Every other tab pulls to refresh; this one did not, which reads as broken
   // on the screen most likely to be checked repeatedly for an answer.
   const [refreshing, setRefreshing] = useState(false);
+
+  const confirmWithdraw = (app: JobApplication) =>
+    Alert.alert(
+      'Withdraw this application?',
+      `${app.postTitle} will no longer show you as an applicant. You can apply again while it is open.`,
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Withdraw',
+          style: 'destructive',
+          onPress: () => {
+            // mutateAsync, not per-call callbacks: those are dropped if the
+            // tab unmounts before the answer lands, and a failure would vanish.
+            withdraw.mutateAsync(app.id).catch((e: Error) =>
+              Alert.alert('Could not withdraw it', e.message),
+            );
+          },
+        },
+      ],
+    );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -603,48 +667,87 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
         />
       }
     >
-      {applications.map((app) => (
-        <View key={app.id} className="bg-card rounded-2xl p-4 gap-2">
-          <View className="flex-row items-start gap-3">
-            <Pressable className="flex-1 min-w-0" onPress={() => router.push(`/jobs/${app.postSlug}`)}>
-              <Text className="text-foreground text-[14px] font-bold leading-snug">
-                {app.postTitle}
+      {applications.map((app) => {
+        /*
+         * An application nobody answered outlives its post. It went on saying
+         * "Applied" after the post expired, closed or filled, and tapping it
+         * opened a post that was no longer there — "Job not found". What
+         * happened to the post is the answer, so it is what the row says, and
+         * a post that is gone is not offered as a link.
+         */
+        const postGone = app.postStatus !== 'open';
+        const unanswered = app.status === 'new' || app.status === 'shortlisted';
+        const label =
+          postGone && unanswered ? POST_ENDED_LABEL[app.postStatus] : APPLICATION_LABEL[app.status];
+        return (
+          <View key={app.id} className="bg-card rounded-2xl p-4 gap-2">
+            <View className="flex-row items-start gap-3">
+              <Pressable
+                className="flex-1 min-w-0"
+                disabled={postGone && unanswered}
+                onPress={() => router.push(`/jobs/${app.postSlug}`)}
+              >
+                <Text className="text-foreground text-[14px] font-bold leading-snug">
+                  {app.postTitle}
+                </Text>
+                <Text className="text-muted-foreground text-[11px] mt-0.5">
+                  {/* Which role, since applying to a post that wanted three of
+                      them was otherwise unrecorded on your own side. */}
+                  {[app.role, `Applied ${new Date(app.createdAt).toLocaleDateString()}`]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+              </Pressable>
+              <Text className="text-[10px] font-bold uppercase"
+                style={{ color: app.status === 'accepted' ? '#10b981' : '#9ca3af' }}>
+                {label}
               </Text>
-              <Text className="text-muted-foreground text-[11px] mt-0.5">
-                {/* Which role, since applying to a post that wanted three of
-                    them was otherwise unrecorded on your own side. */}
-                {[app.role, `Applied ${new Date(app.createdAt).toLocaleDateString()}`]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </Text>
-            </Pressable>
-            <Text className="text-[10px] font-bold uppercase"
-              style={{ color: app.status === 'accepted' ? '#10b981' : '#9ca3af' }}>
-              {APPLICATION_LABEL[app.status]}
-            </Text>
+            </View>
+
+            {app.message && (
+              <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
+            )}
+
+            {unanswered && !postGone && (
+              <Pressable
+                className="self-start py-1"
+                hitSlop={8}
+                accessibilityRole="button"
+                disabled={withdraw.isPending && withdraw.variables === app.id}
+                onPress={() => confirmWithdraw(app)}
+              >
+                <Text className="text-muted-foreground text-[12px] font-semibold">
+                  {withdraw.isPending && withdraw.variables === app.id ? 'Withdrawing…' : 'Withdraw'}
+                </Text>
+              </Pressable>
+            )}
+
+            {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
+            {app.status === 'accepted' && app.conversationId && (
+              <Pressable
+                className="flex-row items-center gap-1.5"
+                onPress={() => router.push(`/chat/${app.conversationId}`)}
+              >
+                <MessageCircleIcon size={13} color="#B66A40" />
+                <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+                  Open chat
+                </Text>
+              </Pressable>
+            )}
           </View>
-
-          {app.message && (
-            <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
-          )}
-
-          {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
-          {app.status === 'accepted' && app.conversationId && (
-            <Pressable
-              className="flex-row items-center gap-1.5"
-              onPress={() => router.push(`/chat/${app.conversationId}`)}
-            >
-              <MessageCircleIcon size={13} color="#B66A40" />
-              <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-                Open chat
-              </Text>
-            </Pressable>
-          )}
-        </View>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }
+
+/** What an unanswered application says once its post has ended. */
+const POST_ENDED_LABEL: Record<string, string> = {
+  open: 'Applied',
+  filled: 'Post filled',
+  closed: 'Post closed',
+  expired: 'Post expired',
+};
 
 function Empty({
   title, body, cta, onPress,

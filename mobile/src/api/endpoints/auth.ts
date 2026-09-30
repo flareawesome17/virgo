@@ -1,4 +1,4 @@
-import { api } from '../client';
+import { api, sessionEnded } from '../client';
 import { clearTokens, getRefreshToken, setTokens } from '../tokens';
 import type {
   AuthResult,
@@ -125,7 +125,8 @@ export const authApi = {
     return api.post('/auth/request-verification', { body: { email }, anonymous: true });
   },
 
-  async login(credentials: Credentials): Promise<LoginResult> {
+  /** `unpause` lifts a pause of your own and signs in (the API checks it is only that). */
+  async login(credentials: Credentials & { unpause?: boolean }): Promise<LoginResult> {
     const result = await api.post<LoginResult>('/auth/login', {
       body: credentials,
       anonymous: true,
@@ -192,7 +193,12 @@ export const authApi = {
     const result = await api.delete<{ disabled: true; user: AuthUser }>('/auth/2fa', {
       body: { challengeToken, code },
     });
+    // Every session is revoked with it. Clearing the tokens alone left this
+    // device's alarms and push registration behind for an account it was no
+    // longer signed in to.
+    const refused = getRefreshToken();
     await clearTokens();
+    sessionEnded(refused);
     return result;
   },
 
@@ -221,6 +227,20 @@ export const authApi = {
     }
   },
 
+  /**
+   * Takes this device's push token off the account it is leaving.
+   *
+   * By refresh token, which a forced sign-out still has even though the
+   * server no longer honours it. Callers treat it as best effort: a server
+   * from before the endpoint answers 404, and signing out goes ahead anyway.
+   */
+  forgetDevice(refreshToken: string, pushToken: string): Promise<void> {
+    return api.post<void>('/auth/forget-device', {
+      body: { refreshToken, pushToken },
+      anonymous: true,
+    });
+  },
+
   me(): Promise<AuthUser> {
     return api.get<AuthUser>('/auth/me');
   },
@@ -231,6 +251,36 @@ export const authApi = {
    */
   updateMe(input: UpdateProfileInput): Promise<AuthUser> {
     return api.patch<AuthUser>('/auth/me', { body: input });
+  },
+
+  // ─── Credentials ───────────────────────────────────────────────────────────
+
+  /**
+   * Changes the password. Every other device is signed out; this one gets a
+   * fresh pair, stored here, because its old refresh token was revoked too.
+   *
+   * A wrong current password is a 403 with code WRONG_PASSWORD, not a 401, so
+   * the client does not mistake it for an expired session.
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<AuthResult> {
+    const result = await api.post<AuthResult>('/auth/me/password', {
+      body: { currentPassword, newPassword },
+    });
+    await setTokens(result.accessToken, result.refreshToken);
+    return result;
+  },
+
+  /**
+   * Sends a confirmation link to a new address. The account keeps its current
+   * address until that link is opened.
+   */
+  requestEmailChange(password: string, newEmail: string): Promise<{ pendingEmail: string }> {
+    return api.post('/auth/me/email', { body: { password, newEmail } });
+  },
+
+  /** Redeems the link from requestEmailChange. No session needed. */
+  confirmEmailChange(token: string): Promise<{ email: string }> {
+    return api.post('/auth/confirm-email', { body: { token }, anonymous: true });
   },
 
   // ─── Closing the account ───────────────────────────────────────────────────

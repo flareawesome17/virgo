@@ -1,7 +1,8 @@
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isRunningInExpoGo } from 'expo';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 /**
  * Device notifications for reminders.
@@ -51,6 +52,8 @@ type LocalApi = {
   dismissNotificationAsync: NotificationsModule['dismissNotificationAsync'];
   addNotificationResponseReceivedListener: NotificationsModule['addNotificationResponseReceivedListener'];
   getLastNotificationResponseAsync: NotificationsModule['getLastNotificationResponseAsync'];
+  // Optional: the barrel fallback below may come from a version without it.
+  clearLastNotificationResponse?: NotificationsModule['clearLastNotificationResponse'];
   AndroidImportance: NotificationsModule['AndroidImportance'];
   AndroidNotificationVisibility: NotificationsModule['AndroidNotificationVisibility'];
   SchedulableTriggerInputTypes: NotificationsModule['SchedulableTriggerInputTypes'];
@@ -58,6 +61,17 @@ type LocalApi = {
 
 let cached: LocalApi | null = null;
 let handlerSet = false;
+
+/**
+ * Decides, for a notification arriving while the app is open, whether it
+ * shows a banner and makes a sound; null for the defaults (both). Set by the
+ * realtime hook, which knows which chat is on screen and which are muted.
+ */
+type ForegroundRule = (data: NotificationPayload | null) => { banner: boolean; sound: boolean } | null;
+let foregroundRule: ForegroundRule | null = null;
+export function setForegroundNotificationRule(rule: ForegroundRule | null): void {
+  foregroundRule = rule;
+}
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 function loadNotifications(): LocalApi | null {
@@ -88,6 +102,7 @@ function loadNotifications(): LocalApi | null {
       addNotificationResponseReceivedListener:
         emitter.addNotificationResponseReceivedListener,
       getLastNotificationResponseAsync: emitter.getLastNotificationResponseAsync,
+      clearLastNotificationResponse: emitter.clearLastNotificationResponse,
       AndroidImportance: channelTypes.AndroidImportance,
       AndroidNotificationVisibility: channelTypes.AndroidNotificationVisibility,
       SchedulableTriggerInputTypes: types.SchedulableTriggerInputTypes,
@@ -107,12 +122,20 @@ function loadNotifications(): LocalApi | null {
     handlerSet = true;
     // Shows the notification even while the app is in the foreground.
     cached.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-      }),
+      handleNotification: async (notification) => {
+        let decided: { banner: boolean; sound: boolean } | null = null;
+        try {
+          decided = foregroundRule?.(payloadOf({ notification })) ?? null;
+        } catch {
+          // The defaults are the safe answer: showing it.
+        }
+        return {
+          shouldShowBanner: decided?.banner ?? true,
+          shouldShowList: true,
+          shouldPlaySound: decided?.sound ?? true,
+          shouldSetBadge: false,
+        };
+      },
     });
   }
 
@@ -130,7 +153,21 @@ export interface SchedulableReminder {
   /** ISO timestamp. */
   reminder_time: string;
   is_alarm_enabled: boolean;
+  has_push_notification: boolean;
   is_completed: boolean;
+}
+
+/**
+ * How many to schedule at once. iOS keeps 64 pending local notifications and
+ * silently drops the rest; a few are left for anything else the app schedules.
+ */
+const MAX_SCHEDULED = 60;
+
+/** What a sync did: how many it scheduled, and how far ahead that reaches. */
+export interface ReminderSync {
+  scheduled: number;
+  /** Null when every reminder it was given is scheduled. */
+  coveredUntil: string | null;
 }
 
 /**
@@ -240,9 +277,10 @@ export async function showUploadProgress(
   // accepts the call and drops the notification, silently — which is exactly
   // what "no indicator, even in the drawer" looked like.
   //
-  // ensurePermissions never re-prompts once answered, so this is a cheap
-  // check on every call rather than a dialog.
-  if (!(await ensurePermissions())) return;
+  // Asks nothing: these post while the app is in the background, and a
+  // question about notifications appearing on the way back, out of nowhere,
+  // is not the moment to ask it. Permission comes from the explainer or Privacy.
+  if (!(await hasNotificationPermission())) return;
   await ensureChannels();
 
   try {
@@ -296,9 +334,10 @@ export async function showUploadFinished(
   // accepts the call and drops the notification, silently — which is exactly
   // what "no indicator, even in the drawer" looked like.
   //
-  // ensurePermissions never re-prompts once answered, so this is a cheap
-  // check on every call rather than a dialog.
-  if (!(await ensurePermissions())) return;
+  // Asks nothing: these post while the app is in the background, and a
+  // question about notifications appearing on the way back, out of nowhere,
+  // is not the moment to ask it. Permission comes from the explainer or Privacy.
+  if (!(await hasNotificationPermission())) return;
   await ensureChannels();
 
   try {
@@ -315,19 +354,67 @@ export async function showUploadFinished(
   }
 }
 
+/** When "Not now" was last chosen in the explainer below. */
+const EXPLAINED_KEY = 'virgo.notifications.notNowAt';
+/** How long "Not now" holds before the explainer may ask again. */
+const NOT_NOW_MS = 7 * 24 * 60 * 60 * 1000;
+let explaining: Promise<boolean> | null = null;
+
+/**
+ * Says what notifications are for before the system asks.
+ *
+ * The system prompt came up on first launch, over whatever was loading,
+ * with nothing to say why — and on iOS it is asked once: a reflexive "Don't
+ * Allow" there means no message, reminder or booking alert until somebody
+ * finds the switch in Settings. This asks first, in the app's own words; the
+ * system prompt only follows a yes, and "Not now" holds for a week.
+ */
+async function explainFirst(): Promise<boolean> {
+  try {
+    const at = Number(await AsyncStorage.getItem(EXPLAINED_KEY)) || 0;
+    if (Date.now() - at < NOT_NOW_MS) return false;
+  } catch {
+    // Unreadable: ask.
+  }
+  explaining ??= new Promise<boolean>((resolve) => {
+    Alert.alert(
+      'Turn on notifications?',
+      'Virgo uses them for new messages, reminders you set, bookings and replies from support. You can change this any time in Settings.',
+      [
+        {
+          text: 'Not now',
+          style: 'cancel',
+          onPress: () => {
+            void AsyncStorage.setItem(EXPLAINED_KEY, String(Date.now())).catch(() => {});
+            resolve(false);
+          },
+        },
+        { text: 'Continue', onPress: () => resolve(true) },
+      ],
+      { cancelable: false },
+    );
+  }).finally(() => {
+    explaining = null;
+  });
+  return explaining;
+}
+
 /**
  * Requests permission, returning whether it was granted.
  *
  * Never re-prompts once the user has answered: iOS only shows the system
- * dialog once, so asking again is a silent no.
+ * dialog once, so asking again is a silent no. Unless `explain` is false —
+ * for a switch the person just turned on themselves — the system prompt is
+ * preceded by explainFirst.
  */
-export async function ensurePermissions(): Promise<boolean> {
+export async function ensurePermissions({ explain = true }: { explain?: boolean } = {}): Promise<boolean> {
   const N = loadNotifications();
   if (!N) return false;
 
   const existing = await N.getPermissionsAsync();
   if (existing.granted) return true;
   if (!existing.canAskAgain) return false;
+  if (explain && !(await explainFirst())) return false;
 
   const asked = await N.requestPermissionsAsync({
     ios: { allowAlert: true, allowSound: true, allowBadge: false },
@@ -335,8 +422,50 @@ export async function ensurePermissions(): Promise<boolean> {
   return asked.granted;
 }
 
+/**
+ * Whether notifications are allowed, without asking.
+ *
+ * For showing state. ensurePermissions prompts, and a settings screen that
+ * pops the system dialog just by being opened has asked at the worst moment.
+ */
+export async function hasNotificationPermission(): Promise<boolean> {
+  const N = loadNotifications();
+  if (!N) return false;
+  try {
+    return (await N.getPermissionsAsync()).granted;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * "Push to this device" switched off, remembered on this device for this
+ * account.
+ *
+ * The server forgets the token when push is turned off, but every launch
+ * registers again, so without this the switch was back on by the next open.
+ * Per account: whoever signs in on this phone next did not ask for silence.
+ */
+const pushOffKey = (userId: string) => `virgo.push.off.${userId}`;
+
+export async function isPushTurnedOff(userId: string): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(pushOffKey(userId))) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export async function setPushTurnedOff(userId: string, off: boolean): Promise<void> {
+  if (off) await AsyncStorage.setItem(pushOffKey(userId), '1');
+  else await AsyncStorage.removeItem(pushOffKey(userId));
+}
+
 function isSchedulable(reminder: SchedulableReminder): boolean {
   if (reminder.is_completed) return false;
+  // "Alarm" plays a sound and "Push notification" sends one; with both off the
+  // reminder is not meant to interrupt at all. It was scheduled regardless.
+  if (!reminder.is_alarm_enabled && !reminder.has_push_notification) return false;
   const when = new Date(reminder.reminder_time).getTime();
   // A trigger in the past fires immediately, which would ambush the user with
   // every overdue reminder the moment the app opens.
@@ -355,10 +484,15 @@ function isSchedulable(reminder: SchedulableReminder): boolean {
  */
 export async function syncReminderNotifications(
   reminders: SchedulableReminder[],
-): Promise<number> {
+  /**
+   * The latest reminder_time the list reaches, when the list stopped at its
+   * limit — nothing after it was given, so nothing after it is covered.
+   */
+  listThrough: string | null = null,
+): Promise<ReminderSync | null> {
   const N = loadNotifications();
-  if (!N) return 0;
-  if (!(await ensurePermissions())) return 0;
+  if (!N) return null;
+  if (!(await ensurePermissions())) return null;
   await ensureChannels();
 
   const scheduled = await N.getAllScheduledNotificationsAsync();
@@ -368,7 +502,17 @@ export async function syncReminderNotifications(
       .map((n) => N.cancelScheduledNotificationAsync(n.identifier)),
   );
 
-  const upcoming = reminders.filter(isSchedulable);
+  const due = reminders
+    .filter(isSchedulable)
+    .sort((a, b) => Date.parse(a.reminder_time) - Date.parse(b.reminder_time));
+  const upcoming = due.slice(0, MAX_SCHEDULED);
+  const capped = due.length > upcoming.length ? upcoming[upcoming.length - 1].reminder_time : null;
+  const coveredUntil =
+    capped && listThrough
+      ? Date.parse(capped) < Date.parse(listThrough)
+        ? capped
+        : listThrough
+      : (capped ?? listThrough);
 
   await Promise.all(
     upcoming.map((reminder) =>
@@ -388,20 +532,30 @@ export async function syncReminderNotifications(
     ),
   );
 
-  return upcoming.length;
+  return { scheduled: upcoming.length, coveredUntil };
 }
 
-/** Drops every reminder notification this app scheduled — used on sign-out. */
+/**
+ * Drops every reminder notification this app scheduled — used on sign-out.
+ *
+ * Never rejects. It is fired and forgotten on every way out of a session, so a
+ * failure here was an unhandled rejection in the middle of signing out — and
+ * on web, which cannot list scheduled notifications at all, it was every time.
+ */
 export async function clearReminderNotifications(): Promise<void> {
   const N = loadNotifications();
   if (!N) return;
 
-  const scheduled = await N.getAllScheduledNotificationsAsync();
-  await Promise.all(
-    scheduled
-      .filter((n) => (n.content.data as { tag?: string } | null)?.tag === VIRGO_TAG)
-      .map((n) => N.cancelScheduledNotificationAsync(n.identifier)),
-  );
+  try {
+    const scheduled = await N.getAllScheduledNotificationsAsync();
+    await Promise.all(
+      scheduled
+        .filter((n) => (n.content.data as { tag?: string } | null)?.tag === VIRGO_TAG)
+        .map((n) => N.cancelScheduledNotificationAsync(n.identifier)),
+    );
+  } catch {
+    // Nothing to do about it on the way out; the next sign-in reconciles.
+  }
 }
 
 export interface PushRegistration {
@@ -415,6 +569,13 @@ export interface PushRegistration {
 }
 
 /**
+ * The last token this session obtained. Asked for on every reminder sync, and
+ * each fresh request is a round trip to Expo; a token changes only on reinstall
+ * or a permission reset, both of which start a new session.
+ */
+let lastRegistration: PushRegistration | null = null;
+
+/**
  * Obtains an Expo push token for server-side delivery.
  *
  * Returns null rather than throwing whenever remote push is unavailable — on a
@@ -424,6 +585,25 @@ export interface PushRegistration {
  * nothing. Local notifications are unaffected in all of those cases.
  */
 export async function getPushRegistration(): Promise<PushRegistration | null> {
+  if (lastRegistration) return lastRegistration;
+  const registration = await requestPushRegistration();
+  if (registration) lastRegistration = registration;
+  return registration;
+}
+
+/**
+ * This phone's push token, if it has one, without asking for anything.
+ *
+ * For signing out. A phone that never granted permission has no token on the
+ * server to remove, and a permission prompt on the way out would be absurd.
+ */
+export async function knownPushToken(): Promise<string | null> {
+  if (lastRegistration) return lastRegistration.token;
+  if (!(await hasNotificationPermission())) return null;
+  return (await getPushRegistration())?.token ?? null;
+}
+
+async function requestPushRegistration(): Promise<PushRegistration | null> {
   if (isRunningInExpoGo()) return null;
   if (!Device.isDevice) return null;
 
@@ -491,6 +671,10 @@ export interface NotificationPayload {
     | 'client_picks'
     /** An update announcement for this app. */
     | 'app-update'
+    | 'booking'
+    | 'support_reply'
+    | 'billing'
+    | 'retention'
     | string;
   conversationId?: string;
   albumId?: string;
@@ -498,9 +682,34 @@ export interface NotificationPayload {
   eventId?: string;
   workspaceId?: string;
   fromUserId?: string;
+  bookingId?: string;
+  /** For 'support_reply': the request that was answered. */
+  ticketId?: string;
+  /** A reward; sent with no type at all. */
+  promoId?: string;
   /** For 'app-update': the announcement, and what to open from it. */
   updateId?: string;
   url?: string;
+}
+
+/**
+ * Taps already acted on, by notification id.
+ *
+ * getLastNotificationResponseAsync keeps answering with the same tap for as
+ * long as the process lives. The listener below is set up each time the
+ * signed-in layout mounts — after signing out and back in, after the "can't
+ * reach the server" screen — and each time it opened the last notification
+ * tapped again, hours later, for whichever account was now signed in.
+ */
+const handledTaps = new Set<string>();
+
+function tapId(response: unknown): string | null {
+  const r = response as {
+    actionIdentifier?: string;
+    notification?: { request?: { identifier?: string } };
+  };
+  const id = r?.notification?.request?.identifier;
+  return id ? `${id}:${r.actionIdentifier ?? ''}` : null;
 }
 
 function payloadOf(response: unknown): NotificationPayload | null {
@@ -530,20 +739,32 @@ export function onNotificationTap(
 
   let cancelled = false;
 
+  const act = (response: unknown) => {
+    const id = tapId(response);
+    if (id) {
+      if (handledTaps.has(id)) return;
+      handledTaps.add(id);
+    }
+    // Belt and braces for the set, which a new process starts without.
+    try {
+      N.clearLastNotificationResponse?.();
+    } catch {
+      // Not every platform keeps one.
+    }
+    const payload = payloadOf(response);
+    if (payload) handle(payload);
+  };
+
   void N.getLastNotificationResponseAsync()
     .then((last) => {
       if (cancelled || !last) return;
-      const payload = payloadOf(last);
-      if (payload) handle(payload);
+      act(last);
     })
     .catch(() => {
       // A missing launch response is normal; nothing to recover from.
     });
 
-  const sub = N.addNotificationResponseReceivedListener((response) => {
-    const payload = payloadOf(response);
-    if (payload) handle(payload);
-  });
+  const sub = N.addNotificationResponseReceivedListener(act);
 
   return () => {
     cancelled = true;

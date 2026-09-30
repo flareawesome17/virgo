@@ -46,6 +46,10 @@ export function useBlocks(options: QueryOptions = {}) {
  *
  * Your own page too: a block ends the friendship, so your connection count on
  * it drops by one.
+ *
+ * And the feed, showcases and shelves: the server stops returning their posts,
+ * comments and kept work either way, but the cached pages kept showing them —
+ * blocking someone from their profile landed you back on a feed full of them.
  */
 const invalidateSafety = (queryClient: QueryClient) =>
   [
@@ -61,6 +65,9 @@ const invalidateSafety = (queryClient: QueryClient) =>
     queryKeys.collaborators.all,
     queryKeys.scheduleEvents.all,
     queryKeys.workspaces.all,
+    queryKeys.feed.all,
+    queryKeys.showcases.all,
+    queryKeys.shelves.all,
   ].forEach((queryKey) => queryClient.invalidateQueries({ queryKey }));
 
 export function useBlockPerson() {

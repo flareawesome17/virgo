@@ -10,6 +10,7 @@ import {
   likesApi,
   queryKeys,
   profileWorkApi,
+  retryUnlessGone,
   shelvesApi,
   showcasesApi,
   type FeedItem,
@@ -18,6 +19,7 @@ import {
   type Comment,
   type ShelfSummary,
   type Showcase,
+  type ShowcaseDetail,
 } from '@/api';
 
 /**
@@ -53,11 +55,18 @@ export function useFeed(scope: 'everyone' | 'connections' = 'everyone') {
   };
 }
 
-/** The owner's own showcases, drafts included. */
-export function useMyShowcases() {
+/**
+ * The owner's own showcases, drafts and take-downs included.
+ *
+ * Your own profile reads this rather than the by-handle list: it needs no
+ * handle, and it still shows a post you took down — the only place left to
+ * put it back up from.
+ */
+export function useMyShowcases(opts: { enabled?: boolean } = {}) {
   const query = useQuery({
     queryKey: queryKeys.showcases.mine,
     queryFn: () => showcasesApi.mine(),
+    enabled: opts.enabled ?? true,
   });
 
   return {
@@ -72,6 +81,7 @@ export function useShowcase(id: string | undefined) {
     queryKey: queryKeys.showcases.one(id ?? ''),
     queryFn: () => showcasesApi.one(id!),
     enabled: Boolean(id),
+    retry: retryUnlessGone,
   });
 
   return {
@@ -91,8 +101,10 @@ export function useShowcase(id: string | undefined) {
 export function useShowcaseActions() {
   const queryClient = useQueryClient();
 
+  // Every showcase query, not just the owner's list: the post that is open,
+  // and the profile tabs it came from, were left showing what it used to be.
   const touched = () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.showcases.mine });
+    queryClient.invalidateQueries({ queryKey: queryKeys.showcases.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.feed.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.profile.page });
     queryClient.invalidateQueries({ queryKey: queryKeys.publicProfiles.all });
@@ -124,10 +136,15 @@ export function useShowcaseActions() {
 }
 
 /** The shelves somebody keeps other people's work on. */
-export function useShelves() {
+/**
+ * Your shelves. With `holding`, each also says whether it holds that showcase —
+ * which is what lets the Keep sheet take something off a shelf again.
+ */
+export function useShelves(opts: { enabled?: boolean; holding?: string } = {}) {
   const query = useQuery({
-    queryKey: queryKeys.shelves.mine,
-    queryFn: () => shelvesApi.mine(),
+    queryKey: opts.holding ? queryKeys.shelves.holding(opts.holding) : queryKeys.shelves.mine,
+    queryFn: () => shelvesApi.mine(opts.holding),
+    enabled: opts.enabled ?? true,
   });
 
   return {
@@ -142,6 +159,7 @@ export function useShelfEntries(id: string | undefined, opts: { own?: boolean } 
     queryKey: queryKeys.shelves.entries(id ?? ''),
     queryFn: () => (opts.own === false ? shelvesApi.publicEntries(id!) : shelvesApi.entries(id!)),
     enabled: Boolean(id),
+    retry: retryUnlessGone,
   });
 
   return {
@@ -154,19 +172,18 @@ export function useShelfEntries(id: string | undefined, opts: { own?: boolean } 
 /**
  * Keeping and unkeeping.
  *
- * The feed is invalidated too, because `keptByMe` and `keptCount` are drawn on
- * every card and a Keep button that stays un-kept after a keep is the thing
- * people press twice.
+ * The feed and the showcases are invalidated too, because `keptByMe` and
+ * `keptCount` are drawn on every card and on the post itself, and a Keep
+ * button that stays un-kept after a keep is the thing people press twice.
+ * Every shelf query goes, so the Taste tab on a profile is current as well.
  */
 export function useShelfActions() {
   const queryClient = useQueryClient();
 
-  const touched = (shelfId?: string) => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.shelves.mine });
+  const touched = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.shelves.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.showcases.all });
     queryClient.invalidateQueries({ queryKey: queryKeys.feed.all });
-    if (shelfId) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.shelves.entries(shelfId) });
-    }
   };
 
   const createShelf = useMutation({
@@ -178,7 +195,7 @@ export function useShelfActions() {
   const updateShelf = useMutation({
     mutationFn: ({ id, name, isPublic }: { id: string; name?: string; isPublic?: boolean }) =>
       shelvesApi.update(id, { name, isPublic }),
-    onSuccess: (_r, v) => touched(v.id),
+    onSuccess: () => touched(),
   });
 
   const removeShelf = useMutation({
@@ -196,13 +213,13 @@ export function useShelfActions() {
       showcaseId: string;
       note?: string;
     }) => shelvesApi.keep(shelfId, showcaseId, note),
-    onSuccess: (_r, v) => touched(v.shelfId),
+    onSuccess: () => touched(),
   });
 
   const unkeep = useMutation({
     mutationFn: ({ shelfId, showcaseId }: { shelfId: string; showcaseId: string }) =>
       shelvesApi.unkeep(shelfId, showcaseId),
-    onSuccess: (_r, v) => touched(v.shelfId),
+    onSuccess: () => touched(),
   });
 
   return { createShelf, updateShelf, removeShelf, keep, unkeep };
@@ -244,16 +261,23 @@ export function useProfileTaste(handle: string | undefined) {
 }
 
 /**
- * Liking, applied to the cached feed before the request goes.
+ * Liking, applied to the cached feed and the open post before the request goes.
  *
  * A heart that waits for a round trip before it fills is a heart people tap
  * twice. The pages are rewritten in place rather than invalidated, because
- * refetching the feed would reorder it under somebody mid-scroll.
+ * refetching the feed would reorder it under somebody mid-scroll. The post's
+ * own screen reads a different query, and was left unchanged — so its second
+ * tap liked again instead of unliking.
  */
 export function useLike() {
   const queryClient = useQueryClient();
 
   const write = (showcaseId: string, liked: boolean, delta: number) => {
+    queryClient.setQueryData<ShowcaseDetail>(
+      queryKeys.showcases.one(showcaseId),
+      (old) =>
+        old && { ...old, likedByMe: liked, likeCount: Math.max(0, old.likeCount + delta) },
+    );
     for (const scope of ['everyone', 'connections'] as const) {
       queryClient.setQueryData<{ pages: FeedPage[]; pageParams: unknown[] }>(
         queryKeys.feed.scope(scope),

@@ -60,6 +60,7 @@ function TabsLayoutInner() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
+  const { reveal } = useChrome();
   // An invitation is invisible until answered — the workspace does not
   // show up anywhere else — so the count has to live on the tab itself.
   const { invitations } = useCollaboratorInvitations();
@@ -98,6 +99,12 @@ function TabsLayoutInner() {
       tabBar={(props) =>
         Platform.OS === 'ios' ? <AppTabBar {...props} /> : <SlidingBar {...props} />
       }
+      // Both bars come back whenever a tab comes into focus — switched to,
+      // opened from a tile, or returned to from a pushed screen. Connect, Chat,
+      // Network and Settings never report their scrolling, so a Dashboard
+      // scrolled far enough to hide the bars used to open Connect with no
+      // navigation at all, and nothing on it could bring them back.
+      screenListeners={{ focus: reveal }}
       screenOptions={{
         headerShown: false,
         tabBarStyle: {

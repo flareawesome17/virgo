@@ -35,6 +35,13 @@ export class RemindersRepository extends OwnedRepository<ReminderRow> {
     'is_completed',
   ];
 
+  /**
+   * Upcoming only. The list had no time bound, so asking for 100 meant the 100
+   * oldest — completed and long past included — and from a busy account's
+   * hundredth reminder on, new ones were never scheduled on the phone.
+   */
+  protected readonly rangeColumns = ['reminder_time'];
+
   protected readonly sortableColumns = ['reminder_time', 'created_at', 'title'];
   protected readonly defaultOrderBy = 'reminder_time';
   protected readonly defaultDirection = 'asc' as const;

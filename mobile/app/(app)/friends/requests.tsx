@@ -73,7 +73,7 @@ export default function FriendRequestsScreen() {
         ListHeaderComponent={
           <View>
             <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-              <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+              <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
                 style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
                 <ArrowLeftIcon size={18} className="text-foreground" />
               </Pressable>
@@ -95,10 +95,10 @@ export default function FriendRequestsScreen() {
                       <Text className="text-foreground text-sm font-bold">{f.friend_name}</Text>
                       {f.friend_email ? <Text className="text-muted-foreground text-xs mt-0.5">{f.friend_email}</Text> : null}
                     </View>
-                    <Pressable onPress={() => acceptRequest(f.id, f.friend_name, f.friend_avatar_url)} className="w-10 h-10 rounded-full bg-[#6B8E4E18] items-center justify-center active:scale-[0.92]">
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Accept ${f.friend_name}`} onPress={() => acceptRequest(f.id, f.friend_name, f.friend_avatar_url)} className="w-11 h-11 rounded-full bg-[#6B8E4E18] items-center justify-center active:scale-[0.92]">
                       <CheckIcon size={18} color="#6B8E4E" />
                     </Pressable>
-                    <Pressable onPress={() => declineRequest(f.id)} className="w-10 h-10 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Decline ${f.friend_name}`} onPress={() => declineRequest(f.id)} className="w-11 h-11 rounded-full bg-muted items-center justify-center active:scale-[0.92]">
                       <XIcon size={16} className="text-muted-foreground" />
                     </Pressable>
                     {/* Declining stops them asking again but tells nobody, and

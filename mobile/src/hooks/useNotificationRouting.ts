@@ -93,7 +93,28 @@ export function useNotificationRouting(enabled: boolean): void {
         case 'app-update':
           router.push('/notifications');
           return;
+
+        // These four were sent and never routed, so a tap only opened the app
+        // wherever it was last. The in-app list already sent each of them to
+        // the same places (notification-topics.ts).
+        case 'booking':
+          router.push(payload.bookingId ? `/bookings/${payload.bookingId}` : '/bookings');
+          return;
+        case 'support_reply':
+          router.push(payload.ticketId ? `/support?ticket=${payload.ticketId}` : '/support');
+          return;
+        // There is no billing screen; plans and what you pay live here.
+        case 'billing':
+          router.push('/settings/storage/plans');
+          return;
+        case 'retention':
+          router.push('/albums');
+          return;
       }
+
+      // A reward carries no type, only its id, and pushes already on phones
+      // cannot gain one.
+      if (payload.promoId) router.push('/rewards');
     };
 
     return onNotificationTap(go);

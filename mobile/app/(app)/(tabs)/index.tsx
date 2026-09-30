@@ -1,5 +1,13 @@
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
-import { eventColor, eventTypeLabel, isEventUpcoming } from '@/src/lib/calendar';
+import {
+  dateToKey,
+  eventColor,
+  eventTypeLabel,
+  formatTime,
+  isEventUpcoming,
+  parseDateKey,
+  todayKey,
+} from '@/src/lib/calendar';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
 import { RemoteImage } from '@/components/RemoteImage';
@@ -10,7 +18,7 @@ import {
   useBookings,
   useFriends,
   useMyJobs,
-  useScheduleEvents,
+  useScheduleEventRange,
   useTheme,
   useUsage,
   useWorkspaces,
@@ -35,6 +43,7 @@ import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
 import { AppTopBar, StorageRing } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { CHART_COLORS, PALETTES } from '@/theme';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
 cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -49,24 +58,32 @@ const QUICK_ACTIONS = [
   { key: 'invite', label: 'Invite', icon: UserPlusIcon },
 ];
 
+/**
+ * "Today", "Tomorrow", a weekday this week, or a date.
+ *
+ * Counted in calendar days on the phone's clock. An event date is date-only,
+ * and `new Date('2026-10-01')` is UTC midnight — 8 AM in Manila — so the old
+ * sum of milliseconds, rounded up, called today's events "Tomorrow" until 8.
+ */
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diff = d.getTime() - now.getTime();
-  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+  const d = parseDateKey(dateStr.slice(0, 10));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  // Rounded, not truncated: a day across a daylight-saving change is 23 or 25
+  // hours long.
+  const days = Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   if (days === 0) return 'Today';
   if (days === 1) return 'Tomorrow';
-  if (days < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
+  if (days > 1 && days < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function formatTime(timeStr: string | null): string {
-  if (!timeStr) return '';
-  const [h, m] = timeStr.split(':');
-  const hour = parseInt(h);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const h12 = hour % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
+/** It said "Good morning" at every hour. */
+function greeting(now = new Date()): string {
+  const hour = now.getHours();
+  if (hour >= 4 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 18) return 'Good afternoon';
+  return 'Good evening';
 }
 
 export default function DashboardScreen() {
@@ -100,17 +117,19 @@ export default function DashboardScreen() {
     enabled,
   );
 
-  // Fetches a window rather than 4: sorted ascending, the first few rows are
-  // the *oldest* events, so a small limit could return nothing but past ones
-  // and leave Upcoming permanently empty once they were filtered out.
+  // The next 60 days, by date. It fetched the 50 earliest events: for an
+  // account with 50 behind it, nothing ahead was ever among them, and Upcoming
+  // stayed empty however full the calendar was.
+  const [soonWindow] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 60);
+    return { from: todayKey(), to: dateToKey(end) };
+  });
   const {
     events,
     loadFailed: eventsFailed,
     refetch: refetchEvents,
-  } = useScheduleEvents(
-    { orderBy: 'event_date', direction: 'asc', limit: 50 },
-    enabled,
-  );
+  } = useScheduleEventRange(soonWindow.from, soonWindow.to);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -194,7 +213,7 @@ export default function DashboardScreen() {
         {/* ── Header ── */}
         <View className="px-5 pt-4 pb-2 flex-row items-center justify-between">
           <View>
-            <Text className="text-muted-foreground text-sm font-medium">Good morning</Text>
+            <Text className="text-muted-foreground text-sm font-medium">{greeting()}</Text>
             <Text className="text-foreground text-[28px] font-bold tracking-tight leading-[34px]">
               {profile?.displayName?.split(' ')[0] ?? 'there'}
             </Text>
@@ -260,12 +279,18 @@ export default function DashboardScreen() {
                 <Text className="text-muted-foreground text-xs font-medium">left</Text>
               </Text>
               {storageFraction >= 0.9 && (
+                // Where more cannot be bought (SELLS_PLANS_HERE), the useful
+                // move is seeing what is taking the space.
                 <Pressable
-                  onPress={() => router.push('/settings/storage/plans')}
+                  onPress={() =>
+                    router.push(SELLS_PLANS_HERE ? '/settings/storage/plans' : '/settings/storage')
+                  }
                   accessibilityRole="button"
                   className="active:opacity-70"
                 >
-                  <Text className="text-primary text-xs font-semibold">Get more storage</Text>
+                  <Text className="text-primary text-xs font-semibold">
+                    {SELLS_PLANS_HERE ? 'Get more storage' : 'Manage storage'}
+                  </Text>
                 </Pressable>
               )}
             </View>

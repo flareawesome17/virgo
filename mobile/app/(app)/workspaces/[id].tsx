@@ -30,7 +30,7 @@ import {
   useWorkspace,
   useWorkspaceMembers,
 } from '@/src/hooks';
-import { formatBytes, type Album, type ScheduleEvent, type Workspace, type WorkspaceMember } from '@/src/api';
+import { ApiError, formatBytes, type Album, type ScheduleEvent, type Workspace, type WorkspaceMember } from '@/src/api';
 import { isEventUpcoming } from '@/src/lib/calendar';
 import {
   ACCESS_LABEL,
@@ -298,7 +298,7 @@ function OwnerView({
         style: 'destructive',
         onPress: () =>
           remove.mutate(id, {
-            onSuccess: () => router.replace('/(app)/(tabs)/workspaces'),
+            onSuccess: () => router.dismissTo('/(app)/(tabs)/workspaces'),
             onError: (err: Error) => Alert.alert('Could not delete', err.message),
           }),
       },
@@ -663,7 +663,7 @@ function SharedView({ workspace }: { workspace: Workspace }) {
           style: 'destructive',
           onPress: () =>
             leave.mutate(id, {
-              onSuccess: () => router.replace('/(app)/(tabs)/workspaces'),
+              onSuccess: () => router.dismissTo('/(app)/(tabs)/workspaces'),
               onError: (err: Error) => Alert.alert('Could not leave', err.message),
             }),
         },
@@ -802,7 +802,11 @@ function SharedView({ workspace }: { workspace: Workspace }) {
 
 export default function WorkspaceDetailScreen() {
   const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
-  const { data: workspace, isLoading } = useWorkspace(id);
+  const { data: workspace, isLoading, error, isError, isPaused, refetch } = useWorkspace(id);
+  // "It may have been deleted" is for a 404 or 403. Offline, or a server
+  // having a bad minute, it told people their workspace might be gone.
+  const gone =
+    error instanceof ApiError && (error.status === 404 || error.status === 403);
   const initialSegment: Segment = tab === 'members' || tab === 'albums' ? tab : 'overview';
 
   return (
@@ -816,6 +820,13 @@ export default function WorkspaceDetailScreen() {
       ) : isLoading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator />
+        </View>
+      ) : !gone && (isError || isPaused) ? (
+        <View className="flex-1">
+          <View className="px-2 pt-1">
+            <BackButton />
+          </View>
+          <LoadFailed what="this workspace" onRetry={() => void refetch()} />
         </View>
       ) : (
         // Deleted, left, removed, or never there: one answer, since the server
@@ -831,7 +842,7 @@ export default function WorkspaceDetailScreen() {
               It may have been deleted, or you are no longer a member.
             </Text>
             <Pressable
-              onPress={() => router.replace('/(app)/(tabs)/workspaces')}
+              onPress={() => router.dismissTo('/(app)/(tabs)/workspaces')}
               accessibilityRole="button"
               className="mt-2 bg-action rounded-2xl px-5 py-3 active:scale-[0.96]"
             >

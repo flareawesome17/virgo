@@ -77,6 +77,10 @@ export const FRIEND_VISIBLE = `(f.friend_user_id is null or (not ${blockedBetwee
  */
 export const FRIEND_PRESENTED = `select f.id, f.user_id, f.friend_user_id, f.friend_name,
        case when f.friend_user_id is null then f.friend_email end as friend_email,
-       f.friend_avatar_url, f.status, f.requested_by, f.created_at, f.updated_at
+       f.friend_avatar_url, f.status, f.requested_by, f.created_at, f.updated_at,
+       -- Their profile link, only once it is published: an unpublished handle
+       -- is a 404. A lookup, not a join, so nothing else of theirs comes along.
+       (select case when u.public_profile then u.handle end
+          from users u where u.id = f.friend_user_id) as friend_handle
   from friends f
   left join friends b on b.user_id = f.friend_user_id and b.friend_user_id = f.user_id`;

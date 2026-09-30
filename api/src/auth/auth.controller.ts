@@ -3,6 +3,8 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import {
+  ChangeEmailDto,
+  ChangePasswordDto,
   DeleteAccountDto,
   DisableAccountDto,
   BeginTwoFactorSetupDto,
@@ -13,6 +15,7 @@ import {
   ForgotPasswordDto,
   LoginDto,
   RefreshDto,
+  ForgetDeviceDto,
   RegisterDto,
   ResetPasswordDto,
   UpdateProfileDto,
@@ -141,6 +144,45 @@ export class AuthController {
     return this.accounts.verifyEmail(dto.token);
   }
 
+  /**
+   * Changes the password, signs every other device out, and hands this one a
+   * fresh pair so the person who asked stays signed in.
+   */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('me/password')
+  async changePassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    const user = await this.accounts.changePassword(
+      userId,
+      dto.currentPassword,
+      dto.newPassword,
+    );
+    return this.auth.sessionAfterPasswordChange(user);
+  }
+
+  /** Sends a confirmation link to a new address. Nothing changes until it is used. */
+  @Throttle({ default: { limit: 3, ttl: 5 * 60_000 } })
+  @HttpCode(202)
+  @Post('me/email')
+  requestEmailChange(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangeEmailDto,
+  ) {
+    return this.accounts.requestEmailChange(userId, dto.password, dto.newEmail);
+  }
+
+  /** Redeems the link from requestEmailChange. Public: it is opened from an inbox. */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('confirm-email')
+  confirmEmailChange(@Body() dto: VerifyEmailDto) {
+    return this.accounts.confirmEmailChange(dto.token);
+  }
+
   /** Re-sends the verification link to the signed-in user's own address. */
   @AllowUnverified()
   @Throttle({ default: { limit: 3, ttl: 300_000 } })
@@ -156,7 +198,7 @@ export class AuthController {
   @HttpCode(200)
   @Post('login')
   login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password);
+    return this.auth.login(dto.email, dto.password, { unpause: dto.unpause === true });
   }
 
   @Public()
@@ -236,6 +278,27 @@ export class AuthController {
   @Post('logout')
   async logout(@Body() dto: RefreshDto): Promise<void> {
     await this.auth.logout(dto.refreshToken);
+  }
+
+  /**
+   * Stops a phone receiving an account's pushes as it signs out.
+   *
+   * Nothing did before: a signed-out phone kept showing the account's message
+   * previews on its lock screen until someone else signed in on it.
+   *
+   * Takes the refresh token, not the access token, because the sign-out that
+   * most needs this is the forced one — a password changed on another device,
+   * "sign out everywhere" — and by then neither token is honoured. A revoked
+   * refresh token still proves the caller held this account's session, which
+   * is all that removing its own push row needs. Separate from logout so that
+   * a server without it answers 404 rather than failing the sign-out.
+   */
+  @Public()
+  @HttpCode(204)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('forget-device')
+  async forgetDevice(@Body() dto: ForgetDeviceDto): Promise<void> {
+    await this.auth.forgetDevice(dto.refreshToken, dto.pushToken);
   }
 
   @Get('me')

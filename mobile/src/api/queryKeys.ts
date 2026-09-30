@@ -126,6 +126,8 @@ export const queryKeys = {
     all: ['portfolio'] as const,
   },
   showcases: {
+    /** Every showcase query: lists, single posts, profiles and threads. */
+    all: ['showcases'] as const,
     /** The owner's own list, drafts included. */
     mine: ['showcases', 'mine'] as const,
     one: (id: string) => ['showcases', 'one', id] as const,
@@ -137,7 +139,10 @@ export const queryKeys = {
     scope: (scope: 'everyone' | 'connections') => ['feed', scope] as const,
   },
   shelves: {
+    /** Every shelf query: your own, somebody's profile, and a shelf's entries. */
+    all: ['shelves'] as const,
     mine: ['shelves', 'mine'] as const,
+    holding: (showcaseId: string) => ['shelves', 'mine', 'holding', showcaseId] as const,
     ofHandle: (handle: string) => ['shelves', 'of', handle] as const,
     entries: (id: string) => ['shelves', 'entries', id] as const,
   },

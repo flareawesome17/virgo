@@ -25,6 +25,7 @@ import {
   dateToTimeString,
   parseDateKey,
 } from '@/src/lib/calendar';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -50,6 +51,8 @@ const OTHER_LABEL_MAX = 40;
 
 
 export default function CreateEventScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   // workspaceId arrives when this is opened from a workspace's quick actions,
@@ -161,7 +164,9 @@ export default function CreateEventScreen() {
   const createEvent = useCreateScheduleEvent();
   const updateEvent = useUpdateScheduleEvent();
   const inviteToEvent = useInviteToEvent();
-  const saving = editing ? updateEvent.isPending : createEvent.isPending;
+  const saving = editing
+    ? updateEvent.isPending
+    : createEvent.isPending || inviteToEvent.isPending;
 
   const handleUpdate = () => {
     if (!eventId) return;
@@ -202,21 +207,24 @@ export default function CreateEventScreen() {
         ...(selectedWsId ? { workspace_id: selectedWsId } : {}),
       },
       {
-        onSuccess: (event) => {
+        onSuccess: async (event) => {
           // A second call on purpose: the event exists either way, so a failure
           // here costs the invitations, not the event. The detail screen the
           // user lands on shows who was actually invited.
+          //
+          // Awaited before leaving. It was fired and then the screen replaced
+          // at once, and a mutation's own callbacks do not run once the screen
+          // that made it is gone — so this alert could never appear, and a
+          // failed invitation went unmentioned.
           if (guests.length > 0) {
-            inviteToEvent.mutate(
-              { eventId: event.id, userIds: guests },
-              {
-                onError: (err: any) =>
-                  Alert.alert(
-                    'Event created, but the invitations failed',
-                    err?.message || 'Try inviting them from the event.',
-                  ),
-              },
-            );
+            try {
+              await inviteToEvent.mutateAsync({ eventId: event.id, userIds: guests });
+            } catch (err: any) {
+              Alert.alert(
+                'Event created, but the invitations failed',
+                err?.message || 'Try inviting them from the event.',
+              );
+            }
           }
           router.replace(`/schedule/${event.id}`);
         },
@@ -244,16 +252,16 @@ export default function CreateEventScreen() {
 
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
-          <Text className="text-foreground text-[22px] font-bold tracking-tight">{editing ? 'Edit Event' : 'New Event'}</Text>
+          <Text className="text-foreground text-[22px] font-bold tracking-tight">{editing ? 'Edit event' : 'New event'}</Text>
         </View>
 
         {/* Event Type */}
         <View className="px-5 mt-5">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Event Type</Text>
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Event type</Text>
           <View className="flex-row flex-wrap gap-2">
             {EVENT_TYPES.map(t => {
               const Icon = t.icon;
@@ -406,7 +414,7 @@ export default function CreateEventScreen() {
         </Pressable>
         <Pressable onPress={() => canSave && (editing ? handleUpdate() : handleCreate())} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-action' : 'bg-muted'}`} disabled={!canSave || saving}>
           <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>
-            {saving ? (editing ? 'Saving...' : 'Creating...') : editing ? 'Save Changes' : 'Create Event'}
+            {saving ? (editing ? 'Saving...' : 'Creating...') : editing ? 'Save changes' : 'Create event'}
           </Text>
         </Pressable>
       </View>
