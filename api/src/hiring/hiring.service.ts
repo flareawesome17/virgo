@@ -25,13 +25,15 @@ import { canonicalLocation, coordsFor, locationKey } from './locations';
 const DEFAULT_LIFETIME_DAYS = 30;
 
 /**
- * Ten million centavos is ₱100,000 — well past any rate on this market.
+ * Fifty million centavos is ₱500,000. It is there to catch a slipped zero, not
+ * to set a price: ₱100,000 refused real posts, since a premium wedding
+ * photographer or videographer can charge more than that for one role.
  *
  * The same ceiling the controller used to apply to the post-level budget.
  * Enforced here now, because the shape it guards is a map keyed by role name
  * and a DTO cannot describe one.
  */
-const MAX_BUDGET = 100_000_00;
+const MAX_BUDGET = 500_000_00;
 
 /** What a stranger sees on the board. Deliberately not a `users` row. */
 /**

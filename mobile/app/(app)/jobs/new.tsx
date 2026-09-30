@@ -339,7 +339,7 @@ export default function NewJobScreen() {
                 {budgetBackwards
                   ? 'The lower figure needs to be the smaller one.'
                   : budgetTooHigh
-                    ? 'Each role can be up to ₱100,000.'
+                    ? 'Each role can be up to ₱500,000.'
                     : 'Optional, but a role with a number gets far better applications.'}
               </Text>
             </View>

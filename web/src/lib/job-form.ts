@@ -3,11 +3,11 @@ export const JOB_TITLE_MIN = 3;
 export const JOB_DESCRIPTION_MIN = 30;
 
 /**
- * The most one role's budget may be, in centavos: ₱100,000. MAX_BUDGET in the
+ * The most one role's budget may be, in centavos: ₱500,000. MAX_BUDGET in the
  * API's hiring service; kept in step by hand. It was only found out on
  * submit, as "higher than we allow", with the form already filled.
  */
-export const MAX_ROLE_BUDGET_MINOR = 100_000_00;
+export const MAX_ROLE_BUDGET_MINOR = 500_000_00;
 
 /**
  * Why the "Post it" button is disabled, in the user's own words.
@@ -58,7 +58,7 @@ export function jobPostBlockers(input: {
     );
   }
   if (input.budgetBackwards) reasons.push('a budget that runs low to high');
-  if (input.budgetTooHigh) reasons.push('a budget of ₱100,000 or less per role');
+  if (input.budgetTooHigh) reasons.push('a budget of ₱500,000 or less per role');
   if (input.dateLooksRight === false) reasons.push('a date as YYYY-MM-DD');
 
   return reasons;
