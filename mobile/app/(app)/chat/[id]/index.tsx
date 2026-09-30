@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheet } from '@/components/BottomSheet';
@@ -121,6 +122,32 @@ export default function ConversationScreen() {
   const { isDark } = useTheme();
   const { user } = useAuth();
   const { isOffline } = useOffline();
+
+  /*
+   * The composer sat about 80 pt above the iOS keyboard. Two causes, both here:
+   *
+   * - keyboardVerticalOffset was insets.top. The avoiding view measures itself
+   *   inside this SafeAreaView, which already starts below the status bar, so
+   *   the top inset was counted twice. What the offset has to be is where this
+   *   screen starts in the window: 0, or the verify-email banner's height when
+   *   that pushes everything down.
+   * - the composer kept the home-indicator padding with the keyboard up, when
+   *   the keyboard covers that strip.
+   *
+   * iOS only. Android lays out its keyboard differently and was not reported.
+   */
+  const rootRef = useRef<View>(null);
+  const [screenTop, setScreenTop] = useState(0);
+  const [keyboardUp, setKeyboardUp] = useState(false);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const shown = Keyboard.addListener('keyboardWillShow', () => setKeyboardUp(true));
+    const hidden = Keyboard.addListener('keyboardWillHide', () => setKeyboardUp(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
 
   const {
     messages: newest,
@@ -574,11 +601,18 @@ export default function ConversationScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <SafeAreaView
+      ref={rootRef}
+      edges={['top']}
+      className="flex-1 bg-background"
+      onLayout={() =>
+        rootRef.current?.measureInWindow((_x, y) => setScreenTop(Math.max(0, Math.round(y))))
+      }
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
-        keyboardVerticalOffset={insets.top}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? screenTop : insets.top}
       >
         {/* Header */}
         <View
@@ -922,7 +956,7 @@ export default function ConversationScreen() {
         {canSend ? (
           <View
             className="px-4 pt-2 flex-row items-end gap-2 border-t bg-background"
-            style={{ paddingBottom: insets.bottom + 8, borderTopColor: border }}
+            style={{ paddingBottom: (keyboardUp ? 0 : insets.bottom) + 8, borderTopColor: border }}
           >
             <View className="flex-1 bg-card rounded-2xl px-4 py-2.5">
               <TextInput
