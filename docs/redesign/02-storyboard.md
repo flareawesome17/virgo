@@ -129,7 +129,7 @@ Nothing animated is an SVG stroke-dash, and nothing is a CSS filter. A "strokes 
 - Budget: about 1 ms, inside the canvas budget.
 
 **Coordinate frames.** Every cast star carries coordinates in both frames.
-- **Geo:** Transverse Mercator, `+proj=tmerc +lat_0=12 +lon_0=122`. Viewbox `0 0 579.5 1000`; 1 unit ≈ 1.879 km.
+- **Geo:** Transverse Mercator, `+proj=tmerc +lat_0=12 +lon_0=122`. The frame (viewBox `0 0 591.6 1000`, 1 unit = 1.878678 km) lives in `projection.ts`; nothing types those numbers.
 - **Sky:** a gnomonic projection of the real Virgo figure, centred at RA 199.0135°, Dec −0.1011°, with east on the left.
 - A morph value moves stars between the two frames in Ch3.
 
@@ -383,6 +383,47 @@ Reduced motion is estimated at about 1,600 svh on mobile; Phase 3 measures it.
 - **Deferred rendering:** `content-visibility: auto` with `contain-intrinsic-size` on Ch9, the FAQ and the footer only. Never on an ancestor of the sky.
 - **No layout shift:** counters use tabular figures with reserved widths, meters use `scaleX`, and chat bubbles are laid out before they animate.
 
+### 1.13 Depth system: the whole page is 3D
+*Added 2026-10-02 at the owner's request: "make sure that the whole concept is 3D effect".*
+
+**One world, one camera.** The sky is a 3D scene, and the §1.3 camera becomes a true 3D camera: `{position, target, fov}` in world units, with x = east, y = up and z = north.
+- **Stars** are a seeded 3D point cloud with depth, projected by the same perspective maths in the canvas. That's ≤ 1,200 points, about 0.3 ms per frame, with no WebGL.
+- **Depth cues.** Far stars are smaller and dimmer (fog), and nearer stars drift faster (parallax). A push in streams near stars past the edges of the frame.
+- **The map** is the plane y = 0. Its SVG `<img>` sits in a wrapper whose CSS `matrix3d` is computed from the same camera each frame. That homography is exact, compositor-only and pixel-aligned with the canvas.
+- **Labels and chips** stay flat HTML, placed by projection, so text is never distorted.
+
+**DOM depth.** Stage containers set `perspective: 1200px` (900 px on mobile).
+- Phones and cards are 3D slabs: a front face plus one visible edge for thickness, and a contact shadow drawn with CSS radial gradients that scale and fade (no image request, never a live blur).
+- They rotate with scroll through single-level `useTransform` transform strings (`rotateX/rotateY/translateZ`). These stay compositor-accelerated.
+- Limits: ≤ 18° on desktop, ≤ 10° on mobile.
+- `preserve-3d` is at most one level deep, never on text blocks.
+- Copy always lands facing the reader, at 0°, before it is read.
+- A highlight sheen crossfades between two gradient layers as a slab turns (opacity only).
+
+**Signature 3D beats.**
+| Chapter | Beat |
+|---|---|
+| Prologue | **The descent.** The camera starts deep in the star cloud, looking down on the archipelago from space. As you scroll it dollies down through the stars, pitching from overhead to an oblique view as it nears Cebu. Mika's star is the one it lands on. |
+| Ch1 | The phone stands in 3D. As the chats stack, the notification cards fan back in depth (each older card further back on z, not just smaller). At the freeze, the phone eases flat to face you for the form. |
+| Ch2 | The radar ring lies on the tilted map plane, like a ripple on water, seen at an angle. The nearby stars stand above it at their distances. The erased star simply isn't there in the next frame. |
+| Ch3 | **"From where you stand."** The figure's stars sit at their real distances from Earth (Hipparcos parallaxes, from Porrima at about 38 ly to Zaniah at about 260 ly). The camera starts off-axis, where the stars are a scatter with no shape, and orbits until it looks from Earth. Then they line up into Virgo. A mono caption carries the distances. |
+| Ch4 | The calendar grid lies back in perspective like a desk surface. Saturday's cell lifts toward you. The phone rises out of it for the 5:00 AM ring. |
+| Ch5 | Tiles fly from the three device chips along curved 3D arcs into an album stack. The stack then fans out in depth into capture order: a timeline that recedes from Prep to Reception. |
+| Ch6 | The link travels along z, out of the album toward you. It lands on the couple's phone, which turns to face you as it opens. |
+| Ch7 | Each dissolving tile's particles rise in 3D, up and past the camera, into the sky behind. |
+| Ch8 | **The crane up.** The camera lifts and pulls back, and the archipelago tilts into a plane in perspective. Small constellations hover above their cities, each with a faint thread of light down to the ground. |
+| Ch10 | The paid tiers' stars sit at depth below a horizon plane; the Free star has risen in front. |
+| Finale | The camera dollies toward the dark socket at Syrma, and the new star ignites in front of you. |
+
+**Reduced motion** keeps the depth and drops the movement. Each figure is a still 3D composition: tilted slabs, the oblique map, the constellation chart. The 3D look survives with no animation.
+
+**Video.** The Remotion compositions use `@remotion/three` (React Three Fiber), which is Remotion-only and never shipped to the site. It renders the same star data, real distances and seed in true WebGL. Depth of field and glow come from sprites and post-processing, and the poster stills come from the same scene.
+
+**Why not WebGL on the site.**
+- three.js and R3F would add ≥ 150 KB gzip and a GPU context on mid-range Android, against the §1.12 budgets.
+- Everything above is achievable with canvas perspective maths and CSS 3D.
+- If you want true WebGL on the site anyway, it is a contained swap of B1's renderer.
+
 ---
 
 ## 2. Chapters
@@ -585,7 +626,7 @@ Nothing inside the fixed or sticky stage is focusable.
 **Mobile.** The thread is capped at 2 messages. The star labels are aria-hidden; the figcaption carries the full cast-to-star mapping.
 
 **Reduced motion.** A 2×2 static set, stacked on mobile:
-- the applicant rows reading "Accepted";
+- the applicant rows showing the poster's status badge, "accepted" (the app prints it lowercase on the poster's side);
 - the terms card, confirmed, with the Agreed booking;
 - the thread;
 - a static 13-star chart with the cast names beside the star names, and Syrma hollow.
@@ -610,7 +651,7 @@ Then the "Every role is filled" card.
 **Timeline**
 | p | Beat |
 |---|---|
-| 0.00–0.20 | The canvas dims to 30% and stops; Ch4's opaque night surface takes over. The constellation's 13 stars drop into a December month grid (Sunday first). Sat 12 is selected and glows gold, with one event dot. Event detail: "Reyes & Santos wedding · Sat 12 Dec · 6:30 AM · Cebu City". |
+| 0.00–0.20 | The canvas dims to 30% and stops; Ch4's opaque night surface takes over. The constellation's 13 stars drop into a December month grid (Sunday first). Sat 12 is selected and glows gold, with one event dot. Event detail: "Reyes & Santos wedding", "Saturday, December 12, 2026" (the phone's own date format), 6:30 AM, Cebu City. |
 | 0.20–0.40 | Under **"Who’s coming"**, Ernie, Kenn and Bea flip from *Invited* to **Going** (flip spring; status colour `#A89489 → #6B8E4E`). A notification row reads "Ernie accepted your invitation · Reyes & Santos wedding". |
 | 0.40–0.62 | The time digits roll 6:30 → **6:00**. Three in-app notification cards fan out to the crew's avatars: "Mika Dizon moved an event / Reyes & Santos wedding — now 2026-12-12 at 06:00". *Desktop:* below them, an email subject chip: "Moved: Reyes & Santos wedding is now 2026-12-12 at 06:00". |
 | 0.62–0.78 | Mika's phone shows **New reminder**: "for Reyes & Santos wedding" · Leave for the hotel · Call time 6:00. Cards, batteries, the second flash. · 5:00 AM · Alarm: "Play a sound at the reminder time". |
@@ -838,7 +879,7 @@ The hearts demo still works.
 
 **Interactive.** None.
 
-**Mobile.** One full-width card with a 4:5 Plate cover; the tags wrap.
+**Mobile.** One full-width card with the phone feed's own cover ratio (width × 1.15; 4:5 is the web feed's); the tags wrap.
 
 **Reduced motion.** Static cards with the note and tags shown.
 
@@ -1245,7 +1286,7 @@ Captions are either the page's own lines (**[page]**) or **[proposed, for your O
 7. **Kalayaan Island Group.** Crop it (proposed), or show it as an inset?
 8. **Optional pieces.** "The work", the two in-flow demos, the Finale role picker. *Default: build them all as cut-ready, and judge in QA.*
 9. **Reel captions** marked [proposed] in §4.1. OK as written?
-10. **iOS.** Is the App Store listing public? If it is, the JSON-LD keeps iOS (and a store link could be considered); if not, iOS comes out of the JSON-LD.
+10. **iOS.** *Answered 2026-10-02: going public soon.* The JSON-LD keeps iOS. A store link and an iPhone mention in the Finale's micro line go in the day the listing is live, not before.
 11. **Product gaps** the page now works around (yours to fix or accept):
     - clients get no warning before clean-up;
     - archiving a workspace and pausing an account don't pause retention, and the app's pause copy says "Nothing is deleted";
@@ -1300,3 +1341,15 @@ With the selected roles (Videographer, SDE Editor Video, HMUA), the panel lists 
 | 10 | Pricing | `#pricing` | 109 Vir |
 | — | This one's you | `#start` | ι **Syrma** |
 | — | FAQ | `#faq` | — |
+
+## Appendix C — Decisions made while building the assets (Phase 3)
+- **The app wins over the storyboard wherever they disagree:**
+  - the poster's applicant badge reads "accepted" in lowercase;
+  - the phone event date is "Saturday, December 12, 2026";
+  - notification bodies use the API's curly quotes;
+  - the showcase cover is width × 1.15;
+  - the client page has no day headings in frame, because they count only the files loaded so far.
+- **AA over app colour.** Where the app draws small `#B66A40` text, or white on `#B66A40`, the mocks use `#D18A5A` text and `#A85D35` fills (§1.5). Text never drops under 11 px, even where the app uses 9–10 px. Every deviation is commented in the mock.
+- **DOM budget.** NearbyPhone and NearbyPanel are 285–347 nodes with all ten rows. The chapter passes `maxRows` (about 6, which is all that's visible at rest) to stay near the 150-per-stage budget.
+- **Phone width.** The phone screens in Ch1–Ch4 need at least 340–360 px: narrower, and the longest role badge wraps as it would in the app.
+- **App bug found.** On the client page the picks bar's Download icon has no stroke, so at ≤ 520 px it renders as an empty pill (`api/src/albums/share/client-gallery.template.ts`). The mock draws the intended icon. Fixing the app is the owner's call.
