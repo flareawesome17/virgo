@@ -20,6 +20,7 @@ import { TheWork } from './chapters/the-work';
 import { mapLevels } from './map-levels';
 import { DownloadPill, Letterbox, Scrubber } from './cinema/chrome';
 import { Cuts, type Cut } from './cinema/cuts';
+import { ScenePrefetch } from './cinema/prefetch';
 import { MotionRoot } from './motion';
 import { PrePaint } from './pre-paint';
 import { SkyProvider } from './sky-stage';
@@ -68,6 +69,7 @@ export function StoryPage({ plans }: { plans: PlanInfo[] }) {
           <Letterbox />
           <Scrubber />
           <DownloadPill />
+          <ScenePrefetch />
         </SkyProvider>
       </MotionRoot>
       <div aria-hidden className="story-grain" style={{ backgroundImage: `url(${MEDIA.grain.url})` }} />

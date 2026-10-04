@@ -129,7 +129,7 @@ export function Scrubber() {
     };
     measure();
     const ro = new ResizeObserver(measure);
-    ro.observe(document.body);
+    ro.observe(document.querySelector('.story-page') ?? document.documentElement);
     return () => ro.disconnect();
   }, []);
 
@@ -164,7 +164,7 @@ export function Letterbox() {
     };
     measure();
     const ro = new ResizeObserver(measure);
-    ro.observe(document.body);
+    ro.observe(document.querySelector('.story-page') ?? document.documentElement);
     mq.addEventListener('change', measure);
     return () => {
       ro.disconnect();

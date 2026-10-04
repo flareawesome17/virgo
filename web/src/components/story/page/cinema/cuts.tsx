@@ -48,8 +48,9 @@ export function Cuts({ cuts }: { cuts: readonly Cut[] }) {
       setSize({ w: window.innerWidth, h: window.innerHeight });
     };
     measure();
+    // The body has a fixed height, so watch the story wrapper, which grows with its chapters.
     const ro = new ResizeObserver(measure);
-    ro.observe(document.body);
+    ro.observe(document.querySelector('.story-page') ?? document.documentElement);
     return () => ro.disconnect();
   }, [gate.motion, cuts]);
 

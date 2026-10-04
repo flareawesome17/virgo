@@ -47,7 +47,7 @@ export function Subtitles({
   className?: string;
 }) {
   return (
-    <div className={`pointer-events-none absolute inset-x-0 bottom-[16svh] z-30 flex justify-center px-5 sm:bottom-[14svh] ${className}`}>
+    <div className={`pointer-events-none absolute inset-x-0 bottom-[16svh] z-30 flex justify-center px-5 sm:bottom-[14svh] lg:bottom-[7svh] ${className}`}>
       <div className="relative grid w-full max-w-4xl place-items-center text-center">
         {lines.map((line, i) => (
           <SubtitleLine key={i} progress={progress} line={line} tone={tone} />
@@ -67,7 +67,7 @@ function SubtitleLine({ progress, line, tone }: { progress: MotionValue<number>;
   return (
     <m.div style={{ opacity: o, transform: t }} className="col-start-1 row-start-1 px-6 py-5">
       <div aria-hidden className={`absolute -inset-x-8 -inset-y-6 -z-10 ${scrim}`} />
-      <p className={`text-balance text-[clamp(1.6rem,1rem+3.2vw,3.4rem)] font-semibold leading-[1.08] tracking-[-0.025em] ${ink}`}>{line.text}</p>
+      <p className={`text-balance text-[clamp(1.6rem,1rem+3.2vw,2.4rem)] lg:text-[clamp(2rem,0.9rem+1.9vw,2.9rem)] font-semibold leading-[1.08] tracking-[-0.025em] ${ink}`}>{line.text}</p>
       {line.small && <p className={`mt-3 text-pretty text-[15px] sm:text-[17px] ${tone === 'day' ? 'text-[#54433C]' : 'text-[#BCADA3]'}`}>{line.small}</p>}
     </m.div>
   );

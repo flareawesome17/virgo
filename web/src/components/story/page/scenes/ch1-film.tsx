@@ -58,7 +58,7 @@ const SPOT: Record<'wide' | 'narrow', readonly { x: number; y: number; ry: numbe
 };
 
 /** The hero's anchor: a little high on phones, so the subtitles have the lower third. */
-const ANCHOR = 'absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2 lg:top-1/2';
+const ANCHOR = 'absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2 lg:top-[45%]';
 
 export default function Ch1Film() {
   const [wide] = useState(() => window.innerWidth >= 1024);
