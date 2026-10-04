@@ -3,7 +3,6 @@
 import { useEffect } from 'react';
 import { RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { captureError } from '@/lib/analytics';
 
 /**
  * What a screen shows when it breaks.
@@ -27,7 +26,9 @@ export default function RouteError({
   reset: () => void;
 }) {
   useEffect(() => {
-    captureError(error, 'route');
+    // Loaded when it is needed, not with the page: analytics is PostHog, and
+    // a boundary that imported it would put it in every page's first load.
+    void import('@/lib/analytics').then(({ captureError }) => captureError(error, 'route'));
   }, [error]);
 
   return (

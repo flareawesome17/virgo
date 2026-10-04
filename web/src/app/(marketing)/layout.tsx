@@ -1,18 +1,37 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { VisitBeacon } from '@/components/visit-beacon';
+import { fontVariables } from '../fonts';
+import '../globals.css';
 
 /**
  * The public site.
  *
- * Its own route group because it is the opposite of the rest of the app in
- * every way that matters: no auth guard, no app shell, and — unlike the root
- * layout, which tells crawlers to stay out of a signed-in tool — it is the one
- * page that *wants* to be indexed.
+ * Its own root layout because it is the opposite of the rest of the app in
+ * every way that matters: no auth guard, no app shell, no session, and —
+ * unlike the app, which tells crawlers to stay out of a signed-in tool — it is
+ * the one page that *wants* to be indexed.
+ *
+ * Being a root of its own is also what keeps the app's providers off it.
+ * PostHog, React Query, the realtime connection and the session used to load
+ * here through the shared root layout: about half the landing page's
+ * JavaScript, for a page that uses none of them.
  */
 export const metadata: Metadata = {
-  // `absolute` escapes the root layout's "%s · Virgo" template, which would
-  // otherwise render "… videographers · Virgo".
+  // Resolves the relative image paths in the Open Graph tags (the generated
+  // card). Without it Next falls back to localhost.
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph',
+  ),
+  icons: {
+    icon: [
+      { url: '/favicon.png', sizes: '48x48', type: 'image/png' },
+      { url: '/logo.png', sizes: 'any', type: 'image/png' },
+    ],
+    apple: '/icon.png',
+  },
+  // `absolute`, with no template: the pages under this layout set their own
+  // titles in full, as they did when the app's "%s · Virgo" template sat above.
   // One wording, used everywhere below. The title and the og:title used to
   // disagree — "the creative community and workspace" against "where creatives
   // find each other, and get paid" — so a share and a search result advertised
@@ -25,7 +44,7 @@ export const metadata: Metadata = {
   // losing the part that actually distinguishes the product.
   description:
     'Find and hire photographers, videographers, editors and HMUAs near you, then run the whole job in one place. Client links that open without an account.',
-  // Overrides the root layout's noindex. This page is the front door.
+  // This site is the front door; the app is the part marked noindex.
   robots: { index: true, follow: true },
   alternates: { canonical: 'https://virgo.ph' },
   openGraph: {
@@ -47,15 +66,21 @@ export const metadata: Metadata = {
   },
 };
 
+/** The page is always dark, so the browser's chrome and controls are too. */
+export const viewport: Viewport = {
+  themeColor: '#161311',
+  colorScheme: 'dark',
+};
+
 export default function MarketingLayout({ children }: { children: ReactNode }) {
   /**
    * `landing-scroll` carries two rules the app must not inherit: smooth
    * scrolling, and a scroll-margin on sections so an anchor does not land
    * underneath the fixed header.
    *
-   * It sits on the wrapper rather than <html> because the root layout is
-   * shared with the app, and scroll-margin applies to the target element, so
-   * a descendant selector reaches it fine.
+   * It stays on the wrapper rather than <html>: scroll-margin applies to the
+   * target element, so a descendant selector reaches it fine, and the rules
+   * stay in one place.
    */
   /**
    * `dark` is forced rather than inherited.
@@ -66,9 +91,13 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
    * page that renders two ways is two pages to keep looking right.
    */
   return (
-    <div className="landing-scroll dark min-h-full bg-[#161311] text-white">
-      <VisitBeacon />
-      {children}
-    </div>
+    <html lang="en" className={`${fontVariables} dark h-full antialiased`}>
+      <body className="h-full bg-[#161311]">
+        <div className="landing-scroll dark min-h-full bg-[#161311] text-white">
+          <VisitBeacon />
+          {children}
+        </div>
+      </body>
+    </html>
   );
 }

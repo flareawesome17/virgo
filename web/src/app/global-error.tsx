@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect } from 'react';
-import { captureError, startAnalytics } from '@/lib/analytics';
 
 /**
  * The last boundary: an error in the root layout itself.
@@ -25,8 +24,13 @@ export default function GlobalError({
   error: Error & { digest?: string };
 }) {
   useEffect(() => {
-    startAnalytics();
-    captureError(error, 'root-layout');
+    // Imported on the error, not with the page. This boundary sits above
+    // every root layout, so a static import put PostHog in the first load of
+    // every page, the public site included.
+    void import('@/lib/analytics').then(({ captureError, startAnalytics }) => {
+      startAnalytics();
+      captureError(error, 'root-layout');
+    });
   }, [error]);
 
   return (

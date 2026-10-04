@@ -1,22 +1,27 @@
 import type { Metadata, Viewport } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import type { ReactNode } from 'react';
+import { fontVariables } from './fonts';
 import { Providers } from './providers';
 import './globals.css';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
-
-export const metadata: Metadata = {
-  // Resolves the relative image paths in the marketing page's Open Graph tags.
-  // Without it Next falls back to localhost, and a shared link previews with an
-  // image nobody but the developer can load.
+/**
+ * The document the app renders into: web.virgo.ph's signed-in screens and its
+ * signed-out ones (sign in, sign up, the legal page).
+ *
+ * This used to be `app/layout.tsx`, the single root layout. The public site at
+ * virgo.ph now has a root layout of its own, so it no longer loads the app's
+ * providers — PostHog, React Query, the realtime connection and the session —
+ * which were about half of the landing page's JavaScript and none of its
+ * content. The (app) and (auth) groups each render this as their root, so the
+ * app itself gets exactly what it had before.
+ *
+ * Moving between the two roots is a full page load, which they already were:
+ * they live on different hosts.
+ */
+export const appMetadata: Metadata = {
+  // Resolves the relative image paths in Open Graph tags. Without it Next
+  // falls back to localhost, and a shared link previews with an image nobody
+  // but the developer can load.
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph',
   ),
@@ -37,18 +42,14 @@ export const metadata: Metadata = {
   },
 };
 
-export const viewport: Viewport = {
+export const appViewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#FFF8F4' },
     { media: '(prefers-color-scheme: dark)', color: '#161311' },
   ],
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export function AppDocument({ children }: { children: ReactNode }) {
   return (
     // suppressHydrationWarning is required by next-themes: it writes the theme
     // class onto <html> before React hydrates, which is exactly the mismatch
@@ -56,7 +57,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${fontVariables} h-full antialiased`}
     >
       <body className="h-full">
         <Providers>{children}</Providers>
