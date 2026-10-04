@@ -2,7 +2,9 @@
 
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
-import { API_BASE_URL } from '@/api';
+// From the config module, not the `@/api` barrel: the barrel brings the
+// whole API client with it, and the public site has no use for it.
+import { API_BASE_URL } from '@/api/config';
 
 /**
  * Reports a page view to Virgo's own counter.

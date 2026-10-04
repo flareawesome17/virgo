@@ -68,6 +68,16 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // The story site's media (posters, the hero loop, the OG video, map
+        // levels, grain). Every file there carries a content hash in its name
+        // — publish.mjs writes them — so a file never changes under its URL
+        // and can be cached for good. Never put an unhashed file here.
+        source: '/redesign/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
     ];
   },
 
@@ -90,7 +100,16 @@ const nextConfig: NextConfig = {
    * build is still `standalone` and renders them like any other page. This
    * only starts to matter when the export does.
    */
-  pageExtensions: ['web.tsx', 'web.ts', 'tsx', 'ts'],
+  // `dev.tsx` / `dev.ts`: the story site's asset lab (/story-lab), routed by
+  // `next dev` only. A production build never sees those files, so they are
+  // neither compiled nor traced into the standalone output.
+  pageExtensions: [
+    ...(process.env.NODE_ENV === 'development' ? ['dev.tsx', 'dev.ts'] : []),
+    'web.tsx',
+    'web.ts',
+    'tsx',
+    'ts',
+  ],
 
   /**
    * Where media is fetched from. Listed explicitly rather than with a

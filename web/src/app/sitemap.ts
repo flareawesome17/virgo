@@ -23,5 +23,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // existed only behind the app's noindex.
     { url: `${SITE}/terms`, changeFrequency: 'yearly', priority: 0.3 },
     { url: `${SITE}/privacy`, changeFrequency: 'yearly', priority: 0.3 },
+    // The desktop and Android installers: the page the story's footer and Finale link to.
+    { url: `${SITE}/download`, changeFrequency: 'monthly', priority: 0.5 },
   ];
 }
