@@ -143,11 +143,18 @@ Shots:
 - "15 GB. No card. No trial clock."
 - Free bright; Freelancer ₱399 / Studio ₱999 / Business ₱2,499 dimmed, "Soon".
 
-**Finale, the credits (`#start`)**
-- "This one's you."
-- **Join the community** · **Download Virgo** · Sign in
-
-**FAQ and footer:** after the credits, editorial and quiet. The FAQ stays (it's in the JSON-LD), collapsed.
+**Finale, the closing screen (`#start`): the end of the page.** There is no FAQ and no footer after it (owner, 2026-10-04).
+- The credits roll: the crew by role, each with its tool.
+- The logo sting: a gold star gathers in the dark, the frame flashes warm white (a 2 px rumble), and the Virgo logo is there with "VIRGO" under it.
+- The letterbox bars open as the film ends.
+- "Start your journey now."
+  - **Join the community** · **Download Virgo** · Sign in.
+  - The links the footer used to carry, as buttons: Open the web app · Terms · Privacy · support@virgo.ph.
+- The credits:
+  - the honesty line;
+  - the map and star data credits (the licences ask for them);
+  - © Virgo · Made in the Philippines.
+- The FAQPage structured data goes with the FAQ. Google only allows it for questions the page shows.
 
 **Honesty:**
 - one small mono tag, **"ILLUSTRATIVE"**, in a corner of every app shot;

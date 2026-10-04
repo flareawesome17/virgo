@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { StoryFooter } from '@/components/story/page/chapters/footer';
+import { Credits, MoreLinks } from '@/components/story/page/chapters/closing';
 import { TitleBar } from '@/components/story/page/cinema/title-bar';
 import { PrePaint } from '@/components/story/page/pre-paint';
 import { DownloadStage } from '@/components/story/download/download-stage';
@@ -211,7 +211,11 @@ export default async function DownloadPage() {
         </section>
       </main>
 
-      <StoryFooter sectionBase="/" credits={false} />
+      {/* No footer, as on the story: the same links as its last screen, then the fine print. */}
+      <div className="relative z-10 flex flex-col items-center gap-8 border-t border-white/[0.06] px-5 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-12 sm:px-8">
+        <MoreLinks />
+        <Credits data={false} honesty={false} />
+      </div>
       <div aria-hidden className="story-grain" style={{ backgroundImage: `url(${MEDIA.grain.url})` }} />
     </div>
   );

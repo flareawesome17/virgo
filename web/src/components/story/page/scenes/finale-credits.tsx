@@ -1,41 +1,42 @@
 'use client';
 
 import { m, useTransform, type MotionValue } from 'framer-motion';
-import { Download } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { DOWNLOAD_PATH, SIGN_IN_URL, SIGN_UP_URL } from '@/components/landing/links';
-import { camera, lerp, r2, seg } from '../cinema/ease';
-import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
+import { camera, clamp01, enter, lerp, r2, seg, window4 } from '../cinema/ease';
+import { Flare, LightSweep, Particles, useCamera, useReveal, useRumble } from '../cinema/fx';
 import { GearArt, GEAR_ASPECT } from '../cinema/gear';
 import { Morph } from '../cinema/morph';
 import { Shot, Slate } from '../cinema/shot';
 import { FINALE_COPY as T } from '../../data/strings/page-finale';
+import { Credits, MoreLinks, PrimaryCtas } from '../chapters/closing';
 import { CREW } from './finale-crew';
 
 /**
- * The credits (05-cinema.md §3, Finale · #start): one shot, framed for the
- * 2.39:1 letterbox the chrome brings back over #start on desktop.
+ * The closing shot (05-cinema.md §3, Finale · #start): the last thing on the
+ * page. Framed for the 2.39:1 letterbox while the credits roll; the bars open
+ * as the film ends and the last screen takes the whole frame.
  *
- * Progress over the shot (every item eases in and out with useReveal, like
- * end credits rising; the block itself drifts up the whole time):
- * - 0.00–0.08  "The crew";
- * - 0.02–0.24  the crew rise in one by one, each name with its tool and role;
- * - 0.24–0.40  the full crew holds while the camera dollies in;
- * - 0.40–0.59  they rise away in turn, with wind (particles 0.44–0.76);
- * - 0.50–0.76  the last card: a gold sparkle (the H1's star) that becomes a
- *              heart (morph 0.58–0.72), "This one's you.", then the three
- *              ways in, then the honesty line;
- * - 0.58–1.00  a flare blooms behind it and the horizon warms;
- * - 0.72–0.96  one light sweep crosses the title;
- * - 0.76–1.00  it holds until the stage unpins and the bars open onto the FAQ.
+ * Progress over the shot:
+ * - 0.00–0.34  the credits: "The crew" and each name with its tool rise in,
+ *              hold, and rise away (useReveal), drifting up like end credits;
+ * - 0.34–0.42  the dark gathers into one gold star at the centre;
+ * - 0.42       the flash: warm light fills the frame, a 2 px rumble, and the
+ *              Virgo logo is there, big, with "VIRGO" under it, rays turning
+ *              behind it and a light sweep crossing it (0.46–0.60);
+ * - 0.52–0.62  the logo lifts away as the bars open (chrome.tsx);
+ * - 0.56–0.80  the last screen eases in, item by item: the logo, "Start your
+ *              journey now.", Join / Download / Sign in, the links the footer
+ *              used to carry, and the credits;
+ * - 0.80–1.00  it holds: the end of the page.
  * Transform and opacity only, one scroll source (the Shot), no React state
  * per frame. Loaded only in motion mode, near #start (islands/finale.tsx).
  */
 
-/** The letterbox bar's height on desktop (chrome.tsx), so the frame's content sits between the bars. */
+/** The letterbox bar's height on desktop (chrome.tsx), so the credits sit between the bars. */
 const FRAME = '[--bar:0px] lg:[--bar:min(11vh,max(0px,calc((100vh_-_100vw/2.39)/2)))]';
 
-const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#F2EDE8]';
+/** The flash's peak. */
+const FLASH = 0.42;
 
 /** A little fixed dust behind everything: the far plane. */
 const DUST = [
@@ -51,14 +52,14 @@ export function FinaleCredits({ length }: { length: number }) {
   // Halve the wind below 1024 px (brief: ≤ 24 sprites a shot on phones). Client-only scene, so window exists.
   const [motes] = useState(() => (window.innerWidth < 1024 ? 14 : 28));
 
-  /** A keyboard visitor tabbing into the CTAs before the roll has brought them up: jump to the held frame. */
+  /** A keyboard visitor tabbing into the buttons before the last screen is up: jump to it. */
   const onFocus = () => {
     const el = root.current;
     if (!el) return;
     const range = el.offsetHeight - window.innerHeight;
     const rect = el.getBoundingClientRect();
     const p = range > 0 ? -rect.top / range : 1;
-    if (p < 0.76) window.scrollTo({ top: window.scrollY + rect.top + range * 0.84 });
+    if (p < 0.8) window.scrollTo({ top: window.scrollY + rect.top + range * 0.9 });
   };
 
   return (
@@ -72,88 +73,60 @@ export function FinaleCredits({ length }: { length: number }) {
 
 function Frame({ progress, motes, onFocus }: { progress: MotionValue<number>; motes: number; onFocus: () => void }) {
   const far = useTransform(progress, (p) => `translate3d(0,${r2(lerp(0, -5, p))}vh,0)`);
-  const glow = useTransform(progress, (p) => r2(lerp(0.35, 1, camera(seg(p, 0.4, 0.85)))));
-  const glowY = useTransform(progress, (p) => `translate3d(0,${r2(lerp(18, 0, camera(seg(p, 0.4, 0.85))))}%,0)`);
+  const glow = useTransform(progress, (p) => r2(lerp(0.3, 1, camera(seg(p, 0.4, 0.8)))));
+  const glowY = useTransform(progress, (p) => `translate3d(0,${r2(lerp(18, 0, camera(seg(p, 0.4, 0.8))))}%,0)`);
   const cam = useCamera(progress, [
     { at: 0, scale: 1.05, y: 1, rx: 5 },
-    { at: 0.46, scale: 1, rx: 1.5 },
-    { at: 0.7, scale: 1.035, rx: 0 },
+    { at: 0.34, scale: 1, rx: 1.5 },
     { at: 1, scale: 1, rx: 0 },
   ]);
   // The roll: the crew block drifts up slowly the whole time its names are on screen.
-  const roll = useTransform(progress, (p) => `translate3d(0,${r2(lerp(6, -8, seg(p, 0, 0.58)))}svh,0)`);
-  const mark = useReveal(progress, 0.5, 0.62, 2, 3, { y: 50, scale: 0.6 });
-  const title = useReveal(progress, 0.54, 0.68, 2, 3, { y: 70, scale: 0.86 });
-  const ctas = useReveal(progress, 0.59, 0.72, 2, 3, { y: 40, scale: 0.96 });
-  const fine = useReveal(progress, 0.63, 0.76, 2, 3, { y: 24, scale: 1 });
-  // The last card takes clicks only once it is there (keyboard focus jumps the scroll to it: onFocus).
-  const events = useTransform(progress, (p) => (p > 0.57 ? 'auto' : 'none'));
+  const roll = useTransform(progress, (p) => `translate3d(0,${r2(lerp(6, -8, seg(p, 0, 0.36)))}svh,0)`);
+  // The last screen takes clicks only once it is there (keyboard focus jumps the scroll to it: onFocus).
+  const events = useTransform(progress, (p) => (p > 0.6 ? 'auto' : 'none'));
 
   return (
     <>
       {/* (a) The far plane: night and dust, barely moving. */}
       <m.div aria-hidden style={{ transform: far, backgroundImage: DUST }} className="pointer-events-none absolute -inset-y-[6vh] inset-x-0" />
-      {/* (b) Light: the last warm horizon, rising as the final card arrives. */}
+      {/* (b) Light: the last warm horizon, rising as the film ends. */}
       <m.div
         aria-hidden
         style={{ opacity: glow, transform: glowY }}
         className="pointer-events-none absolute inset-x-0 bottom-0 h-[70%] bg-[radial-gradient(70%_60%_at_50%_100%,rgba(209,138,90,0.22),rgba(107,62,37,0.08)_45%,rgba(16,13,12,0)_75%)]"
       />
-      <Flare progress={progress} from={0.58} to={1.2} x={50} y={44} size={760} />
+      <Flare progress={progress} from={0.38} to={0.66} x={50} y={46} size={820} />
 
-      {/* The frame between the bars: the slate and the hero plane. */}
-      <div className="absolute inset-x-0 top-[var(--bar)] bottom-[var(--bar)] z-20">
-        <Slate progress={progress} slates={[{ text: T.slate, from: 0, to: 0.72 }]} />
-
-        {/* (c) The hero plane, under the camera. */}
+      {/* The credits, between the bars. */}
+      <div className="absolute inset-x-0 bottom-[var(--bar)] top-[var(--bar)] z-20">
+        <Slate progress={progress} slates={[{ text: T.slate, from: 0, to: 0.36 }]} />
         <m.div style={{ transform: cam }} className="absolute inset-0">
           <m.div style={{ transform: roll }} className="absolute inset-0 grid place-items-center px-5">
             <Crew progress={progress} />
           </m.div>
-
-          <m.div style={{ pointerEvents: events }} onFocus={onFocus} className="absolute inset-0 grid place-items-center px-5">
-            <div className="flex max-w-4xl flex-col items-center text-center">
-              {/* The one morph: the page's star becomes a heart as the last card lands. */}
-              <m.div aria-hidden style={mark} className="relative mb-6 size-10 sm:mb-8 sm:size-14">
-                <span className="absolute -inset-6 rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.35),rgba(240,200,142,0))]" />
-                <Morph
-                  progress={progress}
-                  keys={[
-                    { at: 0.58, shape: 'sparkle' },
-                    { at: 0.72, shape: 'heart' },
-                  ]}
-                  className="relative size-full"
-                />
-              </m.div>
-              <m.h2
-                style={title}
-                className="text-[clamp(3rem,1.2rem+7vw,7.5rem)] leading-[0.92] font-semibold tracking-[-0.045em] text-[#F2EDE8] [text-wrap:balance]"
-              >
-                {T.title}
-              </m.h2>
-              <m.div style={ctas} className="w-full sm:w-auto">
-                <Ctas />
-              </m.div>
-              <m.p style={fine} className="mt-8 max-w-[52ch] text-[13px] leading-relaxed text-[#A08E84] sm:text-sm">
-                {T.honesty}
-              </m.p>
-            </div>
-          </m.div>
         </m.div>
       </div>
 
-      <LightSweep progress={progress} from={0.72} to={0.96} />
-      {/* (d) Wind: dust streaming past as the roll carries on. */}
-      <Particles progress={progress} push={[0.44, 0.76]} count={motes} seed={23} />
+      <Sting progress={progress} />
+
+      {/* The last screen: the whole frame, once the bars have opened. */}
+      <m.div style={{ pointerEvents: events }} onFocus={onFocus} className="absolute inset-0 z-30 overflow-hidden">
+        <Closing progress={progress} />
+      </m.div>
+
+      <LightSweep progress={progress} from={0.46} to={0.6} />
+      {/* (d) Wind: the burst from the flash streaming past. */}
+      <Particles progress={progress} push={[FLASH - 0.02, 0.66]} count={motes} seed={23} />
+      <Flash progress={progress} />
     </>
   );
 }
 
 function Crew({ progress }: { progress: MotionValue<number> }) {
-  const head = useReveal(progress, 0, 0.08, 0.38, 0.48, { y: 60, scale: 0.94 });
+  const head = useReveal(progress, 0, 0.06, 0.26, 0.32, { y: 60, scale: 0.94 });
   return (
     <div className="w-full max-w-3xl">
-      <m.p style={head} className="text-center font-mono text-xs tracking-[0.24em] text-[#D18A5A] uppercase">
+      <m.p style={head} className="text-center font-mono text-xs uppercase tracking-[0.24em] text-[#D18A5A]">
         {T.crew}
       </m.p>
       {/* Two by two on phones, so the whole crew fits a short screen; a credits column from sm. */}
@@ -166,46 +139,119 @@ function Crew({ progress }: { progress: MotionValue<number> }) {
   );
 }
 
-/** One credit: rises in on its turn (0.04 apart), holds, and rises away (0.03 apart). */
+/** One credit: rises in on its turn, holds, and rises away. */
 function CrewRow({ progress, i, c }: { progress: MotionValue<number>; i: number; c: (typeof CREW)[number] }) {
-  const style = useReveal(progress, 0.02 + i * 0.04, 0.12 + i * 0.04, 0.4 + i * 0.03, 0.5 + i * 0.03, { y: 80, scale: 0.9 });
+  const style = useReveal(progress, 0.02 + i * 0.035, 0.1 + i * 0.035, 0.24 + i * 0.025, 0.32 + i * 0.025, { y: 80, scale: 0.9 });
   return (
     <m.li style={style} className="grid justify-items-center gap-2 text-center sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-x-8">
-      <span className="order-2 font-mono text-xs tracking-[0.14em] text-[#BCADA3] uppercase sm:order-1 sm:justify-self-end sm:text-[13px] sm:tracking-[0.2em]">
+      <span className="order-2 font-mono text-xs uppercase tracking-[0.14em] text-[#BCADA3] sm:order-1 sm:justify-self-end sm:text-[13px] sm:tracking-[0.2em]">
         {c.role}
       </span>
       <span className="order-1 block h-10 sm:order-2 sm:h-14" style={{ aspectRatio: GEAR_ASPECT[c.gear] }}>
         <GearArt kind={c.gear} className="size-full" />
       </span>
-      <span className="order-3 text-[clamp(1.75rem,1.2rem+2vw,2.75rem)] leading-none font-semibold tracking-[-0.02em] text-[#F2EDE8] sm:justify-self-start">
+      <span className="order-3 text-[clamp(1.75rem,1.2rem+2vw,2.75rem)] font-semibold leading-none tracking-[-0.02em] text-[#F2EDE8] sm:justify-self-start">
         {c.first}
       </span>
     </m.li>
   );
 }
 
-function Ctas() {
+/**
+ * The logo sting: one gold star gathers out of the dark, the frame flashes,
+ * and the Virgo logo is there with its name under it, rays turning behind.
+ * Then it lifts away for the last screen.
+ */
+function Sting({ progress }: { progress: MotionValue<number> }) {
+  const shake = useRef<HTMLDivElement>(null);
+  useRumble(progress, FLASH, shake);
+  // The star: from a point to a burst, gone in the flash.
+  const starO = useTransform(progress, (p) => r2(window4(p, 0.34, 0.38, FLASH - 0.01, FLASH + 0.01)));
+  const starT = useTransform(progress, (p) => `translate3d(-50%,-50%,0) rotate(${r2(lerp(-30, 40, seg(p, 0.34, FLASH)))}deg) scale(${r2(lerp(0.15, 1.6, camera(seg(p, 0.34, FLASH))))})`);
+  // The logo: there at the flash, settling from big, then lifting away as the last screen comes in.
+  const logoO = useTransform(progress, (p) => r2(enter(seg(p, FLASH - 0.005, FLASH + 0.03)) * (1 - seg(p, 0.55, 0.61))));
+  const logoT = useTransform(progress, (p) => {
+    const settle = camera(seg(p, FLASH, 0.5));
+    const lift = camera(seg(p, 0.52, 0.62));
+    return `translate3d(-50%,calc(-50% - ${r2(lift * 22)}vh),0) scale(${r2(lerp(1.3, 1, settle) * lerp(1, 0.5, lift))})`;
+  });
+  const nameO = useTransform(progress, (p) => r2(window4(p, 0.45, 0.49, 0.52, 0.57)));
+  const nameT = useTransform(progress, (p) => `translate3d(0,${r2((1 - enter(seg(p, 0.45, 0.5))) * 14)}px,0)`);
+  const rays = useTransform(progress, (p) => `translate3d(-50%,-50%,0) rotate(${r2(lerp(0, 50, seg(p, FLASH, 0.62)))}deg) scale(${r2(lerp(0.7, 1.15, seg(p, FLASH, 0.6)))})`);
+  const raysO = useTransform(progress, (p) => r2(window4(p, FLASH, FLASH + 0.02, 0.52, 0.6) * 0.8));
   return (
-    <div className="mt-9 flex w-full flex-col items-center gap-3 sm:flex-row sm:gap-4">
-      <a
-        href={SIGN_UP_URL}
-        className={`inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#D18A5A] px-7 text-base font-semibold text-[#161311] shadow-[0_10px_40px_-12px_rgba(209,138,90,0.6)] transition-colors hover:bg-[#E09A69] sm:w-auto ${FOCUS}`}
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-20">
+      <m.div
+        style={{ opacity: raysO, transform: rays }}
+        className="absolute left-1/2 top-1/2 size-[130vmin] rounded-full bg-[repeating-conic-gradient(from_0deg,rgba(240,200,142,0.16)_0deg_3deg,rgba(240,200,142,0)_3deg_15deg)] [mask-image:radial-gradient(closest-side,black_20%,transparent_70%)]"
+      />
+      <m.div style={{ opacity: starO, transform: starT }} className="absolute left-1/2 top-1/2 size-24 sm:size-32">
+        <span className="absolute -inset-8 rounded-full bg-[radial-gradient(closest-side,rgba(255,231,194,0.7),rgba(240,200,142,0))]" />
+        <Morph
+          progress={progress}
+          keys={[
+            { at: 0.36, shape: 'sparkle' },
+            { at: FLASH, shape: 'circle' },
+          ]}
+          fill="#FFE7C2"
+          className="relative size-full"
+        />
+      </m.div>
+      <div ref={shake} className="absolute inset-0">
+        <m.div style={{ opacity: logoO, transform: logoT }} className="absolute left-1/2 top-1/2 flex flex-col items-center">
+          <span className="relative block size-[min(34vmin,180px)]">
+            <span className="absolute -inset-[45%] rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.42),rgba(209,138,90,0.12)_50%,rgba(209,138,90,0))]" />
+            <span className="relative block size-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: 'url(/logo.png)' }} />
+          </span>
+          <m.span style={{ opacity: nameO, transform: nameT }} className="mt-5 pl-[0.6em] font-mono text-sm uppercase tracking-[0.6em] text-[#F0C88E] sm:text-base">
+            {T.name}
+          </m.span>
+        </m.div>
+      </div>
+    </div>
+  );
+}
+
+/** The flash itself: warm light over the whole frame for an instant. */
+function Flash({ progress }: { progress: MotionValue<number> }) {
+  const opacity = useTransform(progress, (p) => r2(clamp01(window4(p, FLASH - 0.012, FLASH, FLASH + 0.004, FLASH + 0.05)) * 0.92));
+  return (
+    <m.div
+      aria-hidden
+      style={{ opacity }}
+      className="pointer-events-none absolute inset-0 z-40 bg-[radial-gradient(60%_60%_at_50%_46%,#FFF6E8_0%,#FFE7C2_35%,rgba(240,200,142,0.85)_70%,rgba(209,138,90,0.7)_100%)]"
+    />
+  );
+}
+
+/** The last screen: the logo, the line, every way in, and the credits, easing in one by one. */
+function Closing({ progress }: { progress: MotionValue<number> }) {
+  const logo = useReveal(progress, 0.56, 0.64, 2, 3, { y: -30, scale: 1.4 });
+  const title = useReveal(progress, 0.58, 0.68, 2, 3, { y: 60, scale: 0.9 });
+  const ctas = useReveal(progress, 0.62, 0.72, 2, 3, { y: 40, scale: 0.96 });
+  const more = useReveal(progress, 0.66, 0.76, 2, 3, { y: 30, scale: 0.98 });
+  const fine = useReveal(progress, 0.7, 0.8, 2, 3, { y: 20, scale: 1 });
+  return (
+    <div className="mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-16 text-center sm:px-8 sm:pt-20">
+      <m.span aria-hidden style={logo} className="relative block size-16 sm:size-20">
+        <span className="absolute -inset-8 rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.3),rgba(240,200,142,0))]" />
+        <span className="relative block size-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: 'url(/logo.png)' }} />
+      </m.span>
+      <m.h2
+        style={title}
+        className="mt-6 text-balance text-[clamp(2.25rem,1.1rem+4.6vw,5.25rem)] font-semibold leading-[0.95] tracking-[-0.04em] text-[#F2EDE8]"
       >
-        {T.join}
-      </a>
-      <a
-        href={DOWNLOAD_PATH}
-        className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#F2EDE8] px-7 text-base font-semibold text-[#161311] transition-colors hover:bg-white sm:w-auto ${FOCUS}`}
-      >
-        <Download aria-hidden className="size-4" />
-        {T.download}
-      </a>
-      <a
-        href={SIGN_IN_URL}
-        className={`inline-flex min-h-12 items-center justify-center rounded-xl px-4 text-base font-medium text-[#BCADA3] transition-colors hover:text-[#F2EDE8] ${FOCUS}`}
-      >
-        {T.signIn}
-      </a>
+        {T.title}
+      </m.h2>
+      <m.div style={ctas} className="mt-8 w-full sm:w-auto">
+        <PrimaryCtas />
+      </m.div>
+      <m.div style={more} className="mt-6">
+        <MoreLinks />
+      </m.div>
+      <m.div style={fine} className="mt-8 sm:mt-10">
+        <Credits />
+      </m.div>
     </div>
   );
 }

@@ -145,7 +145,9 @@ export function Scrubber() {
 
 /**
  * Letterbox bars (desktop ≥ 1024 px, motion on): the film opens in 2.39:1,
- * the bars retract as the first scroll starts, and return for the credits.
+ * the bars retract as the first scroll starts, return for the credits, and
+ * open again as the film ends (half to three-fifths of the way through the
+ * closing shot), so the last screen takes the whole frame.
  */
 export function Letterbox() {
   const gate = useMotionGate();
@@ -177,7 +179,8 @@ export function Letterbox() {
     const h = window.innerHeight;
     const opening = 1 - seg(y, h * 0.04, h * 0.45);
     const c = credits.current;
-    const closing = seg(y + h, c.top + h * 0.2, c.top + h * 0.8) * (1 - seg(y, c.bottom - h * 0.6, c.bottom - h * 0.1));
+    const run = c.bottom - c.top - h;
+    const closing = seg(y + h, c.top + h * 0.2, c.top + h * 0.8) * (1 - seg(y, c.top + run * 0.5, c.top + run * 0.6));
     return `scaleY(${r2(Math.max(opening, closing))})`;
   });
 

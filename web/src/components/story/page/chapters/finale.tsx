@@ -1,26 +1,26 @@
-import { Download } from 'lucide-react';
-import { DOWNLOAD_PATH, SIGN_IN_URL, SIGN_UP_URL } from '@/components/landing/links';
 import { FINALE_COPY as T } from '../../data/strings/page-finale';
 import { GEAR_ASPECT, GearArt } from '../cinema/gear';
 import { FinaleFilm } from '../islands/finale';
 import { CREW } from '../scenes/finale-crew';
+import { Credits, MoreLinks, PrimaryCtas } from './closing';
 
 /**
- * Finale, the credits · #start (05-cinema.md §3): "This one's you."
+ * Finale, the closing screen · #start (05-cinema.md §3). The end of the page:
+ * there is no FAQ and no footer after it.
  *
  * Two renders:
- * - static-only (reduced motion, no JS, crawlers): the title, the three ways
- *   in, the crew by role with their tools, and the page's one honesty line.
- * - motion-only: `FinaleFilm` lazy-loads the credits shot (scenes/finale-
- *   credits.tsx), framed for the 2.39:1 letterbox the chrome brings back here.
+ * - static-only (reduced motion, no JS, crawlers): the crew by role with
+ *   their tools, the Virgo logo, "Start your journey now.", every way in as
+ *   buttons, and the credits.
+ * - motion-only: `FinaleFilm` lazy-loads the closing shot (scenes/finale-
+ *   credits.tsx): the credits roll, the logo flashes in, the bars open, and the
+ *   last screen holds the same buttons and credits.
  *
  * The Download pill hides from #start down, so Download is inline in both.
  */
 
-/** The credits shot's scroll, in svh beyond its 100svh stage. */
-const LENGTH = 130;
-
-const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#F2EDE8]';
+/** The closing shot's scroll, in svh beyond its 100svh stage. */
+const LENGTH = 210;
 
 export function Finale() {
   return (
@@ -28,53 +28,46 @@ export function Finale() {
       <div className="static-only relative">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-[60%] bg-[radial-gradient(70%_60%_at_50%_100%,rgba(209,138,90,0.16),rgba(107,62,37,0.06)_45%,rgba(16,13,12,0)_75%)]"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[70%] bg-[radial-gradient(70%_60%_at_50%_100%,rgba(209,138,90,0.16),rgba(107,62,37,0.06)_45%,rgba(16,13,12,0)_75%)]"
         />
-        <div className="relative mx-auto flex max-w-5xl flex-col items-center px-5 py-24 text-center sm:px-8 sm:py-32">
-          <h2
-            id="start-title"
-            className="text-[clamp(3rem,1.2rem+7vw,7rem)] leading-[0.92] font-semibold tracking-[-0.045em] text-[#F2EDE8] [text-wrap:balance]"
-          >
-            {T.title}
-          </h2>
-
-          <div className="mt-9 flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row sm:gap-4">
-            <a
-              href={SIGN_UP_URL}
-              className={`inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#D18A5A] px-7 text-base font-semibold text-[#161311] transition-colors hover:bg-[#E09A69] sm:w-auto ${FOCUS}`}
-            >
-              {T.join}
-            </a>
-            <a
-              href={DOWNLOAD_PATH}
-              className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#F2EDE8] px-7 text-base font-semibold text-[#161311] transition-colors hover:bg-white sm:w-auto ${FOCUS}`}
-            >
-              <Download aria-hidden className="size-4" />
-              {T.download}
-            </a>
-            <a
-              href={SIGN_IN_URL}
-              className={`inline-flex min-h-12 items-center justify-center rounded-xl px-4 text-base font-medium text-[#BCADA3] transition-colors hover:text-[#F2EDE8] ${FOCUS}`}
-            >
-              {T.signIn}
-            </a>
-          </div>
-
+        <div className="relative mx-auto flex max-w-5xl flex-col items-center px-5 pb-[max(3rem,env(safe-area-inset-bottom))] pt-24 text-center sm:px-8 sm:pt-32">
           {/* The credits: the crew by role, each with its tool. */}
-          <h3 className="mt-20 font-mono text-xs tracking-[0.24em] text-[#D18A5A] uppercase">{T.crew}</h3>
+          <h3 className="font-mono text-xs uppercase tracking-[0.24em] text-[#D18A5A]">{T.crew}</h3>
           <ul className="mt-8 grid w-full grid-cols-2 gap-x-4 gap-y-10 sm:grid-cols-4">
             {CREW.map((c) => (
               <li key={c.first} className="flex flex-col items-center gap-3">
                 <span className="block h-12" style={{ aspectRatio: GEAR_ASPECT[c.gear] }}>
                   <GearArt kind={c.gear} className="size-full" />
                 </span>
-                <span className="font-mono text-xs tracking-[0.18em] text-[#BCADA3] uppercase">{c.role}</span>
-                <span className="text-2xl leading-none font-semibold text-[#F2EDE8]">{c.first}</span>
+                <span className="font-mono text-xs uppercase tracking-[0.18em] text-[#BCADA3]">{c.role}</span>
+                <span className="text-2xl font-semibold leading-none text-[#F2EDE8]">{c.first}</span>
               </li>
             ))}
           </ul>
 
-          <p className="mt-16 max-w-[52ch] text-sm leading-relaxed text-[#A08E84]">{T.honesty}</p>
+          {/* The logo, then the way in. */}
+          <span aria-hidden className="relative mt-24 block size-24 sm:size-28">
+            <span className="absolute -inset-10 rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.3),rgba(240,200,142,0))]" />
+            <span className="relative block size-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: 'url(/logo.png)' }} />
+          </span>
+          <p aria-hidden className="mt-3 font-mono text-xs uppercase tracking-[0.5em] text-[#F0C88E]">
+            {T.name}
+          </p>
+          <h2
+            id="start-title"
+            className="mt-8 text-balance text-[clamp(2.5rem,1.2rem+5vw,5.5rem)] font-semibold leading-[0.95] tracking-[-0.04em] text-[#F2EDE8]"
+          >
+            {T.title}
+          </h2>
+          <div className="mt-9 w-full sm:w-auto">
+            <PrimaryCtas />
+          </div>
+          <div className="mt-8">
+            <MoreLinks />
+          </div>
+          <div className="mt-14">
+            <Credits />
+          </div>
         </div>
       </div>
 

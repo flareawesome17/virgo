@@ -12,16 +12,9 @@
  * it.
  */
 
-import { CONTACT_EMAIL, FAQ } from '@/components/story/data/strings/page-faq';
+import { CONTACT_EMAIL } from '@/components/story/data/strings/page-finale';
 
 const SITE = 'https://virgo.ph';
-
-/**
- * The FAQ, from the story page's one FAQ array (story/data/strings/page-faq),
- * so the FAQPage graph always says what the visible list says. Re-exported
- * under its old name for anything still reading it from here.
- */
-export const FAQS: { q: string; a: string }[] = FAQ.map(({ q, a }) => ({ q, a }));
 
 export function StructuredData() {
   const organization = {
@@ -64,19 +57,11 @@ export function StructuredData() {
     },
   };
 
-  const faq = {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: FAQS.map(({ q, a }) => ({
-      '@type': 'Question',
-      name: q,
-      acceptedAnswer: { '@type': 'Answer', text: a },
-    })),
-  };
-
   return (
     <>
-      {[organization, application, faq].map((graph, i) => (
+      {/* No FAQPage: the page has no visible FAQ, and Google only allows the
+          markup for questions a visitor can read on the page. */}
+      {[organization, application].map((graph, i) => (
         <script
           key={i}
           type="application/ld+json"

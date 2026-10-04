@@ -10,9 +10,7 @@ import { Ch6 } from './chapters/ch6';
 import { Ch7 } from './chapters/ch7';
 import { Ch8 } from './chapters/ch8';
 import { Ch9 } from './chapters/ch9';
-import { Faq } from './chapters/faq';
 import { Finale } from './chapters/finale';
-import { StoryFooter } from './chapters/footer';
 import { Prologue } from './chapters/prologue';
 import { TheWork } from './chapters/the-work';
 import { mapLevels } from './map-levels';
@@ -61,9 +59,7 @@ export function StoryPage({ plans }: { plans: PlanInfo[] }) {
             <Ch9 />
             <Ch10 plans={plans} />
             <Finale />
-            <Faq />
           </main>
-          <StoryFooter />
           <Cuts cuts={CUTS} />
           <Letterbox />
           <Scrubber />
