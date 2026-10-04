@@ -91,7 +91,9 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
    * page that renders two ways is two pages to keep looking right.
    */
   return (
-    <html lang="en" className={`${fontVariables} dark h-full antialiased`}>
+    // suppressHydrationWarning: the story's pre-paint script writes data-motion,
+    // data-paused and data-lite on <html> before React hydrates.
+    <html lang="en" suppressHydrationWarning className={`${fontVariables} dark h-full antialiased`}>
       <body className="h-full bg-[#161311]">
         <div className="landing-scroll dark min-h-full bg-[#161311] text-white">
           <VisitBeacon />

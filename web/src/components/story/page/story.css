@@ -1,0 +1,42 @@
+/*
+ * The story page's own rules (storyboard §1.1, §1.9). Global, but every
+ * selector is scoped to the page so nothing reaches the app.
+ */
+
+/* The fixed header never hides an anchor target or a focused control (WCAG 2.4.11). */
+html:has(.story-page) {
+  scroll-padding-top: 4.5rem;
+}
+/* globals.css gives landing sections a 5.5rem scroll-margin; it would add to the padding. */
+.story-page section[id] {
+  scroll-margin-top: 0;
+}
+
+/* Static first: a figure marked motion-only exists only when the story moves. */
+html:not([data-motion='on']) .story-page .motion-only {
+  display: none !important;
+}
+html[data-motion='on'] .story-page .static-only {
+  display: none !important;
+}
+
+/* Self-running motion stops under Pause motion (§1.9). */
+html[data-paused] .story-page .autoplay {
+  animation-play-state: paused !important;
+}
+
+/* One fixed grain layer over everything, never animated, gone under forced colours. */
+.story-grain {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  opacity: 0.04;
+  background-repeat: repeat;
+  background-size: 160px 160px;
+}
+@media (forced-colors: active) {
+  .story-grain {
+    display: none;
+  }
+}
