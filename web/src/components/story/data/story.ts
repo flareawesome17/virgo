@@ -163,15 +163,17 @@ export const COHORTS = [
 
 /**
  * A fixed `now` per chapter, passed to every date helper so the server and
- * client render the same words. Ch5's album is looked at on Monday, so its
- * day heading reads "Saturday 12 December" rather than "Yesterday".
+ * client render the same words. Ch5's album is seen that night, just before
+ * midnight, so its day heading reads "Today" and it holds only Saturday's
+ * files: by Monday it would also hold Sunday's teaser, the recordings and
+ * the couple's picks.
  */
 export const NOW = {
   ch1: WHEN.panic,
   ch2: WHEN.nearby,
   ch3: WHEN.appliedBea,
   ch4: WHEN.moved,
-  ch5: at('2026-12-14T09:00:00'),
+  ch5: at('2026-12-12T23:55:00'),
   ch6: WHEN.linkSent,
   ch6Later: WHEN.filmsShared,
   ch7: COHORTS[2].sweep.at,

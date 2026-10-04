@@ -406,7 +406,7 @@ Reduced motion is estimated at about 1,600 svh on mobile; Phase 3 measures it.
 | Prologue | **The descent.** The camera starts deep in the star cloud, looking down on the archipelago from space. As you scroll it dollies down through the stars, pitching from overhead to an oblique view as it nears Cebu. Mika's star is the one it lands on. |
 | Ch1 | The phone stands in 3D. As the chats stack, the notification cards fan back in depth (each older card further back on z, not just smaller). At the freeze, the phone eases flat to face you for the form. |
 | Ch2 | The radar ring lies on the tilted map plane, like a ripple on water, seen at an angle. The nearby stars stand above it at their distances. The erased star simply isn't there in the next frame. |
-| Ch3 | **"From where you stand."** The figure's stars sit at their real distances from Earth (Hipparcos parallaxes, from Porrima at about 38 ly to Zaniah at about 260 ly). The camera starts off-axis, where the stars are a scatter with no shape, and orbits until it looks from Earth. Then they line up into Virgo. A mono caption carries the distances. |
+| Ch3 | **"From where you stand."** The figure's stars sit at their real distances from Earth (Hipparcos 2007 parallaxes: the figure spans about 36 ly at Zavijava to about 316 ly at θ Vir; the cast sit at Porrima 38, Heze 74, Vindemiatrix 110 and Spica 250 ly, read from `constellation.ts`, never typed). The camera starts off-axis, where the stars are a scatter with no shape, and orbits until it looks from Earth. Then they line up into Virgo. A mono caption carries the distances. |
 | Ch4 | The calendar grid lies back in perspective like a desk surface. Saturday's cell lifts toward you. The phone rises out of it for the 5:00 AM ring. |
 | Ch5 | Tiles fly from the three device chips along curved 3D arcs into an album stack. The stack then fans out in depth into capture order: a timeline that recedes from Prep to Reception. |
 | Ch6 | The link travels along z, out of the album toward you. It lands on the couple's phone, which turns to face you as it opens. |
@@ -700,8 +700,8 @@ Then the "Every role is filled" card.
 | 0.08–0.30 | **The light changes. No copy on screen.** The night layer fades out and the pre-dawn and golden layers fade in (opacity only). The stars fade. Mika's star becomes the low sun. The chip steps: 9:30 AM · Prep → 3:00 PM · Ceremony → **5:05 PM · Golden hour**. Its surface flips to paper at p 0.20. Viewfinder corners and "1/250 · f/2.8 · ISO 200" appear. **One soft bloom at p 0.27** (*mobile: corner marks only*). The aria-hidden display word **"Saturday."** lands with the sun as its full stop. |
 | 0.30–0.40 | **The crest.** The sun sinks below the horizon line, and the chip steps to "9:30 PM · Reception". Kenn's film tile pulses at his laptop chip and shows "3:48". Mono line: "9:30 PM — the same-day edit plays at the reception." *Desktop slate:* SAT 9:30 PM. |
 | 0.40–0.55 | The H2 and lead arrive. **Three gold threads** (canvas paths) run from three device chips, Mika's camera, Ernie's camera and Kenn's laptop, to one album card. Abstract tiles fly along them, each stamped with its upload time ("Sat 10:48 PM"), so the flight reads as *later that night*, not live. *Mobile 6 tiles, ≤ 3 moving; desktop 12; lite: none.* *Slate:* SAT 10:48 PM. |
-| 0.55–0.72 | The album resolves: "Reyes & Santos — Wedding" with a DRAFT pill, the section chips Prep · Ceremony · Reception, and the day heading "Saturday 12 December · 413 items · 05:52 – 22:41". Tiles from the three sources interleave into capture order against a time ruler (vertical on mobile). Counter: **412 photos · 1 film**. *Mobile:* one H3 at a time, each held ≥ 8% of p. |
-| 0.72–0.92 | The activity card: "You uploaded 248 files to Reyes & Santos — Wedding" (Owner) · "Ernie uploaded 164 files to Reyes & Santos — Wedding" (Photographer) · "Kenn uploaded a file to Reyes & Santos — Wedding" (Editor). **One** storage meter fills from 0.3 GB to 6.3 GB with `scaleX`: on the web "6.3 GB / of 15.0 GB on the free plan"; the phone ring reads "6.3 GB used · 8.7 GB left". *Mobile:* only a mono label on the meter, "Crew uploads count against Mika's 15 GB". |
+| 0.55–0.72 | The album resolves: "Reyes & Santos — Wedding" with a DRAFT pill, the section chips Prep · Ceremony · Reception, and the day heading as the app draws it, two elements: "Today" and "413 items · 05:52 – 22:41". It's the album that night, at 11:55 PM, before Sunday's films and the couple's picks exist. Tiles from the three sources interleave into capture order against a time ruler (vertical on mobile). Counter: **412 photos · 1 film**. *Mobile:* one H3 at a time, each held ≥ 8% of p. |
+| 0.72–0.92 | The activity card: "You uploaded 248 files to Reyes & Santos — Wedding" (Owner) · "Ernie uploaded 164 files to Reyes & Santos — Wedding" (Photographer) · "Kenn uploaded a file to Reyes & Santos — Wedding" (Editor). **One** storage meter fills from the baseline (the app prints 0.3 GB as "307 MB") to 6.3 GB with `scaleX`: on the web "6.3 GB / of 15.0 GB on the free plan"; the phone ring reads "6.3 GB used · 8.7 GB left". *Mobile:* only a mono label on the meter, "Crew uploads count against Mika's 15 GB". |
 | 0.92–1.00 | The grid compresses into one album card at the centre (the object Ch6 turns into a link). The pin releases. |
 
 **Copy**
@@ -821,7 +821,7 @@ The hearts demo still works.
 |---|---|
 | 0.00–0.12 | Night is back. A flashback chip shows the **New album** field "Keep files for · 90 days after upload", with the helper "Each file is deleted 90 days after it is uploaded. This cannot be undone." A ruler (one path) runs from Day 0 to Day 112 and marks three upload cohorts as density marks: Day 0 (413), Day 1 (3), Day 21 (6). Below it is the visible tile grid. Meter: 9.2 GB. |
 | 0.12–0.50 | A mono day counter (tabular) scrubs forward. **Day 91, 3:00 AM:** the Day 0 marks fade, and the **visible tiles** dissolve into particles that rise and brighten existing stars (*mobile 6 tiles, ≤ 36 particles in total; desktop 12 tiles, ≤ 72*). Notice: "Delivered files cleaned up · 413 files removed from “Reyes & Santos — Wedding” as scheduled." The meter drains to 3.2 GB. |
-| 0.50–0.80 | **Day 92:** "3 files removed from “Reyes & Santos — Wedding” as scheduled." (*mobile: a single line, not a card*). The meter reads 2.8 GB. **Day 112:** "6 files removed from “Reyes & Santos — Wedding” as scheduled." The meter settles at 0.3 GB. |
+| 0.50–0.80 | **Day 92:** "3 files removed from “Reyes & Santos — Wedding” as scheduled." (*mobile: a single line, not a card*). The meter reads 2.8 GB. **Day 112:** "6 files removed from “Reyes & Santos — Wedding” as scheduled." The meter settles at "307 MB", the 0.3 GB of Mika's other albums as the app prints it. |
 | 0.80–1.00 | The album card stays, with its DELIVERED pill and "Empty". A small client-page mock reads "Nothing has been shared here yet." Hold. |
 
 **Copy**
@@ -838,7 +838,7 @@ The hearts demo still works.
 
 **Reduced motion.**
 - An annotated timeline (vertical on mobile) with markers at Day 0 / 91 / 92 / 112, each carrying its notice.
-- A before/after meter: 9.2 GB → 0.3 GB of 15.0 GB.
+- A before/after meter: 9.2 GB → 307 MB, of 15.0 GB.
 - The empty album card.
 
 **Assets.** A1, B1 (particles), B7, B10: RetentionField, DayRuler, NotificationRow, StorageMeter, AlbumCard, ClientGalleryEmpty.
@@ -1350,6 +1350,9 @@ With the selected roles (Videographer, SDE Editor Video, HMUA), the panel lists 
   - the showcase cover is width × 1.15;
   - the client page has no day headings in frame, because they count only the files loaded so far.
 - **AA over app colour.** Where the app draws small `#B66A40` text, or white on `#B66A40`, the mocks use `#D18A5A` text and `#A85D35` fills (§1.5). Text never drops under 11 px, even where the app uses 9–10 px. Every deviation is commented in the mock.
-- **DOM budget.** NearbyPhone and NearbyPanel are 285–347 nodes with all ten rows. The chapter passes `maxRows` (about 6, which is all that's visible at rest) to stay near the 150-per-stage budget.
+- **DOM budget.** NearbyPhone is about 350 nodes and NearbyPanel about 290 with all ten rows. The chapter passes `maxRows` (about 6, which is all that's visible at rest) to stay near the 150-per-stage budget.
 - **Phone width.** The phone screens in Ch1–Ch4 need at least 340–360 px: narrower, and the longest role badge wraps as it would in the app.
 - **App bug found.** On the client page the picks bar's Download icon has no stroke, so at ≤ 520 px it renders as an empty pill (`api/src/albums/share/client-gallery.template.ts`). The mock draws the intended icon. Fixing the app is the owner's call.
+- **Order follows the API.** "Who's coming" re-sorts as people answer, going first and then by name, so the resting order is Bea, Ernie, Kenn and rows slide into place. The poster's applicants are listed newest first (Bea, Kenn, Ernie), so Mika accepts from the bottom up.
+- **The sending bubble** prints `@Kenn` plain until it is sent, then marks it, as the app does.
+- **Ch5's moment** is Saturday 11:55 PM, so the album holds only Saturday's files and its heading reads "Today".
