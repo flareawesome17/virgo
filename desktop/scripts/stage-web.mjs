@@ -31,7 +31,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -185,7 +185,17 @@ cpSync(join(web, '.next', 'static'), join(RESOURCES, '.next', 'static'), {
 
 // Fonts, icons, and the notification sounds the chat screen plays.
 if (existsSync(join(web, 'public'))) {
-  cpSync(join(web, 'public'), join(RESOURCES, 'public'), { recursive: true });
+  // Not the story site's media (public/redesign, and redesign-dev in a
+  // working tree): the desktop app never shows the marketing page, and the
+  // hero loop and posters would ship inside every installer and update.
+  const publicDir = join(web, 'public');
+  cpSync(publicDir, join(RESOURCES, 'public'), {
+    recursive: true,
+    filter: (src) => {
+      const top = relative(publicDir, src).split(sep)[0];
+      return top !== 'redesign' && top !== 'redesign-dev';
+    },
+  });
 }
 
 // Tauri signs the executables it bundles but nothing under resources/, and
