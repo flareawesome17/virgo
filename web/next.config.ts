@@ -68,6 +68,16 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // The story site's media (posters, the hero loop, the OG video, map
+        // levels, grain). Every file there carries a content hash in its name
+        // — publish.mjs writes them — so a file never changes under its URL
+        // and can be cached for good. Never put an unhashed file here.
+        source: '/redesign/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
     ];
   },
 
