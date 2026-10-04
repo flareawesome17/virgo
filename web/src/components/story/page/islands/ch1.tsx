@@ -1,8 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useMotionGate } from '../motion';
+import { useRef, type ReactNode } from 'react';
+import { useMotionGate, useNear } from '../motion';
 import { CH1_FILM_SVH } from '../scenes/ch1-timing';
 
 /**
@@ -23,14 +23,7 @@ const Film = dynamic(() => import('../scenes/ch1-film'), { ssr: false });
 export function FilmSlot({ svh, children }: { svh: number; children: ReactNode }) {
   const gate = useMotionGate();
   const box = useRef<HTMLDivElement>(null);
-  const [near, setNear] = useState(false);
-  useEffect(() => {
-    const el = box.current;
-    if (!gate.motion || near || !el) return;
-    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setNear(true), { rootMargin: '150% 0px' });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [gate.motion, near]);
+  const near = useNear(box, gate.motion);
   return (
     <div ref={box} className="relative" style={{ height: `${svh}svh` }}>
       {gate.motion && near && children}

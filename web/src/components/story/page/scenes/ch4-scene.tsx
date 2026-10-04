@@ -10,7 +10,7 @@ import { WHEN } from '../../data/story';
 import { LOCK_WALLPAPER, LockNotification, LockScreen, PhoneFrame, lockDate, lockTime } from '../../frames';
 import { NotificationList, NotificationRow } from '../../mocks/notification-row';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
-import { Flare, LightSweep, Particles, useReveal, useRumble } from '../cinema/fx';
+import { Flare, LightSweep, Particles, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { GearArt, ROLE_GEAR, type GearKind } from '../cinema/gear';
 import { Morph } from '../cinema/morph';
@@ -295,7 +295,6 @@ function CrewPhone({
 /** Saturday, 5:00 AM: Mika's phone, no service. The reminder rings. */
 function LockPhone({ p }: { p: MotionValue<number> }) {
   const shake = useRef<HTMLDivElement>(null);
-  useRumble(p, AT.ring, shake);
   const transform = useTransform(p, (v) => {
     const a = camera(seg(v, AT.lock[0], AT.lock[1]));
     const d = camera(seg(v, AT.lock[1], 1));

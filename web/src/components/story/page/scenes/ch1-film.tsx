@@ -6,7 +6,7 @@ import { CH1, CH1_CHATS, CH1_QUESTION } from '../../data/strings/page-ch1';
 import { WHEN } from '../../data/story';
 import { LOCK_WALLPAPER, LockScreen, PHONE_RADIUS, PhoneFrame, Slab, lockDate, lockTime } from '../../frames';
 import { camera, enter, exit, lerp, r2, seg, window4 } from '../cinema/ease';
-import { Flare, LightSweep, Particles, useCamera, useReveal, useRumble } from '../cinema/fx';
+import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { Morph } from '../cinema/morph';
@@ -228,7 +228,6 @@ function Job({ progress }: { progress: MotionValue<number> }) {
   ]);
   const opacity = useTransform(progress, (p) => r2(enter(seg(p, 0.58, 0.66)) * (1 - seg(p, 0.9, 0.96))));
   const shake = useRef<HTMLDivElement>(null);
-  useRumble(progress, POST, shake);
   const anchor = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLSpanElement>(null);
   const focus = useFocusOn(anchor, button);

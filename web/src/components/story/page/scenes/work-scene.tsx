@@ -92,7 +92,11 @@ function reveal(p: number, card: HTMLElement | null, craft: Craft) {
 }
 
 export function WorkScene({ length }: { length: number }) {
-  return <Shot length={length}>{(progress) => <Frame progress={progress} />}</Shot>;
+  return (
+    <Shot length={length} overlap>
+      {(progress) => <Frame progress={progress} />}
+    </Shot>
+  );
 }
 
 function Frame({ progress }: { progress: MotionValue<number> }) {

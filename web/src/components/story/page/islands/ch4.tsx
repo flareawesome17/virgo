@@ -1,8 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useRef, useState } from 'react';
-import { useMotionGate } from '../motion';
+import { useRef } from 'react';
+import { useMotionGate, useNear } from '../motion';
 
 /**
  * Ch4's motion half (05-cinema.md §5): the film (scenes/ch4-scene.tsx) is a
@@ -16,14 +16,7 @@ const Scene = dynamic(() => import('../scenes/ch4-scene'), { ssr: false });
 export function Ch4Motion() {
   const gate = useMotionGate();
   const box = useRef<HTMLDivElement>(null);
-  const [near, setNear] = useState(false);
-  useEffect(() => {
-    const el = box.current;
-    if (!gate.motion || near || !el) return;
-    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setNear(true), { rootMargin: '150% 0px' });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [gate.motion, near]);
+  const near = useNear(box, gate.motion);
   return (
     <div ref={box} className="h-full">
       {gate.motion && near && <Scene />}

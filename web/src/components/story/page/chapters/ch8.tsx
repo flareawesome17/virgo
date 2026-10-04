@@ -27,7 +27,7 @@ export function Ch8() {
       data-tone="night"
       data-chapter="community"
       aria-labelledby="community-title"
-      className="relative z-10 text-[#F2EDE8] [overflow-x:clip]"
+      className="relative z-10 [html[data-motion='on']_&]:-mt-[100svh] text-[#F2EDE8] [overflow-x:clip]"
     >
       <div className="motion-only">
         <h2 className="sr-only">{CH8_COPY.lines[0]}</h2>

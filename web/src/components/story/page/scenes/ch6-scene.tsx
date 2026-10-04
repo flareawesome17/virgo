@@ -8,7 +8,7 @@ import { CH6 } from '../../data/strings/page-ch6';
 import { ClientGalleryPage } from '../../mocks/client-gallery';
 import { NotificationList, NotificationRow } from '../../mocks/notification-row';
 import { camera, lerp, r2, seg, window4 } from '../cinema/ease';
-import { LightSweep, useCamera, useReveal, useRumble } from '../cinema/fx';
+import { LightSweep, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { Morph } from '../cinema/morph';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
@@ -331,7 +331,6 @@ function Mika({ progress }: { progress: MotionValue<number> }) {
   const row = useReveal(progress, TOLD - 0.01, TOLD + 0.03, 0.63, 0.68, { y: -16, scale: 0.96 });
   const turn = useTransform(progress, (p) => `perspective(1200px) rotateY(${r2(lerp(-16, -4, camera(seg(p, 0.46, 0.66))))}deg)`);
   const phone = useRef<HTMLDivElement>(null);
-  useRumble(progress, TOLD, phone);
   return (
     <div aria-hidden className="pointer-events-none absolute right-[5vw] top-[30svh] z-20 lg:left-[55%] lg:right-auto lg:top-[20svh]">
       <m.div style={reveal}>

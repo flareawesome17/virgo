@@ -119,11 +119,15 @@ export default function Ch3Scene() {
   usePublishSky(cover, (c, l) => {
     const { h, v } = size.current;
     const p = h > v ? (c * (h + v) - v) / (h - v) : c;
+    // The chapter overlaps Nearby by a screen: until it pins, Nearby still owns the sky.
+    if (p <= 0) return null;
     return connectFrame(skyClock(p), l);
   });
   return (
     <div ref={wrap}>
-      <Shot length={CH3_SHOT}>{(p) => <Frame p={p} />}</Shot>
+      <Shot length={CH3_SHOT} overlap>
+        {(p) => <Frame p={p} />}
+      </Shot>
     </div>
   );
 }

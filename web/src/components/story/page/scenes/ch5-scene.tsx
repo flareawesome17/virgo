@@ -4,7 +4,7 @@ import { m, useMotionValueEvent, useTransform, type MotionValue } from 'framer-m
 import { useRef, useSyncExternalStore, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { CH5 } from '../../data/strings/page-ch5';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
-import { Flare, LightSweep, Particles, useCamera, useReveal, useRumble } from '../cinema/fx';
+import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { GEAR_ASPECT, GearArt, type GearKind } from '../cinema/gear';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
@@ -217,7 +217,6 @@ function Shoot({ progress }: { progress: MotionValue<number> }) {
   const playhead = useTransform(progress, (p) => `translate3d(${r2(lerp(0, 100, seg(p, 0.22, 0.56)))}%,0,0)`);
   const shutter = useRef<HTMLDivElement>(null);
   const rig = useRef<HTMLDivElement>(null);
-  useRumble(progress, SHUTTER, shutter);
   // The gear's hooks: the rig's tally light rolls, the camera's shutter blinks on the beat.
   const gate = useMotionGate();
   const last = useRef(progress.get());

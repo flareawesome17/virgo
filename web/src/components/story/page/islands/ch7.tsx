@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useRef, useState, type ComponentType } from 'react';
-import { useMotionGate } from '../motion';
+import { useMotionGate, useNear } from '../motion';
 
 /**
  * Ch7's island, and the lazy-scene plumbing Ch7, The work and Ch8 share
@@ -29,22 +29,7 @@ export function useNarrow() {
 export function LazyScene({ length, scene: Scene }: { length: number; scene: ComponentType<{ length: number }> }) {
   const gate = useMotionGate();
   const box = useRef<HTMLDivElement>(null);
-  const [near, setNear] = useState(false);
-
-  useEffect(() => {
-    const el = box.current;
-    if (!gate.motion || near || !el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((e) => e.isIntersecting)) return;
-        io.disconnect();
-        setNear(true);
-      },
-      { rootMargin: '150% 0px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [gate.motion, near]);
+  const near = useNear(box, gate.motion);
 
   return (
     <div ref={box} className="relative" style={{ height: `${100 + length}svh` }}>
