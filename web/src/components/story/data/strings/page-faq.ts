@@ -1,5 +1,6 @@
 /**
- * The FAQ (storyboard §2 FAQ). Page-authored, so check-story lints it.
+ * The FAQ (05-cinema.md §3: after the credits, quiet, collapsed). Page-
+ * authored, so check-story lints it. Every question stays.
  *
  * One array feeds both the visible list (`page/chapters/faq.tsx`) and the
  * FAQPage JSON-LD (`components/landing/structured-data.tsx`), so the answer a
@@ -13,11 +14,9 @@ export const SOURCES: { text: string; file: string; mode: 'verbatim' }[] = [];
 export const CONTACT_EMAIL = 'support@virgo.ph';
 
 export const FAQ_COPY = {
-  eyebrow: 'FAQ',
-  title: 'Questions people ask',
-  lead: 'The short answers. If yours is not here,',
-  leadLink: 'email us',
-  leadEnd: '.',
+  title: 'Questions',
+  /** Followed by the contact address, as a mail link. */
+  other: 'Something else?',
 } as const;
 
 export const FAQ: readonly { q: string; a: string }[] = [

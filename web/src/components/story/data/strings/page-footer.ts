@@ -1,6 +1,7 @@
 /**
- * The story's footer (storyboard §2 Footer, §1.10). Page-authored, so
- * check-story lints it. Zero-import data module.
+ * The story's footer (05-cinema.md §3). Page-authored, so check-story lints
+ * it. The honesty line lives in the credits (page-finale.ts), once. Zero-import
+ * data module.
  */
 export const SOURCES: { text: string; file: string; mode: 'verbatim' }[] = [];
 
@@ -8,11 +9,9 @@ export const FOOTER_COPY = {
   home: 'Virgo home',
   name: 'Virgo',
   nav: 'Footer',
-  links: { terms: 'Terms', privacy: 'Privacy', download: 'Download', signIn: 'Sign in' },
+  links: { download: 'Download', join: 'Join', signIn: 'Sign in', app: 'Web app', terms: 'Terms', privacy: 'Privacy' },
   /** "© {year} Virgo · " precedes it. */
-  built: 'Built in the Philippines, for Filipino creatives.',
-  honesty:
-    'Interfaces are drawn from the app. People, places, distances, amounts and album contents are illustrative; we do not put client work on a marketing page. The sky is illustrative; the constellation is real.',
+  made: 'Made in the Philippines.',
   creditsLabel: 'Credits',
   mapCredit:
     'Philippine boundaries: NAMRIA and PSA, via OCHA (HDX) and geoBoundaries (Runfola et al. 2020), CC BY 3.0 IGO, simplified.',

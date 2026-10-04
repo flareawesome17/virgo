@@ -1,46 +1,46 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { m, useScroll, useTransform } from 'framer-motion';
+import { useRef, type ReactNode } from 'react';
+import { camera, lerp, r2, seg } from '../cinema/ease';
+import { LightSweep } from '../cinema/fx';
 import { useMotionGate } from '../motion';
 
 /**
- * Ch10's stage (storyboard §2 Ch10): entry-triggered, once, never
- * scroll-linked. The server render is the final state (Free's star risen,
- * the paid tiers' stars below the horizon). In motion mode this arms the
- * scene on mount and lights it when the stage is 30% visible; the CSS in
- * the chapter does the rest with transform and opacity transitions.
- *
- * Copy never waits on it: the cards only tilt and lift, they never fade.
+ * Ch10's film (05-cinema.md §3 and addendum, "after the film"): the camera
+ * dollies in over the plans (scale 0.9 → 1 as they arrive), then drifts,
+ * tipping from a low angle to level. The cards ease in and out on their own
+ * (Reveal, in the chapter). The server render is the final state; with motion
+ * off nothing here touches it. Transform and opacity only.
  */
-export function Ch10Stage({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const { motion } = useMotionGate();
-
-  useEffect(() => {
-    const root = ref.current;
-    if (!motion || !root) return;
-    root.dataset.state = 'armed';
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting) return;
-        // Commit the armed pose before lighting, so the transitions run even
-        // when the stage is already in view on mount (an anchor jump).
-        void root.offsetWidth;
-        root.dataset.state = 'lit';
-        io.disconnect();
-      },
-      { threshold: 0.3 },
-    );
-    io.observe(root);
-    return () => {
-      io.disconnect();
-      delete root.dataset.state;
-    };
-  }, [motion]);
+export function Ch10Film({ children, className = '' }: { children: ReactNode; className?: string }) {
+  const root = useRef<HTMLDivElement>(null);
+  const gate = useMotionGate();
+  const { scrollYProgress: cover } = useScroll({ target: root, offset: ['start end', 'end start'] });
+  const drift = useTransform(cover, (p) => {
+    const t = camera(p);
+    const zoom = lerp(0.9, 1, camera(seg(p, 0, 0.4)));
+    return `perspective(1600px) translate3d(0,${r2(lerp(48, -32, t))}px,0) rotateX(${r2(lerp(7, -2, t))}deg) scale(${r2(zoom)})`;
+  });
 
   return (
-    <div ref={ref} data-stage="pricing" className="pricing-stage">
+    <m.div ref={root} style={gate.motion ? { transform: drift } : undefined} className={className}>
       {children}
+    </m.div>
+  );
+}
+
+/**
+ * The one light sweep: a band of gold that crosses the Free card as it
+ * passes the middle of the screen. Sits inside the card, clipped to it.
+ */
+export function FreeSweep() {
+  const ref = useRef<HTMLDivElement>(null);
+  const gate = useMotionGate();
+  const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
+  return (
+    <div ref={ref} aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
+      {gate.motion && <LightSweep progress={scrollYProgress} from={0.32} to={0.7} />}
     </div>
   );
 }
