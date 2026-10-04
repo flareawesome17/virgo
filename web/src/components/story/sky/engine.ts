@@ -23,13 +23,23 @@
  *   a quarter of 45 frames of camera motion arrive later than 1.5× the
  *   device's own measured frame interval, halve the stars and stop the
  *   twinkle; if it fires again, freeze to the poster.
+ *
+ * Deep space (space.ts) sits behind both scenes: built at idle in slices,
+ * faded in, drawn into this canvas (into the steady cache with the cloud
+ * while the camera holds). Its far stars twinkle with the cloud's; a
+ * shooting star crosses at most every 8 to 12 s, only while a chapter shows
+ * the sky (`setLive`), never under Pause, in lite mode, after a degrade or
+ * in a hidden tab. Lite mode draws no deep space at all. `destroy()` gives
+ * every bitmap back (the canvas, the cache, the sprites and deep space).
  */
 import { KM_PER_UNIT } from '../data/projection';
 import { pixelsPerUnit, planeMatrix, project, smoothstep, view, type PlaneBox, type Projected, type View } from './camera';
 import { paintCloud, paintClusters, paintMotes, paintRings, paintStars, paintThreads, type CloudLook, type Painter } from './paint';
 import { SEED_MAP } from './seed-map';
 import { COUNTS, deepField, hashStars, motes, starCloud, type SeedMap, type SkyVariant, type StarCloud } from './sky-seed';
-import { context, makeSprites, surface, type Ctx, type Surface } from './sprites';
+import type { Meteor, SpaceArt, SpaceBuilder, SpaceView } from './space';
+import { tileSize } from './space-size';
+import { context, makeSprites, release, releaseSprites, surface, type Ctx, type Surface } from './sprites';
 import type { FrameSource, GeoState, SkyFrame, SkyStats } from './types';
 
 const BUDGET: Record<SkyVariant, number> = { desktop: 1200, mobile: 600, lite: 600 };
@@ -43,6 +53,13 @@ const TWINKLE_MS = 1000 / 30;
 const WINDOW = 45;
 const SKIP = 10;
 const SLOW_DRAW_MS = 6;
+/** Deep space fades in over this long once built. */
+const SPACE_FADE_MS = 900;
+/** The first shooting star comes this long after the sky first shows (plus up to the same again); then every 8 to 12 s. */
+const METEOR_FIRST_MS = 5000;
+const METEOR_GAP_MS = [8000, 12000] as const;
+
+type SpaceModule = typeof import('./space');
 
 export type SkyEngineOptions = {
   /** The stage: holds the canvas, `[data-sky-map]` with its `[data-sky-map-level]` layers, and `[data-sky-label]` elements. */
@@ -55,6 +72,10 @@ export type SkyEngineOptions = {
   sentinel?: Element | null;
   /** The story map the stars are seeded on. Default: seed-map.ts, the real one. */
   seed?: SeedMap;
+  /** Deep space behind the scenes (default true; lite mode never draws it). */
+  space?: boolean;
+  /** Whether a chapter is showing the sky at first (default true): shooting stars only cross a live sky. See `setLive`. */
+  live?: boolean;
   onStats?: (stats: SkyStats) => void;
   /** The engine has given up drawing; show the poster. */
   onFreeze?: () => void;
@@ -102,8 +123,20 @@ export class SkyEngine {
   private cache: Surface | null = null;
   private cacheG: Ctx | null = null;
   private cacheOk = false;
-  private readonly key = new Float64Array(27);
-  private readonly nextKey = new Float64Array(27);
+  private readonly key = new Float64Array(32);
+  private readonly nextKey = new Float64Array(32);
+  private spaceMod: SpaceModule | null = null;
+  private spaceLoading = false;
+  private spaceBuilder: SpaceBuilder | null = null;
+  private spaceArt: SpaceArt | null = null;
+  private spaceKey = '';
+  private spaceAt = 0;
+  private readonly sv = {} as SpaceView;
+  private live = true;
+  private meteor: Meteor | null = null;
+  private nextMeteor = 0;
+  private meteorRnd: (() => number) | null = null;
+  private meteors = 0;
   private variant: SkyVariant = 'desktop';
   private level: 0 | 1 | 2 = 0;
   private cloud: StarCloud;
@@ -164,11 +197,14 @@ export class SkyEngine {
 
     this.paused = document.documentElement.hasAttribute('data-paused');
     this.hidden = document.hidden;
+    this.live = options.live ?? true;
     this.refresh();
     this.resize();
 
     const onVisibility = () => {
       this.hidden = document.hidden;
+      // A shooting star never waits out a hidden tab to finish on its return.
+      if (this.hidden) this.meteor = null;
       this.wake();
     };
     document.addEventListener('visibilitychange', onVisibility);
@@ -203,10 +239,90 @@ export class SkyEngine {
     this.frame = this.read();
     this.wake();
 
-    // Fetch the deep-sky painter once the page is idle, well before Ch3 needs it.
+    // Fetch the deep-sky painter once the page is idle, well before Ch3 needs it; then build deep space.
     const idle = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
-    if (idle) idle(() => this.loadDeep(), { timeout: 4000 });
-    else setTimeout(() => this.loadDeep(), 1500);
+    const later = () => {
+      this.loadDeep();
+      this.loadSpace();
+    };
+    if (idle) idle(later, { timeout: 4000 });
+    else setTimeout(later, 1500);
+  }
+
+  /** Whether a chapter is showing the sky right now: shooting stars only cross a live sky. */
+  setLive(live: boolean): void {
+    if (live === this.live) return;
+    this.live = live;
+    if (live) this.wake();
+  }
+
+  /** Builds deep space now rather than at idle, and resolves once it is drawn (for checks and the lab). */
+  async loadSpaceNow(): Promise<boolean> {
+    this.loadSpace(true);
+    for (let i = 0; i < 400 && !this.destroyed && (this.spaceLoading || this.spaceBuilder) && !this.spaceArt; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    return !!this.spaceArt;
+  }
+
+  private loadSpace(now = false) {
+    if (this.spaceMod || this.spaceLoading || this.destroyed || this.o.space === false) return;
+    this.spaceLoading = true;
+    import('./space').then(
+      (m) => {
+        this.spaceMod = m;
+        this.spaceLoading = false;
+        this.ensureSpace(now);
+      },
+      () => {
+        this.spaceLoading = false;
+      },
+    );
+  }
+
+  /** Starts (or restarts, after a resize that changes its size) building deep space for the current variant and DPR. */
+  private ensureSpace(now = false) {
+    const m = this.spaceMod;
+    if (!m || this.destroyed) return;
+    if (this.variant === 'lite') {
+      this.dropSpace();
+      return;
+    }
+    const variant = this.variant === 'mobile' ? 'mobile' : 'desktop';
+    const key = `${variant}|${tileSize(this.dpr)}`;
+    if (key === this.spaceKey) return;
+    this.dropSpace();
+    this.spaceKey = key;
+    const builder = new m.SpaceBuilder(variant, this.dpr);
+    this.spaceBuilder = builder;
+    const idle = (globalThis as { requestIdleCallback?: (cb: (d: { timeRemaining(): number }) => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    const next = (fn: (d?: { timeRemaining(): number }) => void) => (idle && !now ? idle(fn, { timeout: 1000 }) : setTimeout(fn, 0));
+    const run = (deadline?: { timeRemaining(): number }) => {
+      if (this.destroyed || this.spaceBuilder !== builder) return;
+      const ms = deadline ? Math.max(3, Math.min(12, deadline.timeRemaining() - 1)) : 6;
+      if (!builder.step(ms)) {
+        next(run);
+        return;
+      }
+      this.spaceBuilder = null;
+      this.spaceArt = builder.art;
+      this.spaceAt = performance.now();
+      this.cacheOk = false;
+      this.drawn = undefined;
+      this.motionUntil = Math.max(this.motionUntil, this.spaceAt + SPACE_FADE_MS + 60);
+      this.wake();
+    };
+    next(run);
+  }
+
+  private dropSpace() {
+    this.spaceBuilder?.dispose();
+    this.spaceBuilder = null;
+    this.spaceMod?.releaseSpace(this.spaceArt);
+    this.spaceArt = null;
+    this.spaceKey = '';
+    this.meteor = null;
+    this.cacheOk = false;
   }
 
   private loadDeep() {
@@ -285,6 +401,14 @@ export class SkyEngine {
     this.raf = 0;
     this.unsubscribe?.();
     for (const c of this.cleanups) c();
+    // Give every bitmap back now: iOS counts a canvas's memory until it is collected.
+    this.dropSpace();
+    release(this.cache);
+    this.cache = null;
+    this.cacheG = null;
+    releaseSprites(this.painter.sprites);
+    this.o.canvas.width = 0;
+    this.o.canvas.height = 0;
   }
 
   // ─── Scheduling ────────────────────────────────────────────────────────
@@ -350,7 +474,8 @@ export class SkyEngine {
     if (this.lastTick) this.measure(now - this.lastTick);
     this.lastTick = now;
     this.moved = false;
-    if (this.twinkles() && now - this.lastTwinkle >= TWINKLE_MS - 2) {
+    // A shooting star is too quick for the 30 fps twinkle: while one crosses, every frame draws.
+    if (this.twinkles() && (this.meteor || now - this.lastTwinkle >= TWINKLE_MS - 2)) {
       this.lastTwinkle = now;
       this.time = now / 1000;
       this.draw();
@@ -420,15 +545,20 @@ export class SkyEngine {
       this.o.canvas.width = bw;
       this.o.canvas.height = bh;
     }
-    if (changedDpr || !this.painter.sprites.px.length) this.painter.sprites = makeSprites(dpr);
+    if (changedDpr || !this.painter.sprites.px.length) {
+      releaseSprites(this.painter.sprites);
+      this.painter.sprites = makeSprites(dpr);
+    }
     this.variant = want;
     this.cloud = starCloud(this.seed, COUNTS[this.variant] >> (this.level === 1 ? 1 : 0));
+    release(this.cache);
     this.cache = null;
     this.cacheG = null;
     this.cacheOk = false;
     this.costs = [];
     this.skip = SKIP;
     this.drawn = undefined;
+    this.ensureSpace();
     this.wake();
   }
 
@@ -451,17 +581,27 @@ export class SkyEngine {
     const deep = frame?.deep;
     const gv = geo ? view(geo.camera, this.w, this.h, this.gv) : null;
     const dv = deep ? view(deep.camera, this.w, this.h, this.dv) : null;
-    if (geo && gv && geo.opacity > 0.002) {
+    const painter = this.deepPainter;
+    if (deep && !painter) this.loadDeep();
+    const geoDrawn = !!(geo && gv && geo.opacity > 0.002);
+    const deepDrawn = !!(deep && dv && painter && deep.opacity > 0.002);
+    // Deep space: behind everything; it rides in the steady cache when the geo scene is all there is.
+    const sv = this.spaceView(frame, geoDrawn ? gv : null, deepDrawn ? dv : null, t0);
+    const spaceInCache = !!sv && geoDrawn && !deepDrawn;
+    if (sv && !spaceInCache) {
+      p.budget = total - RESERVE;
+      this.spaceMod!.paintSpace(p, this.spaceArt!, sv, 0, this.twinkles());
+    }
+    if (geo && gv && geoDrawn) {
       p.budget = total;
-      this.drawCloud(geo, gv);
+      this.drawCloud(geo, gv, spaceInCache ? sv : null);
+      this.drawMeteor(sv, t0);
       if (geo.threads) paintThreads(p, gv, geo.threads, geo.opacity);
       if (geo.rings) paintRings(p, gv, geo.rings, geo.opacity);
       if (geo.clusters) paintClusters(p, gv, geo.clusters.list, geo.clusters.wave, geo.opacity);
+      if (geo.figure && painter) painter.paintFigure(p, gv, geo.figure, geo.opacity);
       if (geo.stars) paintStars(p, gv, geo.stars, geo.opacity);
-    }
-    const painter = this.deepPainter;
-    if (deep && !painter) this.loadDeep();
-    const deepDrawn = !!(deep && dv && painter && deep.opacity > 0.002);
+    } else this.drawMeteor(sv, t0);
     if (deep && dv && painter && deepDrawn) {
       p.budget = total - RESERVE / 2;
       // The field sits far behind the figure; a high fog floor keeps it a sky rather than dust.
@@ -493,25 +633,73 @@ export class SkyEngine {
     if (now - this.statsAt > 250) this.report(false);
   }
 
+  /** Where deep space is this frame, or null when it is not built, not wanted, or nothing shows. */
+  private spaceView(frame: SkyFrame | null, gv: View | null, dv: View | null, now: number): SpaceView | null {
+    const m = this.spaceMod;
+    if (!m || !this.spaceArt || this.variant === 'lite') return null;
+    // The fade-in runs on the twinkle's clock; with the twinkle off it is simply there.
+    const fade = this.twinkles() ? smoothstep(0, SPACE_FADE_MS, now - this.spaceAt) : 1;
+    const strength = (frame?.space?.opacity ?? 1) * fade;
+    const sv = m.spaceView(gv, frame?.geo?.opacity ?? 0, dv, frame?.deep?.opacity ?? 0, strength, this.sv);
+    // Rounded, so a settled camera keeps an identical cache key.
+    if (sv) sv.alpha = Math.round(sv.alpha * 500) / 500;
+    return sv;
+  }
+
   /**
-   * The seeded cloud and the motes: straight to the canvas while the camera
-   * moves, from the cached bitmap while it holds. Each paints within its own
-   * share of the budget, so the story's marks always have room.
+   * The rare shooting star: only on a live sky, with the twinkle on (so never
+   * under Pause, in lite mode or after a degrade), at most one every 8 to 12 s.
    */
-  private drawCloud(geo: GeoState, v: View) {
+  private drawMeteor(sv: SpaceView | null, now: number) {
+    const m = this.spaceMod;
+    if (this.meteor && now - this.meteor.t0 >= this.meteor.dur) this.meteor = null;
+    if (!this.twinkles() || !m) {
+      this.meteor = null;
+      return;
+    }
+    if (!sv) return;
+    if (!this.meteor) {
+      const allowed = this.live && sv.alpha > 0.35 && this.frame?.space?.meteors !== false;
+      if (!allowed) return;
+      this.meteorRnd ??= m.meteorRandom();
+      if (!this.nextMeteor) {
+        this.nextMeteor = now + METEOR_FIRST_MS * (1 + this.meteorRnd());
+        return;
+      }
+      if (now < this.nextMeteor) return;
+      this.meteor = m.spawnMeteor(sv, this.meteorRnd, now);
+      this.meteors++;
+      this.nextMeteor = now + METEOR_GAP_MS[0] + (METEOR_GAP_MS[1] - METEOR_GAP_MS[0]) * this.meteorRnd();
+    }
+    const p = this.painter;
+    const budget = p.budget;
+    p.budget = BUDGET[this.variant];
+    if (!m.paintMeteor(p, this.meteor, sv, now)) this.meteor = null;
+    p.budget = budget;
+  }
+
+  /**
+   * Deep space (when it rides with the cloud), the seeded cloud and the
+   * motes: straight to the canvas while the camera moves, from the cached
+   * bitmap while it holds. Each paints within its own share of the budget,
+   * so the story's marks always have room.
+   */
+  private drawCloud(geo: GeoState, v: View, sv: SpaceView | null) {
     const p = this.painter;
     const total = p.budget;
     const twinkle = this.twinkles();
-    const look: CloudLook = { base: CLOUD_BASE, opacity: geo.opacity * (geo.cloud ?? 1), dim: geo.dimOuter, twinkle, glow: CLOUD_GLOW };
+    const look: CloudLook = { base: CLOUD_BASE, opacity: geo.opacity * (geo.cloud ?? 1), dim: geo.dimOuter, twinkle, glow: CLOUD_GLOW, people: true };
     const moteStrength = (geo.motes ?? 0) * geo.opacity;
+    const space = sv && this.spaceMod && this.spaceArt ? { m: this.spaceMod, art: this.spaceArt, sv } : null;
     const steady = (pass: 0 | 1) => {
       p.budget = total - RESERVE;
+      if (space) space.m.paintSpace(p, space.art, space.sv, pass, twinkle);
       if (look.opacity > 0.002) paintCloud(p, v, this.cloud, look, pass);
       p.budget = total - RESERVE / 2;
       paintMotes(p, v, this.motes, moteStrength);
       p.budget = total;
     };
-    if (look.opacity <= 0.002 && moteStrength <= 0.01) return;
+    if (look.opacity <= 0.002 && moteStrength <= 0.01 && !space) return;
     if (!twinkle) {
       steady(0);
       return;
@@ -520,7 +708,7 @@ export class SkyEngine {
     const c = geo.camera;
     const d = geo.dimOuter;
     const sh = c.shift ?? [0, 0];
-    k.set([...c.position, ...c.target, ...(c.up ?? [0, 1, 0]), c.fov, sh[0], sh[1], look.opacity, d?.center[0] ?? 0, d?.center[2] ?? 0, d?.radius ?? 0, d?.amount ?? 0, this.w, this.h, this.dpr, this.cloud.count, moteStrength]);
+    k.set([...c.position, ...c.target, ...(c.up ?? [0, 1, 0]), c.fov, sh[0], sh[1], look.opacity, d?.center[0] ?? 0, d?.center[2] ?? 0, d?.radius ?? 0, d?.amount ?? 0, this.w, this.h, this.dpr, this.cloud.count, moteStrength, space ? space.sv.alpha : -1]);
     let same = true;
     for (let i = 0; i < k.length; i++) {
       if (k[i] !== this.key[i]) {
@@ -566,6 +754,7 @@ export class SkyEngine {
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     p.count++;
     p.budget = total - RESERVE;
+    if (space) space.m.paintSpace(p, space.art, space.sv, 2, twinkle);
     if (look.opacity > 0.002) paintCloud(p, v, this.cloud, look, 2);
     p.budget = total;
   }
@@ -706,6 +895,9 @@ export class SkyEngine {
       running: this.raf !== 0,
       idle: this.destroyed ? 'destroyed' : this.hidden ? 'tab hidden' : this.offscreen ? 'offscreen' : this.level === 2 ? 'frozen' : this.paused ? 'paused' : '',
       seedHash: this.seedHash,
+      space: this.spaceArt ? 'on' : this.spaceBuilder || this.spaceLoading ? 'building' : 'off',
+      meteors: this.meteors,
+      live: this.live,
     });
   }
 }

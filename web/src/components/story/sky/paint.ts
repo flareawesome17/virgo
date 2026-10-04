@@ -39,6 +39,12 @@ export type CloudLook = {
   floor?: number;
   /** A soft glow behind the large stars, at this share of their alpha. 0 or absent: none. */
   glow?: number;
+  /**
+   * The geo cloud: its city stars (three in every five, sky-seed.ts) are
+   * people, so they draw warmer, a little larger and brighter, and pulse
+   * slowly; the spread stars between them sit back as the quieter field.
+   */
+  people?: boolean;
 };
 
 /**
@@ -58,6 +64,7 @@ export function paintCloud(p: Painter, v: View, cloud: StarCloud, look: CloudLoo
   const r2 = dim ? dim.radius * dim.radius : 0;
   const t = p.time;
   const floor = look.floor ?? 0.16;
+  const people = !!look.people;
   for (let i = 0, o = 0; i < cloud.count; i++, o += STRIDE) {
     const tw = look.twinkle && d[o + F.twinkle] === 1;
     if ((pass === 1 && tw) || (pass === 2 && !tw)) continue;
@@ -71,11 +78,12 @@ export function paintCloud(p: Painter, v: View, cloud: StarCloud, look: CloudLoo
     const sy = v.cy - (dx * v.ux + dy * v.uy + dz * v.uz) * k;
     const q = range / depth;
     const cue = Math.sqrt(q);
-    const size = look.base[d[o + F.size]] * (cue < 0.5 ? 0.5 : cue > 2.6 ? 2.6 : cue);
+    const person = people && i % 5 < 3;
+    const size = look.base[d[o + F.size]] * (cue < 0.5 ? 0.5 : cue > 2.6 ? 2.6 : cue) * (person ? 1.12 : people ? 0.9 : 1);
     const half = size / 2;
     if (sx < -half || sx > w + half || sy < -half || sy > h + half) continue;
     const fog = cue * 0.9;
-    let alpha = d[o + F.bright] * look.opacity * (fog < floor ? floor : fog > 1 ? 1 : fog);
+    let alpha = d[o + F.bright] * look.opacity * (fog < floor ? floor : fog > 1 ? 1 : fog) * (person ? 1.12 : people ? 0.74 : 1);
     // Passing the camera: fade out between 12× and 28× nearer than the target.
     if (q > 12) alpha *= q > 28 ? 0 : (28 - q) / 16;
     if (dim) {
@@ -83,18 +91,24 @@ export function paintCloud(p: Painter, v: View, cloud: StarCloud, look: CloudLoo
       const hz = d[o + 2] - dim.center[2];
       if (hx * hx + hz * hz > r2) alpha *= dimTo;
     }
-    if (tw) alpha *= 0.62 + 0.38 * Math.sin(d[o + F.phase] + t * (1.2 + (d[o + F.phase] % 1.4)));
+    if (tw) {
+      // People pulse slowly; the field between them twinkles.
+      const ph = d[o + F.phase];
+      alpha *= person ? 0.7 + 0.3 * Math.sin(ph + t * (0.55 + (ph % 0.7))) : 0.62 + 0.38 * Math.sin(ph + t * (1.2 + (ph % 1.4)));
+    }
     if (alpha < 0.015) continue;
     if (p.count >= p.budget) return;
     if (look.glow && d[o + F.size] === 2 && alpha > 0.35 && p.count + 1 < p.budget) {
       // The brightest few carry a halo, so the field has a few stars that read first.
-      const gs = size * 2.6;
-      g.globalAlpha = Math.min(1, alpha * look.glow);
+      const gs = size * (person ? 3 : 2.6);
+      g.globalAlpha = Math.min(1, alpha * look.glow * (person ? 1.3 : 1));
       g.drawImage(sprites.glow, sx - gs / 2, sy - gs / 2, gs, gs);
       p.count++;
     }
     g.globalAlpha = alpha > 1 ? 1 : alpha;
-    g.drawImage(sprites.star[d[o + F.tint]][sizeIndex(size)], sx - half, sy - half, size, size);
+    // A person's star: gold stays gold, warm white turns warm cream.
+    const tint = person && d[o + F.tint] === 0 ? 2 : d[o + F.tint];
+    g.drawImage(sprites.star[tint][sizeIndex(size)], sx - half, sy - half, size, size);
     p.count++;
   }
 }
@@ -156,7 +170,35 @@ export function paintMotes(p: Painter, v: View, seeds: Float32Array, strength: n
   }
 }
 
-/** Story stars: size follows the same depth cue; a halo blooms behind on request. */
+/** A steady phase for a point, so each person's star breathes on its own beat. */
+export function phaseOf(x: number, z: number): number {
+  const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+  return (s - Math.floor(s)) * Math.PI * 2;
+}
+
+/**
+ * A person's star, over the plain one: a soft halo, then fine diffraction
+ * spikes, then a hot white core, all breathing slowly on `phase` (the breath
+ * holds while `p.time` does, under Pause). Up to three sprites.
+ */
+export function paintFeatured(p: Painter, x: number, y: number, size: number, alpha: number, featured: number, phase: number): void {
+  const f = featured > 1 ? 1 : featured;
+  if (f < 0.01 || alpha < 0.01 || p.count + 3 > p.budget) return;
+  const breath = Math.sin(p.time * 0.9 + phase);
+  const g = p.g;
+  const hs = size * (3.4 + 0.25 * breath);
+  g.globalAlpha = Math.min(1, alpha * f * (0.42 + 0.08 * breath));
+  g.drawImage(p.sprites.glow, x - hs / 2, y - hs / 2, hs, hs);
+  const ss = size * (2.9 + 0.5 * f) * (1 + 0.07 * breath);
+  g.globalAlpha = Math.min(1, alpha * f * (0.78 + 0.18 * breath));
+  g.drawImage(p.sprites.spike, x - ss / 2, y - ss / 2, ss, ss);
+  const cs = size * 0.62;
+  g.globalAlpha = Math.min(1, alpha * f * 0.9);
+  g.drawImage(p.sprites.star[0][sizeIndex(cs)], x - cs / 2, y - cs / 2, cs, cs);
+  p.count += 3;
+}
+
+/** Story stars: size follows the same depth cue; a halo blooms behind on request; people carry spikes. */
 export function paintStars(p: Painter, v: View, stars: readonly StoryStar[], opacity: number): void {
   for (const s of stars) {
     project(v, s.world[0], s.world[1], s.world[2], a);
@@ -175,6 +217,7 @@ export function paintStars(p: Painter, v: View, stars: readonly StoryStar[], opa
     p.g.globalAlpha = Math.min(1, alpha);
     p.g.drawImage(p.sprites.star[s.tint ?? 0][sizeIndex(size)], a.x - size / 2, a.y - size / 2, size, size);
     p.count++;
+    if (s.featured) paintFeatured(p, a.x, a.y, size, alpha, s.featured, phaseOf(s.world[0], s.world[2]));
   }
 }
 
@@ -262,13 +305,18 @@ export function paintRings(p: Painter, v: View, rings: readonly Ring[], opacity:
 
 /**
  * Ch8's small constellations: each lights as the north-to-south wave
- * reaches it, with a faint thread of light down to its city.
+ * reaches it, with a faint thread of light down to its city. Each crew's
+ * stars are people, so they read as clear warm points with a glow of their
+ * own; a crew flares once as it lights, then breathes.
  */
 export function paintClusters(p: Painter, v: View, list: readonly Cluster[], wave: number, opacity: number): void {
   const g = p.g;
   for (const c of list) {
-    const r = smoothstep(c.wave * 0.72, c.wave * 0.72 + 0.28, wave) * opacity;
+    const lit = smoothstep(c.wave * 0.72, c.wave * 0.72 + 0.28, wave);
+    const r = lit * opacity;
     if (r < 0.01) continue;
+    // The flare as it lights: 0 before, a peak half way, 0 once lit.
+    const flare = Math.sin(Math.PI * lit) * opacity;
     let mx = 0;
     let my = 0;
     let mz = 0;
@@ -296,24 +344,29 @@ export function paintClusters(p: Painter, v: View, list: readonly Cluster[], wav
       g.moveTo(a.x, a.y);
       g.lineTo(b.x, b.y);
     }
-    stroke(g, 0.55 * r, 1, LINE);
+    stroke(g, (0.6 + 0.3 * flare) * r, 1, LINE);
     if (p.count >= p.budget) continue;
     // A glow at the heart, then the stars.
     project(v, mx, my, mz, a);
     if (a.depth > 0) {
-      const gs = Math.min(140, Math.max(36, (v.focal / a.depth) * 26));
-      g.globalAlpha = 0.32 * r;
+      const gs = Math.min(160, Math.max(36, (v.focal / a.depth) * 26)) * (1 + 0.6 * flare);
+      g.globalAlpha = Math.min(1, (0.32 + 0.4 * flare) * r);
       g.drawImage(p.sprites.glow, a.x - gs / 2, a.y - gs / 2, gs, gs);
       p.count++;
     }
-    for (const s of c.stars) {
-      if (p.count >= p.budget) break;
+    const breath = 1 + 0.06 * Math.sin(p.time * 0.8 + c.wave * 9);
+    c.stars.forEach((s, i) => {
+      if (p.count + 2 > p.budget) return;
       project(v, s[0], s[1], s[2], a);
-      if (!(a.depth > 0)) continue;
-      const size = 7.5 * Math.min(1.8, Math.max(0.7, Math.sqrt(v.range / a.depth)));
+      if (!(a.depth > 0)) return;
+      const size = 9.5 * Math.min(1.8, Math.max(0.75, Math.sqrt(v.range / a.depth))) * breath;
+      // A small glow of its own, so each person reads as a point, not a dot of the line.
+      const gs = size * 2.8;
+      g.globalAlpha = Math.min(1, (0.3 + 0.35 * flare) * r);
+      g.drawImage(p.sprites.glow, a.x - gs / 2, a.y - gs / 2, gs, gs);
       g.globalAlpha = Math.min(1, r);
-      g.drawImage(p.sprites.star[1][sizeIndex(size)], a.x - size / 2, a.y - size / 2, size, size);
-      p.count++;
-    }
+      g.drawImage(p.sprites.star[i === 0 ? 1 : 2][sizeIndex(size)], a.x - size / 2, a.y - size / 2, size, size);
+      p.count += 2;
+    });
   }
 }

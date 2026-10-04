@@ -14,6 +14,13 @@
  * signals (median draw cost over 6 ms, skipping 10; more than 25% of 45
  * motion frames slower than 1.5× the device's own measured interval), with
  * a 30 Hz device as the control that must not degrade.
+ *
+ * Deep space (space.ts) is off in the checks above, so their counts stay
+ * exact; its own section proves it builds, counts against the budget, rides
+ * in the steady cache, never comes in lite mode, and that shooting stars
+ * keep to one every 8 to 12 s on a live sky only, draw every frame while one
+ * crosses, and stop under Pause, in a hidden tab and where a frame says so;
+ * and that destroy() gives the canvas back.
  */
 /* global console, process */
 import module from 'node:module';
@@ -67,6 +74,13 @@ class Ctx {
   createRadialGradient() {
     return { addColorStop() {} };
   }
+  createLinearGradient() {
+    return { addColorStop() {} };
+  }
+  createImageData(w, h) {
+    return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+  }
+  putImageData() {}
   drawImage() {
     this.sprites++;
     clock += spriteCost;
@@ -166,7 +180,7 @@ const geoFrame = (extra = {}) => ({
   geo: { camera: rig({ target: [320 + (step++ % 50) * 0.01, 0, -550], distance: 1150, pitch: 88, heading: 0, fov: 62 }), opacity: 1, ...extra },
 });
 
-function make({ w = 1440, h = 900, dpr = 2, variant = 'auto' } = {}) {
+function make({ w = 1440, h = 900, dpr = 2, variant = 'auto', space = false } = {}) {
   view = { w, h };
   window.devicePixelRatio = dpr;
   attrs.clear();
@@ -182,6 +196,7 @@ function make({ w = 1440, h = 900, dpr = 2, variant = 'auto' } = {}) {
     canvas,
     frame: src,
     variant,
+    space,
     sentinel: {},
     onStats: (s) => stats.push(s),
     onFreeze: () => (frozen = true),
@@ -431,6 +446,117 @@ console.log('Auto-degrade: dropped frames, against the device’s own interval')
   await scroll(capped, 140, 1000 / 30); // a 30 Hz device (Low Power Mode): every frame is "slow" against 60 Hz, none against itself
   check(capped.last().level === 0, `30 Hz device, steady: base ${capped.last().baseMs} ms, ${(capped.last().slowShare * 100).toFixed(0)}% slow → no degrade`);
   capped.engine.destroy();
+}
+
+console.log('Deep space: the far field, the Milky Way, shooting stars');
+{
+  const { spacePixels } = await import(pathToFileURL(join(HERE, 'space-size.ts')).href);
+  const phonePx = spacePixels(390, 844, 3);
+  const deskPx = spacePixels(1440, 900, 2);
+  check(phonePx < 1e6 && deskPx < 1.6e6 && spacePixels(390, 844, 3, true) === 0, `textures: ${(phonePx / 1e6).toFixed(2)} M device px on a phone, ${(deskPx / 1e6).toFixed(2)} M on desktop, none in lite (taken off the map's budget)`);
+
+  // The same changed frame with and without deep space.
+  let nudge = 0;
+  const changed = async (u, extra) => {
+    const s = u.ctx.sprites;
+    u.src.set(geoFrame({ ...extra, motes: (nudge++ % 2) * 1e-3 }));
+    await settle();
+    return u.ctx.sprites - s;
+  };
+  const plain = make();
+  await settle();
+  const without = await changed(plain);
+  plain.engine.destroy();
+
+  const t = make({ space: true });
+  await settle();
+  const built = await t.engine.loadSpaceNow();
+  idle(70, 1000 / 60); // the 900 ms fade-in
+  check(built && t.last().space === 'on', `it builds at idle, in slices (space: ${t.last().space})`);
+  const withSpace = await changed(t);
+  check(withSpace > without + 4 && withSpace - without < 120, `a moving frame adds the panorama, two tile layers and the far twinklers: ${withSpace - without} sprites (${without} → ${withSpace})`);
+  const before = t.ctx.sprites;
+  idle(4, 1000 / 30);
+  const perFrame = (t.ctx.sprites - before) / 4;
+  // One blit, the cloud's 8% and the far twinklers in view (about 40 at the widest framing): still nowhere near ~800.
+  check(perFrame < 120, `cached twinkle frame with deep space: ${perFrame.toFixed(0)} sprites (deep space rides in the cache; only its twinklers redraw)`);
+
+  // Shooting stars: one every 8 to 12 s on a live sky, the first 5 to 10 s in.
+  const seen = [];
+  let last = t.last().meteors ?? 0;
+  const run = (seconds, onFrame) => {
+    for (let i = 0; i < seconds * 60; i++) {
+      frame(1000 / 60);
+      const n = t.last().meteors ?? 0;
+      if (n !== last) {
+        seen.push(frameTime);
+        last = n;
+        onFrame?.();
+      }
+    }
+  };
+  let fullRate = -1;
+  const start = frameTime;
+  run(62, () => {
+    if (fullRate >= 0) return;
+    const c0 = t.ctx.clears;
+    idle(12, 1000 / 60);
+    fullRate = t.ctx.clears - c0;
+  });
+  const gaps = seen.slice(1).map((x, i) => (x - seen[i]) / 1000);
+  check(seen.length >= 4 && seen.length <= 8, `${seen.length} shooting stars in 62 s (first at ${((seen[0] - start) / 1000).toFixed(1)} s)`);
+  check(gaps.every((g) => g >= 7.7 && g <= 12.4), `gaps ${gaps.map((g) => g.toFixed(1)).join(', ')} s (8 to 12, measured to the 250 ms stats tick)`);
+  check(fullRate >= 10, `while one crosses, every frame draws: ${fullRate} of 12 display frames (the twinkle alone draws 6)`);
+
+  const quiet = (label, seconds = 30) => {
+    const n0 = t.last().meteors ?? 0;
+    for (let i = 0; i < seconds * 60; i++) frame(1000 / 60);
+    check((t.last().meteors ?? 0) === n0, `${label}: no shooting star in ${seconds} s`);
+  };
+  t.engine.setLive(false);
+  quiet('no chapter showing the sky');
+  t.engine.setLive(true);
+  t.src.set(geoFrame({}));
+  t.src.set({ ...geoFrame(), space: { meteors: false } });
+  await settle();
+  quiet('a frame that says no (Ch3 while Virgo forms)');
+  t.src.set(geoFrame());
+  await settle();
+  attrs.add('data-paused');
+  mutation();
+  await settle();
+  const c0 = t.ctx.clears;
+  quiet('Pause');
+  check(t.ctx.clears === c0, 'Pause: deep space draws nothing while idle either');
+  attrs.delete('data-paused');
+  mutation();
+  document.hidden = true;
+  listeners.visibilitychange();
+  const c1 = t.ctx.clears;
+  for (let i = 0; i < 30 * 60; i++) frame(1000 / 60);
+  check(t.ctx.clears === c1, 'hidden tab: no shooting stars, nothing drawn');
+  document.hidden = false;
+  listeners.visibilitychange();
+  t.engine.destroy();
+  check(t.canvas.width === 0 && t.canvas.height === 0, 'destroy() gives the canvas back (0 × 0), with the cache, sprites and deep space');
+
+  const phone = make({ w: 375, h: 812, dpr: 3, space: true });
+  await settle();
+  await phone.engine.loadSpaceNow();
+  const crowd = Array.from({ length: 1000 }, (_, i) => ({ world: [300 + (i % 40) * 2, 1, -500 - Math.floor(i / 40) * 2], size: 6, alpha: 1, halo: 1, featured: 1 }));
+  const s0 = phone.ctx.sprites;
+  phone.src.set(geoFrame({ stars: crowd }));
+  await settle();
+  check(phone.ctx.sprites - s0 <= 600, `phone budget with deep space and 1,000 featured stars: ${phone.ctx.sprites - s0} sprites (≤ 600)`);
+  phone.engine.destroy();
+
+  setConnection({ saveData: true });
+  const lite = make({ space: true });
+  await settle();
+  const liteBuilt = await lite.engine.loadSpaceNow();
+  check(!liteBuilt && lite.last().space === 'off', `lite: no deep space (space: ${lite.last().space})`);
+  lite.engine.destroy();
+  setConnection(undefined);
 }
 
 if (failures.length) {

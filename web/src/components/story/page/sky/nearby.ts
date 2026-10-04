@@ -18,6 +18,8 @@ import type { Layout } from './choreography';
 
 const MIKA = CAST_WORLD.mika;
 const GROUND: Vec3 = [MIKA[0], 0, MIKA[2]];
+/** The three Mika hires in Ch3, by their roster names. */
+const CREW = new Set(['Ernie', 'Kenn', 'Bea']);
 const unit = (km: number) => km / KM_PER_UNIT;
 const GOLD = '#F0C88E';
 
@@ -96,7 +98,8 @@ export function nearby(raw: number, l: Layout): SkyFrame {
     rings.push(ring(25, 0.9 * (1 - 0.6 * settle), open25));
   }
 
-  const stars: StoryStar[] = [{ world: MIKA, size: 15, tint: 1, alpha: 1, halo: 0.55 + 0.45 * open5 }];
+  // Mika's search: her star is the one this chapter is about, spikes and all.
+  const stars: StoryStar[] = [{ world: MIKA, size: 15, tint: 1, alpha: 1, halo: 0.55 + 0.45 * open5, featured: 1 }];
   const threads: Thread[] = [];
   // Phones smear one star only (Bea, 8 km out): one ring reads; ten would be noise at 375 px.
   const smearOne = l.mobile;
@@ -105,7 +108,16 @@ export function nearby(raw: number, l: Layout): SkyFrame {
     if (n.erased && erased) continue; // Erased, not hidden: absent from this frame on.
     const lit = smoothstep(n.km - 0.6, n.km + 0.6, reach);
     const dim = 1 - 0.45 * smear;
-    stars.push({ world: n.world, size: 8.5 + 3 * lit, tint: 0, alpha: (0.3 + 0.7 * lit) * dim, halo: 0.35 * lit * (1 - smear) });
+    // Everyone the search finds is a person: a warm point that lights up, the crew-to-be a little more.
+    const crew = CREW.has(n.name);
+    stars.push({
+      world: n.world,
+      size: 8.5 + 3 * lit,
+      tint: lit > 0.5 ? 2 : 0,
+      alpha: (0.3 + 0.7 * lit) * dim,
+      halo: 0.35 * lit * (1 - smear),
+      featured: lit * (1 - 0.6 * smear) * (crew ? 0.55 : 0.3),
+    });
     if (lit > 0.5 && smear > 0.001 && (!smearOne || n.name === 'Bea')) {
       rings.push(ring(n.km, 0.32 * smear * lit, 1, 0.9, '#F7EFE6'));
       // A hairline from the shoot to the ring, never to the person: a distance has no direction.

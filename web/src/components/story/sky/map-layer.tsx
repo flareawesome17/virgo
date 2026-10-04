@@ -15,6 +15,7 @@
  * at night, and the crops' far edges never draw a line; looking straight
  * down, the horizon is far off screen and the haze with it.
  */
+import { spacePixels } from './space-size';
 
 /** One detail level: a crop of the story map's viewBox, as a static SVG. */
 export type MapLayerLevel = {
@@ -40,10 +41,15 @@ export type MapLayerLevel = {
  * and iOS closed the tab. Past the budget a level is laid out smaller (its
  * `data-scale` with it, so the engine still places it to the pixel); phones,
  * which show the map smaller anyway, lose nothing they can see.
+ *
+ * Deep space's two textures (space-size.ts: about 0.8 M device px on a phone,
+ * 1.5 M on desktop) come out of this budget, not on top of it.
  */
 function budget(): number {
   if (typeof window === 'undefined') return Infinity;
-  return window.innerWidth < 1024 ? 6e6 : 16e6;
+  const lite = document.documentElement.hasAttribute('data-lite');
+  const space = spacePixels(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1, lite);
+  return (window.innerWidth < 1024 ? 6e6 : 16e6) - space;
 }
 
 export function MapLayer({ levels, className = '' }: { levels: readonly MapLayerLevel[]; className?: string }) {

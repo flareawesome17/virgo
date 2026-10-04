@@ -1,9 +1,10 @@
 'use client';
 
-import { m, useMotionValue, useTransform } from 'framer-motion';
+import { m, useMotionValue, useTransform, type MotionValue } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { MEDIA } from '../../media.generated';
-import { camera, r2, seg } from '../cinema/ease';
+import { camera, enter, r2, seg } from '../cinema/ease';
+import { VirgoConstellation, useFilmClock } from '../cinema/virgo-constellation';
 import { usePrologueProgress } from '../islands/prologue';
 import { useMotionGate } from '../motion';
 
@@ -149,6 +150,57 @@ export function FilmPlate() {
       {/* Phones: the film itself fades out at its foot (the mask), into whatever sky is behind. Desktop: into the page. */}
       <div className="absolute inset-x-0 bottom-0 hidden h-1/4 bg-gradient-to-b from-transparent to-[#161311] lg:block" />
       <div className="absolute inset-y-0 left-0 hidden w-[62%] bg-[linear-gradient(90deg,rgba(22,19,17,0.94)_0%,rgba(22,19,17,0.82)_32%,rgba(22,19,17,0.35)_62%,rgba(22,19,17,0)_100%)] lg:block" />
+      <HeroVirgo p={p} mx={mx} my={my} />
     </div>
+  );
+}
+
+/**
+ * Where Virgo hangs in the dark above the studio (the film's frame is the
+ * same at every size, so these follow it):
+ * - Phones: the band left of the camera's top handle and above the camera
+ *   body, under the corner watermark and clear of Sign in (checked at
+ *   375 × 667 and 390 × 844: the figure spans about x 47–197, y 46–117,
+ *   the handle starts at x ≈ 212, the lens is near 40% / 64% of the box).
+ *   Capped by height, so a phone on its side keeps it inside the film.
+ * - Desktop: the film is height-fit, so the handle's left edge sits at about
+ *   96svh + 3.4vw. The figure is 28svh wide with its empty lower-right
+ *   quarter over the handle's top (Porrima and θ Vir stay left of it, η and
+ *   Zavijava above it), clear of the copy column and the corner HUD.
+ */
+const VIRGO_BOX =
+  'absolute left-[12.5%] top-[46px] w-[min(40%,36svh)] lg:left-[calc(75.4svh+3.36vw-12px)] lg:top-[calc(4.5svh+4px)] lg:w-[28svh]';
+
+/**
+ * Virgo over the hero film (the owner: "it should be seen from the hero"):
+ * gold hairlines and soft star points at low opacity, Syrma a hollow socket
+ * (the star the Finale lights). In motion the stars come up with the film's
+ * lights and the lines draw out from Spica once the opening has played
+ * (from about 3 s); the first scroll lifts it away ahead of the push into
+ * the lens. Static (reduced motion, no JavaScript), it is simply there.
+ */
+function HeroVirgo({ p, mx, my }: { p: MotionValue<number>; mx: MotionValue<number>; my: MotionValue<number> }) {
+  const gate = useMotionGate();
+  const clock = useFilmClock(gate.motion, 6);
+  const draw = useTransform(clock, (t) => seg(t, 3, 5.6));
+  const stars = useTransform(clock, (t) => r2(enter(seg(t, 1, 2.6))));
+  // Far behind the plate: it moves a third as much against the pointer, and lifts away as the camera pushes in.
+  const transform = useTransform([p, mx, my], ([v, x, y]: number[]) => {
+    const push = camera(seg(v, 0.02, 0.2));
+    return `translate3d(${r2(-x * 4)}px,${r2(-y * 3 - push * 36)}px,0) scale(${r2(1 + push * 0.16)})`;
+  });
+  const opacity = useTransform(p, (v) => r2(0.82 * (1 - seg(v, 0.03, 0.14))));
+  if (!gate.motion) {
+    // The static figure. In motion it is replaced before it is ever seen (hidden until the swap).
+    return (
+      <div className={`${VIRGO_BOX} opacity-70 [html[data-motion='on']_&]:invisible`}>
+        <VirgoConstellation lineAlpha={0.42} twinkle={false} />
+      </div>
+    );
+  }
+  return (
+    <m.div style={{ transform, opacity }} className={VIRGO_BOX}>
+      <VirgoConstellation draw={draw} stars={stars} starsFollowLines={false} lineAlpha={0.42} />
+    </m.div>
   );
 }

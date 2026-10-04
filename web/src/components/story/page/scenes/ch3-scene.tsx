@@ -60,7 +60,7 @@ const SLATES: readonly Line[] = [{ text: CH3.slate, from: -0.1, to: 1.1 }];
 /**
  * The take's clock → the sky choreography's (`connect`): the threads land
  * while the cards arrive, the camera turns up to the sky behind the terms,
- * and Virgo forms once the frame is clear (q 0.72–0.92 ≈ p 0.79–0.94).
+ * and Virgo forms once the frame is clear (q 0.66–0.86 ≈ p 0.74–0.89).
  */
 const SKY: readonly (readonly [number, number])[] = [
   [0, 0],
@@ -145,8 +145,9 @@ function Frame({ p }: { p: MotionValue<number> }) {
   const pool = useTransform(p, (v) => r2(0.75 * window4(v, 0.02, 0.12, 0.7, 0.8)));
   const glow = useTransform(p, (v) => r2(window4(v, 0, 0.12, 0.7, 0.8) * (0.4 + 0.5 * window4(v, 0.25, 0.3, 0.36, 0.46))));
   const tag = useTransform(p, (v) => r2(1 - seg(v, 0.74, 0.79)));
-  // The card's last point of light becomes a star (a morph, circle → sparkle) as Virgo forms.
-  const star = useTransform(p, (v) => r2(window4(v, 0.75, 0.78, 0.86, 0.92)));
+  // The card's last point of light becomes a star (a morph, circle → sparkle) and gives way
+  // to the sky as Virgo's lines start to draw, so the figure has the frame to itself.
+  const star = useTransform(p, (v) => r2(window4(v, 0.74, 0.76, 0.79, 0.83)));
 
   return (
     <>
@@ -182,8 +183,8 @@ function Frame({ p }: { p: MotionValue<number> }) {
             <Morph
               progress={p}
               keys={[
-                { at: 0.77, shape: 'circle' },
-                { at: 0.84, shape: 'sparkle' },
+                { at: 0.75, shape: 'circle' },
+                { at: 0.79, shape: 'sparkle' },
               ]}
               className="relative size-full"
               fill="#FFF0D6"

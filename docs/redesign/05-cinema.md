@@ -83,6 +83,15 @@ This document overrides the storyboard's motion, navigation and copy wherever th
       - The still stands in for reduced motion, no JS, and phones that will not autoplay. The film pauses with Pause and off screen.
       - Desktop: title left, film right. Phones: film on top, title below.
 
+11. **The sky is space, and Virgo is the thread** (owner, 2026-10-05: "enhance the sky to feel like space… the Virgo constellation should be seen from the hero, somewhere midway and at the ending… stars are not emphasized").
+    - **Deep space** (`sky/space.ts`, a lazy chunk): a seeded Milky Way band with a dark rift, two faint nebulae, a far star field at two depths, twinkling far stars, and a rare shooting star (one every 8–12 s at most, only while a chapter shows the sky). All of it is drawn into the engine's one canvas from textures built at idle, turning at about half the camera's rate. It is off in lite mode and under Pause, and reduced motion never mounts the sky. Its textures count against the map layers' pixel budget, not on top of it.
+    - **Stars are people:** Mika and the crew carry a four-point diffraction spike, a halo and a slow breath (`featured`). The city stars draw warmer than the scattered field, the neighbours a Nearby search finds light up warm, and Ch8's crews are clear points that flare as they light. Labels: "Mika · Photographer" as the prologue lands on her; on desktop Ch3, each of the cast by their star (Mika · Spica, Ernie · Porrima, Kenn · Vindemiatrix, Bea · Heze).
+    - **Virgo in four places** (`cinema/virgo-constellation.tsx` for the HTML figure; the sky engine for Ch3 and Ch8):
+      - **Hero:** gold hairlines over the dark above the camera. The stars come up with the film's lights, the lines draw out from Spica from about 3 s, and the first scroll lifts it away. Syrma is an empty socket.
+      - **Ch3 (midway):** the real figure forms in the sky once the terms card leaves, with a spark on each growing line and a pulse when it completes; it holds to the end of the chapter. Ch3's own morph star hands over to it as the lines start.
+      - **Ch8:** Mika's crew hangs over Cebu City as a small Virgo, large as the crane rises past it.
+      - **Ending:** the lines draw out of the logo's flash, Syrma ignites last ("you"), and the figure rests faint behind "Start your journey now." The static closing shows it drawn, Syrma lit.
+
 ## 2. The frame (chrome)
 Owner, 2026-10-05: "a frame on the sides… the Virgo logo as a watermark… the sign in button arranged, same with the other buttons", for a thousand-dollar feel. The film plays inside a frame, like a camera's viewfinder or a broadcast (`page/cinema/frame.tsx`):
 - **The matte.** A thin dark border (`--frame`: 10 px, 22 px from 1024 px) with a hairline and gold corner marks. It is fixed, so every scene plays inside it.
