@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { VisitBeacon } from '@/components/visit-beacon';
+import { MEDIA } from '@/components/story/media.generated';
 import { fontVariables } from '../fonts';
 import '../globals.css';
 
@@ -54,9 +55,21 @@ export const metadata: Metadata = {
     title: 'Virgo — Hire Photographers, Editors & HMUAs in the Philippines',
     description:
       'A network of photographers, videographers, editors and HMUAs — and the workspace they run the job from. Free to start, 15 GB included.',
-    // `images` is deliberately absent: opengraph-image.tsx in this folder
-    // generates a real 1200×630 card, and naming a file here would override it
-    // with the 512×512 app icon all over again.
+    // `images` is deliberately absent: opengraph-image.jpg in this folder is
+    // the 1200×630 card (with its alt in opengraph-image.alt.txt), and naming
+    // a file here would override it with the 512×512 app icon all over again.
+    // The video is the same card, moving: iMessage plays it, everything else
+    // shows the image. MP4 only; the WebM stays out of the tags.
+    videos: [
+      {
+        // Absolute: unlike images, Next does not resolve video URLs against metadataBase.
+        url: new URL(MEDIA.ogVideoMp4.url, process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph').href,
+        secureUrl: new URL(MEDIA.ogVideoMp4.url, process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph').href,
+        type: 'video/mp4',
+        width: 1200,
+        height: 630,
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',

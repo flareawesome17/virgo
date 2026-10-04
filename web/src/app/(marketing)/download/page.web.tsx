@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
-import { LandingNav } from '@/components/landing/nav';
-import { LandingFooter } from '@/components/landing/closing';
+import { StoryHeader } from '@/components/story/page/story-header';
+import { StoryFooter } from '@/components/story/page/chapters/footer';
 import {
   DownloadPanel,
   type LatestRelease,
@@ -105,11 +105,11 @@ export default async function DownloadPage() {
     <>
       {/* '/' so the section links go back to the landing page rather than to
           fragments that do not exist on this one. */}
-      <LandingNav sectionBase="/" />
+      <StoryHeader sectionBase="/" />
 
-      {/* pt-16 clears the fixed header, which is 4rem tall and overlays the
-          page rather than taking part in the flow. */}
-      <main className="min-h-screen bg-[#161311] pt-16">
+      {/* pt-14 / lg:pt-16 clear the fixed header, which is 3.5rem tall (4rem
+          from lg) and overlays the page rather than taking part in the flow. */}
+      <main className="min-h-screen bg-[#161311] pt-14 lg:pt-16">
         <div className="mx-auto w-full max-w-3xl px-5 py-16 sm:px-8 sm:py-24">
           <header className="flex flex-col gap-4">
             <p className="text-[12px] font-bold uppercase tracking-[0.16em] text-[#c17745]">
@@ -160,7 +160,7 @@ export default async function DownloadPage() {
         </div>
       </main>
 
-      <LandingFooter />
+      <StoryFooter sectionBase="/" credits={false} />
     </>
   );
 }

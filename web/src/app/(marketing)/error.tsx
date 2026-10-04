@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect } from 'react';
 
 /**
@@ -35,12 +36,12 @@ export default function MarketingError({
         >
           Try again
         </button>
-        <a
+        <Link
           href="/"
           className="inline-flex min-h-11 items-center rounded-xl border border-white/15 px-5 text-sm font-semibold text-[#F2EDE8] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#F2EDE8]"
         >
           Go home
-        </a>
+        </Link>
       </div>
       {error.digest && (
         <p className="mt-6 text-[11px] text-[#A08E84]">If you tell us about this, quote {error.digest}</p>
