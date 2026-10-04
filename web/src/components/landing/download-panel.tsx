@@ -3,6 +3,9 @@
 import { Apple, Check, Monitor } from 'lucide-react';
 import { useHydrated } from '@/lib/hydration';
 import { cn } from '@/lib/utils';
+import { APP_URL } from './links';
+
+const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#F2EDE8]';
 
 /**
  * Mirrors what GET /downloads/latest returns.
@@ -79,25 +82,42 @@ function DownloadButton({
       // download takes to start.
       download
       className={cn(
-        'group flex min-h-11 items-center gap-3 rounded-xl px-4 py-3 transition-colors',
+        'group relative flex min-h-14 items-center gap-3.5 overflow-hidden rounded-2xl px-4 py-3.5 transition-[background-color,border-color,transform] duration-300 hover:-translate-y-0.5 motion-reduce:transition-colors motion-reduce:hover:translate-y-0',
+        FOCUS,
         primary
-          ? 'bg-[#c17745] text-white shadow-lg shadow-[#c17745]/25 hover:bg-[#cd8250]'
-          : 'border border-white/10 bg-white/[0.03] text-white/85 hover:bg-white/[0.06] hover:text-white',
+          ? 'bg-[#D18A5A] text-[#161311] shadow-[0_18px_44px_-18px_rgba(209,138,90,0.85),inset_0_1px_0_rgba(255,255,255,0.25)] hover:bg-[#dc9a6c]'
+          : 'border border-[#2A2522] bg-[linear-gradient(165deg,#211C19,#1A1614)] text-[#F2EDE8] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_40px_-28px_rgba(0,0,0,0.9)] hover:border-[#D18A5A]/50',
       )}
     >
-      {asset.platform === 'windows' ? (
-        <Monitor className="size-5 shrink-0" aria-hidden />
-      ) : (
-        <Apple className="size-5 shrink-0" aria-hidden />
+      {/* The primary button catches the light as the pointer crosses it. */}
+      {primary && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/4 -skew-x-12 bg-white/30 opacity-0 transition-[transform,opacity] duration-700 group-hover:translate-x-[520%] group-hover:opacity-100 motion-reduce:hidden"
+        />
       )}
-      <span className="flex min-w-0 flex-col text-left">
-        <span className="text-[14px] font-semibold leading-tight">
+      <span
+        className={cn(
+          'grid size-10 shrink-0 place-items-center rounded-xl',
+          primary
+            ? 'bg-[#161311]/15'
+            : 'bg-[radial-gradient(120%_120%_at_30%_20%,#3A2F28,#1A1513_70%)] text-[#F0C88E] shadow-[inset_0_1px_0_rgba(240,200,142,0.35),inset_0_0_0_1px_rgba(209,138,90,0.28)]',
+        )}
+      >
+        {asset.platform === 'windows' ? (
+          <Monitor className="size-5" aria-hidden />
+        ) : (
+          <Apple className="size-5" aria-hidden />
+        )}
+      </span>
+      <span className="relative flex min-w-0 flex-col text-left">
+        <span className="text-[15px] font-semibold leading-tight">
           Download for {asset.label}
         </span>
         <span
           className={cn(
-            'text-[12px] leading-tight',
-            primary ? 'text-white/75' : 'text-white/50',
+            'mt-0.5 text-[12.5px] leading-tight',
+            primary ? 'text-[#161311]/70' : 'text-[#A08E84]',
           )}
         >
           {asset.hint} · {formatSize(asset.size)}
@@ -123,13 +143,22 @@ export function DownloadPanel({ release }: { release: LatestRelease | null }) {
 
   if (!release || release.assets.length === 0) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center">
-        <p className="text-[15px] font-semibold text-white">
+      <div className="rounded-[20px] border border-[#2A2522] bg-[linear-gradient(165deg,#211C19,#1A1614)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+        <p className="text-[16px] font-semibold text-[#F2EDE8]">
           The desktop app is not ready to download yet.
         </p>
-        <p className="mt-2 text-[13px] text-white/55">
-          Virgo runs in your browser and on iOS and Android in the meantime.
+        <p className="mt-2 text-[14px] text-[#A08E84]">
+          Virgo runs in your browser in the meantime.
         </p>
+        <a
+          href={APP_URL}
+          className={cn(
+            'mt-5 inline-flex min-h-11 items-center rounded-full bg-[#D18A5A] px-5 text-[15px] font-semibold text-[#161311] transition-colors hover:bg-[#dc9a6c]',
+            FOCUS,
+          )}
+        >
+          Open Virgo in your browser
+        </a>
       </div>
     );
   }
@@ -173,18 +202,18 @@ export function DownloadPanel({ release }: { release: LatestRelease | null }) {
         .map((section) => (
           <section key={section.key} className="flex flex-col gap-3">
             <div className="flex items-center gap-2.5">
-              <h2 className="text-[13px] font-bold uppercase tracking-[0.14em] text-white/45">
+              <h2 className="font-mono text-[11px] font-normal uppercase tracking-[0.2em] text-[#A08E84]">
                 {section.heading}
               </h2>
               {section.detected && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-[#c17745]/15 px-2 py-0.5 text-[11px] font-semibold text-[#e0a173]">
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#D18A5A]/15 px-2 py-0.5 text-[11px] font-semibold text-[#F0C88E]">
                   <Check className="size-3" aria-hidden />
                   Your system
                 </span>
               )}
             </div>
 
-            <div className="grid gap-2.5 sm:grid-cols-2">
+            <div className={cn('grid gap-2.5', section.assets.length > 1 && 'sm:grid-cols-2')}>
               {section.assets.map((asset) => (
                 <DownloadButton
                   key={asset.filename}
@@ -198,7 +227,7 @@ export function DownloadPanel({ release }: { release: LatestRelease | null }) {
             </div>
 
             {section.note && (
-              <p className="text-[12px] leading-relaxed text-white/45">
+              <p className="text-[12.5px] leading-relaxed text-[#A08E84]">
                 {section.note}
               </p>
             )}

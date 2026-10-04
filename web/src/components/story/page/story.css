@@ -40,6 +40,73 @@ html[data-motion='on'] .story-page .story-float {
   will-change: transform;
 }
 
+/*
+ * Time-driven openings, for pages that are not a scroll film (the download
+ * page): letterbox bars that open, a light sweep, items that rise in, motes
+ * that drift. Only while the story moves; otherwise everything is at rest.
+ */
+@keyframes story-bars-open {
+  to {
+    transform: scaleY(0);
+  }
+}
+@keyframes story-sweep {
+  from {
+    transform: translate3d(-120%, 0, 0) rotate(18deg);
+    opacity: 0;
+  }
+  20%,
+  70% {
+    opacity: 0.55;
+  }
+  to {
+    transform: translate3d(220%, 0, 0) rotate(18deg);
+    opacity: 0;
+  }
+}
+@keyframes story-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 28px, 0) scale(0.94);
+  }
+}
+@keyframes story-drift {
+  from {
+    transform: translate3d(0, 12vh, 0);
+    opacity: 0;
+  }
+  20%,
+  80% {
+    opacity: var(--mote-o, 0.6);
+  }
+  to {
+    transform: translate3d(var(--mote-x, 2vw), -18vh, 0);
+    opacity: 0;
+  }
+}
+.story-page .story-bars,
+.story-page .story-sweep,
+.story-page .story-mote {
+  display: none;
+}
+@media (min-width: 1024px) {
+  html[data-motion='on'] .story-page .story-bars {
+    display: block;
+    animation: story-bars-open 1.2s cubic-bezier(0.65, 0, 0.35, 1) 0.45s both;
+  }
+}
+html[data-motion='on'] .story-page .story-sweep {
+  display: block;
+  animation: story-sweep 2.2s cubic-bezier(0.65, 0, 0.35, 1) 0.9s both;
+}
+html[data-motion='on'] .story-page .story-rise {
+  animation: story-rise 1.1s cubic-bezier(0.16, 1, 0.3, 1) var(--rise-delay, 0s) both;
+}
+html[data-motion='on'] .story-page .story-mote {
+  display: block;
+  animation: story-drift var(--mote-dur, 14s) linear var(--mote-delay, 0s) infinite;
+}
+
 /* One fixed grain layer over everything, never animated, gone under forced colours. */
 .story-grain {
   pointer-events: none;
