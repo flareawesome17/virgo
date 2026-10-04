@@ -227,6 +227,9 @@ function Driver({
         el.style.transform = v.t;
       });
       saved.clear();
+      // Forget what was written, or a remount (React dev runs effects twice;
+      // the gate can reopen) skips values it thinks are already in place.
+      last.current = new WeakMap();
       find('[data-part="c5-row"] [data-part="meter-used"]').forEach((el) => (el.textContent = meter.toUsed));
       find('[data-part="c5-row"] [data-part="meter-files"]').forEach((el) => (el.textContent = meter.toFiles));
     };

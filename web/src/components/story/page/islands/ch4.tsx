@@ -218,6 +218,9 @@ function Driver({ track, slots, paused }: { track: RefObject<HTMLDivElement | nu
         el.style.transform = v.t;
       });
       saved.clear();
+      // Forget what was written, or a remount (React dev runs effects twice;
+      // the gate can reopen) skips values it thinks are already in place.
+      last.current = new WeakMap();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
