@@ -100,7 +100,16 @@ const nextConfig: NextConfig = {
    * build is still `standalone` and renders them like any other page. This
    * only starts to matter when the export does.
    */
-  pageExtensions: ['web.tsx', 'web.ts', 'tsx', 'ts'],
+  // `dev.tsx` / `dev.ts`: the story site's asset lab (/story-lab), routed by
+  // `next dev` only. A production build never sees those files, so they are
+  // neither compiled nor traced into the standalone output.
+  pageExtensions: [
+    ...(process.env.NODE_ENV === 'development' ? ['dev.tsx', 'dev.ts'] : []),
+    'web.tsx',
+    'web.ts',
+    'tsx',
+    'ts',
+  ],
 
   /**
    * Where media is fetched from. Listed explicitly rather than with a

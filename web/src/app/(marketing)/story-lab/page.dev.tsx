@@ -34,7 +34,7 @@ function readAreas(): Area[] {
   return readdirSync(dir)
     .filter((name) => !/^[_.(\[@]/.test(name) && statSync(join(dir, name)).isDirectory())
     .flatMap((slug) => {
-      const page = ['page.web.tsx', 'page.tsx'].map((f) => join(dir, slug, f)).find((f) => existsSync(f));
+      const page = ['page.dev.tsx', 'page.web.tsx', 'page.tsx'].map((f) => join(dir, slug, f)).find((f) => existsSync(f));
       if (!page) return [];
       const source = readFileSync(page, 'utf8');
       // The page's own metadata title, and the first line of its first doc
@@ -63,7 +63,7 @@ export default async function StoryLab() {
 
         {areas.length === 0 ? (
           <p className="mt-10 rounded-xl border border-dashed border-[#362F2B] px-5 py-8 text-sm text-[#A08E84]">
-            No areas yet. Add a folder with a <code className="figure">page.web.tsx</code> beside this page.
+            No areas yet. Add a folder with a <code className="figure">page.dev.tsx</code> beside this page.
           </p>
         ) : (
           <ul className="mt-10 divide-y divide-[#362F2B] overflow-hidden rounded-xl border border-[#362F2B] bg-[#1E1B18]">
