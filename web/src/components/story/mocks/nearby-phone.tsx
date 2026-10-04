@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from 'react';
 import { ArrowLeft, Check, Ellipsis, MapPin, UserPlus } from 'lucide-react';
 import { RADII, ROLES, SEARCH_ROLES, roleCounts, rows, type Neighbour, type Role } from '../data/story';
-import { EVENT_CHIP, NEARBY, RADIUS_LABELS, kmAway } from '../data/strings/ch2';
+import { EVENT_CHIP, NEARBY, NEAR_PLACEHOLDER, RADIUS_LABELS, kmAway } from '../data/strings/ch2';
 import { Avatar } from './avatar';
 import { LocationCard } from './location-card';
 
@@ -20,6 +20,17 @@ import { LocationCard } from './location-card';
  * - `r25-erased`: the coordinator has turned sharing off and is gone:
  *   Coordinator 1 → 0, and its chip greys as the app greys an empty role.
  * Counts come from `roleCounts()`, rows from `rows()`; nothing is typed.
+ *
+ * NEAR has its own flip, for the beat where the shoot's chip is picked
+ * (Ch2, 0.00–0.12): `near="event"` (the default) measures from the shoot —
+ * the chip filled, "Back to my location", the city typed in, "Measuring
+ * from Cebu City…"; `near="home"` is the moment before — the chip unpicked,
+ * the box showing her own city as its placeholder, "Searching from where you
+ * are…". Mika's city is the shoot's, so the rows and counts are the same
+ * either way, exactly as the app would answer. Everything that differs is CSS
+ * keyed off `data-on` on `nearby-near`: toggle that one attribute to play it
+ * (the two helpers and the box's placeholder and value crossfade by
+ * opacity).
  *
  * Drawn from the app, with the page's fills (§1.5): picked chips, the radius
  * and Add are `#A85D35` with white; accent text is `#D18A5A`; avatars are the
@@ -40,14 +51,18 @@ import { LocationCard } from './location-card';
  * app's would.
  *
  * Parts: nearby-phone (data-state), nearby-scroll, nearby-above, plus the
- * sections nearby-header, location-card (and its parts), nearby-near,
- * event-chip, near-field, near-helper, nearby-within, radius-<km> (data-on),
- * nearby-looking, role-<role> (data-on, data-count), count-<role>,
- * nearby-results, nearby-list, row-<name> (data-km, hidden), km-<name>.
+ * sections nearby-header, location-card (and its parts), nearby-near
+ * (data-on), back-to-me, event-chip, near-field, near-placeholder,
+ * near-value, near-helper-home, near-helper, nearby-within, radius-<km>
+ * (data-on), nearby-looking, role-<role> (data-on, data-count),
+ * count-<role>, nearby-results, nearby-list, row-<name> (data-km, hidden),
+ * km-<name>.
  */
 
 export type NearbyState = 'r5' | 'r25' | 'r25-erased';
 export type NearbyPhoneScroll = 'top' | 'near' | 'within';
+/** Where the search measures from: the shoot's city (picked chip) or her own place. */
+export type NearbyFrom = 'event' | 'home';
 
 export const NEARBY_STATES: readonly NearbyState[] = ['r5', 'r25', 'r25-erased'];
 
@@ -96,10 +111,72 @@ export function DistanceText({ km, part }: { km: number; part: string }) {
 }
 
 const MUTED = 'text-[#A08E84]';
+/** Two layers in one grid cell, crossfaded by opacity: no layout change between them. */
+const STACK = 'col-start-1 row-start-1';
 
 function SectionLabel({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
     <p className={`ml-1 text-[11px] font-bold uppercase leading-[14px] tracking-[2px] ${MUTED} ${className}`}>{children}</p>
+  );
+}
+
+/**
+ * NEAR, as the app draws it while sharing. On (`data-on`, measuring from the
+ * shoot): the chip is `bg-action` with white, "Back to my location" shows,
+ * the box holds the city, and the helper says it measures from there. Off:
+ * the chip is a card, the box is empty with her own place as placeholder
+ * (#9ca3af, the app's placeholderTextColor), and the helper says it searches
+ * from where she is.
+ */
+function Near({ from }: { from: NearbyFrom }) {
+  const on = from === 'event';
+  return (
+    <div data-part="nearby-near" data-on={on ? '' : undefined} className="group/near mt-5 px-5">
+      <div className="mb-2 flex items-center justify-between">
+        <SectionLabel>{NEARBY.near}</SectionLabel>
+        {/* The app renders it only while measuring from somewhere else; here it fades, so the row never moves. */}
+        <span
+          data-part="back-to-me"
+          className="text-xs font-semibold leading-4 text-[#D18A5A] opacity-0 group-data-[on]/near:opacity-100"
+        >
+          {NEARBY.backToMe}
+        </span>
+      </div>
+      {/* The upcoming shoots, as places to search from: the app's horizontal row, with this one shoot in it. */}
+      <div className="flex gap-2 overflow-hidden pb-2">
+        <span
+          data-part="event-chip"
+          className="max-w-full shrink-0 rounded-[16px] bg-[#1E1B18] px-3 py-2 group-data-[on]/near:bg-[#A85D35]"
+        >
+          <span className="block truncate text-xs font-bold leading-4 text-[#F2EDE8] group-data-[on]/near:text-white">
+            {EVENT_CHIP.title}
+          </span>
+          <span className="block truncate text-[11px] leading-[14px] text-[#A08E84] group-data-[on]/near:text-white/80">
+            {EVENT_CHIP.place}
+          </span>
+        </span>
+      </div>
+      {/* LocationField: the pin, then the box, which is the card's colour. */}
+      <div data-part="near-field" className="flex items-center gap-2 rounded-[12px] bg-[#1E1B18] px-3.5">
+        <MapPin aria-hidden size={14} className={`shrink-0 ${MUTED}`} />
+        <span className="grid min-w-0 flex-1 grid-cols-1 py-3 text-sm leading-5">
+          <span data-part="near-placeholder" className={`${STACK} truncate text-[#9ca3af] group-data-[on]/near:opacity-0`}>
+            {NEAR_PLACEHOLDER}
+          </span>
+          <span data-part="near-value" className={`${STACK} truncate opacity-0 group-data-[on]/near:opacity-100`}>
+            {EVENT_CHIP.place}
+          </span>
+        </span>
+      </div>
+      <div className={`ml-1 mt-2 grid grid-cols-1 text-xs leading-4 ${MUTED}`}>
+        <p data-part="near-helper-home" className={`${STACK} group-data-[on]/near:opacity-0`}>
+          {NEARBY.searching}
+        </p>
+        <p data-part="near-helper" className={`${STACK} opacity-0 group-data-[on]/near:opacity-100`}>
+          {NEARBY.measuring}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -173,12 +250,15 @@ function RoleChip({ role, count }: { role: Role; count: number }) {
 export function NearbyPhone({
   state = 'r25-erased',
   scroll = 'within',
+  near = 'event',
   maxRows,
   className = '',
 }: {
   state?: NearbyState;
   /** The section at the top of the screen. */
   scroll?: NearbyPhoneScroll;
+  /** What NEAR measures from: the shoot's chip picked (default), or the moment before. */
+  near?: NearbyFrom;
   /**
    * Draw only the first n rows. The list is 10 long at 25 km, but the screen
    * never shows past the fifth at rest; a stage can cap the DOM here. The
@@ -213,31 +293,7 @@ export function NearbyPhone({
         </div>
       ),
     },
-    {
-      key: 'near',
-      node: (
-        <div data-part="nearby-near" className="mt-5 px-5">
-          <div className="mb-2 flex items-center justify-between">
-            <SectionLabel>{NEARBY.near}</SectionLabel>
-            <span className="text-xs font-semibold leading-4 text-[#D18A5A]">{NEARBY.backToMe}</span>
-          </div>
-          {/* The upcoming shoots, as places to search from: this one is picked. */}
-          <div className="flex gap-2 overflow-hidden pb-2">
-            <span data-part="event-chip" data-on="" className="max-w-full shrink-0 rounded-[16px] bg-[#A85D35] px-3 py-2">
-              <span className="block truncate text-xs font-bold leading-4 text-white">{EVENT_CHIP.title}</span>
-              <span className="block truncate text-[11px] leading-[14px] text-white/80">{EVENT_CHIP.place}</span>
-            </span>
-          </div>
-          <div data-part="near-field" className="flex items-center gap-2 rounded-[12px] bg-[#1E1B18] px-3.5">
-            <MapPin aria-hidden size={14} className={`shrink-0 ${MUTED}`} />
-            <span className="min-w-0 flex-1 truncate py-3 text-sm leading-5">{EVENT_CHIP.place}</span>
-          </div>
-          <p data-part="near-helper" className={`ml-1 mt-2 text-xs leading-4 ${MUTED}`}>
-            {NEARBY.measuring}
-          </p>
-        </div>
-      ),
-    },
+    { key: 'near', node: <Near from={near} /> },
     {
       key: 'within',
       node: (

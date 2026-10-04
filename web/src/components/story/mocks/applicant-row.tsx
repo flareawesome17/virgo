@@ -1,5 +1,15 @@
 import { Check, ChevronDown, Ellipsis, Eye, Loader2, MessageCircle, Star, Trash, Trash2, X } from 'lucide-react';
-import { APPLICANT, APPLICANT_ROW, HIRES, JOB_ROW, JOB_ROW_PHONE, newPill, type Hire } from '../data/strings/ch3';
+import {
+  APPLICANT,
+  APPLICANT_ORDER,
+  APPLICANT_ROW,
+  HIRES,
+  JOB_ROW,
+  JOB_ROW_PHONE,
+  ROLES_WANTED,
+  newPill,
+  type Hire,
+} from '../data/strings/ch3';
 import { Avatar } from './avatar';
 import { BookingBadge, Faces, webBadge, webButton } from './booking-badge';
 
@@ -19,7 +29,10 @@ import { BookingBadge, Faces, webBadge, webButton } from './booking-badge';
  * - `ApplicantsCard` is the `JobRow` card the rows live in, open: the post's
  *   title, its meta line, a badge per role that turns from "open" to
  *   "filled" as each person is accepted, the Open badge, the applicant count
- *   with its "N new" pill, and the rows. Web dark: Geist, primary `#D18A5A`
+ *   with its "N new" pill, and the rows, newest application first as the API
+ *   sends them (Bea, Kenn, Ernie: Mika accepts from the bottom up). The post
+ *   stays Open with every role filled: the app takes it off the board but
+ *   leaves marking it filled to the poster. Web dark: Geist, primary `#D18A5A`
  *   on `#161311` for badges, the action fill `#A85D35` for Accept.
  *
  * `platform="phone"` follows the same screen on the phone,
@@ -217,11 +230,8 @@ const ROWS: Record<ApplicantsBeat, Record<Hire, ApplicantState>> = {
   agreed: { ernie: 'agreed', kenn: 'accepted', bea: 'accepted' },
 };
 
-const ROLE_OF: Record<Hire, string> = {
-  ernie: APPLICANT.ernie.role,
-  kenn: APPLICANT.kenn.role,
-  bea: APPLICANT.bea.role,
-};
+/** Whose acceptance fills each of the post's roles. */
+const HIRE_FOR: Record<string, Hire> = Object.fromEntries(HIRES.map((h) => [APPLICANT[h].role, h]));
 
 const kebab = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
@@ -282,20 +292,20 @@ export function ApplicantsCard({
             <p className="text-[14px] font-bold leading-snug">{JOB_ROW.title}</p>
             <p className="mt-0.5 text-[11px] text-[#A08E84]">{JOB_ROW.meta}</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {HIRES.map((h) => (
+              {ROLES_WANTED.map((role) => (
                 <Faces
-                  key={h}
-                  part={`role-${kebab(ROLE_OF[h])}`}
-                  on={isFilled(h) ? 'filled' : 'open'}
+                  key={role}
+                  part={`role-${kebab(role)}`}
+                  on={isFilled(HIRE_FOR[role]) ? 'filled' : 'open'}
                   faces={{
                     open: (
                       <span className="block rounded-full border border-[#B66A4060] px-2 py-0.5 text-[11px] font-bold leading-4 text-[#D18A5A]">
-                        {ROLE_OF[h]} · {JOB_ROW.open}
+                        {role} · {JOB_ROW.open}
                       </span>
                     ),
                     filled: (
                       <span className="block rounded-full border border-[rgba(136,136,136,0.2)] px-2 py-0.5 text-[11px] font-bold leading-4 text-[#9ca3af]">
-                        {ROLE_OF[h]} · {JOB_ROW.filled}
+                        {role} · {JOB_ROW.filled}
                       </span>
                     ),
                   }}
@@ -334,7 +344,7 @@ export function ApplicantsCard({
         </div>
 
         <div className="flex flex-col gap-2 border-t border-[#362F2B] pt-3">
-          {HIRES.map((h) => (
+          {APPLICANT_ORDER.map((h) => (
             <ApplicantRow key={h} hire={h} platform="phone" state={stateOf(h)} />
           ))}
         </div>
@@ -355,20 +365,20 @@ export function ApplicantsCard({
             <p className="text-[15px] font-bold leading-snug">{JOB_ROW.title}</p>
             <p className="mt-0.5 text-xs text-[#A08E84]">{JOB_ROW.meta}</p>
             <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {HIRES.map((h) => (
+              {ROLES_WANTED.map((role) => (
                 <Faces
-                  key={h}
-                  part={`role-${kebab(ROLE_OF[h])}`}
-                  on={isFilled(h) ? 'filled' : 'open'}
+                  key={role}
+                  part={`role-${kebab(role)}`}
+                  on={isFilled(HIRE_FOR[role]) ? 'filled' : 'open'}
                   faces={{
                     open: (
                       <span className={`${webBadge('outline')} text-[11px] font-normal`}>
-                        {ROLE_OF[h]} · {JOB_ROW.open}
+                        {role} · {JOB_ROW.open}
                       </span>
                     ),
                     filled: (
                       <span className={`${webBadge('secondary')} text-[11px] font-normal opacity-60`}>
-                        {ROLE_OF[h]} · {JOB_ROW.filled}
+                        {role} · {JOB_ROW.filled}
                       </span>
                     ),
                   }}
@@ -397,7 +407,7 @@ export function ApplicantsCard({
         </div>
 
         <div className="space-y-2 border-t border-[#362F2B] pt-3">
-          {HIRES.map((h) => (
+          {APPLICANT_ORDER.map((h) => (
             <ApplicantRow key={h} hire={h} state={stateOf(h)} />
           ))}
         </div>

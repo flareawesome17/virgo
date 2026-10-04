@@ -37,6 +37,8 @@ export const NEARBY = {
     'Others see only how far away you are, never where you are. Turning this off erases your stored location straight away.',
   near: 'Near',
   backToMe: 'Back to my location',
+  /** The helper while the search measures from where she is: before the shoot's chip is picked. */
+  searching: 'Searching from where you are. Type a city to look somewhere else.',
   /** The helper once the search measures from a place: here, the shoot's city. */
   measuring: `Measuring from ${HOME.city}. This does not move you — you are still findable where you are.`,
   within: 'Within',
@@ -53,6 +55,12 @@ export const EVENT_CHIP = { title: CLIENT.event, place: HOME.city } as const;
 
 /** The city Mika names in the card's "off" state, and the field it lands in. */
 export const CITY_VALUE = HOME.city;
+
+/**
+ * The NEAR box's placeholder while it is empty: the viewer's own place
+ * (`myPlace`), which for Mika is the city she shares.
+ */
+export const NEAR_PLACEHOLDER = HOME.city;
 
 /** The radius choices, as both apps label them: `{r} km`. */
 export const RADIUS_LABELS: readonly string[] = RADII.map((r) => `${r} km`);
@@ -74,9 +82,17 @@ const both = (text: string): SourceEntry[] => [
 ];
 
 export const SOURCES: readonly SourceEntry[] = [
-  // The header (the web's is PageHeader's props).
+  // The header (the web's is PageHeader's props, and under 1024 px the
+  // shell's own bar repeats the page's name from AppShell's).
   { text: NEARBY.title, file: PHONE, mode: 'fragments', fragments: ['font-bold tracking-tight"> Nearby </Text>'] },
   { text: NEARBY.title, file: WEB, mode: 'fragments', fragments: ['title="Nearby"'] },
+  { text: NEARBY.title, file: WEB, mode: 'fragments', fragments: ['<AppShell title="Nearby">'] },
+  {
+    text: NEARBY.title,
+    file: 'web/src/components/app-shell.tsx',
+    mode: 'fragments',
+    fragments: ['lg:hidden">', "{title ?? 'Virgo'}", '<span className="hidden lg:inline-flex">'],
+  },
   ...both(NEARBY.description),
 
   // The sharing card.
@@ -93,6 +109,9 @@ export const SOURCES: readonly SourceEntry[] = [
   { text: NEARBY.near, file: PHONE, mode: 'fragments', fragments: ['ml-1"> Near </Text>'] },
   { text: NEARBY.near, file: WEB, mode: 'fragments', fragments: ['text-muted-foreground"> Near </p>'] },
   ...both(NEARBY.backToMe),
+  ...both(NEARBY.searching),
+  { text: NEAR_PLACEHOLDER, file: PHONE, mode: 'fragments', fragments: ["placeholder={myPlace ?? 'Where you are'}"] },
+  { text: NEAR_PLACEHOLDER, file: WEB, mode: 'fragments', fragments: ["placeholder={myPlace ?? 'Where you are'}"] },
   { text: EVENT_CHIP.title, file: PHONE, mode: 'fragments', fragments: ['{event.title}', '{place}', 'canonicalLocation(event.location'] },
   { text: EVENT_CHIP.place, file: WEB, mode: 'fragments', fragments: ['<span className="font-semibold">{event.title}</span>', '<span className="opacity-70">· {place}</span>'] },
   {

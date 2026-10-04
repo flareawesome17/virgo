@@ -7,7 +7,7 @@ import {
   GUESTS,
   REMINDER,
   attendeeLine,
-  type Guest,
+  guestList,
 } from '../data/strings/ch4';
 import { Avatar } from './avatar';
 import { Faces } from './booking-badge';
@@ -25,7 +25,9 @@ import { Faces } from './booking-badge';
  * - the date and time card ("Saturday, December 12, 2026"; the time rolls),
  *   then Where;
  * - "Who’s coming": a 34 px tinted avatar per guest, the name 14 px semibold
- *   and the status 11 px semibold, "Invited" `#A89489` or "Going" `#6B8E4E`;
+ *   and the status 11 px semibold, "Invited" `#A89489` or "Going" `#6B8E4E`,
+ *   in the API's order (`order by a.status, name`: everyone going first, each
+ *   group by name), so the rows reshuffle as people answer;
  * - Reminders: "No reminders set" until Mika adds one, then its row (title,
  *   "5:00 AM", the alarm bell and the push chip).
  *
@@ -38,8 +40,16 @@ import { Faces } from './booking-badge';
  *
  * Parts: event (data-state), event-hero, event-when, call-roll (the minutes
  * column: translateY 0 shows :30, −20 px shows :00), event-where, attendees,
- * attendee-<guest>, status-<guest> (faces: pending, accepted),
+ * attendee-<guest> (data-slot), status-<guest> (faces: pending, accepted),
  * event-reminders, reminder-row.
+ *
+ * The reshuffle runs on the compositor. The rows are drawn in one fixed order,
+ * Bea, Ernie, Kenn (the API's order whenever everyone shares a status, as at
+ * the first beat and the last), each `ATTENDEE_ROW` px tall. A row's
+ * `data-slot` is its place in the list at this beat, and it is moved there
+ * with `translateY((slot − drawn index) × ATTENDEE_ROW px)`, so a stage
+ * reorders by writing that transform. The hairlines between the slots stay
+ * put while the rows slide under them.
  */
 
 /** Ch4's beats on Mika's phone, in order. */
@@ -100,7 +110,10 @@ export function TimeRoll({
  */
 export function AttendeeSummary({ beat, part = 'attendee-summary' }: { beat: EventBeat; part?: string }) {
   const line = (n: number) => {
-    const going = GUESTS.slice(0, n).map((g) => GUEST_NAME[g]);
+    // The faces go in the list's order, as the app takes them from it.
+    const going = guestList(n)
+      .filter((s) => s.status === 'accepted')
+      .map((s) => GUEST_NAME[s.guest]);
     return (
       <span className="flex items-center gap-1.5">
         {going.slice(0, 3).map((name, i) => (
@@ -123,9 +136,18 @@ export function AttendeeSummary({ beat, part = 'attendee-summary' }: { beat: Eve
   );
 }
 
+/**
+ * One guest row, px: the app's 12 px above and below a 35 px name-and-status
+ * column, and the 1 px hairline under it.
+ */
+export const ATTENDEE_ROW = 60;
+
 /** "Who’s coming": the organiser's guest list. */
 export function Attendees({ state = 'going', className = '' }: { state?: EventBeat; className?: string }) {
-  const going = GOING_AT[state];
+  const list = guestList(GOING_AT[state]);
+  // Everyone invited: the API's order is by name, and that is the drawn order.
+  const drawn = guestList(0).map((s) => s.guest);
+
   return (
     <div data-part="attendees" className={`mt-5 px-5 ${className}`}>
       <div className="mb-3 flex items-center justify-between">
@@ -135,40 +157,59 @@ export function Attendees({ state = 'going', className = '' }: { state?: EventBe
           <span className="text-[14px] font-semibold">{ATTENDEES.invite}</span>
         </span>
       </div>
-      <div className="overflow-hidden rounded-[16px] bg-[#1E1B18]">
-        {GUESTS.map((g: Guest, i) => (
-          <div
-            key={g}
-            data-part={`attendee-${g}`}
-            className="flex items-center gap-3 px-4 py-3"
-            style={i < GUESTS.length - 1 ? { borderBottom: '1px solid #2A2522' } : undefined}
-          >
-            <Avatar surface="phone-attendee" name={GUEST_NAME[g]} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[14px] font-semibold leading-5">{GUEST_NAME[g]}</p>
-              <Faces
-                part={`status-${g}`}
-                block
-                className="mt-px"
-                on={i < going ? 'accepted' : 'pending'}
-                faces={{
-                  pending: (
-                    <span className="text-[11px] font-semibold leading-[14px]" style={{ color: ATTENDEES.color.pending }}>
-                      {ATTENDEES.status.pending}
-                    </span>
-                  ),
-                  accepted: (
-                    <span className="text-[11px] font-semibold leading-[14px]" style={{ color: ATTENDEES.color.accepted }}>
-                      {ATTENDEES.status.accepted}
-                    </span>
-                  ),
-                }}
-              />
+      <div
+        className="relative overflow-hidden rounded-[16px] bg-[#1E1B18]"
+        // The last row has no hairline under it.
+        style={{ height: drawn.length * ATTENDEE_ROW - 1 }}
+      >
+        {drawn.map((g, i) => {
+          const slot = list.findIndex((s) => s.guest === g);
+          const shift = (slot - i) * ATTENDEE_ROW;
+          return (
+            <div
+              key={g}
+              data-part={`attendee-${g}`}
+              data-slot={slot}
+              className="flex items-center gap-3 px-4"
+              style={{ height: ATTENDEE_ROW, transform: shift ? `translateY(${shift}px)` : undefined }}
+            >
+              <Avatar surface="phone-attendee" name={GUEST_NAME[g]} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[14px] font-semibold leading-5">{GUEST_NAME[g]}</p>
+                <Faces
+                  part={`status-${g}`}
+                  block
+                  className="mt-px"
+                  on={list[slot].status === 'accepted' ? 'accepted' : 'pending'}
+                  faces={{
+                    pending: (
+                      <span className="text-[11px] font-semibold leading-[14px]" style={{ color: ATTENDEES.color.pending }}>
+                        {ATTENDEES.status.pending}
+                      </span>
+                    ),
+                    accepted: (
+                      <span className="text-[11px] font-semibold leading-[14px]" style={{ color: ATTENDEES.color.accepted }}>
+                        {ATTENDEES.status.accepted}
+                      </span>
+                    ),
+                  }}
+                />
+              </div>
+              <span className="flex size-8 items-center justify-center">
+                <X aria-hidden size={14} className="text-[#A08E84]" />
+              </span>
             </div>
-            <span className="flex size-8 items-center justify-center">
-              <X aria-hidden size={14} className="text-[#A08E84]" />
-            </span>
-          </div>
+          );
+        })}
+        {/* The hairlines between the slots: fixed, so they stay put while the
+            rows slide under them. */}
+        {drawn.slice(1).map((g, i) => (
+          <span
+            key={g}
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 h-px bg-[#2A2522]"
+            style={{ top: (i + 1) * ATTENDEE_ROW - 1 }}
+          />
         ))}
       </div>
     </div>

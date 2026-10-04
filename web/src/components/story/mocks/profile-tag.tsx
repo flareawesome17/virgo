@@ -9,7 +9,7 @@ import { Avatar } from './avatar';
  * ("3 connections · 1 job done").
  *
  * Web dark, as a member sees a profile at virgo.ph/@handle: Geist, the
- * profile's own fallback avatar (muted, first two letters), the stats line
+ * profile's own fallback avatar (muted, first two letters, bold), the stats line
  * 14 px semibold in the foreground as there (13 px here, beside a 14 px
  * first line). The card is the sky scrim from §1.5, `#161311` at 0.94, so the
  * muted line clears AA over the brightest star.
@@ -57,7 +57,10 @@ export function ProfileTag({
             style={{ background: 'linear-gradient(90deg, rgba(242,237,232,0), rgba(242,237,232,0.45))' }}
           />
         )}
-        <Avatar surface="web-muted" name={PROFILE_TAG.name} size={36} />
+        {/* The profile's fallback is the muted one, but with its letters bold
+            (`AvatarFallback className="text-2xl font-bold"`), unlike the
+            applicant rows' plain fallback that `web-muted` draws. */}
+        <Avatar surface="web-muted" name={PROFILE_TAG.name} size={36} className="font-bold!" />
         <span className="min-w-0">
           <span data-part="tag-line" className="block whitespace-nowrap text-[14px] leading-tight">
             <span className="font-semibold">{PROFILE_TAG.name}</span>

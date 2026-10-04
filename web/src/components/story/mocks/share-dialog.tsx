@@ -9,8 +9,9 @@ import { DIALOG, LINK_URL, SHARE_KINDS, type ShareKind } from '../data/strings/c
  *   384 px wide; the ghost close button top right.
  * - "What the link shows": three checkbox rows (the Checkbox is 16 px, 4 px
  *   radius, `#D18A5A` with a `#161311` tick when checked) and the helper line.
- * - Once a link exists: the read-only Link field in 12 px mono with Copy and
- *   Open buttons, and the ShieldAlert note.
+ * - Once a link exists: the read-only Link field in mono (12 px on a phone,
+ *   14 px from md, as the Input's classes merge) with Copy and Open buttons,
+ *   and the ShieldAlert note.
  * - The footer (muted/50, border-t): "Revoke link" in outline destructive on
  *   the left once a link exists, and the action Button (`#A85D35`, white) on
  *   the right: Generate link, Update link, or "Link is up to date" (disabled).
@@ -120,9 +121,15 @@ export function ShareDialog({
         <div data-part="link-field" data-on={on(s.link)} className="hidden gap-2 data-[on]:grid">
           <p className="flex items-center gap-2 text-sm font-medium leading-none">{DIALOG.link}</p>
           <div className="flex gap-2">
+            {/* The read-only Input. The app passes `font-mono text-xs`, and its
+                cn() merge keeps the Input's own `md:text-sm`, so the address is
+                12 px on a phone and 14 px from 768 up. An input adds nothing to
+                its parents' minimum width and clips what does not fit;
+                `contain: inline-size` does the same for this span, so a narrow
+                dialog clips the address instead of growing past its frame. */}
             <span
               data-part="link-url"
-              className={`flex h-8 w-full min-w-0 items-center overflow-hidden whitespace-nowrap rounded-[12px] px-2.5 font-mono text-xs ${OUTLINE}`}
+              className={`flex h-8 w-full min-w-0 items-center overflow-hidden whitespace-nowrap rounded-[12px] px-2.5 font-mono text-xs [contain:inline-size] md:text-sm ${OUTLINE}`}
             >
               {LINK_URL}
             </span>

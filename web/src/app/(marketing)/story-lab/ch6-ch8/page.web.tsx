@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { ALBUM } from '@/components/story/data/story';
 import { NOTICES, TODAY } from '@/components/story/data/strings/common';
 import { BrowserFrame, BROWSER_RADIUS, PHONE_RADIUS, PhoneFrame, Slab } from '@/components/story/frames';
-import { ClientGalleryPage, type ClientGalleryState } from '@/components/story/mocks/client-gallery';
+import { ClientGalleryPage, type ClientGalleryState, type ClientPlayerState } from '@/components/story/mocks/client-gallery';
 import { NotificationList, NotificationRow } from '@/components/story/mocks/notification-row';
 import { Plate } from '@/components/story/mocks/plate';
 import { ProfileTag } from '@/components/story/mocks/profile-tag';
@@ -114,15 +114,20 @@ function Specimen({
   children,
   className = '',
   day = false,
+  bleed = false,
 }: {
   caption: string;
   children: ReactNode;
   className?: string;
   day?: boolean;
+  /** Edge to edge below sm, as a chapter's phone figure is on a phone. */
+  bleed?: boolean;
 }) {
   return (
     <figure className={`flex min-w-0 flex-col items-center ${className}`}>
-      <div className="flex w-full justify-center">{children}</div>
+      <div className={bleed ? '-mx-4 flex w-[calc(100%+2rem)] justify-center sm:mx-0 sm:w-full' : 'flex w-full justify-center'}>
+        {children}
+      </div>
       <figcaption
         className={`figure mt-6 max-w-[40ch] text-center text-[11px] leading-relaxed ${day ? 'text-[#6F5C52]' : 'text-[#A08E84]'}`}
       >
@@ -159,11 +164,15 @@ function AlbumPageBackdrop() {
   );
 }
 
-/** A phone on a slab, in the rest pose. */
+/**
+ * A phone on a slab, in the rest pose. 375 wide by default, a real phone's
+ * width in points: the phone mocks are drawn at device sizes (1 pt = 1 px),
+ * so a narrower phone would crowd them as no phone does.
+ */
 function PhoneSlab({
   children,
   rotateY = -8,
-  width = 'w-[min(100%,320px)]',
+  width = 'w-[min(100%,375px)]',
   className = '',
   time = '4:50',
   tone = 'light',
@@ -202,6 +211,7 @@ function ClientPhone({
   dark = false,
   kind,
   scroll,
+  player,
   className = '',
 }: {
   state: ClientGalleryState;
@@ -210,22 +220,20 @@ function ClientPhone({
   dark?: boolean;
   kind?: 'all' | 'image' | 'video' | 'audio';
   scroll?: 'top' | 'end';
+  player?: ClientPlayerState;
   className?: string;
 }) {
   return (
-    <Specimen day={!dark} caption={caption} className={className}>
-      {/* Full bleed below sm, as the chapter's figure is on a phone. */}
-      <div className="-mx-4 flex w-[calc(100%+2rem)] justify-center sm:mx-0 sm:w-full">
-        <PhoneSlab
-          width="w-full max-w-[390px]"
-          rotateY={rotateY}
-          time={state === 'rescoped' ? '11:00' : state === 'empty' ? '3:00' : '4:52'}
-          tone={dark ? 'light' : 'dark'}
-          screen={dark ? '#171411' : '#FBF7F2'}
-        >
-          <ClientGalleryPage className="absolute inset-0" state={state} dark={dark} kind={kind} scroll={scroll} browserBar />
-        </PhoneSlab>
-      </div>
+    <Specimen day={!dark} bleed caption={caption} className={className}>
+      <PhoneSlab
+        width="w-full max-w-[390px]"
+        rotateY={rotateY}
+        time={state === 'rescoped' ? '11:00' : state === 'empty' ? '10:15' : '4:52'}
+        tone={dark ? 'light' : 'dark'}
+        screen={dark ? '#171411' : '#FBF7F2'}
+      >
+        <ClientGalleryPage className="absolute inset-0" state={state} dark={dark} kind={kind} scroll={scroll} player={player} browserBar />
+      </PhoneSlab>
     </Specimen>
   );
 }
@@ -275,7 +283,7 @@ export default function Ch6Ch8Lab() {
         <Section
           n="01 · Ch6 · web"
           title="ShareDialog: the Client link dialog"
-          note="share-dialog.tsx in web dark: checkboxes (primary #D18A5A, tick #161311), the read-only Link field, the ShieldAlert note, and the action Button (#A85D35, white). A static card: every state is the same markup with different data attributes, so a stage ticks a box or flips the button without re-rendering."
+          note="share-dialog.tsx in web dark: checkboxes (primary #D18A5A, tick #161311), the read-only Link field (mono, 12 px below 768 and 14 px from it, as the Input's classes merge; it clips like an input), the ShieldAlert note, and the action Button (#A85D35, white). A static card: every state is the same markup with different data attributes, so a stage ticks a box or flips the button without re-rendering."
         >
           <div className="grid gap-x-10 gap-y-16 lg:grid-cols-2 2xl:grid-cols-3">
             {DIALOG_STATES.map(({ state, caption }, i) => (
@@ -288,7 +296,7 @@ export default function Ch6Ch8Lab() {
                   radius={BROWSER_RADIUS}
                   edge="card"
                 >
-                  <BrowserFrame url="web.virgo.ph/albums/8c1f…" viewportClassName="h-[540px] overflow-hidden">
+                  <BrowserFrame url="web.virgo.ph/albums/8c1f…" viewportClassName="h-[640px] overflow-hidden sm:h-[540px]">
                     <AlbumPageBackdrop />
                     <div className="absolute inset-0 flex items-center justify-center p-3 sm:p-4">
                       <ShareDialog state={state} />
@@ -304,24 +312,24 @@ export default function Ch6Ch8Lab() {
         <Section
           n="02 · Ch6 · phone"
           title="ShareSheet and LinkReadyAlert"
-          note="The album screen's Client link sheet: the BottomSheet's shade (#161311 at 72%), 24 px corners and handle; rows ticked in primary/10 with a round #A85D35 box (the app's rounded-md is 14 px on a 22 px box). Counts are the album's own: 2 films on Sunday, 8 three weeks later. The alert is the OS's, drawn neutral, with the same URL both times."
+          note="The album screen's Client link sheet at device sizes (NativeWind renders rem at 14 pt, so text-sm is 12.25 px and px-4 is 14): the BottomSheet's shade (#161311 at 72%), 21 px corners and handle; rows ticked in primary/10 with a round #A85D35 box (the app's rounded-md is 14 pt on a 22 px box). Counts are the album's own: 2 films on Sunday, 8 three weeks later. The alert is the OS's, drawn neutral, with the same URL both times."
         >
-          <div className="grid gap-x-8 gap-y-16 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-x-8 gap-y-16 md:grid-cols-2 xl:grid-cols-3">
             {SHEET_STATES.map(({ state, caption }, i) => (
-              <Specimen key={state} caption={caption}>
+              <Specimen key={state} bleed caption={caption}>
                 <PhoneSlab rotateY={i % 2 ? 8 : -8} time={state === 'reopened' || state === 'rescoped' ? '10:58' : '4:50'}>
                   <AlbumBackdrop from={i * 3} />
                   <ShareSheet state={state} />
                 </PhoneSlab>
               </Specimen>
             ))}
-            <Specimen caption="LinkReadyAlert · Sun 4:50 PM · Copy link · Share… · Done">
+            <Specimen bleed caption="LinkReadyAlert · Sun 4:50 PM · Copy link · Share… · Done">
               <PhoneSlab rotateY={-8} time="4:50">
                 <AlbumBackdrop from={2} />
                 <LinkReadyAlert />
               </PhoneSlab>
             </Specimen>
-            <Specimen caption="LinkReadyAlert · Day 21 · the same URL">
+            <Specimen bleed caption="LinkReadyAlert · Day 21 · the same URL">
               <PhoneSlab rotateY={8} time="11:00">
                 <AlbumBackdrop from={5} />
                 <LinkReadyAlert />
@@ -340,8 +348,9 @@ export default function Ch6Ch8Lab() {
               client-gallery.template.ts as React, in its own palette: paper #FBF7F2, the dark hero panel, system type,
               a serif H1, mono counts. Kind tabs only once the link shows more than one kind; hearts on every tile;
               the picks bar at 520 px and under shows Download as its icon. No day headings (they count only what
-              has loaded), and the &ldquo;Sent.&rdquo; sentence is screen-reader text, never drawn. The address bar
-              is generic browser chrome.
+              has loaded), and the &ldquo;Sent.&rdquo; sentence is screen-reader text, never drawn. A film plays in
+              the page&rsquo;s own full-screen player, never in its tile. Recordings carry no capture time, so each is
+              headed by the day it was uploaded. The address bar and the video controls are generic browser chrome.
             </>
           }
         >
@@ -352,12 +361,26 @@ export default function Ch6Ch8Lab() {
             <ClientPhone state="sent" rotateY={8} caption="sent · Send again (the note hides at 520 px)" />
             <ClientPhone state="rescoped" caption="rescoped · Day 21 · All 422 · Photos 412 · Films 8 · Audio 2 · dock" />
             <ClientPhone state="rescoped" scroll="end" rotateY={8} caption="rescoped · scrolled to the end: films, Recordings · 2 files" />
-            <ClientPhone state="rescoped" kind="audio" caption="rescoped · Audio tab: Recordings, “Vows” playing 0:42 / 3:12" />
-            <ClientPhone state="empty" rotateY={8} caption="empty · Ch7, after Day 112: Nothing has been shared here yet." />
-            <ClientPhone state="sent" dark caption="dark · the page follows the device; the hero stays the dark panel" />
+            <ClientPhone
+              state="rescoped"
+              kind="video"
+              caption="rescoped · Films tab: the same-day edit first (Ch5's FilmTile, poster), the teaser, Ernie's six"
+            />
+            <ClientPhone
+              state="rescoped"
+              kind="video"
+              player="poster"
+              rotateY={8}
+              caption="player · a tapped film opens the page's own full-screen player (#videoViewer); the controls are the browser's, drawn generic"
+            />
+            <ClientPhone state="rescoped" kind="video" player="playing" caption="player · playing: the second frame, 1:36 of 3:48 (it never plays inside its tile)" />
+            <ClientPhone state="rescoped" kind="audio" rotateY={8} caption="rescoped · Audio tab: Recordings, “Vows” playing 0:42 / 3:12" />
+            <ClientPhone state="empty" caption="empty · Ch7, after Day 112: Nothing has been shared here yet." />
+            <ClientPhone state="sent" dark rotateY={8} caption="dark · the page follows the device; the hero stays the dark panel" />
           </div>
 
-          <div className="mt-20">
+          {/* Desktop only: on a phone it would not be wide. */}
+          <div className="mt-20 hidden lg:block">
             <Specimen day caption="wide · the same mock at desktop width: 4 columns, Download with its label, the “Sent Dec 13” note">
               <Slab className="w-full max-w-[1160px]" rotateX={5} rotateY={0} depth={10} radius={BROWSER_RADIUS} edge="card">
                 <BrowserFrame url={ALBUM.linkPath} viewportClassName="h-[660px]">
@@ -392,11 +415,11 @@ export default function Ch6Ch8Lab() {
         <Section
           n="05 · The work"
           title="ShowcaseCard: a post in the phone feed"
-          note="The feed's Placard: a full-width Plate cover 1.15× as tall as wide, the placard lifted 32 px over its foot, the byline with Hire, HOW IT WAS MADE with the note and three craft tags, and Like · See it all · Keep. Title, note and tags are the compose form's own placeholder and suggestions."
+          note="The feed's Placard at device sizes (rem at 14 pt): a full-width Plate cover 1.15× as tall as wide, the placard lifted 28 px over its foot, the byline with Hire, HOW IT WAS MADE with the note and three craft tags, and Like · See it all · Keep. Title, note and tags are the compose form's own placeholder and suggestions. Phones are 375 wide, a real phone's points."
         >
-          <div className="grid gap-x-10 gap-y-16 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-x-10 gap-y-16 md:grid-cols-2 xl:grid-cols-3">
             {CARD_STATES.map(({ state, caption }, i) => (
-              <Specimen key={state} caption={caption}>
+              <Specimen key={state} bleed caption={caption}>
                 <PhoneSlab rotateY={i === 0 ? -8 : i === 1 ? 0 : 8} time="7:12">
                   <div className="absolute inset-0 flex flex-col justify-end overflow-hidden pb-5">
                     <ShowcaseCard state={state} />
@@ -405,7 +428,7 @@ export default function Ch6Ch8Lab() {
               </Specimen>
             ))}
             <Specimen caption="on its own · as the story floats it, a card slab · a post of four pieces">
-              <Slab className="w-full max-w-[340px]" rotateX={5} rotateY={-8} depth={8} radius="rounded-[22px]" edge="card">
+              <Slab className="w-full max-w-[375px]" rotateX={5} rotateY={-8} depth={8} radius="rounded-[22px]" edge="card">
                 <ShowcaseCard seed={151} pieces={4} />
               </Slab>
             </Specimen>
@@ -450,7 +473,7 @@ export default function Ch6Ch8Lab() {
             </div>
             <div className="relative mt-14 -mx-4 sm:-mx-10">
               <p className="figure mb-4 px-4 text-center text-[11px] uppercase tracking-[0.14em] text-[#A08E84] sm:px-10">
-                RoleMarquee · one row on phones, two from 768 (row b starts a third along)
+                RoleMarquee · one row on phones, two from 768 (row b starts half along)
               </p>
               <RoleMarquee />
             </div>
@@ -473,7 +496,7 @@ export default function Ch6Ch8Lab() {
             <Specimen caption="couple's phone · turns to face you · previews sharpen · picks bar rises">
               <div className="flex w-full justify-center">
                 <Slab
-                  className="m4-face w-[min(100%,330px)]"
+                  className="m4-face w-[min(100%,375px)]"
                   rotateY={-10}
                   rotateX={4}
                   depth={14}
@@ -482,14 +505,14 @@ export default function Ch6Ch8Lab() {
                   shadow="floor"
                 >
                   <PhoneFrame width="100%" time="4:52" tone="dark" screen="#FBF7F2" wifi>
-                    <ClientGalleryPage className="absolute inset-0" state="sent" browserBar />
+                    <ClientGalleryPage className="absolute inset-0" state="sent" tiles={6} browserBar />
                   </PhoneFrame>
                 </Slab>
               </div>
             </Specimen>
             <Specimen caption="owner's phone · the sheet rises over the album">
               <Slab
-                className="m4-sheet w-[min(100%,300px)]"
+                className="m4-sheet w-[min(100%,375px)]"
                 rotateY={8}
                 rotateX={4}
                 depth={14}
@@ -504,7 +527,7 @@ export default function Ch6Ch8Lab() {
               </Slab>
             </Specimen>
             <Specimen caption="showcase card · lifts on z · note reveals · tags tick on">
-              <Slab className="m4-card w-full max-w-[320px]" rotateX={7} rotateY={-8} depth={8} radius="rounded-[22px]" edge="card">
+              <Slab className="m4-card w-full max-w-[375px]" rotateX={7} rotateY={-8} depth={8} radius="rounded-[22px]" edge="card">
                 <ShowcaseCard />
               </Slab>
             </Specimen>

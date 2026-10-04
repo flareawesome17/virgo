@@ -49,29 +49,52 @@ const LAB_CSS = `
 @keyframes m2-in { 0%,38% { opacity: 0; transform: translateY(5px) } 46%,92% { opacity: 1; transform: none } 100% { opacity: 0; transform: translateY(5px) } }
 @keyframes m2-roll { 0%,52% { transform: translateY(0) } 62%,92% { transform: translateY(-20px) } 100% { transform: translateY(0) } }
 @keyframes m2-q1 { 0%,22% { opacity: 1 } 25%,97% { opacity: 0 } 100% { opacity: 1 } }
+@keyframes m2-q3 { 0%,22% { opacity: 0 } 25%,97% { opacity: 1 } 100% { opacity: 0 } }
+@keyframes m2-row-bea { 0%,12% { transform: translateY(0) } 18%,36% { transform: translateY(60px) } 42%,60% { transform: translateY(120px) } 66%,100% { transform: translateY(0) } }
+@keyframes m2-row-ernie { 0%,12% { transform: translateY(0) } 18%,60% { transform: translateY(-60px) } 66%,100% { transform: translateY(0) } }
+@keyframes m2-row-kenn { 0%,36% { transform: translateY(0) } 42%,60% { transform: translateY(-60px) } 66%,100% { transform: translateY(0) } }
+@keyframes m2-yes-ernie { 0%,12% { opacity: 0 } 18%,90% { opacity: 1 } 96%,100% { opacity: 0 } }
+@keyframes m2-yes-kenn { 0%,36% { opacity: 0 } 42%,90% { opacity: 1 } 96%,100% { opacity: 0 } }
+@keyframes m2-yes-bea { 0%,60% { opacity: 0 } 66%,90% { opacity: 1 } 96%,100% { opacity: 0 } }
+@keyframes m2-no-ernie { 0%,12% { opacity: 1 } 18%,90% { opacity: 0 } 96%,100% { opacity: 1 } }
+@keyframes m2-no-kenn { 0%,36% { opacity: 1 } 42%,90% { opacity: 0 } 96%,100% { opacity: 1 } }
+@keyframes m2-no-bea { 0%,60% { opacity: 1 } 66%,90% { opacity: 0 } 96%,100% { opacity: 1 } }
 .m2-turn [data-part="slab-body"] { animation: m2-turn 11s cubic-bezier(.65,0,.35,1) infinite; animation-delay: var(--delay, 0s) }
 .m2-turn [data-part="slab-sheen-a"] { animation: m2-sheen-a 11s cubic-bezier(.65,0,.35,1) infinite; animation-delay: var(--delay, 0s) }
 .m2-turn [data-part="slab-sheen-b"] { animation: m2-sheen-b 11s cubic-bezier(.65,0,.35,1) infinite; animation-delay: var(--delay, 0s) }
-.m2-flip [data-part^="status-"] > [data-face="pending"],
 .m2-flip [data-part^="booking-"] > [data-face="waiting"],
 .m2-flip [data-part^="role-"] > [data-face="open"],
 .m2-flip [data-part="selected-day"] > [data-face="off"] { animation: m2-out 7s cubic-bezier(.16,1,.3,1) infinite; animation-delay: var(--d, 0s) }
-.m2-flip [data-part^="status-"] > [data-face="accepted"],
 .m2-flip [data-part^="booking-"] > [data-face="agreed"],
 .m2-flip [data-part^="role-"] > [data-face="filled"],
 .m2-flip [data-part="selected-day"] > [data-face="on"] { animation: m2-in 7s cubic-bezier(.16,1,.3,1) infinite; animation-delay: var(--d, 0s) }
-.m2-flip [data-part="status-kenn"] > *, .m2-flip [data-part^="booking-"] > *, .m2-flip [data-part="role-sde-editor-video"] > * { --d: .35s }
+.m2-flip [data-part^="booking-"] > *, .m2-flip [data-part="role-sde-editor-video"] > * { --d: .35s }
 .m2-flip [data-part="role-hmua"] > * { --d: .7s }
-.m2-flip [data-part="status-bea"] > * { --d: .7s }
+/* Who's coming: each yes flips the status and the list re-sorts the way the
+   API sends it (going first, then by name), rows sliding to their slots. */
+.m2-flip [data-part="attendee-bea"] { animation: m2-row-bea 8s cubic-bezier(.34,1.32,.64,1) infinite }
+.m2-flip [data-part="attendee-ernie"] { animation: m2-row-ernie 8s cubic-bezier(.34,1.32,.64,1) infinite }
+.m2-flip [data-part="attendee-kenn"] { animation: m2-row-kenn 8s cubic-bezier(.34,1.32,.64,1) infinite }
+.m2-flip [data-part="status-bea"] > [data-face="accepted"] { animation: m2-yes-bea 8s linear infinite }
+.m2-flip [data-part="status-ernie"] > [data-face="accepted"] { animation: m2-yes-ernie 8s linear infinite }
+.m2-flip [data-part="status-kenn"] > [data-face="accepted"] { animation: m2-yes-kenn 8s linear infinite }
+.m2-flip [data-part="status-bea"] > [data-face="pending"] { animation: m2-no-bea 8s linear infinite }
+.m2-flip [data-part="status-ernie"] > [data-face="pending"] { animation: m2-no-ernie 8s linear infinite }
+.m2-flip [data-part="status-kenn"] > [data-face="pending"] { animation: m2-no-kenn 8s linear infinite }
 .m2-flip [data-part="call-roll"] { animation: m2-roll 7s cubic-bezier(.65,0,.35,1) infinite }
 .m2-flip [data-part="bubble-ask-ticks"] > [data-face],
+.m2-flip [data-part="bubble-ask-body"] > [data-face="plain"],
+.m2-flip [data-part="bubble-ask-footer"] > [data-face="sending"],
 .m2-flip [data-part="attendee-summary"] > [data-face] { animation: m2-q1 8s steps(1, end) infinite }
+.m2-flip [data-part="bubble-ask-body"] > [data-face="marked"],
+.m2-flip [data-part="bubble-ask-footer"] > [data-face="time"] { animation: m2-q3 8s steps(1, end) infinite }
 .m2-flip [data-part="attendee-summary"] > [data-face="1"] { animation-delay: -6s }
 .m2-flip [data-part="attendee-summary"] > [data-face="2"] { animation-delay: -4s }
 .m2-flip [data-part="attendee-summary"] > [data-face="3"] { animation-delay: -2s }
 .m2-flip [data-part="bubble-ask-ticks"] > [data-face="sent"] { animation-delay: -6s }
 .m2-flip [data-part="bubble-ask-ticks"] > [data-face="delivered"] { animation-delay: -4s }
 .m2-flip [data-part="bubble-ask-ticks"] > [data-face="read"] { animation-delay: -2s }
+.m2-flip [data-part="bubble-ask-seen"] > [data-face="3"] { animation: m2-q1 8s steps(1, end) infinite; animation-delay: -2s }
 @media (min-width: 768px) { .m2-turn [data-part="slab-body"] { animation-name: m2-turn-d } }
 @media (prefers-reduced-motion: reduce) { .m2-turn *, .m2-flip * { animation: none !important } }
 `;
@@ -190,7 +213,7 @@ export default function Ch3Ch4Lab() {
         <Section
           n="00 · §1.13"
           title="Depth and in-place flips"
-          note="Slabs turn on a gentle turntable (±10° on phones, ±16° with a lift on desktop) and their sheens crossfade. Inside, the flips are opacity on stacked faces and the call time is a translateY roll: Invited → Going down the guest list, 6:30 → 6:00, the ticks stepping sent → delivered → read, Waiting on them → Agreed, roles open → filled, the agenda counting who is going, Saturday selected. No layout, filter or paint animates."
+          note="Slabs turn on a gentle turntable (±10° on phones, ±16° with a lift on desktop) and their sheens crossfade. Inside, the flips are opacity on stacked faces and every move is a translate: Invited → Going one by one, with the guest list re-sorting as the API sends it (going first, then by name) by sliding rows to their slots; 6:30 → 6:00 as a roll; the message going out plain, then sent with @Kenn picked out, the ticks stepping sent → delivered → read; Waiting on them → Agreed; roles open → filled; the agenda counting who is going; Saturday selected. No layout, filter or paint animates."
         >
           <div className="grid items-center justify-items-center gap-x-5 gap-y-16 md:grid-cols-2 xl:grid-cols-3">
             <div className="m2-turn m2-flip w-[min(100%,400px)]" style={{ '--delay': '0s' } as CSSProperties}>
@@ -237,7 +260,7 @@ export default function Ch3Ch4Lab() {
         <Section
           n="01 · Ch3 · web + phone"
           title="ApplicantRow, in the post’s card"
-          note="Mika’s posted job on the web, opened: role badges turn from open to filled as each person is accepted, the “N new” pill counts down, and each accepted row prints the raw status (“accepted”) with the booking the acceptance created and Open chat. The accepting key frame is the real in-flight state: spinner, buttons disabled."
+          note="Mika’s posted job on the web, opened. The applicants are newest first, as the API sends them (Bea, Kenn, Ernie), so Mika accepts from the bottom up. Role badges turn from open to filled as each person is accepted, the “N new” pill counts down, and each accepted row prints the raw status (“accepted”) with the booking the acceptance created and Open chat. The post stays Open with every role filled: the app takes it off the board and leaves Mark filled to her. The accepting key frame is the real in-flight state: spinner, buttons disabled."
         >
           <div className="grid gap-x-10 gap-y-16 lg:grid-cols-2">
             {APPLICANT_BEATS.map((b, i) => (
@@ -361,7 +384,7 @@ export default function Ch3Ch4Lab() {
         <Section
           n="04 · Ch3 · phone"
           title="GroupThread + Bubble"
-          note="Mika’s phone. “@Kenn” is bold #FFE6D5 on her bubble; Kenn’s reply quotes it with a #B66A40 rail. Her marks: clock (sending, bubble at 85%), one tick, two dim ticks (delivered to all), Kenn has read it (“1”), everyone has (“3”, solid ticks). Members are listed by name, Mika included, as the API orders them. Text only."
+          note="Mika’s phone. “@Kenn” is bold #FFE6D5 on her bubble once it is sent (going out, the app draws its optimistic row: the body plain, “Sending…”, a clock, the bubble at 85%); Kenn’s reply quotes it with a #B66A40 rail. Her marks: one tick, two dim ticks (delivered to all), Kenn has read it (“1”), everyone has (“3”, solid ticks). Members are listed by name, Mika included, as the API orders them. Text only."
         >
           <div className={PHONE_GRID}>
             {THREAD_STATES.map((state, i) => (
@@ -467,7 +490,7 @@ export default function Ch3Ch4Lab() {
         <Section
           n="07 · Ch4 · phone"
           title="EventDetail + Attendees"
-          note="The event on Mika’s phone. “Who’s coming” (curly apostrophe, the phone’s wording): Invited #A89489 → Going #6B8E4E, in invitation order. The move rolls the minutes under a fixed “6:” and “ AM”. The screen runs past the phone, as the app’s does; Reminders gains Mika’s row in the last beat."
+          note="The event on Mika’s phone. “Who’s coming” (curly apostrophe, the phone’s wording): Invited #A89489 → Going #6B8E4E as Ernie, Kenn and Bea say yes. The list is in the API’s order, going first and then by name, so it re-sorts at each yes: Bea, Ernie, Kenn; Ernie first; Ernie, Kenn, Bea; Bea, Ernie, Kenn again. Each row is moved to its slot with a translateY, so the reshuffle animates on the compositor. The move rolls the minutes under a fixed “6:” and “ AM”. The screen runs past the phone, as the app’s does; Reminders gains Mika’s row in the last beat."
         >
           <div className={PHONE_GRID}>
             {EVENT_BEATS.map((beat, i) => (

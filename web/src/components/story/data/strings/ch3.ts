@@ -12,7 +12,7 @@
  * the job and the thread's two lines are the story's own (illustrative) and
  * come from `story.ts` or are marked as such below.
  */
-import { CAST, CLIENT, HIRED, JOB, WEDDING_DAY } from '../story';
+import { CAST, CLIENT, HIRED, JOB, WEDDING_DAY, WHEN } from '../story';
 import { JUST_NOW, type SourceEntry, type Topic } from './common';
 
 // ─── Formats the app uses (copied: their modules import the HTTP client) ──
@@ -41,7 +41,24 @@ export function clock12(iso: string): string {
 // ─── The three hires ─────────────────────────────────────────────────────
 
 export type Hire = 'ernie' | 'kenn' | 'bea';
+/** In the order they applied, which is also the order Mika accepts them. */
 export const HIRES: readonly Hire[] = ['ernie', 'kenn', 'bea'];
+
+const APPLIED_AT: Record<Hire, string> = {
+  ernie: WHEN.appliedErnie,
+  kenn: WHEN.appliedKenn,
+  bea: WHEN.appliedBea,
+};
+
+/**
+ * The applicants as the poster's list shows them. The API sends them newest
+ * application first (`order by a.created_at desc`) and both apps draw them as
+ * sent, so Bea, who applied last, is at the top and Ernie at the bottom. The
+ * order never changes as Mika answers.
+ */
+export const APPLICANT_ORDER: readonly Hire[] = [...HIRES].sort((x, y) =>
+  APPLIED_AT[x] < APPLIED_AT[y] ? 1 : APPLIED_AT[x] > APPLIED_AT[y] ? -1 : 0,
+);
 
 /** What the poster's row and the booking print for each person hired. */
 export const APPLICANT: Record<Hire, { name: string; roles: string; role: string; rate: string }> = {
@@ -68,6 +85,9 @@ export const APPLICANT: Record<Hire, { name: string; roles: string; role: string
 // ─── The poster's post and applicants (web jobs/mine) ────────────────────
 
 const budget = `${peso(Math.min(...JOB.roles.map((r) => r.min)))} – ${peso(Math.max(...JOB.roles.map((r) => r.max)))}`;
+
+/** The post's roles, in the post's order, as its badges list them (`job.rolesWanted`). */
+export const ROLES_WANTED: readonly string[] = JOB.roles.map((r) => r.role);
 
 export const JOB_ROW = {
   title: JOB.title,
@@ -254,6 +274,17 @@ export const SOURCES: readonly SourceEntry[] = [
   { text: JOB_ROW.viewPost, file: MINE, mode: 'verbatim' },
   { text: JOB_ROW.markFilled, file: MINE, mode: 'verbatim' },
   { text: JOB_ROW.close, file: MINE, mode: 'verbatim' },
+
+  // The applicants' order: newest application first, drawn as sent.
+  {
+    file: HIRING,
+    mode: 'fragments',
+    fragments: ['async applicationsFor(userId: string, postId: string)', 'order by a.created_at desc'],
+  },
+  { file: 'web/src/hooks/useJobs.ts', mode: 'fragments', fragments: ['applications: query.data?.data ?? ([] as JobApplication[]),'] },
+  { file: 'mobile/src/hooks/useJobs.ts', mode: 'fragments', fragments: ['applications: query.data?.data ?? ([] as JobApplication[]),'] },
+  { file: MINE, mode: 'fragments', fragments: ['{applications.map((app) => ('] },
+  { file: JOBS_TABS, mode: 'fragments', fragments: ['{applications.map((app) => ('] },
 
   // An applicant.
   { file: MINE, mode: 'fragments', fragments: ["{app.personRoles.join(', ') || 'No roles listed'}"] },

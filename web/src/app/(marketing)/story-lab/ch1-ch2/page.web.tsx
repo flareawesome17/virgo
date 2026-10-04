@@ -3,6 +3,8 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { roleCounts, rows, SEARCH_ROLES, within } from '@/components/story/data/story';
 import {
+  BROWSER_RADIUS,
+  BrowserFrame,
   DesktopWindow,
   desktopRadius,
   LOCK_WALLPAPER,
@@ -22,7 +24,14 @@ import {
 import { JOB_FORM_SCROLL, JOB_FORM_STATES, JobPostForm, type JobPostFormState } from '@/components/story/mocks/job-post-form';
 import { LocationCard } from '@/components/story/mocks/location-card';
 import { NearbyPanel } from '@/components/story/mocks/nearby-panel';
-import { NEARBY_BEAT, NEARBY_STATES, NearbyPhone, type NearbyPhoneScroll, type NearbyState } from '@/components/story/mocks/nearby-phone';
+import {
+  NEARBY_BEAT,
+  NEARBY_STATES,
+  NearbyPhone,
+  type NearbyFrom,
+  type NearbyPhoneScroll,
+  type NearbyState,
+} from '@/components/story/mocks/nearby-phone';
 
 /**
  * Ch1 and Ch2's app mocks — the chat pile, Post a job, Nearby on phone and web, the location card — in every state.
@@ -242,6 +251,31 @@ const SCROLL_NOTE: Record<NearbyPhoneScroll, string> = {
   within: 'scroll within (default)',
 };
 
+/** The NEAR beat on its own: the moment before the shoot's chip is picked, then picked. */
+const NEAR_BEAT: { near: NearbyFrom; caption: string; sub: string }[] = [
+  {
+    near: 'home',
+    caption: 'r5 · near home · before the chip',
+    sub: 'chip unpicked · her city as the placeholder · “Searching from where you are…”',
+  },
+  {
+    near: 'event',
+    caption: 'r5 · near event (default) · the chip picked',
+    sub: 'Back to my location · the city typed in · “Measuring from Cebu City…”',
+  },
+];
+
+/** A browser window around the web page, at its §1.13 rest pose. */
+function Browser({ children, i = 0 }: { children: ReactNode; i?: number }) {
+  return (
+    <Slab className="w-[min(100%,620px)]" rotateX={4} rotateY={i % 2 === 0 ? -6 : 6} depth={10} radius={BROWSER_RADIUS} edge="card">
+      <BrowserFrame url="web.virgo.ph/nearby" viewportClassName="h-[780px]">
+        {children}
+      </BrowserFrame>
+    </Slab>
+  );
+}
+
 export default function Ch1Ch2Lab() {
   if (process.env.NODE_ENV === 'production') notFound();
 
@@ -327,7 +361,9 @@ export default function Ch1Ch2Lab() {
               The phone’s Nearby, searching from the shoot: the event chip picked under NEAR, three roles picked, rows
               for the radius with whole-km distances and Add. 5 km, then 25 km, then the coordinator turns sharing off
               and is gone. The screen is one scrolled column; <code className="figure text-[13px]">scroll</code> picks
-              the section at the top.
+              the section at the top. NEAR flips on its own (<code className="figure text-[13px]">near</code>, one{' '}
+              <code className="figure text-[13px]">data-on</code>): the moment before the shoot’s chip is picked, then
+              picked. Her city is the shoot’s, so the rows don’t change.
             </p>
           }
         >
@@ -339,13 +375,18 @@ export default function Ch1Ch2Lab() {
                 </Phone>
               </Specimen>
             ))}
-            {(['near', 'top'] as const).map((scroll, i) => (
-              <Specimen key={scroll} caption={`r5 · ${SCROLL_NOTE[scroll]}`} sub={nearbySub('r5')}>
+            {NEAR_BEAT.map((b, i) => (
+              <Specimen key={b.near} caption={b.caption} sub={b.sub}>
                 <Phone time="12:04" turn={turnFor(i + 1)}>
-                  <NearbyPhone state="r5" scroll={scroll} />
+                  <NearbyPhone state="r5" scroll="near" near={b.near} />
                 </Phone>
               </Specimen>
             ))}
+            <Specimen caption={`r5 · ${SCROLL_NOTE.top}`} sub={nearbySub('r5')}>
+              <Phone time="12:04" turn={turnFor(1)}>
+                <NearbyPhone state="r5" scroll="top" />
+              </Phone>
+            </Specimen>
           </div>
         </Section>
 
@@ -355,8 +396,10 @@ export default function Ch1Ch2Lab() {
           note={
             <p>
               The web page’s column, in the web dark theme: Buttons are #A85D35 with white, picked roles and matched
-              badges are primary #D18A5A on #161311. Shown in the desktop app’s window with Nearby lit; the chapter
-              crops the column into its panel. The list runs off the bottom under a soft edge.
+              badges are primary #D18A5A on #161311. Shown in the desktop app’s window with Nearby lit, then in a
+              browser window the width of the chapter’s panel, where the web draws its own bar instead of the sidebar
+              (<code className="figure text-[13px]">shell=&quot;narrow&quot;</code>). The list runs off the bottom under
+              a soft edge.
             </p>
           }
         >
@@ -384,6 +427,23 @@ export default function Ch1Ch2Lab() {
                 </div>
               </Slab>
             </Specimen>
+          </div>
+          <p className="figure mb-8 mt-24 text-[11px] uppercase tracking-[0.14em] text-[#A08E84]">
+            in a browser · web.virgo.ph/nearby · under 1024 px · shell narrow
+          </p>
+          <div className="grid justify-items-center gap-x-8 gap-y-20 lg:grid-cols-2">
+            <Specimen caption="r5 · near home · before the chip" sub="outline chip · placeholder · “Searching from where you are…”">
+              <Browser>
+                <NearbyPanel state="r5" shell="narrow" near="home" />
+              </Browser>
+            </Specimen>
+            {NEARBY_STATES.map((s, i) => (
+              <Specimen key={s} caption={`${s} · shell narrow`} sub={nearbySub(s)}>
+                <Browser i={i + 1}>
+                  <NearbyPanel state={s} shell="narrow" />
+                </Browser>
+              </Specimen>
+            ))}
           </div>
         </Section>
 

@@ -5,18 +5,27 @@ import { ALERT, LINK_URL, SHEET, SHEET_COUNTS, SHEET_ROWS, type ShareKind } from
  * The phone app's "Client link" sheet and the alert that follows it (Ch6,
  * mobile), drawn from `mobile/app/(app)/albums/[albumId]/index.tsx` (the
  * link sheet, LINK_SCOPE_ROWS, createLink) and `components/BottomSheet.tsx`,
- * in the phone's dark palette:
+ * in the phone's dark palette.
+ *
+ * Sizes are the device's. NativeWind inlines `rem` at 14 pt on the phone
+ * (nativewind 4.2.1's `withNativeWind` defaults `inlineRem` to 14 and the
+ * app's metro config keeps it), so every rem class renders at 7/8 of its web
+ * size: `text-sm` is 12.25 on 17.5, `px-4` 14, `rounded-2xl` 14. Explicit
+ * pixels (`w-[22px]`, icon sizes, the ScrollView's padding) are as written.
+ * One phone point is one CSS pixel here.
  *
  * - BottomSheet: the shade is `#161311` at 72% (B8); the sheet is the card
- *   colour `#1E1B18` with 24 px top corners and a 36 × 4 handle in the border
- *   colour; 20 px sides, 8 px top, and room above the home indicator.
- * - The title 18 px bold; the intro 14 px muted.
- * - Three rows, 8 px apart: 16 px radius, 1 px border, 16 × 14 px padding.
+ *   colour `#1E1B18` with 21 px top corners (`rounded-t-3xl`) and a
+ *   31.5 × 3.5 handle in the border colour; 20 px sides and 8 px top (the
+ *   ScrollView's own numbers), and the home indicator's 34 px below.
+ * - The title 15.75 px bold; the intro 12.25 px muted.
+ * - Three rows, 7 px apart: 14 px radius, 1 px border, 14 × 12.25 px padding.
  *   Ticked: primary/10 fill and primary/30 border. The box is 22 px with the
- *   app's `rounded-md` (14 px, so it draws round): `#A85D35` with a white
- *   14 px tick, or a 2 px border when clear. Then a 17 px icon (`#D18A5A`
- *   when ticked), the label 14 px semibold and the album's count 12 px muted.
- * - "Make link": 16 px radius, `#A85D35`, 16 px bold white; while it works,
+ *   app's `rounded-md` (its 14 pt radius, so it draws round): `#A85D35` with a
+ *   white 14 px tick, or a 2 px border when clear. Then a 17 px icon
+ *   (`#D18A5A` when ticked), the label 12.25 px semibold and the album's count
+ *   (10.5 px in the app; 11 here, the story's floor).
+ * - "Make link": 14 px radius, `#A85D35`, 14 px bold white; while it works,
  *   a spinner and "Making the link…".
  *
  * Both are overlays: they fill the nearest positioned box (`PhoneFrame`'s
@@ -85,18 +94,18 @@ export function ShareSheet({
       className={`absolute inset-0 z-10 flex flex-col justify-end ${className}`}
     >
       {shade && <div data-part="sheet-shade" className="absolute inset-0" style={{ background: SHEET_SHADE }} />}
-      <div data-part="sheet" className="relative rounded-t-3xl bg-[#1E1B18] pb-[30px] text-[#F2EDE8]">
-        <div className="flex justify-center pb-1 pt-2.5">
-          <span data-part="sheet-handle" className="h-1 w-9 rounded-full bg-[#362F2B]" />
+      <div data-part="sheet" className="relative rounded-t-[21px] bg-[#1E1B18] pb-[34px] text-[#F2EDE8]">
+        <div className="flex justify-center pb-[3.5px] pt-[8.75px]">
+          <span data-part="sheet-handle" className="h-[3.5px] w-[31.5px] rounded-full bg-[#362F2B]" />
         </div>
         <div className="px-5 pb-4 pt-2">
-          <p data-part="sheet-title" className="mb-4 text-lg font-bold">
+          <p data-part="sheet-title" className="mb-[14px] text-[15.75px] font-bold leading-[24.5px]">
             {SHEET.title}
           </p>
-          <p data-part="sheet-intro" className="-mt-2 mb-4 text-sm text-[#A08E84]">
+          <p data-part="sheet-intro" className="-mt-[7px] mb-[14px] text-[12.25px] leading-[17.5px] text-[#A08E84]">
             {SHEET.intro}
           </p>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-[7px]">
             {SHEET_ROWS.map((row) => {
               const Icon = ICONS[row.kind];
               return (
@@ -104,7 +113,7 @@ export function ShareSheet({
                   key={row.kind}
                   data-part={`row-${row.kind}`}
                   data-on={on(s.kinds.includes(row.kind))}
-                  className="group/row flex items-center gap-3 rounded-2xl border border-[#362F2B] px-4 py-3.5 data-[on]:border-[rgba(209,138,90,0.3)] data-[on]:bg-[rgba(209,138,90,0.1)]"
+                  className="group/row flex items-center gap-[10.5px] rounded-[14px] border border-[#362F2B] px-[14px] py-[12.25px] data-[on]:border-[rgba(209,138,90,0.3)] data-[on]:bg-[rgba(209,138,90,0.1)]"
                 >
                   <span
                     data-part={`box-${row.kind}`}
@@ -114,8 +123,8 @@ export function ShareSheet({
                   </span>
                   <Icon aria-hidden size={17} className="shrink-0 text-[#A08E84] group-data-[on]/row:text-[#D18A5A]" />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold">{row.label}</span>
-                    <span className="mt-0.5 block text-xs text-[#A08E84]">{counts[row.kind]}</span>
+                    <span className="block text-[12.25px] font-semibold leading-[17.5px]">{row.label}</span>
+                    <span className="mt-[1.75px] block text-[11px] leading-[14px] text-[#A08E84]">{counts[row.kind]}</span>
                   </span>
                 </div>
               );
@@ -124,12 +133,12 @@ export function ShareSheet({
           <div
             data-part="make-link"
             data-state={s.making ? 'making' : 'ready'}
-            className="group/make mt-5 flex items-center justify-center gap-2 rounded-2xl bg-[#A85D35] py-3.5"
+            className="group/make mt-[17.5px] flex items-center justify-center gap-[7px] rounded-[14px] bg-[#A85D35] py-[12.25px]"
           >
             <span className="hidden group-data-[state=making]/make:inline-flex">
               <Spinner />
             </span>
-            <span className="text-base font-bold text-white">
+            <span className="text-[14px] font-bold leading-[21px] text-white">
               <span className="group-data-[state=making]/make:hidden">{SHEET.make}</span>
               <span className="hidden group-data-[state=making]/make:inline">{SHEET.making}</span>
             </span>

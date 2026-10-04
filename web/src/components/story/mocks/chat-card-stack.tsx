@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { BookUser, MessageCircle, Search, type LucideIcon } from 'lucide-react';
 import { WHEN } from '../data/story';
-import { CHAT_CARDS, type ChatCard } from '../data/strings/ch1';
+import { CHAT_CARDS, NEW_MESSAGES, type ChatCard } from '../data/strings/ch1';
 import { LockScreen, lockDate, lockTime } from '../frames/lock-screen';
 import { Perspective } from '../frames/perspective';
 import { Plate } from './plate';
@@ -38,10 +38,15 @@ import { Plate } from './plate';
  * Fills `PhoneFrame`'s content area (absolute inset-0); pass
  * `screen={LOCK_WALLPAPER}` to the phone.
  *
+ * The unread count climbs through the notification cards ("12 new
+ * messages", then "38"): each one's number is a tabular counter,
+ * `chat-card-N-unread`, for a stage that ticks it up as the card lands.
+ *
  * Parts: chat-stack (data-state, data-count), perspective (the pile: the
  * cards are its direct children, so they share its eye), chat-card-1…7
- * (data-kind, data-on, data-depth), chat-card-1…7-fog, freeze; plus the lock
- * screen's own (lock-time, lock-date…).
+ * (data-kind, data-on, data-depth), chat-card-1…7-fog, chat-card-N-unread
+ * (notification cards), freeze; plus the lock screen's own (lock-time,
+ * lock-date…).
  */
 
 export type ChatStackCount = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -140,7 +145,7 @@ function Initials({ children, size = 24 }: { children: ReactNode; size?: number 
   );
 }
 
-function Body({ card }: { card: ChatCard }) {
+function Body({ card, part }: { card: ChatCard; part: string }) {
   switch (card.kind) {
     case 'thread':
       return (
@@ -175,7 +180,13 @@ function Body({ card }: { card: ChatCard }) {
     case 'notice':
       return (
         <div className="mt-1.5">
-          <p className="text-[15px] font-semibold leading-5">{card.summary}</p>
+          {/* The unread count is a counter: a stage may tick it up as the card lands. */}
+          <p className="text-[15px] font-semibold leading-5">
+            <span data-part={`${part}-unread`} className="inline-block min-w-[2ch] tabular-nums">
+              {card.unread}
+            </span>{' '}
+            {NEW_MESSAGES}
+          </p>
           <div className="mt-1 flex flex-col">
             {card.preview.map((line) => (
               <p key={line} className="truncate text-[13px] leading-[18px] text-white/75">
@@ -241,7 +252,7 @@ function Card({ card, index, depth }: { card: ChatCard; index: number; depth: nu
         <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-5 text-white/80">{card.title}</span>
         <span className="shrink-0 text-[12px] leading-5 tabular-nums text-white/50">{card.time}</span>
       </div>
-      <Body card={card} />
+      <Body card={card} part={part} />
       {/* Depth haze: darkens the card as it recedes, without letting the cards behind show through. */}
       <span
         data-part={`${part}-fog`}

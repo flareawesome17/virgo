@@ -46,6 +46,9 @@ export const SEEN_BY = 14;
 /** The group's last message before hers: the chat was already about something else. */
 export const BEFORE_QUESTION = 'Rico: anyone selling a gimbal?';
 
+/** A notification's summary line after its count: "38 new messages". */
+export const NEW_MESSAGES = 'new messages';
+
 export type ChatRow = { name: string; initials: string; preview: string; time: string };
 
 type Base = {
@@ -61,13 +64,22 @@ export type ChatCard = Base &
   (
     | { kind: 'thread'; title: string; incoming: string; mine: string; receipt: string }
     | { kind: 'list'; title: string; rows: readonly ChatRow[] }
-    | { kind: 'notice'; title: string; summary: string; preview: readonly string[] }
+    | {
+        kind: 'notice';
+        title: string;
+        /** How many messages are waiting: the unread count that climbs (12, then 38). */
+        unread: number;
+        /** The whole summary line, `${unread} ${NEW_MESSAGES}`. */
+        summary: string;
+        preview: readonly string[];
+      }
     | { kind: 'story'; title: string; label: string; mine: string; receipt: string }
     | { kind: 'search'; title: string; query: string; results: readonly string[] }
   );
 
 const card = <T extends ChatCard>(c: T) => c;
 const at = (hhmm: string) => ({ at: wednesday(hhmm), time: clock12(wednesday(hhmm)) });
+const unread = (n: number) => ({ unread: n, summary: `${n} ${NEW_MESSAGES}` });
 
 /**
  * The pile, oldest first: the same question in three groups, a group that
@@ -102,7 +114,7 @@ export const CHAT_CARDS: readonly ChatCard[] = [
     ...at('23:46'),
     mobile: false,
     title: GROUPS.freelancers,
-    summary: '12 new messages',
+    ...unread(12),
     preview: [
       'Jo: selling my 70-200, meet-ups in Cebu only',
       'Mae: who has a spare battery grip?',
@@ -124,7 +136,7 @@ export const CHAT_CARDS: readonly ChatCard[] = [
     ...at('23:53'),
     mobile: true,
     title: GROUPS.freelancers,
-    summary: '38 new messages',
+    ...unread(38),
     preview: [
       'Ana: anyone know a photo booth for the 19th?',
       'Jo: 70-200 sold, thanks all',

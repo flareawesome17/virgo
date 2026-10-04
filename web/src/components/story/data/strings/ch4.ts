@@ -133,6 +133,30 @@ export const ATTENDEES = {
   color: { pending: '#A89489', accepted: '#6B8E4E', declined: '#C4776A' },
 } as const;
 
+/** An invitation's state, as the API stores it. */
+export type AttendeeStatus = 'pending' | 'accepted' | 'declined';
+
+const byText = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+
+/**
+ * The guest list after the first `going` of the crew have said yes (they
+ * answer in invitation order), in the order the phone draws it.
+ *
+ * The phone draws the list exactly as the API sends it, and the API sorts
+ * with `order by a.status, name`. The status is a text column, so everyone
+ * going ('accepted') comes before everyone still invited ('pending'), each
+ * group by name. The list reshuffles as people answer: Bea, Ernie, Kenn while
+ * all three are invited; Ernie first once he says yes; Bea, Ernie, Kenn again
+ * once everyone is going.
+ */
+export function guestList(going: number): { guest: Guest; status: AttendeeStatus }[] {
+  const said = new Set(GUESTS.slice(0, going));
+  return GUESTS.map((guest) => ({
+    guest,
+    status: (said.has(guest) ? 'accepted' : 'pending') as AttendeeStatus,
+  })).sort((a, b) => byText(a.status, b.status) || byText(GUEST_NAME[a.guest], GUEST_NAME[b.guest]));
+}
+
 /**
  * AttendeeSummary's line for an agenda row: names, not a count, until more
  * than one is going.
@@ -288,6 +312,16 @@ export const SOURCES: readonly SourceEntry[] = [
       'return name.trim().slice(0, 2).toUpperCase();',
     ],
   },
+  // The list's order: the API sorts by status (a text column), then name, and
+  // the phone draws what it is sent.
+  { file: ATTENDEES_API, mode: 'fragments', fragments: ['order by a.status, name'] },
+  {
+    file: 'api/migrations/026_event_attendees.sql',
+    mode: 'fragments',
+    fragments: ["status text not null default 'pending'", "check (status in ('pending', 'accepted', 'declined'))"],
+  },
+  { file: 'mobile/src/hooks/useScheduleEvents.ts', mode: 'fragments', fragments: ['attendees: query.data?.data ?? [],'] },
+  { file: INVITES, mode: 'fragments', fragments: ['{attendees.map((person, i) => (', "const going = attendees.filter((a) => a.status === 'accepted');"] },
   {
     text: attendeeLine([], 3),
     file: INVITES,

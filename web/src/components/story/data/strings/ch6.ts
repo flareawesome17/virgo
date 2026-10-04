@@ -176,13 +176,14 @@ const shortDate = (iso: string) => `${MONTHS_SHORT[Number(iso.slice(5, 7)) - 1]}
 
 /**
  * The page's own `dayTitle`: en-GB, "Saturday 12 December", with the year
- * only when it is not the viewer's. No Intl, so it reads the same in Node,
- * Next and Remotion.
+ * only when it is not the viewer's. With the year, en-GB puts a comma after
+ * the weekday: "Sunday, 13 December 2026" (Chromium 153, ICU 77). No Intl,
+ * so it reads the same in Node, Next and Remotion.
  */
 function clientDayTitle(key: string, nowIso: string): string {
   const [y, m, d] = key.split('-').map(Number);
   const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-  return `${weekday} ${d} ${MONTHS[m - 1]}${y === Number(nowIso.slice(0, 4)) ? '' : ` ${y}`}`;
+  return y === Number(nowIso.slice(0, 4)) ? `${weekday} ${d} ${MONTHS[m - 1]}` : `${weekday}, ${d} ${MONTHS[m - 1]} ${y}`;
 }
 
 /** The picks bar and the "My picks" toggle. */
@@ -210,16 +211,43 @@ export const CLIENT_FILMS: readonly { id: string; duration: string }[] = [
   { id: 'reception', duration: '5:20' },
 ];
 
-/** The page's play, pause and next-track marks: characters, not icons. */
-export const CLIENT_GLYPHS = { play: '▶', pause: 'Ⅱ', next: '⏭' } as const;
+/** The page's play, pause, next-track and close marks: characters, not icons. */
+export const CLIENT_GLYPHS = { play: '▶', pause: 'Ⅱ', next: '⏭', close: '✕' } as const;
+
+const seconds = (clock: string) => clock.split(':').reduce((s, part) => s * 60 + Number(part), 0);
+const clockOf = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+const SDE_SECONDS = seconds(ALBUM.sameDayEditDuration);
+const PLAYED_SECONDS = 96;
+
+/**
+ * The player the page opens over itself when a film is tapped
+ * (`#videoViewer`): close, the file's name and length, download, and the
+ * video with the browser's own controls. Films never play inside their tile.
+ * Kenn's same-day edit, 1:36 in. The file name is what Kenn called it, so it
+ * is illustrative; so are the positions the browser's controls show.
+ */
+export const CLIENT_PLAYER = {
+  name: 'Reyes & Santos SDE.mp4',
+  meta: ALBUM.sameDayEditDuration,
+  /** The browser's controls, before and while it plays. */
+  start: `${clockOf(0)} / ${ALBUM.sameDayEditDuration}`,
+  playing: `${clockOf(PLAYED_SECONDS)} / ${ALBUM.sameDayEditDuration}`,
+  progress: Math.round((PLAYED_SECONDS / SDE_SECONDS) * 1000) / 1000,
+} as const;
 
 /** A film tile's badge: "▶ 3:48". */
 export const filmBadge = (duration: string) => `${CLIENT_GLYPHS.play} ${duration}`;
 
-const seconds = (clock: string) => clock.split(':').reduce((s, part) => s * 60 + Number(part), 0);
-
-/** Both recordings were made on the wedding day. Titles other than "Vows" are illustrative. */
-const RECORDED = clientDayTitle(WHEN.ceremony.slice(0, 10), NOW.ch6Later);
+/**
+ * The line under each recording: the day it arrived, not the day it was
+ * recorded. The API dates a film from its container but gives a sound file no
+ * capture time, so the page falls back to the upload. Both recordings came up
+ * with the teaser on Sunday afternoon, and three weeks later the year is no
+ * longer the viewer's, so it is printed. Titles other than "Vows" are
+ * illustrative.
+ */
+const RECORDED = clientDayTitle(COHORTS[1].uploaded.from.slice(0, 10), NOW.ch6Later);
 
 /** The Recordings line: "2 files". */
 const filesLine = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
@@ -391,10 +419,18 @@ export const SOURCES: readonly SourceEntry[] = [
     mode: 'fragments',
     fragments: [
       "node('small', '', file.mediaArtist || dayTitle(dayKey(file)))",
+      // No capture time: the day it was uploaded.
+      'const d = new Date(file.createdAt);',
       "const opts = { weekday: 'long', day: 'numeric', month: 'long' };",
       "if (date.getFullYear() !== now.getFullYear()) opts.year = 'numeric';",
       "return date.toLocaleDateString('en-GB', opts);",
     ],
+  },
+  // Why a recording has no capture time: only a film is dated from its container.
+  {
+    file: 'api/src/storage/media-processing.service.ts',
+    mode: 'fragments',
+    fragments: ['const takenAt = video ? takenAtFromVideoTags(probe.format?.tags) : null;'],
   },
   { text: CLIENT_DOCK.clock, file: CLIENT_SRC, mode: 'fragments', fragments: ["clock(audio.currentTime) + ' / ' + clock(audio.duration)"] },
   {
@@ -405,6 +441,32 @@ export const SOURCES: readonly SourceEntry[] = [
       '<button id="audioToggle" class="round" aria-label="Play">&#9654;</button>',
       '<button id="audioNext" class="round" aria-label="Next track">&#9197;</button>',
       "el('audioToggle').textContent = 'Ⅱ';",
+    ],
+  },
+  // The film player: a full-screen layer over the page, the file's own name
+  // and length, a download, and the browser's controls on the video.
+  {
+    text: CLIENT_GLYPHS.close,
+    file: CLIENT_SRC,
+    mode: 'fragments',
+    fragments: ['<button id="videoClose" class="round" aria-label="Close">&#10005;</button>'],
+  },
+  {
+    text: CLIENT_PLAYER.meta,
+    file: CLIENT_SRC,
+    mode: 'fragments',
+    fragments: ["el('videoName').textContent = file.originalName;", "el('videoMeta').textContent = duration(file.durationMs);"],
+  },
+  {
+    file: CLIENT_SRC,
+    mode: 'fragments',
+    fragments: [
+      '.overlay{position:fixed;z-index:60;inset:0;display:none;min-height:100dvh;background:#141210;color:#fff}',
+      '.vbar{display:flex;align-items:center;gap:8px;padding:12px}',
+      '.vtitle small{color:rgba(255,255,255,.74);font:11px ui-monospace,monospace}',
+      '<video id="video" class="video" controls playsinline></video>',
+      "el('videoDownload').hidden = !file.downloadUrl;",
+      "film ? openVideo(file) : openPhoto(list.filter((f) => kindOf(f) === 'image'), file)",
     ],
   },
   { text: CLIENT_PAGE.empty, file: CLIENT_SRC, mode: 'verbatim' },

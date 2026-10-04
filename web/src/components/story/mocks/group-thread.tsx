@@ -18,7 +18,9 @@ import { Faces } from './booking-badge';
  * - `Bubble`: 16 px radius, 14 px text, at most 80% wide. Yours on the action
  *   fill `#A85D35` with white; theirs on the card colour, with the sender's
  *   name above in a group. A reply quote sits inside, with a 2 px rail. An
- *   @mention is bold: `#FFE6D5` on your bubble, `#D18A5A` on theirs. Your
+ *   @mention is bold: `#FFE6D5` on your bubble, `#D18A5A` on theirs, once the
+ *   message is sent (while it is going out the app draws its optimistic row,
+ *   at 85% and with the body plain). Your
  *   bubble's footer carries the time and the delivery mark — a clock while
  *   sending, one tick when sent, two dim ticks when delivered to everyone,
  *   two solid ticks when everyone has read it — and, in a group, how many
@@ -34,14 +36,18 @@ import { Faces } from './booking-badge';
  * (the app draws 10 px), because text is never under 11 px on the page.
  *
  * Parts (GroupThread): chat, chat-header, thread, bubble-ask (data-state),
- * ask-footer (faces: sending / time), ask-ticks (faces: sending, sent,
- * delivered, read), ask-seen (faces: 1, 3), bubble-reply, composer.
+ * bubble-ask-body (faces: plain, marked), bubble-ask-footer (faces: sending,
+ * time), bubble-ask-ticks (faces: sending, sent, delivered, read),
+ * bubble-ask-seen (faces: 1, 3), bubble-reply, composer.
  */
 
 const MINE_MENTION = '#FFE6D5';
 const THEIR_MENTION = '#D18A5A';
 
-/** The body with every @name of a participant picked out, longest name first. */
+/**
+ * The body with every @name of a participant picked out, longest name first.
+ * Returns the plain string when there is nothing to pick out.
+ */
 function withMentions(body: string, mine: boolean, names: readonly string[]): ReactNode {
   const sorted = [...names].sort((x, y) => y.length - x.length);
   const escaped = sorted.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
@@ -66,7 +72,7 @@ export function ChatHeader({ title, subtitle }: { title: string; subtitle?: stri
         <ArrowLeft aria-hidden size={18} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[16px] font-bold leading-[22px]">{title}</span>
+        <span className="block truncate text-[16px] font-bold leading-6">{title}</span>
         {subtitle && <span className="mt-0.5 block truncate text-[12px] text-[#A08E84]">{subtitle}</span>}
       </span>
       <span className="flex size-11 shrink-0 items-center justify-center rounded-[16px] bg-[#1E1B18]">
@@ -162,6 +168,7 @@ export function Bubble({
 }) {
   const sending = mine && delivery === 'sending';
   const counts = [...new Set([...seenFaces, ...(seen ? [seen] : [])])].sort((x, y) => x - y);
+  const marked = withMentions(body, mine, mentionable);
 
   return (
     <div
@@ -193,7 +200,19 @@ export function Bubble({
           </div>
         )}
         <p className={`text-[14px] leading-5 ${mine ? 'text-white' : 'text-[#F2EDE8]'}`}>
-          {withMentions(body, mine, mentionable)}
+          {mine && marked !== body ? (
+            // Both drawn in place: a message still going out is the app's
+            // optimistic row, which prints the body plain; the mention is
+            // picked out once the server has it.
+            <Faces
+              part={part && `${part}-body`}
+              block
+              on={sending ? 'plain' : 'marked'}
+              faces={{ plain: body, marked }}
+            />
+          ) : (
+            marked
+          )}
         </p>
         <div className="mt-1 flex items-center gap-1">
           {mine ? (

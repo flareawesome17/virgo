@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, Play } from 'lucide-react';
 import {
   CLIENT_ALBUM,
   CLIENT_CHAPTERS,
@@ -11,13 +11,16 @@ import {
   CLIENT_PAGE,
   CLIENT_PALETTE,
   CLIENT_PICKS,
+  CLIENT_PLAYER,
   CLIENT_RECORDINGS,
   CLIENT_SUMMARY,
   filmBadge,
   LINK_URL,
   type KindKey,
 } from '../data/strings/ch6';
-import { litePlateStyle, plateLook } from './plate';
+import { FILM_SEEDS } from '../data/strings/ch5';
+import { FilmTile } from './film-tile';
+import { litePlateStyle, Plate, plateLook } from './plate';
 
 /**
  * The client's delivery page (Ch6, and its empty end in Ch7): the page
@@ -39,7 +42,13 @@ import { litePlateStyle, plateLook } from './plate';
  * "412 items · 5.6 GB", Download all); the chapters; the kind tabs (only once
  * the link shows more than one kind, as the page hides them otherwise) and
  * the "My picks" toggle; the grid of Plates with their hearts; the Recordings;
- * then the fixed layers, the audio dock and the picks bar.
+ * then the fixed layers, the audio dock and the picks bar. Films are posters
+ * with the page's "▶ 3:48" badge; Kenn's same-day edit is Ch5's `FilmTile`
+ * (look "client"), so the film the album held on Saturday is the same frame
+ * here. It shows in the Films tab (`kind="video"`), first, as the page orders
+ * films by capture time; at the end of "All" come Ernie's six. A film plays in
+ * the page's own full-screen player, never in its tile: `player` opens it over
+ * the page on the same-day edit (Ch6's "a film plays" beat, told truthfully).
  *
  * Deliberate departures, each from the storyboard:
  * - **No day headings.** The page heads each day with its name and a count of
@@ -71,7 +80,12 @@ import { litePlateStyle, plateLook } from './plate';
  * tile-blur, tile-sharp, film-badge, heart (data-on), recordings, track
  * (data-playing), client-empty, dock, dock-fill, dock-thumb, picks-bar
  * (data-on), picks-count, picks-download, send (data-state: unsent | sent),
- * sent-note (data-on).
+ * sent-note (data-on); inside the same-day edit's tile, FilmTile's own
+ * (film-tile, film-frame, film-badge, film-pulse, film-progress); and the
+ * player, in `rescoped`: film-player (data-on, data-state: poster | playing),
+ * player-bar, player-close, player-title, player-meta, player-download,
+ * player-stage, player-frame (data-frame), player-play, player-controls,
+ * player-time, player-progress-fill, player-thumb.
  */
 
 export type ClientGalleryState = 'previews' | 'opened' | 'picked' | 'sent' | 'rescoped' | 'empty';
@@ -92,7 +106,18 @@ export const CLIENT_GALLERY_STATES: Record<
 
 // ─── The files on screen ─────────────────────────────────────────────────
 
-type Tile = { seed: number; ratio: number; kind: 'image' | 'video'; duration?: string; picked?: boolean };
+type Tile = {
+  seed: number;
+  ratio: number;
+  kind: 'image' | 'video';
+  duration?: string;
+  /** Which film (`CLIENT_FILMS` id). */
+  film?: string;
+  picked?: boolean;
+};
+
+/** Kenn's same-day edit: drawn with Ch5's FilmTile, so it is the same film there and here. */
+const SAME_DAY_EDIT = CLIENT_FILMS[0].id;
 
 /**
  * The first photos of the day, in capture order, at their own shapes (the
@@ -116,6 +141,7 @@ const FILM_TILES: readonly Omit<Tile, 'seed'>[] = CLIENT_FILMS.map((f) => ({
   ratio: 16 / 9,
   kind: 'video' as const,
   duration: f.duration,
+  film: f.id,
 }));
 
 /** Which tiles a room holds: the kind tab decides, as the page asks the server for exactly that kind. */
@@ -181,12 +207,24 @@ function TileView({ tile, index, sharp, picks }: { tile: Tile; index: number; sh
       className="group/tile relative mb-2 overflow-hidden rounded-[14px] bg-[var(--line)] [break-inside:avoid] @min-[640px]:mb-2.5"
       style={{ aspectRatio: tile.ratio, minHeight: 90 }}
     >
-      <span data-part="tile-blur" className="absolute inset-0" style={blurPlateStyle(tile.seed)} />
-      <span
-        data-part="tile-sharp"
-        className="absolute inset-0"
-        style={{ ...litePlateStyle(tile.seed), opacity: sharp ? 1 : 0, boxShadow: undefined }}
-      />
+      {tile.film === SAME_DAY_EDIT ? (
+        // Its poster, with the page's "▶ 3:48" badge. The frames and bar
+        // FilmTile also carries stay hidden: the page never plays a film in
+        // its tile, a tap opens a full-screen player. `isolate` keeps
+        // FilmTile's layers under the heart and the ring.
+        <span className="absolute inset-0 isolate">
+          <FilmTile look="client" aspect="fill" />
+        </span>
+      ) : (
+        <>
+          <span data-part="tile-blur" className="absolute inset-0" style={blurPlateStyle(tile.seed)} />
+          <span
+            data-part="tile-sharp"
+            className="absolute inset-0"
+            style={{ ...litePlateStyle(tile.seed), opacity: sharp ? 1 : 0, boxShadow: undefined }}
+          />
+        </>
+      )}
       {/* The page's `outline: 3px solid var(--accent); outline-offset: -3px`
           on a picked tile, as a layer of its own: an outline would paint under
           the positioned plates, and a layer can fade in. */}
@@ -194,7 +232,7 @@ function TileView({ tile, index, sharp, picks }: { tile: Tile; index: number; sh
         data-part="tile-ring"
         className="pointer-events-none absolute inset-0 rounded-[14px] opacity-0 shadow-[inset_0_0_0_3px_var(--accent)] group-data-[picked]/tile:opacity-100"
       />
-      {tile.kind === 'video' && tile.duration && (
+      {tile.kind === 'video' && tile.duration && tile.film !== SAME_DAY_EDIT && (
         <span
           data-part="film-badge"
           className="pointer-events-none absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-[rgba(20,18,16,0.74)] px-[9px] py-1 text-[11px] leading-[1.2] text-white"
@@ -245,6 +283,112 @@ export function PhoneBrowserBar({ dark = false }: { dark?: boolean }) {
   );
 }
 
+// ─── The film player ─────────────────────────────────────────────────────
+
+/**
+ * The page's film player: `none` leaves it out; `closed` draws it unseen, for
+ * a stage that opens it; `poster` and `playing` show it.
+ */
+export type ClientPlayerState = 'none' | 'closed' | 'poster' | 'playing';
+
+/** Which of the three frames shows: the first while it waits, the second while it plays. */
+const PLAYER_FRAME = [
+  'opacity-100 group-data-[state=playing]/player:opacity-0',
+  'opacity-0 group-data-[state=playing]/player:opacity-100',
+  'opacity-0',
+] as const;
+
+/**
+ * The player the page opens over itself when a film is tapped (`#videoViewer`
+ * in the template). Films never play inside their tile. An opaque `#141210`
+ * layer over the whole page; a bar with the round ✕, the file's name (14 px
+ * bold) and length (11 px mono, 74% white) and the round download; then the
+ * video, the screen's width at 16:9, with the browser's own controls. Those
+ * belong to the browser, not Virgo, so they are drawn generic: a play disc
+ * while it waits, then the time and a scrubber.
+ *
+ * Kenn's same-day edit, on the frames Ch5's FilmTile shows. `poster`: the
+ * first frame at 0:00. `playing`: the second, 1:36 of 3:48. The same markup
+ * either way, so a stage can open it (fade `film-player`) and play it (flip
+ * `data-state`, crossfade `player-frame`, scale `player-progress-fill`).
+ */
+function FilmPlayer({ state }: { state: ClientPlayerState }) {
+  const progress = state === 'playing' ? CLIENT_PLAYER.progress : 0;
+  return (
+    <div
+      data-part="film-player"
+      data-on={on(state === 'poster' || state === 'playing')}
+      data-state={state === 'playing' ? 'playing' : 'poster'}
+      className="group/player absolute inset-0 z-[60] flex flex-col bg-[#141210] text-white opacity-0 data-[on]:opacity-100"
+    >
+      <div data-part="player-bar" className="flex items-center gap-2 p-3">
+        <span
+          data-part="player-close"
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-[rgba(255,255,255,0.1)]"
+          style={GLYPH}
+        >
+          {CLIENT_GLYPHS.close}
+        </span>
+        <span className="min-w-0 flex-1">
+          <strong data-part="player-title" className="block truncate text-[14px] font-bold">
+            {CLIENT_PLAYER.name}
+          </strong>
+          <small data-part="player-meta" className="text-[11px] text-[rgba(255,255,255,0.74)]" style={MONO}>
+            {CLIENT_PLAYER.meta}
+          </small>
+        </span>
+        <span
+          data-part="player-download"
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-[rgba(255,255,255,0.1)]"
+        >
+          <DownloadGlyph size={18} stroke={1.8} />
+        </span>
+      </div>
+
+      <div data-part="player-stage" className="relative grid min-h-0 flex-1 place-items-center overflow-hidden">
+        <div className="relative aspect-video max-h-full w-full overflow-hidden bg-[#141210]">
+          {FILM_SEEDS.map((seed, i) => (
+            <span key={seed} data-part="player-frame" data-frame={i} className={`absolute inset-0 ${PLAYER_FRAME[i]}`}>
+              <Plate seed={seed} aspect="fill" />
+            </span>
+          ))}
+          {/* The browser's controls, generic. */}
+          <span
+            data-part="player-play"
+            className="absolute left-1/2 top-1/2 grid size-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-[rgba(0,0,0,0.45)] group-data-[state=playing]/player:opacity-0"
+          >
+            <Play aria-hidden className="ml-0.5 size-6 fill-current" />
+          </span>
+          <span
+            data-part="player-controls"
+            className="absolute inset-x-0 bottom-0 block bg-[linear-gradient(to_top,rgba(0,0,0,0.62),rgba(0,0,0,0))] px-3 pb-2.5 pt-7"
+          >
+            <span data-part="player-time" className="block text-[11px] leading-none tabular-nums">
+              <span className="group-data-[state=playing]/player:hidden">{CLIENT_PLAYER.start}</span>
+              <span className="hidden group-data-[state=playing]/player:inline">{CLIENT_PLAYER.playing}</span>
+            </span>
+            <span className="relative mt-2 block h-[3px] rounded-full bg-[rgba(255,255,255,0.35)]">
+              <span
+                data-part="player-progress-fill"
+                className="absolute inset-0 origin-left rounded-full bg-white"
+                style={{ transform: `scaleX(${progress})` }}
+              />
+              {/* Moves as one, like the dock's: (progress − 1) of its own width. */}
+              <span
+                data-part="player-thumb"
+                className="absolute inset-0"
+                style={{ transform: `translateX(${Math.round((progress - 1) * 1000) / 10}%)` }}
+              >
+                <span className="absolute right-0 top-1/2 size-2.5 -translate-y-1/2 translate-x-1/2 rounded-full bg-white" />
+              </span>
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── The page ────────────────────────────────────────────────────────────
 
 export function ClientGalleryPage({
@@ -252,6 +396,8 @@ export function ClientGalleryPage({
   dark = false,
   kind = 'all',
   scroll = 'top',
+  player = 'none',
+  tiles: tileCap,
   browserBar = false,
   seed = 0,
   className = '',
@@ -268,6 +414,17 @@ export function ClientGalleryPage({
    * between the two.
    */
   scroll?: 'top' | 'end';
+  /**
+   * The film player over the page (`rescoped` only, where there are films).
+   * Left out by default; `closed` puts it in the markup unseen, for a stage
+   * that opens it.
+   */
+  player?: ClientPlayerState;
+  /**
+   * At most this many tiles, to keep a stage near its DOM budget: the first
+   * ones, or the last when `scroll="end"`. About 6 fill a phone's screen.
+   */
+  tiles?: number;
   /** Draw a generic phone browser's address bar above the page. */
   browserBar?: boolean;
   /** The first Plate seed, so the grid can show the same frames as the album in Ch5. */
@@ -280,7 +437,9 @@ export function ClientGalleryPage({
   const later = s.moment === 'later';
   const empty = s.moment === 'empty';
   const chosen: KindKey = later ? kind : 'all';
-  const tiles = roomTiles(s.moment, chosen, seed);
+  const room = roomTiles(s.moment, chosen, seed);
+  // Capped from whichever end is in view.
+  const tiles = !tileCap ? room : scroll === 'end' ? room.slice(-tileCap) : room.slice(0, tileCap);
   const recordings = later && (chosen === 'all' || chosen === 'audio');
   const chapters = empty ? null : later ? CLIENT_CHAPTERS.later : CLIENT_CHAPTERS.sunday;
   const summary = empty ? CLIENT_SUMMARY.empty : later ? CLIENT_SUMMARY.later : CLIENT_SUMMARY.sunday;
@@ -563,6 +722,9 @@ export function ClientGalleryPage({
             </span>
           </div>
         )}
+
+        {/* Over everything, the dock and the picks bar included, as on the page. */}
+        {later && player !== 'none' && <FilmPlayer state={player} />}
       </div>
     </div>
   );

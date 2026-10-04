@@ -152,11 +152,24 @@ export function MonthGrid({
 /** What the section under the card shows: today's empty day, or the wedding at a Ch4 beat. */
 export type AgendaState = 'empty' | EventBeat;
 
+/** The selected day's label (labelForDateKey) and the link to its agenda, over either state. */
+function AgendaHeading({ label }: { label: string }) {
+  return (
+    <div className="mb-3 flex items-center justify-between">
+      <p className="text-[18px] font-bold leading-7 tracking-tight">{label}</p>
+      <span className="flex items-center gap-1 text-[#D18A5A]">
+        <span className="text-[14px] font-semibold">{AGENDA.link}</span>
+        <ChevronRight aria-hidden size={14} />
+      </span>
+    </div>
+  );
+}
+
 export function DayAgenda({ state = 'reminded', className = '' }: { state?: AgendaState; className?: string }) {
   if (state === 'empty') {
     return (
       <div data-part="agenda" data-state={state} className={`text-[#F2EDE8] ${className}`}>
-        <p className="mb-3 text-[18px] font-bold leading-6 tracking-tight">{AGENDA.today}</p>
+        <AgendaHeading label={AGENDA.today} />
         <div className="flex flex-col items-center gap-3 rounded-[16px] bg-[#1E1B18] p-6">
           <span className="flex size-12 items-center justify-center rounded-full bg-[#2A2522]">
             <CalendarDays aria-hidden size={22} className="text-[#A08E84]" />
@@ -173,13 +186,7 @@ export function DayAgenda({ state = 'reminded', className = '' }: { state?: Agen
 
   return (
     <div data-part="agenda" data-state={state} className={`text-[#F2EDE8] ${className}`}>
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-[18px] font-bold leading-6 tracking-tight">{AGENDA.tomorrow}</p>
-        <span className="flex items-center gap-1 text-[#D18A5A]">
-          <span className="text-[14px] font-semibold">{AGENDA.link}</span>
-          <ChevronRight aria-hidden size={14} />
-        </span>
-      </div>
+      <AgendaHeading label={AGENDA.tomorrow} />
       <div className="overflow-hidden rounded-[16px] border border-[rgba(54,47,43,0.3)] bg-[#1E1B18]">
         <div data-part="agenda-row" className="flex items-center gap-3 px-4 py-3.5">
           <span
