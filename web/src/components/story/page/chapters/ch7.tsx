@@ -14,7 +14,7 @@ import { Ch7Film } from '../islands/ch7';
  */
 
 /** The shot's scroll, in svh, beyond its 100svh stage. */
-const LENGTH = 100;
+const LENGTH = 220;
 
 export function Ch7() {
   return (

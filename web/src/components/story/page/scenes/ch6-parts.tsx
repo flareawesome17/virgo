@@ -11,7 +11,7 @@ import { Plate } from '../../mocks/plate';
  */
 
 /** Scroll length of Ch6's one shot, in svh beyond the stage (the server reserves it). */
-export const CH6_LENGTH = 140;
+export const CH6_LENGTH = 180;
 
 /** The link, as a card: three frames, the album's name, its size, the address. */
 export function LinkCard({ rule }: { rule?: ReactNode }) {

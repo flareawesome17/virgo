@@ -24,6 +24,11 @@ export type SkyCanvasProps = {
   labels?: ReactNode;
   /** Receives the engine, for `invalidate()` and `project()`. */
   engineRef?: RefObject<SkyEngine | null>;
+  /**
+   * Whether a chapter is showing the sky (a MotionValue of boolean): shooting
+   * stars only cross a live sky. Keep it stable. Absent: always live.
+   */
+  live?: { get(): boolean; on(event: 'change', callback: (value: boolean) => void): () => void };
 };
 
 /**
@@ -35,7 +40,7 @@ export type SkyCanvasProps = {
  * Mount it only when the motion gate passes; reduced motion gets the static
  * SVG figures and the poster instead.
  */
-export function SkyCanvas({ frame, className = '', variant = 'auto', sentinel, onStats, onFreeze, map, labels, engineRef }: SkyCanvasProps) {
+export function SkyCanvas({ frame, className = '', variant = 'auto', sentinel, onStats, onFreeze, map, labels, engineRef, live }: SkyCanvasProps) {
   const root = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const callbacks = useRef({ onStats, onFreeze });
@@ -54,6 +59,7 @@ export function SkyCanvas({ frame, className = '', variant = 'auto', sentinel, o
         frame,
         variant,
         sentinel: sentinel?.current ?? null,
+        live: live ? live.get() : true,
         onStats: (s) => callbacks.current.onStats?.(s),
         onFreeze: () => callbacks.current.onFreeze?.(),
       });
@@ -64,11 +70,13 @@ export function SkyCanvas({ frame, className = '', variant = 'auto', sentinel, o
       return;
     }
     if (engineRef) engineRef.current = e;
+    const off = live?.on('change', (v) => e.setLive(v));
     return () => {
+      off?.();
       e.destroy();
       if (engineRef) engineRef.current = null;
     };
-  }, [frame, variant, sentinel, engineRef]);
+  }, [frame, variant, sentinel, engineRef, live]);
 
   return (
     <div ref={root} className={`pointer-events-none absolute inset-0 overflow-clip ${className}`} aria-hidden="true">

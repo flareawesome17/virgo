@@ -14,7 +14,7 @@ This document overrides the storyboard's motion, navigation and copy wherever th
 2. **Subtitles, not paragraphs.**
    - One subtitle line on screen at a time: ≤ 10 words, large, centred in the lower third, with a soft dark scrim under it.
    - At most one small supporting line (≤ 12 words).
-   - A **scene slate** in mono, top-left of the frame (e.g. `SATURDAY · 5:00 AM`), changes with the scene, like a film's time card.
+   - A **scene slate** in mono (e.g. `SATURDAY · 5:00 AM`) changes with the scene, like a film's time card. It sits on the frame, bottom-left (§2), not on the stage.
 3. **Depth planes per shot, for the "5D" feel:**
    - (a) the far sky: the shared canvas, or the scene's own background;
    - (b) light: glow, rays and a horizon;
@@ -25,7 +25,7 @@ This document overrides the storyboard's motion, navigation and copy wherever th
 4. **Physical beats (the "5D"):**
    - **Light sweeps:** a diagonal gradient band crossing the frame on key beats.
    - **Flares:** pre-rendered radial sprites.
-   - **Rumble:** ≤ 2 px translate jitter for 300 ms, on the shutter, the 5:00 AM alarm and Send. It is off under reduced motion and Pause.
+   - ~~**Rumble**~~: removed (owner, 2026-10-04: the shake made people dizzy). Floats are translate-only.
    - **Focus pulls:** crossfade a sharp and a soft (pre-blurred) copy of a layer by opacity.
    - **Wind:** particles stream toward the camera during camera pushes.
 5. **Motivated transitions between scenes:**
@@ -43,45 +43,67 @@ This document overrides the storyboard's motion, navigation and copy wherever th
 
 7. **The gear.** The owner asked for the tools of the trade on screen, so a visitor sees at a glance who this is for. A set of generic, unbranded objects drawn in code (`page/cinema/gear.tsx`), lit like night product shots (dark bodies, a warm gold rim light):
    - **camera body** (photographer), **lens**, **cinema rig** (videographer), **gimbal**, **light** (strobe with a softbox), **mic**, **makeup brush** (HMUA), **edit timeline** (editor).
-   - **Hero:** the gear floats in depth around the title as a constellation, joined by faint gold lines. It bobs gently (autoplay, stops under Pause). The first scroll pushes the camera *through* it, and the pieces stream past the viewer into the sky.
+   - **Hero:** see §1.10, the hero film. (The drawn gear constellation that first stood here read as flat clip-art; the owner asked for real depth.)
    - **Scenes:** each role carries its tool wherever the crew appears: the job's role rows, the nearby filter, the accepted crew, Saturday's shoot (a shutter beat on the camera, the rig's red tally light), the credits.
    - No brand names or logos; no real products.
 
 8. **Zoom in, ease in and out, geometry** (the owner's reference, 2026-10-04):
-   - **Cuts between chapters** are drawn centrally (`page/cinema/cuts.tsx`) as fixed overlays keyed to where the next chapter's top edge is on screen, so the seam is never seen:
-     - an aperture **iris** that turns as it closes and opens (into #hire, #calendar, #delivery and #features);
-     - a **tunnel** of hexagons zooming past (into #nearby and #forget);
-     - a gold **light leak** (into #saturday).
+   - **Cuts between chapters** are drawn centrally (`page/cinema/cuts.tsx`) as fixed overlays keyed to where the next chapter's top edge is on screen, so the seam is never seen. Each is a camera's own mechanism, never a symbol (owner, 2026-10-05: "remove the shapes… enhance the shutters"):
+     - the **aperture** (into #hire, #delivery and #features): curved metal blades turn shut, the barrel darkens round them, and they fire open in a flash of light with an anamorphic streak;
+     - the **focal-plane curtain** (into #calendar and #forget): slatted metal rises over the seam with the scroll and lifts off the new scene from below, which comes in a warm exposure;
+     - the **light leak** (into #saturday): a warm wash with a rose fringe, a burned edge and a streak;
+     - the **warp** (into #nearby): the frame falls into the dark of space and the stars stream past.
      Chapters that share the sky flow on uncut.
    - Every scene **opens as a zoom in** onto its hero object.
    - Every item **eases in and out** (`useReveal`), staggered; nothing pops.
-   - **Viewfinder** moments (`viewfinder.tsx`): corner brackets, a thirds grid, and a focus box that hunts and locks. Used on Mika's star, Post it, Saturday's shoot and The work.
-   - **Geometry** from the story's own shapes sits behind each scene in gold hairlines: constellation lines, radius rings, the calendar and album grids, hexagonal apertures.
-9. **Morphs** (`morph.tsx`): every shape is resampled once onto the same polar grid, so any shape melts into any other.
-   - At the centre of every cut, the outgoing scene's symbol morphs into the incoming one's: star → chat bubble, job → pin, constellation → calendar, alarm → sun, shutter → heart, heart → hourglass, stars → aperture.
-   - Inside the scenes:
-     - the chat bubble becomes the job card;
-     - a dot becomes a map pin;
-     - an applicant's light becomes a star;
-     - the calendar tile becomes the alarm;
-     - the aperture becomes an album tile;
-     - the client's heart becomes Mika's notification;
-     - each leaving file becomes a fading star;
-     - the crews' pins become stars;
-     - the credits' star becomes a heart.
+   - **Viewfinder** moments (`viewfinder.tsx`): a focus box that hunts and locks (and a REC dot for video). Used on Mika's star, Post it, Saturday's shoot and The work. The frame carries the corner marks, so there are no brackets or thirds grid.
+   - **Pattern, not shapes** (owner, 2026-10-05: the hearts, hexagons and grids behind the scenes were noise). The scenes carry no decorative geometry. The page's one texture is a fine gold dot matrix on the frame (§2), drifting at a twentieth of the scroll. Shapes appear only when they mean something: the morphs (§1.9) and the sky's stars and constellations.
+9. **Morphs** (`morph.tsx`): every shape is resampled once onto the same polar grid, so any shape melts into any other. Since 2026-10-05 they are kept only where a star is involved: Ch3's last point of light becoming a star, Ch7's files leaving as stars, Ch8's pins becoming stars, and the credits' gathering star. The decorative glyphs are gone: the cuts' centre symbols, Ch1's chat bubble, Ch4's square, Ch5's hexagons (each frame now flies in as a spark of light), and Ch6's heart (now a spark that carries the picks to Mika's phone). Ch2's map pin stays: it marks the shoot the distances are measured from.
+
+10. **The hero film** (owner, 2026-10-04: "too flat… make it feel like a video", modern kit). A photoreal render, not a drawing:
+    - **The scene:** a dark studio with a cine camera as the hero piece, large and close at three-quarters. It has a geared cine prime with coated glass, a key light, and a gold rim. A mirrorless camera sits soft behind it and a spare prime lies out of focus in front. There is a dark satin floor, warm bokeh far back, and dust near the lens.
+    - **How it is made:** the gear is built in code (`marketing-assets/blender/gear_models.py`), so it is generic and needs no licences. The scene and its motion are in `marketing-assets/blender/hero_film.py`, rendered with Blender Cycles on the CPU.
+      - The opening (2.5 s): the lights flicker on and the camera dollies in.
+      - The loop (5 s): seamless. A slow orbit, the light breathing, motes on closed paths, and a glint crossing the lens.
+      - `scripts/encode-film.mjs` makes VP9 and H.264 files plus a lit still; `publish.mjs` hashes them in.
+    - **On the page** (`scenes/hero-plate.tsx`):
+      - The opening plays once and hands over to the loop with no black frame.
+      - Live haze drifts over it, and the mouse adds a little parallax.
+      - The first scroll pushes the camera into the lens glass and through it into the sky.
+      - The still stands in for reduced motion, no JS, and phones that will not autoplay. The film pauses with Pause and off screen.
+      - Desktop: title left, film right. Phones: film on top, title below.
+
+11. **The sky is space, and Virgo is the thread** (owner, 2026-10-05: "enhance the sky to feel like space… the Virgo constellation should be seen from the hero, somewhere midway and at the ending… stars are not emphasized").
+    - **Deep space** (`sky/space.ts`, a lazy chunk): a seeded Milky Way band with a dark rift, two faint nebulae, a far star field at two depths, twinkling far stars, and a rare shooting star (one every 8–12 s at most, only while a chapter shows the sky). All of it is drawn into the engine's one canvas from textures built at idle, turning at about half the camera's rate. It is off in lite mode and under Pause, and reduced motion never mounts the sky. Its textures count against the map layers' pixel budget, not on top of it.
+    - **"This star is Mika."** (owner: the landing was flat, and unclear whether the line meant the star or a person). While "Every star is a creative." plays, stars around Cebu light with what each creative does (Photographer, Videographer, Photo Editor, HMUA; Coordinator and Video Editor on desktop). As the camera locks on Mika's star, a spark runs out of it along a gold leader and becomes the ring round her avatar, and her card unfolds (`page/sky/mika-card.tsx`, driven by the Prologue's clock): her name, "Wedding photographer · Cebu City", her camera, three frames of her work. The subtitle names the star as her: "This star is Mika, a wedding photographer in Cebu City." The frame says "Illustrative" while the card is up.
+    - **Stars are people:** Mika and the crew carry a four-point diffraction spike, a halo and a slow breath (`featured`). The city stars draw warmer than the scattered field, the neighbours a Nearby search finds light up warm, and Ch8's crews are clear points that flare as they light. Labels: on desktop Ch3, each of the cast by their star (Mika · Spica, Ernie · Porrima, Kenn · Vindemiatrix, Bea · Heze).
+    - **Virgo in four places** (`cinema/virgo-constellation.tsx` for the HTML figure; the sky engine for Ch3 and Ch8):
+      - **Hero:** gold hairlines over the dark above the camera. The stars come up with the film's lights, the lines draw out from Spica from about 3 s, and the first scroll lifts it away. Syrma is an empty socket.
+      - **Ch3 (midway):** the real figure forms in the sky once the terms card leaves, with a spark on each growing line and a pulse when it completes; it holds to the end of the chapter. Ch3's own morph star hands over to it as the lines start.
+      - **Ch8:** Mika's crew hangs over Cebu City as a small Virgo, large as the crane rises past it.
+      - **Ending:** the lines draw out of the logo's flash, Syrma ignites last ("you"), and the figure rests faint behind "Start your journey now." The static closing shows it drawn, Syrma lit.
 
 ## 2. The frame (chrome)
-- **No header.**
-  - The hero shows only the Virgo mark (top-left) and **Sign in** (top-right, text). Both fade out as the film starts.
-  - A visually hidden **"Skip the film"** link is first in the tab order, and becomes visible on focus.
-- **Download pill.** One floating pill, the only persistent control: "Download Virgo" with an icon, → `/download`.
-  - Desktop: bottom-right. Mobile: bottom-centre, above the safe area.
-  - It appears after the hero (once the film has started), hides while the visitor scrolls down quickly, and returns when they pause (~600 ms) or scroll up.
-  - It never covers a subtitle; subtitles sit above its zone.
-  - It hides during the credits, where the Download CTA is inline.
-- **Film scrubber.** A 2 px progress line along the bottom edge, with faint scene ticks (aria-hidden), like a video timeline.
-- **Letterbox (desktop ≥ 1024 px).** The page opens in 2.39:1 bars that retract as the first scroll starts, and return for the Finale ("the credits").
+Owner, 2026-10-05: "a frame on the sides… the Virgo logo as a watermark… the sign in button arranged, same with the other buttons", for a thousand-dollar feel. The film plays inside a frame, like a camera's viewfinder or a broadcast (`page/cinema/frame.tsx`):
+- **The matte.** A thin dark border (`--frame`: 10 px, 22 px from 1024 px) with a hairline and gold corner marks. It is fixed, so every scene plays inside it.
+- **Everything the visitor can press lives on the frame,** in the same four places for the whole page:
+  - **top-left:** the Virgo mark as a watermark (a broadcast "bug" at 55%; the word from 640 px), → `#top`;
+  - **top-right:** **Sign in** (a dark chip, legible on day scenes) and **Join** (gold pill);
+  - **bottom-left:** the scene's time card and, over app screens, **"Illustrative"**. Scenes publish both to `cinema/hud.ts` instead of drawing them; over a daylight scene they are set in ink, not gold;
+  - **bottom-right:** **Pause** (motion only) and **Download** (→ `/download`).
+- **The rails (desktop).** The tagline runs up the left rail ("Every shoot is a constellation"); the chapter in view runs down the right (`01 · Wednesday night`…).
+- **The progress line** runs along the frame's foot, like a video timeline.
+- **The texture:** the dot matrix (§1.8), under the matte.
+- A visually hidden **"Skip the film"** link is first in the tab order, and becomes visible on focus.
+- **Retired:** the floating Download pill, the scrubber and the letterbox (the frame does their jobs).
 - **Grain and vignette** are always on (static images, never animated).
+
+## 2a. Pacing and type
+Owner, 2026-10-05: the transitions felt rushed.
+- **One beat per subtitle.** Every line gets about 60 svh of scroll, so the chapters keep the same tempo: Ch2 240, Ch5 240, Ch6 180, Ch7 220, The work 90 and Ch8 130 svh (up from 200, 150, 140, 100, 60 and 90).
+- **Smooth scroll on desktop** (`cinema/smooth-scroll.tsx`, Lenis): the wheel's steps become one glide. It is on only for a mouse or trackpad (`pointer: fine`) with motion on; phones keep native touch scrolling. The pre-paint script marks it (`data-lenis`), and the chapters then follow the scroll directly instead of through their own spring, so the page is not smoothed twice.
+- **Settle on held frames:** if the visitor stops partway through a cut (between 6% and 94%), the page eases to the nearer whole scene after 240 ms, instead of resting on a half-closed aperture.
+- **The display type is a serif** (Instrument Serif, `--font-display`, marketing layout only): the headings and every subtitle, set at weight 400, like a film's titles. Body and UI stay in Geist.
 
 ## 3. The script (final copy)
 **Prologue: opening title (`#top`)**
@@ -176,8 +198,8 @@ Shots:
   - `Shot` (pinned stage plus progress);
   - `Subtitle` / `Slate`;
   - `Particles` (seeded sprite field, ≤ 40 sprites on mobile);
-  - `LightSweep`, `Flare`, `Rumble`, `Letterbox`;
-  - `DownloadPill`, `Scrubber`;
+  - `LightSweep`, `Flare`;
+  - `Frame` (with the `hud` store), `SmoothScroll`;
   - easing helpers.
 - **Scene lengths:**
   - each shot ≈ 100–140 svh of scroll;

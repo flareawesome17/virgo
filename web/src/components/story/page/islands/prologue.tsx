@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useRef, type ReactNode } from 're
 import { part, useChapterProgress, useMotionGate } from '../motion';
 import { usePublishSky } from '../sky-stage';
 import { prologue } from '../sky/choreography';
+import { prologueClock } from '../sky/prologue-clock';
 import { camera, seg } from '../cinema/ease';
 
 /**
@@ -35,7 +36,11 @@ export function PrologueStage({ children, className = '' }: { children: ReactNod
   // The sky hears a value that is never exactly 0, so the first frame (and a
   // return to the top) is published with the real layout, not the default.
   const sky = useMotionValue(0.0001);
-  useMotionValueEvent(progress, 'change', (v) => sky.set(v <= 0 ? 0.0001 : v));
+  useMotionValueEvent(progress, 'change', (v) => {
+    sky.set(v <= 0 ? 0.0001 : v);
+    prologueClock.set(v);
+  });
+  useEffect(() => prologueClock.set(progress.get()), [progress]);
   usePublishSky(sky, (p, l) => (gate.motion ? prologue(p, l) : null));
 
   useEffect(() => {

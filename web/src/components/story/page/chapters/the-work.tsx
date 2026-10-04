@@ -17,7 +17,7 @@ import { TheWorkFilm } from '../islands/the-work';
  */
 
 /** The shot's scroll, in svh, beyond its 100svh stage. */
-const LENGTH = 60;
+const LENGTH = 90;
 
 export function TheWork() {
   return (

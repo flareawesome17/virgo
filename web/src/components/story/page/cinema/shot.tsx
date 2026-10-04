@@ -1,7 +1,8 @@
 'use client';
 
-import { m, useScroll, useTransform, type MotionValue } from 'framer-motion';
-import { useRef, type ReactNode } from 'react';
+import { m, useMotionValueEvent, useScroll, useTransform, type MotionValue } from 'framer-motion';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { hud } from './hud';
 import { useChapterProgress } from '../motion';
 import { r2, window4 } from './ease';
 
@@ -80,40 +81,53 @@ function SubtitleLine({ progress, line, tone }: { progress: MotionValue<number>;
   return (
     <m.div style={{ opacity: o, transform: t }} className="col-start-1 row-start-1 px-6 py-5 will-change-transform">
       <div aria-hidden className={`absolute -inset-x-8 -inset-y-6 -z-10 ${scrim}`} />
-      <p className={`text-balance text-[clamp(1.6rem,1rem+3.2vw,2.4rem)] lg:text-[clamp(2rem,0.9rem+1.9vw,2.9rem)] font-semibold leading-[1.08] tracking-[-0.025em] ${ink}`}>{line.text}</p>
+      <p className={`story-display text-balance text-[clamp(1.85rem,1.1rem+3.4vw,2.75rem)] lg:text-[clamp(2.3rem,1rem+2.2vw,3.3rem)] font-semibold leading-[1.08] tracking-[-0.025em] ${ink}`}>{line.text}</p>
       {line.small && <p className={`mt-3 text-pretty text-[15px] sm:text-[17px] ${tone === 'day' ? 'text-[#54433C]' : 'text-[#BCADA3]'}`}>{line.small}</p>}
     </m.div>
   );
 }
 
-/** The scene slate: a mono time card, top-left, like a film's location title. */
+/**
+ * The scene slate (the time card). It is shown on the frame, bottom left, by
+ * the film's HUD (frame.tsx), not inside the scene: each slate here only
+ * tells the HUD when it is the current one. Renders nothing.
+ */
 export function Slate({ progress, slates, tone = 'night' }: { progress: MotionValue<number>; slates: readonly Line[]; tone?: 'night' | 'day' }) {
   return (
-    <div className="pointer-events-none absolute left-5 top-6 z-30 grid sm:left-8 sm:top-8">
+    <>
       {slates.map((s, i) => (
         <SlateItem key={i} progress={progress} slate={s} tone={tone} />
       ))}
-    </div>
+    </>
   );
 }
 
 function SlateItem({ progress, slate, tone }: { progress: MotionValue<number>; slate: Line; tone: 'night' | 'day' }) {
+  const id = useId();
   const o = useTransform(progress, (p) => window4(p, slate.from, slate.from + 0.04, slate.to - 0.04, slate.to));
-  return (
-    <m.p
-      style={{ opacity: o }}
-      className={`col-start-1 row-start-1 font-mono text-[11px] uppercase tracking-[0.2em] sm:text-xs ${tone === 'day' ? 'text-[#7A3E1E]' : 'text-[#D18A5A]'}`}
-    >
-      {slate.text}
-    </m.p>
-  );
+  useMotionValueEvent(o, 'change', (v) => (v > 0.5 ? hud.showSlate(id, slate.text, tone) : hud.hideSlate(id)));
+  useEffect(() => () => hud.hideSlate(id), [id]);
+  return null;
 }
 
-/** The one-word honesty tag every app shot carries (05-cinema.md §3). */
+/**
+ * The honesty tag for app screens (05-cinema.md §3). Shown on the frame,
+ * bottom left, while this shot's stage holds most of the screen: here it is
+ * only an invisible marker the size of the stage.
+ */
 export function Illustrative({ tone = 'night' }: { tone?: 'night' | 'day' }) {
-  return (
-    <p className={`pointer-events-none absolute right-5 top-6 z-30 font-mono text-[10.5px] uppercase tracking-[0.2em] sm:right-8 sm:top-8 ${tone === 'day' ? 'text-[#6F5C52]' : 'text-[#A08E84]'}`}>
-      Illustrative
-    </p>
-  );
+  const id = useId();
+  const marker = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const el = marker.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([e]) => hud.illustrative(id, !!e && e.intersectionRatio > 0.6), { threshold: [0, 0.6, 1] });
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      hud.illustrative(id, false);
+    };
+  }, [id]);
+  void tone;
+  return <span ref={marker} aria-hidden className="pointer-events-none absolute inset-0" />;
 }

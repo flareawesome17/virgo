@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { VisitBeacon } from '@/components/visit-beacon';
 import { MEDIA } from '@/components/story/media.generated';
-import { fontVariables } from '../fonts';
+import { displaySerif, fontVariables } from '../fonts';
 import '../globals.css';
 
 /**
@@ -106,7 +106,7 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
   return (
     // suppressHydrationWarning: the story's pre-paint script writes data-motion,
     // data-paused and data-lite on <html> before React hydrates.
-    <html lang="en" suppressHydrationWarning className={`${fontVariables} dark h-full antialiased`}>
+    <html lang="en" suppressHydrationWarning className={`${fontVariables} ${displaySerif.variable} dark h-full antialiased`}>
       <body className="h-full bg-[#161311]">
         <div className="landing-scroll dark min-h-full bg-[#161311] text-white">
           <VisitBeacon />

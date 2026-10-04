@@ -7,36 +7,41 @@ import { Flare, LightSweep, Particles, useReveal } from '../cinema/fx';
 import { GearArt, GEAR_ASPECT } from '../cinema/gear';
 import { Morph } from '../cinema/morph';
 import { Shot, Slate } from '../cinema/shot';
+import { VirgoConstellation, virgoPoint } from '../cinema/virgo-constellation';
 import { FINALE_COPY as T } from '../../data/strings/page-finale';
 import { Credits, MoreLinks, PrimaryCtas } from '../chapters/closing';
 import { CREW } from './finale-crew';
 
 /**
  * The closing shot (05-cinema.md §3, Finale · #start): the last thing on the
- * page. Framed for the 2.39:1 letterbox while the credits roll; the bars open
- * as the film ends and the last screen takes the whole frame.
+ * page. The credits roll inside the film's frame (cinema/frame.tsx), clear of
+ * its corner HUD; then the last screen takes the whole of the frame.
  *
  * Progress over the shot:
  * - 0.00–0.34  the credits: "The crew" and each name with its tool rise in,
  *              hold, and rise away (useReveal), drifting up like end credits;
- * - 0.34–0.42  the dark gathers into one gold star at the centre;
- * - 0.42       the flash: warm light fills the frame, a 2 px rumble, and the
- *              Virgo logo is there, big, with "VIRGO" under it, rays turning
- *              behind it and a light sweep crossing it (0.46–0.60);
- * - 0.52–0.62  the logo lifts away as the bars open (chrome.tsx);
+ * - 0.34–0.42  the dark gathers into one gold star at the centre: Spica,
+ *              Mika's star, and Virgo's lines start out of it;
+ * - 0.42       the flash: warm light fills the frame and the Virgo logo is
+ *              there, big, with "VIRGO" under it, rays turning behind it and
+ *              a light sweep crossing it (0.46–0.60), the constellation
+ *              drawing on out around and behind it (to 0.52);
+ * - 0.52–0.62  the logo lifts away; Syrma, the star held back all film, lights
+ *              last (0.52–0.60): you;
  * - 0.56–0.80  the last screen eases in, item by item: the logo, "Start your
  *              journey now.", Join / Download / Sign in, the links the footer
- *              used to carry, and the credits;
+ *              used to carry, and the credits, with Virgo settling faint
+ *              behind them;
  * - 0.80–1.00  it holds: the end of the page.
  * Transform and opacity only, one scroll source (the Shot), no React state
  * per frame. Loaded only in motion mode, near #start (islands/finale.tsx).
  */
 
-/** The letterbox bar's height on desktop (chrome.tsx), so the credits sit between the bars. */
-const FRAME = '[--bar:0px] lg:[--bar:min(11vh,max(0px,calc((100vh_-_100vw/2.39)/2)))]';
-
 /** The flash's peak. */
 const FLASH = 0.42;
+
+/** Spica in the figure's box, %: the gathering star is this star. */
+const SPICA = virgoPoint('alpha');
 
 /** A little fixed dust behind everything: the far plane. */
 const DUST = [
@@ -64,7 +69,7 @@ export function FinaleCredits({ length }: { length: number }) {
 
   return (
     <div ref={root}>
-      <Shot length={length} className={`bg-[#100D0C] ${FRAME}`}>
+      <Shot length={length} className="bg-[#100D0C]">
         {(p) => <Frame progress={p} motes={motes} onFocus={onFocus} />}
       </Shot>
     </div>
@@ -93,8 +98,11 @@ function Frame({ progress, motes, onFocus }: { progress: MotionValue<number>; mo
       />
       <Flare progress={progress} from={0.38} to={0.66} x={50} y={46} size={820} />
 
-      {/* The credits, between the bars. */}
-      <div className="absolute inset-x-0 bottom-[var(--bar)] top-[var(--bar)] z-20">
+      {/* (c) Virgo: out of the gathering star, around and behind the sting, then faint behind the last screen. */}
+      <FinaleVirgo progress={progress} />
+
+      {/* The credits, centred in the frame's inner box, clear of its HUD rows top (watermark, Sign in) and bottom (time card, Pause, Download). */}
+      <div className="absolute inset-x-[var(--frame)] bottom-[calc(var(--frame)+60px)] top-[calc(var(--frame)+56px)] z-20">
         <Slate progress={progress} slates={[{ text: T.slate, from: 0, to: 0.36 }]} />
         <m.div style={{ transform: roll }} className="absolute inset-0 grid place-items-center px-5 will-change-transform">
           <Crew progress={progress} />
@@ -103,7 +111,7 @@ function Frame({ progress, motes, onFocus }: { progress: MotionValue<number>; mo
 
       <Sting progress={progress} />
 
-      {/* The last screen: the whole frame, once the bars have opened. */}
+      {/* The last screen: the whole frame. */}
       <m.div style={{ pointerEvents: events }} onFocus={onFocus} className="absolute inset-0 z-30 overflow-hidden">
         <Closing progress={progress} />
       </m.div>
@@ -205,6 +213,33 @@ function Sting({ progress }: { progress: MotionValue<number> }) {
   );
 }
 
+/**
+ * Virgo at the close (the owner: seen in the hero, midway, and at the end).
+ * The figure is placed so Spica sits exactly on the gathering star; its
+ * lines race out from it in figure order through the flash and around the
+ * logo; Syrma, the socket all film long, ignites last as the logo lifts (the
+ * new star is you); then the figure drifts to centre behind the last screen
+ * and rests there, faint, twinkling. Lines are compositor-only spans
+ * (cinema/virgo-constellation.tsx); the drift is one transform.
+ */
+function FinaleVirgo({ progress }: { progress: MotionValue<number> }) {
+  const draw = useTransform(progress, (p) => seg(p, 0.37, 0.52));
+  const stars = useTransform(progress, (p) => r2(enter(seg(p, 0.35, 0.41))));
+  const ignite = useTransform(progress, (p) => seg(p, 0.52, 0.6));
+  const glow = useTransform(progress, (p) => r2(window4(p, 0.4, 0.44, 0.52, 0.66)));
+  // From Spica on the star, to the figure's centre a little above the frame's middle, behind the title.
+  const transform = useTransform(progress, (p) => {
+    const t = camera(seg(p, 0.54, 0.76));
+    return `translate3d(${r2(-lerp(SPICA.x, 50, t))}%,calc(${r2(-lerp(SPICA.y, 50, t))}% - ${r2(8 * t)}svh),0) scale(${r2(lerp(1, 1.1, t))})`;
+  });
+  const opacity = useTransform(progress, (p) => r2(seg(p, 0.34, 0.37) * lerp(1, 0.3, camera(seg(p, 0.56, 0.78)))));
+  return (
+    <m.div style={{ transform, opacity }} className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[min(84vw,89svh)]">
+      <VirgoConstellation draw={draw} stars={stars} glow={glow} syrma="ignite" ignite={ignite} lineAlpha={0.78} starScale={1.5} />
+    </m.div>
+  );
+}
+
 /** The flash itself: warm light over the whole frame for an instant. */
 function Flash({ progress }: { progress: MotionValue<number> }) {
   const opacity = useTransform(progress, (p) => r2(clamp01(window4(p, FLASH - 0.012, FLASH, FLASH + 0.004, FLASH + 0.05)) * 0.92));
@@ -225,7 +260,7 @@ function Closing({ progress }: { progress: MotionValue<number> }) {
   const more = useReveal(progress, 0.66, 0.76, 2, 3, { y: 30, scale: 0.98 });
   const fine = useReveal(progress, 0.7, 0.8, 2, 3, { y: 20, scale: 1 });
   return (
-    <div className="mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-16 text-center sm:px-8 sm:pt-20">
+    <div className="mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center px-[calc(var(--frame)+1.25rem)] pb-[max(calc(var(--frame)+4rem),env(safe-area-inset-bottom))] pt-[calc(var(--frame)+3.5rem)] text-center sm:px-[calc(var(--frame)+2rem)] sm:pt-[calc(var(--frame)+4.5rem)]">
       <m.span aria-hidden style={logo} className="relative block size-16 sm:size-20">
         <span className="absolute -inset-8 rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.3),rgba(240,200,142,0))]" />
         <span className="relative block size-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: 'url(/logo.png)' }} />

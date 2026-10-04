@@ -14,11 +14,46 @@ export type StoryStar = {
   readonly world: Vec3;
   /** Width drawn at the target's distance, CSS px, falloff included. */
   readonly size: number;
-  /** 0 warm white, 1 gold. */
-  readonly tint?: 0 | 1;
+  /** 0 warm white, 1 gold, 2 warm cream (a person's star in the cloud). */
+  readonly tint?: 0 | 1 | 2;
   readonly alpha: number;
   /** 0..1: a soft halo around it. */
   readonly halo?: number;
+  /**
+   * 0..1: a person's star, set apart from the field: a hotter core, a soft
+   * halo and fine four-point diffraction spikes, breathing slowly (the
+   * breath stops under Pause). The cast carry it wherever the sky shows them.
+   */
+  readonly featured?: number;
+};
+
+/**
+ * Virgo drawn in the geo scene, in a plane facing a chosen camera: Ch8's
+ * "a crew like this one", Mika's crew hovering over Cebu City the way the
+ * other crews' small figures hover over theirs, with a thread down to it.
+ * Star `s` sits at `center + scale · (s.gx · right − s.gy · up)`.
+ */
+export type GeoFigure = {
+  readonly center: Vec3;
+  readonly right: Vec3;
+  readonly up: Vec3;
+  /** World units per tangent unit (the figure is 0.83 tangent units wide). */
+  readonly scale: number;
+  readonly opacity: number;
+  /** Where its thread of light comes down. */
+  readonly ground?: Vec3;
+};
+
+/**
+ * Deep space behind both scenes (space.ts): the far star field, the Milky
+ * Way, the nebulae and the shooting stars. It turns with whichever scene's
+ * camera is in play, slower than the stars in front of it.
+ */
+export type SpaceState = {
+  /** 0..1, default 1. */
+  readonly opacity?: number;
+  /** Whether a shooting star may start now (default true). Off where the frame has a figure to read. */
+  readonly meteors?: boolean;
 };
 
 /** A ring on (or parallel to) the map plane, drawn in perspective: the radar. */
@@ -68,6 +103,8 @@ export type GeoState = {
    * dolly reads as travel through depth (§1.13). Absent or 0: none.
    */
   readonly motes?: number;
+  /** Virgo over a place on the map (Ch8). Absent: none. */
+  readonly figure?: GeoFigure;
 };
 
 /** The deep-sky scene: Virgo's 14 stars at their real distances, Earth at the origin, in light-years. */
@@ -90,6 +127,15 @@ export type DeepState = {
   readonly crew?: number;
   /** 0..1: the far background field. Default 1. */
   readonly field?: number;
+  /** 0..1: the cast's stars carry spikes and breathe (they are people). Default 0. */
+  readonly featured?: number;
+  /**
+   * 0..1: the figure, once formed, glows: brighter lines with a soft bloom
+   * under them, and a light at every star. Default 0.
+   */
+  readonly glow?: number;
+  /** 0..1..0: the moment the figure completes, a pulse of light along it. Default 0. */
+  readonly pulse?: number;
   /**
    * The cast's stars glide from where they stood on the map (geo world
    * points, seen by the geo camera) to their places in the figure: 0 on
@@ -115,6 +161,8 @@ export type SkyFrame = {
   readonly geo?: GeoState;
   readonly deep?: DeepState;
   readonly labels?: readonly LabelState[];
+  /** Deep space behind both scenes. Absent: drawn at full strength, shooting stars allowed. */
+  readonly space?: SpaceState;
 };
 
 /** Anything with Motion's MotionValue shape, or a plain getter. */
@@ -149,4 +197,10 @@ export type SkyStats = {
   /** Why the loop is stopped, if it is. */
   readonly idle: string;
   readonly seedHash: string;
+  /** Deep space: not wanted or not started, being built, or drawn. */
+  readonly space?: 'off' | 'building' | 'on';
+  /** Shooting stars so far. */
+  readonly meteors?: number;
+  /** Whether a chapter is showing the sky. */
+  readonly live?: boolean;
 };

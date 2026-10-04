@@ -13,7 +13,6 @@ import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { GearArt, ROLE_GEAR, type GearKind } from '../cinema/gear';
-import { Morph } from '../cinema/morph';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { CH4_SHOT } from './ch4-timing';
 
@@ -21,8 +20,7 @@ import { CH4_SHOT } from './ch4-timing';
  * Ch4's film (05-cinema.md §3, Ch4): one take, Friday night to Saturday dawn.
  *
  * - FRIDAY · 9:20 PM. The iris (cinema/cuts.tsx) opens on the wedding's event
- *   card and the camera zooms in. Its call time rolls 6:30 → 6:00, and the
- *   Saturday cell of the calendar floor lights.
+ *   card and the camera zooms in. Its call time rolls 6:30 → 6:00.
  * - The card steps back and the crew's three phones rise in a row in depth;
  *   they all light at once with the same notice.
  * - The camera pushes through the middle phone's screen into the dark.
@@ -103,8 +101,6 @@ function Frame({ p }: { p: MotionValue<number> }) {
 
   return (
     <>
-      <CalendarFloor p={p} />
-
       {/* First light: the horizon comes up as Saturday starts. */}
       <m.div aria-hidden style={{ opacity: sun, transform: rise }} className="pointer-events-none absolute inset-x-0 bottom-0 h-[36svh]">
         <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(107,62,37,0.95)_0%,rgba(107,62,37,0.55)_26%,rgba(61,36,24,0.25)_58%,rgba(22,19,17,0)_100%)]" />
@@ -126,7 +122,6 @@ function Frame({ p }: { p: MotionValue<number> }) {
 
       {/* ── Saturday, 5:00 AM. ── */}
       <LockPhone p={p} />
-      <TileToDot p={p} drop={narrow ? 70 : 88} />
 
       <LightSweep progress={p} from={0.15} to={0.31} />
       <Particles progress={p} push={[0.42, 0.6]} count={narrow ? 12 : 24} seed={44} />
@@ -327,31 +322,6 @@ function LockPhone({ p }: { p: MotionValue<number> }) {
   );
 }
 
-/**
- * The morph between the two scenes: Saturday's calendar tile, carried through
- * the screen into the dark, becomes the alarm's dot (square → circle) and
- * settles where the reminder will land on the lock screen; it gives way to
- * the notification as it rings. `drop` is that spot below the phone's centre, px.
- */
-function TileToDot({ p, drop }: { p: MotionValue<number>; drop: number }) {
-  const opacity = useTransform(p, (v) => r2(window4(v, 0.5, 0.54, AT.ring - 0.02, AT.ring + 0.01)));
-  const transform = useTransform(p, (v) => `translate3d(0,${r2(drop * camera(seg(v, 0.56, AT.lock[1])))}px,0) scale(${r2(lerp(1.2, 0.8, seg(v, 0.52, AT.lock[1])))})`);
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-[24svh] top-0 flex items-center justify-center lg:bottom-[14svh]">
-      <m.div style={{ opacity, transform }} className="size-11">
-        <Morph
-          progress={p}
-          keys={[
-            { at: 0.55, shape: 'square' },
-            { at: 0.63, shape: 'circle' },
-          ]}
-          className="size-full"
-        />
-      </m.div>
-    </div>
-  );
-}
-
 function SoundRing({ p, at }: { p: MotionValue<number>; at: number }) {
   const transform = useTransform(p, (v) => `scale(${r2(lerp(0.7, 1.9, enter(seg(v, at, at + 0.14))))})`);
   const opacity = useTransform(p, (v) => {
@@ -362,48 +332,6 @@ function SoundRing({ p, at }: { p: MotionValue<number>; at: number }) {
     <m.span
       style={{ transform, opacity }}
       className="pointer-events-none absolute left-1/2 top-1/2 -ml-[230px] -mt-[230px] size-[460px] rounded-full border-2 border-[rgba(232,168,110,0.55)] shadow-[0_0_60px_-10px_rgba(232,168,110,0.35),inset_0_0_60px_-10px_rgba(232,168,110,0.25)]"
-    />
-  );
-}
-
-/**
- * The scene's geometry (cinema brief, addendum): the month grid as a floor in
- * perspective, its hairlines drawing in (scaleX / scaleY), drifting and
- * zooming with the take. Saturday the 12th (December 2026 starts on a
- * Tuesday, Sunday first) lights when the call time moves.
- */
-const COLS = 7;
-const ROWS = 6;
-
-function CalendarFloor({ p }: { p: MotionValue<number> }) {
-  const plane = useTransform(p, (v) => {
-    const t = camera(seg(v, 0, 1));
-    return `translate3d(-50%,${r2(-50 - 10 * t)}%,0) perspective(900px) rotateX(60deg) scale(${r2(1 + 0.2 * t)})`;
-  });
-  const opacity = useTransform(p, (v) => r2(enter(seg(v, -0.05, 0.08)) * (1 - 0.55 * seg(v, 0.48, 0.58))));
-  const cell = useTransform(p, (v) => r2(window4(v, AT.roll[0], AT.roll[1], 0.42, 0.5)));
-  return (
-    <m.div aria-hidden style={{ transform: plane, opacity }} className="pointer-events-none absolute left-1/2 top-[64%] aspect-[7/6] w-[max(140vw,1100px)]">
-      {Array.from({ length: COLS + 1 }, (_, i) => (
-        <GridLine key={`v${i}`} p={p} at={-0.04 + i * 0.015} pos={(i / COLS) * 100} vertical />
-      ))}
-      {Array.from({ length: ROWS + 1 }, (_, j) => (
-        <GridLine key={`h${j}`} p={p} at={-0.03 + j * 0.015} pos={(j / ROWS) * 100} />
-      ))}
-      <m.span
-        style={{ opacity: cell, left: `${(6 / COLS) * 100}%`, top: `${(1 / ROWS) * 100}%` }}
-        className="absolute h-[16.667%] w-[14.286%] bg-[rgba(209,138,90,0.22)] shadow-[inset_0_0_0_1px_rgba(240,200,142,0.6)]"
-      />
-    </m.div>
-  );
-}
-
-function GridLine({ p, at, pos, vertical = false }: { p: MotionValue<number>; at: number; pos: number; vertical?: boolean }) {
-  const transform = useTransform(p, (v) => `${vertical ? 'scaleY' : 'scaleX'}(${r2(enter(seg(v, at, at + 0.1)))})`);
-  return (
-    <m.span
-      style={vertical ? { transform, left: `${pos}%` } : { transform, top: `${pos}%` }}
-      className={`absolute bg-[rgba(240,200,142,0.16)] ${vertical ? 'top-0 h-full w-px origin-top' : 'left-0 h-px w-full origin-left'}`}
     />
   );
 }

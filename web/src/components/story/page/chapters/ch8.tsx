@@ -16,7 +16,7 @@ import { Ch8Film } from '../islands/ch8';
  */
 
 /** The shot's scroll, in svh, beyond its 100svh stage. */
-const LENGTH = 90;
+const LENGTH = 130;
 
 const TOOLS = Object.values(ROLE_GEAR);
 

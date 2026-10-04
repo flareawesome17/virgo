@@ -4,18 +4,23 @@ import { DESCENT, HERO, LENS, MIKA_CHIP, SKY_CAPTION } from '../../data/strings/
 import { MEDIA } from '../../media.generated';
 import { StarStop } from '../../svg';
 import { PrologueStage } from '../islands/prologue';
-import { GearConstellation, HeroFilm } from '../scenes/prologue-film';
+import { FilmPlate } from '../scenes/hero-plate';
+import { HeroFilm } from '../scenes/prologue-film';
 
 /**
  * Prologue: the opening title · #top (05-cinema.md §3).
  *
- * A title card: the mark and Sign in in the corners (StoryPage's TitleBar), the
- * H1, one line, one call to action and "Scroll to play", with the gear of the
- * trade floating in depth around it. In motion the section is a 230 svh track
- * with its frame pinned: the camera pushes through the gear, the title falls
- * back, and the sky descends onto Mika's star under two subtitles.
+ * A title card over the hero film (scenes/hero-plate.tsx): a cine camera lit
+ * in a dark studio, the lights coming up as the page opens. The mark, Sign in
+ * and Join sit on the film's frame (cinema/frame.tsx); the H1, one line, one
+ * call to action and "Scroll to play" sit left of the camera on desktop, below
+ * it on phones (short phones drop the cue: story.css). In motion the section
+ * is a 230 svh track with its frame pinned: the camera pushes into the lens,
+ * the title falls back, and the sky descends onto Mika's star under two
+ * subtitles.
  *
- * The static page keeps the same title card, then a lens on Cebu City.
+ * The static page keeps the same title card over the film's still, then a
+ * lens on Cebu City.
  * The H1 is the LCP element: server-rendered, never in an opacity-0 reveal.
  */
 
@@ -27,50 +32,25 @@ const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-
 /** In motion the frame is pinned for the track; static, it is a plain full-height block. */
 const PINNED = "[html[data-motion='on']_&]:sticky [html[data-motion='on']_&]:top-0 [html[data-motion='on']_&]:h-svh [html[data-motion='on']_&]:min-h-0";
 
-/** The hero's sky: a CSS-background-like picture behind the copy, mobile and desktop crops. */
-function Poster() {
-  return (
-    <div aria-hidden data-part="hero-poster" className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-lvh overflow-hidden">
-      <picture>
-        <source media="(min-width: 768px)" type={MEDIA.posterDesktopAvif.type} srcSet={MEDIA.posterDesktopAvif.url} />
-        <source media="(min-width: 768px)" type={MEDIA.posterDesktopWebp.type} srcSet={MEDIA.posterDesktopWebp.url} />
-        <source type={MEDIA.posterMobileAvif.type} srcSet={MEDIA.posterMobileAvif.url} />
-        <img
-          src={MEDIA.posterMobileWebp.url}
-          width={MEDIA.posterMobileWebp.width}
-          height={MEDIA.posterMobileWebp.height}
-          alt=""
-          decoding="async"
-          className="size-full object-cover"
-        />
-      </picture>
-      {/* The poster settles into the page's night at its foot. */}
-      <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-b from-transparent to-[#161311]" />
-    </div>
-  );
-}
-
 export function Prologue() {
   return (
     <section id="top" data-tone="night" data-chapter="top" className="relative z-10">
       <style>{CUE_KEYFRAMES}</style>
       <PrologueStage className="relative isolate [html[data-motion='on']_&]:h-[230svh]">
-        <Poster />
-
         <div className={`relative min-h-svh overflow-clip ${PINNED}`}>
-          <GearConstellation />
+          <FilmPlate />
           <HeroFilm />
 
-          <div className="relative z-10 mx-auto flex min-h-svh max-w-5xl flex-col items-center justify-end px-5 pb-[max(2.5rem,7svh)] pt-28 text-center [html[data-motion='on']_&]:h-full [html[data-motion='on']_&]:min-h-0 sm:px-8 lg:justify-center lg:pb-0">
+          <div className="relative z-10 flex min-h-svh flex-col items-center justify-end px-5 pb-[calc(var(--frame)+4.75rem)] pt-28 text-center [html[data-motion='on']_&]:h-full [html[data-motion='on']_&]:min-h-0 sm:px-8 lg:items-start lg:justify-center lg:pb-0 lg:pl-[7vw] lg:text-left">
             {/* Copy over the sky sits on a radial scrim (§1.5): dense under the glyphs, fading only outside them. */}
             <div
               aria-hidden
               data-part="hero-scrim"
-              className="pointer-events-none absolute inset-x-0 bottom-0 top-[22%] -z-10 bg-[radial-gradient(80%_55%_at_50%_62%,rgba(22,19,17,0.92)_0%,rgba(22,19,17,0.82)_45%,rgba(22,19,17,0)_100%)] lg:inset-y-[10%] lg:bg-[radial-gradient(48%_52%_at_50%_50%,rgba(22,19,17,0.92)_0%,rgba(22,19,17,0.8)_50%,rgba(22,19,17,0)_100%)]"
+              className="pointer-events-none absolute inset-x-0 bottom-0 top-[44%] -z-10 bg-[linear-gradient(180deg,rgba(22,19,17,0)_0%,rgba(22,19,17,0.85)_30%,rgba(22,19,17,0.96)_100%)] lg:hidden"
             />
-            <div data-part="hero-copy" className="relative flex flex-col items-center">
+            <div data-part="hero-copy" className="relative flex flex-col items-center lg:max-w-[min(38vw,580px)] lg:items-start">
               <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#D18A5A] sm:text-xs">{HERO.eyebrow}</p>
-              <h1 className="mt-5 max-w-[16ch] text-[clamp(2.6rem,1.2rem+4.4vw,5.5rem)] font-semibold leading-[0.98] tracking-[-0.035em] [text-wrap:balance]">
+              <h1 className="mt-5 max-w-[16ch] text-[clamp(2.6rem,1.2rem+4.4vw,5.5rem)] font-semibold lg:max-w-[13ch] lg:text-[clamp(3rem,0.9rem+3.7vw,5rem)] leading-[0.98] tracking-[-0.035em] [text-wrap:balance]">
                 <span className="block font-medium text-[#BCADA3]">{HERO.titleLead}</span>{' '}
                 <span className="block">
                   <span className="bg-gradient-to-r from-[#e8b189] via-[#c17745] to-[#a85f38] bg-clip-text text-transparent">{HERO.titleTail}</span>
@@ -86,6 +66,7 @@ export function Prologue() {
               </a>
               <a
                 href="#hire"
+                data-part="hero-cue"
                 className={`group mt-6 inline-flex min-h-11 flex-col items-center gap-2 rounded-md font-mono text-[11px] uppercase tracking-[0.24em] text-[#A08E84] transition-colors hover:text-[#F2EDE8] ${FOCUS}`}
               >
                 {HERO.cue}

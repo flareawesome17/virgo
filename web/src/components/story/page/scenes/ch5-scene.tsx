@@ -8,7 +8,6 @@ import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx
 import { Float } from '../cinema/float';
 import { GEAR_ASPECT, GearArt, type GearKind } from '../cinema/gear';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
-import { Morph } from '../cinema/morph';
 import { Viewfinder } from '../cinema/viewfinder';
 import { useMotionGate } from '../motion';
 import { AlbumCard, AlbumFrame, CH5_LENGTH, cellStyle, COLS, ROWS, SLOTS } from './ch5-album';
@@ -93,7 +92,6 @@ function Stage({ progress }: { progress: MotionValue<number> }) {
       <Shoot progress={progress} />
       <Viewfinder progress={progress} from={0.17} to={0.3} focus={{ x: 22, y: 52 }} rec />
       <Viewfinder progress={progress} from={LENS.from} to={LENS.to} focus={{ x: 50, y: 60 }} />
-      <AlbumGeometry progress={progress} />
       <Album progress={progress} />
       <LightSweep progress={progress} from={0.8} to={0.97} />
       <Particles progress={progress} push={[0.16, 0.58]} count={wide ? 24 : 12} seed={5} />
@@ -238,7 +236,6 @@ function Shoot({ progress }: { progress: MotionValue<number> }) {
       shutter.current?.querySelector<SVGElement>('[data-part="shutter"]')?.animate([{ opacity: 1 }, { opacity: 0.1 }, { opacity: 1 }], { duration: 180, easing: 'linear' });
     }
   });
-  const aperture = useReveal(progress, 0.395, 0.42, 0.5, 0.56, { y: 0, scale: 0.7 });
 
   return (
     <m.div aria-hidden style={{ transform: cam }} className="pointer-events-none absolute inset-0 z-10">
@@ -270,19 +267,6 @@ function Shoot({ progress }: { progress: MotionValue<number> }) {
       />
       {/* Mika's camera, in front of the sun. The shutter rumbles it. */}
       <Piece progress={progress} kind="camera" at={0.25} out={0.52} drift={2} inner={shutter} className="bottom-[29svh] left-[30vw] w-[40vw] lg:left-[40vw] lg:w-[20vw]" />
-      {/* The morph: the shutter's hexagon aperture becomes a frame, an album tile. */}
-      <m.div style={aperture} className="absolute left-1/2 top-[60%] -ml-12 -mt-12 size-24 lg:-ml-16 lg:-mt-16 lg:size-32">
-        <Morph
-          progress={progress}
-          keys={[
-            { at: 0.41, shape: 'hexagon' },
-            { at: 0.48, shape: 'square' },
-          ]}
-          fill="rgba(255,231,194,0.08)"
-          stroke="#FFE7C2"
-          className="size-full"
-        />
-      </m.div>
     </m.div>
   );
 }
@@ -327,13 +311,6 @@ const ARRIVE: number[] = (() => {
     return start[who] + n[who]++ * step[who];
   });
 })();
-
-/** A hexagon in Morph's -100…100 box. */
-const HEX =
-  Array.from({ length: 6 }, (_, k) => {
-    const ang = (k / 6) * Math.PI * 2 - Math.PI / 2;
-    return `${k ? 'L' : 'M'}${(Math.cos(ang) * 92).toFixed(1)} ${(Math.sin(ang) * 92).toFixed(1)}`;
-  }).join('') + 'Z';
 
 /** The focus marks for "kept exactly as shot": one frame, in Ceremony. */
 const KEPT = 6;
@@ -413,17 +390,15 @@ function Flyer({ i, progress }: { i: number; progress: MotionValue<number> }) {
     const t = seg(p, a, a + FLIGHT);
     return t <= 0 ? 0 : r2(Math.min(1, t * 6));
   });
-  // Each frame leaves its tool as a gold hexagon (the aperture) and lands as a square tile.
-  const hex = useTransform(progress, (p) => r2(1 - camera(seg(p, a + FLIGHT * 0.35, a + FLIGHT * 0.9))));
+  // Each frame leaves its tool as a spark of light and lands as its tile.
+  const spark = useTransform(progress, (p) => r2(1 - camera(seg(p, a + FLIGHT * 0.35, a + FLIGHT * 0.9))));
   const tile = useTransform(progress, (p) => r2(camera(seg(p, a + FLIGHT * 0.35, a + FLIGHT * 0.9))));
   return (
     <m.div style={{ ...cellStyle(i), transform, opacity }} className="absolute p-[2px]">
       <m.div style={{ opacity: tile }} className="size-full">
         <AlbumFrame i={i} />
       </m.div>
-      <m.svg style={{ opacity: hex }} viewBox="-100 -100 200 200" className="absolute inset-[12%] overflow-visible">
-        <path d={HEX} fill="rgba(240,200,142,0.35)" stroke="#FFE7C2" strokeWidth="6" strokeLinejoin="round" />
-      </m.svg>
+      <m.span style={{ opacity: spark }} className="absolute inset-[18%] rounded-full bg-[radial-gradient(closest-side,rgba(255,244,226,0.95),rgba(255,231,194,0.45)_40%,rgba(240,200,142,0)_100%)]" />
     </m.div>
   );
 }
@@ -441,25 +416,6 @@ function GridLines({ progress, from }: { progress: MotionValue<number>; from: nu
       {Array.from({ length: COLS + 1 }, (_, c) => (
         <m.span key={`c${c}`} style={{ left: `${(c * 100) / COLS}%`, transform: y }} className="absolute inset-y-0 w-px bg-[#F0C88E]/60" />
       ))}
-    </m.div>
-  );
-}
-
-/** The scene's pattern that night: the album grid, huge and faint, drifting with the camera. */
-function AlbumGeometry({ progress }: { progress: MotionValue<number> }) {
-  const opacity = useTransform(progress, (p) => r2(window4(p, 0.5, 0.6, 1.1, 1.2) * 0.5));
-  const transform = useTransform(progress, (p) => `translate3d(0,${r2(lerp(4, -4, seg(p, 0.5, 1)))}svh,0) scale(${r2(lerp(0.9, 1.12, camera(seg(p, 0.5, 1))))})`);
-  const draw = useTransform(progress, (p) => `scaleX(${r2(camera(seg(p, 0.5, 0.62)))})`);
-  return (
-    <m.div aria-hidden style={{ opacity, transform }} className="pointer-events-none absolute -inset-[10%] z-[5]">
-      {Array.from({ length: 9 }, (_, r) => (
-        <m.span
-          key={r}
-          style={{ top: `${r * 12.5}%`, transform: draw }}
-          className="absolute inset-x-0 h-px bg-[linear-gradient(90deg,rgba(240,200,142,0),rgba(240,200,142,0.22),rgba(240,200,142,0))]"
-        />
-      ))}
-      <div className="absolute inset-0 [background-image:linear-gradient(90deg,rgba(240,200,142,0.08)_1px,transparent_1px)] [background-size:12.5%_100%]" />
     </m.div>
   );
 }

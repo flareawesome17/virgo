@@ -12,6 +12,37 @@ html:has(.story-page) {
   scroll-margin-top: 0;
 }
 
+/* The frame (cinema/frame.tsx): the matte's width, which the HUD and the frame line align to. */
+.story-page {
+  --frame: 10px;
+}
+@media (min-width: 1024px) {
+  .story-page {
+    --frame: 22px;
+  }
+}
+@keyframes story-hud-fade {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
+}
+.story-page .story-hud-fade {
+  animation: story-hud-fade 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/*
+ * The display serif (Instrument Serif, the marketing layout loads it): the
+ * headline, every chapter heading and the subtitles, set like film titles.
+ * It has one weight, so headings drop their bold; tracking opens a touch.
+ */
+.story-page :is(h1, h2),
+.story-page .story-display {
+  font-family: var(--font-display), ui-serif, Georgia, serif;
+  font-weight: 400 !important;
+  letter-spacing: -0.012em !important;
+}
+
 /* Static first: a figure marked motion-only exists only when the story moves. */
 html:not([data-motion='on']) .story-page .motion-only {
   display: none !important;
@@ -45,14 +76,9 @@ html[data-motion='on'] .story-page .story-float {
 
 /*
  * Time-driven openings, for pages that are not a scroll film (the download
- * page): letterbox bars that open, a light sweep, items that rise in, motes
- * that drift. Only while the story moves; otherwise everything is at rest.
+ * page): a light sweep, items that rise in, motes that drift. Only while the
+ * story moves; otherwise everything is at rest.
  */
-@keyframes story-bars-open {
-  to {
-    transform: scaleY(0);
-  }
-}
 @keyframes story-sweep {
   from {
     transform: translate3d(-120%, 0, 0) rotate(18deg);
@@ -87,16 +113,9 @@ html[data-motion='on'] .story-page .story-float {
     opacity: 0;
   }
 }
-.story-page .story-bars,
 .story-page .story-sweep,
 .story-page .story-mote {
   display: none;
-}
-@media (min-width: 1024px) {
-  html[data-motion='on'] .story-page .story-bars {
-    display: block;
-    animation: story-bars-open 1.2s cubic-bezier(0.65, 0, 0.35, 1) 0.45s both;
-  }
 }
 html[data-motion='on'] .story-page .story-sweep {
   display: block;
@@ -108,6 +127,57 @@ html[data-motion='on'] .story-page .story-rise {
 html[data-motion='on'] .story-page .story-mote {
   display: block;
   animation: story-drift var(--mote-dur, 14s) linear var(--mote-delay, 0s) infinite;
+}
+
+/*
+ * Haze over the hero film (scenes/hero-plate.tsx): two soft warm clouds that
+ * drift on long, offset loops, so the studio air moves. Transform and
+ * opacity only; the film itself carries no haze (it would cost a render pass).
+ */
+@keyframes story-haze-a {
+  0%,
+  100% {
+    transform: translate3d(-6%, 2%, 0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(5%, -3%, 0) scale(1.12);
+    opacity: 0.85;
+  }
+}
+@keyframes story-haze-b {
+  0%,
+  100% {
+    transform: translate3d(4%, -2%, 0) scale(1.1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate3d(-5%, 3%, 0) scale(0.96);
+    opacity: 0.7;
+  }
+}
+.story-page .story-haze::before,
+.story-page .story-haze::after {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+}
+.story-page .story-haze::before {
+  background: radial-gradient(40% 32% at 38% 40%, rgba(240, 200, 142, 0.16), rgba(240, 200, 142, 0) 70%);
+}
+.story-page .story-haze::after {
+  background: radial-gradient(36% 30% at 70% 62%, rgba(209, 138, 90, 0.13), rgba(209, 138, 90, 0) 70%);
+}
+html[data-motion='on'] .story-page .story-haze::before {
+  animation: story-haze-a 23s ease-in-out infinite;
+}
+html[data-motion='on'] .story-page .story-haze::after {
+  animation: story-haze-b 31s ease-in-out infinite;
+}
+html[data-paused] .story-page .story-haze::before,
+html[data-paused] .story-page .story-haze::after {
+  animation-play-state: paused;
 }
 
 /* One fixed grain layer over everything, never animated, gone under forced colours. */
@@ -123,5 +193,23 @@ html[data-motion='on'] .story-page .story-mote {
 @media (forced-colors: active) {
   .story-grain {
     display: none;
+  }
+}
+
+/*
+ * Short phones (an iPhone SE): the film, the title, the action and the cue do
+ * not all fit above the frame's buttons, and the title would land on the lens.
+ * The cue goes (the frame's progress line still says "scroll") and the copy
+ * tightens, so the title sits on the film's faded foot instead.
+ */
+@media (max-width: 1023.98px) and (max-height: 720px) {
+  .story-page [data-part='hero-cue'] {
+    display: none;
+  }
+  .story-page [data-part='hero-copy'] > :is(h1, p:not(:first-child)) {
+    margin-top: 1rem;
+  }
+  .story-page [data-part='hero-copy'] > a {
+    margin-top: 1.5rem;
   }
 }

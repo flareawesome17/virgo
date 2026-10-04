@@ -6,7 +6,7 @@ import { SEARCH_ROLES } from '../../data/story';
 import { NEARBY, kmAway } from '../../data/strings/ch2';
 import { CH2 } from '../../data/strings/page-ch2';
 import { LocationCard } from '../../mocks/location-card';
-import { camera, enter, exit, lerp, r2, seg, window4 } from '../cinema/ease';
+import { enter, exit, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
@@ -21,9 +21,8 @@ import { CH2_SHOT } from './ch2-timing';
  * shared sky, which draws the radar (sky/nearby.ts); the shot's progress is
  * the sky's clock, so every beat here lands with NEARBY_AT.
  *
- *   0.00–0.16  out of the tunnel (cinema/cuts.tsx): a zoom in on the search card
- *              over hairline radius rings; the camera comes down to the shoot
- *              (wind); the 5 km ring opens
+ *   0.00–0.16  out of the tunnel (cinema/cuts.tsx): a zoom in on the search card;
+ *              the camera comes down to the shoot (wind); the 5 km ring opens
  *   0.16–0.47  the search card: the roles pick on with their tools, 5 km → 25 km (a sweep)
  *   0.48–0.71  who it finds, in whole kilometres; the sky smears stars into rings
  *   0.70–0.74  Share my location, on; a star 3 km out
@@ -61,7 +60,6 @@ function Frame({ progress, wide }: { progress: MotionValue<number>; wide: boolea
   return (
     <>
       <h2 className="sr-only">{CH2.ask}</h2>
-      <Rings progress={progress} />
       <ShootPin progress={progress} />
       <Particles progress={progress} push={[0, 0.16]} count={wide ? 20 : 10} seed={23} />
       <LightSweep progress={progress} from={0.34} to={0.5} warm={false} />
@@ -74,15 +72,6 @@ function Frame({ progress, wide }: { progress: MotionValue<number>; wide: boolea
     </>
   );
 }
-
-/**
- * The backdrop's geometry (cinema brief addendum): Nearby's own shape, radius
- * rings in gold hairlines around where the sky draws the radar, low in
- * opacity. They draw out from the centre one by one as the shot opens, and
- * the camera keeps zooming in through them. Rings only: a distance has no
- * direction, so there are no spokes or bearings.
- */
-const RING_R = [9, 17, 25, 33, 41, 49] as const;
 
 /** Where the sky frames the shoot (sky/nearby.ts radarRig's shift): a third down on phones, the left of the frame on desktop. Approximate. */
 const SHOOT = 'absolute left-1/2 top-[28%] lg:left-[29%] lg:top-1/2';
@@ -108,41 +97,6 @@ function ShootPin({ progress }: { progress: MotionValue<number> }) {
         />
       </m.div>
     </div>
-  );
-}
-
-function Rings({ progress }: { progress: MotionValue<number> }) {
-  const life = useTransform(progress, (p) => r2(1 - exit(seg(p, 0.86, 0.97))));
-  return (
-    <m.div aria-hidden style={{ opacity: life }} className="pointer-events-none absolute inset-0">
-      <div className={`${SHOOT} size-[150vmax]`}>
-        {RING_R.map((r, i) => (
-          <Ring key={r} progress={progress} r={r} i={i} />
-        ))}
-      </div>
-    </m.div>
-  );
-}
-
-function Ring({ progress, r, i }: { progress: MotionValue<number>; r: number; i: number }) {
-  const transform = useTransform(progress, (p) => {
-    const draw = enter(seg(p, i * 0.018, 0.1 + i * 0.018));
-    const zoom = lerp(0.82, 1.3, camera(p));
-    return `translate(-50%,-50%) scale(${r2(draw * zoom)})`;
-  });
-  return (
-    <m.svg viewBox="0 0 100 100" style={{ transform }} className="absolute left-0 top-0 size-full" fill="none">
-      <circle
-        cx="50"
-        cy="50"
-        r={r}
-        stroke="#F0C88E"
-        strokeOpacity={i % 2 ? 0.07 : 0.1}
-        strokeWidth="1"
-        strokeDasharray={i === 2 ? '2 6' : undefined}
-        vectorEffect="non-scaling-stroke"
-      />
-    </m.svg>
   );
 }
 
