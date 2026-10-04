@@ -71,7 +71,7 @@ export function Prologue() {
             <div data-part="hero-copy" className="relative flex flex-col items-center">
               <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#D18A5A] sm:text-xs">{HERO.eyebrow}</p>
               <h1 className="mt-5 max-w-[16ch] text-[clamp(2.6rem,1.2rem+4.4vw,5.5rem)] font-semibold leading-[0.98] tracking-[-0.035em] [text-wrap:balance]">
-                <span className="block font-medium text-[#BCADA3]">{HERO.titleLead}</span>
+                <span className="block font-medium text-[#BCADA3]">{HERO.titleLead}</span>{' '}
                 <span className="block">
                   <span className="bg-gradient-to-r from-[#e8b189] via-[#c17745] to-[#a85f38] bg-clip-text text-transparent">{HERO.titleTail}</span>
                   <StarStop />

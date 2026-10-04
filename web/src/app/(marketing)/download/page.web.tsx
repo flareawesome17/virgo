@@ -156,7 +156,7 @@ export default async function DownloadPage() {
                 id="download-title"
                 className="mt-5 text-balance text-[clamp(2.4rem,1.3rem+3.6vw,4.25rem)] font-semibold leading-[1] tracking-[-0.035em]"
               >
-                <span className="block font-medium text-[#BCADA3]">Virgo, on every</span>
+                <span className="block font-medium text-[#BCADA3]">Virgo, on every</span>{' '}
                 <span className="block bg-gradient-to-r from-[#e8b189] via-[#c17745] to-[#a85f38] bg-clip-text text-transparent">
                   screen you work from.
                 </span>
