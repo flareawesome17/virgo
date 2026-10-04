@@ -9,7 +9,6 @@ import { camera, enter, exit, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
-import { Morph } from '../cinema/morph';
 import { Viewfinder } from '../cinema/viewfinder';
 import { useLayout } from '../motion';
 import type { Layout } from '../sky/choreography';
@@ -23,8 +22,8 @@ import { CH1_SHOT } from './ch1-timing';
  *              only light in the room
  *   0.13–0.40  three group chats fly out of it as cards; "Seen by 14"
  *   0.42–0.55  the cards fall away into depth, unanswered
- *   0.50–0.64  the camera pushes through the screen (wind, a bloom); the chat
- *              bubble morphs into the job card's square
+ *   0.50–0.64  the camera pushes through the screen (wind, a bloom) into the
+ *              job card
  *   0.58–0.88  the job post: each role with its tool and its rate; a viewfinder
  *              hunts and locks on Post it, which presses (rumble) at 0.79
  *   0.88–1.00  the post rises as a star and the night opens back to the sky
@@ -81,7 +80,6 @@ function Frame({ progress, motes }: { progress: MotionValue<number>; motes: numb
       ))}
       <Particles progress={progress} push={[0.5, 0.68]} count={motes} seed={11} />
       <Flare progress={progress} from={0.55} to={0.68} x={50} y={46} size={760} />
-      <BubbleToCard progress={progress} />
       <Job progress={progress} />
       <LightSweep progress={progress} from={0.76} to={0.9} />
       <PostStar progress={progress} />
@@ -271,32 +269,6 @@ function Stamp({ progress, children }: { progress: MotionValue<number>; children
 }
 
 /** The post goes up as a small star, and the night opens back onto the sky (the hand-off to Ch2). */
-/**
- * The morph (cinema brief addendum 2): as the camera goes through the glass,
- * a gold chat bubble swells toward us and squares off into the job
- * card, which takes its place. Small: one path, under a scale and a fade.
- */
-function BubbleToCard({ progress }: { progress: MotionValue<number> }) {
-  const opacity = useTransform(progress, (p) => r2(window4(p, 0.49, 0.53, 0.6, 0.65)));
-  const transform = useTransform(progress, (p) => `scale(${r2(lerp(0.45, 1.25, camera(seg(p, 0.49, 0.64))))})`);
-  return (
-    <div aria-hidden className={`${ANCHOR} z-10`}>
-      <m.div style={{ opacity, transform }}>
-        <Morph
-          progress={progress}
-          keys={[
-            { at: 0.53, shape: 'bubble' },
-            { at: 0.62, shape: 'square' },
-          ]}
-          fill="rgba(240,200,142,0.22)"
-          stroke="#F0C88E"
-          className="size-[min(62vw,320px)]"
-        />
-      </m.div>
-    </div>
-  );
-}
-
 function PostStar({ progress }: { progress: MotionValue<number> }) {
   const transform = useTransform(progress, (p) => `translate3d(0,${r2(-34 * camera(seg(p, 0.88, 1)))}vh,0) scale(${r2(lerp(0.6, 1.2, enter(seg(p, 0.88, 0.94))))})`);
   const opacity = useTransform(progress, (p) => r2(window4(p, 0.88, 0.91, 0.97, 1)));

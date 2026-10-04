@@ -48,27 +48,17 @@ This document overrides the storyboard's motion, navigation and copy wherever th
    - No brand names or logos; no real products.
 
 8. **Zoom in, ease in and out, geometry** (the owner's reference, 2026-10-04):
-   - **Cuts between chapters** are drawn centrally (`page/cinema/cuts.tsx`) as fixed overlays keyed to where the next chapter's top edge is on screen, so the seam is never seen:
-     - an aperture **iris** that turns as it closes and opens (into #hire, #calendar, #delivery and #features);
-     - a **tunnel** of hexagons zooming past (into #nearby and #forget);
-     - a gold **light leak** (into #saturday).
+   - **Cuts between chapters** are drawn centrally (`page/cinema/cuts.tsx`) as fixed overlays keyed to where the next chapter's top edge is on screen, so the seam is never seen. Each is a camera's own mechanism, never a symbol (owner, 2026-10-05: "remove the shapes… enhance the shutters"):
+     - the **aperture** (into #hire, #delivery and #features): curved metal blades turn shut, the barrel darkens round them, and they fire open in a flash of light with an anamorphic streak;
+     - the **focal-plane curtain** (into #calendar and #forget): slatted metal rises over the seam with the scroll and lifts off the new scene from below, which comes in a warm exposure;
+     - the **light leak** (into #saturday): a warm wash with a rose fringe, a burned edge and a streak;
+     - the **warp** (into #nearby): the frame falls into the dark of space and the stars stream past.
      Chapters that share the sky flow on uncut.
    - Every scene **opens as a zoom in** onto its hero object.
    - Every item **eases in and out** (`useReveal`), staggered; nothing pops.
    - **Viewfinder** moments (`viewfinder.tsx`): a focus box that hunts and locks (and a REC dot for video). Used on Mika's star, Post it, Saturday's shoot and The work. The frame carries the corner marks, so there are no brackets or thirds grid.
    - **Pattern, not shapes** (owner, 2026-10-05: the hearts, hexagons and grids behind the scenes were noise). The scenes carry no decorative geometry. The page's one texture is a fine gold dot matrix on the frame (§2), drifting at a twentieth of the scroll. Shapes appear only when they mean something: the morphs (§1.9) and the sky's stars and constellations.
-9. **Morphs** (`morph.tsx`): every shape is resampled once onto the same polar grid, so any shape melts into any other.
-   - At the centre of every cut, the outgoing scene's symbol morphs into the incoming one's: star → chat bubble, job → pin, constellation → calendar, alarm → sun, shutter → heart, heart → hourglass, stars → aperture.
-   - Inside the scenes:
-     - the chat bubble becomes the job card;
-     - a dot becomes a map pin;
-     - an applicant's light becomes a star;
-     - the calendar tile becomes the alarm;
-     - the aperture becomes an album tile;
-     - the client's heart becomes Mika's notification;
-     - each leaving file becomes a fading star;
-     - the crews' pins become stars;
-     - the credits' star becomes a heart.
+9. **Morphs** (`morph.tsx`): every shape is resampled once onto the same polar grid, so any shape melts into any other. Since 2026-10-05 they are kept only where a star is involved: Ch3's last point of light becoming a star, Ch7's files leaving as stars, Ch8's pins becoming stars, and the credits' gathering star. The decorative glyphs are gone: the cuts' centre symbols, Ch1's chat bubble, Ch4's square, Ch5's hexagons (each frame now flies in as a spark of light), and Ch6's heart (now a spark that carries the picks to Mika's phone). Ch2's map pin stays: it marks the shoot the distances are measured from.
 
 10. **The hero film** (owner, 2026-10-04: "too flat… make it feel like a video", modern kit). A photoreal render, not a drawing:
     - **The scene:** a dark studio with a cine camera as the hero piece, large and close at three-quarters. It has a geared cine prime with coated glass, a key light, and a gold rim. A mirrorless camera sits soft behind it and a spare prime lies out of focus in front. There is a dark satin floor, warm bokeh far back, and dust near the lens.
@@ -85,7 +75,8 @@ This document overrides the storyboard's motion, navigation and copy wherever th
 
 11. **The sky is space, and Virgo is the thread** (owner, 2026-10-05: "enhance the sky to feel like space… the Virgo constellation should be seen from the hero, somewhere midway and at the ending… stars are not emphasized").
     - **Deep space** (`sky/space.ts`, a lazy chunk): a seeded Milky Way band with a dark rift, two faint nebulae, a far star field at two depths, twinkling far stars, and a rare shooting star (one every 8–12 s at most, only while a chapter shows the sky). All of it is drawn into the engine's one canvas from textures built at idle, turning at about half the camera's rate. It is off in lite mode and under Pause, and reduced motion never mounts the sky. Its textures count against the map layers' pixel budget, not on top of it.
-    - **Stars are people:** Mika and the crew carry a four-point diffraction spike, a halo and a slow breath (`featured`). The city stars draw warmer than the scattered field, the neighbours a Nearby search finds light up warm, and Ch8's crews are clear points that flare as they light. Labels: "Mika · Photographer" as the prologue lands on her; on desktop Ch3, each of the cast by their star (Mika · Spica, Ernie · Porrima, Kenn · Vindemiatrix, Bea · Heze).
+    - **"This star is Mika."** (owner: the landing was flat, and unclear whether the line meant the star or a person). While "Every star is a creative." plays, stars around Cebu light with what each creative does (Photographer, Videographer, Photo Editor, HMUA; Coordinator and Video Editor on desktop). As the camera locks on Mika's star, a spark runs out of it along a gold leader and becomes the ring round her avatar, and her card unfolds (`page/sky/mika-card.tsx`, driven by the Prologue's clock): her name, "Wedding photographer · Cebu City", her camera, three frames of her work. The subtitle names the star as her: "This star is Mika, a wedding photographer in Cebu City." The frame says "Illustrative" while the card is up.
+    - **Stars are people:** Mika and the crew carry a four-point diffraction spike, a halo and a slow breath (`featured`). The city stars draw warmer than the scattered field, the neighbours a Nearby search finds light up warm, and Ch8's crews are clear points that flare as they light. Labels: on desktop Ch3, each of the cast by their star (Mika · Spica, Ernie · Porrima, Kenn · Vindemiatrix, Bea · Heze).
     - **Virgo in four places** (`cinema/virgo-constellation.tsx` for the HTML figure; the sky engine for Ch3 and Ch8):
       - **Hero:** gold hairlines over the dark above the camera. The stars come up with the film's lights, the lines draw out from Spica from about 3 s, and the first scroll lifts it away. Syrma is an empty socket.
       - **Ch3 (midway):** the real figure forms in the sky once the terms card leaves, with a spark on each growing line and a pulse when it completes; it holds to the end of the chapter. Ch3's own morph star hands over to it as the lines start.

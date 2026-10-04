@@ -72,19 +72,23 @@ export function StoryPage({ plans }: { plans: PlanInfo[] }) {
 }
 
 /**
- * The cuts between scenes (05-cinema.md §1.8): the aperture closes and opens,
- * a zoom through a geometric tunnel, or a warm light leak, with the story's
- * symbol morphing at the centre: Mika's star → the group chat, the job → a pin,
- * the constellation → the calendar, the alarm → the sun, the shutter → a heart,
- * the heart → an hourglass, the stars → the aperture. Chapters that share
- * the sky (Nearby → Connect, The work → Every Saturday) flow on uncut.
+ * The cuts between scenes (05-cinema.md §1.8): a camera's own mechanisms,
+ * never a symbol. The aperture closes and fires open; the focal-plane curtain
+ * drops and runs off; a light leak washes over; or the frame falls into the
+ * stars. Chapters that share the sky (Nearby → Connect, The work → Every
+ * Saturday) flow on uncut.
  */
 const CUTS: Cut[] = [
-  { into: 'hire', kind: 'iris', from: 'sparkle', to: 'bubble' },
-  { into: 'nearby', kind: 'tunnel', from: 'square', to: 'pin' },
-  { into: 'calendar', kind: 'iris', from: 'sparkle', to: 'square' },
-  { into: 'saturday', kind: 'leak', from: 'circle', to: 'sun' },
-  { into: 'delivery', kind: 'iris', from: 'hexagon', to: 'heart' },
-  { into: 'forget', kind: 'tunnel', from: 'heart', to: 'hourglass' },
-  { into: 'features', kind: 'iris', from: 'sparkle', to: 'hexagon' },
+  // Off Mika's star: the aperture closes on the sky and opens on Wednesday night.
+  { into: 'hire', kind: 'iris' },
+  // Mika searches the map: the frame falls into the sky.
+  { into: 'nearby', kind: 'warp' },
+  // The booking made, Friday night: the shutter fires.
+  { into: 'calendar', kind: 'curtain' },
+  // Saturday, first light.
+  { into: 'saturday', kind: 'leak' },
+  { into: 'delivery', kind: 'iris' },
+  // Day 91: the files leave, frame by frame.
+  { into: 'forget', kind: 'curtain' },
+  { into: 'features', kind: 'iris' },
 ];

@@ -12,11 +12,13 @@
  * Ch3's Virgo forms with sparks and a pulse of light, and in Ch8 Mika's crew
  * hangs over Cebu City as Virgo among the other crews' figures.
  */
+import { CITIES } from '@/components/story/data/cities.generated';
 import { CAST_STARS, type StarId } from '@/components/story/data/constellation';
+import { STAR_ROLES } from '@/components/story/data/strings/page-prologue';
 import { aim, rig, rigAt, smoothstep, span, view, type Rect, type Rig, type RigKey, type Vec3 } from '@/components/story/sky/camera';
 import { CLUSTERS } from '@/components/story/sky/clusters.generated';
 import { CAST_WORLD, HOME_GROUND, ROSTER_WORLD, earthRig, offAxisRig } from '@/components/story/sky/scenes';
-import type { Cluster } from '@/components/story/sky/sky-seed';
+import { toWorld, type Cluster } from '@/components/story/sky/sky-seed';
 import type { DeepState, GeoFigure, GeoState, LabelState, SkyFrame, StoryStar, Thread } from '@/components/story/sky/types';
 
 export type Layout = { w: number; h: number; mobile: boolean };
@@ -74,6 +76,23 @@ function castStars(mikaHalo: number, alpha: number, others: number, roster = 0, 
   return stars;
 }
 
+/** Where each of the Prologue's role tags stands: its city, on the ground. */
+const ROLE_WORLD: readonly Vec3[] = STAR_ROLES.map(({ city }) => {
+  const c = CITIES.find((x) => x.name === city)!;
+  return toWorld(c.x, c.y);
+});
+
+/**
+ * "Every star is a creative.": the tags come up one after another as the
+ * line plays (p 0.3–0.58), and go before the camera reaches Cebu. Phones
+ * show the first four.
+ */
+function roleLabels(p: number, l: Layout): LabelState[] {
+  const n = l.mobile ? 4 : ROLE_WORLD.length;
+  const out = 1 - smoothstep(0.54, 0.6, p);
+  return ROLE_WORLD.slice(0, n).map((world, i) => ({ id: `role-${i}`, world, scene: 'geo', opacity: smoothstep(0.3 + i * 0.025, 0.34 + i * 0.025, p) * out }));
+}
+
 /** (a) Prologue: from deep space, down through the stars, onto Mika. */
 export function prologue(p: number, l: Layout): SkyFrame {
   const camera = rig(rigAt(prologueKeys(l), p));
@@ -90,7 +109,8 @@ export function prologue(p: number, l: Layout): SkyFrame {
   };
   return {
     geo,
-    labels: [{ id: 'mika-chip', world: MIKA, scene: 'geo', opacity: smoothstep(0.86, 0.95, p) }],
+    // Mika's card opens out of her star as the camera lands (page/sky/mika-card.tsx runs its unfolding).
+    labels: [...roleLabels(p, l), { id: 'mika-card', world: MIKA, scene: 'geo', opacity: smoothstep(0.83, 0.85, p) }],
     // The desktop film covers the sky until it fades (p ≈ 0.3): no shooting star behind it.
     space: { meteors: l.mobile || p > 0.3 },
   };

@@ -13,7 +13,6 @@ import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { GearArt, ROLE_GEAR, type GearKind } from '../cinema/gear';
-import { Morph } from '../cinema/morph';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { CH4_SHOT } from './ch4-timing';
 
@@ -123,7 +122,6 @@ function Frame({ p }: { p: MotionValue<number> }) {
 
       {/* ── Saturday, 5:00 AM. ── */}
       <LockPhone p={p} />
-      <TileToDot p={p} drop={narrow ? 70 : 88} />
 
       <LightSweep progress={p} from={0.15} to={0.31} />
       <Particles progress={p} push={[0.42, 0.6]} count={narrow ? 12 : 24} seed={44} />
@@ -319,31 +317,6 @@ function LockPhone({ p }: { p: MotionValue<number> }) {
             </div>
           </Float>
         </div>
-      </m.div>
-    </div>
-  );
-}
-
-/**
- * The morph between the two scenes: a square of gold (Saturday's date), carried
- * through the screen into the dark, becomes the alarm's dot (square → circle) and
- * settles where the reminder will land on the lock screen; it gives way to
- * the notification as it rings. `drop` is that spot below the phone's centre, px.
- */
-function TileToDot({ p, drop }: { p: MotionValue<number>; drop: number }) {
-  const opacity = useTransform(p, (v) => r2(window4(v, 0.5, 0.54, AT.ring - 0.02, AT.ring + 0.01)));
-  const transform = useTransform(p, (v) => `translate3d(0,${r2(drop * camera(seg(v, 0.56, AT.lock[1])))}px,0) scale(${r2(lerp(1.2, 0.8, seg(v, 0.52, AT.lock[1])))})`);
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-[24svh] top-0 flex items-center justify-center lg:bottom-[14svh]">
-      <m.div style={{ opacity, transform }} className="size-11">
-        <Morph
-          progress={p}
-          keys={[
-            { at: 0.55, shape: 'square' },
-            { at: 0.63, shape: 'circle' },
-          ]}
-          className="size-full"
-        />
       </m.div>
     </div>
   );

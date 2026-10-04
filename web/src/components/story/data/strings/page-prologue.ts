@@ -5,7 +5,7 @@
  *
  * A zero-import data module: relative imports of story data modules only.
  */
-import { CAST, HOME } from '../story';
+import { CAST, HOME, type Role } from '../story';
 
 export const SOURCES: { text: string; file: string; mode: 'verbatim' }[] = [];
 
@@ -21,11 +21,40 @@ export const HERO = {
   cue: 'Scroll to play',
 } as const;
 
-/** The opening's two subtitles (05-cinema.md §3): the descent through the stars onto Mika. */
+/**
+ * The opening's two subtitles (05-cinema.md §3): the descent through the
+ * stars onto Mika. The second names the star as a person, so nobody wonders
+ * whether the line is about a star or about someone.
+ */
 export const DESCENT = [
   'Every star is a creative.',
-  `This is ${CAST.mika.first}. Wedding ${CAST.mika.roles[0].toLowerCase()}, ${HOME.city}.`,
+  `This star is ${CAST.mika.first}, a wedding ${CAST.mika.roles[0].toLowerCase()} in ${HOME.city}.`,
 ] as const;
+
+/**
+ * "Every star is a creative.": while the line plays, stars across the
+ * country say what they do. Roles from the app's list; the places are
+ * illustrative, like every star on the page (none of them is a member).
+ * They ring Cebu, where the camera is going, so they stay in frame through
+ * the dive; phones show the first four. `side`: which way the tag reads
+ * from its star (east of Cebu, to the left, so it stays on a phone's screen).
+ */
+export const STAR_ROLES: readonly { city: string; role: Role; side: 'left' | 'right' }[] = [
+  { city: 'Kalibo', role: 'Photographer', side: 'right' },
+  { city: 'Ormoc', role: 'Videographer', side: 'left' },
+  { city: 'Dumaguete', role: 'Photo Editor', side: 'right' },
+  { city: 'Cagayan de Oro', role: 'HMUA', side: 'left' },
+  { city: 'Legazpi', role: 'Coordinator', side: 'right' },
+  { city: 'Iloilo City', role: 'Video Editor', side: 'right' },
+];
+
+/** Mika's card, as it opens out of her star when the camera lands (illustrative, like her). */
+export const MIKA_CARD = {
+  name: CAST.mika.first,
+  role: `Wedding ${CAST.mika.roles[0].toLowerCase()}`,
+  city: HOME.city,
+  work: 'Her work',
+} as const;
 
 /** The sky behind the hero: sr-only in motion, visible under the lens in the static page. */
 export const SKY_CAPTION =

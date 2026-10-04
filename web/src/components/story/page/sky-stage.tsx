@@ -3,12 +3,14 @@
 import { useMotionValue, useMotionValueEvent, type MotionValue } from 'framer-motion';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CAST_STARS, STARS, type StarId } from '../data/constellation';
+import { STAR_ROLES } from '../data/strings/page-prologue';
 import { CAST } from '../data/story';
 import { MapLayer, type MapLayerLevel } from '../sky/map-layer';
 import { SkyCanvas } from '../sky/sky-canvas';
 import type { SkyFrame } from '../sky/types';
 import { useLayout, useMotionGate } from './motion';
 import { prologue, type Layout } from './sky/choreography';
+import { MikaCard } from './sky/mika-card';
 
 /**
  * One sky for the whole page (storyboard §1.3): fixed, behind the chapters,
@@ -135,16 +137,25 @@ const CAST_SIDE: Partial<Record<StarId, string>> = {
 /**
  * The label elements the choreography may pin (`[data-sky-label]`): each
  * starts hidden and the engine moves it onto its star by translate only.
- * Mika's sits below the viewfinder's focus box (56 px, 80 px from sm), so the
- * box locks on her star and her name reads under it.
+ * - `role-*`: the Prologue's "Every star is a creative.": a star across
+ *   the country, lit, with what that creative does.
+ * - `mika-card`: Mika's card, opening out of her star as the camera lands.
+ * - `cast-*`: who each of the cast became in Ch3 (desktop).
  */
 function SkyLabels() {
   return (
     <>
-      <div data-sky-label="mika-chip" className="absolute left-0 top-0 opacity-0">
-        <div className={`-translate-x-1/2 translate-y-[42px] rounded-full border border-[#F0C88E]/35 bg-[#161311]/[0.86] px-3 py-1.5 text-[#F2EDE8] sm:translate-y-[54px] ${MONO}`}>
-          {CAST.mika.first} · {CAST.mika.roles[0]}
+      {STAR_ROLES.map(({ role, side }, i) => (
+        <div key={role} data-sky-label={`role-${i}`} className="absolute left-0 top-0 opacity-0">
+          <div className={`flex -translate-y-1/2 items-center gap-1.5 ${side === 'left' ? 'translate-x-[calc(-100%+3px)] flex-row-reverse' : '-translate-x-[3px]'}`}>
+            <span className="block size-1.5 shrink-0 rounded-full bg-[#FFF0D6] shadow-[0_0_10px_3px_rgba(240,200,142,0.7)]" />
+            <span className="block h-px w-3 shrink-0 bg-[#F0C88E]/60" />
+            <span className={`rounded-full border border-[#F0C88E]/30 bg-[#161311]/80 px-2 py-1 text-[#F2EDE8] ${MONO}`}>{role}</span>
+          </div>
         </div>
+      ))}
+      <div data-sky-label="mika-card" className="absolute left-0 top-0 opacity-0">
+        <MikaCard />
       </div>
       {CAST_LABELS.map(({ star, text }) => (
         <div key={star} data-sky-label={`cast-${star}`} className="absolute left-0 top-0 opacity-0">

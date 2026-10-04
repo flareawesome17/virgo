@@ -10,7 +10,6 @@ import { NotificationList, NotificationRow } from '../../mocks/notification-row'
 import { camera, lerp, r2, seg, window4 } from '../cinema/ease';
 import { LightSweep, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
-import { Morph } from '../cinema/morph';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { CH6_LENGTH, LinkCard, PhoneShell } from './ch6-parts';
 
@@ -23,7 +22,7 @@ import { CH6_LENGTH, LinkCard, PhoneShell } from './ch6-parts';
  *              a gold rule draws under its address; a light sweep
  *   0.24–0.38  the camera pushes through the card onto the couple's phone
  *   0.38–0.50  they heart their picks, the picks bar rises, Send at 0.50
- *   0.50–0.62  the heart flies to Mika's phone and becomes its dot (a morph);
+ *   0.50–0.62  a spark of light flies from their phone to Mika's;
  *              the notification lands with a rumble at 0.56
  *   0.62–0.76  slate change, THREE WEEKS LATER: a sweep of light, the same
  *              page now opens on its films
@@ -67,7 +66,7 @@ function Stage({ progress }: { progress: MotionValue<number> }) {
       <Card progress={progress} />
       <Couple progress={progress} />
       <Mika progress={progress} />
-      <HeartToDot progress={progress} />
+      <PickSpark progress={progress} />
       <SameLink progress={progress} />
       <LightSweep progress={progress} from={0.62} to={0.78} />
       <Slate progress={progress} slates={SLATES} tone="day" />
@@ -259,8 +258,8 @@ function Mika({ progress }: { progress: MotionValue<number> }) {
   );
 }
 
-/** The morph: the couple's heart flies to Mika's phone and becomes its notification dot. */
-function HeartToDot({ progress }: { progress: MotionValue<number> }) {
+/** The couple's picks, sent: a spark of light flies from their phone to Mika's and lands as her notification. */
+function PickSpark({ progress }: { progress: MotionValue<number> }) {
   const opacity = useTransform(progress, (p) => r2(window4(p, SENT - 0.01, SENT + 0.01, TOLD - 0.005, TOLD + 0.02)));
   const transform = useTransform(progress, (p) => {
     const t = camera(seg(p, SENT, TOLD));
@@ -271,15 +270,7 @@ function HeartToDot({ progress }: { progress: MotionValue<number> }) {
   });
   return (
     <m.div aria-hidden style={{ opacity, transform }} className="pointer-events-none absolute left-[38%] top-[46svh] z-30 -ml-8 -mt-8 size-16 lg:left-[37%]">
-      <Morph
-        progress={progress}
-        keys={[
-          { at: SENT + 0.01, shape: 'heart' },
-          { at: TOLD - 0.01, shape: 'circle' },
-        ]}
-        fill="#C9764A"
-        className="size-full"
-      />
+      <span className="absolute inset-0 rounded-full bg-[radial-gradient(closest-side,rgba(255,244,226,0.95),rgba(240,200,142,0.5)_35%,rgba(209,138,90,0)_100%)]" />
     </m.div>
   );
 }
