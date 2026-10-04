@@ -12,3 +12,6 @@ cache/
 
 # Third-party 3D models (CC BY, credited on the site). Large, and not ours to redistribute here.
 models/
+
+# Blender runs the scene scripts with its own Python; its bytecode cache is not ours to keep.
+__pycache__/
