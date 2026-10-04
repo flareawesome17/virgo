@@ -3,9 +3,9 @@
  * selector is scoped to the page so nothing reaches the app.
  */
 
-/* The fixed header never hides an anchor target or a focused control (WCAG 2.4.11). */
+/* No fixed header: anchors land at the top of the frame. */
 html:has(.story-page) {
-  scroll-padding-top: 4.5rem;
+  scroll-padding-top: 0;
 }
 /* globals.css gives landing sections a 5.5rem scroll-margin; it would add to the padding. */
 .story-page section[id] {

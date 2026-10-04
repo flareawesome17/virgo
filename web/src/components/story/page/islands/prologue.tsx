@@ -1,35 +1,31 @@
 'use client';
 
-import { useMotionValue, useMotionValueEvent } from 'framer-motion';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useMotionValue, useMotionValueEvent, type MotionValue } from 'framer-motion';
+import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react';
 import { part, useChapterProgress, useMotionGate } from '../motion';
 import { usePublishSky } from '../sky-stage';
 import { prologue } from '../sky/choreography';
+import { camera, seg } from '../cinema/ease';
 
 /**
- * The Prologue's stage (storyboard Prologue, §1.13 "The descent").
+ * The opening (05-cinema.md §3, Prologue): a title card, then the descent.
  *
- * Enhances the server-rendered hero in place. While the motion gate is open:
- * - the sky camera dollies from the archipelago down through the stars onto
- *   Mika (choreography `prologue`), published to the one SkyStage;
- * - the AVIF poster crossfades away once the canvas has had time to draw;
- * - the copy lifts and fades on desktop (24 px), and fades as it scrolls away
- *   on phones (12 px) — the H1 starts at full opacity, always;
- * - Mika's chip resolves on her star as the camera lands.
+ * While the motion gate is open the section is a track and its frame is
+ * pinned. The first scroll pushes the camera through the gear around the
+ * title (scenes/prologue-film.tsx), the title falls back into the dark, and
+ * the sky dollies from the archipelago down onto Mika's star (choreography
+ * `prologue`). The H1 starts at full opacity, always: it is the LCP element.
  *
- * Every write is transform or opacity on a `[data-part]`, from one progress
- * value; nothing re-renders on scroll. With the gate closed it renders its
- * children untouched (the static page).
+ * Every write is transform or opacity, from one progress value. With the gate
+ * closed it renders its children untouched (the static page).
  */
 
-const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
-/** Hermite smoothstep between two progress stops. */
-const ss = (a: number, b: number, x: number) => {
-  const t = clamp01((x - a) / (b - a));
-  return t * t * (3 - 2 * t);
-};
-/** The enter curve, cubic-bezier(0.16, 1, 0.3, 1), close enough for scroll: an ease-out expo. */
-const enter = (t: number) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * clamp01(t)));
+const ProgressContext = createContext<MotionValue<number> | null>(null);
+
+/** The opening's progress (0 → 1 over the track), for the film layers inside it. */
+export function usePrologueProgress() {
+  return useContext(ProgressContext);
+}
 
 export function PrologueStage({ children, className = '' }: { children: ReactNode; className?: string }) {
   const root = useRef<HTMLDivElement>(null);
@@ -47,31 +43,21 @@ export function PrologueStage({ children, className = '' }: { children: ReactNod
     if (!gate.motion || !el) return;
     const copy = part(el, 'hero-copy');
     const scrim = part(el, 'hero-scrim');
-    const chip = part(el, 'mika-chip');
     const poster = part(el, 'hero-poster');
-    const cue = part(el, 'hero-cue');
 
     let last = -1;
     const apply = (p: number) => {
       if (Math.abs(p - last) < 0.0005) return;
       last = p;
-      const desktop = window.innerWidth >= 1024;
-      // Desktop: the copy lifts 24 px and fades over 0.20–0.45. Phones: it scrolls away, fading late, 12 px.
-      const out = desktop ? ss(0.2, 0.45, p) : ss(0.3, 0.55, p);
-      const lift = (desktop ? 24 : 12) * out;
+      // The title falls back into the dark as the camera pushes past it.
+      const out = camera(seg(p, 0.03, 0.2));
       if (copy) {
-        copy.style.transform = `translate3d(0, ${-lift.toFixed(2)}px, 0)`;
+        copy.style.transform = `translate3d(0, ${(-28 * out).toFixed(2)}px, 0) scale(${(1 - 0.1 * out).toFixed(4)})`;
         copy.style.opacity = String(1 - out);
-        copy.style.pointerEvents = out > 0.9 ? 'none' : '';
+        copy.style.pointerEvents = out > 0.6 ? 'none' : '';
         copy.style.visibility = out >= 0.999 ? 'hidden' : '';
       }
-      if (scrim) scrim.style.opacity = String(1 - ss(0.3, 0.6, p));
-      if (cue) cue.style.opacity = String(1 - ss(0.02, 0.12, p));
-      if (chip) {
-        const t = enter(clamp01((p - 0.84) / 0.12));
-        chip.style.opacity = String(t);
-        chip.style.transform = `translate3d(-50%, ${(1 - t) * 14}px, 0) scale(${0.94 + 0.06 * t})`;
-      }
+      if (scrim) scrim.style.opacity = String(1 - seg(p, 0.08, 0.26));
     };
     apply(progress.get());
     const off = progress.on('change', apply);
@@ -99,7 +85,7 @@ export function PrologueStage({ children, className = '' }: { children: ReactNod
       window.clearTimeout(timer);
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
-      for (const node of [copy, scrim, chip, poster, cue]) {
+      for (const node of [copy, scrim, poster]) {
         if (!node) continue;
         node.style.transform = '';
         node.style.opacity = '';
@@ -111,8 +97,10 @@ export function PrologueStage({ children, className = '' }: { children: ReactNod
   }, [gate.motion, progress, sky]);
 
   return (
-    <div ref={root} className={className}>
-      {children}
-    </div>
+    <ProgressContext.Provider value={progress}>
+      <div ref={root} className={className}>
+        {children}
+      </div>
+    </ProgressContext.Provider>
   );
 }

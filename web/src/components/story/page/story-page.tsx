@@ -1,4 +1,6 @@
+import Image from 'next/image';
 import type { PlanInfo } from '@/api';
+import { SIGN_IN_URL } from '@/components/landing/links';
 import { MEDIA } from '../media.generated';
 import { Ch1 } from './chapters/ch1';
 import { Ch10 } from './chapters/ch10';
@@ -16,10 +18,10 @@ import { StoryFooter } from './chapters/footer';
 import { Prologue } from './chapters/prologue';
 import { TheWork } from './chapters/the-work';
 import { mapLevels } from './map-levels';
+import { DownloadPill, Letterbox, Scrubber } from './cinema/chrome';
 import { MotionRoot } from './motion';
 import { PrePaint } from './pre-paint';
 import { SkyProvider } from './sky-stage';
-import { StoryHeader } from './story-header';
 import './story.css';
 
 /**
@@ -27,8 +29,9 @@ import './story.css';
  *
  * Server-rendered and complete: every chapter's copy, figures and links are in
  * the HTML in their final state, which is also the reduced-motion, no-JS and
- * crawler page. Chapter islands then move what is already there when the
- * motion gate allows (build plan §1).
+ * crawler page. Chapter islands then play it as a film when the motion gate
+ * allows (05-cinema.md). There is no header: the frame is a title bar that
+ * scrolls away with the opening, one Download pill, a scrubber and letterbox.
  */
 export function StoryPage({ plans }: { plans: PlanInfo[] }) {
   return (
@@ -36,7 +39,13 @@ export function StoryPage({ plans }: { plans: PlanInfo[] }) {
       <PrePaint />
       <MotionRoot>
         <SkyProvider levels={mapLevels()}>
-          <StoryHeader />
+          <a
+            href="#features"
+            className="sr-only z-[60] rounded-lg bg-[#F2EDE8] px-4 py-3 font-semibold text-[#161311] focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+          >
+            Skip the film
+          </a>
+          <TitleBar />
           <main className="relative z-10">
             <Prologue />
             <Ch1 />
@@ -54,9 +63,29 @@ export function StoryPage({ plans }: { plans: PlanInfo[] }) {
             <Faq />
           </main>
           <StoryFooter />
+          <Letterbox />
+          <Scrubber />
+          <DownloadPill />
         </SkyProvider>
       </MotionRoot>
       <div aria-hidden className="story-grain" style={{ backgroundImage: `url(${MEDIA.grain.url})` }} />
+    </div>
+  );
+}
+
+const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#F2EDE8]';
+
+/** The opening title card's corners: the mark and Sign in. It scrolls away with the opening; nothing follows. */
+function TitleBar() {
+  return (
+    <div className="absolute inset-x-0 top-0 z-50 flex items-center justify-between px-5 pt-5 sm:px-8 sm:pt-7 lg:pt-[max(1.25rem,calc(min(11vh,max(0px,calc((100vh_-_100vw/2.39)/2)))/2_-_1.375rem))]">
+      <a href="#top" aria-label="Virgo, back to the top" className={`inline-flex min-h-11 items-center gap-2.5 rounded-lg text-[17px] font-semibold tracking-[-0.01em] text-[#F2EDE8] ${FOCUS}`}>
+        <Image src="/logo.png" alt="" width={28} height={28} className="size-7" priority />
+        Virgo
+      </a>
+      <a href={SIGN_IN_URL} className={`inline-flex min-h-11 items-center rounded-lg px-1 text-[15px] font-medium text-[#BCADA3] transition-colors hover:text-[#F2EDE8] ${FOCUS}`}>
+        Sign in
+      </a>
     </div>
   );
 }

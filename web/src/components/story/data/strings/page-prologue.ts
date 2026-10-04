@@ -10,18 +10,22 @@ import { CAST, HOME } from '../story';
 export const SOURCES: { text: string; file: string; mode: 'verbatim' }[] = [];
 
 export const HERO = {
-  eyebrow: 'Built in the Philippines, for Filipino creatives',
+  /** The opening title's small mono line. */
+  eyebrow: 'A Virgo story',
   /** Line 1 of the H1, weight 500 in the secondary ink. */
   titleLead: 'Where creatives find',
   /** Line 2, in the gold gradient. Its full stop is the star (StarStop), with a real "." for readers. */
   titleTail: 'each other, and get paid',
-  lead: 'Virgo is a network of photographers, videographers, editors and HMUAs, and the workspace they run the job from.',
+  lead: 'For photographers, videographers, editors and HMUAs. Find the crew, run the job, hand over the work.',
   join: 'Join the community',
-  signIn: 'Sign in',
-  micro: 'Free plan with 15 GB. No card needed.',
-  follow: 'Follow one job',
-  skip: 'Skip the story',
+  cue: 'Scroll to play',
 } as const;
+
+/** The opening's two subtitles (05-cinema.md §3): the descent through the stars onto Mika. */
+export const DESCENT = [
+  'Every star is a creative.',
+  `This is ${CAST.mika.first}. Wedding ${CAST.mika.roles[0].toLowerCase()}, ${HOME.city}.`,
+] as const;
 
 /** The sky behind the hero: sr-only in motion, visible under the lens in the static page. */
 export const SKY_CAPTION =
@@ -33,6 +37,5 @@ export const MIKA_CHIP = `${CAST.mika.first} · ${CAST.mika.roles[0]} · ${HOME.
 /** The static page's lens: the zoom, implied. */
 export const LENS = {
   alt: `A circular lens over ${HOME.city}, with one star at its centre: ${CAST.mika.first}'s.`,
-  caption: `One of them is ${CAST.mika.first}, a photographer in ${HOME.city}.`,
   footnote: 'The sky is drawn for the page. The stars mark places, not members; the map and the star field are illustrative.',
 } as const;

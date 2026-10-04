@@ -1,19 +1,21 @@
 import { ArrowDown } from 'lucide-react';
-import { SIGN_IN_URL, SIGN_UP_URL } from '@/components/landing/links';
-import { HERO, LENS, MIKA_CHIP, SKY_CAPTION } from '../../data/strings/page-prologue';
+import { SIGN_UP_URL } from '@/components/landing/links';
+import { DESCENT, HERO, LENS, MIKA_CHIP, SKY_CAPTION } from '../../data/strings/page-prologue';
 import { MEDIA } from '../../media.generated';
 import { StarStop } from '../../svg';
 import { PrologueStage } from '../islands/prologue';
+import { GearConstellation, HeroFilm } from '../scenes/prologue-film';
 
 /**
- * Prologue — The Sky · #top (storyboard, Prologue).
+ * Prologue: the opening title · #top (05-cinema.md §3).
  *
- * The static page: the hero over the AVIF sky poster, then a circular lens
- * on Cebu with Mika's chip, which implies the zoom. In motion the section
- * becomes a track (180 svh on phones, 200 on desktop): the island publishes
- * the descent to the fixed sky, the copy lifts away, and Mika's chip
- * resolves on her star as the camera lands.
+ * A title card: the mark and Sign in in the corners (StoryPage's TitleBar), the
+ * H1, one line, one call to action and "Scroll to play", with the gear of the
+ * trade floating in depth around it. In motion the section is a 230 svh track
+ * with its frame pinned: the camera pushes through the gear, the title falls
+ * back, and the sky descends onto Mika's star under two subtitles.
  *
+ * The static page keeps the same title card, then a lens on Cebu City.
  * The H1 is the LCP element: server-rendered, never in an opacity-0 reveal.
  */
 
@@ -21,6 +23,9 @@ import { PrologueStage } from '../islands/prologue';
 const CUE_KEYFRAMES = '@keyframes story-cue{0%{transform:translateY(-100%)}100%{transform:translateY(250%)}}';
 
 const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#F2EDE8]';
+
+/** In motion the frame is pinned for the track; static, it is a plain full-height block. */
+const PINNED = "[html[data-motion='on']_&]:sticky [html[data-motion='on']_&]:top-0 [html[data-motion='on']_&]:h-svh [html[data-motion='on']_&]:min-h-0";
 
 /** The hero's sky: a CSS-background-like picture behind the copy, mobile and desktop crops. */
 function Poster() {
@@ -49,86 +54,52 @@ export function Prologue() {
   return (
     <section id="top" data-tone="night" data-chapter="top" className="relative z-10">
       <style>{CUE_KEYFRAMES}</style>
-      <PrologueStage className="relative isolate [html[data-motion='on']_&]:h-[180svh] lg:[html[data-motion='on']_&]:h-[200svh]">
+      <PrologueStage className="relative isolate [html[data-motion='on']_&]:h-[230svh]">
         <Poster />
 
-        {/* Mika's chip, held at the centre of the screen while the camera lands on her (motion only). */}
-        <div aria-hidden className="motion-only pointer-events-none absolute inset-0">
-          <div className="sticky top-0 h-svh">
-            <span
-              data-part="mika-chip"
-              className="figure absolute left-1/2 top-[calc(50%+22px)] inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#D18A5A]/45 bg-[#161311]/92 px-4 py-2 text-[12px] text-[#F2EDE8] shadow-[0_10px_30px_-12px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.05)] sm:text-[13px]"
-              style={{ opacity: 0, transform: 'translate3d(-50%, 14px, 0) scale(0.94)' }}
-            >
-              <span className="size-1.5 rounded-full bg-[#F0C88E] shadow-[0_0_10px_2px_rgba(240,200,142,0.55)]" />
-              {MIKA_CHIP}
-            </span>
-          </div>
-        </div>
+        <div className={`relative min-h-svh overflow-clip ${PINNED}`}>
+          <GearConstellation />
+          <HeroFilm />
 
-        <div className="relative mx-auto flex min-h-svh max-w-6xl flex-col justify-center px-5 pb-16 pt-24 sm:px-8 lg:pt-28">
-          {/* Copy over the sky sits on a radial scrim (§1.5): dense under the glyphs, fading only outside them. */}
-          <div
-            aria-hidden
-            data-part="hero-scrim"
-            className="pointer-events-none absolute inset-x-0 inset-y-[6%] -z-10 bg-[radial-gradient(75%_60%_at_32%_50%,rgba(22,19,17,0.94)_0%,rgba(22,19,17,0.9)_42%,rgba(22,19,17,0.55)_70%,rgba(22,19,17,0)_100%)] lg:bg-[radial-gradient(60%_72%_at_26%_50%,rgba(22,19,17,0.95)_0%,rgba(22,19,17,0.92)_55%,rgba(22,19,17,0.6)_78%,rgba(22,19,17,0)_100%)]"
-          />
-          <div data-part="hero-copy" className="relative">
-            <p className="figure text-xs uppercase tracking-[0.14em] text-[#D18A5A]">{HERO.eyebrow}</p>
-            <h1 className="mt-5 max-w-[15ch] text-[clamp(2.75rem,1.6rem+5.6vw,7rem)] font-semibold leading-[0.95] tracking-[-0.035em] [text-wrap:balance]">
-              <span className="block font-medium text-[#BCADA3]">{HERO.titleLead}</span>
-              <span className="block">
-                <span className="bg-gradient-to-r from-[#e8b189] via-[#c17745] to-[#a85f38] bg-clip-text text-transparent">
-                  {HERO.titleTail}
+          <div className="relative z-10 mx-auto flex min-h-svh max-w-5xl flex-col items-center justify-end px-5 pb-[max(2.5rem,7svh)] pt-28 text-center [html[data-motion='on']_&]:h-full [html[data-motion='on']_&]:min-h-0 sm:px-8 lg:justify-center lg:pb-0">
+            {/* Copy over the sky sits on a radial scrim (§1.5): dense under the glyphs, fading only outside them. */}
+            <div
+              aria-hidden
+              data-part="hero-scrim"
+              className="pointer-events-none absolute inset-x-0 bottom-0 top-[22%] -z-10 bg-[radial-gradient(80%_55%_at_50%_62%,rgba(22,19,17,0.92)_0%,rgba(22,19,17,0.82)_45%,rgba(22,19,17,0)_100%)] lg:inset-y-[10%] lg:bg-[radial-gradient(48%_52%_at_50%_50%,rgba(22,19,17,0.92)_0%,rgba(22,19,17,0.8)_50%,rgba(22,19,17,0)_100%)]"
+            />
+            <div data-part="hero-copy" className="relative flex flex-col items-center">
+              <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#D18A5A] sm:text-xs">{HERO.eyebrow}</p>
+              <h1 className="mt-5 max-w-[16ch] text-[clamp(2.6rem,1.2rem+4.4vw,5.5rem)] font-semibold leading-[0.98] tracking-[-0.035em] [text-wrap:balance]">
+                <span className="block font-medium text-[#BCADA3]">{HERO.titleLead}</span>
+                <span className="block">
+                  <span className="bg-gradient-to-r from-[#e8b189] via-[#c17745] to-[#a85f38] bg-clip-text text-transparent">{HERO.titleTail}</span>
+                  <StarStop />
                 </span>
-                <StarStop />
-              </span>
-            </h1>
-            <p className="mt-6 max-w-[34ch] text-[1.0625rem] leading-[1.55] text-[#BCADA3] sm:max-w-[52ch] sm:text-lg">{HERO.lead}</p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              </h1>
+              <p className="mt-6 max-w-[36ch] text-pretty text-[1.0625rem] leading-[1.55] text-[#BCADA3] sm:max-w-[46ch] sm:text-lg">{HERO.lead}</p>
               <a
                 href={SIGN_UP_URL}
-                className={`inline-flex min-h-12 items-center justify-center rounded-xl bg-[#D18A5A] px-6 font-semibold text-[#161311] shadow-[0_12px_32px_-14px_rgba(209,138,90,0.8)] transition-colors hover:bg-[#dc9a6c] ${FOCUS}`}
+                className={`mt-8 inline-flex min-h-12 items-center justify-center rounded-full bg-[#D18A5A] px-7 font-semibold text-[#161311] shadow-[0_12px_32px_-14px_rgba(209,138,90,0.8)] transition-colors hover:bg-[#dc9a6c] ${FOCUS}`}
               >
                 {HERO.join}
               </a>
               <a
-                href={SIGN_IN_URL}
-                className={`inline-flex min-h-12 items-center justify-center rounded-xl border border-white/15 bg-[#161311]/60 px-6 font-semibold text-[#F2EDE8] transition-colors hover:border-white/30 ${FOCUS}`}
-              >
-                {HERO.signIn}
-              </a>
-            </div>
-            <p className="mt-4 text-sm text-[#A08E84]">{HERO.micro}</p>
-            <div className="mt-5 flex flex-wrap items-center gap-x-6">
-              <a
                 href="#hire"
-                className={`group inline-flex min-h-11 items-center gap-2 rounded-md text-[15px] font-medium text-[#F2EDE8] underline decoration-[#D18A5A]/50 underline-offset-[6px] hover:decoration-[#D18A5A] ${FOCUS}`}
+                className={`group mt-6 inline-flex min-h-11 flex-col items-center gap-2 rounded-md font-mono text-[11px] uppercase tracking-[0.24em] text-[#A08E84] transition-colors hover:text-[#F2EDE8] ${FOCUS}`}
               >
-                {HERO.follow}
-                <ArrowDown aria-hidden size={16} className="text-[#D18A5A] transition-transform group-hover:translate-y-0.5" />
-              </a>
-              <a
-                href="#features"
-                className={`inline-flex min-h-11 items-center rounded-md text-[15px] font-medium text-[#BCADA3] underline decoration-white/20 underline-offset-[6px] hover:text-[#F2EDE8] hover:decoration-white/50 ${FOCUS}`}
-              >
-                {HERO.skip}
+                {HERO.cue}
+                <span aria-hidden className="relative block h-8 w-px overflow-hidden bg-white/10">
+                  <span className="autoplay absolute inset-x-0 top-0 h-3 animate-[story-cue_2.4s_cubic-bezier(0.65,0,0.35,1)_infinite] bg-gradient-to-b from-transparent via-[#F0C88E] to-transparent motion-reduce:hidden" />
+                </span>
+                <ArrowDown aria-hidden size={14} className="hidden text-[#D18A5A] motion-reduce:block" />
               </a>
             </div>
+            <p className="motion-only sr-only">{SKY_CAPTION}</p>
           </div>
-          <p className="motion-only sr-only">{SKY_CAPTION}</p>
-
-          {/* A quiet cue that the sky goes somewhere (motion only). */}
-          <span
-            aria-hidden
-            data-part="hero-cue"
-            className="motion-only pointer-events-none absolute bottom-6 left-1/2 hidden h-10 w-px -translate-x-1/2 overflow-hidden bg-white/10 lg:block"
-          >
-            <span className="autoplay absolute inset-x-0 top-0 h-4 animate-[story-cue_2.4s_cubic-bezier(0.65,0,0.35,1)_infinite] bg-gradient-to-b from-transparent via-[#F0C88E] to-transparent" />
-          </span>
         </div>
 
-        {/* The static page's zoom: a lens on Cebu City, with Mika's chip already on her star. */}
+        {/* The static page's descent: a lens on Cebu City, with Mika's chip already on her star. */}
         <figure className="static-only relative mx-auto max-w-6xl px-5 pb-24 pt-4 sm:px-8">
           <div className="mx-auto w-[min(86vw,420px)] [perspective:1200px]">
             <div className="relative [transform:rotateX(10deg)] [transform-origin:50%_100%]">
@@ -148,9 +119,9 @@ export function Prologue() {
             </div>
           </div>
           <figcaption className="mx-auto mt-10 max-w-[44ch] text-center">
-            <span className="block text-lg leading-relaxed text-[#F2EDE8]">{LENS.caption}</span>
-            <span className="mt-2 block text-sm leading-relaxed text-[#A08E84]">{SKY_CAPTION}</span>
-            <span className="mt-2 block text-xs leading-relaxed text-[#A08E84]">{LENS.footnote}</span>
+            <span className="block text-2xl font-semibold tracking-[-0.02em] text-[#F2EDE8]">{DESCENT[0]}</span>
+            <span className="mt-2 block text-lg leading-relaxed text-[#BCADA3]">{DESCENT[1]}</span>
+            <span className="mt-4 block text-xs leading-relaxed text-[#A08E84]">{LENS.footnote}</span>
           </figcaption>
         </figure>
       </PrologueStage>
