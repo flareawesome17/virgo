@@ -1,0 +1,7 @@
+/*
+ * Tailwind v4 for the compositions, with the story site's components as a
+ * source, so a component imported from ../web/src/components/story (the
+ * star full stop, the static SVG figures) gets the classes it uses.
+ */
+@import "tailwindcss";
+@source "../../web/src/components/story";
