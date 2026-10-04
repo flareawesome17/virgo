@@ -11,6 +11,7 @@ import { LOCK_WALLPAPER, LockNotification, LockScreen, PhoneFrame, lockDate, loc
 import { NotificationList, NotificationRow } from '../../mocks/notification-row';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useReveal, useRumble } from '../cinema/fx';
+import { Float } from '../cinema/float';
 import { GearArt, ROLE_GEAR, type GearKind } from '../cinema/gear';
 import { Morph } from '../cinema/morph';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
@@ -74,7 +75,11 @@ const subscribeNarrow = (cb: () => void) => {
 };
 /** Phones and tablets: half the particles, and the layout's own offsets. */
 function useNarrow() {
-  return useSyncExternalStore(subscribeNarrow, () => window.matchMedia(narrowQuery).matches, () => true);
+  return useSyncExternalStore(
+    subscribeNarrow,
+    () => window.matchMedia(narrowQuery).matches,
+    () => true,
+  );
 }
 
 export default function Ch4Scene() {
@@ -133,7 +138,23 @@ function Frame({ p }: { p: MotionValue<number> }) {
 }
 
 /** One item that eases in at `at`, holds, and leaves with its scene (cinema brief, addendum). */
-function Reveal({ p, at, out = [2, 3], y = 16, scale = 0.96, className = '', children }: { p: MotionValue<number>; at: number; out?: readonly [number, number]; y?: number; scale?: number; className?: string; children: ReactNode }) {
+function Reveal({
+  p,
+  at,
+  out = [2, 3],
+  y = 16,
+  scale = 0.96,
+  className = '',
+  children,
+}: {
+  p: MotionValue<number>;
+  at: number;
+  out?: readonly [number, number];
+  y?: number;
+  scale?: number;
+  className?: string;
+  children: ReactNode;
+}) {
   const style = useReveal(p, at, at + 0.07, out[0], out[1], { y, scale });
   return (
     <m.div style={style} className={className}>
@@ -165,50 +186,71 @@ function EventCard({ p, lift }: { p: MotionValue<number>; lift: number }) {
   return (
     <m.div style={{ transform: step }}>
       <Reveal p={p} at={-0.08} y={30} scale={0.9}>
-        <div className="rounded-[22px] border border-[#2A2522] bg-[#1E1B18] p-5 text-[#F2EDE8] shadow-[0_30px_60px_-24px_rgba(0,0,0,0.95)]">
-          <Reveal p={p} at={0.04}>
-            <span className="inline-block rounded-full bg-[rgba(182,106,64,0.14)] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-[#D18A5A]">
-              {EVENT.type}
-            </span>
-          </Reveal>
-          <Reveal p={p} at={0.07}>
-            <p className="mt-3 text-[20px] font-bold leading-tight">{EVENT.title}</p>
-          </Reveal>
-          <div className="mt-4 divide-y divide-[#2A2522] rounded-[14px] bg-[#161311]">
-            <Reveal p={p} at={0.1}>
-              <Detail icon={CalendarDays} label={EVENT.labels.date}>
-                {EVENT.date}
-              </Detail>
+        <Float amp={7} tilt={1.8} duration={6.6}>
+          <div className="rounded-[22px] border border-[#2A2522] bg-[#1E1B18] p-5 text-[#F2EDE8] shadow-[0_30px_60px_-24px_rgba(0,0,0,0.95)]">
+            <Reveal p={p} at={0.04}>
+              <span className="inline-block rounded-full bg-[rgba(182,106,64,0.14)] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-[#D18A5A]">
+                {EVENT.type}
+              </span>
             </Reveal>
-            <Reveal p={p} at={0.13} className="relative">
-              <m.div style={{ opacity: flash }} className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_90%_at_30%_50%,rgba(240,200,142,0.22),rgba(240,200,142,0))]" />
-              <Detail icon={Clock} label={EVENT.labels.time}>
-                <span className="flex whitespace-nowrap text-[34px] font-semibold leading-[40px] tracking-[-0.02em] tabular-nums">
-                  {CALL_ROLL.hour}
-                  <span className="inline-block h-[40px] overflow-hidden">
-                    <m.span style={{ transform: roll }} className="flex flex-col">
-                      <span className="h-[40px]">{CALL_ROLL.from}</span>
-                      <span className="h-[40px] text-[#F0C88E]">{CALL_ROLL.to}</span>
-                    </m.span>
+            <Reveal p={p} at={0.07}>
+              <p className="mt-3 text-[20px] font-bold leading-tight">{EVENT.title}</p>
+            </Reveal>
+            <div className="mt-4 divide-y divide-[#2A2522] rounded-[14px] bg-[#161311]">
+              <Reveal p={p} at={0.1}>
+                <Detail icon={CalendarDays} label={EVENT.labels.date}>
+                  {EVENT.date}
+                </Detail>
+              </Reveal>
+              <Reveal p={p} at={0.13} className="relative">
+                <m.div
+                  style={{ opacity: flash }}
+                  className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_90%_at_30%_50%,rgba(240,200,142,0.22),rgba(240,200,142,0))]"
+                />
+                <Detail icon={Clock} label={EVENT.labels.time}>
+                  <span className="flex whitespace-nowrap text-[34px] font-semibold leading-[40px] tracking-[-0.02em] tabular-nums">
+                    {CALL_ROLL.hour}
+                    <span className="inline-block h-[40px] overflow-hidden">
+                      <m.span style={{ transform: roll }} className="flex flex-col">
+                        <span className="h-[40px]">{CALL_ROLL.from}</span>
+                        <span className="h-[40px] text-[#F0C88E]">{CALL_ROLL.to}</span>
+                      </m.span>
+                    </span>
+                    {CALL_ROLL.suffix}
                   </span>
-                  {CALL_ROLL.suffix}
-                </span>
-              </Detail>
-            </Reveal>
-            <Reveal p={p} at={0.16}>
-              <Detail icon={MapPin} label={EVENT.labels.where}>
-                {EVENT.location}
-              </Detail>
-            </Reveal>
+                </Detail>
+              </Reveal>
+              <Reveal p={p} at={0.16}>
+                <Detail icon={MapPin} label={EVENT.labels.where}>
+                  {EVENT.location}
+                </Detail>
+              </Reveal>
+            </div>
           </div>
-        </div>
+        </Float>
       </Reveal>
     </m.div>
   );
 }
 
 /** A crew member's phone in the row: it rises, lights with the notice at the same instant as the others, and names its owner by their tool. */
-function CrewPhone({ p, index, guest, kind, gear, place, side }: { p: MotionValue<number>; index: number; guest: Guest; kind: GearKind; gear: string; place: string; side: -1 | 0 | 1 }) {
+function CrewPhone({
+  p,
+  index,
+  guest,
+  kind,
+  gear,
+  place,
+  side,
+}: {
+  p: MotionValue<number>;
+  index: number;
+  guest: Guest;
+  kind: GearKind;
+  gear: string;
+  place: string;
+  side: -1 | 0 | 1;
+}) {
   const at = AT.step[0] + 0.01 + index * 0.03;
   const transform = useTransform(p, (v) => {
     const a = enter(seg(v, at, at + 0.09));
@@ -222,27 +264,29 @@ function CrewPhone({ p, index, guest, kind, gear, place, side }: { p: MotionValu
   return (
     <div className={`absolute top-[44%] -translate-x-1/2 -translate-y-1/2 lg:top-[50%] ${place}`}>
       <m.div style={{ transform, opacity }}>
-        <div className="relative w-[240px] scale-[0.46] sm:scale-[0.56] lg:scale-[0.62]">
-          <m.div
-            style={{ opacity: glow }}
-            className="pointer-events-none absolute -inset-16 rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.35),rgba(240,200,142,0))]"
-          />
-          <PhoneFrame width="100%" time="9:20" ratio={9 / 16}>
-            <div className="px-2.5 pt-2">
-              <NotificationList platform="phone" heading={TODAY}>
-                <NotificationRow platform="phone" first {...NOTICES_CH4.moved} />
-              </NotificationList>
+        <Float delay={index * 1.6} amp={5} tilt={1.6} duration={5.6 + index * 0.5}>
+          <div className="relative w-[240px] scale-[0.46] sm:scale-[0.56] lg:scale-[0.62]">
+            <m.div
+              style={{ opacity: glow }}
+              className="pointer-events-none absolute -inset-16 rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.35),rgba(240,200,142,0))]"
+            />
+            <PhoneFrame width="100%" time="9:20" ratio={9 / 16}>
+              <div className="px-2.5 pt-2">
+                <NotificationList platform="phone" heading={TODAY}>
+                  <NotificationRow platform="phone" first {...NOTICES_CH4.moved} />
+                </NotificationList>
+              </div>
+            </PhoneFrame>
+            {/* The screen asleep, until the notice wakes it. */}
+            <m.div style={{ opacity: dark }} className="absolute inset-0 rounded-[38px] bg-[#050404] md:rounded-[46px]" />
+            <div className="absolute left-1/2 top-full mt-6 -translate-x-1/2">
+              <m.div style={tag} className="flex flex-col items-center gap-3">
+                <GearArt kind={kind} className={gear} />
+                <span className="font-mono text-[26px] uppercase tracking-[0.16em] text-[#BCADA3]">{GUEST_NAME[guest]}</span>
+              </m.div>
             </div>
-          </PhoneFrame>
-          {/* The screen asleep, until the notice wakes it. */}
-          <m.div style={{ opacity: dark }} className="absolute inset-0 rounded-[38px] bg-[#050404] md:rounded-[46px]" />
-          <div className="absolute left-1/2 top-full mt-6 -translate-x-1/2">
-            <m.div style={tag} className="flex flex-col items-center gap-3">
-              <GearArt kind={kind} className={gear} />
-              <span className="font-mono text-[26px] uppercase tracking-[0.16em] text-[#BCADA3]">{GUEST_NAME[guest]}</span>
-            </m.div>
           </div>
-        </div>
+        </Float>
       </m.div>
     </div>
   );
@@ -264,18 +308,20 @@ function LockPhone({ p }: { p: MotionValue<number> }) {
     <div aria-hidden className="absolute inset-x-0 bottom-[24svh] top-0 flex items-center justify-center lg:bottom-[14svh]">
       <m.div style={{ transform, opacity }}>
         <div ref={shake}>
-          <div className="relative w-[300px] scale-[0.62] sm:scale-[0.7] lg:scale-[0.8]">
-            {[0, 1].map((i) => (
-              <SoundRing key={i} p={p} at={AT.ring + i * 0.06} />
-            ))}
-            <PhoneFrame width="100%" time="5:00" signal={0} screen={LOCK_WALLPAPER} ratio={9 / 16}>
-              <LockScreen time={lockTime(WHEN.reminder)} date={lockDate(WHEN.reminder)}>
-                <m.div style={note}>
-                  <LockNotification title={RINGS.title} body={RINGS.body} />
-                </m.div>
-              </LockScreen>
-            </PhoneFrame>
-          </div>
+          <Float amp={5} tilt={1.4} duration={6.2}>
+            <div className="relative w-[300px] scale-[0.62] sm:scale-[0.7] lg:scale-[0.8]">
+              {[0, 1].map((i) => (
+                <SoundRing key={i} p={p} at={AT.ring + i * 0.06} />
+              ))}
+              <PhoneFrame width="100%" time="5:00" signal={0} screen={LOCK_WALLPAPER} ratio={9 / 16}>
+                <LockScreen time={lockTime(WHEN.reminder)} date={lockDate(WHEN.reminder)}>
+                  <m.div style={note}>
+                    <LockNotification title={RINGS.title} body={RINGS.body} />
+                  </m.div>
+                </LockScreen>
+              </PhoneFrame>
+            </div>
+          </Float>
         </div>
       </m.div>
     </div>
@@ -294,7 +340,14 @@ function TileToDot({ p, drop }: { p: MotionValue<number>; drop: number }) {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-[24svh] top-0 flex items-center justify-center lg:bottom-[14svh]">
       <m.div style={{ opacity, transform }} className="size-11">
-        <Morph progress={p} keys={[{ at: 0.55, shape: 'square' }, { at: 0.63, shape: 'circle' }]} className="size-full" />
+        <Morph
+          progress={p}
+          keys={[
+            { at: 0.55, shape: 'square' },
+            { at: 0.63, shape: 'circle' },
+          ]}
+          className="size-full"
+        />
       </m.div>
     </div>
   );

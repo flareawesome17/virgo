@@ -11,6 +11,7 @@ import { RetentionField } from '../../mocks/retention-field';
 import { StorageMeter, meterReading } from '../../mocks/storage-meter';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
+import { Float } from '../cinema/float';
 import { Morph } from '../cinema/morph';
 import { Illustrative, Shot, Subtitles, type Line } from '../cinema/shot';
 import { useNarrow } from '../islands/ch7';
@@ -170,20 +171,19 @@ function Frame({ progress }: { progress: MotionValue<number> }) {
       <div className="absolute left-1/2 top-[38%] w-[min(78vw,500px)] -translate-x-1/2 -translate-y-1/2 lg:left-[40%] lg:top-[42%] xl:left-[44%]">
         <m.div aria-hidden style={{ transform: rig, transformStyle: 'preserve-3d' }} className="relative">
           <m.div style={{ opacity: album.opacity, transform: album.transform }}>
-            <m.div
-              style={{ opacity: albumDim }}
-              className="rounded-2xl bg-[#1E1B18] p-2.5 shadow-[0_40px_80px_-30px_rgba(0,0,0,0.9)] ring-1 ring-[rgba(242,237,232,0.1)] lg:p-3"
-            >
-              <div className="mb-2.5 flex items-center gap-2 px-1 text-sm font-semibold text-[#F2EDE8]">
-                <Images aria-hidden className="size-4 text-[#A08E84]" />
-                <span className="truncate">{CLIENT.album}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5 lg:grid-cols-4 lg:gap-2">
-                {TILES.map((tile, i) => (
-                  <Tile key={tile.seed} progress={progress} tile={tile} i={i} />
-                ))}
-              </div>
-            </m.div>
+            <Float amp={6} tilt={1.4} duration={7.6}>
+              <m.div style={{ opacity: albumDim }} className="rounded-2xl bg-[#1E1B18] p-2.5 shadow-[0_40px_80px_-30px_rgba(0,0,0,0.9)] ring-1 ring-[rgba(242,237,232,0.1)] lg:p-3">
+                <div className="mb-2.5 flex items-center gap-2 px-1 text-sm font-semibold text-[#F2EDE8]">
+                  <Images aria-hidden className="size-4 text-[#A08E84]" />
+                  <span className="truncate">{CLIENT.album}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 lg:grid-cols-4 lg:gap-2">
+                  {TILES.map((tile, i) => (
+                    <Tile key={tile.seed} progress={progress} tile={tile} i={i} />
+                  ))}
+                </div>
+              </m.div>
+            </Float>
           </m.div>
 
           <m.div style={{ transform: retZ }} className="absolute -left-[3%] -top-[12%] w-[92%] lg:-left-[10%] lg:w-[78%]">
@@ -191,22 +191,23 @@ function Frame({ progress }: { progress: MotionValue<number> }) {
               style={{ opacity: ret.opacity, transform: ret.transform }}
               className="rounded-xl bg-[#1E1B18] p-4 shadow-[0_30px_60px_-24px_rgba(0,0,0,0.9)] ring-1 ring-[rgba(242,237,232,0.12)]"
             >
-              <RetentionField state="chosen" />
+              <Float amp={5} tilt={2} duration={6.2} delay={1.5}>
+                <RetentionField state="chosen" />
+              </Float>
             </m.div>
           </m.div>
 
-          <m.div
-            style={{ transform: meterZ }}
-            className="absolute inset-x-[5%] top-[60%] lg:inset-x-auto lg:left-[calc(100%+28px)] lg:top-[30%] lg:w-[300px] xl:w-[340px]"
-          >
+          <m.div style={{ transform: meterZ }} className="absolute inset-x-[5%] top-[60%] lg:inset-x-auto lg:left-[calc(100%+28px)] lg:top-[30%] lg:w-[300px] xl:w-[340px]">
             <m.div style={{ opacity: meterIn.opacity, transform: meterIn.transform }} className="relative">
               <m.div
                 style={{ opacity: meterGlow }}
                 className="pointer-events-none absolute -inset-10 bg-[radial-gradient(closest-side,rgba(240,200,142,0.32),rgba(240,200,142,0))]"
               />
-              <div ref={meter} className="relative">
-                <StorageMeter platform="web" state="beforeCleanUp" className="shadow-[0_30px_60px_-24px_rgba(0,0,0,0.9)] [&>div]:py-3" />
-              </div>
+              <Float amp={6} tilt={1.6} duration={6.8} delay={2.8}>
+                <div ref={meter} className="relative">
+                  <StorageMeter platform="web" state="beforeCleanUp" className="shadow-[0_30px_60px_-24px_rgba(0,0,0,0.9)] [&>div]:py-3" />
+                </div>
+              </Float>
             </m.div>
           </m.div>
         </m.div>

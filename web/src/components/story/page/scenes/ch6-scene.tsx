@@ -9,6 +9,7 @@ import { ClientGalleryPage } from '../../mocks/client-gallery';
 import { NotificationList, NotificationRow } from '../../mocks/notification-row';
 import { camera, lerp, r2, seg, window4 } from '../cinema/ease';
 import { LightSweep, useCamera, useReveal, useRumble } from '../cinema/fx';
+import { Float } from '../cinema/float';
 import { Morph } from '../cinema/morph';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { CH6_LENGTH, LinkCard, PhoneShell } from './ch6-parts';
@@ -58,7 +59,10 @@ export function Ch6Scene() {
 function Stage({ progress }: { progress: MotionValue<number> }) {
   return (
     <>
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_70%_at_82%_8%,rgba(240,200,142,0.5),rgba(251,247,242,0)_62%),linear-gradient(180deg,#FBF7F2_0%,#F7EEE2_100%)]" />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_70%_at_82%_8%,rgba(240,200,142,0.5),rgba(251,247,242,0)_62%),linear-gradient(180deg,#FBF7F2_0%,#F7EEE2_100%)]"
+      />
       <LinkGeometry progress={progress} />
       <LightSweep progress={progress} from={0.08} to={0.3} />
       <Card progress={progress} />
@@ -132,7 +136,17 @@ function LinkGeometry({ progress }: { progress: MotionValue<number> }) {
     <m.div aria-hidden style={{ opacity, transform }} className="pointer-events-none absolute -inset-[6%]">
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 size-full">
         {EDGES.map(([a, b]) => (
-          <line key={`${a}-${b}`} x1={NODES[a][0]} y1={NODES[a][1]} x2={NODES[b][0]} y2={NODES[b][1]} stroke="#A85D35" strokeOpacity="0.22" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          <line
+            key={`${a}-${b}`}
+            x1={NODES[a][0]}
+            y1={NODES[a][1]}
+            x2={NODES[b][0]}
+            y2={NODES[b][1]}
+            stroke="#A85D35"
+            strokeOpacity="0.22"
+            strokeWidth="1"
+            vectorEffect="non-scaling-stroke"
+          />
         ))}
       </svg>
       {NODES.map(([x, y]) => (
@@ -172,7 +186,9 @@ function Card({ progress }: { progress: MotionValue<number> }) {
     <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[17svh] z-10 flex justify-center lg:top-[19svh]">
       <m.div style={{ transform: cam }} className="w-[min(78vw,340px)] lg:w-[400px]">
         <m.div style={reveal} className="shadow-[0_40px_70px_-34px_rgba(62,39,26,0.55)]">
-          <LinkCard rule={<m.span style={{ transform: rule }} className="absolute inset-x-1 -bottom-2 h-px origin-left bg-[#C17745]" />} />
+          <Float amp={7} tilt={2} duration={6.6}>
+            <LinkCard rule={<m.span style={{ transform: rule }} className="absolute inset-x-1 -bottom-2 h-px origin-left bg-[#C17745]" />} />
+          </Float>
         </m.div>
       </m.div>
     </div>
@@ -218,14 +234,16 @@ function Couple({ progress }: { progress: MotionValue<number> }) {
       <m.div style={{ transform: shift }}>
         <m.div style={{ transform: cam }}>
           <m.div ref={root} style={reveal} className="w-[min(62vw,28svh)] lg:w-[min(290px,30svh)]">
-            <PhoneShell time="4:52">
-              <div className="absolute inset-0" data-c6="sunday">
-                <ClientGalleryPage className="absolute inset-0" state="sent" tiles={8} browserBar />
-              </div>
-              <m.div style={{ opacity: later }} className="absolute inset-0" data-c6="later">
-                <ClientGalleryPage className="absolute inset-0" state="rescoped" kind="video" tiles={6} browserBar />
-              </m.div>
-            </PhoneShell>
+            <Float amp={6} tilt={1.6} duration={6.8} delay={1.2}>
+              <PhoneShell time="4:52">
+                <div className="absolute inset-0" data-c6="sunday">
+                  <ClientGalleryPage className="absolute inset-0" state="sent" tiles={8} browserBar />
+                </div>
+                <m.div style={{ opacity: later }} className="absolute inset-0" data-c6="later">
+                  <ClientGalleryPage className="absolute inset-0" state="rescoped" kind="video" tiles={6} browserBar />
+                </m.div>
+              </PhoneShell>
+            </Float>
           </m.div>
         </m.div>
       </m.div>
@@ -245,7 +263,15 @@ const on = (el: Element | null | undefined, attr: string, yes: boolean) => {
  * only on a beat; the page's scroll is a transform per frame.
  */
 function usePicks(progress: MotionValue<number>, root: React.RefObject<HTMLDivElement | null>) {
-  const els = useRef<{ hearts: Element[]; tiles: Element[]; bar: Element | null; mine: Element | null; send: Element | null; note: Element | null; scroll: HTMLElement | null } | null>(null);
+  const els = useRef<{
+    hearts: Element[];
+    tiles: Element[];
+    bar: Element | null;
+    mine: Element | null;
+    send: Element | null;
+    note: Element | null;
+    scroll: HTMLElement | null;
+  } | null>(null);
   const step = useRef(-1);
   const scrolled = useRef('');
 
@@ -311,13 +337,15 @@ function Mika({ progress }: { progress: MotionValue<number> }) {
       <m.div style={reveal}>
         <m.div style={{ transform: turn }}>
           <div ref={phone} className="w-[min(40vw,20svh)] lg:w-[min(230px,26svh)]">
-            <PhoneShell time="4:58" night rotateY={-4}>
-              <m.div style={row} className="pt-3">
-                <NotificationList platform="phone" heading={TODAY}>
-                  <NotificationRow platform="phone" first {...NOTICES.picks} time="now" />
-                </NotificationList>
-              </m.div>
-            </PhoneShell>
+            <Float amp={5} tilt={1.6} duration={5.8} delay={2.6}>
+              <PhoneShell time="4:58" night rotateY={-4}>
+                <m.div style={row} className="pt-3">
+                  <NotificationList platform="phone" heading={TODAY}>
+                    <NotificationRow platform="phone" first {...NOTICES.picks} time="now" />
+                  </NotificationList>
+                </m.div>
+              </PhoneShell>
+            </Float>
           </div>
         </m.div>
       </m.div>
@@ -337,7 +365,15 @@ function HeartToDot({ progress }: { progress: MotionValue<number> }) {
   });
   return (
     <m.div aria-hidden style={{ opacity, transform }} className="pointer-events-none absolute left-[38%] top-[46svh] z-30 -ml-8 -mt-8 size-16 lg:left-[37%]">
-      <Morph progress={progress} keys={[{ at: SENT + 0.01, shape: 'heart' }, { at: TOLD - 0.01, shape: 'circle' }]} fill="#C9764A" className="size-full" />
+      <Morph
+        progress={progress}
+        keys={[
+          { at: SENT + 0.01, shape: 'heart' },
+          { at: TOLD - 0.01, shape: 'circle' },
+        ]}
+        fill="#C9764A"
+        className="size-full"
+      />
     </m.div>
   );
 }

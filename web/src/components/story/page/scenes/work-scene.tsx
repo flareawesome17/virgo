@@ -7,6 +7,7 @@ import { ShowcaseCard } from '../../mocks/showcase-card';
 import type { SkyFrame } from '../../sky/types';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
 import { LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
+import { Float } from '../cinema/float';
 import { GearArt, type GearKind } from '../cinema/gear';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { Viewfinder } from '../cinema/viewfinder';
@@ -152,12 +153,14 @@ function Frame({ progress }: { progress: MotionValue<number> }) {
           </m.div>
 
           <m.div ref={card} style={{ transform: cardT, opacity: cardO }} className="relative">
-            <m.div
-              style={{ opacity: cardIn.opacity, transform: cardIn.transform }}
-              className="overflow-hidden rounded-[22px] shadow-[0_40px_80px_-28px_rgba(0,0,0,0.95)] ring-1 ring-[rgba(242,237,232,0.12)]"
-            >
-              <ShowcaseCard pieces={3} />
-            </m.div>
+            <Float amp={7} tilt={1.8} duration={7}>
+              <m.div
+                style={{ opacity: cardIn.opacity, transform: cardIn.transform }}
+                className="overflow-hidden rounded-[22px] shadow-[0_40px_80px_-28px_rgba(0,0,0,0.95)] ring-1 ring-[rgba(242,237,232,0.12)]"
+              >
+                <ShowcaseCard pieces={3} />
+              </m.div>
+            </Float>
           </m.div>
 
           <m.span

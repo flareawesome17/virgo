@@ -5,6 +5,7 @@ import { useRef, useSyncExternalStore, type CSSProperties, type ReactNode, type 
 import { CH5 } from '../../data/strings/page-ch5';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useCamera, useReveal, useRumble } from '../cinema/fx';
+import { Float } from '../cinema/float';
 import { GEAR_ASPECT, GearArt, type GearKind } from '../cinema/gear';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { Morph } from '../cinema/morph';
@@ -235,9 +236,7 @@ function Shoot({ progress }: { progress: MotionValue<number> }) {
       }
     }
     if (gate.motion && !gate.paused && prev < SHUTTER && p >= SHUTTER) {
-      shutter.current
-        ?.querySelector<SVGElement>('[data-part="shutter"]')
-        ?.animate([{ opacity: 1 }, { opacity: 0.1 }, { opacity: 1 }], { duration: 180, easing: 'linear' });
+      shutter.current?.querySelector<SVGElement>('[data-part="shutter"]')?.animate([{ opacity: 1 }, { opacity: 0.1 }, { opacity: 1 }], { duration: 180, easing: 'linear' });
     }
   });
   const aperture = useReveal(progress, 0.395, 0.42, 0.5, 0.56, { y: 0, scale: 0.7 });
@@ -251,7 +250,15 @@ function Shoot({ progress }: { progress: MotionValue<number> }) {
         </div>
       </Piece>
       {/* Ernie's rig, rolling: its red tally light on. */}
-      <Piece progress={progress} kind="cinema" at={0.19} out={0.5} drift={1.6} inner={rig} className="bottom-[40svh] left-[3vw] w-[44vw] lg:bottom-[32svh] lg:left-[7vw] lg:w-[24vw]" />
+      <Piece
+        progress={progress}
+        kind="cinema"
+        at={0.19}
+        out={0.5}
+        drift={1.6}
+        inner={rig}
+        className="bottom-[40svh] left-[3vw] w-[44vw] lg:bottom-[32svh] lg:left-[7vw] lg:w-[24vw]"
+      />
       {/* Bea's brush, mid-stroke. */}
       <Piece
         progress={progress}
@@ -266,7 +273,16 @@ function Shoot({ progress }: { progress: MotionValue<number> }) {
       <Piece progress={progress} kind="camera" at={0.25} out={0.52} drift={2} inner={shutter} className="bottom-[29svh] left-[30vw] w-[40vw] lg:left-[40vw] lg:w-[20vw]" />
       {/* The morph: the shutter's hexagon aperture becomes a frame, an album tile. */}
       <m.div style={aperture} className="absolute left-1/2 top-[60%] -ml-12 -mt-12 size-24 lg:-ml-16 lg:-mt-16 lg:size-32">
-        <Morph progress={progress} keys={[{ at: 0.41, shape: 'hexagon' }, { at: 0.48, shape: 'square' }]} fill="rgba(255,231,194,0.08)" stroke="#FFE7C2" className="size-full" />
+        <Morph
+          progress={progress}
+          keys={[
+            { at: 0.41, shape: 'hexagon' },
+            { at: 0.48, shape: 'square' },
+          ]}
+          fill="rgba(255,231,194,0.08)"
+          stroke="#FFE7C2"
+          className="size-full"
+        />
       </m.div>
     </m.div>
   );
@@ -314,10 +330,11 @@ const ARRIVE: number[] = (() => {
 })();
 
 /** A hexagon in Morph's -100…100 box. */
-const HEX = Array.from({ length: 6 }, (_, k) => {
-  const ang = (k / 6) * Math.PI * 2 - Math.PI / 2;
-  return `${k ? 'L' : 'M'}${(Math.cos(ang) * 92).toFixed(1)} ${(Math.sin(ang) * 92).toFixed(1)}`;
-}).join('') + 'Z';
+const HEX =
+  Array.from({ length: 6 }, (_, k) => {
+    const ang = (k / 6) * Math.PI * 2 - Math.PI / 2;
+    return `${k ? 'L' : 'M'}${(Math.cos(ang) * 92).toFixed(1)} ${(Math.sin(ang) * 92).toFixed(1)}`;
+  }).join('') + 'Z';
 
 /** The focus marks for "kept exactly as shot": one frame, in Ceremony. */
 const KEPT = 6;
@@ -334,25 +351,27 @@ function Album({ progress }: { progress: MotionValue<number> }) {
     <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[31svh] z-10 flex justify-center lg:top-[15svh]">
       <m.div style={{ transform: cam }} className="w-[80vw] lg:w-[min(40vw,72svh)]">
         <m.div style={card}>
-          <AlbumCard
-            grid={
-              <>
-                <GridLines progress={progress} from={0.54} />
-                {SLOTS.map((_, i) => (
-                  <Flyer key={i} i={i} progress={progress} />
-                ))}
-                <m.div style={{ ...cellStyle(KEPT), ...marks }} className="absolute">
-                  {MARKS.map((c) => (
-                    <span key={c} className={`absolute size-3 border-[#FFE7C2] ${c}`} />
+          <Float amp={6} tilt={1.4} duration={7.4}>
+            <AlbumCard
+              grid={
+                <>
+                  <GridLines progress={progress} from={0.54} />
+                  {SLOTS.map((_, i) => (
+                    <Flyer key={i} i={i} progress={progress} />
                   ))}
-                </m.div>
-                {/* The tools, set down around the album. */}
-                {(Object.keys(SOURCES) as (keyof typeof SOURCES)[]).map((who) => (
-                  <Tool key={who} progress={progress} source={SOURCES[who]} />
-                ))}
-              </>
-            }
-          />
+                  <m.div style={{ ...cellStyle(KEPT), ...marks }} className="absolute">
+                    {MARKS.map((c) => (
+                      <span key={c} className={`absolute size-3 border-[#FFE7C2] ${c}`} />
+                    ))}
+                  </m.div>
+                  {/* The tools, set down around the album. */}
+                  {(Object.keys(SOURCES) as (keyof typeof SOURCES)[]).map((who) => (
+                    <Tool key={who} progress={progress} source={SOURCES[who]} />
+                  ))}
+                </>
+              }
+            />
+          </Float>
         </m.div>
       </m.div>
     </div>
@@ -435,7 +454,11 @@ function AlbumGeometry({ progress }: { progress: MotionValue<number> }) {
   return (
     <m.div aria-hidden style={{ opacity, transform }} className="pointer-events-none absolute -inset-[10%] z-[5]">
       {Array.from({ length: 9 }, (_, r) => (
-        <m.span key={r} style={{ top: `${r * 12.5}%`, transform: draw }} className="absolute inset-x-0 h-px bg-[linear-gradient(90deg,rgba(240,200,142,0),rgba(240,200,142,0.22),rgba(240,200,142,0))]" />
+        <m.span
+          key={r}
+          style={{ top: `${r * 12.5}%`, transform: draw }}
+          className="absolute inset-x-0 h-px bg-[linear-gradient(90deg,rgba(240,200,142,0),rgba(240,200,142,0.22),rgba(240,200,142,0))]"
+        />
       ))}
       <div className="absolute inset-0 [background-image:linear-gradient(90deg,rgba(240,200,142,0.08)_1px,transparent_1px)] [background-size:12.5%_100%]" />
     </m.div>

@@ -9,6 +9,7 @@ import { ApplicantRow } from '../../mocks/applicant-row';
 import { HiredTermsCard } from '../../mocks/hired-terms-card';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
+import { Float } from '../cinema/float';
 import { GearArt, ROLE_GEAR, type GearKind } from '../cinema/gear';
 import { Morph } from '../cinema/morph';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
@@ -87,7 +88,11 @@ const subscribeNarrow = (cb: () => void) => {
 };
 /** Phones and tablets get half the particles (cinema brief). */
 function useNarrow() {
-  return useSyncExternalStore(subscribeNarrow, () => window.matchMedia(narrowQuery).matches, () => true);
+  return useSyncExternalStore(
+    subscribeNarrow,
+    () => window.matchMedia(narrowQuery).matches,
+    () => true,
+  );
 }
 
 export default function Ch3Scene() {
@@ -141,8 +146,16 @@ function Frame({ p }: { p: MotionValue<number> }) {
 
   return (
     <>
-      <m.div aria-hidden style={{ opacity: pool }} className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_55%_at_50%_42%,rgba(14,12,11,0.92)_0%,rgba(14,12,11,0.6)_55%,rgba(14,12,11,0)_100%)]" />
-      <m.div aria-hidden style={{ opacity: glow }} className="pointer-events-none absolute inset-0 bg-[radial-gradient(40%_38%_at_50%_42%,rgba(209,138,90,0.32)_0%,rgba(209,138,90,0)_100%)]" />
+      <m.div
+        aria-hidden
+        style={{ opacity: pool }}
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_55%_at_50%_42%,rgba(14,12,11,0.92)_0%,rgba(14,12,11,0.6)_55%,rgba(14,12,11,0)_100%)]"
+      />
+      <m.div
+        aria-hidden
+        style={{ opacity: glow }}
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(40%_38%_at_50%_42%,rgba(209,138,90,0.32)_0%,rgba(209,138,90,0)_100%)]"
+      />
 
       <ConstellationLines p={p} />
 
@@ -164,7 +177,15 @@ function Frame({ p }: { p: MotionValue<number> }) {
           </div>
           <m.div style={{ opacity: star }} className="absolute left-1/2 top-[calc(50%-8vh)] size-9 -translate-x-1/2 -translate-y-1/2">
             <span className="absolute -inset-7 rounded-full bg-[radial-gradient(circle,rgba(240,200,142,0.5)_0%,rgba(240,200,142,0)_65%)]" />
-            <Morph progress={p} keys={[{ at: 0.77, shape: 'circle' }, { at: 0.84, shape: 'sparkle' }]} className="relative size-full" fill="#FFF0D6" />
+            <Morph
+              progress={p}
+              keys={[
+                { at: 0.77, shape: 'circle' },
+                { at: 0.84, shape: 'sparkle' },
+              ]}
+              className="relative size-full"
+              fill="#FFF0D6"
+            />
           </m.div>
         </m.div>
       </div>
@@ -205,18 +226,17 @@ function ApplicantCard({ p, hire, slot }: { p: MotionValue<number>; hire: Hire; 
   });
   return (
     <m.div style={{ transform, opacity }} className={`relative ${slot > 0 ? 'max-lg:-mt-[74px]' : ''}`}>
-      <div className="grid overflow-hidden rounded-[12px] shadow-[0_24px_48px_-20px_rgba(0,0,0,0.95)] ring-1 ring-[rgba(242,237,232,0.1)]">
-        <m.div style={{ opacity: no }} className="col-start-1 row-start-1 bg-[#161311]">
-          <ApplicantRow hire={hire} platform="phone" state="new" />
-        </m.div>
-        <m.div style={{ opacity: yes }} className="col-start-1 row-start-1 bg-[#161311]">
-          <ApplicantRow hire={hire} platform="phone" state="accepted" />
-        </m.div>
-      </div>
-      <m.div
-        style={{ opacity: rim }}
-        className="pointer-events-none absolute -inset-[3px] rounded-[15px] ring-2 ring-[#F0C88E] shadow-[0_0_36px_-4px_rgba(240,200,142,0.65)]"
-      />
+      <Float className="relative" delay={slot * 1.9} amp={6} tilt={2} duration={6 + slot * 0.7}>
+        <div className="grid overflow-hidden rounded-[12px] shadow-[0_24px_48px_-20px_rgba(0,0,0,0.95)] ring-1 ring-[rgba(242,237,232,0.1)]">
+          <m.div style={{ opacity: no }} className="col-start-1 row-start-1 bg-[#161311]">
+            <ApplicantRow hire={hire} platform="phone" state="new" />
+          </m.div>
+          <m.div style={{ opacity: yes }} className="col-start-1 row-start-1 bg-[#161311]">
+            <ApplicantRow hire={hire} platform="phone" state="accepted" />
+          </m.div>
+        </div>
+        <m.div style={{ opacity: rim }} className="pointer-events-none absolute -inset-[3px] rounded-[15px] ring-2 ring-[#F0C88E] shadow-[0_0_36px_-4px_rgba(240,200,142,0.65)]" />
+      </Float>
       <div className="pointer-events-none absolute -top-8 right-4 lg:left-[calc(100%+24px)] lg:right-auto lg:top-1/2 lg:-translate-y-1/2">
         <m.div style={reveal}>
           <m.div style={{ transform: tool }} className={`flex items-center justify-center ${gear.size}`}>
@@ -246,16 +266,18 @@ function TermsCard({ p }: { p: MotionValue<number> }) {
   const ask = useTransform(done, (v) => r2(1 - v));
   return (
     <m.div style={{ transform, opacity }} className="w-[min(84vw,340px)]">
-      <Slab className="w-full" depth={10} radius="rounded-[16px]" edge="card" shadow="drop">
-        <div className="grid">
-          <m.div style={{ opacity: ask }} className="col-start-1 row-start-1">
-            <HiredTermsCard side="creative" state="needs-you" className="h-full" />
-          </m.div>
-          <m.div style={{ opacity: done }} className="col-start-1 row-start-1">
-            <HiredTermsCard side="creative" state="confirmed" className="h-full" />
-          </m.div>
-        </div>
-      </Slab>
+      <Float amp={7} tilt={1.8} duration={7.2}>
+        <Slab className="w-full" depth={10} radius="rounded-[16px]" edge="card" shadow="drop">
+          <div className="grid">
+            <m.div style={{ opacity: ask }} className="col-start-1 row-start-1">
+              <HiredTermsCard side="creative" state="needs-you" className="h-full" />
+            </m.div>
+            <m.div style={{ opacity: done }} className="col-start-1 row-start-1">
+              <HiredTermsCard side="creative" state="confirmed" className="h-full" />
+            </m.div>
+          </div>
+        </Slab>
+      </Float>
     </m.div>
   );
 }
@@ -268,10 +290,30 @@ function TermsCard({ p }: { p: MotionValue<number> }) {
  * any aspect.
  */
 const NODES: readonly (readonly [number, number])[] = [
-  [14, 34], [28, 24], [41, 36], [56, 27], [71, 38], [86, 26], [62, 55], [45, 52], [30, 66], [55, 74], [80, 64],
+  [14, 34],
+  [28, 24],
+  [41, 36],
+  [56, 27],
+  [71, 38],
+  [86, 26],
+  [62, 55],
+  [45, 52],
+  [30, 66],
+  [55, 74],
+  [80, 64],
 ];
 const EDGES: readonly (readonly [number, number])[] = [
-  [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [2, 7], [7, 6], [6, 4], [7, 8], [6, 9], [6, 10],
+  [0, 1],
+  [1, 2],
+  [2, 3],
+  [3, 4],
+  [4, 5],
+  [2, 7],
+  [7, 6],
+  [6, 4],
+  [7, 8],
+  [6, 9],
+  [6, 10],
 ];
 const SEGMENTS = EDGES.map(([i, j]) => {
   const [x1, y1] = NODES[i];
@@ -286,11 +328,7 @@ function ConstellationLines({ p }: { p: MotionValue<number> }) {
   });
   const opacity = useTransform(p, (v) => r2(window4(v, -0.05, 0.06, 0.64, 0.76)));
   return (
-    <m.div
-      aria-hidden
-      style={{ transform: drift, opacity }}
-      className="pointer-events-none absolute left-1/2 top-[42%] aspect-square w-[max(120vw,120vh)]"
-    >
+    <m.div aria-hidden style={{ transform: drift, opacity }} className="pointer-events-none absolute left-1/2 top-[42%] aspect-square w-[max(120vw,120vh)]">
       {SEGMENTS.map((sg, i) => (
         <Rule key={i} p={p} at={0.02 + i * 0.025} {...sg} />
       ))}

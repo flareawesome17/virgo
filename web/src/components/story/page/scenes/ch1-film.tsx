@@ -7,6 +7,7 @@ import { WHEN } from '../../data/story';
 import { LOCK_WALLPAPER, LockScreen, PHONE_RADIUS, PhoneFrame, Slab, lockDate, lockTime } from '../../frames';
 import { camera, enter, exit, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useCamera, useReveal, useRumble } from '../cinema/fx';
+import { Float } from '../cinema/float';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { Morph } from '../cinema/morph';
 import { Viewfinder } from '../cinema/viewfinder';
@@ -164,11 +165,13 @@ function Phone({ progress }: { progress: MotionValue<number> }) {
       />
       <div aria-hidden className={ANCHOR}>
         <m.div style={{ transform, opacity }}>
-          <Slab depth={14} radius={PHONE_RADIUS} edge="device" shadow={false} className="w-[calc(min(60svh,620px)*0.4615)]">
-            <PhoneFrame width="100%" time={lockTime(WHEN.panic)} screen={LOCK_WALLPAPER}>
-              <LockScreen time={lockTime(WHEN.panic)} date={lockDate(WHEN.panic)} />
-            </PhoneFrame>
-          </Slab>
+          <Float amp={6} tilt={1.8}>
+            <Slab depth={14} radius={PHONE_RADIUS} edge="device" shadow={false} className="w-[calc(min(60svh,620px)*0.4615)]">
+              <PhoneFrame width="100%" time={lockTime(WHEN.panic)} screen={LOCK_WALLPAPER}>
+                <LockScreen time={lockTime(WHEN.panic)} date={lockDate(WHEN.panic)} />
+              </PhoneFrame>
+            </Slab>
+          </Float>
         </m.div>
       </div>
     </>
@@ -194,21 +197,23 @@ function Chat({ progress, layout, i, title, sent, seen }: { progress: MotionValu
   const after = useTransform(progress, (p) => r2(seg(p, turn, turn + 0.02)));
   return (
     <div aria-hidden className={`${ANCHOR} z-10`}>
-      <m.div
-        style={{ transform, opacity }}
-        className="w-[min(76vw,300px)] rounded-2xl border border-[#2F2925] bg-[#1C1815] p-4 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.95),inset_0_1px_0_rgba(255,255,255,0.05)]"
-      >
-        <p className="truncate text-[15px] font-semibold text-[#F2EDE8]">{title}</p>
-        <p className="ml-auto mt-3 w-fit max-w-[88%] rounded-2xl rounded-br-md bg-[#A85D35] px-3.5 py-2 text-[15px] leading-snug text-white">{CH1_QUESTION}</p>
-        <p className="mt-1.5 grid justify-items-end text-[15px]">
-          <m.span style={{ opacity: before }} className="col-start-1 row-start-1 text-[#A08E84]">
-            {sent}
-          </m.span>
-          <m.span style={{ opacity: after }} className={`col-start-1 row-start-1 ${i === 0 ? 'font-semibold text-[#F0C88E]' : 'text-[#BCADA3]'}`}>
-            {seen}
-          </m.span>
-        </p>
-      </m.div>
+      <Float delay={1.1 + i * 1.7} amp={8} tilt={2.2} duration={5.8 + i * 0.6}>
+        <m.div
+          style={{ transform, opacity }}
+          className="w-[min(76vw,300px)] rounded-2xl border border-[#2F2925] bg-[#1C1815] p-4 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.95),inset_0_1px_0_rgba(255,255,255,0.05)]"
+        >
+          <p className="truncate text-[15px] font-semibold text-[#F2EDE8]">{title}</p>
+          <p className="ml-auto mt-3 w-fit max-w-[88%] rounded-2xl rounded-br-md bg-[#A85D35] px-3.5 py-2 text-[15px] leading-snug text-white">{CH1_QUESTION}</p>
+          <p className="mt-1.5 grid justify-items-end text-[15px]">
+            <m.span style={{ opacity: before }} className="col-start-1 row-start-1 text-[#A08E84]">
+              {sent}
+            </m.span>
+            <m.span style={{ opacity: after }} className={`col-start-1 row-start-1 ${i === 0 ? 'font-semibold text-[#F0C88E]' : 'text-[#BCADA3]'}`}>
+              {seen}
+            </m.span>
+          </p>
+        </m.div>
+      </Float>
     </div>
   );
 }
@@ -234,19 +239,21 @@ function Job({ progress }: { progress: MotionValue<number> }) {
       <div ref={anchor} className={`${ANCHOR} z-10 w-[min(88vw,420px)]`}>
         <m.div style={{ transform, opacity }}>
           <div ref={shake}>
-            <JobCard
-              wrapRow={(node, i) => (
-                <Reveal progress={progress} at={0.66 + i * 0.035} out={0.86 + i * 0.012}>
-                  {node}
-                </Reveal>
-              )}
-              wrapButton={(node) => (
-                <Press progress={progress} target={button}>
-                  {node}
-                </Press>
-              )}
-              wrapStamp={(node) => <Stamp progress={progress}>{node}</Stamp>}
-            />
+            <Float delay={0.8} amp={6} tilt={1.4} duration={7}>
+              <JobCard
+                wrapRow={(node, i) => (
+                  <Reveal progress={progress} at={0.66 + i * 0.035} out={0.86 + i * 0.012}>
+                    {node}
+                  </Reveal>
+                )}
+                wrapButton={(node) => (
+                  <Press progress={progress} target={button}>
+                    {node}
+                  </Press>
+                )}
+                wrapStamp={(node) => <Stamp progress={progress}>{node}</Stamp>}
+              />
+            </Float>
           </div>
         </m.div>
       </div>

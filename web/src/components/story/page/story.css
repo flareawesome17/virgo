@@ -25,6 +25,21 @@ html[data-paused] .story-page .autoplay {
   animation-play-state: paused !important;
 }
 
+/* The idle float (cinema/float.tsx): cards bob and tilt in 3D while the story moves. */
+@keyframes story-float {
+  0%,
+  100% {
+    transform: perspective(900px) translate3d(0, calc(var(--float-amp) * -1), 0) rotateX(var(--float-tilt)) rotateY(calc(var(--float-tilt) * -0.8));
+  }
+  50% {
+    transform: perspective(900px) translate3d(0, var(--float-amp), 0) rotateX(calc(var(--float-tilt) * -0.6)) rotateY(calc(var(--float-tilt) * 0.9));
+  }
+}
+html[data-motion='on'] .story-page .story-float {
+  animation: story-float var(--float-dur, 6.4s) cubic-bezier(0.45, 0, 0.55, 1) var(--float-delay, 0s) infinite;
+  will-change: transform;
+}
+
 /* One fixed grain layer over everything, never animated, gone under forced colours. */
 .story-grain {
   pointer-events: none;

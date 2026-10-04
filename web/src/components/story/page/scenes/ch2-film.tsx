@@ -8,6 +8,7 @@ import { CH2 } from '../../data/strings/page-ch2';
 import { LocationCard } from '../../mocks/location-card';
 import { camera, enter, exit, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
+import { Float } from '../cinema/float';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { Morph } from '../cinema/morph';
 import { usePublishSky } from '../sky-stage';
@@ -198,63 +199,65 @@ function Card({ progress, wide }: { progress: MotionValue<number>; wide: boolean
   return (
     <div className={`${ANCHOR} z-10`}>
       <Star progress={progress} />
-      <m.div style={{ transform, opacity }} className="grid">
-        {/* The search: roles with their tools, then the distance. */}
-        <m.div style={{ opacity: search }} className={`col-start-1 row-start-1 ${NEARBY_CARD}`}>
-          <Field label={NEARBY.lookingFor}>
-            <div className="flex flex-wrap gap-2">
-              {SEARCH_ROLES.map((r, i) => (
-                <Item key={r} progress={progress} at={0.02 + i * 0.035} out={FIND - 0.07 + i * 0.012}>
-                  <Flip progress={progress} at={PICK[i]} off={<RoleChip role={r} on={false} />} on={<RoleChip role={r} on />} />
-                </Item>
-              ))}
-            </div>
-          </Field>
-          <div className="mt-4">
-            <Field label={NEARBY.within}>
+      <m.div style={{ transform, opacity }}>
+        <Float className="grid" amp={7} tilt={1.8} duration={6.8}>
+          {/* The search: roles with their tools, then the distance. */}
+          <m.div style={{ opacity: search }} className={`col-start-1 row-start-1 ${NEARBY_CARD}`}>
+            <Field label={NEARBY.lookingFor}>
               <div className="flex flex-wrap gap-2">
-                {CARD_KM.map((km, i) => (
-                  <Item key={km} progress={progress} at={0.08 + i * 0.035} out={FIND - 0.05 + i * 0.012}>
-                    <Flip
-                      progress={progress}
-                      at={km === 5 ? NEARBY_AT.r5 : km === 25 ? NEARBY_AT.r25 : 2}
-                      until={km === 5 ? NEARBY_AT.r25 : 2}
-                      off={<KmChip km={km} on={false} />}
-                      on={<KmChip km={km} on />}
-                    />
+                {SEARCH_ROLES.map((r, i) => (
+                  <Item key={r} progress={progress} at={0.02 + i * 0.035} out={FIND - 0.07 + i * 0.012}>
+                    <Flip progress={progress} at={PICK[i]} off={<RoleChip role={r} on={false} />} on={<RoleChip role={r} on />} />
                   </Item>
                 ))}
               </div>
             </Field>
-          </div>
-        </m.div>
+            <div className="mt-4">
+              <Field label={NEARBY.within}>
+                <div className="flex flex-wrap gap-2">
+                  {CARD_KM.map((km, i) => (
+                    <Item key={km} progress={progress} at={0.08 + i * 0.035} out={FIND - 0.05 + i * 0.012}>
+                      <Flip
+                        progress={progress}
+                        at={km === 5 ? NEARBY_AT.r5 : km === 25 ? NEARBY_AT.r25 : 2}
+                        until={km === 5 ? NEARBY_AT.r25 : 2}
+                        off={<KmChip km={km} on={false} />}
+                        on={<KmChip km={km} on />}
+                      />
+                    </Item>
+                  ))}
+                </div>
+              </Field>
+            </div>
+          </m.div>
 
-        {/* Who it finds: a name, the work, and how far. Nothing else. */}
-        <m.div style={{ opacity: found }} className={`col-start-1 row-start-1 ${NEARBY_CARD}`}>
-          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#A08E84]">
-            {NEARBY.within} {CARD_KM[1]} km
-          </p>
-          <div className="mt-2">
-            {ROWS_25.slice(0, rowCount).map((n, i) => (
-              <Row key={n.name} progress={progress} at={FIND + 0.03 + i * 0.03} out={SHARE - 0.06 + i * 0.01}>
-                <PersonRow n={n} />
-              </Row>
-            ))}
-          </div>
-        </m.div>
+          {/* Who it finds: a name, the work, and how far. Nothing else. */}
+          <m.div style={{ opacity: found }} className={`col-start-1 row-start-1 ${NEARBY_CARD}`}>
+            <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#A08E84]">
+              {NEARBY.within} {CARD_KM[1]} km
+            </p>
+            <div className="mt-2">
+              {ROWS_25.slice(0, rowCount).map((n, i) => (
+                <Row key={n.name} progress={progress} at={FIND + 0.03 + i * 0.03} out={SHARE - 0.06 + i * 0.01}>
+                  <PersonRow n={n} />
+                </Row>
+              ))}
+            </div>
+          </m.div>
 
-        {/* Sharing: on, then off. */}
-        <m.div aria-hidden style={{ opacity: sharing }} className="col-start-1 row-start-1 self-start">
-          <div>
-            <Flip
-              className="grid w-full"
-              progress={progress}
-              at={ERASE}
-              off={<LocationCard platform="phone" state="on" className="w-full" />}
-              on={<LocationCard platform="phone" state="off" className="w-full" />}
-            />
-          </div>
-        </m.div>
+          {/* Sharing: on, then off. */}
+          <m.div aria-hidden style={{ opacity: sharing }} className="col-start-1 row-start-1 self-start">
+            <div>
+              <Flip
+                className="grid w-full"
+                progress={progress}
+                at={ERASE}
+                off={<LocationCard platform="phone" state="on" className="w-full" />}
+                on={<LocationCard platform="phone" state="off" className="w-full" />}
+              />
+            </div>
+          </m.div>
+        </Float>
       </m.div>
     </div>
   );
