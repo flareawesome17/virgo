@@ -47,6 +47,29 @@ This document overrides the storyboard's motion, navigation and copy wherever th
    - **Scenes:** each role carries its tool wherever the crew appears: the job's role rows, the nearby filter, the accepted crew, Saturday's shoot (a shutter beat on the camera, the rig's red tally light), the credits.
    - No brand names or logos; no real products.
 
+8. **Zoom in, ease in and out, geometry** (the owner's reference, 2026-10-04):
+   - **Cuts between chapters** are drawn centrally (`page/cinema/cuts.tsx`) as fixed overlays keyed to where the next chapter's top edge is on screen, so the seam is never seen:
+     - an aperture **iris** that turns as it closes and opens (into #hire, #calendar, #delivery and #features);
+     - a **tunnel** of hexagons zooming past (into #nearby and #forget);
+     - a gold **light leak** (into #saturday).
+     Chapters that share the sky flow on uncut.
+   - Every scene **opens as a zoom in** onto its hero object.
+   - Every item **eases in and out** (`useReveal`), staggered; nothing pops.
+   - **Viewfinder** moments (`viewfinder.tsx`): corner brackets, a thirds grid, and a focus box that hunts and locks. Used on Mika's star, Post it, Saturday's shoot and The work.
+   - **Geometry** from the story's own shapes sits behind each scene in gold hairlines: constellation lines, radius rings, the calendar and album grids, hexagonal apertures.
+9. **Morphs** (`morph.tsx`): every shape is resampled once onto the same polar grid, so any shape melts into any other.
+   - At the centre of every cut, the outgoing scene's symbol morphs into the incoming one's: star → chat bubble, job → pin, constellation → calendar, alarm → sun, shutter → heart, heart → hourglass, stars → aperture.
+   - Inside the scenes:
+     - the chat bubble becomes the job card;
+     - a dot becomes a map pin;
+     - an applicant's light becomes a star;
+     - the calendar tile becomes the alarm;
+     - the aperture becomes an album tile;
+     - the client's heart becomes Mika's notification;
+     - each leaving file becomes a fading star;
+     - the crews' pins become stars;
+     - the credits' star becomes a heart.
+
 ## 2. The frame (chrome)
 - **No header.**
   - The hero shows only the Virgo mark (top-left) and **Sign in** (top-right, text). Both fade out as the film starts.
