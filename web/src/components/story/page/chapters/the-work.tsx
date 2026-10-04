@@ -1,38 +1,23 @@
 import { WORK_COPY } from '../../data/strings/page-work';
 import { Slab } from '../../frames/slab';
-import { litePlateStyle } from '../../mocks/plate';
 import { ShowcaseCard } from '../../mocks/showcase-card';
-import { TheWorkStage } from '../islands/the-work';
+import { GearArt } from '../cinema/gear';
+import { TheWorkFilm } from '../islands/the-work';
 
 /**
- * The work · #the-work (storyboard §2, the optional interlude, cut-ready).
+ * The work · #the-work (05-cinema.md §3).
  *
- * A breath between the job and the industry: one of Mika's own pieces, as a
- * showcase card in the phone feed, with the post's other two pieces fanned
- * behind it on desktop. Normal flow, no pin. The server render is the final
- * frame (note shown, tags on, the card at its rest tilt); the island lifts
- * and turns what is already here.
+ * Motion: one shot (`scenes/work-scene.tsx`, loaded when near): out of Ch7's
+ * gold leak onto a flat-lay, the camera cranes up until Mika's showcase card
+ * faces us through the viewfinder, then pulls back to the sky for Ch8.
  *
- * The cover seeds are new ones, never Ch5–7's album plates, and the card is
+ * Static (reduced motion, no JS, crawlers): the line as the heading, who can
+ * see a showcase, and one still: the card with the kit beside it. The card is
  * never tied to the Reyes & Santos album (the clean-up would take it).
  */
 
-/** The post's other pieces: fresh seeds, never reused from the album. */
-const PIECES = [
-  {
-    seed: 141,
-    className: 'left-[-34%] top-[7%] lg:left-[-44%]',
-    rotate: { x: 6, y: 14 },
-  },
-  {
-    seed: 158,
-    className: 'right-[-34%] top-[13%] lg:right-[-44%]',
-    rotate: { x: 6, y: -14 },
-  },
-] as const;
-
-const SCRIM =
-  'relative isolate before:pointer-events-none before:absolute before:-inset-x-6 before:-inset-y-8 before:-z-10 before:rounded-[40px] before:bg-[#161311]/95 before:shadow-[0_0_90px_50px_rgba(22,19,17,0.95)]';
+/** The shot's scroll, in svh, beyond its 100svh stage. */
+const LENGTH = 60;
 
 export function TheWork() {
   return (
@@ -41,69 +26,37 @@ export function TheWork() {
       data-tone="night"
       data-chapter="the-work"
       aria-labelledby="the-work-title"
-      className="relative z-10 [overflow-x:clip]"
+      className="relative z-10 text-[#F2EDE8] [overflow-x:clip]"
     >
-      <div className="mx-auto grid max-w-6xl items-center gap-14 px-5 py-24 sm:px-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:gap-10 md:py-36 lg:gap-24">
-        <div className={`${SCRIM} max-w-[34rem]`}>
-          <p className="font-mono text-xs uppercase tracking-[0.14em] text-[#D18A5A]">{WORK_COPY.eyebrow}</p>
+      <div className="motion-only">
+        <h2 className="sr-only">{WORK_COPY.title}</h2>
+        <TheWorkFilm length={LENGTH} />
+      </div>
+
+      <div className="static-only mx-auto grid max-w-6xl items-center gap-14 px-5 py-24 sm:px-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:gap-10 md:py-32 lg:gap-24">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.2em] text-[#D18A5A]">{WORK_COPY.slate}</p>
           <h2
             id="the-work-title"
-            className="mt-4 max-w-[18ch] text-[clamp(2rem,1.3rem+3.4vw,4.25rem)] font-semibold leading-none tracking-[-0.03em] text-[#F2EDE8] [text-wrap:balance]"
+            className="mt-4 max-w-[16ch] text-[clamp(2rem,1.3rem+3.4vw,4.25rem)] font-semibold leading-none tracking-[-0.03em] [text-wrap:balance]"
           >
             {WORK_COPY.title}
           </h2>
-          <p className="mt-6 max-w-[52ch] text-base leading-relaxed text-[#BCADA3] md:text-[17px]">{WORK_COPY.body}</p>
-          <dl className="mt-8 grid grid-cols-3 gap-3 border-t border-[#2A2522] pt-6">
-            {WORK_COPY.facts.map((f) => (
-              <div key={f.k} className="min-w-0">
-                <dt className="text-lg font-semibold tracking-tight text-[#F2EDE8] md:text-xl">{f.k}</dt>
-                <dd className="mt-1 text-[13px] leading-snug text-[#A08E84] md:text-sm">{f.v}</dd>
-              </div>
-            ))}
-          </dl>
+          <p className="mt-6 max-w-[40ch] text-[17px] leading-relaxed text-[#BCADA3] md:text-lg">{WORK_COPY.small}</p>
         </div>
 
-        <TheWorkStage className="relative mx-auto w-full max-w-[375px] md:max-w-[340px] lg:max-w-[360px]">
-          <figure>
-            <div aria-hidden className="relative">
-              {/* The post's other pieces, behind the card in depth (desktop only: one card on a phone). */}
-              {PIECES.map((piece) => (
-                <div key={piece.seed} data-part="work-piece-wrap" className={`absolute hidden w-[72%] md:block ${piece.className}`}>
-                  <div data-part="work-piece" className="will-change-transform">
-                    <Slab
-                      rotateX={piece.rotate.x}
-                      rotateY={piece.rotate.y}
-                      translateZ={-140}
-                      depth={6}
-                      radius="rounded-[14px]"
-                      edge="card"
-                      shadow="drop"
-                    >
-                      <div
-                        className="w-full"
-                        style={{
-                          ...litePlateStyle(piece.seed),
-                          aspectRatio: '1 / 1.15',
-                        }}
-                      />
-                    </Slab>
-                  </div>
-                </div>
-              ))}
-              <div data-part="work-card" className="relative">
-                <Slab rotateX={5} rotateY={-8} depth={9} radius="rounded-[22px]" edge="card" shadow="drop">
-                  <ShowcaseCard pieces={3} />
-                </Slab>
-              </div>
-            </div>
-            <div className="relative mt-10 rounded-2xl bg-[#161311]/95 px-4 py-3 shadow-[0_0_40px_24px_rgba(22,19,17,0.9)]">
-              <figcaption className="text-sm leading-relaxed text-[#BCADA3] [html[data-motion='on']_&]:sr-only">
-                {WORK_COPY.caption}
-              </figcaption>
-              <p className="mt-3 text-[13px] leading-relaxed text-[#A08E84] [html[data-motion='on']_&]:mt-0">{WORK_COPY.footnote}</p>
-            </div>
-          </figure>
-        </TheWorkStage>
+        <figure className="mx-auto w-full max-w-[300px]">
+          <div aria-hidden className="relative">
+            {/* The kit beside the card: decoration, not a feature. */}
+            <GearArt kind="camera" className="absolute -left-[34%] top-[14%] h-auto w-[46%] -rotate-[14deg] lg:-left-[52%] lg:w-[54%]" />
+            <GearArt kind="light" className="absolute -right-[22%] -top-[8%] h-auto w-[24%] rotate-[10deg] lg:-right-[38%] lg:w-[28%]" />
+            <GearArt kind="lens" className="absolute -right-[26%] top-[60%] h-auto w-[32%] rotate-[8deg] lg:-right-[42%] lg:w-[38%]" />
+            <Slab rotateX={5} rotateY={-8} depth={9} radius="rounded-[22px]" edge="card" shadow="drop">
+              <ShowcaseCard pieces={3} />
+            </Slab>
+          </div>
+          <figcaption className="mt-8 text-[15px] leading-relaxed text-[#A08E84]">{WORK_COPY.still}</figcaption>
+        </figure>
       </div>
     </section>
   );
