@@ -3,7 +3,7 @@
 import { m, useTransform, type MotionValue } from 'framer-motion';
 import { useRef, useState } from 'react';
 import { camera, clamp01, enter, lerp, r2, seg, window4 } from '../cinema/ease';
-import { Flare, LightSweep, Particles, useCamera, useReveal, useRumble } from '../cinema/fx';
+import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
 import { GearArt, GEAR_ASPECT } from '../cinema/gear';
 import { Morph } from '../cinema/morph';
 import { Shot, Slate } from '../cinema/shot';
@@ -164,7 +164,6 @@ function CrewRow({ progress, i, c }: { progress: MotionValue<number>; i: number;
  */
 function Sting({ progress }: { progress: MotionValue<number> }) {
   const shake = useRef<HTMLDivElement>(null);
-  useRumble(progress, FLASH, shake);
   // The star: from a point to a burst, gone in the flash.
   const starO = useTransform(progress, (p) => r2(window4(p, 0.34, 0.38, FLASH - 0.01, FLASH + 0.01)));
   const starT = useTransform(progress, (p) => `translate3d(-50%,-50%,0) rotate(${r2(lerp(-30, 40, seg(p, 0.34, FLASH)))}deg) scale(${r2(lerp(0.15, 1.6, camera(seg(p, 0.34, FLASH))))})`);

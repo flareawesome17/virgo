@@ -1,13 +1,13 @@
 'use client';
 
-import { m, useMotionValueEvent, useTransform, type MotionValue } from 'framer-motion';
-import { useMemo, useRef, type RefObject } from 'react';
-import { useMotionGate } from '../motion';
+import { m, useTransform, type MotionValue } from 'framer-motion';
+import { useMemo } from 'react';
 import { camera, enter, lerp, r2, seg, window4 } from './ease';
 
 /**
  * The "5D" layer (docs/redesign/05-cinema.md §1.4): particles that stream
- * past on camera pushes, light sweeps, flares, and the rumble. Compositor-only.
+ * past on camera pushes, light sweeps and flares. Compositor-only. (There is
+ * no screen shake: it read as the page juddering, and made people dizzy.)
  */
 
 /** mulberry32: the same particles every load. */
@@ -108,31 +108,6 @@ export function Flare({ progress, from, to, x = 50, y = 40, size = 520 }: { prog
       className="pointer-events-none absolute z-20 rounded-full bg-[radial-gradient(circle,rgba(255,231,194,0.55)_0%,rgba(240,200,142,0.18)_30%,rgba(240,200,142,0)_65%)]"
     />
   );
-}
-
-/**
- * The rumble: when progress crosses `at` going forward, the target shakes
- * (≤ 2 px, 300 ms). Off under reduced motion (the gate) and Pause.
- */
-export function useRumble(progress: MotionValue<number>, at: number, target: RefObject<HTMLElement | null>) {
-  const gate = useMotionGate();
-  const last = useRef(progress.get());
-  useMotionValueEvent(progress, 'change', (p) => {
-    const prev = last.current;
-    last.current = p;
-    if (!gate.motion || gate.paused || !(prev < at && p >= at)) return;
-    target.current?.animate(
-      [
-        { transform: 'translate3d(0,0,0)' },
-        { transform: 'translate3d(-2px,1px,0)' },
-        { transform: 'translate3d(2px,-1px,0)' },
-        { transform: 'translate3d(-1px,-1px,0)' },
-        { transform: 'translate3d(1px,1px,0)' },
-        { transform: 'translate3d(0,0,0)' },
-      ],
-      { duration: 300, easing: 'linear' },
-    );
-  });
 }
 
 /** A camera transform for a whole shot: dolly (scale) and drift, from keyframes over progress. */

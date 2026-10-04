@@ -9,3 +9,6 @@ out
 # Story-site asset pipeline
 out/
 cache/
+
+# Third-party 3D models (CC BY, credited on the site). Large, and not ours to redistribute here.
+models/

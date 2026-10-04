@@ -1,7 +1,7 @@
 'use client';
 
-import { LazyMotion, useMotionValue, useScroll, type MotionValue } from 'framer-motion';
-import { useEffect, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
+import { LazyMotion, useMotionValue, useScroll, useSpring, type MotionValue } from 'framer-motion';
+import { useEffect, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import type { Layout } from './sky/choreography';
 
 /**
@@ -71,9 +71,38 @@ const OFFSETS = {
   enter: ['start end', 'start start'],
 } as const;
 
+/**
+ * The progress glides after the scroll rather than snapping to it: a mouse
+ * wheel moves the page in 100 px steps, and every scene drawn straight from
+ * those steps judders. A light, well-damped spring (settles in ~0.3 s, no
+ * overshoot) turns the steps into one move, like a camera on a fluid head.
+ */
+export const GLIDE = { stiffness: 170, damping: 32, mass: 0.6, restDelta: 0.0002 } as const;
+
 export function useChapterProgress(target: RefObject<HTMLElement | null>, kind: ProgressKind = 'track'): MotionValue<number> {
   const { scrollYProgress } = useScroll({ target, offset: [...OFFSETS[kind]] as never });
-  return scrollYProgress;
+  return useSpring(scrollYProgress, GLIDE);
+}
+
+// ─── Nearness ─────────────────────────────────────────────────────────
+
+/**
+ * Whether `target` is within about one and a half screens of the viewport.
+ * Scenes mount as they approach and unmount once they are well past, so a
+ * phone only ever holds the few nearest: holding every scene at once is what
+ * made iOS close the tab partway down the page. (Their code stays cached, so
+ * coming back is instant.)
+ */
+export function useNear(target: RefObject<HTMLElement | null>, enabled: boolean, margin = '150% 0px'): boolean {
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const el = target.current;
+    if (!enabled || !el) return;
+    const io = new IntersectionObserver((entries) => setNear(entries[entries.length - 1].isIntersecting), { rootMargin: margin });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [enabled, target, margin]);
+  return enabled && near;
 }
 
 // ─── Layout ──────────────────────────────────────────────────────────────

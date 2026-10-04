@@ -1,8 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useRef, useState } from 'react';
-import { useMotionGate } from '../motion';
+import { useRef } from 'react';
+import { useMotionGate, useNear } from '../motion';
 
 /**
  * The Finale's motion half (05-cinema.md §5): the credits scene is a client
@@ -17,22 +17,7 @@ const FinaleCredits = dynamic(() => import('../scenes/finale-credits').then((mod
 export function FinaleFilm({ length }: { length: number }) {
   const gate = useMotionGate();
   const box = useRef<HTMLDivElement>(null);
-  const [near, setNear] = useState(false);
-
-  useEffect(() => {
-    const el = box.current;
-    if (!gate.motion || near || !el) return;
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting) return;
-        setNear(true);
-        io.disconnect();
-      },
-      { rootMargin: '150% 0px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [gate.motion, near]);
+  const near = useNear(box, gate.motion);
 
   return (
     <div ref={box} className="motion-only relative bg-[#100D0C]" style={{ minHeight: `${100 + length}svh` }}>

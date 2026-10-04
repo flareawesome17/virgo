@@ -33,19 +33,36 @@ export type MapLayerLevel = {
   readonly scale: number;
 };
 
+/**
+ * Device pixels one level may rasterize to. A level is laid out at the largest
+ * scale it is ever shown at, which on a 3× phone came to 2,900 × 2,900 CSS px
+ * for the radar: about 300 MB of layer, several levels crossfading at once,
+ * and iOS closed the tab. Past the budget a level is laid out smaller (its
+ * `data-scale` with it, so the engine still places it to the pixel); phones,
+ * which show the map smaller anyway, lose nothing they can see.
+ */
+function budget(): number {
+  if (typeof window === 'undefined') return Infinity;
+  return window.innerWidth < 1024 ? 6e6 : 16e6;
+}
+
 export function MapLayer({ levels, className = '' }: { levels: readonly MapLayerLevel[]; className?: string }) {
+  const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
+  const max = budget();
   return (
     <div data-sky-map="" className={`absolute inset-0 ${className}`} style={{ opacity: 0 }}>
       {levels.map((l) => {
         // Fractional CSS sizes, so one scale holds on both axes.
-        const width = l.box.width * l.scale;
-        const height = l.box.height * l.scale;
+        const device = l.box.width * l.box.height * l.scale * l.scale * dpr * dpr;
+        const scale = device > max ? l.scale * Math.sqrt(max / device) : l.scale;
+        const width = l.box.width * scale;
+        const height = l.box.height * scale;
         return (
           <div
             key={l.id}
             data-sky-map-level={l.id}
             data-box={`${l.box.x} ${l.box.y} ${l.box.width} ${l.box.height}`}
-            data-scale={l.scale}
+            data-scale={scale}
             data-tolerance={l.toleranceKm}
             className="absolute top-0 left-0 origin-top-left"
             style={{ width, height, opacity: 0, visibility: 'hidden', willChange: 'transform, opacity' }}
