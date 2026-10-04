@@ -96,7 +96,8 @@ export function Ch8Scene({ length }: { length: number }) {
       const V = window.innerHeight;
       const sky = document.querySelector<HTMLElement>('.story-page [data-part="sky-stage"]');
       const pinStart = V / (H + V);
-      timing.current = { H, V, pinStart, pinEnd: H / (H + V), from: pinStart * 0.55, skyW: sky?.clientWidth ?? 0, skyH: sky?.clientHeight ?? 0 };
+      // The chapter overlaps The work by a screen, so the crane starts as it pins, from where The work held the sky.
+      timing.current = { H, V, pinStart, pinEnd: H / (H + V), from: pinStart, skyW: sky?.clientWidth ?? 0, skyH: sky?.clientHeight ?? 0 };
     };
     measure();
     window.addEventListener('resize', measure);
@@ -105,6 +106,8 @@ export function Ch8Scene({ length }: { length: number }) {
 
   usePublishSky(cover, (c, l) => {
     const t = timing.current;
+    // Until it pins, The work still owns the sky.
+    if (c < t.from) return null;
     const r = seg(c, t.from, t.pinEnd);
     const frame = crane(r, l, false);
     place(frame, r, c, l, t, buf.current, glyphs, links);
@@ -113,7 +116,9 @@ export function Ch8Scene({ length }: { length: number }) {
 
   return (
     <div ref={wrap}>
-      <Shot length={length}>{(progress) => <Frame progress={progress} glyphs={glyphs} links={links} />}</Shot>
+      <Shot length={length} overlap>
+        {(progress) => <Frame progress={progress} glyphs={glyphs} links={links} />}
+      </Shot>
     </div>
   );
 }

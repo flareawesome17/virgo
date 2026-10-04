@@ -1,6 +1,6 @@
 'use client';
 
-import { m, useTransform, type MotionValue } from 'framer-motion';
+import { m, useScroll, useTransform, type MotionValue } from 'framer-motion';
 import { useRef, type ReactNode } from 'react';
 import { useChapterProgress } from '../motion';
 import { r2, window4 } from './ease';
@@ -12,19 +12,32 @@ import { r2, window4 } from './ease';
  */
 export function Shot({
   length = 120,
+  overlap = false,
   className = '',
   children,
 }: {
   /** Scroll distance in svh, beyond the 100svh the stage itself takes. */
   length?: number;
+  /**
+   * The chapter overlaps the one before by a screen (no cut between them):
+   * the stage stays unseen while it slides in over the previous scene, and
+   * appears the instant it pins, which is the instant that scene ends. No
+   * dead scroll between two scenes that share the sky.
+   */
+  overlap?: boolean;
   className?: string;
   children: (progress: MotionValue<number>) => ReactNode;
 }) {
   const track = useRef<HTMLDivElement>(null);
   const progress = useChapterProgress(track, 'track');
+  // The raw position, not the glide: the stage must appear exactly as it pins.
+  const { scrollYProgress } = useScroll({ target: track, offset: ['start start', 'end end'] });
+  const visibility = useTransform(scrollYProgress, (p) => (!overlap || p > 0 ? 'visible' : 'hidden'));
   return (
     <div ref={track} className="relative" style={{ height: `${100 + length}svh` }}>
-      <div className={`sticky top-0 h-svh overflow-clip ${className}`}>{children(progress)}</div>
+      <m.div style={{ visibility }} className={`sticky top-0 h-svh overflow-clip ${className}`}>
+        {children(progress)}
+      </m.div>
     </div>
   );
 }
@@ -65,7 +78,7 @@ function SubtitleLine({ progress, line, tone }: { progress: MotionValue<number>;
   const ink = tone === 'day' ? 'text-[#1E1B18]' : 'text-[#F2EDE8]';
   const scrim = tone === 'day' ? 'bg-[radial-gradient(closest-side,rgba(251,247,242,0.9),rgba(251,247,242,0))]' : 'bg-[radial-gradient(closest-side,rgba(22,19,17,0.85),rgba(22,19,17,0))]';
   return (
-    <m.div style={{ opacity: o, transform: t }} className="col-start-1 row-start-1 px-6 py-5">
+    <m.div style={{ opacity: o, transform: t }} className="col-start-1 row-start-1 px-6 py-5 will-change-transform">
       <div aria-hidden className={`absolute -inset-x-8 -inset-y-6 -z-10 ${scrim}`} />
       <p className={`text-balance text-[clamp(1.6rem,1rem+3.2vw,2.4rem)] lg:text-[clamp(2rem,0.9rem+1.9vw,2.9rem)] font-semibold leading-[1.08] tracking-[-0.025em] ${ink}`}>{line.text}</p>
       {line.small && <p className={`mt-3 text-pretty text-[15px] sm:text-[17px] ${tone === 'day' ? 'text-[#54433C]' : 'text-[#BCADA3]'}`}>{line.small}</p>}

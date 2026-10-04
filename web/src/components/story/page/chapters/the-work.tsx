@@ -26,7 +26,7 @@ export function TheWork() {
       data-tone="night"
       data-chapter="the-work"
       aria-labelledby="the-work-title"
-      className="relative z-10 text-[#F2EDE8] [overflow-x:clip]"
+      className="relative z-10 [html[data-motion='on']_&]:-mt-[100svh] text-[#F2EDE8] [overflow-x:clip]"
     >
       <div className="motion-only">
         <h2 className="sr-only">{WORK_COPY.title}</h2>

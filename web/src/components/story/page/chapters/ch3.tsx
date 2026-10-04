@@ -28,7 +28,7 @@ const STILL_GEAR: { hire: Hire; kind: GearKind; place: string }[] = [
 
 export function Ch3() {
   return (
-    <section id="connect" data-tone="night" data-chapter="connect" className="relative z-10 [overflow-x:clip]">
+    <section id="connect" data-tone="night" data-chapter="connect" className="relative z-10 [html[data-motion='on']_&]:-mt-[100svh] [overflow-x:clip]">
       {/* ── Motion: the film. ── */}
       <div className="motion-only relative" style={{ height: `${CH3_SVH}svh` }}>
         <h2 className="sr-only">{CH3.applied}</h2>

@@ -3,7 +3,7 @@
 import { m, useTransform, type MotionValue } from 'framer-motion';
 import { useRef, useState } from 'react';
 import { camera, clamp01, enter, lerp, r2, seg, window4 } from '../cinema/ease';
-import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
+import { Flare, LightSweep, Particles, useReveal } from '../cinema/fx';
 import { GearArt, GEAR_ASPECT } from '../cinema/gear';
 import { Morph } from '../cinema/morph';
 import { Shot, Slate } from '../cinema/shot';
@@ -75,12 +75,8 @@ function Frame({ progress, motes, onFocus }: { progress: MotionValue<number>; mo
   const far = useTransform(progress, (p) => `translate3d(0,${r2(lerp(0, -5, p))}vh,0)`);
   const glow = useTransform(progress, (p) => r2(lerp(0.3, 1, camera(seg(p, 0.4, 0.8)))));
   const glowY = useTransform(progress, (p) => `translate3d(0,${r2(lerp(18, 0, camera(seg(p, 0.4, 0.8))))}%,0)`);
-  const cam = useCamera(progress, [
-    { at: 0, scale: 1.05, y: 1, rx: 5 },
-    { at: 0.34, scale: 1, rx: 1.5 },
-    { at: 1, scale: 1, rx: 0 },
-  ]);
-  // The roll: the crew block drifts up slowly the whole time its names are on screen.
+  // The roll: the crew block drifts straight up the whole time its names are on screen. Flat, like real end
+  // credits: names on a tilting, rescaling plane re-render every frame and shimmer as they move.
   const roll = useTransform(progress, (p) => `translate3d(0,${r2(lerp(6, -8, seg(p, 0, 0.36)))}svh,0)`);
   // The last screen takes clicks only once it is there (keyboard focus jumps the scroll to it: onFocus).
   const events = useTransform(progress, (p) => (p > 0.6 ? 'auto' : 'none'));
@@ -100,10 +96,8 @@ function Frame({ progress, motes, onFocus }: { progress: MotionValue<number>; mo
       {/* The credits, between the bars. */}
       <div className="absolute inset-x-0 bottom-[var(--bar)] top-[var(--bar)] z-20">
         <Slate progress={progress} slates={[{ text: T.slate, from: 0, to: 0.36 }]} />
-        <m.div style={{ transform: cam }} className="absolute inset-0">
-          <m.div style={{ transform: roll }} className="absolute inset-0 grid place-items-center px-5">
-            <Crew progress={progress} />
-          </m.div>
+        <m.div style={{ transform: roll }} className="absolute inset-0 grid place-items-center px-5 will-change-transform">
+          <Crew progress={progress} />
         </m.div>
       </div>
 
@@ -123,7 +117,7 @@ function Frame({ progress, motes, onFocus }: { progress: MotionValue<number>; mo
 }
 
 function Crew({ progress }: { progress: MotionValue<number> }) {
-  const head = useReveal(progress, 0, 0.06, 0.26, 0.32, { y: 60, scale: 0.94 });
+  const head = useReveal(progress, 0, 0.06, 0.26, 0.32, { y: 40, scale: 1 });
   return (
     <div className="w-full max-w-3xl">
       <m.p style={head} className="text-center font-mono text-xs uppercase tracking-[0.24em] text-[#D18A5A]">
@@ -141,9 +135,9 @@ function Crew({ progress }: { progress: MotionValue<number> }) {
 
 /** One credit: rises in on its turn, holds, and rises away. */
 function CrewRow({ progress, i, c }: { progress: MotionValue<number>; i: number; c: (typeof CREW)[number] }) {
-  const style = useReveal(progress, 0.02 + i * 0.035, 0.1 + i * 0.035, 0.24 + i * 0.025, 0.32 + i * 0.025, { y: 80, scale: 0.9 });
+  const style = useReveal(progress, 0.02 + i * 0.035, 0.1 + i * 0.035, 0.24 + i * 0.025, 0.32 + i * 0.025, { y: 48, scale: 1 });
   return (
-    <m.li style={style} className="grid justify-items-center gap-2 text-center sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-x-8">
+    <m.li style={style} className="will-change-transform grid justify-items-center gap-2 text-center sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-x-8">
       <span className="order-2 font-mono text-xs uppercase tracking-[0.14em] text-[#BCADA3] sm:order-1 sm:justify-self-end sm:text-[13px] sm:tracking-[0.2em]">
         {c.role}
       </span>
