@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { CH9_COPY, TILES, type TileKey } from '../../data/strings/page-ch9';
-import { Ch9Backdrop, Ch9Film } from '../islands/ch9';
+import { Ch9Film } from '../islands/ch9';
 import { Reveal } from '../scenes/ch9-reveal';
 
 /**
@@ -23,7 +23,7 @@ import { Reveal } from '../scenes/ch9-reveal';
  * One render serves both modes: this server grid is the static page. In
  * motion, `Ch9Film` zooms in as the iris cut opens on #features, drifts and
  * runs one light sweep; each tile eases in and out (`Reveal`, staggered by
- * column); `Ch9Backdrop` draws the geometry. Transform and opacity only.
+ * column). Transform and opacity only.
  */
 
 const ICON: Record<TileKey, LucideIcon> = {
@@ -58,8 +58,6 @@ export function Ch9() {
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-[60svh] bg-[radial-gradient(70%_60%_at_50%_0%,rgba(209,138,90,0.10),rgba(22,19,17,0)_70%)]"
       />
-
-      <Ch9Backdrop />
 
       <Ch9Film className="mx-auto max-w-6xl px-5 pt-20 pb-24 sm:px-8 md:pt-28 md:pb-32">
         <h2

@@ -12,6 +12,7 @@ import { StorageMeter, meterReading } from '../../mocks/storage-meter';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
+import { hud } from '../cinema/hud';
 import { Morph } from '../cinema/morph';
 import { Illustrative, Shot, Subtitles, type Line } from '../cinema/shot';
 import { useNarrow } from '../islands/ch7';
@@ -32,10 +33,11 @@ import { useNarrow } from '../islands/ch7';
  *   0.76–0.97  "The storage comes back."  The meter drains to 307 MB; the
  *              camera pushes to it; the gold leak fills the frame (0.84–0.97).
  *
- * Geometry: storage rings behind the album, the day rule with its sweeps.
+ * The day rule marks delivery and each sweep.
  * Product truth: retention is per file, counted from each upload; the album
- * and its link stay. Compositor-only; the slate and the meter's readings are
- * written to the DOM when they change, never through React state.
+ * and its link stay. Compositor-only: the day goes to the frame's time card
+ * (hud.ts) and the meter's readings are written to the DOM when they change,
+ * never through React state.
  */
 
 const LINES: readonly Line[] = [
@@ -93,15 +95,16 @@ function fractionAt(p: number) {
 /** The leak's colour: a centred radial, the same at top and bottom edges, so The work's stage meets it without a seam. */
 const LEAK = 'bg-[radial-gradient(120%_90%_at_50%_50%,#E2AC74_0%,#9C6038_55%,#4A2C1C_100%)]';
 
-type Painted = { day: number; step: number; fill: HTMLElement | null; used: HTMLElement | null; files: HTMLElement | null };
+type Painted = { day: number; shown: boolean; step: number; fill: HTMLElement | null; used: HTMLElement | null; files: HTMLElement | null };
 
-/** Writes the slate's day and the meter's reading for a progress. */
-function paint(p: number, slate: HTMLElement | null, meter: HTMLElement | null, last: Painted) {
+/** Puts the day on the frame's time card while the shot plays, and writes the meter's reading. */
+function paint(p: number, meter: HTMLElement | null, last: Painted) {
   const day = Math.floor(dayAt(p) + 1e-6);
-  if (slate && day !== last.day) {
-    slate.textContent = dayLabel(day);
-    last.day = day;
-  }
+  const shown = p > 0.005 && p < 0.995;
+  if (shown && (day !== last.day || !last.shown)) hud.showSlate('ch7', dayLabel(day), 'night');
+  if (!shown && last.shown) hud.hideSlate('ch7');
+  last.day = day;
+  last.shown = shown;
   if (!meter) return;
   if (!last.fill) {
     last.fill = meter.querySelector<HTMLElement>('[data-part="meter-fill"]');
@@ -127,13 +130,17 @@ export function Ch7Scene({ length }: { length: number }) {
 
 function Frame({ progress }: { progress: MotionValue<number> }) {
   const narrow = useNarrow();
-  const slate = useRef<HTMLSpanElement>(null);
   const meter = useRef<HTMLDivElement>(null);
-  const last = useRef<Painted>({ day: -1, step: -1, fill: null, used: null, files: null });
+  const last = useRef<Painted>({ day: -1, shown: false, step: -1, fill: null, used: null, files: null });
 
-  useMotionValueEvent(progress, 'change', (p) => paint(p, slate.current, meter.current, last.current));
+  useMotionValueEvent(progress, 'change', (p) => paint(p, meter.current, last.current));
   useEffect(() => {
-    paint(progress.get(), slate.current, meter.current, last.current);
+    const painted = last.current;
+    paint(progress.get(), meter.current, painted);
+    return () => {
+      painted.shown = false;
+      hud.hideSlate('ch7');
+    };
   }, [progress]);
 
   const rig = useCamera(progress, CAMERA);
@@ -164,7 +171,6 @@ function Frame({ progress }: { progress: MotionValue<number> }) {
         style={{ opacity: glow }}
         className="pointer-events-none absolute inset-x-0 bottom-0 h-[60svh] bg-[radial-gradient(70%_60%_at_50%_100%,rgba(209,138,90,0.32),rgba(209,138,90,0)_70%)]"
       />
-      <Rings progress={progress} />
       <DayRule progress={progress} />
 
       {/* (c) The album, the setting it was made with, and Mika's meter, under one camera. */}
@@ -219,12 +225,7 @@ function Frame({ progress }: { progress: MotionValue<number> }) {
       <LightSweep progress={progress} from={0.8} to={0.96} />
       <m.div aria-hidden style={{ opacity: leak }} className={`pointer-events-none absolute inset-0 z-20 ${LEAK}`} />
 
-      <p className="pointer-events-none absolute left-5 top-6 z-30 font-mono text-[11px] uppercase tracking-[0.2em] text-[#D18A5A] tabular-nums sm:left-8 sm:top-8 sm:text-xs">
-        <span className="sr-only">{CH7_COPY.slate}</span>
-        <span ref={slate} aria-hidden>
-          {dayLabel(21)}
-        </span>
-      </p>
+      <p className="sr-only">{CH7_COPY.slate}</p>
       <Illustrative />
       <Subtitles progress={progress} lines={LINES} />
     </>
@@ -266,31 +267,6 @@ function Tile({ progress, tile, i }: { progress: MotionValue<number>; tile: (typ
         <span className="absolute inset-[20%] rounded-full bg-[radial-gradient(closest-side,rgba(247,217,176,0.55),rgba(209,138,90,0))]" />
         <Morph progress={progress} keys={keys} fill="#FFF4E4" className="relative block size-full" />
       </m.div>
-    </m.div>
-  );
-}
-
-/** Geometry: hairline storage rings behind the album, easing in one by one and turning slowly with the camera. */
-function Rings({ progress }: { progress: MotionValue<number> }) {
-  const turn = useTransform(progress, (p) => `translate3d(-50%,-50%,0) rotate(${r2(p * 24)}deg) scale(${r2(0.8 + camera(p) * 0.3)})`);
-  return (
-    <m.div aria-hidden style={{ transform: turn }} className="pointer-events-none absolute left-1/2 top-[40%] size-[120vmin] lg:left-[46%]">
-      {[0.42, 0.62, 0.82, 1].map((s, i) => (
-        <Ring key={s} progress={progress} size={s} i={i} />
-      ))}
-    </m.div>
-  );
-}
-
-function Ring({ progress, size, i }: { progress: MotionValue<number>; size: number; i: number }) {
-  const r = useReveal(progress, 0.02 + i * 0.04, 0.12 + i * 0.04, 0.88 + i * 0.02, 0.97, { y: 0, scale: 0.9 });
-  const pct = `${size * 100}%`;
-  return (
-    <m.div style={{ opacity: r.opacity }} className="absolute left-1/2 top-1/2">
-      <m.div
-        style={{ transform: r.transform, width: pct, height: pct }}
-        className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border ${i % 2 ? 'border-dashed border-[rgba(209,138,90,0.14)]' : 'border-[rgba(209,138,90,0.1)]'}`}
-      />
     </m.div>
   );
 }

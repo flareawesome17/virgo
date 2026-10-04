@@ -63,7 +63,6 @@ function Stage({ progress }: { progress: MotionValue<number> }) {
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_70%_at_82%_8%,rgba(240,200,142,0.5),rgba(251,247,242,0)_62%),linear-gradient(180deg,#FBF7F2_0%,#F7EEE2_100%)]"
       />
-      <LinkGeometry progress={progress} />
       <LightSweep progress={progress} from={0.08} to={0.3} />
       <Card progress={progress} />
       <Couple progress={progress} />
@@ -75,98 +74,6 @@ function Stage({ progress }: { progress: MotionValue<number> }) {
       <Subtitles progress={progress} lines={LINES} tone="day" />
       <Illustrative tone="day" />
     </>
-  );
-}
-
-// ─── Geometry ────────────────────────────────────────────────────────────
-
-/** Nodes of a sparse lattice, joined by hairlines: one link, many hands. */
-const NODES = [
-  [8, 18],
-  [26, 10],
-  [44, 22],
-  [64, 12],
-  [86, 20],
-  [14, 46],
-  [36, 40],
-  [58, 48],
-  [80, 42],
-  [6, 76],
-  [28, 70],
-  [50, 82],
-  [72, 72],
-  [92, 80],
-] as const;
-const EDGES = [
-  [0, 1],
-  [1, 2],
-  [2, 3],
-  [3, 4],
-  [0, 5],
-  [1, 6],
-  [2, 6],
-  [3, 7],
-  [4, 8],
-  [5, 6],
-  [6, 7],
-  [7, 8],
-  [5, 9],
-  [6, 10],
-  [7, 11],
-  [8, 12],
-  [9, 10],
-  [10, 11],
-  [11, 12],
-  [12, 13],
-  [8, 13],
-] as const;
-
-/** Heart outlines that rise behind the phone while the couple pick. */
-const HEARTS = [
-  { x: 18, y: 64, s: 1, at: 0.4 },
-  { x: 78, y: 30, s: 0.7, at: 0.43 },
-  { x: 70, y: 70, s: 0.85, at: 0.46 },
-];
-const HEART = 'M12 20s-7-4.6-7-9.4A3.9 3.9 0 0 1 12 8a3.9 3.9 0 0 1 7 2.6C19 15.4 12 20 12 20z';
-
-function LinkGeometry({ progress }: { progress: MotionValue<number> }) {
-  const opacity = useTransform(progress, (p) => r2(0.55 * window4(p, 0, 0.1, 1.1, 1.2)));
-  const transform = useTransform(progress, (p) => `translate3d(0,${r2(lerp(3, -3, p))}svh,0) scale(${r2(lerp(1, 1.12, camera(p)))})`);
-  return (
-    <m.div aria-hidden style={{ opacity, transform }} className="pointer-events-none absolute -inset-[6%]">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 size-full">
-        {EDGES.map(([a, b]) => (
-          <line
-            key={`${a}-${b}`}
-            x1={NODES[a][0]}
-            y1={NODES[a][1]}
-            x2={NODES[b][0]}
-            y2={NODES[b][1]}
-            stroke="#A85D35"
-            strokeOpacity="0.22"
-            strokeWidth="1"
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
-      </svg>
-      {NODES.map(([x, y]) => (
-        <span key={`${x}-${y}`} className="absolute size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#C17745]/40" style={{ left: `${x}%`, top: `${y}%` }} />
-      ))}
-      {HEARTS.map((h) => (
-        <Heart key={h.x} progress={progress} {...h} />
-      ))}
-    </m.div>
-  );
-}
-
-function Heart({ progress, x, y, s, at }: { progress: MotionValue<number>; x: number; y: number; s: number; at: number }) {
-  const reveal = useReveal(progress, at, at + 0.06, 0.6, 0.66, { y: 30, scale: 0.6 });
-  return (
-    <m.div style={{ left: `${x}%`, top: `${y}%`, ...reveal }} className="absolute">
-      <svg width={64 * s} height={64 * s} viewBox="0 0 24 24" className="-translate-x-1/2 -translate-y-1/2">
-        <path d={HEART} fill="none" stroke="#A85D35" strokeOpacity="0.45" strokeWidth="0.9" strokeLinejoin="round" />
-      </svg>
-    </m.div>
   );
 }
 

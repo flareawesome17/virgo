@@ -12,7 +12,7 @@ import { Plate } from '../../mocks/plate';
  */
 
 /** Scroll length of Ch5's one shot, in svh beyond the stage (the server reserves it). */
-export const CH5_LENGTH = 150;
+export const CH5_LENGTH = 240;
 
 /** The twelve frames, in capture order. */
 export const SLOTS = TILE_SETS[12].map((i) => ALBUM_TILES[i]);

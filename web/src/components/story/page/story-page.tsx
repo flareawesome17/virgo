@@ -14,10 +14,10 @@ import { Finale } from './chapters/finale';
 import { Prologue } from './chapters/prologue';
 import { TheWork } from './chapters/the-work';
 import { mapLevels } from './map-levels';
-import { DownloadPill, Letterbox, Scrubber } from './cinema/chrome';
 import { Cuts, type Cut } from './cinema/cuts';
 import { ScenePrefetch } from './cinema/prefetch';
-import { TitleBar } from './cinema/title-bar';
+import { SmoothScroll } from './cinema/smooth-scroll';
+import { Frame } from './cinema/frame';
 import { MotionRoot } from './motion';
 import { PrePaint } from './pre-paint';
 import { SkyProvider } from './sky-stage';
@@ -29,8 +29,9 @@ import './story.css';
  * Server-rendered and complete: every chapter's copy, figures and links are in
  * the HTML in their final state, which is also the reduced-motion, no-JS and
  * crawler page. Chapter islands then play it as a film when the motion gate
- * allows (05-cinema.md). There is no header: the frame is a title bar that
- * scrolls away with the opening, one Download pill, a scrubber and letterbox.
+ * allows (05-cinema.md). There is no header: the film plays inside a frame
+ * (cinema/frame.tsx) whose corners hold the watermark, Sign in and Join, the
+ * time card, and Download.
  */
 export function StoryPage({ plans }: { plans: PlanInfo[] }) {
   return (
@@ -44,7 +45,7 @@ export function StoryPage({ plans }: { plans: PlanInfo[] }) {
           >
             Skip the film
           </a>
-          <TitleBar />
+          <Frame />
           <main className="relative z-10">
             <Prologue />
             <Ch1 />
@@ -61,10 +62,8 @@ export function StoryPage({ plans }: { plans: PlanInfo[] }) {
             <Finale />
           </main>
           <Cuts cuts={CUTS} />
-          <Letterbox />
-          <Scrubber />
-          <DownloadPill />
           <ScenePrefetch />
+          <SmoothScroll cuts={CUTS} />
         </SkyProvider>
       </MotionRoot>
       <div aria-hidden className="story-grain" style={{ backgroundImage: `url(${MEDIA.grain.url})` }} />

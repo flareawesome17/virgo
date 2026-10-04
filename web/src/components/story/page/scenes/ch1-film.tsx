@@ -20,7 +20,7 @@ import { CH1_SHOT } from './ch1-timing';
  * Ch1 · Wednesday, 11:42 PM (05-cinema.md §3): one continuous shot.
  *
  *   0.00–0.12  through the iris (cinema/cuts.tsx): a zoom in on Mika's phone, the
- *              only light in the room; gold hairlines (thirds, an aperture) draw in
+ *              only light in the room
  *   0.13–0.40  three group chats fly out of it as cards; "Seen by 14"
  *   0.42–0.55  the cards fall away into depth, unanswered
  *   0.50–0.64  the camera pushes through the screen (wind, a bloom); the chat
@@ -75,7 +75,6 @@ function Frame({ progress, motes }: { progress: MotionValue<number>; motes: numb
       <h2 className="sr-only">{CH1.lines[0]}</h2>
       {/* The room at night: it closes over the sky, and opens again as the post goes up. */}
       <m.div aria-hidden style={{ opacity: backdrop }} className="absolute inset-0 bg-[radial-gradient(90%_70%_at_50%_45%,#1A1512_0%,#0E0C0B_60%,#080706_100%)]" />
-      <Geometry progress={progress} />
       <Phone progress={progress} />
       {CH1_CHATS.map((chat, i) => (
         <Chat key={chat.title} progress={progress} layout={layout} i={i} title={chat.title} sent={chat.sent} seen={chat.seen} />
@@ -93,53 +92,6 @@ function Frame({ progress, motes }: { progress: MotionValue<number>; motes: numb
       </m.div>
       <Subtitles progress={progress} lines={LINES} />
     </>
-  );
-}
-
-/** An aperture hexagon on a 100-unit box, flat side down. */
-const HEX = Array.from({ length: 6 }, (_, i) => {
-  const a = (Math.PI / 3) * i + Math.PI / 6;
-  return `${r2(50 + 48 * Math.cos(a))},${r2(50 + 48 * Math.sin(a))}`;
-}).join(' ');
-
-/**
- * The backdrop's geometry (cinema brief addendum): the rule of thirds and two
- * aperture hexagons in gold hairlines, low in opacity. The thirds draw in
- * (scaleX / scaleY) and drift; the hexagons open and turn slowly with the
- * camera, swell on the push through the glass, and ease out as the night opens.
- */
-function Geometry({ progress }: { progress: MotionValue<number> }) {
-  const life = useTransform(progress, (p) => r2(enter(seg(p, 0, 0.08)) * (1 - exit(seg(p, 0.86, 0.95)))));
-  const drawX = useTransform(progress, (p) => `scaleX(${r2(camera(seg(p, 0.01, 0.14)))})`);
-  const drawY = useTransform(progress, (p) => `scaleY(${r2(camera(seg(p, 0.03, 0.16)))})`);
-  const thirds = useTransform(progress, (p) => `translate3d(0,${r2(lerp(2, -3, p))}vh,0) scale(${r2(1 + 0.35 * camera(seg(p, 0.5, 0.64)))})`);
-  const outer = useTransform(
-    progress,
-    (p) => `translate(-50%,-50%) rotate(${r2(lerp(-10, 14, p))}deg) scale(${r2(lerp(0.7, 1, camera(seg(p, 0, 0.2))) * (1 + 0.9 * camera(seg(p, 0.5, 0.64))))})`,
-  );
-  const inner = useTransform(
-    progress,
-    (p) => `translate(-50%,-50%) rotate(${r2(lerp(18, -8, p))}deg) scale(${r2(lerp(0.5, 0.62, camera(seg(p, 0.02, 0.24))) * (1 + 1.4 * camera(seg(p, 0.5, 0.64))))})`,
-  );
-  return (
-    <m.div aria-hidden style={{ opacity: life }} className="pointer-events-none absolute inset-0">
-      <m.div style={{ transform: thirds }} className="absolute inset-[8%]">
-        {[33.333, 66.667].map((at) => (
-          <m.span key={`h${at}`} style={{ top: `${at}%`, transform: drawX }} className="absolute inset-x-0 h-px bg-[#D18A5A]/[0.14]" />
-        ))}
-        {[33.333, 66.667].map((at) => (
-          <m.span key={`v${at}`} style={{ left: `${at}%`, transform: drawY }} className="absolute inset-y-0 w-px bg-[#D18A5A]/[0.1]" />
-        ))}
-      </m.div>
-      {[
-        { transform: outer, alpha: 0.16 },
-        { transform: inner, alpha: 0.12 },
-      ].map(({ transform, alpha }, i) => (
-        <m.svg key={i} viewBox="0 0 100 100" style={{ transform }} className="absolute left-1/2 top-[44%] size-[96vmin] lg:top-1/2" fill="none">
-          <polygon points={HEX} stroke="#F0C88E" strokeOpacity={alpha} strokeWidth="1" vectorEffect="non-scaling-stroke" />
-        </m.svg>
-      ))}
-    </m.div>
   );
 }
 

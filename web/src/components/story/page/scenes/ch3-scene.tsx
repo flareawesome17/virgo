@@ -161,8 +161,6 @@ function Frame({ p }: { p: MotionValue<number> }) {
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(40%_38%_at_50%_42%,rgba(209,138,90,0.32)_0%,rgba(209,138,90,0)_100%)]"
       />
 
-      <ConstellationLines p={p} />
-
       <Slate progress={p} slates={SLATES} />
       <m.div style={{ opacity: tag }}>
         <Illustrative />
@@ -283,72 +281,5 @@ function TermsCard({ p }: { p: MotionValue<number> }) {
         </Slab>
       </Float>
     </m.div>
-  );
-}
-
-/**
- * The scene's geometry (cinema brief, addendum): faint constellation lines
- * that draw in one by one (scaleX) while the applications arrive, drifting
- * slower than the cards and zooming with the take. They give way as the real
- * Virgo forms in the sky. Coordinates are % of a square, so angles hold at
- * any aspect.
- */
-const NODES: readonly (readonly [number, number])[] = [
-  [14, 34],
-  [28, 24],
-  [41, 36],
-  [56, 27],
-  [71, 38],
-  [86, 26],
-  [62, 55],
-  [45, 52],
-  [30, 66],
-  [55, 74],
-  [80, 64],
-];
-const EDGES: readonly (readonly [number, number])[] = [
-  [0, 1],
-  [1, 2],
-  [2, 3],
-  [3, 4],
-  [4, 5],
-  [2, 7],
-  [7, 6],
-  [6, 4],
-  [7, 8],
-  [6, 9],
-  [6, 10],
-];
-const SEGMENTS = EDGES.map(([i, j]) => {
-  const [x1, y1] = NODES[i];
-  const [x2, y2] = NODES[j];
-  return { x: x1, y: y1, len: Math.hypot(x2 - x1, y2 - y1), deg: (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI };
-});
-
-function ConstellationLines({ p }: { p: MotionValue<number> }) {
-  const drift = useTransform(p, (v) => {
-    const t = camera(seg(v, 0, 1));
-    return `translate3d(-50%,${r2(-50 - 4 * t)}%,0) rotate(${r2(-3 + 6 * t)}deg) scale(${r2(0.92 + 0.22 * t)})`;
-  });
-  const opacity = useTransform(p, (v) => r2(window4(v, -0.05, 0.06, 0.64, 0.76)));
-  return (
-    <m.div aria-hidden style={{ transform: drift, opacity }} className="pointer-events-none absolute left-1/2 top-[42%] aspect-square w-[max(120vw,120vh)]">
-      {SEGMENTS.map((sg, i) => (
-        <Rule key={i} p={p} at={0.02 + i * 0.025} {...sg} />
-      ))}
-      {NODES.map(([x, y], i) => (
-        <span key={i} className="absolute size-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgba(240,200,142,0.5)]" style={{ left: `${x}%`, top: `${y}%` }} />
-      ))}
-    </m.div>
-  );
-}
-
-function Rule({ p, at, x, y, len, deg }: { p: MotionValue<number>; at: number; x: number; y: number; len: number; deg: number }) {
-  const transform = useTransform(p, (v) => `rotate(${r2(deg)}deg) scaleX(${r2(enter(seg(v, at, at + 0.08)))})`);
-  return (
-    <m.span
-      style={{ transform, left: `${x}%`, top: `${y}%`, width: `${len}%` }}
-      className="absolute h-px origin-left bg-[linear-gradient(90deg,rgba(240,200,142,0.28),rgba(240,200,142,0.12))]"
-    />
   );
 }

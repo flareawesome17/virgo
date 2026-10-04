@@ -93,7 +93,6 @@ function Stage({ progress }: { progress: MotionValue<number> }) {
       <Shoot progress={progress} />
       <Viewfinder progress={progress} from={0.17} to={0.3} focus={{ x: 22, y: 52 }} rec />
       <Viewfinder progress={progress} from={LENS.from} to={LENS.to} focus={{ x: 50, y: 60 }} />
-      <AlbumGeometry progress={progress} />
       <Album progress={progress} />
       <LightSweep progress={progress} from={0.8} to={0.97} />
       <Particles progress={progress} push={[0.16, 0.58]} count={wide ? 24 : 12} seed={5} />
@@ -441,25 +440,6 @@ function GridLines({ progress, from }: { progress: MotionValue<number>; from: nu
       {Array.from({ length: COLS + 1 }, (_, c) => (
         <m.span key={`c${c}`} style={{ left: `${(c * 100) / COLS}%`, transform: y }} className="absolute inset-y-0 w-px bg-[#F0C88E]/60" />
       ))}
-    </m.div>
-  );
-}
-
-/** The scene's pattern that night: the album grid, huge and faint, drifting with the camera. */
-function AlbumGeometry({ progress }: { progress: MotionValue<number> }) {
-  const opacity = useTransform(progress, (p) => r2(window4(p, 0.5, 0.6, 1.1, 1.2) * 0.5));
-  const transform = useTransform(progress, (p) => `translate3d(0,${r2(lerp(4, -4, seg(p, 0.5, 1)))}svh,0) scale(${r2(lerp(0.9, 1.12, camera(seg(p, 0.5, 1))))})`);
-  const draw = useTransform(progress, (p) => `scaleX(${r2(camera(seg(p, 0.5, 0.62)))})`);
-  return (
-    <m.div aria-hidden style={{ opacity, transform }} className="pointer-events-none absolute -inset-[10%] z-[5]">
-      {Array.from({ length: 9 }, (_, r) => (
-        <m.span
-          key={r}
-          style={{ top: `${r * 12.5}%`, transform: draw }}
-          className="absolute inset-x-0 h-px bg-[linear-gradient(90deg,rgba(240,200,142,0),rgba(240,200,142,0.22),rgba(240,200,142,0))]"
-        />
-      ))}
-      <div className="absolute inset-0 [background-image:linear-gradient(90deg,rgba(240,200,142,0.08)_1px,transparent_1px)] [background-size:12.5%_100%]" />
     </m.div>
   );
 }

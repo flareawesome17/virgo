@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Credits, MoreLinks } from '@/components/story/page/chapters/closing';
-import { TitleBar } from '@/components/story/page/cinema/title-bar';
+import { Frame } from '@/components/story/page/cinema/frame';
+import { MotionRoot } from '@/components/story/page/motion';
 import { PrePaint } from '@/components/story/page/pre-paint';
 import { DownloadStage } from '@/components/story/download/download-stage';
 import { MEDIA } from '@/components/story/media.generated';
@@ -107,15 +108,12 @@ function formatDate(iso: string | null): string | null {
   });
 }
 
-/** The letterbox bars, as on the story: they open as the page arrives (desktop, motion only). */
-const BAR = 'story-bars pointer-events-none fixed inset-x-0 z-[45] h-[min(11vh,max(0px,calc((100vh_-_100vw/2.39)/2)))] bg-[#090807]';
-
 /**
- * The download page, in the story's film grammar (05-cinema.md): a title card
- * that opens on letterbox bars and a light sweep, the app hanging in 3D in a
- * warm key light with the tools of the trade around it, and the downloads as
- * lit cards with the visitor's own system first. No header: the mark goes back
- * to the story, and Sign in sits opposite it.
+ * The download page, in the story's film grammar (05-cinema.md): inside the
+ * story's frame, a title card that opens on a light sweep, the app hanging in
+ * 3D in a warm key light with the tools of the trade around it, and the
+ * downloads as lit cards with the visitor's own system first. No header: the
+ * frame's watermark goes back to the story, and Sign in and Join sit opposite.
  */
 export default async function DownloadPage() {
   // Together: two independent reads of the same API, and waiting for one
@@ -127,9 +125,10 @@ export default async function DownloadPage() {
   return (
     <div className="story-page relative isolate min-h-svh bg-[#161311] text-[#F2EDE8] [overflow-x:clip]">
       <PrePaint />
-      <TitleBar home="/" homeLabel="Virgo, back to the story" />
-      <div aria-hidden className={`${BAR} top-0 origin-top`} />
-      <div aria-hidden className={`${BAR} bottom-0 origin-bottom`} />
+      {/* The story's frame, without the film's controls: the watermark leads back to the story. */}
+      <MotionRoot>
+        <Frame film={false} home="/" homeLabel="Virgo, back to the story" rail="Download" />
+      </MotionRoot>
 
       <main>
         <section aria-labelledby="download-title" className="relative overflow-clip">

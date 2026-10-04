@@ -14,7 +14,7 @@ This document overrides the storyboard's motion, navigation and copy wherever th
 2. **Subtitles, not paragraphs.**
    - One subtitle line on screen at a time: ≤ 10 words, large, centred in the lower third, with a soft dark scrim under it.
    - At most one small supporting line (≤ 12 words).
-   - A **scene slate** in mono, top-left of the frame (e.g. `SATURDAY · 5:00 AM`), changes with the scene, like a film's time card.
+   - A **scene slate** in mono (e.g. `SATURDAY · 5:00 AM`) changes with the scene, like a film's time card. It sits on the frame, bottom-left (§2), not on the stage.
 3. **Depth planes per shot, for the "5D" feel:**
    - (a) the far sky: the shared canvas, or the scene's own background;
    - (b) light: glow, rays and a horizon;
@@ -25,7 +25,7 @@ This document overrides the storyboard's motion, navigation and copy wherever th
 4. **Physical beats (the "5D"):**
    - **Light sweeps:** a diagonal gradient band crossing the frame on key beats.
    - **Flares:** pre-rendered radial sprites.
-   - **Rumble:** ≤ 2 px translate jitter for 300 ms, on the shutter, the 5:00 AM alarm and Send. It is off under reduced motion and Pause.
+   - ~~**Rumble**~~: removed (owner, 2026-10-04: the shake made people dizzy). Floats are translate-only.
    - **Focus pulls:** crossfade a sharp and a soft (pre-blurred) copy of a layer by opacity.
    - **Wind:** particles stream toward the camera during camera pushes.
 5. **Motivated transitions between scenes:**
@@ -55,8 +55,8 @@ This document overrides the storyboard's motion, navigation and copy wherever th
      Chapters that share the sky flow on uncut.
    - Every scene **opens as a zoom in** onto its hero object.
    - Every item **eases in and out** (`useReveal`), staggered; nothing pops.
-   - **Viewfinder** moments (`viewfinder.tsx`): corner brackets, a thirds grid, and a focus box that hunts and locks. Used on Mika's star, Post it, Saturday's shoot and The work.
-   - **Geometry** from the story's own shapes sits behind each scene in gold hairlines: constellation lines, radius rings, the calendar and album grids, hexagonal apertures.
+   - **Viewfinder** moments (`viewfinder.tsx`): a focus box that hunts and locks (and a REC dot for video). Used on Mika's star, Post it, Saturday's shoot and The work. The frame carries the corner marks, so there are no brackets or thirds grid.
+   - **Pattern, not shapes** (owner, 2026-10-05: the hearts, hexagons and grids behind the scenes were noise). The scenes carry no decorative geometry. The page's one texture is a fine gold dot matrix on the frame (§2), drifting at a twentieth of the scroll. Shapes appear only when they mean something: the morphs (§1.9) and the sky's stars and constellations.
 9. **Morphs** (`morph.tsx`): every shape is resampled once onto the same polar grid, so any shape melts into any other.
    - At the centre of every cut, the outgoing scene's symbol morphs into the incoming one's: star → chat bubble, job → pin, constellation → calendar, alarm → sun, shutter → heart, heart → hourglass, stars → aperture.
    - Inside the scenes:
@@ -84,17 +84,26 @@ This document overrides the storyboard's motion, navigation and copy wherever th
       - Desktop: title left, film right. Phones: film on top, title below.
 
 ## 2. The frame (chrome)
-- **No header.**
-  - The hero shows only the Virgo mark (top-left) and **Sign in** (top-right, text). Both fade out as the film starts.
-  - A visually hidden **"Skip the film"** link is first in the tab order, and becomes visible on focus.
-- **Download pill.** One floating pill, the only persistent control: "Download Virgo" with an icon, → `/download`.
-  - Desktop: bottom-right. Mobile: bottom-centre, above the safe area.
-  - It appears after the hero (once the film has started), hides while the visitor scrolls down quickly, and returns when they pause (~600 ms) or scroll up.
-  - It never covers a subtitle; subtitles sit above its zone.
-  - It hides during the credits, where the Download CTA is inline.
-- **Film scrubber.** A 2 px progress line along the bottom edge, with faint scene ticks (aria-hidden), like a video timeline.
-- **Letterbox (desktop ≥ 1024 px).** The page opens in 2.39:1 bars that retract as the first scroll starts, and return for the Finale ("the credits").
+Owner, 2026-10-05: "a frame on the sides… the Virgo logo as a watermark… the sign in button arranged, same with the other buttons", for a thousand-dollar feel. The film plays inside a frame, like a camera's viewfinder or a broadcast (`page/cinema/frame.tsx`):
+- **The matte.** A thin dark border (`--frame`: 10 px, 22 px from 1024 px) with a hairline and gold corner marks. It is fixed, so every scene plays inside it.
+- **Everything the visitor can press lives on the frame,** in the same four places for the whole page:
+  - **top-left:** the Virgo mark as a watermark (a broadcast "bug" at 55%; the word from 640 px), → `#top`;
+  - **top-right:** **Sign in** (a dark chip, legible on day scenes) and **Join** (gold pill);
+  - **bottom-left:** the scene's time card and, over app screens, **"Illustrative"**. Scenes publish both to `cinema/hud.ts` instead of drawing them; over a daylight scene they are set in ink, not gold;
+  - **bottom-right:** **Pause** (motion only) and **Download** (→ `/download`).
+- **The rails (desktop).** The tagline runs up the left rail ("Every shoot is a constellation"); the chapter in view runs down the right (`01 · Wednesday night`…).
+- **The progress line** runs along the frame's foot, like a video timeline.
+- **The texture:** the dot matrix (§1.8), under the matte.
+- A visually hidden **"Skip the film"** link is first in the tab order, and becomes visible on focus.
+- **Retired:** the floating Download pill, the scrubber and the letterbox (the frame does their jobs).
 - **Grain and vignette** are always on (static images, never animated).
+
+## 2a. Pacing and type
+Owner, 2026-10-05: the transitions felt rushed.
+- **One beat per subtitle.** Every line gets about 60 svh of scroll, so the chapters keep the same tempo: Ch2 240, Ch5 240, Ch6 180, Ch7 220, The work 90 and Ch8 130 svh (up from 200, 150, 140, 100, 60 and 90).
+- **Smooth scroll on desktop** (`cinema/smooth-scroll.tsx`, Lenis): the wheel's steps become one glide. It is on only for a mouse or trackpad (`pointer: fine`) with motion on; phones keep native touch scrolling. The pre-paint script marks it (`data-lenis`), and the chapters then follow the scroll directly instead of through their own spring, so the page is not smoothed twice.
+- **Settle on held frames:** if the visitor stops partway through a cut (between 6% and 94%), the page eases to the nearer whole scene after 240 ms, instead of resting on a half-closed aperture.
+- **The display type is a serif** (Instrument Serif, `--font-display`, marketing layout only): the headings and every subtitle, set at weight 400, like a film's titles. Body and UI stay in Geist.
 
 ## 3. The script (final copy)
 **Prologue: opening title (`#top`)**
@@ -189,8 +198,8 @@ Shots:
   - `Shot` (pinned stage plus progress);
   - `Subtitle` / `Slate`;
   - `Particles` (seeded sprite field, ≤ 40 sprites on mobile);
-  - `LightSweep`, `Flare`, `Rumble`, `Letterbox`;
-  - `DownloadPill`, `Scrubber`;
+  - `LightSweep`, `Flare`;
+  - `Frame` (with the `hud` store), `SmoothScroll`;
   - easing helpers.
 - **Scene lengths:**
   - each shot ≈ 100–140 svh of scroll;

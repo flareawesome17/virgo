@@ -11,12 +11,13 @@ import { HeroFilm } from '../scenes/prologue-film';
  * Prologue: the opening title · #top (05-cinema.md §3).
  *
  * A title card over the hero film (scenes/hero-plate.tsx): a cine camera lit
- * in a dark studio, the lights coming up as the page opens. The mark and Sign
- * in sit in the corners (StoryPage's TitleBar); the H1, one line, one call to
- * action and "Scroll to play" sit left of the camera on desktop, below it on
- * phones. In motion the section is a 230 svh track with its frame pinned: the
- * camera pushes into the lens, the title falls back, and the sky descends
- * onto Mika's star under two subtitles.
+ * in a dark studio, the lights coming up as the page opens. The mark, Sign in
+ * and Join sit on the film's frame (cinema/frame.tsx); the H1, one line, one
+ * call to action and "Scroll to play" sit left of the camera on desktop, below
+ * it on phones (short phones drop the cue: story.css). In motion the section
+ * is a 230 svh track with its frame pinned: the camera pushes into the lens,
+ * the title falls back, and the sky descends onto Mika's star under two
+ * subtitles.
  *
  * The static page keeps the same title card over the film's still, then a
  * lens on Cebu City.
@@ -40,7 +41,7 @@ export function Prologue() {
           <FilmPlate />
           <HeroFilm />
 
-          <div className="relative z-10 flex min-h-svh flex-col items-center justify-end px-5 pb-[max(2.5rem,6svh)] pt-28 text-center [html[data-motion='on']_&]:h-full [html[data-motion='on']_&]:min-h-0 sm:px-8 lg:items-start lg:justify-center lg:pb-0 lg:pl-[7vw] lg:text-left">
+          <div className="relative z-10 flex min-h-svh flex-col items-center justify-end px-5 pb-[calc(var(--frame)+4.75rem)] pt-28 text-center [html[data-motion='on']_&]:h-full [html[data-motion='on']_&]:min-h-0 sm:px-8 lg:items-start lg:justify-center lg:pb-0 lg:pl-[7vw] lg:text-left">
             {/* Copy over the sky sits on a radial scrim (§1.5): dense under the glyphs, fading only outside them. */}
             <div
               aria-hidden
@@ -65,6 +66,7 @@ export function Prologue() {
               </a>
               <a
                 href="#hire"
+                data-part="hero-cue"
                 className={`group mt-6 inline-flex min-h-11 flex-col items-center gap-2 rounded-md font-mono text-[11px] uppercase tracking-[0.24em] text-[#A08E84] transition-colors hover:text-[#F2EDE8] ${FOCUS}`}
               >
                 {HERO.cue}

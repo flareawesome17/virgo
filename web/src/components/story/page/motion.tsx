@@ -79,9 +79,17 @@ const OFFSETS = {
  */
 export const GLIDE = { stiffness: 170, damping: 32, mass: 0.6, restDelta: 0.0002 } as const;
 
+/** Near-instant: when the page itself scrolls smoothly (Lenis), the scenes follow it rather than glide twice. */
+const DIRECT = { stiffness: 2000, damping: 120, mass: 0.2, restDelta: 0.0002 } as const;
+
+/** Whether the page scrolls smoothly (decided before paint: pre-paint.tsx). */
+export function lenisOn(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.getAttribute('data-lenis') === 'on';
+}
+
 export function useChapterProgress(target: RefObject<HTMLElement | null>, kind: ProgressKind = 'track'): MotionValue<number> {
   const { scrollYProgress } = useScroll({ target, offset: [...OFFSETS[kind]] as never });
-  return useSpring(scrollYProgress, GLIDE);
+  return useSpring(scrollYProgress, lenisOn() ? DIRECT : GLIDE);
 }
 
 // ─── Nearness ─────────────────────────────────────────────────────────
