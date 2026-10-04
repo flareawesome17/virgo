@@ -43,7 +43,7 @@ This document overrides the storyboard's motion, navigation and copy wherever th
 
 7. **The gear.** The owner asked for the tools of the trade on screen, so a visitor sees at a glance who this is for. A set of generic, unbranded objects drawn in code (`page/cinema/gear.tsx`), lit like night product shots (dark bodies, a warm gold rim light):
    - **camera body** (photographer), **lens**, **cinema rig** (videographer), **gimbal**, **light** (strobe with a softbox), **mic**, **makeup brush** (HMUA), **edit timeline** (editor).
-   - **Hero:** the gear floats in depth around the title as a constellation, joined by faint gold lines. It bobs gently (autoplay, stops under Pause). The first scroll pushes the camera *through* it, and the pieces stream past the viewer into the sky.
+   - **Hero:** see §1.10, the hero film. (The drawn gear constellation that first stood here read as flat clip-art; the owner asked for real depth.)
    - **Scenes:** each role carries its tool wherever the crew appears: the job's role rows, the nearby filter, the accepted crew, Saturday's shoot (a shutter beat on the camera, the rig's red tally light), the credits.
    - No brand names or logos; no real products.
 
@@ -69,6 +69,19 @@ This document overrides the storyboard's motion, navigation and copy wherever th
      - each leaving file becomes a fading star;
      - the crews' pins become stars;
      - the credits' star becomes a heart.
+
+10. **The hero film** (owner, 2026-10-04: "too flat… make it feel like a video", modern kit). A photoreal render, not a drawing:
+    - **The scene:** a dark studio with a cine camera as the hero piece, large and close at three-quarters. It has a geared cine prime with coated glass, a key light, and a gold rim. A mirrorless camera sits soft behind it and a spare prime lies out of focus in front. There is a dark satin floor, warm bokeh far back, and dust near the lens.
+    - **How it is made:** the gear is built in code (`marketing-assets/blender/gear_models.py`), so it is generic and needs no licences. The scene and its motion are in `marketing-assets/blender/hero_film.py`, rendered with Blender Cycles on the CPU.
+      - The opening (2.5 s): the lights flicker on and the camera dollies in.
+      - The loop (5 s): seamless. A slow orbit, the light breathing, motes on closed paths, and a glint crossing the lens.
+      - `scripts/encode-film.mjs` makes VP9 and H.264 files plus a lit still; `publish.mjs` hashes them in.
+    - **On the page** (`scenes/hero-plate.tsx`):
+      - The opening plays once and hands over to the loop with no black frame.
+      - Live haze drifts over it, and the mouse adds a little parallax.
+      - The first scroll pushes the camera into the lens glass and through it into the sky.
+      - The still stands in for reduced motion, no JS, and phones that will not autoplay. The film pauses with Pause and off screen.
+      - Desktop: title left, film right. Phones: film on top, title below.
 
 ## 2. The frame (chrome)
 - **No header.**

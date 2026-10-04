@@ -110,6 +110,57 @@ html[data-motion='on'] .story-page .story-mote {
   animation: story-drift var(--mote-dur, 14s) linear var(--mote-delay, 0s) infinite;
 }
 
+/*
+ * Haze over the hero film (scenes/hero-plate.tsx): two soft warm clouds that
+ * drift on long, offset loops, so the studio air moves. Transform and
+ * opacity only; the film itself carries no haze (it would cost a render pass).
+ */
+@keyframes story-haze-a {
+  0%,
+  100% {
+    transform: translate3d(-6%, 2%, 0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(5%, -3%, 0) scale(1.12);
+    opacity: 0.85;
+  }
+}
+@keyframes story-haze-b {
+  0%,
+  100% {
+    transform: translate3d(4%, -2%, 0) scale(1.1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate3d(-5%, 3%, 0) scale(0.96);
+    opacity: 0.7;
+  }
+}
+.story-page .story-haze::before,
+.story-page .story-haze::after {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+}
+.story-page .story-haze::before {
+  background: radial-gradient(40% 32% at 38% 40%, rgba(240, 200, 142, 0.16), rgba(240, 200, 142, 0) 70%);
+}
+.story-page .story-haze::after {
+  background: radial-gradient(36% 30% at 70% 62%, rgba(209, 138, 90, 0.13), rgba(209, 138, 90, 0) 70%);
+}
+html[data-motion='on'] .story-page .story-haze::before {
+  animation: story-haze-a 23s ease-in-out infinite;
+}
+html[data-motion='on'] .story-page .story-haze::after {
+  animation: story-haze-b 31s ease-in-out infinite;
+}
+html[data-paused] .story-page .story-haze::before,
+html[data-paused] .story-page .story-haze::after {
+  animation-play-state: paused;
+}
+
 /* One fixed grain layer over everything, never animated, gone under forced colours. */
 .story-grain {
   pointer-events: none;

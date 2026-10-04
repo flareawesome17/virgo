@@ -75,41 +75,57 @@ export const MEDIA = {
     "bytes": 42308,
     "type": "image/webp"
   },
-  "heroLoopWebm": {
-    "url": "/redesign/hero/hero-wide.0b318a28.webm",
+  "filmIntroWebm": {
+    "url": "/redesign/film/film-intro.675ec3d2.webm",
     "width": 1280,
     "height": 720,
-    "bytes": 352199,
+    "bytes": 167172,
     "type": "video/webm",
     "codecs": "vp9"
   },
-  "heroLoopMp4": {
-    "url": "/redesign/hero/hero-wide.8e781631.mp4",
+  "filmIntroMp4": {
+    "url": "/redesign/film/film-intro.b7e51343.mp4",
     "width": 1280,
     "height": 720,
-    "bytes": 671882,
+    "bytes": 278467,
     "type": "video/mp4",
     "codecs": "avc1.640028"
   },
-  "heroPosterAvif": {
-    "url": "/redesign/hero/hero-wide.b41606ce.avif",
+  "filmLoopWebm": {
+    "url": "/redesign/film/film-loop.95cb2900.webm",
     "width": 1280,
     "height": 720,
-    "bytes": 12249,
+    "bytes": 417938,
+    "type": "video/webm",
+    "codecs": "vp9"
+  },
+  "filmLoopMp4": {
+    "url": "/redesign/film/film-loop.6941b924.mp4",
+    "width": 1280,
+    "height": 720,
+    "bytes": 591749,
+    "type": "video/mp4",
+    "codecs": "avc1.640028"
+  },
+  "filmStillAvif": {
+    "url": "/redesign/film/film-still.23e0913f.avif",
+    "width": 1280,
+    "height": 720,
+    "bytes": 12330,
     "type": "image/avif"
   },
-  "heroPosterWebp": {
-    "url": "/redesign/hero/hero-wide.0bbca043.webp",
+  "filmStillWebp": {
+    "url": "/redesign/film/film-still.10375926.webp",
     "width": 1280,
     "height": 720,
-    "bytes": 10940,
+    "bytes": 18402,
     "type": "image/webp"
   },
-  "heroPosterJpg": {
-    "url": "/redesign/hero/hero-wide.6f33f334.jpg",
+  "filmStillJpg": {
+    "url": "/redesign/film/film-still.a68d7e51.jpg",
     "width": 1280,
     "height": 720,
-    "bytes": 28339,
+    "bytes": 37026,
     "type": "image/jpeg"
   },
   "ogVideoMp4": {
