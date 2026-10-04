@@ -3,10 +3,11 @@
 import { m, useMotionValue, useTransform, type MotionValue } from 'framer-motion';
 import { useEffect } from 'react';
 import { DESCENT } from '../../data/strings/page-prologue';
-import { camera, r2, seg, window4 } from '../cinema/ease';
+import { camera, r2, seg } from '../cinema/ease';
 import { Flare, LightSweep, Particles } from '../cinema/fx';
 import { GEAR_ASPECT, GearArt, type GearKind } from '../cinema/gear';
 import { Subtitles } from '../cinema/shot';
+import { Viewfinder } from '../cinema/viewfinder';
 import { usePrologueProgress } from '../islands/prologue';
 import { useMotionGate } from '../motion';
 
@@ -172,19 +173,14 @@ export function HeroFilm() {
   const gate = useMotionGate();
   const fallback = useMotionValue(0);
   const p = progress ?? fallback;
-  const reticle = useTransform(p, (v) => r2(window4(v, 0.8, 0.9, 1.2, 1.3)));
-  const reticleT = useTransform(p, (v) => `translate3d(-50%,-50%,0) scale(${r2(1.7 - 0.7 * camera(seg(v, 0.8, 0.94)))})`);
   if (!gate.motion) return null;
   return (
     <>
       <LightSweep progress={p} from={0} to={0.18} />
       <Particles progress={p} push={[0.02, 0.42]} count={typeof window !== 'undefined' && window.innerWidth < 1024 ? 14 : 28} seed={11} />
       <Flare progress={p} from={0.78} to={1.05} x={50} y={50} size={460} />
-      <m.span
-        aria-hidden
-        style={{ opacity: reticle, transform: reticleT }}
-        className="pointer-events-none absolute left-1/2 top-1/2 z-20 size-14 rounded-full border border-[#F0C88E]/70 shadow-[0_0_24px_rgba(240,200,142,0.35)]"
-      />
+      {/* The camera finds her: the viewfinder draws in and the focus box locks on her star. */}
+      <Viewfinder progress={p} from={0.66} to={1.25} />
       <Subtitles
         progress={p}
         lines={[

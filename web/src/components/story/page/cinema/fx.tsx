@@ -3,7 +3,7 @@
 import { m, useMotionValueEvent, useTransform, type MotionValue } from 'framer-motion';
 import { useMemo, useRef, type RefObject } from 'react';
 import { useMotionGate } from '../motion';
-import { camera, lerp, r2, seg, window4 } from './ease';
+import { camera, enter, lerp, r2, seg, window4 } from './ease';
 
 /**
  * The "5D" layer (docs/redesign/05-cinema.md §1.4): particles that stream
@@ -150,4 +150,19 @@ export function useCamera(progress: MotionValue<number>, keys: readonly { at: nu
     const ry = lerp(a.ry ?? 0, b.ry ?? 0, t);
     return `perspective(1200px) translate3d(${r2(x)}vw,${r2(y)}vh,0) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg) scale(${r2(s)})`;
   });
+}
+
+/**
+ * Ease in, hold, ease out (05-cinema.md §1.8): the life of one item on screen.
+ * In over [a, b] rising `y` px and growing from `scale`; out over [c, d]
+ * drifting on up. Returns style-ready motion values.
+ */
+export function useReveal(progress: MotionValue<number>, a: number, b: number, c: number, d: number, { y = 24, scale = 0.96 } = {}) {
+  const opacity = useTransform(progress, (p) => r2(window4(p, a, b, c, d)));
+  const transform = useTransform(progress, (p) => {
+    const i = enter(seg(p, a, b));
+    const o = seg(p, c, d);
+    return `translate3d(0,${r2((1 - i) * y - o * o * o * y)}px,0) scale(${r2(scale + (1 - scale) * i)})`;
+  });
+  return { opacity, transform };
 }

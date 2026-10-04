@@ -19,6 +19,7 @@ import { Prologue } from './chapters/prologue';
 import { TheWork } from './chapters/the-work';
 import { mapLevels } from './map-levels';
 import { DownloadPill, Letterbox, Scrubber } from './cinema/chrome';
+import { Cuts, type Cut } from './cinema/cuts';
 import { MotionRoot } from './motion';
 import { PrePaint } from './pre-paint';
 import { SkyProvider } from './sky-stage';
@@ -63,6 +64,7 @@ export function StoryPage({ plans }: { plans: PlanInfo[] }) {
             <Faq />
           </main>
           <StoryFooter />
+          <Cuts cuts={CUTS} />
           <Letterbox />
           <Scrubber />
           <DownloadPill />
@@ -72,6 +74,24 @@ export function StoryPage({ plans }: { plans: PlanInfo[] }) {
     </div>
   );
 }
+
+/**
+ * The cuts between scenes (05-cinema.md §1.8): the aperture closes and opens,
+ * a zoom through a geometric tunnel, or a warm light leak, with the story's
+ * symbol morphing at the centre: Mika's star → the group chat, the job → a pin,
+ * the constellation → the calendar, the alarm → the sun, the shutter → a heart,
+ * the heart → an hourglass, the stars → the aperture. Chapters that share
+ * the sky (Nearby → Connect, The work → Every Saturday) flow on uncut.
+ */
+const CUTS: Cut[] = [
+  { into: 'hire', kind: 'iris', from: 'sparkle', to: 'bubble' },
+  { into: 'nearby', kind: 'tunnel', from: 'square', to: 'pin' },
+  { into: 'calendar', kind: 'iris', from: 'sparkle', to: 'square' },
+  { into: 'saturday', kind: 'leak', from: 'circle', to: 'sun' },
+  { into: 'delivery', kind: 'iris', from: 'hexagon', to: 'heart' },
+  { into: 'forget', kind: 'tunnel', from: 'heart', to: 'hourglass' },
+  { into: 'features', kind: 'iris', from: 'sparkle', to: 'hexagon' },
+];
 
 const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#F2EDE8]';
 
