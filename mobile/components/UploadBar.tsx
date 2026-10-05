@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
+import Animated, { FadeInUp, FadeOutUp } from 'react-native-reanimated';
 import {
   SafeAreaInsetsContext,
   useSafeAreaInsets,
@@ -31,67 +32,83 @@ for (const Icon of [UploadCloudIcon, AlertCircleIcon]) {
  * correctly — whichever is outermost takes the notch and zeroes it for the
  * rest.
  *
- * Renders its children untouched when there is nothing to say. Failures stay
- * after the queue drains, because a file that did not upload is the one thing
- * here worth interrupting someone for; successes disappear on their own.
+ * Failures stay after the queue drains, because a file that did not upload is
+ * the one thing here worth interrupting someone for; successes disappear on
+ * their own.
+ *
+ * The tree is the same shape whether the bar shows or not — the bar is there
+ * or it is not, and the navigator is always the second child. It used to
+ * return the navigator bare when there was nothing to say and wrapped when
+ * there was, which React reads as a different tree: the whole app under it
+ * unmounted and mounted again when an upload started and again when it
+ * finished — every screen, every scroll position, anything half typed.
  */
 export function UploadBar({ children }: { children: ReactNode }) {
   const { tasks, active, overall, remaining } = useUploadQueue();
   const insets = useSafeAreaInsets();
 
   const failed = tasks.filter((task) => task.status === 'failed').length;
-  if (!active && failed === 0) return <>{children}</>;
-
+  const showing = active || failed > 0;
   const percent = Math.round(overall * 100);
+
+  // The same object until something about it changes. A new one on every
+  // render — and this renders on every percent of an upload — re-rendered
+  // every screen that reads the safe area, for the length of the upload.
+  const below = useMemo(
+    () => (showing ? { ...insets, top: 0 } : insets),
+    [showing, insets],
+  );
 
   return (
     <>
-    <Pressable
-      onPress={() => router.push('/albums/upload')}
-      accessibilityRole="button"
-      accessibilityLabel={
-        active
-          ? `Uploading, ${percent} percent, ${remaining} remaining`
-          : `${failed} ${failed === 1 ? 'upload' : 'uploads'} failed`
-      }
-      className="border-b border-border/40 bg-card px-4 pb-2"
-      // The notch, once. The screens below get it zeroed, just under here.
-      style={{ paddingTop: insets.top + 8 }}
-    >
-      <View className="flex-row items-center gap-2.5">
-        {active ? (
-          <UploadCloudIcon size={15} className="text-primary" />
-        ) : (
-          <AlertCircleIcon size={15} className="text-destructive" />
-        )}
-        <Text className="text-foreground flex-1 text-[12px] font-semibold" numberOfLines={1}>
-          {active
-            ? `Uploading ${remaining} ${remaining === 1 ? 'file' : 'files'}`
-            : `${failed} ${failed === 1 ? 'upload' : 'uploads'} did not finish`}
-        </Text>
-        {active && (
-          <Text className="text-muted-foreground text-[12px] font-semibold tabular-nums">
-            {percent}%
-          </Text>
-        )}
-      </View>
+    {showing ? (
+      <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutUp.duration(180)}>
+        <Pressable
+          onPress={() => router.push('/albums/upload')}
+          accessibilityRole="button"
+          accessibilityLabel={
+            active
+              ? `Uploading, ${percent} percent, ${remaining} remaining`
+              : `${failed} ${failed === 1 ? 'upload' : 'uploads'} failed`
+          }
+          className="border-b border-border/40 bg-card px-4 pb-2"
+          // The notch, once. The screens below get it zeroed, just under here.
+          style={{ paddingTop: insets.top + 8 }}
+        >
+          <View className="flex-row items-center gap-2.5">
+            {active ? (
+              <UploadCloudIcon size={15} className="text-primary" />
+            ) : (
+              <AlertCircleIcon size={15} className="text-destructive" />
+            )}
+            <Text className="text-foreground flex-1 text-[12px] font-semibold" numberOfLines={1}>
+              {active
+                ? `Uploading ${remaining} ${remaining === 1 ? 'file' : 'files'}`
+                : `${failed} ${failed === 1 ? 'upload' : 'uploads'} did not finish`}
+            </Text>
+            {active && (
+              <Text className="text-muted-foreground text-[12px] font-semibold tabular-nums">
+                {percent}%
+              </Text>
+            )}
+          </View>
 
-      {active && (
-        // Track and fill rather than a spinner: a spinner says "busy" and this
-        // has a real number behind it, which is the difference between waiting
-        // and knowing how long.
-        <View className="bg-muted mt-1.5 h-1 overflow-hidden rounded-full">
-          <View
-            className="bg-primary h-full rounded-full"
-            style={{ width: `${Math.min(percent, 100)}%` }}
-          />
-        </View>
-      )}
-    </Pressable>
+          {active && (
+            // Track and fill rather than a spinner: a spinner says "busy" and this
+            // has a real number behind it, which is the difference between waiting
+            // and knowing how long.
+            <View className="bg-muted mt-1.5 h-1 overflow-hidden rounded-full">
+              <View
+                className="bg-primary h-full rounded-full"
+                style={{ width: `${Math.min(percent, 100)}%` }}
+              />
+            </View>
+          )}
+        </Pressable>
+      </Animated.View>
+    ) : null}
 
-    <SafeAreaInsetsContext.Provider value={{ ...insets, top: 0 }}>
-      {children}
-    </SafeAreaInsetsContext.Provider>
+    <SafeAreaInsetsContext.Provider value={below}>{children}</SafeAreaInsetsContext.Provider>
     </>
   );
 }

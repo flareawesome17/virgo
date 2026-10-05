@@ -13,6 +13,7 @@ import {
   PackageIcon,
   PresentationIcon,
   PlusIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
   BellIcon,
   BellOffIcon,
@@ -21,7 +22,13 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { AttendeeSummary, EventInvitationsCard, TabScreen, useTabBottomInset } from '@/components';
+import {
+  AttendeeSummary,
+  EventInvitationsCard,
+  PressableScale,
+  TabScreen,
+  useTabBottomInset,
+} from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import {
   DAY_DOT_SIZE,
@@ -43,6 +50,7 @@ cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: 
 cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(ChevronLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -137,13 +145,21 @@ export default function ScheduleScreen() {
     if (viewMonth === 0) { setViewYear(viewYear - 1); setViewMonth(11); }
     else setViewMonth(viewMonth - 1);
   };
+  // Offered once you have moved off today — another month, or another day.
+  const awayFromToday =
+    viewMonth !== today.getMonth() || viewYear !== today.getFullYear() || selectedDate !== todayKey();
+  const goToday = () => {
+    setViewYear(today.getFullYear());
+    setViewMonth(today.getMonth());
+    setSelectedDate(todayKey());
+  };
   const goNextMonth = () => {
     if (viewMonth === 11) { setViewYear(viewYear + 1); setViewMonth(0); }
     else setViewMonth(viewMonth + 1);
   };
 
   return (
-    <TabScreen>
+    <TabScreen title="Schedule" create="event">
       <Animated.ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -159,48 +175,50 @@ export default function ScheduleScreen() {
           </View>
         )}
 
-        {/* Header */}
-        <View className="px-5 pt-4 pb-1 flex-row items-center justify-between">
-          <View>
-            <Text className="text-foreground text-[28px] font-bold tracking-tight">Schedule</Text>
-            <Text className="text-muted-foreground text-sm mt-1">{events.length} events · {activeReminders.length} reminders</Text>
-          </View>
-          <Pressable
-            onPress={() => router.push('/schedule/create')}
-            accessibilityRole="button"
-            accessibilityLabel="Create an event"
-            className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
-          >
-            <PlusIcon size={20} className="text-action-foreground" />
-          </Pressable>
-        </View>
-
+        {/* No title row: the screen's name is in the top bar, and a new event
+            or reminder is its +. The month comes first. */}
         {/* Month Calendar */}
         <View className="mx-5 mt-4 bg-secondary rounded-2xl p-4">
-          {/* Month navigator */}
-          <View className="flex-row items-center justify-between mb-4">
+          {/* Month navigator: the month, a way home when you have wandered
+              off it, and the arrows together on the right where the thumb
+              is. The arrows were the ‹ and › characters at text size, and a
+              "Full" link sat squeezed against the second one — the full
+              calendar is still a tap away, under Upcoming. */}
+          <View className="flex-row items-center gap-2 mb-3">
+            <Text
+              accessibilityRole="header"
+              className="flex-1 text-foreground text-[17px] font-bold tracking-tight"
+            >
+              {MONTHS[viewMonth]} {viewYear}
+            </Text>
+            {awayFromToday && (
+              <Pressable
+                onPress={goToday}
+                accessibilityRole="button"
+                accessibilityLabel="Go to today"
+                className="h-9 px-3.5 rounded-full bg-card items-center justify-center active:opacity-70"
+              >
+                <Text className="text-primary text-[13px] font-semibold">Today</Text>
+              </Pressable>
+            )}
             <Pressable
               onPress={goPrevMonth}
               accessibilityRole="button"
               accessibilityLabel="Previous month"
-              className="w-11 h-11 rounded-xl bg-card items-center justify-center active:scale-[0.96]"
+              hitSlop={4}
+              className="w-10 h-10 rounded-full bg-card items-center justify-center active:opacity-70"
             >
-              <Text className="text-foreground text-sm font-bold">‹</Text>
+              <ChevronLeftIcon size={18} className="text-foreground" />
             </Pressable>
-            <Text className="text-foreground text-base font-bold tracking-tight">{MONTHS[viewMonth]} {viewYear}</Text>
-            <View className="flex-row items-center gap-2">
-              <Pressable onPress={() => router.push('/schedule/calendar')} className="active:opacity-60">
-                <Text className="text-primary text-xs font-semibold">Full</Text>
-              </Pressable>
-              <Pressable
-                onPress={goNextMonth}
-                accessibilityRole="button"
-                accessibilityLabel="Next month"
-                className="w-11 h-11 rounded-xl bg-card items-center justify-center active:scale-[0.96]"
-              >
-                <Text className="text-foreground text-sm font-bold">›</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={goNextMonth}
+              accessibilityRole="button"
+              accessibilityLabel="Next month"
+              hitSlop={4}
+              className="w-10 h-10 rounded-full bg-card items-center justify-center active:opacity-70"
+            >
+              <ChevronRightIcon size={18} className="text-foreground" />
+            </Pressable>
           </View>
           {/* Day labels — flex-1 so the columns line up exactly with the grid */}
           <View className="flex-row mb-1">
@@ -347,8 +365,11 @@ export default function ScheduleScreen() {
               {upcomingEvents.map(ev => {
                 const color = eventColor(ev.event_type);
                 return (
-                  <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
-                    className="bg-card rounded-2xl px-4 py-3 flex-row items-center gap-3 border border-border/30 active:scale-[0.98]">
+                  <PressableScale key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${ev.title}`}
+                    scaleTo={0.98}
+                    className="bg-card rounded-2xl px-4 py-3 flex-row items-center gap-3 border border-border/30">
                     <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: color }} />
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>{ev.title}</Text>
@@ -357,7 +378,7 @@ export default function ScheduleScreen() {
                     <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: `${color}14` }}>
                       <Text numberOfLines={1} style={{ color, fontSize: 11, fontWeight: '700' }}>{eventTypeLabel(ev)}</Text>
                     </View>
-                  </Pressable>
+                  </PressableScale>
                 );
               })}
             </View>

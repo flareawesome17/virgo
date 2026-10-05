@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { CheckIcon, PlayIcon, XIcon } from 'lucide-react-native';
+import { FormHeader } from '@/components/FormHeader';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { LoadFailed } from '@/components/LoadFailed';
@@ -214,35 +215,17 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <View className="flex-row items-center border-b border-border pl-1 pr-2">
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-          className="w-11 h-11 items-center justify-center"
-        >
-          <XIcon size={20} className="text-foreground" />
-        </Pressable>
-        <Text className="flex-1 text-center text-foreground text-[15px] font-bold">
-          {editing ? 'Edit showcase' : 'New showcase'}
-        </Text>
-        <Pressable
-          onPress={editing ? save : post}
-          disabled={picked.length === 0 || busy}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityState={{ busy, disabled: picked.length === 0 }}
-          className="min-h-11 px-3 items-center justify-center"
-          style={{ opacity: picked.length === 0 || busy ? 0.4 : 1 }}
-        >
-          <Text className="text-primary text-[14px] font-bold">
-            {editing
-              ? update.isPending ? 'Saving…' : 'Save'
-              : create.isPending ? 'Posting…' : 'Post'}
-          </Text>
-        </Pressable>
-      </View>
+      <FormHeader
+        title={editing ? 'Edit showcase' : 'New showcase'}
+        action={{
+          label: editing
+            ? update.isPending ? 'Saving…' : 'Save'
+            : create.isPending ? 'Posting…' : 'Post',
+          onPress: editing ? save : post,
+          disabled: picked.length === 0,
+          busy,
+        }}
+      />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

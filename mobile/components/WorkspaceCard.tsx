@@ -1,8 +1,9 @@
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { router } from 'expo-router';
 import type { Workspace } from '@/src/api';
 import { ROLE_LABEL, plural, relativeTime } from '@/src/lib/workspaces';
 import { PeopleStack, Pill, WorkspaceTile } from '@/components/WorkspaceBits';
+import { PressableScale } from '@/components/PressableScale';
 
 /**
  * Whose a workspace is and who else is in it, in one line:
@@ -26,11 +27,16 @@ export function ownerLine(workspace: Workspace): string {
  */
 export function WorkspaceCard({ workspace, ring }: { workspace: Workspace; ring: string }) {
   return (
-    <Pressable
+    // Gives under the finger and springs back (PressableScale), where it used
+    // to snap to 98% and back. Where it sits is a plain style; how it looks
+    // is the class.
+    <PressableScale
       onPress={() => router.push(`/workspaces/${workspace.id}`)}
       accessibilityRole="button"
       accessibilityLabel={`${workspace.name}, ${ownerLine(workspace)}`}
-      className="mx-5 mb-3 bg-card rounded-2xl p-3.5 flex-row gap-3 border border-border/40 active:scale-[0.98]"
+      scaleTo={0.98}
+      style={{ marginHorizontal: 20, marginBottom: 12 }}
+      className="bg-card rounded-2xl p-3.5 flex-row gap-3 border border-border/40"
     >
       <WorkspaceTile name={workspace.name} color={workspace.accent_color} size={48} />
       <View className="flex-1 min-w-0 gap-1">
@@ -55,6 +61,6 @@ export function WorkspaceCard({ workspace, ring }: { workspace: Workspace; ring:
           </View>
         </View>
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }

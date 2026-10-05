@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { BookmarkIcon, ImageIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
+import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { RemoteImage } from '@/components/RemoteImage';
 import {
   useMyShowcases,
@@ -59,9 +60,15 @@ export function ProfileWorkTaste({
 
   return (
     <View className="mt-6">
-      <View accessibilityRole="tablist" className="flex-row border-b border-border mx-5">
-        <Tab label="Work" on={tab === 'work'} onPress={() => setTab('work')} />
-        <Tab label="Taste" on={tab === 'taste'} onPress={() => setTab('taste')} />
+      <View className="mx-5">
+        <SegmentedTabs<typeof tab>
+          segments={[
+            { key: 'work', label: 'Work' },
+            { key: 'taste', label: 'Taste' },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
       </View>
 
       {tab === 'work' ? (
@@ -183,22 +190,6 @@ export function ProfileWorkTaste({
         </View>
       )}
     </View>
-  );
-}
-
-function Tab({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: on }}
-      className="flex-1 min-h-11 items-center justify-center"
-    >
-      <Text className={`text-[13.5px] ${on ? 'text-foreground font-bold' : 'text-muted-foreground font-semibold'}`}>
-        {label}
-      </Text>
-      {on && <View className="absolute left-0 right-0 bottom-0 h-[2.5px] bg-primary" />}
-    </Pressable>
   );
 }
 

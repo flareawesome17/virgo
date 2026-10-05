@@ -7,7 +7,7 @@ import {
   FolderIcon,
   CalendarIcon,
   HomeIcon,
-  LayoutGridIcon,
+  GalleryVerticalEndIcon,
   BriefcaseIcon,
 } from 'lucide-react-native';
 import { cssInterop, useColorScheme } from 'nativewind';
@@ -20,7 +20,7 @@ import { AppTabBar } from '@/components/AppTabBar';
 import { ChromeProvider, useChrome } from '@/src/providers/ChromeProvider';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [FolderIcon, CalendarIcon, HomeIcon, LayoutGridIcon, BriefcaseIcon]) {
+for (const Icon of [FolderIcon, CalendarIcon, HomeIcon, GalleryVerticalEndIcon, BriefcaseIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -148,8 +148,11 @@ function TabsLayoutInner() {
         name="feed"
         options={{
           title: 'Feed',
+          // A stack of cards, which is what the Feed is. It was a grid of
+          // squares, which is what it is not — and with no labels on the bar,
+          // the picture is all that says where a tab goes.
           tabBarIcon: ({ focused, color }) => (
-            <LayoutGridIcon color={color} size={23} strokeWidth={focused ? 2.5 : 2} />
+            <GalleryVerticalEndIcon color={color} size={23} strokeWidth={focused ? 2.5 : 2} />
           ),
         }}
       />

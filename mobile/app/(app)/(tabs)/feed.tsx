@@ -17,10 +17,15 @@ import {
   FlagIcon,
   HeartIcon,
   ImageIcon,
-  PlusIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { TabScreen, useTabBottomInset } from '@/components';
+import {
+  EmptyState,
+  FeedSkeleton,
+  SegmentedTabs,
+  TabScreen,
+  useTabBottomInset,
+} from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
@@ -31,7 +36,7 @@ import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { makerOf, type FeedItem } from '@/src/api';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [BookmarkIcon, ChevronUpIcon, FlagIcon, HeartIcon, ImageIcon, PlusIcon]) {
+for (const Icon of [BookmarkIcon, ChevronUpIcon, FlagIcon, HeartIcon, ImageIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -160,30 +165,21 @@ export default function FeedScreen() {
   );
 
   return (
-    <TabScreen>
+    <TabScreen title="Feed" create="showcase">
 
-      <View className="px-5 pt-3 pb-2 flex-row items-center gap-2">
-        <ScopeTab label="Everyone" on={scope === 'everyone'} onPress={() => setScope('everyone')} />
-        <ScopeTab
-          label="Connections"
-          on={scope === 'connections'}
-          onPress={() => setScope('connections')}
+      <View className="px-5 pt-2 pb-2">
+        <SegmentedTabs<typeof scope>
+          segments={[
+            { key: 'everyone', label: 'Everyone' },
+            { key: 'connections', label: 'Connections' },
+          ]}
+          value={scope}
+          onChange={setScope}
         />
-        <View className="flex-1" />
-        <Pressable
-          onPress={() => router.push('/showcase/new')}
-          accessibilityRole="button"
-          accessibilityLabel="Post a showcase"
-          className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
-        >
-          <PlusIcon size={20} className="text-action-foreground" />
-        </Pressable>
       </View>
 
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={palette.primary} />
-        </View>
+        <FeedSkeleton />
       ) : loadFailed && items.length === 0 ? (
         <LoadFailed what="the feed" onRetry={() => refetch()} />
       ) : (
@@ -226,31 +222,6 @@ export default function FeedScreen() {
       <KeepSheet item={keeping} onClose={() => setKeeping(null)} />
       <ShowcaseReportSheet showcaseId={reporting} onClose={() => setReporting(null)} />
     </TabScreen>
-  );
-}
-
-function ScopeTab({
-  label,
-  on,
-  onPress,
-}: {
-  label: string;
-  on: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: on }}
-      className={`min-h-11 px-4 rounded-full items-center justify-center ${on ? 'bg-action' : 'bg-secondary'}`}
-    >
-      <Text
-        className={`text-[13px] font-bold ${on ? 'text-action-foreground' : 'text-muted-foreground'}`}
-      >
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -547,25 +518,17 @@ function FeedFilm({
 
 function EmptyFeed({ scope }: { scope: 'everyone' | 'connections' }) {
   return (
-    <View className="items-center px-10 mt-24">
-      <View className="w-20 h-20 rounded-full bg-primary/10 items-center justify-center mb-5">
-        <ImageIcon size={30} className="text-primary" />
-      </View>
-      <Text className="text-foreground text-lg font-bold">
-        {scope === 'connections' ? 'Nothing from your connections yet' : 'Nothing here yet'}
-      </Text>
-      <Text className="text-muted-foreground text-sm text-center mt-2 leading-5">
-        {scope === 'connections'
-          ? 'When people you are connected with post their work, it shows up here.'
-          : 'Be the first. Post a piece of work and say how you made it — that is what other people come here to read.'}
-      </Text>
-      <Pressable
-        onPress={() => router.push('/showcase/new')}
-        accessibilityRole="button"
-        className="mt-7 min-h-11 bg-action rounded-xl px-7 items-center justify-center active:scale-[0.98]"
-      >
-        <Text className="text-action-foreground text-sm font-bold">Post a showcase</Text>
-      </Pressable>
+    <View className="pt-12">
+      <EmptyState
+        icon={ImageIcon}
+        title={scope === 'connections' ? 'Nothing from your connections yet' : 'Nothing here yet'}
+        body={
+          scope === 'connections'
+            ? 'When people you are connected with post their work, it shows up here.'
+            : 'Be the first. Post a piece of work and say how you made it — that is what other people come here to read.'
+        }
+        action={{ label: 'Post a showcase', onPress: () => router.push('/showcase/new') }}
+      />
     </View>
   );
 }

@@ -1,12 +1,7 @@
-import { View, Text, Pressable } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
 import { JobsTabs, TabScreen, useTabBottomInset } from '@/components';
 import { useMarkJobsSeen, useUnseenJobs } from '@/src/hooks';
-import { PlusIcon } from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
-
-cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /**
  * The jobs board, as a screen of its own.
@@ -17,7 +12,9 @@ cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color:
  * screen so the bottom bar stays put: leaving Jobs for Workspaces is one tap,
  * not a back gesture and then a tap.
  *
- * One of the five destinations in the bottom bar.
+ * One of the five destinations in the bottom bar. Its name is in the top bar,
+ * and posting a job is the + there — it used to have a title row of its own
+ * with a Post button, under a bar that already said where you were.
  */
 export default function JobsScreen() {
   const { count: unseenJobs } = useUnseenJobs();
@@ -37,20 +34,7 @@ export default function JobsScreen() {
   );
 
   return (
-    <TabScreen>
-      <View className="flex-row items-center justify-between px-5 py-3">
-        <Text className="text-foreground text-2xl font-bold tracking-tight">Jobs</Text>
-        <Pressable
-          onPress={() => router.push('/jobs/new')}
-          accessibilityRole="button"
-          accessibilityLabel="Post a job"
-          className="min-h-11 flex-row items-center gap-1.5 rounded-xl bg-action px-3.5 py-2 active:opacity-80"
-        >
-          <PlusIcon size={15} className="text-action-foreground" />
-          <Text className="text-action-foreground text-[13px] font-bold">Post</Text>
-        </Pressable>
-      </View>
-
+    <TabScreen title="Jobs" create="job">
       {/* Clears the tab bar, which this screen keeps. */}
       <JobsTabs bottomPadding={bottomInset} />
     </TabScreen>

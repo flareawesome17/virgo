@@ -5,21 +5,25 @@ import {
 import { RemoteImage } from '@/components/RemoteImage';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { useAuth, useJobs, useRoles } from '@/src/hooks';
+import { useJobs, useRoles } from '@/src/hooks';
 import Animated from 'react-native-reanimated';
 import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { budgetLabel, distanceLabel, isRoleFilled, type JobPost } from '@/src/api';
 import { jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon,
-  UsersIcon, SearchIcon, PlusIcon,
+  UsersIcon, SearchIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
+import { FilterChip } from '@/components/FilterChip';
+import { EmptyState } from '@/components/EmptyState';
+import { PressableScale } from '@/components/PressableScale';
+import { CardListSkeleton } from '@/components/Skeleton';
 
 for (const Icon of [
-  BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon, UsersIcon, SearchIcon, PlusIcon,
+  BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon, UsersIcon, SearchIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -84,43 +88,37 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 6, paddingRight: 20 }}>
-          <Chip label="All roles" active={!role} onPress={() => setRole(null)} />
+          contentContainerStyle={{ gap: 8, paddingRight: 20 }}>
+          <FilterChip label="All roles" on={!role} onPress={() => setRole(null)} />
           {allRoles.map((r) => (
-            <Chip key={r} label={r} active={role === r}
+            <FilterChip key={r} label={r} on={role === r}
               onPress={() => setRole(role === r ? null : r)} />
           ))}
         </ScrollView>
       </View>
 
       {isLoading && jobs.length === 0 ? (
-        <View className="flex-1 items-center justify-center py-16">
-          <ActivityIndicator color="#B66A40" />
-        </View>
+        <CardListSkeleton />
       ) : loadFailed && jobs.length === 0 ? (
         <LoadFailed what="the job board" onRetry={() => refetch()} />
       ) : jobs.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-10 py-16">
-          <BriefcaseIcon size={30} className="text-muted-foreground" />
-          <Text className="text-foreground text-[15px] font-bold mt-3 text-center">
-            {debouncedPlace
-              ? `Nothing in “${debouncedPlace}”`
-              : role
-                ? `Nothing open for a ${role.toLowerCase()}`
-                : 'No open jobs right now'}
-          </Text>
-          <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
-            {debouncedPlace || role
-              ? 'Try a wider search, or post the job you need doing.'
-              : 'Posts expire when the job does, so this list is always current. Check back, or post the job you need doing.'}
-          </Text>
-          <Pressable
-            className="mt-5 rounded-xl px-5 py-3"
-            style={{ backgroundColor: '#B66A40' }}
-            onPress={() => router.push('/jobs/new')}
-          >
-            <Text className="text-white text-[13px] font-bold">Post a job</Text>
-          </Pressable>
+        <View className="flex-1 justify-center">
+          <EmptyState
+            icon={BriefcaseIcon}
+            title={
+              debouncedPlace
+                ? `Nothing in “${debouncedPlace}”`
+                : role
+                  ? `Nothing open for a ${role.toLowerCase()}`
+                  : 'No open jobs right now'
+            }
+            body={
+              debouncedPlace || role
+                ? 'Try a wider search, or post the job you need doing.'
+                : 'Posts expire when the job does, so this list is always current. Check back, or post the job you need doing.'
+            }
+            action={{ label: 'Post a job', onPress: () => router.push('/jobs/new') }}
+          />
         </View>
       ) : (
         <Animated.ScrollView
@@ -131,7 +129,6 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#B66A40" />
           }
         >
-          <Composer />
           <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
             {total} open {total === 1 ? 'job' : 'jobs'}
           </Text>
@@ -158,69 +155,6 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
   );
 }
 
-/**
- * The composer row, at the top of the feed.
- *
- * Facebook's arrangement, and for its reason: a feed with no way to add to it
- * is a feed you only ever consume. Posting used to live in the header of the
- * standalone /jobs screen and in My jobs — neither of which is where the Home
- * tab lands you, so once the board had anything on it there was no way to post
- * at all without knowing another route.
- *
- * It looks like an input and is not one. Tapping opens the real composer,
- * because a job post needs a role, a date and a budget, and pretending
- * otherwise would mean a half-filled post or a form that grows out of a
- * one-line box.
- */
-function Composer() {
-  const { profile } = useAuth();
-  const firstName = profile?.displayName?.trim().split(' ')[0];
-
-  return (
-    <Pressable
-      className="bg-card rounded-2xl p-3.5 flex-row items-center gap-3"
-      onPress={() => router.push('/jobs/new')}
-    >
-      <RemoteImage
-        source={{ uri: profile?.avatarUrl ?? PLACEHOLDER_IMAGE }}
-        style={{ width: 36, height: 36, borderRadius: 18 }}
-      />
-      <View
-        className="flex-1 rounded-full px-4 py-2.5"
-        style={{ backgroundColor: '#B66A400F' }}
-      >
-        <Text className="text-muted-foreground text-[13px]">
-          {firstName ? `${firstName}, who do you need?` : 'Who do you need?'}
-        </Text>
-      </View>
-      <View
-        className="rounded-full p-2"
-        style={{ backgroundColor: '#B66A40' }}
-      >
-        <PlusIcon size={16} color="#fff" />
-      </View>
-    </Pressable>
-  );
-}
-
-function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className="rounded-full px-3.5 py-2"
-      style={{
-        backgroundColor: active ? '#B66A40' : 'transparent',
-        borderWidth: 1,
-        borderColor: active ? '#B66A40' : '#B66A4040',
-      }}
-    >
-      <Text className="text-[12px] font-semibold" style={{ color: active ? '#fff' : '#B66A40' }}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 /** Matches web's APPLICATION_STATE so both clients say the same words. */
 const APPLICATION_LABEL: Record<string, string> = {
   new: 'Applied',
@@ -232,9 +166,13 @@ const APPLICATION_LABEL: Record<string, string> = {
 function JobCard({ job }: { job: JobPost }) {
   const budget = budgetLabel(job.budgetMin, job.budgetMax);
   return (
-    <Pressable
+    // It had no press feedback at all. It gives a little now.
+    <PressableScale
       className="bg-card rounded-2xl p-4 gap-2.5"
       onPress={() => router.push(`/jobs/${job.slug}`)}
+      accessibilityRole="button"
+      accessibilityLabel={job.title}
+      scaleTo={0.98}
     >
       <View className="flex-row items-start gap-2.5">
         <RemoteImage
@@ -315,6 +253,6 @@ function JobCard({ job }: { job: JobPost }) {
           </View>
         )}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }

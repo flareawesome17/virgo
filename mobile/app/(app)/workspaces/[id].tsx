@@ -44,6 +44,7 @@ import {
 } from '@/src/lib/workspaces';
 import { RemoteImage } from '@/components/RemoteImage';
 import { LoadFailed } from '@/components/LoadFailed';
+import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { WorkspaceActivity } from '@/components/WorkspaceActivity';
 import { ActionSheet, PersonAvatar, Pill, WorkspaceTile } from '@/components/WorkspaceBits';
 import { ownerLine } from '@/components/WorkspaceCard';
@@ -368,24 +369,7 @@ function OwnerView({
           />
         </ScrollView>
 
-        <View className="flex-row gap-0.5 p-0.5 rounded-xl bg-muted" accessibilityRole="tablist">
-          {SEGMENTS.map((s) => {
-            const on = s.key === segment;
-            return (
-              <Pressable
-                key={s.key}
-                onPress={() => setSegment(s.key)}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: on }}
-                className={`flex-1 h-9 rounded-[10px] items-center justify-center ${on ? 'bg-card' : ''}`}
-              >
-                <Text className={`text-[13px] ${on ? 'text-foreground font-bold' : 'text-secondary-foreground font-medium'}`}>
-                  {s.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <SegmentedTabs<typeof segment> segments={SEGMENTS} value={segment} onChange={setSegment} />
 
         {segment === 'overview' && (
           <>

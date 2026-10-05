@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Linking, Pressable, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { ArrowUpCircleIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -47,39 +48,43 @@ export function UpdateBanner() {
 
   const destination = updateDestination();
 
+  // Fades in rather than appearing in a frame. The classes are on the View
+  // inside: NativeWind does not reach Reanimated's components.
   return (
-    <View className="flex-row items-center gap-2.5 border-b border-border/40 bg-secondary px-4 py-2">
-      <ArrowUpCircleIcon size={16} className="text-primary" />
+    <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(160)}>
+      <View className="flex-row items-center gap-2.5 border-b border-border/40 bg-secondary px-4 py-2">
+        <ArrowUpCircleIcon size={16} className="text-primary" />
 
-      <Pressable
-        onPress={() => void Linking.openURL(destination.url)}
-        accessibilityRole="button"
-        accessibilityLabel={`Virgo ${update.version} is available. ${destination.label}.`}
-        className="flex-1 active:opacity-70"
-      >
-        <Text className="text-foreground text-[12px] font-semibold" numberOfLines={1}>
-          Virgo {update.version} is available
-        </Text>
-        {/* The installed version alongside it, because "an update is
-            available" on an app somebody updated yesterday reads as a bug
-            rather than as news. */}
-        <Text className="text-muted-foreground text-[11px]" numberOfLines={1}>
-          You have {update.installed} · {destination.label}
-        </Text>
-      </Pressable>
+        <Pressable
+          onPress={() => void Linking.openURL(destination.url)}
+          accessibilityRole="button"
+          accessibilityLabel={`Virgo ${update.version} is available. ${destination.label}.`}
+          className="flex-1 active:opacity-70"
+        >
+          <Text className="text-foreground text-[12px] font-semibold" numberOfLines={1}>
+            Virgo {update.version} is available
+          </Text>
+          {/* The installed version alongside it, because "an update is
+              available" on an app somebody updated yesterday reads as a bug
+              rather than as news. */}
+          <Text className="text-muted-foreground text-[11px]" numberOfLines={1}>
+            You have {update.installed} · {destination.label}
+          </Text>
+        </Pressable>
 
-      <Pressable
-        onPress={() => {
-          void dismissUpdate(update.version);
-          setUpdate(null);
-        }}
-        accessibilityRole="button"
-        accessibilityLabel="Dismiss"
-        hitSlop={8}
-        className="active:opacity-70"
-      >
-        <XIcon size={15} className="text-muted-foreground" />
-      </Pressable>
-    </View>
+        <Pressable
+          onPress={() => {
+            void dismissUpdate(update.version);
+            setUpdate(null);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss"
+          hitSlop={8}
+          className="active:opacity-70"
+        >
+          <XIcon size={15} className="text-muted-foreground" />
+        </Pressable>
+      </View>
+    </Animated.View>
   );
 }
