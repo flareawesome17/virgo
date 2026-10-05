@@ -110,7 +110,12 @@ export function lenisOn(): boolean {
 }
 
 export function useChapterProgress(target: RefObject<HTMLElement | null>, kind: ProgressKind = 'track'): MotionValue<number> {
-  return useSpring(useRawProgress(target, kind), lenisOn() ? DIRECT : GLIDE);
+  const raw = useRawProgress(target, kind);
+  const glide = useSpring(raw, lenisOn() ? DIRECT : GLIDE);
+  // Phones: no glide. Touch scrolling is smooth already, and with a spring the cards trailed the pinned stage,
+  // which moves with the finger: they seemed to bounce against it as the page scrolled (owner, 2026-10-05).
+  const [stable] = useState(() => steady());
+  return stable ? raw : glide;
 }
 
 let smallViewport = 0;

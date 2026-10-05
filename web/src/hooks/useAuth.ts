@@ -107,6 +107,25 @@ function forgetSession(queryClient: QueryClient) {
 let authFailureHolders = 0;
 
 /**
+ * Whether this page load has checked the session with the server yet.
+ *
+ * The desktop app saves its query cache to disk and restores it on every page
+ * load, the session included. Since v1.13 the sign-in pages and the app are
+ * separate root layouts, so moving between them is a full page load, and the
+ * cache reaches disk a second after it changes — so a load that follows at
+ * once restores the session as it was before. Each page acted on that: the
+ * app restored "signed out" and went to sign-in, sign-in restored nobody,
+ * checked the fresh tokens and went back, and the write that would have ended
+ * it never got its second. Signing in on the desktop reloaded for good, and
+ * so did a saved session whose tokens were gone.
+ *
+ * So nothing acts on the session until this load has checked it once: until
+ * then it reads as loading. On the web nothing is restored, and that first
+ * check is what always decided it anyway.
+ */
+let checkedThisLoad = false;
+
+/**
  * Authentication against the NestJS API.
  *
  * Mirrors the mobile hook, with one addition the browser needs: signing out in
@@ -136,20 +155,25 @@ export function useAuth() {
   const sessionQuery = useQuery<AuthUser | null>({
     queryKey: queryKeys.auth.session,
     queryFn: async () => {
-      // Tokens live in localStorage, so the first call after a page load has
-      // to read them before it can know whether a session exists.
-      await hydrateTokens();
-      if (!getAccessToken()) return null;
-
       try {
-        return await authApi.me();
-      } catch (err) {
-        // A definitive 401 means the stored tokens are dead -> signed out.
-        if (err instanceof ApiError && err.isAuthError) return null;
-        // Anything else (offline, DNS, timeout, 5xx) is NOT proof of being
-        // signed out. Rethrow so the guard can show a retry instead of
-        // dumping someone at the login page over a dropped connection.
-        throw err;
+        // Tokens live in localStorage, so the first call after a page load has
+        // to read them before it can know whether a session exists.
+        await hydrateTokens();
+        if (!getAccessToken()) return null;
+
+        try {
+          return await authApi.me();
+        } catch (err) {
+          // A definitive 401 means the stored tokens are dead -> signed out.
+          if (err instanceof ApiError && err.isAuthError) return null;
+          // Anything else (offline, DNS, timeout, 5xx) is NOT proof of being
+          // signed out. Rethrow so the guard can show a retry instead of
+          // dumping someone at the login page over a dropped connection.
+          throw err;
+        }
+      } finally {
+        // Before the result lands, so the render it causes reads it.
+        checkedThisLoad = true;
       }
     },
     staleTime: 0,
@@ -170,7 +194,8 @@ export function useAuth() {
       failures < 1 && !(err instanceof ApiError && err.isNetworkError),
   });
 
-  const authUser = sessionQuery.data ?? null;
+  // A session restored from disk is not believed until this load checks it.
+  const authUser = checkedThisLoad ? (sessionQuery.data ?? null) : null;
   const user: User | null = authUser
     ? { id: authUser.id, email: authUser.email }
     : null;
@@ -308,7 +333,7 @@ export function useAuth() {
     user,
     profile: authUser,
     isAuthenticated: !!authUser,
-    isLoading: sessionQuery.isLoading,
+    isLoading: sessionQuery.isLoading || !checkedThisLoad,
     /**
      * True when the session could not be resolved for a reason other than a
      * 401 — almost always the network. Distinct from "signed out": the guard

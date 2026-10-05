@@ -6,11 +6,11 @@ import { CH1, CH1_CHATS, CH1_QUESTION } from '../../data/strings/page-ch1';
 import { WHEN } from '../../data/story';
 import { LOCK_WALLPAPER, LockScreen, PHONE_RADIUS, PhoneFrame, Slab, lockDate, lockTime } from '../../frames';
 import { camera, enter, exit, lerp, r2, seg, window4 } from '../cinema/ease';
-import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
+import { Flare, LightSweep, Particles, place3d, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { Viewfinder } from '../cinema/viewfinder';
-import { useLayout } from '../motion';
+import { steady, useLayout } from '../motion';
 import type { Layout } from '../sky/choreography';
 import { JobCard } from './ch1-job-card';
 import { CH1_SHOT } from './ch1-timing';
@@ -139,7 +139,7 @@ function Chat({ progress, layout, i, title, sent, seen }: { progress: MotionValu
     const x = lerp(0, spot.x, a);
     const y = lerp(0, spot.y, a) + f * 24;
     const z = lerp(-220, 40, a) - f * 720;
-    return `perspective(1200px) translate3d(${r2(x)}vw,${r2(y)}vh,${r2(z)}px) rotateX(${r2(f * 36)}deg) rotateY(${r2(lerp(0, spot.ry, a))}deg) scale(${r2(lerp(0.5, 1, a))})`;
+    return place3d(1200, `${r2(y)}vh`, z, f * 36, lerp(0, spot.ry, a), lerp(0.5, 1, a), `${r2(x)}vw`);
   });
   const opacity = useTransform(progress, (p) => r2(enter(seg(p, at, at + 0.05)) * (1 - seg(p, fall + 0.03, fall + 0.1))));
   const turn = SEEN + i * 0.02;
@@ -250,7 +250,8 @@ function Reveal({ progress, at, out, children }: { progress: MotionValue<number>
 }
 
 function Press({ progress, target, children }: { progress: MotionValue<number>; target: RefObject<HTMLSpanElement | null>; children: ReactNode }) {
-  const transform = useTransform(progress, (p) => `scale(${r2(1 - 0.07 * Math.max(0, 1 - Math.abs(p - POST) / 0.012))})`);
+  // Phones: no dip (a press as the page scrolls reads as a bounce there).
+  const transform = useTransform(progress, (p) => `scale(${steady() ? 1 : r2(1 - 0.07 * Math.max(0, 1 - Math.abs(p - POST) / 0.012))})`);
   const opacity = useTransform(progress, (p) => r2(0.45 + 0.55 * seg(p, 0.72, 0.76)));
   return (
     <m.span ref={target} style={{ transform, opacity }} className="inline-flex">

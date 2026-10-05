@@ -3,7 +3,7 @@
 import { m, useMotionValueEvent, useTransform, type MotionValue } from 'framer-motion';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { hud } from './hud';
-import { useChapterProgress, useRawProgress } from '../motion';
+import { steady, useChapterProgress, useRawProgress } from '../motion';
 import { r2, window4 } from './ease';
 
 /**
@@ -75,11 +75,12 @@ function SubtitleLine({ progress, line, tone }: { progress: MotionValue<number>;
   const span = line.to - line.from;
   const fade = Math.min(0.08, span / 4);
   const o = useTransform(progress, (p) => window4(p, line.from, line.from + fade, line.to - fade, line.to));
-  const t = useTransform(o, (v) => `translate3d(0,${r2((1 - v) * 18)}px,0)`);
+  // Phones: the line fades in place.
+  const t = useTransform(o, (v) => (steady() ? 'none' : `translate3d(0,${r2((1 - v) * 18)}px,0)`));
   const ink = tone === 'day' ? 'text-[#1E1B18]' : 'text-[#F2EDE8]';
   const scrim = tone === 'day' ? 'bg-[radial-gradient(closest-side,rgba(251,247,242,0.9),rgba(251,247,242,0))]' : 'bg-[radial-gradient(closest-side,rgba(22,19,17,0.85),rgba(22,19,17,0))]';
   return (
-    <m.div style={{ opacity: o, transform: t }} className="col-start-1 row-start-1 px-6 py-5 will-change-transform">
+    <m.div style={{ opacity: o, transform: t }} className="col-start-1 row-start-1 px-6 py-5 lg:will-change-transform">
       <div aria-hidden className={`absolute -inset-x-8 -inset-y-6 -z-10 ${scrim}`} />
       <p className={`story-display text-balance text-[clamp(1.85rem,1.1rem+3.4vw,2.75rem)] lg:text-[clamp(2.3rem,1rem+2.2vw,3.3rem)] font-semibold leading-[1.08] tracking-[-0.025em] ${ink}`}>{line.text}</p>
       {line.small && <p className={`mt-3 text-pretty text-[15px] sm:text-[17px] ${tone === 'day' ? 'text-[#54433C]' : 'text-[#BCADA3]'}`}>{line.small}</p>}
