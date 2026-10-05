@@ -61,7 +61,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUnreadCount } from '@/hooks/useChat';
 import { useCollaboratorInvitations } from '@/hooks/useCollaborators';
 import { usePeopleUnseen } from '@/hooks/useFriends';
-import { useProfileSettings } from '@/hooks/useProfile';
 import { SidebarFriends } from '@/components/sidebar-friends';
 import { useEventInvitations } from '@/hooks/useScheduleEvents';
 import { useUnseenJobs } from '@/hooks/useJobs';
@@ -272,12 +271,9 @@ const THEMES = [
  */
 function AccountMenu() {
   const { profile, user, signOut } = useAuth();
-  const { data: settings } = useProfileSettings();
   const { offers: rewards } = usePromoOffers();
   const { theme, setTheme } = useTheme();
   const hydrated = useHydrated();
-  const publicHref =
-    settings?.handle && settings.published ? `/u/${settings.handle}` : '/settings/profile';
 
   return (
     <DropdownMenu>
@@ -308,7 +304,9 @@ function AccountMenu() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href={publicHref}>
+          {/* Your page as others see it, with your drafts and private shelves:
+              it needs no published handle, so it is always somewhere. */}
+          <Link href="/profile">
             <UserRound className="size-4" />
             Your profile
           </Link>

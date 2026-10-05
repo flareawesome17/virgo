@@ -59,7 +59,6 @@ const MOVED: Record<string, string> = {
   '/bookings': '/jobs?tab=bookings',
   '/network': '/people',
   '/nearby': '/people?tab=nearby',
-  '/profile': '/settings/profile',
   // The phone's.
   '/connect': '/people',
   '/discover/nearby': '/people?tab=nearby',

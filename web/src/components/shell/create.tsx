@@ -84,11 +84,15 @@ const GROUPS: { title: string; items: CreateItem[] }[] = [
 ];
 
 /**
- * Not yet on the web. The row stays, so nothing moves when it arrives, and
- * says where it can be done today.
+ * Not yet on the web. A row here stays in the list, so nothing moves when it
+ * arrives, and says where it can be done today. Empty since showcases came.
  */
-const UNAVAILABLE: Partial<Record<CreateKind, string>> = {
-  showcase: 'Post from the Virgo app for now',
+const UNAVAILABLE: Partial<Record<CreateKind, string>> = {};
+
+/** The ones that are pages of their own rather than dialogs over this one. */
+const PAGES: Partial<Record<CreateKind, string>> = {
+  showcase: '/showcase/new',
+  job: '/jobs/new',
 };
 
 /** The row the current page is about, if any. */
@@ -144,8 +148,9 @@ export function CreateProvider({ children }: { children: ReactNode }) {
   const open = useCallback(
     (kind: CreateKind) => {
       if (UNAVAILABLE[kind]) return;
-      if (kind === 'job') {
-        leaveIfDiscarded(isPageDirty(), () => router.push('/jobs/new'));
+      const page = PAGES[kind];
+      if (page) {
+        leaveIfDiscarded(isPageDirty(), () => router.push(page));
         return;
       }
       // Checked as it is chosen, as on the phone, not after the form is filled.

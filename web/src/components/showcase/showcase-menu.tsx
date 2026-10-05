@@ -15,8 +15,8 @@ import type { FeedMaker } from '@/api';
  * The "…" on somebody else's post.
  *
  * A menu rather than a flag on every card: reporting is rare, and a flag
- * beside somebody's name reads as an accusation. Never offered on your own
- * post — reporting yourself is absurd, and editing is done on the phone.
+ * beside somebody's name reads as an accusation. Your own post has its own
+ * menu, OwnShowcaseMenu, to edit, take down or delete it.
  */
 export function ShowcaseMenu({
   maker,

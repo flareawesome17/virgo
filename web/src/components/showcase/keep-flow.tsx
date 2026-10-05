@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Bookmark } from 'lucide-react';
 import { toast } from 'sonner';
 import { useShelfActions } from '@/hooks/useShowcases';
@@ -27,6 +28,7 @@ const TOAST_MS = 4000;
  * the dialog, which the page renders once for every card on it.
  */
 export function useKeepFlow(userId: string | undefined) {
+  const router = useRouter();
   const { keep } = useShelfActions();
   const keepMutate = keep.mutate;
   const [dialogItem, setDialogItem] = useState<FeedItem | null>(null);
@@ -52,6 +54,11 @@ export function useKeepFlow(userId: string | undefined) {
           // offering to keep it for the first time.
           onClick: () => setDialogItem({ ...item, keptByMe: true }),
         },
+        // Where it went. A keep led nowhere: shelves could not be opened.
+        cancel: {
+          label: 'View shelf',
+          onClick: () => router.push(`/shelf/${last.id}`),
+        },
       });
       keepMutate(
         { shelfId: last.id, showcaseId: item.id },
@@ -69,7 +76,7 @@ export function useKeepFlow(userId: string | undefined) {
         },
       );
     },
-    [userId, keepMutate],
+    [userId, keepMutate, router],
   );
 
   const element = (

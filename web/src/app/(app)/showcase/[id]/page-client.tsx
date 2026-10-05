@@ -17,6 +17,7 @@ import { PieceLightbox } from '@/components/showcase/piece-lightbox';
 import { ShowcaseReportDialog } from '@/components/showcase/report-dialog';
 import { PieceImage, naturalAspect } from '@/components/showcase/showcase-media';
 import { ShowcaseMenu } from '@/components/showcase/showcase-menu';
+import { OwnShowcaseMenu } from '@/components/showcase/owner-menu';
 import { useAuth } from '@/hooks/useAuth';
 import { useLike, useShowcase, useShowcaseActions } from '@/hooks/useShowcases';
 import { ApiError, makerOf, showcaseStatus, type ShowcasePiece } from '@/api';
@@ -115,7 +116,7 @@ export default function ShowcasePage() {
   const photos = showcase.pieces.filter((piece) => piece.kind !== 'video');
   // Your own profile needs no published handle; anybody else's is only
   // reachable once they have published one.
-  const profileHref = mine ? '/settings/profile' : maker.handle ? `/u/${maker.handle}` : null;
+  const profileHref = mine ? '/profile' : maker.handle ? `/u/${maker.handle}` : null;
 
   const putBackUp = () => {
     setPublished.mutate(
@@ -183,7 +184,14 @@ export default function ShowcasePage() {
                   <Link href={`/hire/${maker.handle}`}>Hire</Link>
                 </Button>
               )}
-              {!mine && <ShowcaseMenu maker={maker} onReport={() => setReporting(showcase.id)} />}
+              {mine ? (
+                <OwnShowcaseMenu
+                  showcase={showcase}
+                  onDeleted={() => router.replace('/profile')}
+                />
+              ) : (
+                <ShowcaseMenu maker={maker} onReport={() => setReporting(showcase.id)} />
+              )}
             </div>
 
             <div className="mt-4 flex gap-2.5">
