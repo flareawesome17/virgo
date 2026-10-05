@@ -49,7 +49,7 @@ export default function ApplyPage() {
           icon={BriefcaseBusiness}
           title="Job not found"
           description="This post has ended or been taken down."
-          action={<Button onClick={() => router.push('/jobs/mine')}>My jobs</Button>}
+          action={<Button onClick={() => router.push('/jobs')}>My jobs</Button>}
         />
       </Screen>
     );
@@ -66,7 +66,7 @@ export default function ApplyPage() {
           icon={BriefcaseBusiness}
           title="This is your own post"
           description="You cannot apply to a job you posted. Applications you receive arrive under My jobs."
-          action={<Button onClick={() => router.push('/jobs/mine')}>My jobs</Button>}
+          action={<Button onClick={() => router.push('/jobs')}>My jobs</Button>}
         />
       </Screen>
     );
@@ -128,7 +128,7 @@ export default function ApplyPage() {
 
   return (
     <Screen title="Apply">
-      <div className="mx-auto w-full max-w-2xl px-6 py-6">
+      <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6">
         <Button
           variant="ghost"
           size="sm"

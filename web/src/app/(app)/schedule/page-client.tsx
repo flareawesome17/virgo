@@ -542,7 +542,7 @@ function ScheduleContent() {
         // The empty states keep theirs, and ?new=1 still opens a new event.
       />
 
-      <div className="mx-auto grid w-full max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[1fr_20rem]">
+      <div className="mx-auto grid w-full max-w-6xl gap-6 px-4 sm:px-6 py-6 lg:grid-cols-[1fr_20rem]">
         {/* Calendar */}
         <Card className="h-fit">
           <CardContent className="py-5">

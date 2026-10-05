@@ -41,6 +41,76 @@ const HANDLE_PATH = /^\/@([A-Za-z0-9_]{3,30})\/?$/;
  */
 const JOB_SLUG_PATH = /^\/jobs\/([a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]{6})\/?$/;
 
+/**
+ * Addresses that moved, on the app host, and where they went.
+ *
+ * Emails, bookmarks and notifications already sent carry the old ones, so
+ * each keeps working. The phone's own addresses are here too: a link copied
+ * out of the app on a phone and opened on a computer lands on the same
+ * screen rather than a 404.
+ */
+const MOVED: Record<string, string> = {
+  // Never existed, but the account-paused email linked to it until 2026-10.
+  '/login': '/sign-in',
+  // Jobs is one screen with the board, your posts, your applications and
+  // your bookings as tabs; People takes in the enquiries and Nearby.
+  '/jobs/mine': '/jobs',
+  '/jobs/applications': '/jobs?tab=applied',
+  '/bookings': '/jobs?tab=bookings',
+  '/network': '/people',
+  '/nearby': '/people?tab=nearby',
+  '/profile': '/settings/profile',
+  // The phone's.
+  '/connect': '/people',
+  '/discover/nearby': '/people?tab=nearby',
+  '/friends': '/people',
+  '/friends/requests': '/people',
+  '/friends/accepted': '/people',
+  '/friends/enquiries': '/people?tab=enquiries',
+  '/workspaces/archived': '/workspaces?archived=1',
+  '/workspaces/create': '/workspaces?new=1',
+  '/schedule/create': '/schedule?new=1',
+  '/schedule/calendar': '/schedule',
+  '/schedule/agenda': '/schedule?tab=upcoming',
+  '/schedule/reminders': '/schedule?tab=reminders',
+  '/settings/public-profile': '/settings/profile',
+  '/settings/password': '/settings/account',
+  '/settings/email': '/settings/account',
+  '/settings/storage/plans': '/settings/plans',
+  '/settings/storage/unfiled': '/settings/storage',
+  '/settings/theme': '/settings',
+  '/settings/privacy': '/settings',
+  '/settings/about': '/settings',
+  '/settings/help': '/support',
+};
+
+/**
+ * Where a moved address goes now, with its query kept.
+ *
+ * The new address's own query wins where both name the same key, so
+ * `/nearby?tab=x` is still Nearby; anything else the old link carried, such as
+ * `?tab=posted&post=…` on /jobs/mine, comes along.
+ */
+function movedTo(pathname: string, incoming: URLSearchParams): string | null {
+  const path = pathname.length > 1 ? pathname.replace(/\/$/, '') : pathname;
+  let target = MOVED[path];
+  // Connect has two views on the phone; Messages is Chat here.
+  if (path === '/connect' && incoming.get('view') === 'messages') target = '/chat';
+  // One notification, opened as the list's detail pane.
+  const notification = /^\/notifications\/([^/]+)$/.exec(path);
+  if (notification) target = `/notifications?id=${encodeURIComponent(notification[1])}`;
+  if (!target) return null;
+
+  const [targetPath, targetQuery = ''] = target.split('?');
+  const query = new URLSearchParams(targetQuery);
+  for (const [key, value] of incoming) {
+    if (key === 'view' && path === '/connect') continue;
+    if (!query.has(key)) query.append(key, value);
+  }
+  const qs = query.toString();
+  return qs ? `${targetPath}?${qs}` : targetPath;
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const host = request.headers.get('host')?.split(':')[0].toLowerCase() ?? '';
   const { pathname, search } = request.nextUrl;
@@ -75,13 +145,8 @@ export function proxy(request: NextRequest): NextResponse {
       );
     }
 
-    /**
-     * `/login` never existed, but the account-paused email linked to it until
-     * 2026-10, and those emails are still in inboxes.
-     */
-    if (pathname === '/login' || pathname === '/login/') {
-      return NextResponse.redirect(new URL(`/sign-in${search}`, request.url), 308);
-    }
+    const moved = movedTo(pathname, request.nextUrl.searchParams);
+    if (moved) return NextResponse.redirect(new URL(moved, request.url), 308);
 
     const onAppHost = HANDLE_PATH.exec(pathname);
     if (onAppHost) {

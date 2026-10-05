@@ -70,7 +70,7 @@ export default function HirePage() {
           icon={UserSearch}
           title="Profile not found"
           description="This profile is private, or the handle has changed."
-          action={<Button onClick={() => router.push('/nearby')}>Find collaborators</Button>}
+          action={<Button onClick={() => router.push('/people?tab=nearby')}>Find collaborators</Button>}
         />
       </Screen>
     );
@@ -106,7 +106,7 @@ export default function HirePage() {
           toast.success(`Enquiry sent to ${firstName}`, {
             description: 'You will be connected as soon as they accept.',
           });
-          router.push('/network?tab=enquiries');
+          router.push('/people?tab=enquiries');
         },
         onError: (error: Error) => toast.error(error.message),
       },
@@ -115,7 +115,7 @@ export default function HirePage() {
 
   return (
     <Screen title={`Hire ${person.displayName ?? ""}`.trim()}>
-      <div className="mx-auto w-full max-w-2xl px-6 py-6">
+      <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6">
         <Button
           variant="ghost"
           size="sm"
@@ -176,7 +176,7 @@ export default function HirePage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button asChild>
-                    <Link href="/network?tab=enquiries">See your enquiries</Link>
+                    <Link href="/people?tab=enquiries">See your enquiries</Link>
                   </Button>
                   <Button variant="ghost" onClick={() => setAskAgain(true)}>
                     Ask about a different job

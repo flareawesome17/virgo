@@ -136,7 +136,7 @@ function WorkspacesContent() {
         // phone. The empty state keeps its own, for a first one.
       />
 
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 sm:px-6 py-6">
         {/* Above the toolbar and the grid on purpose: an invitation is the one
             thing here that expires on someone else's patience. */}
         {!showArchived && <WorkspaceInvitations />}

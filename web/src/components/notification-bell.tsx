@@ -44,93 +44,30 @@ import {
   type NotificationTopic,
 } from '@/api';
 import { groupByDay, timeOfDay } from '@/lib/notification-categories';
+import { topicDestination } from '@/lib/notification-routes';
 import { cn } from '@/lib/utils';
 
-/**
- * An icon per topic, and where its action leads.
- *
- * The same table as useRealtime's, and deliberately so: a notification read
- * from the list must lead to the same place as the toast that announced it,
- * or the two surfaces disagree about what the same event means.
- */
-const TOPICS: Record<
-  NotificationTopic,
-  { icon: LucideIcon; href: string | ((d: Record<string, unknown>) => string) }
-> = {
-  'friend-request': { icon: UserPlus, href: '/network' },
-  'friend-accepted': { icon: UserPlus, href: '/network' },
-  // Invitations are answered on Workspaces, where they show what is on
-  // offer; an answer, or someone leaving, is about one of your workspaces.
-  'collaborator-invite': { icon: Users, href: '/workspaces' },
-  'collaborator-response': {
-    icon: Users,
-    href: (d) =>
-      typeof d.workspaceId === 'string' ? `/workspaces/${d.workspaceId}?tab=members` : '/workspaces',
-  },
-  // An invitation stays on Invites even with its event id: until it is
-  // accepted the event cannot be read, and the decision is what it is for.
-  'event-invite': { icon: Calendar, href: '/schedule?tab=invites' },
-  // An answer or a change is about one event, so it opens on that event's day
-  // rather than on today.
-  'event-response': {
-    icon: Calendar,
-    href: (d) =>
-      typeof d.eventId === 'string' ? `/schedule?event=${d.eventId}` : '/schedule',
-  },
-  'event-updated': {
-    icon: Calendar,
-    href: (d) =>
-      typeof d.eventId === 'string' ? `/schedule?event=${d.eventId}` : '/schedule',
-  },
-  'hire-enquiry': { icon: MessageCircle, href: '/network?tab=enquiries' },
-  // An accepted enquiry opened a conversation; that is where the next move is.
-  'hire-response': {
-    icon: MessageCircle,
-    href: (d) =>
-      typeof d.conversationId === 'string' ? `/chat/${d.conversationId}` : '/network?tab=enquiries',
-  },
-  'job-application': {
-    icon: BriefcaseBusiness,
-    href: (d) =>
-      typeof d.postId === 'string'
-        ? `/jobs/mine?tab=posted&post=${d.postId}`
-        : '/jobs/mine?tab=posted',
-  },
-  'job-response': {
-    icon: BriefcaseBusiness,
-    href: (d) =>
-      typeof d.conversationId === 'string'
-        ? `/chat/${d.conversationId}`
-        : '/jobs/mine?tab=applications',
-  },
-  booking: {
-    icon: FileText,
-    href: (d) =>
-      typeof d.bookingId === 'string' ? `/bookings/${d.bookingId}` : '/bookings',
-  },
-  // The Reminders tab, where it can be ticked off; the calendar is not.
-  reminder: { icon: Calendar, href: '/schedule?tab=reminders' },
-  // There is no /settings/billing; plans and what you are paying live here.
-  billing: { icon: CreditCard, href: '/settings/plans' },
-  retention: { icon: Trash2, href: '/albums' },
-  'client-picks': {
-    icon: Heart,
-    href: (d) =>
-      typeof d.albumId === 'string' ? `/albums/${d.albumId}?picked=1` : '/albums',
-  },
-  // A reply opens the conversation it is part of, not the list of them.
-  support: {
-    icon: LifeBuoy,
-    href: (d) =>
-      typeof d.ticketId === 'string' ? `/support?ticket=${d.ticketId}` : '/support',
-  },
-  promo: { icon: Gift, href: '/rewards' },
-  // An announcement opens its link when it has one, and otherwise has said
-  // all it needs to — there is no page in the app it belongs to.
-  'app-update': {
-    icon: Sparkles,
-    href: (d) => (typeof d.url === 'string' ? d.url : ''),
-  },
+/** An icon per topic. Where each one leads is lib/notification-routes. */
+const ICONS: Record<NotificationTopic, LucideIcon> = {
+  'friend-request': UserPlus,
+  'friend-accepted': UserPlus,
+  'collaborator-invite': Users,
+  'collaborator-response': Users,
+  'event-invite': Calendar,
+  'event-response': Calendar,
+  'event-updated': Calendar,
+  'hire-enquiry': MessageCircle,
+  'hire-response': MessageCircle,
+  'job-application': BriefcaseBusiness,
+  'job-response': BriefcaseBusiness,
+  booking: FileText,
+  reminder: Calendar,
+  billing: CreditCard,
+  retention: Trash2,
+  'client-picks': Heart,
+  support: LifeBuoy,
+  promo: Gift,
+  'app-update': Sparkles,
 };
 
 /**
@@ -159,7 +96,7 @@ export function TopicIcon({
   topic: NotificationTopic;
   className?: string;
 }) {
-  const Icon = TOPICS[topic]?.icon ?? Bell;
+  const Icon = ICONS[topic] ?? Bell;
   return (
     <span
       className={cn(
@@ -208,10 +145,7 @@ function ago(iso: string): string {
 
 /** Where a notification's action leads, or null when it has nowhere to go. */
 export function destination(n: AppNotification): string | null {
-  const topic = TOPICS[n.topic];
-  if (!topic) return null;
-  const href = typeof topic.href === 'function' ? topic.href(n.data) : topic.href;
-  return href || null;
+  return topicDestination(n.topic, n.data);
 }
 
 /** Follows a notification's action: a route in the app, or a link outside it. */

@@ -77,7 +77,7 @@ export default function PageClient() {
 
   return (
     <Screen title="Feed">
-      <div ref={top} className="mx-auto w-full max-w-2xl px-6 py-6">
+      <div ref={top} className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6">
         <PageHeader
           title="Feed"
           description="What other people are making, and how they made it."
@@ -206,7 +206,7 @@ function Placard({
   const label = item.title ?? `${maker.displayName}'s showcase`;
   // Your own profile needs no published handle; anybody else's is only
   // reachable once they have published one.
-  const profileHref = mine ? '/profile' : maker.handle ? `/u/${maker.handle}` : null;
+  const profileHref = mine ? '/settings/profile' : maker.handle ? `/u/${maker.handle}` : null;
 
   return (
     <Card className="gap-0 overflow-hidden py-0">

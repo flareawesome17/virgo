@@ -138,7 +138,7 @@ function PlansContent() {
         title={
           <span className="flex items-center gap-2">
             <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
-              <Link href="/settings" aria-label="Back">
+              <Link href="/settings/storage" aria-label="Back">
                 <ArrowLeft className="size-4" />
               </Link>
             </Button>
@@ -148,7 +148,7 @@ function PlansContent() {
         description="Billed monthly in Philippine pesos. Cancel any time."
       />
 
-      <div className="mx-auto w-full max-w-5xl px-6 py-6">
+      <div className="w-full">
         {/* What they are on now, when it renews, and how to stop it. */}
         {subscription && subscription.status !== 'incomplete' && (
           <Card className="mb-6 border-primary/30">

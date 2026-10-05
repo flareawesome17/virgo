@@ -315,7 +315,7 @@ export default function RewardsPage() {
         description="What is waiting for you, and how to earn more"
       />
 
-      <div className="mx-auto w-full max-w-4xl space-y-4 px-6 py-6">
+      <div className="mx-auto w-full max-w-4xl space-y-4 px-4 sm:px-6 py-6">
         {isLoading ? (
           <CenteredSpinner />
         ) : loadFailed ? (

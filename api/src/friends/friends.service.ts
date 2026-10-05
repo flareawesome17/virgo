@@ -521,7 +521,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
         data: { type: 'friend_request', fromUserId: requesterId },
         email: friendRequest({
           requesterName: this.nameFor(me),
-          url: `${this.mailConfig.appUrl}/network`,
+          url: `${this.mailConfig.appUrl}/people`,
         }),
       });
     }

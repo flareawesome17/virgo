@@ -93,8 +93,7 @@ interface NavItem {
  * Support and Settings behind your picture, as they do on the phone; they
  * were thirteen rows here, competing with the places you actually go.
  *
- * Bookings and Nearby keep their pages and are reached from Jobs and People
- * until those pages take them in as tabs.
+ * Bookings is a tab of Jobs and Nearby a tab of People, as on the phone.
  */
 const NAV: { heading?: string; items: NavItem[] }[] = [
   {
@@ -104,10 +103,11 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
       { href: '/feed', label: 'Feed', icon: LayoutGrid, also: ['/showcase'] },
       // A booking is where a job ends up.
       {
-        href: '/jobs/mine',
+        href: '/jobs',
         label: 'Jobs',
         icon: BriefcaseBusiness,
-        also: ['/jobs', '/bookings', '/hire'],
+        // A booking opened from the Bookings tab is still Jobs.
+        also: ['/bookings', '/hire'],
         badge: 'newJobs',
       },
     ],
@@ -126,10 +126,10 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
     items: [
       { href: '/chat', label: 'Messages', icon: MessageCircle, badge: 'unread' },
       {
-        href: '/network',
+        href: '/people',
         label: 'People',
         icon: Users,
-        also: ['/nearby', '/u'],
+        also: ['/u'],
         badge: 'friendRequests',
       },
     ],
@@ -277,7 +277,7 @@ function AccountMenu() {
   const { theme, setTheme } = useTheme();
   const hydrated = useHydrated();
   const publicHref =
-    settings?.handle && settings.published ? `/u/${settings.handle}` : '/profile';
+    settings?.handle && settings.published ? `/u/${settings.handle}` : '/settings/profile';
 
   return (
     <DropdownMenu>
@@ -314,7 +314,7 @@ function AccountMenu() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/profile">
+          <Link href="/settings/profile">
             <PencilLine className="size-4" />
             Edit profile
           </Link>

@@ -2,35 +2,24 @@
 
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
-import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { BookingCard } from '@/components/jobs/booking-card';
 import { useBookings } from '@/hooks/useBookings';
 import { Button } from '@/components/ui/button';
 
 /**
- * Every booking you are on, either side.
+ * Every booking you are on, either side: the Jobs screen's Bookings tab, as
+ * on the phone. It was a page of its own with a sidebar row.
  *
  * Cancelled ones stay in the list rather than disappearing — a booking that
  * fell through is part of what happened, and hiding it is how two people end
  * up disagreeing about whether it ever existed.
  */
-export default function BookingsPage() {
+export function BookingsList() {
   const { bookings, isLoading, loadFailed, refetch } = useBookings();
 
   return (
-    <Screen title="Bookings">
-      <PageHeader
-        title="Bookings"
-        description="What you and the other person agreed"
-      />
-
-      {/*
-        The header was inside the shell's padding and the list was not, so
-        every card ran from the sidebar to the far edge of the window while
-        the title above it did not. max-w-4xl to match the other list pages.
-      */}
-      <div className="mx-auto w-full max-w-4xl px-6 py-6">
+    <div>
         {isLoading ? (
           <CenteredSpinner />
         ) : loadFailed ? (
@@ -58,7 +47,7 @@ export default function BookingsPage() {
               has to remember them.
             </p>
             <Button asChild size="sm" variant="outline" className="mt-4">
-              <Link href="/jobs/mine">Browse jobs</Link>
+              <Link href="/jobs">Browse jobs</Link>
             </Button>
           </div>
         ) : (
@@ -73,7 +62,6 @@ export default function BookingsPage() {
             ))}
           </div>
         )}
-      </div>
-    </Screen>
+    </div>
   );
 }
