@@ -4,16 +4,15 @@ import { useCreateWorkspace,
   usePlanLimits,
 } from '@/src/hooks';
 import { router } from 'expo-router';
+import { FormHeader } from '@/components/FormHeader';
 import { useState } from 'react';
 import {
-  ArrowLeftIcon,
   PaletteIcon,
   CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PaletteIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -62,6 +61,7 @@ export default function CreateWorkspaceScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <FormHeader title="New workspace" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
       <KeyboardAvoidingView
@@ -75,30 +75,6 @@ export default function CreateWorkspaceScreen() {
         contentContainerStyle={{ paddingBottom: 120 }}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Header */}
-        <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable accessibilityRole="button" accessibilityLabel="Back"
-            onPress={() => router.back()}
-            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: 0.04,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 2,
-            }}
-          >
-            <ArrowLeftIcon size={18} className="text-foreground" />
-          </Pressable>
-          <View>
-            <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              New workspace
-            </Text>
-            <Text className="text-muted-foreground text-sm mt-0.5">
-              Create a creative project space
-            </Text>
-          </View>
-        </View>
 
         {/* Explains the disabled Create button. Without this the form simply
             refuses to submit with no stated reason. */}

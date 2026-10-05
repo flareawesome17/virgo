@@ -25,6 +25,31 @@ export const unstable_settings = {
 };
 
 /**
+ * The forms that make something — everything the Create sheet opens. They
+ * rise from the bottom as modals and close with an X (FormHeader): making a
+ * thing is a task you finish or abandon, not a place you go further into.
+ *
+ * Full-screen rather than the card-style sheet iOS swipes away. These forms
+ * have keyboards and unsaved typing in them: inside a card the keyboard
+ * avoidance is measured against the wrong origin, and a stray downward swipe
+ * would throw away a half-written job post.
+ */
+const CREATE_FORMS = [
+  'showcase/new',
+  'jobs/new',
+  'workspaces/create',
+  'albums/create',
+  'schedule/create',
+  'schedule/reminders/create',
+] as const;
+
+const CREATE_FORM_OPTIONS = {
+  presentation: 'fullScreenModal',
+  // Android has no modal presentation of its own; this is the same rise.
+  animation: 'slide_from_bottom',
+} as const;
+
+/**
  * Any signed-in screen that fails to draw lands here instead of closing the app.
  *
  * "Go to start" navigates first and retries second: this replaces the layout
@@ -146,7 +171,11 @@ export default function AppLayout() {
                 strip rather than fighting it for the same edge, and around
                 the navigator so a film survives going back to the album. */}
             <VideoSurface>
-              <Stack screenOptions={{ headerShown: false }} />
+              <Stack screenOptions={{ headerShown: false }}>
+                {CREATE_FORMS.map((name) => (
+                  <Stack.Screen key={name} name={name} options={CREATE_FORM_OPTIONS} />
+                ))}
+              </Stack>
             </VideoSurface>
           </UploadBar>
         </VerifyEmailBanner>

@@ -4,6 +4,7 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import { AppTopBar } from '@/components/AppTopBar';
+import type { CreateKind } from '@/components/CreateSheet';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { useBarHeight, useChrome } from '@/src/providers/ChromeProvider';
 
@@ -28,7 +29,17 @@ const FALLBACK_BOTTOM = 120;
  * that extra strip sits below the edge, out of sight; useTabBottomInset adds
  * it to what lists keep clear, so nothing is ever left under the tab bar.
  */
-export function TabScreen({ children }: { children: ReactNode }) {
+export function TabScreen({
+  title,
+  create,
+  children,
+}: {
+  /** The screen's name, in the bar. Without one the bar shows the mark. */
+  title?: string;
+  /** What this screen makes, marked when + is pressed. */
+  create?: CreateKind;
+  children: ReactNode;
+}) {
   const insets = useSafeAreaInsets();
   const { hidden } = useChrome();
 
@@ -58,7 +69,7 @@ export function TabScreen({ children }: { children: ReactNode }) {
         ]}
       >
         <Animated.View onLayout={onBarLayout} style={fade}>
-          <AppTopBar />
+          <AppTopBar title={title} create={create} />
         </Animated.View>
         {/* Under the bar, not in it: the bar is a fixed set of destinations,
             and this is news. It stays when the bar goes — it slides up into

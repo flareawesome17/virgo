@@ -7,7 +7,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { useCreateJob, useJob, useRoles, useUpdateJob } from '@/src/hooks';
 import { DetailFallback } from '@/components/DetailFallback';
-import { ArrowLeftIcon, SendIcon } from 'lucide-react-native';
+import { SendIcon } from 'lucide-react-native';
+import { FormHeader } from '@/components/FormHeader';
 import { cssInterop } from 'nativewind';
 import {
   JOB_TITLE_MIN,
@@ -27,7 +28,6 @@ function toIsoDay(d: Date): string {
   ).padStart(2, '0')}`;
 }
 
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SendIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /** Pesos in the form, centavos on the wire. */
@@ -196,14 +196,7 @@ export default function NewJobScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
-      <View className="flex-row items-center gap-3 px-5 py-3">
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={10}>
-          <ArrowLeftIcon size={20} className="text-foreground" />
-        </Pressable>
-        <Text className="text-foreground text-lg font-bold">
-          {isEdit ? 'Edit job' : 'Post a job'}
-        </Text>
-      </View>
+      <FormHeader title={isEdit ? 'Edit job' : 'Post a job'} />
 
       <KeyboardAvoidingView
         className="flex-1"

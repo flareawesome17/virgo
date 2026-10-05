@@ -17,7 +17,6 @@ import {
   FlagIcon,
   HeartIcon,
   ImageIcon,
-  PlusIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { TabScreen, useTabBottomInset } from '@/components';
@@ -31,7 +30,7 @@ import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { makerOf, type FeedItem } from '@/src/api';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [BookmarkIcon, ChevronUpIcon, FlagIcon, HeartIcon, ImageIcon, PlusIcon]) {
+for (const Icon of [BookmarkIcon, ChevronUpIcon, FlagIcon, HeartIcon, ImageIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -160,7 +159,7 @@ export default function FeedScreen() {
   );
 
   return (
-    <TabScreen>
+    <TabScreen title="Feed" create="showcase">
 
       <View className="px-5 pt-3 pb-2 flex-row items-center gap-2">
         <ScopeTab label="Everyone" on={scope === 'everyone'} onPress={() => setScope('everyone')} />
@@ -169,15 +168,6 @@ export default function FeedScreen() {
           on={scope === 'connections'}
           onPress={() => setScope('connections')}
         />
-        <View className="flex-1" />
-        <Pressable
-          onPress={() => router.push('/showcase/new')}
-          accessibilityRole="button"
-          accessibilityLabel="Post a showcase"
-          className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
-        >
-          <PlusIcon size={20} className="text-action-foreground" />
-        </Pressable>
       </View>
 
       {isLoading ? (

@@ -32,8 +32,6 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import {
   CalendarIcon,
-  PlusIcon,
-  UserPlusIcon,
   FolderPlusIcon,
   ArrowUpRightIcon,
   ChevronRightIcon,
@@ -46,17 +44,10 @@ import { CHART_COLORS, PALETTES } from '@/theme';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
 cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UserPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ArrowUpRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const QUICK_ACTIONS = [
-  { key: 'workspace', label: 'Workspace', icon: FolderPlusIcon },
-  { key: 'album', label: 'Album', icon: PlusIcon },
-  { key: 'invite', label: 'Invite', icon: UserPlusIcon },
-];
 
 /**
  * "Today", "Tomorrow", a weekday this week, or a date.
@@ -92,7 +83,7 @@ export default function DashboardScreen() {
   const { count: unseenJobs } = useUnseenJobs();
   const markSeen = useMarkJobsSeen();
 
-  const { guardWorkspaceCreate, guardAlbumCreate } = usePlanLimits();
+  const { guardWorkspaceCreate } = usePlanLimits();
   const { user, profile } = useAuth();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -213,47 +204,13 @@ export default function DashboardScreen() {
         }
       >
         {/* ── Header ── */}
-        <View className="px-5 pt-4 pb-2 flex-row items-center justify-between">
-          <View>
-            <Text className="text-muted-foreground text-sm font-medium">{greeting()}</Text>
-            <Text className="text-foreground text-[28px] font-bold tracking-tight leading-[34px]">
-              {profile?.displayName?.split(' ')[0] ?? 'there'}
-            </Text>
-          </View>
-          <Pressable
-            // Your own face opens your own page, as it does everywhere else
-            // people tap an avatar. Account settings stay a tab away.
-            onPress={() => router.push('/profile')}
-            accessibilityRole="button"
-            accessibilityLabel="Your profile"
-            className="active:scale-[0.96]"
-          >
-            {profile?.avatarUrl ? (
-              <RemoteImage
-                source={{ uri: profile.avatarUrl }}
-                style={{ width: 44, height: 44, borderRadius: 22 }}
-              />
-            ) : (
-              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: `${palette.primary}18`, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: palette.primary, fontSize: 17, fontWeight: '700' }}>
-                  {(profile?.displayName || user?.email || '?').charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
-            <View
-              style={{
-                position: 'absolute',
-                bottom: 0,
-                right: 0,
-                width: 12,
-                height: 12,
-                borderRadius: 6,
-                backgroundColor: '#6B8E4E',
-                borderWidth: 2,
-                borderColor: palette.background,
-              }}
-            />
-          </Pressable>
+        {/* The greeting alone. Your photo is at the start of the top bar now,
+            as on every tab, so it was here twice. */}
+        <View className="px-5 pt-4 pb-2">
+          <Text className="text-muted-foreground text-sm font-medium">{greeting()}</Text>
+          <Text className="text-foreground text-[28px] font-bold tracking-tight leading-[34px]">
+            {profile?.displayName?.split(' ')[0] ?? 'there'}
+          </Text>
         </View>
 
         {/* ── Where the account stands ── */}
@@ -321,7 +278,7 @@ export default function DashboardScreen() {
         </View>
 
         {/* ── Next up ── */}
-        <View className="px-5 pt-4">
+        <View className="px-5 pt-4 pb-4">
           <Text className="text-muted-foreground text-[13px] font-semibold mb-2">Next up</Text>
           {eventsFailed && events.length === 0 ? (
             <View className="bg-card rounded-2xl border border-border/40">
@@ -365,31 +322,6 @@ export default function DashboardScreen() {
               <ChevronRightIcon size={18} className="text-muted-foreground" />
             </Pressable>
           )}
-        </View>
-
-        {/* ── Quick create ── */}
-        <View className="px-5 py-4">
-          <View className="flex-row bg-secondary rounded-2xl p-1.5 gap-1">
-            {QUICK_ACTIONS.map((action) => {
-              const Icon = action.icon;
-              return (
-                <Pressable
-                  key={action.key}
-                  onPress={() => {
-                    if (action.key === 'workspace') guardWorkspaceCreate(() => router.push('/workspaces/create'))();
-                    else if (action.key === 'album') guardAlbumCreate(() => router.push('/albums/create'))();
-                    else if (action.key === 'invite') router.push('/(app)/(tabs)/connect?view=people');
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Create ${action.label.toLowerCase()}`}
-                  className="flex-1 min-h-12 rounded-xl items-center justify-center gap-1 active:bg-card"
-                >
-                  <Icon size={17} className="text-primary" />
-                  <Text className="text-foreground text-xs font-semibold">{action.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
         </View>
 
         {unseenJobs > 0 && (

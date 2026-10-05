@@ -30,42 +30,37 @@ export default function ConnectScreen() {
   }, [requestedView]);
 
   return (
-    <TabScreen>
-      <View className="px-5 pt-4 pb-2 flex-row items-center justify-between">
-        <View>
-          <Text className="text-foreground text-[28px] font-bold tracking-tight">Connect</Text>
-          <Text className="text-muted-foreground text-sm mt-1">
-            Messages, people, and requests
-          </Text>
+    <TabScreen title="Connect">
+      {/* Nearby sits beside the switch it used to share a title row with: the
+          name is in the top bar now, and this is the other way in to people. */}
+      <View className="mx-5 mt-2 mb-1 flex-row items-center gap-2">
+        <View
+          accessibilityRole="tablist"
+          className="flex-1 flex-row rounded-xl bg-secondary p-1"
+        >
+          <ConnectTab
+            label="Messages"
+            icon={MessageCircleIcon}
+            active={view === 'messages'}
+            badge={unread}
+            onPress={() => setView('messages')}
+          />
+          <ConnectTab
+            label="People"
+            icon={UsersIcon}
+            active={view === 'people'}
+            badge={requests}
+            onPress={() => setView('people')}
+          />
         </View>
         <Pressable
           onPress={() => router.push('/discover/nearby')}
           accessibilityRole="button"
           accessibilityLabel="Find people nearby"
-          className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:scale-[0.96]"
+          className="w-[52px] h-[52px] rounded-xl bg-secondary items-center justify-center active:opacity-70"
         >
           <MapPinIcon size={18} className="text-primary" />
         </Pressable>
-      </View>
-
-      <View
-        accessibilityRole="tablist"
-        className="mx-5 mt-3 mb-1 flex-row rounded-xl bg-secondary p-1"
-      >
-        <ConnectTab
-          label="Messages"
-          icon={MessageCircleIcon}
-          active={view === 'messages'}
-          badge={unread}
-          onPress={() => setView('messages')}
-        />
-        <ConnectTab
-          label="People"
-          icon={UsersIcon}
-          active={view === 'people'}
-          badge={requests}
-          onPress={() => setView('people')}
-        />
       </View>
 
       {view === 'messages' ? <ChatScreen embedded /> : <NetworkScreen embedded />}

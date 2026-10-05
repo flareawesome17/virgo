@@ -6,10 +6,9 @@ import { useAuth, useCreateAlbum, useWorkspaces, useTheme,
 import { router, useLocalSearchParams } from 'expo-router';
 import { ApiError } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
-import { ScreenHeader } from '@/components/ScreenHeader';
+import { FormHeader } from '@/components/FormHeader';
 import { useState } from 'react';
 import {
-  ArrowLeftIcon,
   ImageIcon,
   MusicIcon,
   CheckIcon,
@@ -21,7 +20,6 @@ import {
 import { cssInterop } from 'nativewind';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MusicIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -126,7 +124,7 @@ export default function CreateAlbumScreen() {
   if (workspacesFailed && listed.length === 0) {
     return (
       <SafeAreaView edges={['top']} className="flex-1 bg-background">
-        <ScreenHeader title="Create album" />
+        <FormHeader title="New album" />
         <LoadFailed what="your workspaces" onRetry={() => void refetchWorkspaces()} />
       </SafeAreaView>
     );
@@ -134,7 +132,7 @@ export default function CreateAlbumScreen() {
   if (workspacesLoaded && workspaces.length === 0) {
     return (
       <SafeAreaView edges={['top']} className="flex-1 bg-background">
-        <ScreenHeader title="Create album" />
+        <FormHeader title="New album" />
         <View className="flex-1 items-center justify-center px-8">
           <Text className="text-foreground text-[17px] font-bold text-center">
             Make a workspace first
@@ -157,6 +155,7 @@ export default function CreateAlbumScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <FormHeader title="New album" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
       <KeyboardAvoidingView
@@ -170,32 +169,6 @@ export default function CreateAlbumScreen() {
         contentContainerStyle={{ paddingBottom: 140 }}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Header */}
-        <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: 0.04,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 2,
-            }}
-          >
-            <ArrowLeftIcon size={18} className="text-foreground" />
-          </Pressable>
-          <View>
-            <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              Create album
-            </Text>
-            <Text className="text-muted-foreground text-sm mt-0.5">
-              Organize and deliver creative work
-            </Text>
-          </View>
-        </View>
 
         {/* Explains the disabled Create button. */}
         {atAlbumLimit && (
@@ -452,7 +425,7 @@ export default function CreateAlbumScreen() {
             elevation: 2,
           }}
         >
-          <Text className="text-foreground text-base font-semibold">Back</Text>
+          <Text className="text-foreground text-base font-semibold">Cancel</Text>
         </Pressable>
         <Pressable
           onPress={() => canCreate && handleCreate()}
