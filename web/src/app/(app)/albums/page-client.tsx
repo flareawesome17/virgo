@@ -62,8 +62,13 @@ export default function AlbumsPage() {
     orderBy: 'updated_at',
     direction: 'desc',
   });
-  const { workspaces } = useWorkspaces({ limit: 100 });
-  const names = useMemo(() => new Map(workspaces.map((w) => [w.id, w.name])), [workspaces]);
+  // Archived ones too: albums in a workspace you archived were filed under
+  // "Shared with you", because its name could not be found.
+  const { workspaces } = useWorkspaces({ limit: 100, archived: 'include' });
+  const names = useMemo(
+    () => new Map(workspaces.map((w) => [w.id, w.archived_at ? `${w.name} · archived` : w.name])),
+    [workspaces],
+  );
 
   const groups = useMemo(() => {
     const buckets = new Map<string, Album[]>();

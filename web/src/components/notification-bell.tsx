@@ -67,14 +67,34 @@ const TOPICS: Record<
     href: (d) =>
       typeof d.workspaceId === 'string' ? `/workspaces/${d.workspaceId}?tab=members` : '/workspaces',
   },
+  // An invitation stays on Invites even with its event id: until it is
+  // accepted the event cannot be read, and the decision is what it is for.
   'event-invite': { icon: Calendar, href: '/schedule?tab=invites' },
-  'event-response': { icon: Calendar, href: '/schedule' },
-  'event-updated': { icon: Calendar, href: '/schedule' },
+  // An answer or a change is about one event, so it opens on that event's day
+  // rather than on today.
+  'event-response': {
+    icon: Calendar,
+    href: (d) =>
+      typeof d.eventId === 'string' ? `/schedule?event=${d.eventId}` : '/schedule',
+  },
+  'event-updated': {
+    icon: Calendar,
+    href: (d) =>
+      typeof d.eventId === 'string' ? `/schedule?event=${d.eventId}` : '/schedule',
+  },
   'hire-enquiry': { icon: MessageCircle, href: '/network?tab=enquiries' },
-  'hire-response': { icon: MessageCircle, href: '/network?tab=enquiries' },
+  // An accepted enquiry opened a conversation; that is where the next move is.
+  'hire-response': {
+    icon: MessageCircle,
+    href: (d) =>
+      typeof d.conversationId === 'string' ? `/chat/${d.conversationId}` : '/network?tab=enquiries',
+  },
   'job-application': {
     icon: BriefcaseBusiness,
-    href: '/jobs/mine?tab=posted',
+    href: (d) =>
+      typeof d.postId === 'string'
+        ? `/jobs/mine?tab=posted&post=${d.postId}`
+        : '/jobs/mine?tab=posted',
   },
   'job-response': {
     icon: BriefcaseBusiness,
@@ -88,7 +108,8 @@ const TOPICS: Record<
     href: (d) =>
       typeof d.bookingId === 'string' ? `/bookings/${d.bookingId}` : '/bookings',
   },
-  reminder: { icon: Calendar, href: '/schedule' },
+  // The Reminders tab, where it can be ticked off; the calendar is not.
+  reminder: { icon: Calendar, href: '/schedule?tab=reminders' },
   // There is no /settings/billing; plans and what you are paying live here.
   billing: { icon: CreditCard, href: '/settings/plans' },
   retention: { icon: Trash2, href: '/albums' },
@@ -97,7 +118,12 @@ const TOPICS: Record<
     href: (d) =>
       typeof d.albumId === 'string' ? `/albums/${d.albumId}?picked=1` : '/albums',
   },
-  support: { icon: LifeBuoy, href: '/support' },
+  // A reply opens the conversation it is part of, not the list of them.
+  support: {
+    icon: LifeBuoy,
+    href: (d) =>
+      typeof d.ticketId === 'string' ? `/support?ticket=${d.ticketId}` : '/support',
+  },
   promo: { icon: Gift, href: '/rewards' },
   // An announcement opens its link when it has one, and otherwise has said
   // all it needs to — there is no page in the app it belongs to.

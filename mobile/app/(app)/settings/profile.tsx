@@ -2,9 +2,11 @@ import {
   View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform,
   Switch, useWindowDimensions,
 } from 'react-native';
+import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth, useTheme, useUpdateProfileFlags } from '@/src/hooks';
@@ -130,6 +132,28 @@ export default function ProfileSettingsScreen() {
   }, [derivedTitle, titleFollowsRoles]);
 
   const [saved, setSaved] = useState(false);
+  // The switches save as they move, so they are not changes to lose. A title
+  // still following the roles is the roles' doing, not typing.
+  const { markSaved } = useDiscardGuard(
+    {
+      name,
+      title: titleFollowsRoles ? null : title,
+      phone,
+      website,
+      location,
+      bio,
+      roles,
+      studioName,
+      socialHandle,
+      line1,
+      line2,
+      city,
+      province,
+      postal,
+      country,
+    },
+    hydrated,
+  );
 
   // Empty string means "cleared", which the API models as null.
   const orNull = (v: string) => (v.trim() ? v.trim() : null);
@@ -148,8 +172,13 @@ export default function ProfileSettingsScreen() {
     addressProvince: province.trim(),
     addressCountry: country.trim().toUpperCase(),
   };
+  // An address already on the account counts as started even when every
+  // field has been emptied: it cannot be removed (the API keeps one, as
+  // signup asks for it), and emptying it was left out of the save while the
+  // screen said Saved. Now it says what is missing instead.
+  const hadAddress = Boolean(profile?.addressLine1);
   const addressStarted =
-    Object.values(address).some(Boolean) || !!line2.trim() || !!postal.trim();
+    hadAddress || Object.values(address).some(Boolean) || !!line2.trim() || !!postal.trim();
   const addressMissing = !addressStarted
     ? []
     : ([
@@ -181,6 +210,7 @@ export default function ProfileSettingsScreen() {
       },
       {
         onSuccess: () => {
+          markSaved();
           setSaved(true);
           setTimeout(() => setSaved(false), 2000);
         },
@@ -224,7 +254,7 @@ export default function ProfileSettingsScreen() {
         className="flex-1"
       >
 
-      <ScrollView
+      <ScrollView keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 140 }}
@@ -576,6 +606,8 @@ function FieldRow({
           placeholderTextColor="#A89489"
           className="text-foreground text-sm flex-1"
           keyboardType={keyboardType as any}
+          // The phone and number pads have no return key on iOS.
+          inputAccessoryViewID={keyboardType === 'number-pad' || keyboardType === 'phone-pad' ? KEYBOARD_DONE : undefined}
           maxLength={maxLength}
           autoCapitalize={autoCapitalize}
         />

@@ -225,6 +225,9 @@ export function useRespondToApplication() {
     }) => jobsApi.respond(id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+      // Accepting makes a booking, which did not show under the applicant or
+      // in Bookings until the next poll.
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
       queryClient.invalidateQueries({ queryKey: ['chat'] });
       // A new connection changes their Connect button and both counts.

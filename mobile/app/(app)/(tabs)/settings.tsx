@@ -167,13 +167,6 @@ function AccountHalf({ rewards }: { rewards: number }) {
           route: '/settings/public-profile',
           color: palette.primary,
         },
-        {
-          icon: BriefcaseIcon,
-          label: 'Hire enquiries',
-          detail: 'Work people have offered you',
-          route: '/friends/enquiries',
-          color: CHART_COLORS.green,
-        },
       ],
     },
     {

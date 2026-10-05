@@ -9,6 +9,7 @@ import {
 import { useEffect, useRef, type ReactNode } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import { openHref } from '@/src/lib/navigation';
 import {
   ArrowRightIcon,
   CalendarIcon,
@@ -187,7 +188,7 @@ export default function NotificationDetailScreen() {
     // A link outside the app goes to the system browser; everything else is a
     // route inside it.
     if (/^https:\/\//.test(href)) void Linking.openURL(href).catch(() => undefined);
-    else router.push(href as never);
+    else openHref(href);
   };
 
   const category = n ? CATEGORY_OF_TOPIC[n.topic] : null;

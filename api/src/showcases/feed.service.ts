@@ -5,6 +5,8 @@ import { LikesService } from './likes.service';
 import { ShelvesService } from './shelves.service';
 import {
   CONNECTED_TO_AUTHOR,
+  decodeShowcaseCursor,
+  encodeShowcaseCursor,
   ShowcasesService,
   type Showcase,
   type ShowcaseRow,
@@ -53,33 +55,20 @@ const PAGE_SIZE = 12;
 const MAX_PAGE_SIZE = 30;
 
 interface MakerRow extends ShowcaseRow {
+  /** published_at as Postgres prints it, microseconds and all, for the cursor. */
+  cursor_at: string;
   display_name: string | null;
   handle: string | null;
   avatar_url: string | null;
   user_title: string | null;
 }
 
-/**
+/*
  * Keyset, not offset. A feed people post to while it is being read renumbers
  * every offset under them, which shows the same showcase twice and skips
- * another; a cursor on (published_at, id) cannot.
+ * another; a cursor on (published_at, id) cannot. See encodeShowcaseCursor for
+ * why the time travels as Postgres's own text.
  */
-function encodeCursor(publishedAt: string, id: string): string {
-  return Buffer.from(`${publishedAt}|${id}`, 'utf8').toString('base64url');
-}
-
-function decodeCursor(cursor: string | undefined): { at: string; id: string } | null {
-  if (!cursor) return null;
-  try {
-    const [at, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
-    // A cursor is ours, but it arrives from a client, so it is checked rather
-    // than trusted: a bad one reads as the first page, never as an error.
-    if (!at || !id || Number.isNaN(Date.parse(at))) return null;
-    return { at, id };
-  } catch {
-    return null;
-  }
-}
 
 @Injectable()
 export class FeedService {
@@ -96,13 +85,13 @@ export class FeedService {
   ): Promise<FeedPage> {
     const scope: FeedScope = opts.scope === 'connections' ? 'connections' : 'everyone';
     const limit = Math.min(Math.max(opts.limit ?? PAGE_SIZE, 1), MAX_PAGE_SIZE);
-    const after = decodeCursor(opts.cursor);
+    const after = decodeShowcaseCursor(opts.cursor);
 
     // $1 published_at cursor, $2 viewer, $3 id cursor, $4 limit.
     // $2 is named `$2` because CONNECTED_TO_AUTHOR and blockedBetween are written
     // against that position; keep it second.
     const rows = await this.db.query<MakerRow>(
-      `select s.*,
+      `select s.*, s.published_at::text as cursor_at,
               u.display_name, u.avatar_url, u.title as user_title,
               -- A handle is only a link once the profile is published: /profiles/:handle
               -- and hire both refuse an unpublished one, so handing it out made the
@@ -175,15 +164,7 @@ export class FeedService {
     const last = page[page.length - 1];
     return {
       items,
-      nextCursor:
-        hasMore && last
-          ? encodeCursor(
-              last.published_at instanceof Date
-                ? last.published_at.toISOString()
-                : String(last.published_at),
-              last.id,
-            )
-          : null,
+      nextCursor: hasMore && last ? encodeShowcaseCursor(last.cursor_at, last.id) : null,
     };
   }
 

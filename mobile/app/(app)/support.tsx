@@ -66,7 +66,7 @@ export default function SupportScreen() {
       />
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {openId ? (
           <Thread id={openId} />
@@ -83,7 +83,7 @@ function TicketList({ onOpen }: { onOpen: (id: string) => void }) {
   const [composing, setComposing] = useState(false);
 
   return (
-    <ScrollView contentContainerClassName="p-5 pb-16">
+    <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-16">
       <Pressable
         onPress={() => setComposing((v) => !v)}
         className="mb-4 items-center rounded-xl py-3"
@@ -220,7 +220,7 @@ function Thread({ id }: { id: string }) {
 
   return (
     <View className="flex-1">
-      <ScrollView contentContainerClassName="p-5 pb-4" keyboardShouldPersistTaps="handled">
+      <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-4" keyboardShouldPersistTaps="handled">
         {isLoading ? (
           <ActivityIndicator color="#B66A40" className="mt-10" />
         ) : loadFailed ? (

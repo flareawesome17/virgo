@@ -1,4 +1,4 @@
-import { View, Text, RefreshControl, Pressable } from 'react-native';
+import { View, Text, RefreshControl, Pressable, Alert } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useAuth, useReminders, useScheduleEventRange, useTheme, useUpdateReminder } from '@/src/hooks';
 import { useChromeScroll } from '@/src/providers/ChromeProvider';
@@ -101,22 +101,24 @@ export default function ScheduleScreen() {
     soonWindow.to,
   );
 
-  // Not done, from today on, soonest first. It was the 100 oldest, completed
-  // ones included, so a busy account's upcoming reminders fell off the end.
-  const [startOfToday] = useState(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    return start.toISOString();
-  });
+  // Not done, oldest first: the overdue as well as what is coming. Counted
+  // from today only, one whose time had passed unticked dropped off Schedule
+  // for good. The same query as Reminders › See all, so it is one fetch.
   const { reminders, refetch: refetchReminders, loadFailed: remindersFailed } = useReminders(
-    { is_completed: false, due_from: startOfToday, orderBy: 'reminder_time', direction: 'asc', limit: 100 },
+    { is_completed: false, orderBy: 'reminder_time', direction: 'asc', limit: 100 },
     { enabled: !!user?.id },
   );
 
   // The tick had no handler, so reminders could not be completed from here.
   const updateReminder = useUpdateReminder();
   const toggleReminder = (id: string, is_completed: boolean) =>
-    updateReminder.mutate({ id, is_completed });
+    updateReminder.mutate(
+      { id, is_completed },
+      {
+        onError: (error) =>
+          Alert.alert("Couldn't update it", error instanceof Error ? error.message : 'Please try again.'),
+      },
+    );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -139,7 +141,9 @@ export default function ScheduleScreen() {
   const upcomingEvents = soonEvents
     .filter((e) => isEventUpcoming(e.event_date, e.event_time))
     .slice(0, 3);
-  const activeReminders = reminders.filter(r => !r.is_completed);
+  const [now] = useState(() => Date.now());
+  const overdueReminders = reminders.filter((r) => !r.is_completed && Date.parse(r.reminder_time) < now);
+  const activeReminders = reminders.filter((r) => !r.is_completed && Date.parse(r.reminder_time) >= now);
 
   const goPrevMonth = () => {
     if (viewMonth === 0) { setViewYear(viewYear - 1); setViewMonth(11); }
@@ -255,7 +259,7 @@ export default function ScheduleScreen() {
                   className="items-center py-1.5"
                 >
                   <View className={`w-8 h-8 rounded-full items-center justify-center ${cell.isToday ? 'bg-action' : isSel ? 'bg-primary/15' : ''}`}>
-                    <Text className={`text-xs font-bold ${cell.isOutside ? 'text-muted-foreground/40' : cell.isToday ? 'text-action-foreground' : isSel ? 'text-primary' : 'text-foreground'}`}>
+                    <Text className={`text-xs font-bold ${cell.isOutside ? 'text-muted-foreground/70' : cell.isToday ? 'text-action-foreground' : isSel ? 'text-primary' : 'text-foreground'}`}>
                       {cell.day}
                     </Text>
                   </View>
@@ -295,7 +299,7 @@ export default function ScheduleScreen() {
         <View className="px-5 mt-5">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-lg font-bold tracking-tight">{labelForDateKey(selectedDate)}</Text>
-            <Pressable onPress={() => router.push(`/schedule/agenda?date=${selectedDate}`)} className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push(`/schedule/agenda?date=${selectedDate}`)} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
               <Text className="text-primary text-sm font-semibold">Agenda</Text>
               <ChevronRightIcon size={14} className="text-primary" />
             </Pressable>
@@ -350,7 +354,7 @@ export default function ScheduleScreen() {
         <View className="px-5 mt-6">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-lg font-bold tracking-tight">Upcoming</Text>
-            <Pressable onPress={() => router.push('/schedule/calendar')} className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push('/schedule/calendar')} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
               <Text className="text-primary text-sm font-semibold">Calendar</Text>
               <ChevronRightIcon size={14} className="text-primary" />
             </Pressable>
@@ -390,16 +394,39 @@ export default function ScheduleScreen() {
         <View className="px-5 mt-6">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-lg font-bold tracking-tight">Reminders</Text>
-            <Pressable
-              onPress={() => router.push('/schedule/reminders/create')}
-              accessibilityRole="button"
-              accessibilityLabel="New reminder"
-              hitSlop={8}
-              className="min-h-11 justify-center px-1 active:opacity-60"
-            >
-              <Text className="text-primary text-sm font-bold">+ New</Text>
-            </Pressable>
+            <View className="flex-row items-center gap-1">
+              {/* Only four show here; the rest were unreachable. */}
+              {(activeReminders.length > 4 || overdueReminders.length > 0) && (
+                <Pressable
+                  onPress={() => router.push('/schedule/reminders')}
+                  accessibilityRole="button"
+                  className="min-h-11 justify-center px-2 active:opacity-60"
+                >
+                  <Text className="text-primary text-sm font-semibold">See all</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={() => router.push('/schedule/reminders/create')}
+                accessibilityRole="button"
+                accessibilityLabel="New reminder"
+                className="min-h-11 justify-center px-2 active:opacity-60"
+              >
+                <Text className="text-primary text-sm font-bold">+ New</Text>
+              </Pressable>
+            </View>
           </View>
+          {overdueReminders.length > 0 && (
+            <Pressable
+              onPress={() => router.push('/schedule/reminders')}
+              accessibilityRole="button"
+              className="flex-row items-center gap-2 rounded-2xl bg-destructive/10 px-4 min-h-[44px] mb-2 active:opacity-70"
+            >
+              <BellIcon size={14} className="text-destructive" />
+              <Text className="text-destructive text-sm font-semibold flex-1">
+                {overdueReminders.length} overdue — tick {overdueReminders.length === 1 ? 'it' : 'them'} off or move {overdueReminders.length === 1 ? 'it' : 'them'}
+              </Text>
+            </Pressable>
+          )}
           {activeReminders.length === 0 ? (
             <View className="bg-card rounded-2xl p-6 items-center gap-2">
               <BellIcon size={20} className="text-muted-foreground" />
@@ -417,7 +444,11 @@ export default function ScheduleScreen() {
                   <View className="flex-1 min-w-0">
                     <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>{rem.title}</Text>
                     <View className="flex-row items-center gap-2 mt-0.5">
-                      <Text className="text-muted-foreground text-xs">{new Date(rem.reminder_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
+                      <Text className="text-muted-foreground text-xs">
+                        {new Date(rem.reminder_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {' · '}
+                        {new Date(rem.reminder_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      </Text>
                       {rem.has_push_notification && (
                         <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: '#5B7B9A18' }}>
                           <Text style={{ color: '#5B7B9A', fontSize: 11, fontWeight: '700' }}>Push</Text>

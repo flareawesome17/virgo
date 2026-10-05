@@ -6,6 +6,20 @@ import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { clock } from '@/src/lib/media-grid';
 import { pauseAlbumAudio } from '@/src/providers/AlbumAudioProvider';
+import { pauseDockedFilm } from '@/src/providers/VideoPlayerProvider';
+
+/**
+ * The backing for controls drawn on a film: dark in both themes. It was the
+ * theme's foreground at 55%, which in dark mode is a light disc under a white
+ * icon, about 1.1:1.
+ */
+const BACKING = 'rgba(0,0,0,0.55)';
+
+/** Everything else that might be talking stops when a film starts. */
+function quietOthers(): void {
+  pauseAlbumAudio();
+  pauseDockedFilm();
+}
 import type { ShowcasePiece } from '@/src/api';
 
 for (const Icon of [PlayIcon, Volume2Icon, VolumeXIcon]) {
@@ -76,7 +90,7 @@ export function ShowcaseFilm({
         playable={Boolean(source)}
         controlsInset={controlsInset}
         onPress={() => {
-          pauseAlbumAudio();
+          quietOthers();
           setStarted(true);
           onPlay?.();
         }}
@@ -129,8 +143,8 @@ function Poster({
         className="absolute inset-0 items-center justify-center"
       >
         <View
-          className="w-16 h-16 rounded-full bg-foreground/55 items-center justify-center"
-          style={{ opacity: playable ? 1 : 0.4 }}
+          className="w-16 h-16 rounded-full items-center justify-center"
+          style={{ opacity: playable ? 1 : 0.4, backgroundColor: BACKING }}
         >
           {/* Named outright, the way the album player's controls are: a lucide
               fill of currentColor renders hollow on a device, and this badge
@@ -139,10 +153,10 @@ function Poster({
         </View>
         {piece.durationMs ? (
           <View
-            className="absolute left-3 rounded-full bg-foreground/55 px-2 py-0.5"
-            style={{ bottom: 12 + controlsInset }}
+            className="absolute left-3 rounded-full px-2 py-0.5"
+            style={{ bottom: 12 + controlsInset, backgroundColor: BACKING }}
           >
-            <Text className="text-background text-[11px] font-bold">
+            <Text className="text-[11px] font-bold" style={{ color: '#FFFFFF' }}>
               {clock(piece.durationMs / 1000)}
             </Text>
           </View>
@@ -251,7 +265,7 @@ function Film({
           if (playing) {
             player.pause();
           } else {
-            pauseAlbumAudio();
+            quietOthers();
             player.play();
             onPlay?.();
           }
@@ -261,25 +275,33 @@ function Film({
         className="absolute inset-0 items-center justify-center"
       >
         {!playing && (
-          <View className="w-16 h-16 rounded-full bg-foreground/55 items-center justify-center">
+          <View
+            className="w-16 h-16 rounded-full items-center justify-center"
+            style={{ backgroundColor: BACKING }}
+          >
             <PlayIcon size={26} color="#fff" fill="#fff" />
           </View>
         )}
       </Pressable>
 
+      {/* A 44 pt target around a 36 pt disc. */}
       <Pressable
         onPress={() => setMuted((m) => !m)}
         accessibilityRole="button"
         accessibilityLabel={muted ? 'Turn the sound on' : 'Turn the sound off'}
-        hitSlop={8}
-        className="absolute right-3 w-9 h-9 rounded-full bg-foreground/55 items-center justify-center active:opacity-80"
-        style={{ bottom: 12 + controlsInset }}
+        className="absolute right-1 w-11 h-11 items-center justify-center active:opacity-80"
+        style={{ bottom: 8 + controlsInset }}
       >
-        {muted ? (
-          <VolumeXIcon size={16} className="text-background" />
-        ) : (
-          <Volume2Icon size={16} className="text-background" />
-        )}
+        <View
+          className="w-9 h-9 rounded-full items-center justify-center"
+          style={{ backgroundColor: BACKING }}
+        >
+          {muted ? (
+            <VolumeXIcon size={16} color="#FFFFFF" />
+          ) : (
+            <Volume2Icon size={16} color="#FFFFFF" />
+          )}
+        </View>
       </Pressable>
 
       {!drawn && (

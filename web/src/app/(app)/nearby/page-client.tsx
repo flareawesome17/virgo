@@ -64,7 +64,17 @@ export default function NearbyPage() {
     ? canonicalLocation(placeInput)
     : '';
 
-  const { sharing, place: myPlace, isLoading: loadingStatus } = useLocationSharing();
+  const {
+    sharing,
+    place: myPlace,
+    data: locationStatus,
+    isLoading: loadingStatus,
+    loadFailed: statusFailed,
+    refetch: refetchStatus,
+  } = useLocationSharing();
+  // Never read, rather than read as off: "You are not discoverable" was said
+  // to people who may well have been.
+  const statusUnknown = statusFailed && !locationStatus;
   const startSharing = useShareLocation();
   const setPlace = useSetLocationPlace();
   const stopSharing = useStopSharingLocation();
@@ -250,11 +260,13 @@ export default function NearbyPage() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold">Share my location</p>
                 <p className="text-xs text-muted-foreground">
-                  {sharing
-                    ? myPlace
-                      ? `Discoverable · ${myPlace}`
-                      : 'Discoverable · from this device'
-                    : 'You are not discoverable'}
+                  {statusUnknown
+                    ? "Couldn't check whether you're sharing your location."
+                    : sharing
+                      ? myPlace
+                        ? `Discoverable · ${myPlace}`
+                        : 'Discoverable · from this device'
+                      : 'You are not discoverable'}
                 </p>
               </div>
               {loadingStatus ||
@@ -262,6 +274,10 @@ export default function NearbyPage() {
               stopSharing.isPending ||
               setPlace.isPending ? (
                 <Loader2 className="size-4 animate-spin text-primary" />
+              ) : statusUnknown ? (
+                <Button size="sm" variant="outline" onClick={() => void refetchStatus()}>
+                  Try again
+                </Button>
               ) : (
                 <Switch checked={sharing} onCheckedChange={toggleSharing} />
               )}
@@ -270,8 +286,9 @@ export default function NearbyPage() {
             {/* The way in for anyone who will not grant the browser prompt —
                 and on a desktop it is usually the better answer anyway, where
                 the prompt is more intrusive and the fix less accurate than
-                simply saying which city you work in. */}
-            {!sharing && (
+                simply saying which city you work in. Not while it is unknown
+                whether they share already. */}
+            {!sharing && !statusUnknown && (
               <div className="mt-4 border-t pt-4">
                 <p className="mb-2 text-xs text-muted-foreground">
                   Would rather not share a live position? Name your city instead —

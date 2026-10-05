@@ -109,7 +109,8 @@ export function DateTimeField({
         {clearable && value !== null && (
           <Pressable
             onPress={() => onChange(null)}
-            hitSlop={10}
+            hitSlop={14}
+            accessibilityRole="button"
             accessibilityLabel={`Clear ${label.toLowerCase()}`}
           >
             <XIcon size={15} className="text-muted-foreground" />
@@ -134,7 +135,17 @@ export function DateTimeField({
           <View className="px-4 pb-3">
             <View className="flex-row items-center justify-between px-1 pb-1">
               <Text className="text-muted-foreground text-sm">{label}</Text>
-              <Pressable onPress={() => setOpen(false)} className="px-3 py-2 active:opacity-60">
+              {/* Done means the date on the wheel. The wheel only reports a
+                  change once it moves, so on an empty field Done kept nothing
+                  and the date you were looking at was never set. */}
+              <Pressable
+                onPress={() => {
+                  if (value === null) onChange(shown);
+                  setOpen(false);
+                }}
+                accessibilityRole="button"
+                className="px-3 min-h-[44px] justify-center active:opacity-60"
+              >
                 <Text className="text-primary text-base font-bold">Done</Text>
               </Pressable>
             </View>

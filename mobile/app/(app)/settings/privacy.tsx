@@ -116,7 +116,16 @@ export default function PrivacyScreen() {
     });
   };
 
-  const { sharing, isLoading: loadingLocation } = useLocationSharing();
+  const {
+    sharing,
+    isLoading: loadingLocation,
+    loadFailed: locationFailed,
+    data: locationStatus,
+    refetch: refetchLocation,
+  } = useLocationSharing();
+  // Not known, rather than off. A failed load read as "not sharing", and a
+  // tap on that switch could do the opposite of what was meant.
+  const locationUnknown = locationFailed && !locationStatus;
   const startSharing = useShareLocation();
   const stopSharing = useStopSharingLocation();
 
@@ -233,6 +242,7 @@ export default function PrivacyScreen() {
     busy,
     onChange,
     last,
+    onRetry,
   }: {
     icon: LucideIcon;
     tint: string;
@@ -242,6 +252,8 @@ export default function PrivacyScreen() {
     busy?: boolean;
     onChange: (next: boolean) => void;
     last?: boolean;
+    /** Could not be read: a retry instead of a switch that would guess. */
+    onRetry?: () => void;
   }) => (
     <View
       className="px-4 py-3.5 flex-row items-center gap-3"
@@ -262,6 +274,14 @@ export default function PrivacyScreen() {
       </View>
       {busy ? (
         <ActivityIndicator size="small" color="#B66A40" />
+      ) : onRetry ? (
+        <Pressable
+          onPress={onRetry}
+          accessibilityRole="button"
+          className="min-h-[44px] px-2 justify-center active:opacity-60"
+        >
+          <Text className="text-primary text-[13px] font-bold">Try again</Text>
+        </Pressable>
       ) : (
         <Switch
           value={value}
@@ -322,13 +342,16 @@ export default function PrivacyScreen() {
               tint="#6B8E4E"
               title="Share my location"
               detail={
-                sharing
-                  ? 'You appear in Nearby. Others see a distance, never a place'
-                  : 'You do not appear in Nearby and no location is stored'
+                locationUnknown
+                  ? "Couldn't check whether you're sharing"
+                  : sharing
+                    ? 'You appear in Nearby. Others see a distance, never a place'
+                    : 'You do not appear in Nearby and no location is stored'
               }
               value={sharing}
               busy={loadingLocation || startSharing.isPending || stopSharing.isPending}
               onChange={toggleLocation}
+              onRetry={locationUnknown ? () => void refetchLocation() : undefined}
               last
             />
           </View>

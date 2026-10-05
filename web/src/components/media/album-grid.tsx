@@ -43,6 +43,7 @@ export function AlbumGrid({
   selecting,
   density,
   canDrag,
+  canSelect = true,
   onOpen,
 }: {
   files: StoredFile[];
@@ -52,13 +53,20 @@ export function AlbumGrid({
   density: Density;
   /** Only someone who can organise the album may drag files onto sections. */
   canDrag: boolean;
+  /**
+   * Whether there is anything a selection could be used for. Without it the
+   * ticks, the modifier clicks and Select day are gone, and a click opens.
+   */
+  canSelect?: boolean;
   onOpen: (file: StoredFile) => void;
 }) {
   const days = useMemo(() => groupByDay(files), [files]);
   const order = useMemo(() => files.map((file) => file.key), [files]);
 
   const click = (event: MouseEvent, file: StoredFile) => {
-    if (event.shiftKey) {
+    if (!canSelect) {
+      onOpen(file);
+    } else if (event.shiftKey) {
       event.preventDefault();
       selection.extendTo(file.key, order);
     } else if (event.metaKey || event.ctrlKey || selecting) {
@@ -94,16 +102,18 @@ export function AlbumGrid({
                 {day.items.length.toLocaleString()} item{day.items.length === 1 ? '' : 's'}
                 {span ? ` · ${span}` : ''}
               </p>
-              <button
-                type="button"
-                onClick={() => selection.setMany(keys, !allChosen)}
-                className={cn(
-                  'rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100',
-                  selecting ? 'opacity-100' : 'opacity-0 group-hover/day:opacity-100',
-                )}
-              >
-                {allChosen ? 'Clear day' : 'Select day'}
-              </button>
+              {canSelect && (
+                <button
+                  type="button"
+                  onClick={() => selection.setMany(keys, !allChosen)}
+                  className={cn(
+                    'rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100',
+                    selecting ? 'opacity-100' : 'opacity-0 group-hover/day:opacity-100',
+                  )}
+                >
+                  {allChosen ? 'Clear day' : 'Select day'}
+                </button>
+              )}
             </header>
 
             <ul className={cn('grid', TILE[density])}>
@@ -114,6 +124,7 @@ export function AlbumGrid({
                   index={day.start + offset}
                   chosen={selection.has(file.key)}
                   selecting={selecting}
+                  selectable={canSelect}
                   draggable={canDrag}
                   onClick={click}
                   onToggle={() => selection.toggle(file.key)}
@@ -133,6 +144,7 @@ function Tile({
   index,
   chosen,
   selecting,
+  selectable,
   draggable,
   onClick,
   onToggle,
@@ -142,6 +154,7 @@ function Tile({
   index: number;
   chosen: boolean;
   selecting: boolean;
+  selectable: boolean;
   draggable: boolean;
   onClick: (event: MouseEvent, file: StoredFile) => void;
   onToggle: () => void;
@@ -218,21 +231,23 @@ function Tile({
 
       {/* The tick. Its own button so it can be reached by keyboard and does
           not open the file; always there in selection mode, on hover otherwise. */}
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-pressed={chosen}
-        aria-label={`${chosen ? 'Deselect' : 'Select'} ${name}`}
-        className={cn(
-          'absolute top-1.5 left-1.5 grid size-6 place-items-center rounded-full border-2 transition-opacity focus-visible:opacity-100',
-          chosen
-            ? 'border-transparent bg-action text-action-foreground opacity-100'
-            : 'border-white bg-black/30 text-transparent hover:bg-black/45',
-          selecting || chosen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-        )}
-      >
-        <Check className="size-3.5" strokeWidth={3} aria-hidden />
-      </button>
+      {selectable && (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={chosen}
+          aria-label={`${chosen ? 'Deselect' : 'Select'} ${name}`}
+          className={cn(
+            'absolute top-1.5 left-1.5 grid size-6 place-items-center rounded-full border-2 transition-opacity focus-visible:opacity-100',
+            chosen
+              ? 'border-transparent bg-action text-action-foreground opacity-100'
+              : 'border-white bg-black/30 text-transparent hover:bg-black/45',
+            selecting || chosen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          )}
+        >
+          <Check className="size-3.5" strokeWidth={3} aria-hidden />
+        </button>
+      )}
     </li>
   );
 }

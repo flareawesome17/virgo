@@ -71,8 +71,22 @@ export {
 } from './endpoints/workspaces';
 export {
   albumsApi,
+  addDaysToKey,
+  daysBetweenKeys,
+  MAX_RETENTION_DAYS,
+  RETENTION_DAY_PRESETS,
+  retentionBadge,
+  retentionDateLabel,
+  retentionDaysLabel,
+  retentionInput,
+  retentionOf,
+  retentionReady,
+  retentionSummary,
+  sameRetention,
+  todayDateKey,
   type CreateAlbumInput,
   type ListAlbumsParams,
+  type Retention,
   type UpdateAlbumInput,
 } from './endpoints/albums';
 export {
@@ -104,6 +118,7 @@ export {
   type ListFriendsParams,
   type PersonResult,
   type SendRequestResult,
+  type PeopleUnseen,
   type UpdateFriendInput,
 } from './endpoints/friends';
 export {
@@ -234,6 +249,10 @@ export {
   likesApi,
   commentsApi,
   type Comment,
+  type CommentPage,
+  type ProfileWorkPage,
+  pieceAspect,
+  pieceSource,
   showcaseReportsApi,
   SHOWCASE_REPORT_REASONS,
   type ShowcaseReportReason,

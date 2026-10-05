@@ -235,9 +235,13 @@ export class ProfileWorkController {
 
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get('showcases')
-  async work(@CurrentUser('id') viewerId: string, @Param('handle') handle: string) {
-    const data = await this.showcases.byHandle(viewerId, handle);
-    return { data, total: data.length };
+  async work(
+    @CurrentUser('id') viewerId: string,
+    @Param('handle') handle: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const { data, nextCursor } = await this.showcases.byHandle(viewerId, handle, { cursor });
+    return { data, total: data.length, nextCursor };
   }
 
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
@@ -313,8 +317,14 @@ export class CommentsController {
 
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   @Get()
-  list(@CurrentUser('id') viewerId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.comments.list(viewerId, id);
+  list(
+    @CurrentUser('id') viewerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    // A string, not validated as more: a cursor that does not decode is the
+    // newest page, which is the safe answer.
+    @Query('before') before?: string,
+  ) {
+    return this.comments.list(viewerId, id, { before });
   }
 
   // Tighter than reading: a comment is somebody else's notification.
@@ -326,8 +336,8 @@ export class CommentsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AddCommentDto,
   ) {
-    const data = await this.comments.add(viewerId, id, dto.body);
-    return { data };
+    // The newest page, with `earlier`; `data` is what an older app reads.
+    return this.comments.add(viewerId, id, dto.body);
   }
 
   @Delete(':commentId')
@@ -337,7 +347,6 @@ export class CommentsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Param('commentId', ParseUUIDPipe) commentId: string,
   ) {
-    const data = await this.comments.remove(viewerId, id, commentId);
-    return { data };
+    return this.comments.remove(viewerId, id, commentId);
   }
 }

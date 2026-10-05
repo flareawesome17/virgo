@@ -107,8 +107,11 @@ export function ProfileWorkTaste({
                   />
                   {isSelf && <StatusBadge status={showcaseStatus(showcase)} />}
                   {showcase.pieces.length > 1 && (
-                    <View className="absolute right-1.5 top-1.5 rounded-full bg-foreground/55 px-2 py-0.5">
-                      <Text className="text-background text-[10px] font-bold">
+                    <View
+                      className="absolute right-1.5 top-1.5 rounded-full px-2 py-0.5"
+                      style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+                    >
+                      <Text className="text-[10px] font-bold" style={{ color: '#FFFFFF' }}>
                         {showcase.pieces.length}
                       </Text>
                     </View>
@@ -126,6 +129,21 @@ export function ProfileWorkTaste({
                 </Text>
               </Pressable>
             ))}
+            {/* A visitor saw the newest 24 and no way to the rest. */}
+            {!isSelf && visitorWork.hasNextPage ? (
+              <Pressable
+                onPress={() => void visitorWork.fetchNextPage()}
+                disabled={visitorWork.isFetchingNextPage}
+                accessibilityRole="button"
+                className="w-full mt-2 min-h-11 rounded-xl bg-secondary items-center justify-center active:opacity-80"
+              >
+                {visitorWork.isFetchingNextPage ? (
+                  <ActivityIndicator color={palette.primary} />
+                ) : (
+                  <Text className="text-secondary-foreground text-[13px] font-bold">Show more</Text>
+                )}
+              </Pressable>
+            ) : null}
           </View>
         )
       ) : taste.isLoading ? (

@@ -12,6 +12,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Max,
   Min,
   ValidateIf,
 } from 'class-validator';
@@ -46,11 +47,15 @@ class UpdateBookingDto {
   @MaxLength(200)
   location?: string | null;
 
-  /** Centavos, so 15000 pesos is 1_500_000. */
+  /**
+   * Centavos, so 15000 pesos is 1_500_000. At most ₱500,000, the most a role
+   * can be posted at: past an int's range it was a server error.
+   */
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsInt()
   @Min(0)
+  @Max(50_000_000)
   rateMinor?: number | null;
 
   @IsOptional()

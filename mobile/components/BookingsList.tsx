@@ -8,6 +8,7 @@ import { useBookings, useTheme } from '@/src/hooks';
 import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { EmptyState } from '@/components/EmptyState';
 import { CardListSkeleton } from '@/components/Skeleton';
+import { useTabObstruction } from '@/components/TabScreen';
 import { rateLabel, type Booking } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
@@ -59,6 +60,7 @@ export function BookingsList({ bottomPadding = 40 }: { bottomPadding?: number })
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
+  const obstruction = useTabObstruction();
 
   if (isLoading && bookings.length === 0) {
     return <CardListSkeleton count={3} />;
@@ -68,7 +70,7 @@ export function BookingsList({ bottomPadding = 40 }: { bottomPadding?: number })
   }
   if (bookings.length === 0) {
     return (
-      <View className="flex-1 justify-center">
+      <View className="flex-1 justify-center" style={{ paddingBottom: obstruction }}>
         <EmptyState
           icon={FileTextIcon}
           title="No bookings yet"

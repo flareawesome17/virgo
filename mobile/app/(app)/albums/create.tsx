@@ -1,10 +1,14 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PALETTES } from '@/theme';
+import { InsetFrame } from '@/components/InsetFrame';
+import { RetentionPicker, retentionReady } from '@/components/RetentionPicker';
 import { useAuth, useCreateAlbum, useWorkspaces, useTheme,
   usePlanLimits,
 } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ApiError } from '@/src/api';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
+import { ApiError, retentionInput, type Retention } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { FormHeader } from '@/components/FormHeader';
 import { useState } from 'react';
@@ -12,9 +16,7 @@ import {
   ImageIcon,
   MusicIcon,
   CheckIcon,
-  CalendarIcon,
   ChevronDownIcon,
-  ChevronRightIcon,
   LayersIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -23,21 +25,11 @@ import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(MusicIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronDownIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
-const RETENTION_OPTIONS = [
-  { key: 'none', label: 'No expiration', value: null as number | null },
-  { key: '7', label: '7 days', value: 7 },
-  { key: '30', label: '30 days', value: 30 },
-  { key: 'custom', label: 'Custom', value: -1 },
-];
-
-const CUSTOM_DAYS = [14, 21, 45, 60, 90, 120, 180, 365];
-
 export default function CreateAlbumScreen() {
+  const placeholderColor = (useTheme().isDark ? PALETTES.dark : PALETTES.light).mutedForeground;
   const { isAlbumLimitReached, albumLimit, plan } = usePlanLimits();
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -46,9 +38,8 @@ export default function CreateAlbumScreen() {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [retentionKey, setRetentionKey] = useState('none');
-  const [customDays, setCustomDays] = useState<number | null>(null);
-  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [retention, setRetention] = useState<Retention>({ mode: 'forever' });
+  const { allowLeave } = useDiscardGuard({ name, description, retention });
 
   // Only your own: an album can only be made in a workspace you own, and
   // offering one shared with you ended in "Unknown workspace" at the end of
@@ -72,12 +63,6 @@ export default function CreateAlbumScreen() {
     setSelectedWorkspaceId(workspaces[0].id);
   }
 
-  const getRetentionDays = (): number | null => {
-    if (retentionKey === 'none') return null;
-    if (retentionKey === 'custom') return customDays;
-    return parseInt(retentionKey);
-  };
-
   const selectedWs = workspaces.find((w) => w.id === selectedWorkspaceId);
 
   // Per workspace, as the plan counts it: this one is full, not every one.
@@ -85,8 +70,13 @@ export default function CreateAlbumScreen() {
 
   // Albums hold any media type, so there is no source to choose up front.
   // Same reasoning as the workspace form: fail before the work, not after.
+  // A window or a date half-chosen is not a choice: "Custom" with nothing
+  // tapped used to create the album with no expiry at all.
   const canCreate =
-    name.trim().length > 0 && selectedWorkspaceId.length > 0 && !atAlbumLimit;
+    name.trim().length > 0 &&
+    selectedWorkspaceId.length > 0 &&
+    !atAlbumLimit &&
+    retentionReady(retention);
 
   const createAlbum = useCreateAlbum();
 
@@ -96,11 +86,14 @@ export default function CreateAlbumScreen() {
         name: name.trim(),
         description: description.trim() || null,
         workspace_id: selectedWorkspaceId,
-        retention_days: getRetentionDays(),
+        ...retentionInput(retention),
         status: 'draft',
       },
       {
-        onSuccess: (album) => router.replace(`/albums/${album.id}`),
+        onSuccess: (album) => {
+          allowLeave();
+          router.replace(`/albums/${album.id}`);
+        },
         // The server's own words when it refused (a full workspace, a name too
         // long); a generic line only when it could not be reached.
         onError: (error) =>
@@ -123,15 +116,15 @@ export default function CreateAlbumScreen() {
    */
   if (workspacesFailed && listed.length === 0) {
     return (
-      <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <InsetFrame>
         <FormHeader title="New album" />
         <LoadFailed what="your workspaces" onRetry={() => void refetchWorkspaces()} />
-      </SafeAreaView>
+      </InsetFrame>
     );
   }
   if (workspacesLoaded && workspaces.length === 0) {
     return (
-      <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <InsetFrame>
         <FormHeader title="New album" />
         <View className="flex-1 items-center justify-center px-8">
           <Text className="text-foreground text-[17px] font-bold text-center">
@@ -149,12 +142,12 @@ export default function CreateAlbumScreen() {
             <Text className="text-action-foreground text-[15px] font-bold">Create a workspace</Text>
           </Pressable>
         </View>
-      </SafeAreaView>
+      </InsetFrame>
     );
   }
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
       <FormHeader title="New album" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
@@ -163,7 +156,7 @@ export default function CreateAlbumScreen() {
         className="flex-1"
       >
 
-      <ScrollView
+      <ScrollView keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 140 }}
@@ -172,9 +165,9 @@ export default function CreateAlbumScreen() {
 
         {/* Explains the disabled Create button. */}
         {atAlbumLimit && (
-          <View className="mx-5 mt-4 rounded-2xl p-4" style={{ backgroundColor: '#C76B4A18' }}>
-            <Text className="text-[#C76B4A] text-sm font-bold">{selectedWs?.name} is full</Text>
-            <Text className="text-[#C76B4A] text-xs mt-1">
+          <View className="mx-5 mt-4 rounded-2xl p-4 bg-warning/10">
+            <Text className="text-warning text-sm font-bold">{selectedWs?.name} is full</Text>
+            <Text className="text-warning text-xs mt-1">
               The {plan} plan allows {albumLimit} album{albumLimit === 1 ? '' : 's'} in each
               workspace. Choose another workspace or delete an album
               {SELLS_PLANS_HERE ? ', or upgrade.' : '.'}
@@ -182,8 +175,7 @@ export default function CreateAlbumScreen() {
             <Pressable
               onPress={() => router.push('/settings/storage/plans')}
               accessibilityRole="button"
-              className="mt-3 rounded-xl py-2.5 items-center active:scale-[0.97]"
-              style={{ backgroundColor: '#C76B4A' }}
+              className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
             >
               <Text className="text-white text-xs font-bold">See plans</Text>
             </Pressable>
@@ -293,7 +285,7 @@ export default function CreateAlbumScreen() {
               value={name}
               onChangeText={setName}
               placeholder="e.g. Look 1 — Golden Hour"
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',
@@ -314,7 +306,7 @@ export default function CreateAlbumScreen() {
               value={description}
               onChangeText={setDescription}
               placeholder="Brief description of this album..."
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',
@@ -334,80 +326,9 @@ export default function CreateAlbumScreen() {
         {/* ── Step 3: Retention ── */}
         <View className="px-5 mt-6">
           <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">
-            Retention
+            Keep the files
           </Text>
-          <View className="bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            {RETENTION_OPTIONS.map((opt, i) => (
-              <Pressable
-                key={opt.key}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: retentionKey === opt.key }}
-                onPress={() => {
-                  setRetentionKey(opt.key);
-                  if (opt.key !== 'custom') setShowCustomPicker(false);
-                  else setShowCustomPicker(true);
-                }}
-                className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
-                style={
-                  i < RETENTION_OPTIONS.length - 1
-                    ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
-                    : undefined
-                }
-              >
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 10,
-                    borderWidth: 2,
-                    borderColor: retentionKey === opt.key ? '#B66A40' : '#D9C2B7',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {retentionKey === opt.key && (
-                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#B66A40' }} />
-                  )}
-                </View>
-                <Text className="text-foreground text-sm font-semibold flex-1">{opt.label}</Text>
-                {opt.key === 'custom' && (
-                  <ChevronRightIcon size={14} className="text-muted-foreground" />
-                )}
-              </Pressable>
-            ))}
-          </View>
-
-          {/* Custom date picker */}
-          {showCustomPicker && (
-            <View className="mt-3 bg-card rounded-2xl p-4" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-              <View className="flex-row items-center gap-2 mb-3">
-                <CalendarIcon size={14} className="text-primary" />
-                <Text className="text-foreground text-sm font-semibold">Custom retention period</Text>
-              </View>
-              <View className="flex-row flex-wrap gap-2">
-                {CUSTOM_DAYS.map((days) => (
-                  <Pressable
-                    key={days}
-                    onPress={() => setCustomDays(days)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: customDays === days }}
-                    accessibilityLabel={`${days} days`}
-                    className={`rounded-xl px-3.5 py-2 active:scale-[0.96] ${
-                      customDays === days ? 'bg-action' : 'bg-muted'
-                    }`}
-                  >
-                    <Text
-                      className={`text-sm font-semibold ${
-                        customDays === days ? 'text-white' : 'text-foreground'
-                      }`}
-                    >
-                      {days} days
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          )}
+          <RetentionPicker value={retention} onChange={setRetention} />
         </View>
       </ScrollView>
 
@@ -446,6 +367,6 @@ export default function CreateAlbumScreen() {
         </Pressable>
       </View>
           </KeyboardAvoidingView>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

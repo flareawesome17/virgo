@@ -1,5 +1,6 @@
 import { Text } from 'react-native';
 import { PressableScale } from '@/components/PressableScale';
+import { useChrome } from '@/src/providers/ChromeProvider';
 
 /**
  * One choice in a row of filters: a role, a status, whose workspaces.
@@ -20,10 +21,18 @@ export function FilterChip({
   onPress: () => void;
   accessibilityLabel?: string;
 }) {
+  // A filter can leave a list too short to scroll, which could not then bring
+  // hidden bars back; so a change brings them back.
+  const { reveal } = useChrome();
   return (
     <PressableScale
-      onPress={onPress}
+      onPress={() => {
+        onPress();
+        reveal();
+      }}
       scaleTo={0.95}
+      // 36pt to look at, 44pt to touch.
+      hitSlop={{ top: 4, bottom: 4 }}
       accessibilityRole="button"
       accessibilityState={{ selected: on }}
       accessibilityLabel={accessibilityLabel ?? label}

@@ -245,14 +245,28 @@ export default function EventDetailScreen() {
           </View>
         )}
 
-        {/* Attendees — only the organiser can change who is invited. */}
-        {isOwner && <EventAttendeesSection eventId={eventId} />}
+        {/* Attendees — only the organiser can change who is invited. A guest
+            sees who organised it and who else is going, which they were
+            already allowed to read and were never shown. */}
+        {isOwner ? (
+          <EventAttendeesSection eventId={eventId} />
+        ) : (
+          <EventAttendeesSection
+            eventId={eventId}
+            readOnly
+            organiser={
+              event.organiser_name
+                ? { name: event.organiser_name, avatarUrl: event.organiser_avatar_url ?? null }
+                : null
+            }
+          />
+        )}
 
         {/* Reminders */}
         <View className="px-5 mt-5">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-base font-bold tracking-tight">Reminders</Text>
-            <Pressable onPress={() => router.push(`/schedule/reminders/create?eventId=${eventId}`)} className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push(`/schedule/reminders/create?eventId=${eventId}`)} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
               <PlusIcon size={13} className="text-primary" />
               <Text className="text-primary text-sm font-semibold">Add</Text>
             </Pressable>
@@ -268,7 +282,7 @@ export default function EventDetailScreen() {
                 <Pressable key={rem.id} onPress={() => router.push(`/schedule/reminders/${rem.id}`)}
                   className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
                   style={i < reminders.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
-                  <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: rem.is_completed }} accessibilityLabel={`${rem.title}, done`} hitSlop={10} onPress={() => toggleReminder(rem.id, !rem.is_completed)} className="active:scale-[0.85]">
+                  <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: rem.is_completed }} accessibilityLabel={`${rem.title}, done`} onPress={() => toggleReminder(rem.id, !rem.is_completed)} className="w-11 h-11 -m-3 items-center justify-center active:scale-[0.85]">
                     {rem.is_completed ? <CheckCircleIcon size={18} className="text-[#6B8E4E]" /> : <CircleIcon size={18} className="text-muted-foreground" />}
                   </Pressable>
                   <View className="flex-1 min-w-0">
@@ -276,7 +290,7 @@ export default function EventDetailScreen() {
                     <View className="flex-row items-center gap-2 mt-0.5">
                       <Text className="text-muted-foreground text-xs">{formatTime(new Date(rem.reminder_time).toTimeString().slice(0, 5))}</Text>
                       {rem.is_alarm_enabled && <BellIcon size={9} className="text-primary" />}
-                      {rem.has_push_notification && <View style={{ paddingHorizontal: 3, paddingVertical: 1, borderRadius: 3, backgroundColor: '#5B7B9A18' }}><Text style={{ color: '#5B7B9A', fontSize: 7, fontWeight: '700' }}>PUSH</Text></View>}
+                      {rem.has_push_notification && <View style={{ paddingHorizontal: 3, paddingVertical: 1, borderRadius: 3, backgroundColor: '#5B7B9A18' }}><Text style={{ color: '#5B7B9A', fontSize: 11, fontWeight: '700' }}>Push</Text></View>}
                     </View>
                   </View>
                 </Pressable>

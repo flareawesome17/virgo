@@ -90,6 +90,20 @@ export function TabScreen({
 }
 
 /**
+ * How much of the foot of a tab screen's content area is out of sight or
+ * under the tab bar: the frame's strip below the edge plus the tab bar. A
+ * state centred in the content area pads its foot by this, so it is centred
+ * in what you can see. Without it, empty and error states sat half a bar low
+ * and their buttons crowded the tab bar. Zero off the tabs.
+ */
+export function useTabObstruction(): number {
+  const tabBarHeight = useContext(BottomTabBarHeightContext);
+  const { barHeight } = useBarHeight();
+  if (tabBarHeight == null) return 0;
+  return tabBarHeight + barHeight;
+}
+
+/**
  * How much a scrolling list on a tab screen should keep clear at its foot:
  * the tab bar, the strip of TabScreen's frame below the edge, and some room
  * to breathe. Off the tabs it is the old fixed allowance.

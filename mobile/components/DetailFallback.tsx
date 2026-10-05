@@ -1,5 +1,5 @@
 import { ActivityIndicator, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { InsetFrame } from '@/components/InsetFrame';
 import { ApiError } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -38,7 +38,7 @@ export function DetailFallback({
     error instanceof ApiError && (error.status === 404 || error.status === 403);
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
       <ScreenHeader title={title} />
       {missing ? (
         <View className="flex-1 items-center justify-center px-10">
@@ -56,6 +56,6 @@ export function DetailFallback({
           <ActivityIndicator color="#B66A40" />
         </View>
       )}
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

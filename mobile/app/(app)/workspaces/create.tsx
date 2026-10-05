@@ -1,9 +1,13 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PALETTES } from '@/theme';
+import { InsetFrame } from '@/components/InsetFrame';
 import { useCreateWorkspace,
   usePlanLimits,
+  useTheme,
 } from '@/src/hooks';
 import { router } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { FormHeader } from '@/components/FormHeader';
 import { useState } from 'react';
 import {
@@ -28,11 +32,13 @@ const ACCENT_COLORS = [
 ];
 
 export default function CreateWorkspaceScreen() {
+  const placeholderColor = (useTheme().isDark ? PALETTES.dark : PALETTES.light).mutedForeground;
   const { atWorkspaceLimit, workspaceLimit, plan } = usePlanLimits();
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [accentColor, setAccentColor] = useState('#B66A40');
+  const { allowLeave } = useDiscardGuard({ name, description, accentColor });
 
   // The API owns id generation and the created_at / updated_at timestamps, so
   // none of them are sent from here any more.
@@ -46,7 +52,10 @@ export default function CreateWorkspaceScreen() {
         accent_color: accentColor,
       },
       {
-        onSuccess: (workspace) => router.replace(`/workspaces/${workspace.id}`),
+        onSuccess: (workspace) => {
+          allowLeave();
+          router.replace(`/workspaces/${workspace.id}`);
+        },
         onError: (err) => {
           Alert.alert('Error', 'Could not create workspace. Please try again.');
           console.error(err);
@@ -60,7 +69,7 @@ export default function CreateWorkspaceScreen() {
   const canSave = name.trim().length > 0 && !atWorkspaceLimit;
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
       <FormHeader title="New workspace" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
@@ -69,7 +78,7 @@ export default function CreateWorkspaceScreen() {
         className="flex-1"
       >
 
-      <ScrollView
+      <ScrollView keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
@@ -79,17 +88,16 @@ export default function CreateWorkspaceScreen() {
         {/* Explains the disabled Create button. Without this the form simply
             refuses to submit with no stated reason. */}
         {atWorkspaceLimit && (
-          <View className="mx-5 mt-4 rounded-2xl p-4" style={{ backgroundColor: '#C76B4A18' }}>
-            <Text className="text-[#C76B4A] text-sm font-bold">Workspace limit reached</Text>
-            <Text className="text-[#C76B4A] text-xs mt-1">
+          <View className="mx-5 mt-4 rounded-2xl p-4 bg-warning/10">
+            <Text className="text-warning text-sm font-bold">Workspace limit reached</Text>
+            <Text className="text-warning text-xs mt-1">
               The {plan} plan includes {workspaceLimit} workspace
               {workspaceLimit === 1 ? '' : 's'}.{' '}
               {SELLS_PLANS_HERE ? 'Delete one, or upgrade to add another.' : 'Delete one to add another.'}
             </Text>
             <Pressable
               onPress={() => router.push('/settings/storage/plans')}
-              className="mt-3 rounded-xl py-2.5 items-center active:scale-[0.97]"
-              style={{ backgroundColor: '#C76B4A' }}
+              className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
             >
               <Text className="text-white text-xs font-bold">See plans</Text>
             </Pressable>
@@ -107,7 +115,7 @@ export default function CreateWorkspaceScreen() {
               value={name}
               onChangeText={setName}
               placeholder="e.g. Spring Collection 2026"
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',
@@ -129,7 +137,7 @@ export default function CreateWorkspaceScreen() {
               value={description}
               onChangeText={setDescription}
               placeholder="Brief description of this workspace..."
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',
@@ -247,6 +255,6 @@ export default function CreateWorkspaceScreen() {
         </Pressable>
       </View>
           </KeyboardAvoidingView>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

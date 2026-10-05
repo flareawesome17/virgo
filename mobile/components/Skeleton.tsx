@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useRevealOnMount } from '@/src/providers/ChromeProvider';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -55,6 +56,7 @@ export function Skeleton({
 
 /** Rows of cards — workspaces, jobs, posts, bookings — while a list loads. */
 export function CardListSkeleton({ count = 4 }: { count?: number }) {
+  useRevealOnMount();
   return (
     <View
       className="px-5 pt-3 gap-3"
@@ -77,6 +79,7 @@ export function CardListSkeleton({ count = 4 }: { count?: number }) {
 
 /** The Feed's placards, while the first page loads. */
 export function FeedSkeleton() {
+  useRevealOnMount();
   const { width } = useWindowDimensions();
   const height = Math.round(width * 1.15);
   return (

@@ -8,14 +8,17 @@ import {
   hydrateTokens,
   queryKeys,
   type ConversationMessage,
-  type Thread,
 } from '@/src/api';
 import {
+  applyMessageDeleted,
   chatKeys,
+  flushOutbox,
   getOpenConversation,
+  insertThreadMessage,
   isConversationMuted,
   noteLiveMessage,
 } from '@/src/hooks/useChat';
+import { removeFromOutbox } from '@/src/lib/outbox';
 import { useAuth } from '@/src/hooks/useAuth';
 import {
   registerTypingSender,
@@ -80,8 +83,10 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   'collaborator-response': [queryKeys.collaborators.all, queryKeys.workspaces.all],
   'event-invite': [queryKeys.scheduleEvents.all],
   'event-response': [queryKeys.scheduleEvents.all],
-  'event-updated': [queryKeys.scheduleEvents.all],
-  'hire-enquiry': [queryKeys.hire.all],
+  // Reminders too: a moved event moves its guests' reminders with it.
+  'event-updated': [queryKeys.scheduleEvents.all, queryKeys.reminders.all],
+  // Friends too: the Messages dot counts new enquiries under friends.
+  'hire-enquiry': [queryKeys.hire.all, queryKeys.friends.all],
   // Accepting also creates a friendship and a conversation, so all three lists
   // are stale for the sender the moment this arrives.
   'hire-response': [
@@ -200,6 +205,8 @@ export function useRealtime(enabled: boolean): void {
 
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    /** Whether this session has been connected before, so a ready is a reconnect. */
+    let connectedBefore = false;
     /** The token a 4001 was answered for, so a refresh is tried once per token. */
     let refusedToken: string | null = null;
 
@@ -208,20 +215,24 @@ export function useRealtime(enabled: boolean): void {
         case 'message': {
           // Written straight into the cache rather than invalidating: the point
           // is that it appears now, and a refetch is another round trip.
-          queryClient.setQueryData<Thread>(
-            chatKeys.thread(event.conversationId),
-            (old) =>
-              old && !old.data.some((m) => m.id === event.message.id)
-                ? { ...old, data: [event.message, ...old.data] }
-                : old,
-          );
+          insertThreadMessage(queryClient, event.conversationId, event.message);
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
           queryClient.invalidateQueries({ queryKey: chatKeys.unread });
 
           const mine = event.message.sender_id === user.id;
+          // Your own message, back from the server — usually before the send's
+          // own response. It is drawn now, so the bubble that stood in for it
+          // goes now too, rather than the two showing side by side until the
+          // response lands.
+          if (mine && event.message.client_id) removeFromOutbox(event.message.client_id);
           const looking = getOpenConversation() === event.conversationId;
           const quiet = isConversationMuted(queryClient, event.conversationId);
+          // Backgrounded, the push is what announces it: a chime under the
+          // push's own sound was two alerts for one message.
+          const active = AppState.currentState === 'active';
           noteLiveMessage();
+          if (!active) break;
           // Sound whenever somebody else writes, including while their thread
           // is open. It sat inside the `!looking` guard below and was silent
           // for exactly the case people test first — sitting in a chat waiting
@@ -235,22 +246,36 @@ export function useRealtime(enabled: boolean): void {
           break;
         }
         case 'message-deleted':
+          // Patched wherever the message is, a page scrolled back to included.
+          // Refetching the thread only ever refreshed the newest page.
+          applyMessageDeleted(queryClient, event.conversationId, event.messageId, event.scope);
+          queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+          queryClient.invalidateQueries({ queryKey: chatKeys.unread });
+          break;
         case 'read':
         case 'delivered':
-          // Cheaper to refetch than to model each mutation twice: these change
-          // derived state — ticks, counts — the server already computes.
-          queryClient.invalidateQueries({
-            queryKey: chatKeys.thread(event.conversationId),
-          });
+          // Ticks are worked out from each member's receipts, which ride on
+          // the participants; the messages themselves have not changed.
           queryClient.invalidateQueries({
             queryKey: chatKeys.participants(event.conversationId),
           });
-          if (event.type !== 'read') {
+          // You, reading on another device: this one's row and badge are out
+          // of date until the next poll otherwise.
+          if (event.type === 'read' && event.userId === user.id) {
             queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+            queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+            queryClient.invalidateQueries({ queryKey: chatKeys.unread });
           }
           break;
         case 'conversation':
+          // Created, renamed, joined, left or muted. Each screen refetches what
+          // it shows; the thread too, which answers "gone" once you have left.
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.conversation(event.conversationId) });
+          queryClient.invalidateQueries({ queryKey: chatKeys.participants(event.conversationId) });
+          queryClient.invalidateQueries({ queryKey: chatKeys.thread(event.conversationId) });
+          queryClient.invalidateQueries({ queryKey: chatKeys.unread });
           break;
         case 'job-posted':
           // Silent on purpose. Somebody else posted a job; that is not an
@@ -348,6 +373,14 @@ export function useRealtime(enabled: boolean): void {
         if (event.type === 'ready') {
           backoff.current = 1000;
           refusedToken = null;
+          // A reconnect — after a deploy, a dropped network or the app coming
+          // back — missed whatever was sent meanwhile. Refetching the chat
+          // that is on screen catches up now rather than on the next poll, up
+          // to a minute later.
+          if (connectedBefore) queryClient.invalidateQueries({ queryKey: ['chat'] });
+          connectedBefore = true;
+          // A live socket is a working connection: whatever is queued goes.
+          void flushOutbox(queryClient);
           return;
         }
         apply(event);
@@ -389,9 +422,43 @@ export function useRealtime(enabled: boolean): void {
 
     void connect();
 
+    /*
+     * Closed in the background, opened again on return.
+     *
+     * Android keeps a backgrounded app's socket open, so messages there went
+     * on chiming over the push for the same message, went on being marked
+     * delivered, and the person went on showing as online while the phone
+     * sat in their pocket. Push is the channel for a backgrounded app. iOS's
+     * brief 'inactive' — a pulled-down notification centre — is not the
+     * background and leaves the socket alone.
+     */
+    const goQuiet = () => {
+      if (retry) {
+        clearTimeout(retry);
+        retry = undefined;
+      }
+      if (!socket) return;
+      const previous = socket;
+      previous.onopen = null;
+      previous.onmessage = null;
+      previous.onclose = null;
+      previous.onerror = null;
+      socket = null;
+      socketRef.current = null;
+      try {
+        previous.close();
+      } catch {
+        // Already closed.
+      }
+    };
+
     // An app returning from the background usually holds a socket the OS
     // tore down while it slept.
     const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'background') {
+        goQuiet();
+        return;
+      }
       if (state !== 'active') return;
       const ready = socketRef.current?.readyState;
       // Connecting counts: a second connect here was the duplicate socket.

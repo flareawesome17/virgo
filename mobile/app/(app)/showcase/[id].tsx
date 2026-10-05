@@ -1,13 +1,16 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   Alert,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   Text,
   View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams, type ErrorBoundaryProps } from 'expo-router';
@@ -15,18 +18,24 @@ import { useIsFocused } from '@react-navigation/native';
 import {
   ArrowLeftIcon,
   BookmarkIcon,
+  EllipsisIcon,
   EyeIcon,
   EyeOffIcon,
   FlagIcon,
   HeartIcon,
+  MapPinIcon,
   PencilIcon,
   Trash2Icon,
+  UserIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
-import { KeepSheet } from '@/components/KeepSheet';
 import { CommentThread } from '@/components/CommentThread';
+import { BottomSheet } from '@/components/BottomSheet';
+import { useKeepFlow } from '@/components/KeepFlow';
+import { PressablePiece, naturalAspect } from '@/components/ShowcaseMedia';
+import { ShowcaseViewer } from '@/components/ShowcaseViewer';
 import { DetailFallback } from '@/components/DetailFallback';
 import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
 import { useAuth, useLike, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
@@ -34,7 +43,10 @@ import { makerOf, showcaseStatus } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon, BookmarkIcon, EyeIcon, EyeOffIcon, FlagIcon, HeartIcon, PencilIcon, Trash2Icon]) {
+for (const Icon of [
+  ArrowLeftIcon, BookmarkIcon, EllipsisIcon, EyeIcon, EyeOffIcon, FlagIcon, HeartIcon, MapPinIcon,
+  PencilIcon, Trash2Icon, UserIcon,
+]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -90,10 +102,21 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 
 /**
+ * How tall a piece may be on the post, against its width. Anything taller —
+ * a phone's 9:16 frame — is shown whole inside that, not cropped, so the
+ * page is not one photograph long.
+ */
+const TALLEST = 1.6;
+
+/** How much of a film must be on screen for it to keep playing. */
+const FILM_VISIBLE = 0.3;
+
+/**
  * One showcase, whole.
  *
- * The feed shows the cover and as much of the note as fits; this is where the
- * rest of the set and the rest of the note live.
+ * The feed shows the set and as much of the note as fits; this is where every
+ * piece is shown at its own shape — nothing cropped — and opens full screen to
+ * look closely.
  */
 export default function ShowcaseScreen() {
   // The one film allowed to be playing; a set can hold several.
@@ -106,12 +129,45 @@ export default function ShowcaseScreen() {
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { showcase, error, loadFailed, refetch } = useShowcase(id);
   const { user } = useAuth();
-  const like = useLike();
-  const [keeping, setKeeping] = useState(false);
+  const like = useLike(id);
+  const keepFlow = useKeepFlow();
   // Only reachable from the feed card before: somebody who opened the post
   // to look properly had nowhere to report it from.
   const [reporting, setReporting] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [viewing, setViewing] = useState<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  /*
+   * Which films are on screen, so one scrolled past stops. A film on a post
+   * played on — sound and all — with its controls far above, because only
+   * focus was ever asked.
+   */
+  const filmFrames = useRef(new Map<string, { y: number; h: number }>());
+  const viewport = useRef({ y: 0, h: 0 });
+  const [onScreen, setOnScreen] = useState<Set<string>>(new Set());
+  const measureFilms = useCallback(() => {
+    const { y, h } = viewport.current;
+    if (h === 0) return;
+    const next = new Set<string>();
+    filmFrames.current.forEach((frame, key) => {
+      const visible = Math.min(y + h, frame.y + frame.h) - Math.max(y, frame.y);
+      if (visible / frame.h >= FILM_VISIBLE) next.add(key);
+    });
+    setOnScreen((current) =>
+      current.size === next.size && [...next].every((k) => current.has(k)) ? current : next,
+    );
+  }, []);
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      viewport.current = {
+        y: e.nativeEvent.contentOffset.y,
+        h: e.nativeEvent.layoutMeasurement.height,
+      };
+      measureFilms();
+    },
+    [measureFilms],
+  );
   const { setPublished, remove } = useShowcaseActions();
   const mine = Boolean(showcase && user && showcase.userId === user.id);
   // Never read straight off the payload: see makerOf.
@@ -179,7 +235,7 @@ export default function ShowcaseScreen() {
     if (mine) router.push('/profile');
     else if (maker.handle) router.push(`/u/${maker.handle}`);
   };
-  const width = Dimensions.get('window').width;
+  const { width } = useWindowDimensions();
 
   // Gone is not offline. A post taken down or deleted used to say "check your
   // connection", with a Retry that could only ever fail again.
@@ -213,13 +269,12 @@ export default function ShowcaseScreen() {
         </Text>
         {!mine && (
           <Pressable
-            onPress={() => setReporting(showcase.id)}
-            hitSlop={8}
+            onPress={() => setMenuOpen(true)}
             accessibilityRole="button"
-            accessibilityLabel="Report this showcase"
+            accessibilityLabel="More options for this post"
             className="w-11 h-11 items-center justify-center active:opacity-70"
           >
-            <FlagIcon size={18} className="text-muted-foreground" />
+            <EllipsisIcon size={19} className="text-muted-foreground" />
           </Pressable>
         )}
         {/* Only on your own. Taking it down and deleting it are different
@@ -282,13 +337,19 @@ export default function ShowcaseScreen() {
           under the keyboard; Android resizes the window itself. */}
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={{ paddingBottom: 110 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          onScroll={onScroll}
+          scrollEventThrottle={100}
+          onLayout={(e: LayoutChangeEvent) => {
+            viewport.current = { ...viewport.current, h: e.nativeEvent.layout.height };
+            measureFilms();
+          }}
         >
           {mine && status !== 'live' && (
             <StatusBanner
@@ -297,73 +358,99 @@ export default function ShowcaseScreen() {
               onRestore={() => setLive(true)}
             />
           )}
-          {showcase.pieces.map((piece, i) => (
-            <View key={piece.fileKey} className={i > 0 ? 'mt-1' : ''}>
-              {piece.kind === 'video' ? (
-                <ShowcaseFilm
-                  piece={piece}
-                  width={width}
-                  height={Math.round(width * 1.25)}
-                  active={focused && (playing === null || playing === piece.fileKey)}
-                  onPlay={() => setPlaying(piece.fileKey)}
-                />
-              ) : (
-                <RemoteImage
-                  source={{ uri: piece.url }}
-                  style={{ width, height: Math.round(width * 1.25) }}
-                  contentFit="cover"
-                />
-              )}
-            </View>
-          ))}
+          {showcase.pieces.map((piece, i) => {
+            // Its own shape, whole. Every piece was drawn 4:5 and cropped to
+            // fit, so a landscape photograph lost close to half of itself.
+            const aspect = naturalAspect(piece);
+            const height = Math.round(Math.min(width / aspect, width * TALLEST));
+            return (
+              <View
+                key={piece.fileKey}
+                className={i > 0 ? 'mt-1' : ''}
+                onLayout={
+                  piece.kind === 'video'
+                    ? (e: LayoutChangeEvent) => {
+                        filmFrames.current.set(piece.fileKey, {
+                          y: e.nativeEvent.layout.y,
+                          h: e.nativeEvent.layout.height,
+                        });
+                        measureFilms();
+                      }
+                    : undefined
+                }
+              >
+                {piece.kind === 'video' ? (
+                  <ShowcaseFilm
+                    piece={piece}
+                    width={width}
+                    height={height}
+                    active={
+                      focused &&
+                      viewing === null &&
+                      onScreen.has(piece.fileKey) &&
+                      (playing === null || playing === piece.fileKey)
+                    }
+                    onPlay={() => setPlaying(piece.fileKey)}
+                  />
+                ) : (
+                  <PressablePiece
+                    piece={piece}
+                    width={width}
+                    height={height}
+                    contentFit={height < width / aspect - 1 ? 'contain' : 'cover'}
+                    onPress={() => setViewing(i)}
+                    label={`Piece ${i + 1} of ${showcase.pieces.length}. Open full screen to zoom.`}
+                  />
+                )}
+              </View>
+            );
+          })}
 
           {/* Who made it, and what you can do about it. The list form carries
               no maker, so this is the only place a reader can credit them. */}
-          <View className="px-5 pt-4 flex-row items-center gap-2.5">
+          <View className="px-3 pt-3 flex-row items-center gap-2">
             <Pressable
               onPress={openMaker}
               disabled={!mine && !maker.handle}
               accessibilityRole="button"
               accessibilityLabel={`${maker.displayName}'s profile`}
-              className="w-10 h-10 rounded-full overflow-hidden bg-primary/15 items-center justify-center"
+              className="flex-1 min-w-0 min-h-[52px] flex-row items-center gap-2.5 px-2 rounded-xl active:opacity-70"
             >
-              {maker.avatarUrl ? (
-                <RemoteImage
-                  source={{ uri: maker.avatarUrl }}
-                  style={{ width: 40, height: 40 }}
-                />
-              ) : (
-                <Text className="text-primary text-[15px] font-bold">
-                  {maker.displayName.charAt(0).toUpperCase()}
+              <View className="w-10 h-10 rounded-full overflow-hidden bg-primary/15 items-center justify-center">
+                {maker.avatarUrl ? (
+                  <RemoteImage source={{ uri: maker.avatarUrl }} style={{ width: 40, height: 40 }} />
+                ) : (
+                  <Text className="text-primary text-[15px] font-bold">
+                    {maker.displayName.charAt(0).toUpperCase()}
+                  </Text>
+                )}
+              </View>
+              <View className="flex-1 min-w-0">
+                <Text className="text-foreground text-[14px] font-bold" numberOfLines={1}>
+                  {maker.displayName}
                 </Text>
-              )}
+                {maker.title ? (
+                  <Text className="text-muted-foreground text-[12px]" numberOfLines={1}>
+                    {maker.title}
+                  </Text>
+                ) : null}
+              </View>
             </Pressable>
-            <View className="flex-1 min-w-0">
-              <Text className="text-foreground text-[14px] font-bold" numberOfLines={1}>
-                {maker.displayName}
-              </Text>
-              {maker.title ? (
-                <Text className="text-muted-foreground text-[11px]" numberOfLines={1}>
-                  {maker.title}
-                </Text>
-              ) : null}
-            </View>
             {showcase.showHire && maker.handle && !mine && (
               <Pressable
                 onPress={() => router.push(`/hire/${maker.handle}`)}
                 accessibilityRole="button"
-                className="min-h-9 px-3.5 rounded-full bg-action items-center justify-center active:opacity-90"
+                accessibilityLabel={`Hire ${maker.displayName}`}
+                className="min-h-[44px] px-4 mr-2 rounded-full bg-action items-center justify-center active:opacity-90"
               >
-                <Text className="text-action-foreground text-[12px] font-bold">Hire</Text>
+                <Text className="text-action-foreground text-[13px] font-bold">Hire</Text>
               </Pressable>
             )}
           </View>
 
           <View className="px-5 pt-3 flex-row gap-2.5">
             <Pressable
-              onPress={() =>
-                like.mutate({ showcaseId: showcase.id, liked: !showcase.likedByMe })
-              }
+              onPress={() => like.mutate({ showcaseId: showcase.id, liked: !showcase.likedByMe })}
               accessibilityRole="button"
               accessibilityState={{ selected: showcase.likedByMe }}
               accessibilityLabel={showcase.likedByMe ? 'Liked. Tap to unlike.' : 'Like'}
@@ -384,8 +471,9 @@ export default function ShowcaseScreen() {
                 offered here either. */}
             {!mine && (
               <Pressable
-                onPress={() => setKeeping(true)}
+                onPress={() => keepFlow.onKeep(showcase)}
                 accessibilityRole="button"
+                accessibilityLabel={showcase.keptByMe ? 'Kept. Change where.' : 'Keep this'}
                 accessibilityState={{ selected: showcase.keptByMe }}
                 className={`flex-1 min-h-11 flex-row items-center justify-center gap-2 rounded-xl active:opacity-90 ${showcase.keptByMe ? 'bg-secondary' : 'bg-action'}`}
               >
@@ -404,6 +492,19 @@ export default function ShowcaseScreen() {
           </View>
 
           <View className="px-5 pt-5">
+            {/* The title was only in the one-line header, cut short; where it
+                was taken was never shown at all. */}
+            {showcase.title ? (
+              <Text accessibilityRole="header" className="text-foreground text-[20px] font-bold leading-7 mb-1.5">
+                {showcase.title}
+              </Text>
+            ) : null}
+            {showcase.location ? (
+              <View className="flex-row items-center gap-1.5 mb-3">
+                <MapPinIcon size={13} className="text-muted-foreground" />
+                <Text className="text-muted-foreground text-[13px]">{showcase.location}</Text>
+              </View>
+            ) : null}
             {showcase.caption ? (
               <Text className="text-foreground text-[14px] leading-[21px]">
                 {showcase.caption}
@@ -447,6 +548,7 @@ export default function ShowcaseScreen() {
           <CommentThread
             showcaseId={showcase.id}
             isOwner={mine}
+            total={showcase.commentCount}
             // The box is the last thing on the page: once the keyboard has
             // taken its share of the screen, bring the box up into what is left.
             onComposerFocus={() =>
@@ -456,10 +558,49 @@ export default function ShowcaseScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <KeepSheet
-        item={keeping ? showcase : null}
-        onClose={() => setKeeping(false)}
+      {keepFlow.element}
+      <ShowcaseViewer
+        pieces={showcase.pieces}
+        startIndex={viewing ?? 0}
+        visible={viewing !== null}
+        onClose={() => setViewing(null)}
       />
+      {/* Report under … rather than as a flag in the header. */}
+      <BottomSheet visible={menuOpen} onClose={() => setMenuOpen(false)}>
+        <View className="px-5 pt-2 pb-5">
+          {maker.handle ? (
+            <Pressable
+              onPress={() => {
+                setMenuOpen(false);
+                router.push(`/u/${maker.handle}`);
+              }}
+              accessibilityRole="button"
+              className="min-h-[52px] flex-row items-center gap-3 border-b border-border active:opacity-60"
+            >
+              <UserIcon size={18} className="text-foreground" />
+              <Text className="text-foreground text-base">View {maker.displayName}’s profile</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={() => {
+              setMenuOpen(false);
+              setReporting(showcase.id);
+            }}
+            accessibilityRole="button"
+            className="min-h-[52px] flex-row items-center gap-3 border-b border-border active:opacity-60"
+          >
+            <FlagIcon size={18} className="text-destructive" />
+            <Text className="text-destructive text-base">Report this post</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setMenuOpen(false)}
+            accessibilityRole="button"
+            className="mt-3 bg-muted rounded-2xl min-h-[48px] items-center justify-center active:scale-[0.98]"
+          >
+            <Text className="text-foreground text-base font-semibold">Cancel</Text>
+          </Pressable>
+        </View>
+      </BottomSheet>
       <ShowcaseReportSheet showcaseId={reporting} onClose={() => setReporting(null)} />
     </SafeAreaView>
   );

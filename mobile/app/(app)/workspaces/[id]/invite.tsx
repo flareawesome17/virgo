@@ -21,6 +21,7 @@ import {
   useWorkspaceMembers,
 } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
+import { goToTab } from '@/src/lib/navigation';
 import { useMemo, useState } from 'react';
 import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, SearchIcon, SendIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -181,7 +182,7 @@ export default function InviteCollaboratorsScreen() {
                 <LoadFailed what="your friends" onRetry={() => refetch()} compact />
               ) : friends.length === 0 ? (
                 <Pressable
-                  onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
+                  onPress={() => goToTab('/(app)/(tabs)/connect?view=people')}
                   className="px-4 py-5 items-center active:opacity-70"
                 >
                   <Text className="text-foreground text-sm font-semibold">No friends yet</Text>

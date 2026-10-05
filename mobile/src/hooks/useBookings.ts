@@ -66,8 +66,17 @@ export function useConfirmBooking(id: string) {
   return useBookingMutation(id, () => bookingsApi.confirm(id));
 }
 
+/**
+ * Cancelling frees the role the booking held, so the poster's post and the
+ * board are stale as well as the booking.
+ */
 export function useCancelBooking(id: string) {
-  return useBookingMutation(id, (reason?: string) =>
-    bookingsApi.cancel(id, reason),
-  );
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (reason?: string) => bookingsApi.cancel(id, reason),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bookings.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
+    },
+  });
 }

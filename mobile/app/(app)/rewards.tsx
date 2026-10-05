@@ -375,6 +375,8 @@ export default function RewardsScreen() {
       ) : (
         <ScrollView
           contentContainerClassName="p-5 pb-16"
+          // One tap on Redeem with the keyboard up, not one to close it first.
+          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}

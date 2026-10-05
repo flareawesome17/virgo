@@ -646,14 +646,51 @@ describe('FriendsService reads', () => {
 
     const searches = h.calls.filter((c) => /from users u/.test(c.sql));
     expect(searches).toHaveLength(2);
-    expect(searches[0].params).toEqual([ME, '!%!%%', '%%']);
-    expect(searches[1].params).toEqual([ME, 'a!_b%', 'a_b']);
+    expect(searches[0].params).toEqual([ME, '!%!%%', '%%', '% !%!%%', '!%!%%']);
+    expect(searches[1].params).toEqual([ME, 'a!_b%', 'a_b', '% a!_b%', 'a!_b%']);
     const sql = searches[0].sql;
     expect(sql).toMatch(/escape '!'/);
     expect(sql).toMatch(/case when lower\(u\.email\) = lower\(\$3\) then u\.email end/);
     expect(sql).toMatch(/suspended_at is null/);
     expect(sql).toMatch(/user_blocks/);
     expect(result).toEqual([]);
+  });
+
+  it('searchPeople matches any word, a handle typed with its @, and your own connections', async () => {
+    const h = harness({ pool: (sql) => (/from users u/.test(sql) ? [] : undefined) });
+
+    await h.service.searchPeople(ME, '@ana_c');
+
+    const [search] = h.calls.filter((c) => /from users u/.test(c.sql));
+    // The handle loses its @; the later-word pattern keeps the text as typed.
+    expect(search.params[4]).toBe('ana!_c%');
+    expect(search.params[3]).toBe('% @ana!_c%');
+    expect(search.sql).toContain("u.display_name ilike $4 escape '!'");
+    expect(search.sql).toContain("u.public_profile and u.handle ilike $5 escape '!'");
+    // A connection is found whatever their discovery setting, and listed first.
+    expect(search.sql).toMatch(/= 'accepted'\s+and \(u\.display_name ilike \$2/);
+    expect(search.sql).toMatch(/order by \(.*= 'accepted'\) desc/s);
+  });
+
+  it('unseen counts what is waiting since People was opened, through the list rules', async () => {
+    const h = harness({
+      pool: (sql) =>
+        /people_seen_at as seen_at/.test(sql)
+          ? [{ requests: 2, enquiries: 1, seen_at: new Date('2026-10-01T00:00:00Z') }]
+          : undefined,
+    });
+
+    await expect(h.service.unseen(ME)).resolves.toEqual({
+      requests: 2,
+      enquiries: 1,
+      seenAt: '2026-10-01T00:00:00.000Z',
+    });
+    const [count] = h.calls.filter((c) => /people_seen_at as seen_at/.test(c.sql));
+    expect(count.sql).toContain("f.requested_by = 'them'");
+    expect(count.sql).toContain("b.status = 'pending'");
+    expect(count.sql).toContain("e.status = 'new'");
+    expect(count.sql).toMatch(/user_blocks/);
+    expect(count.params).toEqual([ME]);
   });
 
   it('searchPeople maps a name match to a null address', async () => {

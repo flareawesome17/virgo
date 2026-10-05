@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useQueryClient } from '@tanstack/react-query';
@@ -202,9 +202,26 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const inFlight = useRef<{ id: string; cancel: () => void } | null>(null);
   const cancelled = useRef(new Set<string>());
 
+  // Read by the listener below, which is set up once.
+  const waitingRef = useRef(0);
+
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
+      const was = appState.current;
       appState.current = next;
+      /*
+       * Said, since it cannot yet be helped. iOS suspends this queue in the
+       * background: the file in flight finishes in its own session, and the
+       * rest wait for the app to come back. A batch left to "carry on" was
+       * found an hour later exactly where it was, with nothing to say why.
+       */
+      const waiting = waitingRef.current - 1;
+      if (Platform.OS === 'ios' && was === 'active' && next === 'background' && waiting > 0) {
+        void showUploadFinished(
+          'Uploads paused',
+          `${waiting} ${waiting === 1 ? 'file is' : 'files are'} waiting. They carry on when you open Virgo again.`,
+        );
+      }
     });
     return () => sub.remove();
   }, []);
@@ -367,6 +384,23 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       lastPatchedPercent.current = -1;
       patch(next.id, { status: 'uploading', progress: 0, error: undefined });
       try {
+        /*
+         * A retry of one that got as far as a ticket asks first. When the
+         * bytes landed and only the confirm timed out, sending them again
+         * stored a second copy of the same photograph. Recovery after a
+         * restart already asked; a tap on Retry did not.
+         */
+        if (next.key) {
+          const landed = await storageApi
+            .confirm(next.key, next.albumId, next.name)
+            .then((stat) => stat.exists)
+            .catch(() => false);
+          if (landed) {
+            if (mounted.current) patch(next.id, { status: 'done', progress: 1 });
+            queryClient.invalidateQueries({ queryKey: ['storage', 'files', next.albumId] });
+            return;
+          }
+        }
         await storageApi.uploadFile(next.uri, {
           contentType: next.mimeType,
           scope: 'albums',
@@ -459,6 +493,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         ? batch.reduce((sum, task) => sum + task.progress, 0) / batch.length
         : 0;
   const remaining = pending.filter((task) => task.status !== 'failed').length;
+  waitingRef.current = remaining;
 
   // The drawer. Only while the app is off screen: a banner over the app saying
   // what the app is already showing is noise, and on iOS every one of these
@@ -502,6 +537,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // once rather than per file.
     queryClient.invalidateQueries({ queryKey: ['albums'] });
     queryClient.invalidateQueries({ queryKey: usageQueryKey });
+    // The workspace's file and storage counts, and the storage breakdown,
+    // are counted from the same files and stayed as they were.
+    queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    queryClient.invalidateQueries({ queryKey: ['storage', 'breakdown'] });
 
     if (appState.current !== 'active') {
       void showUploadFinished(

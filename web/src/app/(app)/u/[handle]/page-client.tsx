@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell } from '@/components/app-shell';
+import { ConnectionActions } from '@/components/connection-actions';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -183,7 +184,7 @@ export default function AppProfilePage() {
                 )}
               </div>
 
-              <div className="flex shrink-0 gap-2 sm:mb-1">
+              <div className="flex shrink-0 flex-wrap gap-2 sm:mb-1">
                 <Button variant="outline" size="icon" onClick={share} aria-label="Copy link">
                   <Share2 className="size-4" />
                 </Button>
@@ -195,12 +196,33 @@ export default function AppProfilePage() {
                     </Link>
                   </Button>
                 ) : (
-                  <Button asChild>
-                    <Link href={`/hire/${person.handle}`}>
-                      <BriefcaseBusiness className="size-4" />
-                      Hire {person.displayName.split(' ')[0]}
-                    </Link>
-                  </Button>
+                  <>
+                    {/* Where you stand with them comes first: connecting, or
+                        messaging once connected, is what most visits are for.
+                        Only when the API said where the viewer stands —
+                        guessing would offer Connect to somebody already
+                        connected. */}
+                    {person.viewer && (
+                      <ConnectionActions
+                        person={person}
+                        cacheHandle={handle}
+                        connection={person.viewer.connection}
+                        friendId={person.viewer.friendId}
+                        onStale={() => void q.refetch()}
+                      />
+                    )}
+                    {/* Hire only for somebody taking bookings — or when the API
+                        sent no viewer block, when it is the only action there
+                        is, as it always was. */}
+                    {(person.availableForBookings || !person.viewer) && (
+                      <Button asChild variant={person.viewer ? 'outline' : 'default'}>
+                        <Link href={`/hire/${person.handle}`}>
+                          <BriefcaseBusiness className="size-4" />
+                          Hire {person.displayName.split(' ')[0]}
+                        </Link>
+                      </Button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -355,7 +377,16 @@ function ProfileTaste({ handle, person }: { handle: string; person: ProfileView 
 }
 
 function ProfilePosts({ handle, person }: { handle: string; person: ProfileView }) {
-  const { showcases, isLoading, loadFailed, refetch } = useProfileWork(handle);
+  const {
+    showcases,
+    isLoading,
+    loadFailed,
+    refetch,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+  } = useProfileWork(handle);
 
   if (isLoading) {
     return (
@@ -399,41 +430,63 @@ function ProfilePosts({ handle, person }: { handle: string; person: ProfileView 
           not in its allow-list and these are already the size they need to be.
 
           A film is marked rather than played: a tile this size is no place to
-          watch one, and there is no showcase page on the web to send somebody
-          to yet. The badge says there is film here; the app plays it. */}
+          watch one. Each tile opens the post, which plays it. */}
       <div className="mt-2 grid grid-cols-3 gap-1 overflow-hidden rounded-xl">
         {showcases.map((showcase) => (
-          <figure
+          <Link
             key={showcase.id}
-            className="group relative aspect-square overflow-hidden bg-muted"
+            href={`/showcase/${showcase.id}`}
+            aria-label={showcase.title ?? `${person.displayName}'s showcase`}
+            className="group relative block aspect-square overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           >
-            <Image
-              src={showcase.pieces[0].url}
-              alt={showcase.title ?? ''}
-              fill
-              sizes="(max-width: 900px) 33vw, 300px"
-              className="object-cover transition-transform duration-500 group-hover:scale-105"
-            />
-            {showcase.pieces[0].kind === 'video' && (
-              <span className="pointer-events-none absolute inset-0 grid place-items-center">
-                <span className="grid size-10 place-items-center rounded-full bg-black/50 text-white">
-                  <Play size={16} fill="currentColor" />
+            {/* Positioned itself, because next/image's `fill` is measured
+                against its direct parent, not the link around it. */}
+            <figure className="relative size-full">
+              <Image
+                src={showcase.pieces[0].url}
+                alt={showcase.title ?? ''}
+                fill
+                sizes="(max-width: 900px) 33vw, 300px"
+                className="object-cover transition-transform duration-500 group-hover:scale-105"
+              />
+              {showcase.pieces[0].kind === 'video' && (
+                <span className="pointer-events-none absolute inset-0 grid place-items-center">
+                  <span className="grid size-10 place-items-center rounded-full bg-black/50 text-white">
+                    <Play size={16} fill="currentColor" />
+                  </span>
                 </span>
-              </span>
-            )}
-            {showcase.pieces.length > 1 && (
-              <span className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">
-                {showcase.pieces.length}
-              </span>
-            )}
-            {showcase.title && (
-              <figcaption className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/75 to-transparent p-2.5 text-[12px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-                {showcase.title}
-              </figcaption>
-            )}
-          </figure>
+              )}
+              {showcase.pieces.length > 1 && (
+                <span className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">
+                  {showcase.pieces.length}
+                </span>
+              )}
+              {showcase.title && (
+                <figcaption className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/75 to-transparent p-2.5 text-[12px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+                  {showcase.title}
+                </figcaption>
+              )}
+            </figure>
+          </Link>
         ))}
       </div>
+
+      {/* A page at a time. A visitor saw the newest 24 and nothing older,
+          with no sign that there was anything older to see. */}
+      {hasNextPage && (
+        <div className="grid place-items-center gap-2 pt-4">
+          {isFetchNextPageError && (
+            <p className="text-xs text-muted-foreground">Couldn&rsquo;t load more.</p>
+          )}
+          <Button
+            variant="secondary"
+            disabled={isFetchingNextPage}
+            onClick={() => void fetchNextPage()}
+          >
+            {isFetchingNextPage ? 'Loading…' : isFetchNextPageError ? 'Try again' : 'Show more'}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

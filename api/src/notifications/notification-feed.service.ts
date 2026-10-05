@@ -81,7 +81,7 @@ export class NotificationFeedService {
       unread?: boolean;
       category?: NotificationCategory | null;
     } = {},
-  ): Promise<{ data: FeedItem[]; unread: number }> {
+  ): Promise<{ data: FeedItem[]; unread: number; categoryUnread?: number }> {
     const limit = Math.min(Math.max(params.limit ?? 30, 1), 100);
     const parsed = params.before ? new Date(params.before) : null;
     const before = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
@@ -114,7 +114,12 @@ export class NotificationFeedService {
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       .slice(0, limit);
 
-    return { data, unread: await this.unreadCount(userId, client) };
+    const [unread, categoryUnread] = await Promise.all([
+      this.unreadCount(userId, client),
+      category ? this.unreadCount(userId, client, category) : Promise.resolve(undefined),
+    ]);
+    // The filtered list says its own count; the badge keeps the whole one.
+    return categoryUnread === undefined ? { data, unread } : { data, unread, categoryUnread };
   }
 
   /**
@@ -172,14 +177,21 @@ export class NotificationFeedService {
   }
 
   /** Unread notifications, plus unread announcements for this client. */
-  async unreadCount(userId: string, client: Client | null = null): Promise<number> {
+  async unreadCount(
+    userId: string,
+    client: Client | null = null,
+    category: NotificationCategory | null = null,
+  ): Promise<number> {
+    // Announcements are the whole of `updates` and no part of any other.
+    const withAnnouncements = client !== null && (category === null || category === 'updates');
     const [row, announcements] = await Promise.all([
       this.db.queryOne<{ count: string }>(
         `select count(*)::text as count from notifications
-          where user_id = $1 and read_at is null`,
-        [userId],
+          where user_id = $1 and read_at is null
+            and ($2::text[] is null or topic = any($2::text[]))`,
+        [userId, category ? topicsIn(category) : null],
       ),
-      client ? this.updates.unreadCount(userId, client) : Promise.resolve(0),
+      withAnnouncements ? this.updates.unreadCount(userId, client) : Promise.resolve(0),
     ]);
     return Number(row?.count ?? 0) + announcements;
   }
@@ -199,6 +211,7 @@ export class NotificationFeedService {
     userId: string,
     ids?: readonly string[],
     client: Client | null = null,
+    category: NotificationCategory | null = null,
   ): Promise<number> {
     const [rows, announcements] = await Promise.all([
       this.db.query<{ id: string }>(
@@ -206,12 +219,16 @@ export class NotificationFeedService {
           where user_id = $1
             and read_at is null
             and ($2::uuid[] is null or id = any($2::uuid[]))
+            and ($3::text[] is null or topic = any($3::text[]))
           returning id`,
-        [userId, ids?.length ? [...ids] : null],
+        [userId, ids?.length ? [...ids] : null, category ? topicsIn(category) : null],
       ),
       // The same ids name announcements as well as notifications; each side
-      // marks only the ones that are its own.
-      this.updates.markRead(userId, client, ids),
+      // marks only the ones that are its own. A category other than updates
+      // has no announcements in it.
+      category === null || category === 'updates'
+        ? this.updates.markRead(userId, client, ids)
+        : Promise.resolve(0),
     ]);
     return rows.length + announcements;
   }

@@ -97,6 +97,14 @@ export class MarkReadDto {
   @ArrayMaxSize(200)
   @IsUUID('4', { each: true })
   ids?: string[];
+
+  /**
+   * Only this kind. "Mark all read" inside a filter marked every kind, so a
+   * look at Jobs cleared the Messages and Bookings ones too.
+   */
+  @IsOptional()
+  @IsIn(NOTIFICATION_CATEGORIES)
+  category?: NotificationCategory;
 }
 
 /** Marking unread and deleting always name what they act on. */
@@ -191,6 +199,7 @@ export class NotificationsController {
         userId,
         dto.ids,
         parseClient(platform, version),
+        dto.category ?? null,
       ),
     };
   }

@@ -19,7 +19,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useCreateGroupChat, useOpenDirectChat } from '@/hooks/useChat';
-import { useFriends } from '@/hooks/useFriends';
+import { useAllConnections } from '@/hooks/useFriends';
 
 /**
  * Starts a chat.
@@ -41,7 +41,9 @@ export function NewChatDialog({
   const [selected, setSelected] = useState<string[]>([]);
   const [title, setTitle] = useState('');
 
-  const { friends, loadFailed, refetch } = useFriends({ status: 'accepted', limit: 100 });
+  // Every connection, not the first hundred: past the hundredth nobody could
+  // be messaged from here at all.
+  const { friends, loadFailed, refetch } = useAllConnections({ enabled: open });
   const openDirect = useOpenDirectChat();
   const createGroup = useCreateGroupChat();
 

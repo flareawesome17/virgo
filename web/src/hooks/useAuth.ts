@@ -86,7 +86,13 @@ function forgetSession(queryClient: QueryClient) {
   queryClient.setQueryData(queryKeys.auth.session, null);
   // Drop every non-auth query: the next user must not see the previous
   // user's cached workspaces flash on screen before their own load.
-  queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
+  // Of the auth keys only the session (just set) and the account-free role
+  // list stay: the two-factor status kept the last account's, and the next
+  // person to sign in here was shown it.
+  queryClient.removeQueries({
+    predicate: (q) =>
+      !(q.queryKey[0] === 'auth' && ['session', 'user', 'roles'].includes(String(q.queryKey[1]))),
+  });
 }
 
 /**

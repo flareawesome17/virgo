@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { LifeBuoy, MessageSquare, Plus } from 'lucide-react';
 import {
   useOpenTicket,
@@ -36,9 +37,37 @@ const STATUS_LABEL: Record<string, string> = {
  * worse for whoever answers.
  */
 export default function SupportPage() {
+  // `useSearchParams` needs a Suspense boundary, or the route opts out of the
+  // static rendering the desktop build depends on.
+  return (
+    <Suspense fallback={null}>
+      <SupportContent />
+    </Suspense>
+  );
+}
+
+function SupportContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const { tickets, isLoading, loadFailed, refetch } = useSupportTickets();
+
+  // ?ticket= is where a "Support replied" notification points, so it opens
+  // on the reply rather than on the list of every request. Applied during
+  // render, so the list never flashes first; re-armed once the link is
+  // cleared, so the same notification followed twice opens it twice.
+  const linkedTicket = searchParams.get('ticket');
+  const [appliedTicket, setAppliedTicket] = useState<string | null>(null);
+  if (linkedTicket !== appliedTicket) {
+    setAppliedTicket(linkedTicket);
+    if (linkedTicket) setOpenId(linkedTicket);
+  }
+
+  // Taken back out of the address, so "All requests" and a refresh agree.
+  useEffect(() => {
+    if (linkedTicket) router.replace('/support');
+  }, [linkedTicket, router]);
 
   if (openId) {
     return <Thread id={openId} onBack={() => setOpenId(null)} />;

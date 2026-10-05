@@ -11,6 +11,7 @@ import { RemoteImage } from '@/components/RemoteImage';
 import { BottomSheet } from '@/components/BottomSheet';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
+import { goToTab } from '@/src/lib/navigation';
 import { useMemo, useState } from 'react';
 import {
   ArrowLeftIcon,
@@ -23,10 +24,11 @@ import {
   Trash2Icon,
   CheckIcon,
   MailIcon,
-  MapPinIcon,
   FlagIcon,
   BanIcon,
   EllipsisIcon,
+  SearchIcon,
+  UserIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -34,7 +36,6 @@ import {
   useAuth,
   useConversation,
   useDeleteConversation,
-  useFriends,
   useLeaveConversation,
   useMuteConversation,
   useParticipants,
@@ -42,13 +43,15 @@ import {
   useTheme,
 } from '@/src/hooks';
 import type { Participant } from '@/src/api';
+import { useAllConnections } from '@/src/hooks/useFriends';
+import { LoadFailed } from '@/components/LoadFailed';
 import { PersonSafetySheet, firstName, usePersonSafety } from '@/components/PersonSafetySheet';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [
   ArrowLeftIcon, UsersIcon, BellIcon, BellOffIcon, PencilIcon, UserPlusIcon,
-  LogOutIcon, Trash2Icon, CheckIcon, MailIcon, MapPinIcon, FlagIcon, BanIcon,
-  EllipsisIcon,
+  LogOutIcon, Trash2Icon, CheckIcon, MailIcon, FlagIcon, BanIcon,
+  EllipsisIcon, SearchIcon, UserIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -85,7 +88,12 @@ export default function ConversationInfoScreen() {
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { user } = useAuth();
 
-  const { participants, isLoading } = useParticipants(id);
+  const {
+    participants,
+    isLoading,
+    loadFailed: membersFailed,
+    refetch: refetchMembers,
+  } = useParticipants(id);
   const { conversation } = useConversation(id);
   const mute = useMuteConversation(id);
   const rename = useRenameConversation(id);
@@ -93,16 +101,21 @@ export default function ConversationInfoScreen() {
   const leave = useLeaveConversation();
   const remove = useDeleteConversation();
 
-  const { friends } = useFriends({ status: 'accepted', limit: 100 });
+  const [addOpen, setAddOpen] = useState(false);
+  // Only once the sheet is open: the whole list is a page per hundred people.
+  const connections = useAllConnections({ enabled: addOpen });
+  const [addSearch, setAddSearch] = useState('');
+  /** The one being added, so only its row shows the spinner. */
+  const [adding, setAdding] = useState<string | null>(null);
 
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [muteOpen, setMuteOpen] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
   /** The group member whose More menu is open. */
   const [safetyFor, setSafetyFor] = useState<Participant | null>(null);
 
-  const isGroup = participants.length > 2 || !!conversation?.isGroup;
+  // The server's word first: a group with two members left is still a group.
+  const isGroup = conversation?.isGroup ?? participants.length > 2;
   const others = useMemo(
     () => participants.filter((p) => p.id !== user?.id),
     [participants, user?.id],
@@ -122,11 +135,17 @@ export default function ConversationInfoScreen() {
   });
   const directFirst = firstName(direct?.name ?? '');
 
-  /** Friends not already in this group. */
+  /** Friends not already in this group, narrowed by the search. */
   const addable = useMemo(() => {
     const inside = new Set(participants.map((p) => p.id));
-    return friends.filter((f) => f.friend_user_id && !inside.has(f.friend_user_id));
-  }, [friends, participants]);
+    const q = addSearch.trim().toLowerCase();
+    return connections.friends.filter(
+      (f) =>
+        f.friend_user_id &&
+        !inside.has(f.friend_user_id) &&
+        (!q || f.friend_name.toLowerCase().includes(q)),
+    );
+  }, [connections.friends, participants, addSearch]);
 
   const submitRename = () => {
     const next = titleDraft.trim();
@@ -147,9 +166,12 @@ export default function ConversationInfoScreen() {
   };
 
   const confirmLeave = () => {
+    // Said plainly: leaving takes the group and its history out of your app.
+    // The row used to promise the history would stay, and then the thread
+    // could not be opened at all.
     Alert.alert(
-      'Leave group',
-      'You will stop receiving messages here. The conversation continues for everyone else.',
+      'Leave group?',
+      "You'll stop getting its messages, and the group and its history will be removed from your chats. It carries on for everyone else.",
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -289,7 +311,8 @@ export default function ConversationInfoScreen() {
                     setTitleDraft(conversation?.title ?? '');
                     setRenaming(true);
                   }}
-                  className="mt-3 flex-row items-center gap-1.5 bg-primary/10 rounded-xl px-3.5 py-2 active:scale-[0.96]"
+                  accessibilityRole="button"
+                  className="mt-3 min-h-[44px] flex-row items-center gap-1.5 bg-primary/10 rounded-xl px-4 active:scale-[0.96]"
                 >
                   <PencilIcon size={12} className="text-primary" />
                   <Text className="text-primary text-xs font-bold">Rename group</Text>
@@ -308,6 +331,7 @@ export default function ConversationInfoScreen() {
             <Pressable
               onPress={() => (muted ? applyMute(0) : setMuteOpen(true))}
               disabled={mute.isPending}
+              accessibilityRole="button"
               className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
             >
               <View
@@ -330,7 +354,7 @@ export default function ConversationInfoScreen() {
                 <Text className="text-muted-foreground text-xs mt-0.5">
                   {muted
                     ? mutedUntilLabel(conversation?.mutedUntil ?? null)
-                    : 'Messages still arrive and still count as unread'}
+                    : 'No sounds, banners or badge from this chat'}
                 </Text>
               </View>
               {mute.isPending && <ActivityIndicator size="small" color="#B66A40" />}
@@ -346,8 +370,13 @@ export default function ConversationInfoScreen() {
             </Text>
             {isGroup && (
               <Pressable
-                onPress={() => setAddOpen(true)}
-                className="flex-row items-center gap-1.5 active:opacity-60"
+                onPress={() => {
+                  setAddSearch('');
+                  setAddOpen(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Add people to the group"
+                className="min-h-[44px] -my-3 px-2 flex-row items-center gap-1.5 active:opacity-60"
               >
                 <UserPlusIcon size={13} className="text-primary" />
                 <Text className="text-primary text-xs font-bold">Add</Text>
@@ -360,6 +389,9 @@ export default function ConversationInfoScreen() {
               <View className="py-6 items-center">
                 <ActivityIndicator size="small" color="#B66A40" />
               </View>
+            ) : membersFailed && participants.length === 0 ? (
+              // An empty card read as a group with nobody in it.
+              <LoadFailed what="the members" onRetry={() => void refetchMembers()} compact />
             ) : (
               participants.map((p, i) => {
                 // In a group, anyone but you opens the More menu: a group puts
@@ -418,27 +450,34 @@ export default function ConversationInfoScreen() {
               Shortcuts
             </Text>
             <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
+              {/* Their profile, the obvious next stop from a chat — which was
+                  missing while "who is nearby", unrelated to this person, sat
+                  here. Only when they have a public page to open. */}
+              {others[0].handle ? (
+                <Pressable
+                  onPress={() => router.push(`/u/${others[0].handle}`)}
+                  accessibilityRole="button"
+                  className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
+                  style={{ borderBottomWidth: 1, borderBottomColor: border }}
+                >
+                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#B66A4014', alignItems: 'center', justifyContent: 'center' }}>
+                    <UserIcon size={15} color="#A85D35" />
+                  </View>
+                  <Text className="text-foreground text-sm font-semibold flex-1">
+                    View profile
+                  </Text>
+                </Pressable>
+              ) : null}
               <Pressable
-                onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
+                onPress={() => goToTab('/(app)/(tabs)/connect?view=people')}
+                accessibilityRole="button"
                 className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
-                style={{ borderBottomWidth: 1, borderBottomColor: border }}
               >
                 <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#6B8E4E14', alignItems: 'center', justifyContent: 'center' }}>
                   <MailIcon size={15} color="#6B8E4E" />
                 </View>
                 <Text className="text-foreground text-sm font-semibold flex-1">
-                  Manage in Network
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => router.push('/discover/nearby')}
-                className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
-              >
-                <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#5B7B9A14', alignItems: 'center', justifyContent: 'center' }}>
-                  <MapPinIcon size={15} color="#5B7B9A" />
-                </View>
-                <Text className="text-foreground text-sm font-semibold flex-1">
-                  See who is nearby
+                  Your connections
                 </Text>
               </Pressable>
             </View>
@@ -522,6 +561,7 @@ export default function ConversationInfoScreen() {
             {isGroup && (
               <Pressable
                 onPress={confirmLeave}
+                accessibilityRole="button"
                 className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
                 style={{ borderBottomWidth: 1, borderBottomColor: border }}
               >
@@ -531,13 +571,14 @@ export default function ConversationInfoScreen() {
                 <View className="flex-1">
                   <Text className="text-foreground text-sm font-semibold">Leave group</Text>
                   <Text className="text-muted-foreground text-xs mt-0.5">
-                    Keeps the history on your device
+                    Removes the group and its history from your chats
                   </Text>
                 </View>
               </Pressable>
             )}
             <Pressable
               onPress={confirmDelete}
+              accessibilityRole="button"
               className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
             >
               <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#C76B4A14', alignItems: 'center', justifyContent: 'center' }}>
@@ -561,15 +602,16 @@ export default function ConversationInfoScreen() {
         <View className="px-5 pt-2 pb-5">
           <Text className="text-foreground text-lg font-bold">Mute for how long?</Text>
           <Text className="text-muted-foreground text-sm mt-1">
-            Messages keep arriving and still count as unread. They just will not
-            interrupt you.
+            Messages keep arriving and wait in the chat. They just will not
+            sound, show a banner or add to the badge.
           </Text>
           <View className="mt-4">
             {MUTE_OPTIONS.map((option, i) => (
               <Pressable
                 key={option.minutes}
                 onPress={() => applyMute(option.minutes)}
-                className="py-3.5 active:opacity-60"
+                accessibilityRole="button"
+                className="py-3.5 min-h-[48px] justify-center active:opacity-60"
                 style={i < MUTE_OPTIONS.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
               >
                 <Text className="text-foreground text-base">{option.label}</Text>
@@ -593,23 +635,55 @@ export default function ConversationInfoScreen() {
             Only people you are friends with can be added.
           </Text>
 
-          {addable.length === 0 ? (
+          {connections.friends.length > 8 && (
+            <View className="mt-4 flex-row items-center bg-secondary rounded-xl px-4 h-11 gap-3">
+              <SearchIcon size={15} className="text-muted-foreground" />
+              <TextInput
+                value={addSearch}
+                onChangeText={setAddSearch}
+                placeholder="Search your connections"
+                placeholderTextColor={palette.mutedForeground}
+                accessibilityLabel="Search your connections"
+                autoCorrect={false}
+                className="text-foreground text-sm flex-1"
+              />
+            </View>
+          )}
+
+          {/* Loading and failure first: "everyone is already in this group"
+              showed while the list was still on its way. */}
+          {connections.loading ? (
+            <View className="py-8 items-center">
+              <ActivityIndicator size="small" color={palette.primary} />
+            </View>
+          ) : connections.loadFailed && connections.friends.length === 0 ? (
+            <View className="mt-4">
+              <LoadFailed what="your connections" onRetry={() => void connections.refetch()} compact />
+            </View>
+          ) : addable.length === 0 ? (
             <Text className="text-muted-foreground text-sm text-center py-8">
-              Everyone you are friends with is already in this group.
+              {addSearch.trim()
+                ? `No connections match “${addSearch.trim()}”.`
+                : 'Everyone you are connected with is already in this group.'}
             </Text>
           ) : (
-            <ScrollView style={{ maxHeight: 320 }} className="mt-4">
+            <ScrollView style={{ maxHeight: 320 }} className="mt-4" keyboardShouldPersistTaps="handled">
               {addable.map((f, i) => (
                 <Pressable
                   key={f.id}
-                  onPress={() =>
+                  disabled={adding !== null}
+                  onPress={() => {
+                    setAdding(f.friend_user_id!);
                     addMember.mutate(f.friend_user_id!, {
                       onSuccess: () => setAddOpen(false),
                       onError: (err: any) =>
                         Alert.alert('Could not add', err?.message || 'Please try again.'),
-                    })
-                  }
-                  className="py-3 flex-row items-center gap-3 active:opacity-60"
+                      onSettled: () => setAdding(null),
+                    });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${f.friend_name}`}
+                  className="py-3 min-h-[48px] flex-row items-center gap-3 active:opacity-60"
                   style={i < addable.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
                 >
                   <View className="w-9 h-9 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
@@ -620,10 +694,10 @@ export default function ConversationInfoScreen() {
                   <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
                     {f.friend_name}
                   </Text>
-                  {addMember.isPending ? (
+                  {adding === f.friend_user_id ? (
                     <ActivityIndicator size="small" color="#B66A40" />
                   ) : (
-                    <CheckIcon size={15} className="text-muted-foreground" />
+                    <UserPlusIcon size={15} className="text-primary" />
                   )}
                 </Pressable>
               ))}

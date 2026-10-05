@@ -84,7 +84,16 @@ export function ConversationList({
     return () => clearTimeout(id);
   }, [search]);
 
-  const { conversations, isLoading, loadFailed, refetch } = useConversations(term);
+  const {
+    conversations,
+    loadingFirst,
+    loadFailed,
+    refetch,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+  } = useConversations(term);
   const searching = term.length > 0;
 
   return (
@@ -118,7 +127,7 @@ export function ConversationList({
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        {isLoading && conversations.length === 0 ? (
+        {loadingFirst && conversations.length === 0 ? (
           <div className="p-3">
             <ListSkeleton rows={5} />
           </div>
@@ -224,6 +233,25 @@ export function ConversationList({
                 </li>
               );
             })}
+            {/* The list was the newest hundred and stopped there: an older
+                chat could only be found by searching for it. */}
+            {hasNextPage && (
+              <li className="px-2 pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-muted-foreground"
+                  onClick={() => void fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                >
+                  {isFetchingNextPage
+                    ? 'Loading…'
+                    : isFetchNextPageError
+                      ? "Couldn't load more. Try again"
+                      : 'Show older chats'}
+                </Button>
+              </li>
+            )}
           </ul>
         )}
       </ScrollArea>

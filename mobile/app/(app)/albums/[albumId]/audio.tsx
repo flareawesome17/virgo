@@ -10,6 +10,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { InsetFrame } from '@/components/InsetFrame';
 import { router, useLocalSearchParams } from 'expo-router';
 import { RemoteImage } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -668,7 +669,7 @@ function NowPlaying({
         style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 520 }}
         pointerEvents="none"
       />
-      <SafeAreaView edges={['top', 'bottom']} className="flex-1">
+      <InsetFrame edges={['top', 'bottom']} className="flex-1" modal>
         <View className="px-5 pt-2 flex-row items-center">
           <Pressable
             onPress={onClose}
@@ -833,7 +834,7 @@ function NowPlaying({
             </Pressable>
           </View>
         </View>
-      </SafeAreaView>
+      </InsetFrame>
     </View>
   );
 }

@@ -228,7 +228,8 @@ function HandleCard({
           />
         </View>
         <Pressable
-          className="rounded-xl px-4 py-3 bg-action"
+          className="rounded-xl px-4 min-h-[44px] justify-center bg-action"
+          accessibilityRole="button"
           style={{
             opacity:
               unchanged || lockedUntil || value.trim().length < 3 ||
@@ -239,11 +240,25 @@ function HandleCard({
             unchanged || Boolean(lockedUntil) || value.trim().length < 3 ||
             setHandle.isPending || check.data?.available === false
           }
-          onPress={() =>
-            setHandle.mutate(value.trim().toLowerCase(), {
-              onError: (error: Error) => Alert.alert('Could not save', error.message),
-            })
-          }
+          // Said back before it is done: the old address stops working at once
+          // and the new one cannot be changed again for thirty days.
+          onPress={() => {
+            const next = value.trim().toLowerCase();
+            const save = () =>
+              setHandle.mutate(next, {
+                onError: (error: Error) => Alert.alert("Couldn't save it", error.message),
+              });
+            Alert.alert(
+              current ? `Change to virgo.ph/@${next}?` : `Claim virgo.ph/@${next}?`,
+              current
+                ? `virgo.ph/@${current} stops working straight away, for every link you have shared. You can't change it again for 30 days.`
+                : "This becomes your public link. You can't change it again for 30 days.",
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: current ? 'Change it' : 'Claim it', onPress: save },
+              ],
+            );
+          }}
         >
           <Text className="text-action-foreground text-[13px] font-bold">
             {current ? 'Change' : 'Claim'}

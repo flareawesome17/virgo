@@ -51,7 +51,7 @@ import {
   useParticipants,
   useRenameConversation,
 } from '@/hooks/useChat';
-import { useFriends } from '@/hooks/useFriends';
+import { useAllConnections } from '@/hooks/useFriends';
 import { useAuth } from '@/hooks/useAuth';
 
 /** Minutes. A year stands in for "until I turn it back on". */
@@ -95,7 +95,9 @@ export function ConversationInfo({
   const { user } = useAuth();
   const { participants } = useParticipants(conversationId);
   const { conversation } = useConversation(conversationId);
-  const { friends } = useFriends({ status: 'accepted', limit: 100 });
+  // Every connection, not the first hundred: past the hundredth nobody could
+  // be added to a group.
+  const { friends } = useAllConnections({ enabled: open });
 
   const mute = useMuteConversation(conversationId);
   const rename = useRenameConversation(conversationId);
@@ -107,7 +109,8 @@ export function ConversationInfo({
   const [titleDraft, setTitleDraft] = useState('');
   const [confirming, setConfirming] = useState<'leave' | 'delete' | null>(null);
 
-  const isGroup = participants.length > 2 || !!conversation?.isGroup;
+  // The server's word first: a group down to two members is still a group.
+  const isGroup = conversation?.isGroup ?? participants.length > 2;
   const others = participants.filter((p) => p.id !== user?.id);
   const title = conversation?.title ?? (isGroup ? 'Group' : (others[0]?.name ?? 'Conversation'));
   const muted = !!conversation?.muted;
@@ -246,8 +249,8 @@ export function ConversationInfo({
                 </DropdownMenu>
               )}
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Messages still arrive and still count as unread. They just will
-                not interrupt.
+                Messages keep arriving and wait in the chat. They just will not
+                sound, show a notification or add to the unread count.
               </p>
 
               <Separator className="my-4" />

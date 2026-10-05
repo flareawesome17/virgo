@@ -14,7 +14,9 @@ export function useOffline() {
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
-      const online = !!state.isConnected && !!state.isInternetReachable
+      // Null is "not checked yet", not "no". Read as offline, the app flashed
+      // "couldn't load" at launch, before the first check had answered.
+      const online = state.isConnected !== false && state.isInternetReachable !== false
       setIsOffline(!online)
       onlineManager.setOnline(online)
 

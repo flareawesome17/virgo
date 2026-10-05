@@ -115,7 +115,16 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const { usage, storageUsedBytes, storageLimitBytes, storageFraction } = useUsage();
 
-  const { sharing, isLoading: loadingLocation } = useLocationSharing();
+  const {
+    sharing,
+    data: locationStatus,
+    isLoading: loadingLocation,
+    loadFailed: locationFailed,
+    refetch: refetchLocation,
+  } = useLocationSharing();
+  // Never read, rather than read as off. A failed check showed the switch
+  // off, telling someone who may well be visible in Nearby that they were not.
+  const locationUnknown = locationFailed && !locationStatus;
   const startSharing = useShareLocation();
   const stopSharing = useStopSharingLocation();
   const wipe = useWipeStorage();
@@ -272,13 +281,19 @@ export default function SettingsPage() {
               icon={MapPin}
               title="Share my location"
               detail={
-                sharing
-                  ? 'You appear in Nearby. Others see a distance, never a place.'
-                  : 'Turn on to see who is nearby. Discovery works both ways.'
+                locationUnknown
+                  ? "Couldn't check whether you're sharing your location."
+                  : sharing
+                    ? 'You appear in Nearby. Others see a distance, never a place.'
+                    : 'Turn on to see who is nearby. Discovery works both ways.'
               }
             >
               {loadingLocation || startSharing.isPending || stopSharing.isPending ? (
                 <Loader2 className="size-4 animate-spin text-primary" />
+              ) : locationUnknown ? (
+                <Button size="sm" variant="outline" onClick={() => void refetchLocation()}>
+                  Try again
+                </Button>
               ) : (
                 <Switch
                   checked={sharing}
@@ -379,8 +394,10 @@ export default function SettingsPage() {
           <CardContent className="py-5">
             <div className="flex items-end justify-between gap-4">
               <div>
+                {/* A dash until the reading arrives, rather than a "0 B" that
+                    looks like an answer. */}
                 <p className="text-2xl font-bold tabular-nums">
-                  {formatBytes(storageUsedBytes)}
+                  {usage ? formatBytes(storageUsedBytes) : '—'}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {storageLimitBytes
@@ -664,9 +681,11 @@ export default function SettingsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Wipe every uploaded file?</AlertDialogTitle>
             <AlertDialogDescription>
-              This deletes {formatBytes(storageUsedBytes)} of media from storage
-              permanently. Albums and workspaces survive, but they will be empty.
-              We cannot recover the files for you.
+              {/* "Deletes 0 B" before the reading arrives would make the wipe
+                  sound harmless. */}
+              This deletes {usage ? `${formatBytes(storageUsedBytes)} of media` : 'every file you have uploaded'}{' '}
+              from storage permanently. Albums and workspaces survive, but they
+              will be empty. We cannot recover the files for you.
             </AlertDialogDescription>
           </AlertDialogHeader>
 

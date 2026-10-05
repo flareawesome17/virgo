@@ -31,7 +31,6 @@ import {
   applicationFor,
   budgetLabel,
   isRoleFilled,
-  jobUrl,
   openRolesOf,
   roleBudgetLabel,
   rolesLeftFor,
@@ -43,14 +42,13 @@ import {
   ApplicationBadge,
   ApplicationState,
 } from '@/components/jobs/application-state';
+import { copyJobLink } from '@/components/jobs/copy-job-link';
 
 /** "Photographer and HMUA", "a, b and c" — a list a sentence can contain. */
 function listOf(items: readonly string[]): string {
   if (items.length <= 1) return items[0] ?? '';
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
-
-const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
 
 /** "Sat 19 Dec". */
 function jobDate(value: string): string {
@@ -106,7 +104,9 @@ export default function JobPage() {
         <EmptyState
           icon={BriefcaseBusiness}
           title="Job not found"
-          description="This post has been filled, closed, or taken down."
+          // Filled and closed posts still open, saying so; what does not open
+          // is one that has ended or been taken down.
+          description="This post has ended or been taken down."
           action={<Button onClick={() => router.push('/jobs/mine')}>Browse jobs</Button>}
         />
       </AppShell>
@@ -119,15 +119,7 @@ export default function JobPage() {
   const rolesLeft = rolesLeftFor(post);
   const openRoles = openRolesOf(post);
 
-  const share = async () => {
-    const url = jobUrl(post.slug, SITE);
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success('Link copied', { description: url });
-    } catch {
-      toast.info(url);
-    }
-  };
+  const share = () => copyJobLink(post.slug);
 
   const flag = (reason: ReportReason) => {
     report.mutate(
@@ -160,7 +152,7 @@ export default function JobPage() {
             {post.status === 'filled'
               ? 'This job has been filled.'
               : post.status === 'expired'
-                ? 'This post has expired.'
+                ? 'This job has ended.'
                 : 'This post is closed.'}{' '}
             <Link href="/jobs/mine" className="font-semibold underline">
               See what else is open
@@ -307,10 +299,12 @@ export default function JobPage() {
             {post.isMine ? (
               <div className="flex items-center justify-between gap-4 border-t pt-5">
                 <p className="text-xs text-muted-foreground">
-                  This is your post. Applications arrive under My jobs.
+                  This is your post. Applications arrive under Jobs › Posted.
                 </p>
+                {/* To this post's row with its applicants open, not the top
+                    of the board with every post shut. */}
                 <Button asChild variant="outline">
-                  <Link href="/jobs/mine">
+                  <Link href={`/jobs/mine?tab=posted&post=${post.id}`}>
                     <Users className="size-4" />
                     Manage post
                   </Link>

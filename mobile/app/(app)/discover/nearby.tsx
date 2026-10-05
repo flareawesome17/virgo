@@ -8,8 +8,11 @@ import {
   RefreshControl,
   Switch,
   Linking,
+  Platform,
 } from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
+import * as Haptics from 'expo-haptics';
+import { profileActionMessage } from '@/src/lib/profile-media';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -189,35 +192,51 @@ export default function NearbyScreen() {
       return;
     }
     stopSharing.mutate(undefined, {
-      onError: (err: any) =>
-        Alert.alert('Could not turn off sharing', err?.message || 'Please try again.'),
+      // Fixed copy: the server's text is written for the API, not for this
+      // screen.
+      onError: () =>
+        Alert.alert("Couldn't turn off sharing", 'Check your connection and try again.'),
     });
   };
 
+  /*
+   * No alert when a request goes: the row turns to "Requested" once Nearby
+   * refreshes, with a tap to say so. The alert named a "network" the app no
+   * longer has, and People says Connect where this said Add.
+   */
   const addFriend = (person: NearbyPerson) => {
     sendRequest.mutate(
       { userId: person.id },
       {
-        // The row turns to "Requested" once Nearby refreshes (useFriends).
-        onSuccess: () =>
-          Alert.alert('Request sent', `${person.name} will see it in their network.`),
-        onError: (err: any) =>
-          Alert.alert('Could not send request', err?.message || 'Please try again.'),
+        onSuccess: () => {
+          if (Platform.OS !== 'web') {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          }
+        },
+        onError: (err) => Alert.alert("Couldn't send the request", profileActionMessage(err, 'connect')),
       },
     );
   };
 
+  // Through the same handler as People: one answer at a time, and a failure
+  // that says so. A double tap here sent it twice and a failure said nothing.
   const acceptFrom = (userId: string) => {
+    if (respond.isPending) return;
     const match = incoming.find((f) => f.friend_user_id === userId);
     if (!match) return;
-    respond.mutate({ id: match.id, accept: true });
+    respond.mutate(
+      { id: match.id, accept: true },
+      {
+        onError: (err) =>
+          Alert.alert("Couldn't accept the request", profileActionMessage(err, 'accept')),
+      },
+    );
   };
 
   const message = (person: NearbyPerson) => {
     openDirect.mutate(person.id, {
       onSuccess: ({ id }) => router.push(`/chat/${id}`),
-      onError: (err: any) =>
-        Alert.alert('Could not open chat', err?.message || 'Please try again.'),
+      onError: (err) => Alert.alert("Couldn't open the chat", profileActionMessage(err, 'message')),
     });
   };
 
@@ -274,19 +293,12 @@ export default function NearbyScreen() {
               return (
                 <View
                   key={role}
-                  style={{
-                    paddingHorizontal: 6,
-                    paddingVertical: 2,
-                    borderRadius: 5,
-                    backgroundColor: matched ? '#B66A40' : '#B66A4014',
-                  }}
+                  className={`px-1.5 py-0.5 rounded-md ${matched ? 'bg-action' : 'bg-primary/10'}`}
                 >
                   <Text
-                    style={{
-                      fontSize: 9,
-                      fontWeight: '700',
-                      color: matched ? '#FFFFFF' : '#B66A40',
-                    }}
+                    className={`text-[11px] font-bold ${
+                      matched ? 'text-action-foreground' : 'text-primary'
+                    }`}
                   >
                     {role}
                   </Text>
@@ -301,14 +313,14 @@ export default function NearbyScreen() {
             who have actually published — a handle alone would 404. */}
         {person.handle && (
           <Pressable
-            className="flex-row items-center gap-1 mt-1.5"
-            hitSlop={6}
+            className="flex-row items-center gap-1 mt-0.5 min-h-[32px] self-start active:opacity-60"
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={`View ${person.name}'s profile`}
             onPress={() => router.push(`/u/${person.handle}`)}
           >
-            <BriefcaseIcon size={11} color="#B66A40" />
-            <Text className="text-[11px] font-semibold" style={{ color: '#B66A40' }}>
-              View profile
-            </Text>
+            <BriefcaseIcon size={12} className="text-primary" />
+            <Text className="text-primary text-xs font-semibold">View profile</Text>
           </Pressable>
         )}
       </View>
@@ -317,40 +329,51 @@ export default function NearbyScreen() {
         <Pressable
           onPress={() => message(person)}
           disabled={openDirect.isPending}
-          className="px-3 py-2 rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.94]"
+          accessibilityRole="button"
+          accessibilityLabel={`Message ${person.name}`}
+          className="px-3 min-h-[44px] rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.96]"
         >
-          <MessageCircleIcon size={13} className="text-white" />
-          <Text className="text-white text-xs font-bold">Message</Text>
+          <MessageCircleIcon size={14} className="text-action-foreground" />
+          <Text className="text-action-foreground text-xs font-bold">Message</Text>
         </Pressable>
       ) : person.relationship === 'pending_out' ? (
-        <View className="px-3 py-1.5 rounded-full bg-muted">
-          <Text className="text-muted-foreground text-[11px] font-bold">Requested</Text>
+        <View className="px-3 min-h-[44px] justify-center rounded-xl bg-muted">
+          <Text className="text-foreground text-xs font-bold">Requested</Text>
         </View>
       ) : person.relationship === 'pending_in' ? (
         <Pressable
           onPress={() => acceptFrom(person.id)}
-          className="px-3 py-2 rounded-xl bg-action active:scale-[0.94]"
+          disabled={respond.isPending}
+          accessibilityRole="button"
+          accessibilityLabel={`Accept ${person.name}'s request`}
+          className="px-4 min-h-[44px] justify-center rounded-xl bg-action active:scale-[0.96]"
+          style={{ opacity: respond.isPending ? 0.6 : 1 }}
         >
-          <Text className="text-white text-xs font-bold">Accept</Text>
+          {respond.isPending ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text className="text-action-foreground text-xs font-bold">Accept</Text>
+          )}
         </Pressable>
       ) : (
         <Pressable
           onPress={() => addFriend(person)}
           disabled={sendRequest.isPending}
-          className="px-3 py-2 rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.94]"
+          accessibilityRole="button"
+          accessibilityLabel={`Connect with ${person.name}`}
+          className="px-3 min-h-[44px] rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.96]"
         >
-          <UserPlusIcon size={13} className="text-white" />
-          <Text className="text-white text-xs font-bold">Add</Text>
+          <UserPlusIcon size={14} className="text-action-foreground" />
+          <Text className="text-action-foreground text-xs font-bold">Connect</Text>
         </Pressable>
       )}
 
       {/* Nearby is where strangers meet, so every row carries the way out. */}
       <Pressable
-        hitSlop={8}
         accessibilityRole="button"
         accessibilityLabel={`More options for ${person.name}`}
         onPress={() => setSafetyFor(person)}
-        className="w-8 h-8 items-center justify-center"
+        className="w-11 h-11 -mr-2 items-center justify-center active:opacity-60"
       >
         <EllipsisIcon size={16} className="text-muted-foreground" />
       </Pressable>
@@ -468,10 +491,10 @@ export default function NearbyScreen() {
                     if (!isKnownLocation(next)) return;
                     setPlace.mutate(canonicalLocation(next), {
                       onSuccess: () => setMyCityInput(''),
-                      onError: (err: Error) =>
+                      onError: () =>
                         Alert.alert(
-                          'Could not set your city',
-                          err.message || 'Please try again.',
+                          "Couldn't set your city",
+                          'Check your connection and try again.',
                         ),
                     });
                   }}
@@ -554,7 +577,9 @@ export default function NearbyScreen() {
           </View>
         )}
 
-        {/* Radius */}
+        {/* Radius. Only once sharing is on, like the place and the roles:
+            until then there is nothing for it to narrow. */}
+        {sharing && (
         <View className="px-5 mt-5">
           <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
             Within
@@ -583,6 +608,7 @@ export default function NearbyScreen() {
             })}
           </ScrollView>
         </View>
+        )}
 
         {/* Role filter — the point of the screen: "an SDE photo editor within
             30km", not "whoever happens to be around". */}

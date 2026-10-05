@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
+import { goToTab } from '@/src/lib/navigation';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
   type LucideIcon,
@@ -474,7 +475,7 @@ function OwnerView({
               <Pressable
                 onPress={() => router.push(`/workspaces/${id}/invite`)}
                 accessibilityRole="button"
-                className="h-9 px-3.5 rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.96]"
+                className="h-11 px-4 rounded-xl bg-action flex-row items-center gap-1.5 active:scale-[0.96]"
               >
                 <UserPlusIcon size={15} className="text-action-foreground" />
                 <Text className="text-action-foreground text-[13px] font-bold">Invite</Text>
@@ -539,7 +540,21 @@ function OwnerView({
                           className="px-3.5 py-3 gap-2.5"
                           style={i > 0 ? { borderTopWidth: 1, borderTopColor: palette.border } : undefined}
                         >
-                          <View className="flex-row items-center gap-3">
+                          <Pressable
+                            onPress={
+                              member.status === 'pending'
+                                ? () => router.push(`/workspaces/${id}/member/${member.id}`)
+                                : undefined
+                            }
+                            disabled={member.status !== 'pending'}
+                            accessibilityRole={member.status === 'pending' ? 'button' : undefined}
+                            accessibilityHint={
+                              member.status === 'pending'
+                                ? 'Choose their role and what they see once they accept'
+                                : undefined
+                            }
+                            className="flex-row items-center gap-3 active:opacity-70"
+                          >
                             <PersonAvatar name={member.name} url={member.avatar_url} size={38} />
                             <View className="flex-1 min-w-0">
                               <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
@@ -551,7 +566,10 @@ function OwnerView({
                               </Text>
                             </View>
                             {member.status === 'pending' ? (
-                              <Pill tone="warning">Waiting</Pill>
+                              <>
+                                <Pill tone="warning">Waiting</Pill>
+                                <ChevronRightIcon size={18} className="text-muted-foreground" />
+                              </>
                             ) : (
                               <Pressable
                                 onPress={() =>
@@ -563,14 +581,14 @@ function OwnerView({
                                 <Text className="text-primary text-[13px] font-bold">Invite again</Text>
                               </Pressable>
                             )}
-                          </View>
+                          </Pressable>
                           {member.status === 'pending' && (
                             <View className="flex-row gap-2 pl-[50px]">
                               <Pressable
                                 onPress={() => sendAgain(member)}
                                 disabled={resend.isPending}
                                 accessibilityRole="button"
-                                className="h-9 px-3 rounded-xl border border-border flex-row items-center gap-1.5 active:scale-[0.96]"
+                                className="h-11 px-3.5 rounded-xl border border-border flex-row items-center gap-1.5 active:scale-[0.96]"
                               >
                                 <RefreshCwIcon size={14} className="text-foreground" />
                                 <Text className="text-foreground text-[13px] font-semibold">Resend</Text>
@@ -578,7 +596,7 @@ function OwnerView({
                               <Pressable
                                 onPress={() => confirmCancel(member)}
                                 accessibilityRole="button"
-                                className="h-9 px-3 rounded-xl items-center justify-center active:opacity-60"
+                                className="h-11 px-3.5 rounded-xl items-center justify-center active:opacity-60"
                               >
                                 <Text className="text-secondary-foreground text-[13px] font-semibold">
                                   Cancel invite
@@ -689,7 +707,7 @@ function SharedView({ workspace }: { workspace: Workspace }) {
               }
             />
           )}
-          <Chip icon={CalendarPlusIcon} label="Schedule" onPress={() => router.push('/(app)/(tabs)/schedule')} />
+          <Chip icon={CalendarPlusIcon} label="Schedule" onPress={() => goToTab('/(app)/(tabs)/schedule')} />
         </View>
 
         <View>

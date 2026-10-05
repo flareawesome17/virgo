@@ -70,7 +70,9 @@ function TabsLayoutInner() {
   const { invitations: eventInvites } = useEventInvitations();
   // Jobs posted since the board was last opened. It moved down here with the
   // tab; the top bar no longer carries it.
-  const { count: unseenJobs } = useUnseenJobs();
+  // New postings and applications waiting on you, both: applicants never lit
+  // the badge, so somebody waiting for an answer was invisible from the bar.
+  const { total: unseenJobs } = useUnseenJobs();
   // Unread messages, friend requests and waiting rewards all badge the top
   // bar now rather than a tab, so this layout no longer counts them.
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -95,6 +97,10 @@ function TabsLayoutInner() {
 
   return (
     <Tabs
+      // Back goes to the tab you came from. The default is the first tab, so
+      // Schedule → your photo → Settings → back landed on the Dashboard, and
+      // Settings and Connect have no back button of their own.
+      backBehavior="history"
       // iOS gets the floating capsule. Android — and the web preview, which
       // reports its own platform — keep the stock bar with the options below,
       // exactly as before.

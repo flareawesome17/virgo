@@ -25,6 +25,10 @@ export default function SignInScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Above the early return: a hook after it is skipped on the render that
+  // redirects, and React then throws "Rendered fewer hooks than expected".
+  const passwordRef = useRef<TextInput>(null);
+
   // <Redirect> rather than router.replace(): navigating during render mutates
   // the navigation container mid-render and triggers React's
   // "Cannot update a component while rendering a different component" error.
@@ -34,10 +38,10 @@ export default function SignInScreen() {
 
   const canSubmit = email.trim().length > 0 && password.length > 0;
 
-  const passwordRef = useRef<TextInput>(null);
-
   const handleSignIn = (unpause = false) => {
-    if (!canSubmit) return;
+    // The keyboard's Go as well as the button: a second press while the
+    // first was in flight signed in twice, or asked for a second code.
+    if (!canSubmit || signIn.isPending) return;
     setErrorMsg('');
     signIn.mutate(
       { email: email.trim(), password, ...(unpause ? { unpause: true } : {}) },

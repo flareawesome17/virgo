@@ -6,9 +6,9 @@ import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { usePublicProfile, useSendEnquiry, useTheme } from '@/src/hooks';
+import { useHireEnquiries, usePublicProfile, useSendEnquiry, useTheme } from '@/src/hooks';
 import {
-  ArrowLeftIcon, MapPinIcon, SendIcon, UserSearchIcon,
+  ArrowLeftIcon, ClockIcon, MapPinIcon, SendIcon, UserSearchIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
@@ -17,7 +17,7 @@ import { DateTimeField } from '@/components/DateTimeField';
 import { dateToKey, parseDateKey } from '@/src/lib/calendar';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon, MapPinIcon, SendIcon, UserSearchIcon]) {
+for (const Icon of [ArrowLeftIcon, ClockIcon, MapPinIcon, SendIcon, UserSearchIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -38,6 +38,9 @@ export default function HireScreen() {
   // The same query, and so the same cache entry, as the profile this is
   // opened from: arriving here from it costs no second fetch.
   const profile = usePublicProfile(handle);
+  const hire = useHireEnquiries();
+  // Asking again, after already asking about another job, is your call.
+  const [askAgain, setAskAgain] = useState(false);
 
   const [message, setMessage] = useState('');
   const [roleWanted, setRoleWanted] = useState<string | null>(null);
@@ -91,6 +94,17 @@ export default function HireScreen() {
   const person = profile.profile;
   const firstName = person.displayName.split(' ')[0];
   const tooShort = message.trim().length < 10;
+  /*
+   * One you sent that they have not answered. The form never knew, so a
+   * second tap on Hire — from Nearby, then from their profile — sent the same
+   * person the same enquiry twice.
+   */
+  const waiting = hire.sent.find(
+    (e) =>
+      e.status === 'new' &&
+      !!e.personHandle &&
+      e.personHandle.toLowerCase() === String(handle).replace(/^@/, '').toLowerCase(),
+  );
 
 
   const onSubmit = () => {
@@ -110,26 +124,79 @@ export default function HireScreen() {
           );
           router.replace('/friends/enquiries');
         },
-        onError: (error: Error) => Alert.alert('Could not send', error.message),
+        onError: (error: Error) => Alert.alert("Couldn't send it", error.message),
       },
     );
   };
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
-      <View className="flex-row items-center gap-3 px-5 py-3">
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={10}>
+      <View className="flex-row items-center gap-1 px-2 py-1">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          onPress={() => router.back()}
+          className="w-11 h-11 items-center justify-center active:opacity-60"
+        >
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
-        <Text className="text-foreground text-lg font-bold">Send an enquiry</Text>
+        <Text accessibilityRole="header" className="text-foreground text-lg font-bold">Send an enquiry</Text>
       </View>
 
+      {waiting && !askAgain ? (
+        <ScrollView keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 16 }}>
+          <View className="flex-row items-center gap-3.5">
+            <RemoteImage
+              source={{ uri: person.avatarUrl ?? PLACEHOLDER_IMAGE }}
+              style={{ width: 54, height: 54, borderRadius: 27 }}
+            />
+            <View className="flex-1 min-w-0">
+              <Text className="text-foreground text-[17px] font-bold" numberOfLines={1}>
+                {person.displayName}
+              </Text>
+              <Text className="text-muted-foreground text-[13px]" numberOfLines={1}>
+                {person.title || person.roles.join(', ')}
+              </Text>
+            </View>
+          </View>
+          <View className="bg-card rounded-2xl p-4 gap-2">
+            <View className="flex-row items-center gap-2">
+              <ClockIcon size={16} className="text-primary" />
+              <Text className="text-foreground text-[15px] font-bold flex-1">
+                You’ve already asked {firstName}
+              </Text>
+            </View>
+            <Text className="text-muted-foreground text-[13px] leading-5">
+              Sent {new Date(waiting.createdAt).toLocaleDateString()}
+              {waiting.roleWanted ? ` for ${waiting.roleWanted}` : ''}. They haven’t answered yet —
+              you’ll hear when they do, and a chat opens if they accept.
+            </Text>
+            <Text className="text-foreground text-[13px] leading-5 mt-1" numberOfLines={4}>
+              “{waiting.message}”
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => router.replace('/friends/enquiries')}
+            accessibilityRole="button"
+            className="rounded-2xl min-h-[52px] items-center justify-center bg-action active:opacity-85"
+          >
+            <Text className="text-action-foreground text-[15px] font-bold">See your enquiries</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setAskAgain(true)}
+            accessibilityRole="button"
+            className="min-h-[44px] items-center justify-center active:opacity-60"
+          >
+            <Text className="text-primary text-[14px] font-semibold">Ask about a different job</Text>
+          </Pressable>
+        </ScrollView>
+      ) : (
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={8}
       >
-        <ScrollView
+        <ScrollView keyboardDismissMode="on-drag"
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 20 }}
           keyboardShouldPersistTaps="handled"
         >
@@ -166,9 +233,9 @@ export default function HireScreen() {
                     <Pressable
                       key={role}
                       onPress={() => setRoleWanted(isOn ? null : role)}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: isOn }}
-                      className={`rounded-full px-3.5 py-2 border ${
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: isOn, checked: isOn }}
+                      className={`rounded-full px-4 min-h-[44px] justify-center border ${
                         isOn ? 'bg-primary border-primary' : 'border-primary/30'
                       }`}
                     >
@@ -238,11 +305,13 @@ export default function HireScreen() {
           </View>
 
           <Pressable
-            className="rounded-2xl py-4 flex-row items-center justify-center gap-2 bg-action"
+            className="rounded-2xl min-h-[52px] flex-row items-center justify-center gap-2 bg-action"
             style={{
-              opacity: tooShort || send.isPending ? 0.4 : 1,
+              opacity: tooShort || send.isPending ? 0.45 : 1,
             }}
             disabled={tooShort || send.isPending}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: tooShort || send.isPending, busy: send.isPending }}
             onPress={onSubmit}
           >
             {send.isPending
@@ -251,11 +320,12 @@ export default function HireScreen() {
             <Text className="text-action-foreground text-[15px] font-bold">Send enquiry</Text>
           </Pressable>
 
-          <Text className="text-muted-foreground text-[11px] text-center">
+          <Text className="text-muted-foreground text-[12px] text-center">
             Accepting connects you both and opens a chat.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }

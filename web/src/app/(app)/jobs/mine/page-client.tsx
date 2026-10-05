@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -11,6 +11,7 @@ import {
   Loader2,
   MessageCircle,
   Plus,
+  Search,
   Star,
   Trash2,
   X,
@@ -30,13 +31,25 @@ import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   budgetLabel,
   distanceLabel,
   headlineApplication,
   isRoleFilled,
+  roleBudgetLabel,
   type JobPost,
 } from '@/api';
 import { cn } from '@/lib/utils';
@@ -59,12 +72,35 @@ const STATUS_LABEL: Record<JobPost['status'], string> = {
   open: 'Open',
   filled: 'Filled',
   closed: 'Closed',
-  expired: 'Expired',
+  // The phone's word, so the two clients do not call one post two things. A
+  // post ends on its own once the job date passes; nothing lapsed.
+  expired: 'Ended',
 };
 
-/** One post, with its applicants folded away until asked for. */
-function JobRow({ job }: { job: JobPost }) {
-  const [open, setOpen] = useState(false);
+/** How long a Decline waits, with Undo, before it is sent and they are told. */
+const DECLINE_UNDO_MS = 5000;
+
+/**
+ * One post, with its applicants folded away until asked for.
+ *
+ * `focused` is the post in the address (`?post=`), which is where "Manage
+ * post" and a new application land. That used to open the Posted tab with
+ * every row shut, leaving the poster to find the right one and unfold it.
+ */
+function JobRow({ job, focused }: { job: JobPost; focused: boolean }) {
+  const [open, setOpen] = useState(focused && job.applicantCount > 0);
+  const row = useRef<HTMLDivElement>(null);
+  // Arriving at a different post while this list is already on screen opens
+  // that one too. Adjusted during render rather than from an effect, which
+  // would draw the row shut for a frame first.
+  const [wasFocused, setWasFocused] = useState(focused);
+  if (wasFocused !== focused) {
+    setWasFocused(focused);
+    if (focused && job.applicantCount > 0) setOpen(true);
+  }
+  useEffect(() => {
+    if (focused) row.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [focused]);
   const setStatus = useSetJobStatus();
   const remove = useDeleteJob();
   const pending = usePendingApplicants();
@@ -153,7 +189,8 @@ This cannot be undone.`;
   };
 
   return (
-    <Card>
+    // scroll-mt clears the sticky page header when ?post= scrolls here.
+    <Card ref={row} className="scroll-mt-28">
       <CardContent className="space-y-3 pt-5">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
@@ -277,176 +314,326 @@ This cannot be undone.`;
           </Button>
         </div>
 
-        {open && <Applicants postId={job.id} />}
+        {open && <Applicants job={job} />}
       </CardContent>
     </Card>
   );
 }
 
-function Applicants({ postId }: { postId: string }) {
+function Applicants({ job }: { job: JobPost }) {
   const router = useRouter();
   // Same query key in both places, so this is one request, not two.
   const { bookings } = useBookings();
-  const { applications, isLoading, loadFailed, refetch } = useApplicants(postId);
+  const { applications, isLoading, loadFailed, refetch } = useApplicants(job.id);
   const respond = useRespondToApplication();
+  /*
+   * mutateAsync, not per-call callbacks. A decline is sent seconds after the
+   * click, and callbacks passed to `mutate` are dropped once this list
+   * unmounts — collapse the row while one is in flight and a failure would
+   * vanish without a word.
+   */
+  const { mutateAsync: answerAsync } = respond;
   const [acting, setActing] = useState<string | null>(null);
+
+  /*
+   * Accepting asks first, and says what it is agreeing to. Accept made a
+   * booking, a connection and a chat on one click, at a rate the poster may
+   * not have looked at since writing the post.
+   *
+   * The applicant is kept after the dialog closes so its title does not empty
+   * out while it fades.
+   */
+  const [hiring, setHiring] = useState<JobApplication | null>(null);
+  const [confirmingHire, setConfirmingHire] = useState(false);
+
+  /*
+   * Declines wait, with Undo.
+   *
+   * A decline tells somebody they were not chosen, and it went on one click
+   * — beside Accept — with no way back. Leaving the list (folding the row,
+   * switching tabs) sends any still waiting rather than dropping them.
+   */
+  /** Declines on their way: still inside the Undo window, or already sent. */
+  const [declining, setDeclining] = useState<Record<string, 'waiting' | 'sent'>>({});
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      // Sent now rather than lost.
+      pending.forEach((timer, id) => {
+        clearTimeout(timer);
+        toast.dismiss(`decline-${id}`);
+        answerAsync({ id, status: 'declined' }).catch((e: Error) =>
+          toast.error('Could not decline them', { description: e.message }),
+        );
+      });
+      pending.clear();
+    };
+  }, [answerAsync]);
 
   if (isLoading) return <ListSkeleton rows={2} />;
   if (loadFailed) {
     return <ErrorState message="Could not load the applicants." onRetry={() => refetch()} />;
   }
 
+  const forget = (id: string) =>
+    setDeclining((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+
   const answer = (
-    id: string,
+    app: JobApplication,
     status: 'shortlisted' | 'accepted' | 'declined',
   ) => {
-    setActing(id);
-    respond.mutate(
-      { id, status },
-      {
-        onSuccess: (result) => {
-          track('application_answered', { status });
-          if (status === 'accepted') {
-            toast.success(`Connected with ${result.personName}`, {
-              description: 'Open the chat to talk about the job.',
-              action: result.conversationId
-                ? {
-                    label: 'Open chat',
-                    onClick: () => router.push(`/chat/${result.conversationId}`),
-                  }
-                : undefined,
-            });
-          } else {
-            toast.success(status === 'shortlisted' ? 'Shortlisted' : 'Declined');
-          }
-        },
-        onError: (e: Error) => toast.error(e.message),
-        onSettled: () => setActing(null),
-      },
-    );
+    setActing(app.id);
+    answerAsync({ id: app.id, status })
+      .then((result) => {
+        track('application_answered', { status });
+        if (status === 'accepted') {
+          toast.success(`Connected with ${result.personName}`, {
+            description: 'Open the chat to talk about the job.',
+            action: result.conversationId
+              ? {
+                  label: 'Open chat',
+                  onClick: () => router.push(`/chat/${result.conversationId}`),
+                }
+              : undefined,
+          });
+        } else if (status === 'shortlisted') {
+          toast.success('Shortlisted');
+        }
+        // A decline already said so, with its Undo. Its row stays in the
+        // "declined" state until the refetch lands rather than flashing the
+        // buttons back for a moment.
+      })
+      .catch((e: Error) => {
+        // The server's own sentence. "Someone is already booked as HMUA on
+        // this job. Cancel their booking first…" says what to do next.
+        toast.error(`Could not answer ${app.personName}`, { description: e.message });
+        forget(app.id);
+      })
+      .finally(() => setActing(null));
   };
+
+  const undo = (id: string) => {
+    const timer = timers.current.get(id);
+    if (!timer) return; // Already sent.
+    clearTimeout(timer);
+    timers.current.delete(id);
+    toast.dismiss(`decline-${id}`);
+    forget(id);
+  };
+
+  const decline = (app: JobApplication) => {
+    setDeclining((current) => ({ ...current, [app.id]: 'waiting' }));
+    timers.current.set(
+      app.id,
+      setTimeout(() => {
+        timers.current.delete(app.id);
+        // The toast can outlive this timer — hovering one pauses it — and an
+        // Undo that no longer undoes anything should not stay on screen.
+        toast.dismiss(`decline-${app.id}`);
+        setDeclining((current) => ({ ...current, [app.id]: 'sent' }));
+        answer(app, 'declined');
+      }, DECLINE_UNDO_MS),
+    );
+    toast(`Declined ${app.personName}.`, {
+      id: `decline-${app.id}`,
+      description: 'They will be told in a moment.',
+      duration: DECLINE_UNDO_MS,
+      action: { label: 'Undo', onClick: () => undo(app.id) },
+    });
+  };
+
+  // What Accept is agreeing to pay. The booking opens at the role's own
+  // figure when the post gave one, and at the post's otherwise.
+  const hireRate = hiring
+    ? (hiring.role && roleBudgetLabel(job.roleBudgets, hiring.role)) ||
+      budgetLabel(job.budgetMin, job.budgetMax)
+    : null;
+
+  const live = job.status === 'open';
 
   return (
     <div className="space-y-2 border-t pt-3">
-      {applications.map((app) => (
-        <div key={app.id} className="rounded-lg border p-3">
-          <div className="flex items-start gap-2.5">
-            <Avatar className="size-8">
-              <AvatarImage src={app.personAvatarUrl ?? undefined} alt="" />
-              <AvatarFallback className="text-[11px]">
-                {app.personName.slice(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">
-                {app.personHandle ? (
-                  <Link href={`/u/${app.personHandle}`} className="hover:underline">
-                    {app.personName}
-                  </Link>
-                ) : (
-                  app.personName
-                )}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {app.personRoles.join(', ') || 'No roles listed'}
-              </p>
+      {applications.map((app) => {
+        const waitingOnYou = app.status !== 'accepted' && app.status !== 'declined';
+        // Booking a role twice is refused now; offering it was the bug.
+        const roleTaken = !!app.role && isRoleFilled(job, app.role);
+        const beingDeclined = declining[app.id];
+        return (
+          <div key={app.id} className="rounded-lg border p-3">
+            <div className="flex items-start gap-2.5">
+              <Avatar className="size-8">
+                <AvatarImage src={app.personAvatarUrl ?? undefined} alt="" />
+                <AvatarFallback className="text-[11px]">
+                  {app.personName.slice(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">
+                  {app.personHandle ? (
+                    <Link href={`/u/${app.personHandle}`} className="hover:underline">
+                      {app.personName}
+                    </Link>
+                  ) : (
+                    app.personName
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {app.personRoles.join(', ') || 'No roles listed'}
+                </p>
+              </div>
+              {/* What they applied for, which on a post wanting three roles is
+                  the first thing you need and used to be nowhere. */}
+              {app.role && (
+                <Badge variant="outline" className="shrink-0">
+                  {app.role}
+                </Badge>
+              )}
+              {app.status !== 'new' && (
+                <Badge variant={app.status === 'accepted' ? 'default' : 'secondary'}>
+                  {app.status}
+                </Badge>
+              )}
             </div>
-            {/* What they applied for, which on a post wanting three roles is
-                the first thing you need and used to be nowhere. */}
-            {app.role && (
-              <Badge variant="outline" className="shrink-0">
-                {app.role}
-              </Badge>
+
+            {/*
+              Applications no longer carry a message. Older ones do, and those
+              are still worth reading — so it renders when present and the
+              portfolio link stands in its place when it is not. The work is
+              better evidence than the paragraph was.
+            */}
+            {app.message ? (
+              <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                {app.message}
+              </p>
+            ) : app.personHandle ? (
+              <Link
+                href={`/u/${app.personHandle}`}
+                className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+              >
+                <Eye className="size-3.5" />
+                See their work
+              </Link>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">
+                They have not published a profile yet.
+              </p>
             )}
-            {app.status !== 'new' && (
-              <Badge variant={app.status === 'accepted' ? 'default' : 'secondary'}>
-                {app.status}
-              </Badge>
+
+            {waitingOnYou && beingDeclined ? (
+              <div className="mt-2.5 flex min-h-9 items-center justify-between gap-2 rounded-lg bg-muted py-1 pr-1 pl-3">
+                <p className="text-sm">
+                  {beingDeclined === 'waiting'
+                    ? 'Declined. They will be told in a moment.'
+                    : 'Declined.'}
+                </p>
+                {beingDeclined === 'waiting' && (
+                  <Button size="sm" variant="ghost" onClick={() => undo(app.id)}>
+                    Undo
+                  </Button>
+                )}
+              </div>
+            ) : waitingOnYou ? (
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                {/* A post that has ended takes nobody on, so it offers only
+                    Decline, which answers them. Nor a role somebody already
+                    holds: the server refuses a second booking for it. */}
+                {live && !roleTaken && (
+                  <Button
+                    size="sm"
+                    disabled={respond.isPending}
+                    onClick={() => {
+                      setHiring(app);
+                      setConfirmingHire(true);
+                    }}
+                  >
+                    {acting === app.id ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Check className="size-4" />
+                    )}
+                    Accept
+                  </Button>
+                )}
+                {live && !roleTaken && app.status !== 'shortlisted' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={respond.isPending}
+                    onClick={() => answer(app, 'shortlisted')}
+                  >
+                    <Star className="size-4" />
+                    Shortlist
+                  </Button>
+                )}
+                {live && roleTaken && (
+                  <p className="mr-1 text-xs text-muted-foreground">
+                    {app.role} is booked. Cancel that booking to hire someone else.
+                  </p>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={respond.isPending}
+                  onClick={() => decline(app)}
+                >
+                  <X className="size-4" />
+                  Decline
+                </Button>
+              </div>
+            ) : null}
+
+            {app.status === 'accepted' && (
+              <div className="mt-2.5 space-y-2.5">
+                {/* The agreement. Without it "accepted" is a status and nothing
+                    else — no role, no date, no rate either side can point at. */}
+                {bookingFor(bookings, app.id) && (
+                  <BookingCard booking={bookingFor(bookings, app.id)!} />
+                )}
+                {app.conversationId && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => router.push(`/chat/${app.conversationId}`)}
+                  >
+                    <MessageCircle className="size-4" />
+                    Open chat
+                  </Button>
+                )}
+              </div>
             )}
           </div>
+        );
+      })}
 
-          {/*
-            Applications no longer carry a message. Older ones do, and those
-            are still worth reading — so it renders when present and the
-            portfolio link stands in its place when it is not. The work is
-            better evidence than the paragraph was.
-          */}
-          {app.message ? (
-            <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-              {app.message}
-            </p>
-          ) : app.personHandle ? (
-            <Link
-              href={`/u/${app.personHandle}`}
-              className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-            >
-              <Eye className="size-3.5" />
-              See their work
-            </Link>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              They have not published a profile yet.
-            </p>
-          )}
-
-          {app.status !== 'accepted' && app.status !== 'declined' && (
-            <div className="mt-2.5 flex items-center gap-1.5">
-              <Button
-                size="sm"
-                disabled={respond.isPending}
-                onClick={() => answer(app.id, 'accepted')}
-              >
-                {acting === app.id ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Check className="size-4" />
-                )}
-                Accept
-              </Button>
-              {app.status !== 'shortlisted' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={respond.isPending}
-                  onClick={() => answer(app.id, 'shortlisted')}
-                >
-                  <Star className="size-4" />
-                  Shortlist
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={respond.isPending}
-                onClick={() => answer(app.id, 'declined')}
-              >
-                <X className="size-4" />
-                Decline
-              </Button>
-            </div>
-          )}
-
-          {app.status === 'accepted' && (
-            <div className="mt-2.5 space-y-2.5">
-              {/* The agreement. Without it "accepted" is a status and nothing
-                  else — no role, no date, no rate either side can point at. */}
-              {bookingFor(bookings, app.id) && (
-                <BookingCard booking={bookingFor(bookings, app.id)!} />
-              )}
-              {app.conversationId && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => router.push(`/chat/${app.conversationId}`)}
-                >
-                  <MessageCircle className="size-4" />
-                  Open chat
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      ))}
+      <AlertDialog open={confirmingHire} onOpenChange={setConfirmingHire}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Hire {hiring?.personName}
+              {hiring?.role ? ` as ${hiring.role}` : ''}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {hireRate
+                ? `At ${hireRate}, which you can change on the booking.`
+                : 'You set the rate on the booking.'}{' '}
+              This books them for “{job.title}”, connects you, and opens a chat
+              with them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not yet</AlertDialogCancel>
+            <AlertDialogAction onClick={() => hiring && answer(hiring, 'accepted')}>
+              Hire
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -465,11 +652,81 @@ function Applicants({ postId }: { postId: string }) {
  */
 function BrowseJobs() {
   const [role, setRole] = useState<string | null>(null);
+  /*
+   * A place to look in, which the phone's board has had and this one did
+   * not: the API filters by location, and the only filter here was the role,
+   * so somebody in Davao read every post in Manila to find the two near them.
+   */
+  const [place, setPlace] = useState('');
+  const [searchedPlace, setSearchedPlace] = useState('');
   const { roles: allRoles } = useRoles();
-  const { jobs, total, isLoading, loadFailed, refetch } = useJobs({ roles: role ? [role] : [] });
+
+  // One request per settled word, not per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchedPlace(place.trim()), 350);
+    return () => clearTimeout(timer);
+  }, [place]);
+
+  const {
+    jobs,
+    total,
+    isLoading,
+    loadFailed,
+    refetch,
+    isRefiltering,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useJobs({
+    roles: role ? [role] : [],
+    location: searchedPlace || undefined,
+  });
+
+  const filtered = Boolean(place.trim() || role);
+  const clearPlace = () => {
+    setPlace('');
+    setSearchedPlace('');
+  };
+  const clearFilters = () => {
+    clearPlace();
+    setRole(null);
+  };
 
   return (
     <div className="space-y-4">
+      <div className="relative sm:max-w-sm">
+        <Search
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          value={place}
+          onChange={(e) => setPlace(e.target.value)}
+          placeholder="Anywhere — try Cebu, Manila, Davao"
+          aria-label="Search by place"
+          className="pr-16 pl-9"
+        />
+        <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
+          {/* In the field, not over the list: the previous results stay on
+              screen while the next ones load, so this is the only thing that
+              should change. */}
+          {isRefiltering && (
+            <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
+          )}
+          {/* There was no way to empty it but to backspace it out. */}
+          {place && (
+            <button
+              type="button"
+              onClick={clearPlace}
+              aria-label="Clear the place"
+              className="grid size-6 place-items-center rounded text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-1.5">
         <button type="button" onClick={() => setRole(null)}>
           <Badge variant={role ? 'outline' : 'default'} className="cursor-pointer px-3 py-1.5">
@@ -498,20 +755,52 @@ function BrowseJobs() {
         <Card>
           <EmptyState
             icon={BriefcaseBusiness}
-            title={role ? `Nothing open for a ${role.toLowerCase()}` : 'No open jobs right now'}
-            description="Posts expire when the job does, so this list is always current. Check back, or post the job you need doing."
+            title={
+              searchedPlace
+                ? `Nothing in “${searchedPlace}”`
+                : role
+                  ? `Nothing open for a ${role.toLowerCase()}`
+                  : 'No open jobs right now'
+            }
+            description={
+              filtered
+                ? 'Try a wider search, or post the job you need doing.'
+                : 'Posts expire when the job does, so this list is always current. Check back, or post the job you need doing.'
+            }
             action={
-              <Button asChild>
-                <Link href="/jobs/new">Post a job</Link>
-              </Button>
+              // A filtered board that comes back empty is usually the filter,
+              // and the way out of it should be on the card, not up the page.
+              filtered ? (
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button onClick={clearFilters}>Clear filters</Button>
+                  <Button asChild variant="outline">
+                    <Link href="/jobs/new">Post a job instead</Link>
+                  </Button>
+                </div>
+              ) : (
+                <Button asChild>
+                  <Link href="/jobs/new">Post a job</Link>
+                </Button>
+              )
             }
           />
         </Card>
       ) : (
         <>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            {total} open {total === 1 ? 'job' : 'jobs'}
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              {total} open {total === 1 ? 'job' : 'jobs'}
+            </p>
+            {filtered && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
           <div className="grid gap-3">
             {jobs.map((job) => (
               <Link key={job.id} href={`/jobs/${job.slug}`}>
@@ -600,6 +889,24 @@ function BrowseJobs() {
               </Link>
             ))}
           </div>
+          {/* The board comes a page at a time, and the header counted every
+              post while only the first thirty could be reached — the
+              farthest away, since it is nearest first. Not while a new
+              filter is loading: the old one's next page is not this one's. */}
+          {hasNextPage && !isRefiltering && (
+            <Button
+              variant="secondary"
+              className="w-full"
+              disabled={isFetchingNextPage}
+              onClick={() => void fetchNextPage()}
+            >
+              {isFetchingNextPage ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                `Show more (${jobs.length} of ${total})`
+              )}
+            </Button>
+          )}
         </>
       )}
     </div>
@@ -725,7 +1032,23 @@ export default function MyJobsPage() {
   );
 }
 
-const TABS = ['browse', 'posted', 'applications'] as const;
+type JobsTab = 'browse' | 'posted' | 'applications';
+
+/**
+ * Every spelling a link might use for a tab.
+ *
+ * The applications tab was `applications` in every link to it — the apply
+ * page, the notification bell, the realtime toasts — and `applied` on the tab
+ * itself, so none of those links matched and all of them opened on Browse.
+ * The phone calls it `applied`, so both are accepted here, and a link built
+ * for one client does not miss on the other.
+ */
+const TAB_ALIASES: Record<string, JobsTab> = {
+  browse: 'browse',
+  posted: 'posted',
+  applications: 'applications',
+  applied: 'applications',
+};
 
 function MyJobs() {
   const { jobs, isLoading, loadFailed, refetch } = useMyJobs();
@@ -740,14 +1063,25 @@ function MyJobs() {
    * Browse, so the poster landed on a list of other people's jobs. Same for
    * the applicant after being answered.
    */
-  const requested = params.get('tab');
-  const tab = TABS.includes(requested as (typeof TABS)[number])
-    ? (requested as (typeof TABS)[number])
+  const requested = params.get('tab') ?? '';
+  // hasOwn, so ?tab=constructor is not handed a function off the prototype.
+  const tab: JobsTab = Object.hasOwn(TAB_ALIASES, requested)
+    ? TAB_ALIASES[requested]
     : 'browse';
+  /** The post to open with its applicants showing, from "Manage post". */
+  const focusPostId = params.get('post');
   const setTab = (next: string) =>
     // replace, not push: flipping tabs should not fill the back button with
-    // the same screen four times.
+    // the same screen four times. Drops ?post= too — it was about arriving.
     router.replace(next === 'browse' ? '/jobs/mine' : `/jobs/mine?tab=${next}`);
+
+  // The phone keeps Bookings as a fourth tab on this screen; on the web they
+  // have a page of their own, so a link shaped for the phone goes there
+  // rather than falling through to the board.
+  const toBookings = requested === 'bookings';
+  useEffect(() => {
+    if (toBookings) router.replace('/bookings');
+  }, [toBookings, router]);
 
   /*
    * Looking at the board is what "seen" means.
@@ -766,8 +1100,9 @@ function MyJobs() {
   const { count: unseen } = useUnseenJobs();
   const { mutate: markJobsSeen } = useMarkJobsSeen();
   useEffect(() => {
-    if (tab === 'browse' && unseen > 0) markJobsSeen();
-  }, [tab, unseen, markJobsSeen]);
+    // Not on the way through to Bookings, which shows nobody the board.
+    if (tab === 'browse' && !toBookings && unseen > 0) markJobsSeen();
+  }, [tab, toBookings, unseen, markJobsSeen]);
 
   return (
     <AppShell title="Jobs">
@@ -797,7 +1132,7 @@ function MyJobs() {
         <TabsList>
           <TabsTrigger value="browse">Browse</TabsTrigger>
           <TabsTrigger value="posted">Posted ({jobs.length})</TabsTrigger>
-          <TabsTrigger value="applied">My applications</TabsTrigger>
+          <TabsTrigger value="applications">My applications</TabsTrigger>
         </TabsList>
 
         <TabsContent value="browse" className="mt-4">
@@ -825,13 +1160,13 @@ function MyJobs() {
           ) : (
             <div className="space-y-3">
               {jobs.map((job) => (
-                <JobRow key={job.id} job={job} />
+                <JobRow key={job.id} job={job} focused={job.id === focusPostId} />
               ))}
             </div>
           )}
         </TabsContent>
 
-        <TabsContent value="applied" className="mt-4">
+        <TabsContent value="applications" className="mt-4">
           <MyApplications onBrowse={() => setTab('browse')} />
         </TabsContent>
         </Tabs>

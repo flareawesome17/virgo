@@ -39,7 +39,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useUnreadCount } from '@/hooks/useChat';
 import { useCollaboratorInvitations } from '@/hooks/useCollaborators';
-import { useIncomingFriendRequests } from '@/hooks/useFriends';
+import { usePeopleUnseen } from '@/hooks/useFriends';
 import { SidebarFriends } from '@/components/sidebar-friends';
 import { useEventInvitations } from '@/hooks/useScheduleEvents';
 import { useUnseenJobs } from '@/hooks/useJobs';
@@ -58,6 +58,8 @@ interface NavItem {
   href: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
+  /** Other routes that belong to this item, so it stays lit on them. */
+  also?: string[];
   /** Which live count fills this item's badge slot, if any. */
   badge?:
     | 'unread'
@@ -73,7 +75,8 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
   {
     items: [
       { href: '/', label: 'Dashboard', icon: Home },
-      { href: '/feed', label: 'Feed', icon: LayoutGrid },
+      // A post opened from the feed is still the feed.
+      { href: '/feed', label: 'Feed', icon: LayoutGrid, also: ['/showcase'] },
       { href: '/workspaces', label: 'Workspaces', icon: FolderOpen, badge: 'invitations' },
       // Every album across every workspace. There was no way to reach an album
       // on the web without first remembering which workspace it was in.
@@ -84,7 +87,7 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
   {
     heading: 'People',
     items: [
-      { href: '/network', label: 'Network', icon: Users, badge: 'friendRequests' },
+      { href: '/network', label: 'People', icon: Users, badge: 'friendRequests' },
       { href: '/chat', label: 'Chat', icon: MessageCircle, badge: 'unread' },
       { href: '/nearby', label: 'Nearby', icon: MapPin },
       { href: '/jobs/mine', label: 'Jobs', icon: BriefcaseBusiness, badge: 'newJobs' },
@@ -122,9 +125,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   // An invitation is invisible until answered — the workspace does not
   // appear anywhere else — so the count has to live on the nav itself.
   const { invitations } = useCollaboratorInvitations();
-  // Friend requests waiting on an answer. Kept out of the page so the
-  // count is visible from anywhere, which is the point of a badge.
-  const { count: friendRequests } = useIncomingFriendRequests();
+  // Connection requests and hire enquiries that arrived since People was last
+  // opened. Kept out of the page so the count is visible from anywhere, which
+  // is the point of a badge; opening People clears it, and the requests stay
+  // listed there until they are answered. Enquiries were counted nowhere.
+  const { count: friendRequests } = usePeopleUnseen();
   // Invitations to somebody else's shoot, waiting on an answer.
   const { invitations: eventInvites } = useEventInvitations();
   // Open postings this user has not looked at, plus applications on their own
@@ -153,7 +158,9 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             const active =
               item.href === '/'
                 ? pathname === '/'
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                : [item.href, ...(item.also ?? [])].some(
+                    (href) => pathname === href || pathname.startsWith(`${href}/`),
+                  );
             const Icon = item.icon;
             return (
               <Link

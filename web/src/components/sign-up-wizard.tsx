@@ -110,6 +110,9 @@ export function SignUpWizard() {
   const isLast = step === STEPS.length - 1;
 
   const submit = () => {
+    // Enter submits the form whatever state the button is in, so a second
+    // press while the first request was out registered twice.
+    if (!stepReady || signUp.isPending) return;
     setError(null);
     signUp.mutate(
       {

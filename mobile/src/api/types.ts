@@ -87,6 +87,12 @@ export interface Album {
   my_access?: 'owner' | 'view' | 'download' | 'upload' | 'manage' | null;
   status: AlbumStatus;
   retention_days: number | null;
+  /**
+   * The last day the files are kept, YYYY-MM-DD, when the album keeps them
+   * until a date rather than for a number of days. Optional: albums saved on
+   * a device before the field existed have none.
+   */
+  retention_until?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -130,6 +136,9 @@ export interface ScheduleEvent {
    * comes back from the insert, which has nobody else's invitation to consider.
    */
   is_owner?: boolean;
+  /** Whose event it is, on a single read. For a guest to see who organised it. */
+  organiser_name?: string | null;
+  organiser_avatar_url?: string | null;
 }
 
 export type AttendeeStatus = 'pending' | 'accepted' | 'declined';

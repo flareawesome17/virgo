@@ -42,18 +42,20 @@ export default function HomePage() {
   const { profile, user } = useAuth();
   const {
     workspaces,
+    data: workspacesData,
     isLoading: loadingWorkspaces,
     loadFailed: workspacesFailed,
     refetch: refetchWorkspaces,
   } = useWorkspaces({ limit: 100 });
-  const { albums } = useAlbums({ limit: 100 });
+  const { albums, data: albumsData } = useAlbums({ limit: 100 });
   const {
     events,
+    data: eventsData,
     isLoading: loadingEvents,
     loadFailed: eventsFailed,
     refetch: refetchEvents,
   } = useScheduleEvents({ limit: 100 });
-  const { collaborators } = useCollaborators({ limit: 100 });
+  const { collaborators, data: collaboratorsData } = useCollaborators({ limit: 100 });
   const { storageUsedBytes, storageLimitBytes, storageFraction, usage } = useUsage();
 
   const name = profile?.displayName?.split(' ')[0] || user?.email?.split('@')[0] || '';
@@ -70,11 +72,13 @@ export default function HomePage() {
 
   const recentAlbums = albums.slice(0, 6);
 
+  // Null until each list has arrived, and drawn as a dash: a 0 read as "you
+  // have none" for the second or two before the real number came in.
   const stats = [
-    { label: 'Workspaces', value: workspaces.length, icon: FolderOpen, href: '/workspaces' },
-    { label: 'Albums', value: albums.length, icon: Images, href: '/workspaces' },
-    { label: 'Collaborators', value: collaborators.length, icon: Users, href: '/network' },
-    { label: 'Events', value: events.length, icon: CalendarDays, href: '/schedule' },
+    { label: 'Workspaces', value: workspacesData ? workspaces.length : null, icon: FolderOpen, href: '/workspaces' },
+    { label: 'Albums', value: albumsData ? albums.length : null, icon: Images, href: '/workspaces' },
+    { label: 'Collaborators', value: collaboratorsData ? collaborators.length : null, icon: Users, href: '/network' },
+    { label: 'Events', value: eventsData ? events.length : null, icon: CalendarDays, href: '/schedule' },
   ];
 
   return (
@@ -106,7 +110,7 @@ export default function HomePage() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-xl font-bold leading-none tabular-nums">
-                        {stat.value.toLocaleString()}
+                        {stat.value === null ? '—' : stat.value.toLocaleString()}
                       </p>
                       <p className="mt-1 truncate text-xs text-muted-foreground">
                         {stat.label}
@@ -244,8 +248,10 @@ export default function HomePage() {
                   <HardDrive className="size-4 text-muted-foreground" />
                   <h3 className="text-sm font-semibold">Storage</h3>
                 </div>
+                {/* A dash until the reading arrives. "0 B used" is a real
+                    answer, and it was being given before there was one. */}
                 <p className="mt-3 text-2xl font-bold tabular-nums">
-                  {formatBytes(storageUsedBytes)}
+                  {usage ? formatBytes(storageUsedBytes) : '—'}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {storageLimitBytes

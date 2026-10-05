@@ -48,7 +48,7 @@ export default function ApplyPage() {
         <EmptyState
           icon={BriefcaseBusiness}
           title="Job not found"
-          description="This post has been filled, closed, or taken down."
+          description="This post has ended or been taken down."
           action={<Button onClick={() => router.push('/jobs/mine')}>My jobs</Button>}
         />
       </AppShell>
@@ -100,6 +100,15 @@ export default function ApplyPage() {
   const choosing = left.length > 1;
   const ready = !choosing || !!role;
 
+  /*
+   * Applying goes back to the post.
+   *
+   * It went to the applications tab, under a toast promising a chat that only
+   * exists once they accept you. The post now says what you applied as, and
+   * offers to take it back — which is the one thing worth doing next.
+   * replace, not push, so Back from the post does not reopen a form you have
+   * already sent.
+   */
   const submit = () => {
     apply.mutate(
       // With one role left the picker is not shown, so send that one.
@@ -108,9 +117,9 @@ export default function ApplyPage() {
         onSuccess: () => {
           track('job_applied', { rolesOnPost: post.rolesWanted.length, chose: choosing });
           toast.success('Application sent', {
-            description: `${post.postedBy.displayName} will see it and can reply in chat.`,
+            description: `${post.postedBy.displayName} will see it. A chat opens if they take you on.`,
           });
-          router.push('/jobs/mine?tab=applications');
+          router.replace(`/jobs/${slug}`);
         },
         onError: (error: Error) => toast.error(error.message),
       },

@@ -1,8 +1,11 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform, Linking } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { InsetFrame } from '@/components/InsetFrame';
+import { DetailFallback } from '@/components/DetailFallback';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCreateReminder, useReminder, useScheduleEvent, useUpdateReminder } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { FormHeader } from '@/components/FormHeader';
 import { useEffect, useRef, useState } from 'react';
 import { ensurePermissions } from '@/src/lib/notifications';
@@ -85,7 +88,13 @@ export default function CreateReminderScreen() {
    * was: a wrong time meant deleting it and starting again.
    */
   const { eventId: eventParam, edit: editId } = useLocalSearchParams<{ eventId?: string; edit?: string }>();
-  const { data: existing } = useReminder(editId);
+  const {
+    data: existing,
+    error: existingError,
+    isError: existingFailed,
+    isPaused: existingPaused,
+    refetch: refetchExisting,
+  } = useReminder(editId);
   const isEdit = Boolean(editId);
   const eventId = eventParam ?? existing?.schedule_event_id ?? undefined;
 
@@ -121,6 +130,13 @@ export default function CreateReminderScreen() {
     setPushEnabled(existing.has_push_notification);
   }, [existing]);
 
+  // The time is left out of a new one: it follows the event as that loads,
+  // which is not something anybody typed.
+  const { allowLeave } = useDiscardGuard(
+    { title, description, alarmEnabled, pushEnabled, ...(isEdit ? { when: when.getTime() } : {}) },
+    !isEdit || filled.current,
+  );
+
   const createReminder = useCreateReminder();
   const updateReminder = useUpdateReminder();
   const saving = createReminder.isPending || updateReminder.isPending;
@@ -138,7 +154,10 @@ export default function CreateReminderScreen() {
       has_push_notification: pushEnabled,
     };
     const done = {
-      onSuccess: () => router.back(),
+      onSuccess: () => {
+        allowLeave();
+        router.back();
+      },
       onError: (err: any) =>
         Alert.alert(
           isEdit ? 'Could not save the reminder' : 'Could not create reminder',
@@ -173,7 +192,12 @@ export default function CreateReminderScreen() {
     if (alarmEnabled || pushEnabled) {
       // Denied notifications made an alerting reminder silent, and nothing
       // said so: it simply never went off.
-      const allowed = await ensurePermissions();
+      //
+      // Straight to the system's question, past an earlier "Not now": saving
+      // an alerting reminder is the reason to ask. Through the explainer, a
+      // "Not now" from days before ended here in "Open Settings", where iOS
+      // had no switch to show because it had never been asked.
+      const allowed = await ensurePermissions({ explain: false });
       if (!allowed) {
         Alert.alert(
           'Notifications are off for Virgo',
@@ -190,8 +214,22 @@ export default function CreateReminderScreen() {
     save();
   };
 
+  // Not a blank form while the reminder loads, or when it cannot.
+  if (isEdit && !existing) {
+    return (
+      <DetailFallback
+        title="Edit reminder"
+        what="this reminder"
+        gone="It was deleted."
+        error={existingError}
+        failed={existingFailed || existingPaused}
+        onRetry={() => void refetchExisting()}
+      />
+    );
+  }
+
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
       <FormHeader
         title={isEdit ? 'Edit reminder' : 'New reminder'}
         subtitle={event ? `for ${event.title}` : undefined}
@@ -203,7 +241,7 @@ export default function CreateReminderScreen() {
         className="flex-1"
       >
 
-      <ScrollView
+      <ScrollView keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 140 }}
@@ -312,6 +350,6 @@ export default function CreateReminderScreen() {
         </Pressable>
       </View>
           </KeyboardAvoidingView>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

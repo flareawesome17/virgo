@@ -43,9 +43,10 @@ export function LocationField({
           placeholderTextColor="#9ca3af"
           maxLength={120}
           onFocus={() => setFocused(true)}
-          // Not onBlur: tapping a suggestion blurs the input first, and hiding
-          // the list on blur means the tap lands on nothing. The list closes
-          // when something is chosen instead.
+          // Closes when the field is left, a beat late: tapping a suggestion
+          // blurs the input first, and closing at once meant the tap landed on
+          // nothing. Without it the list stayed open over the form below.
+          onBlur={() => setTimeout(() => setFocused(false), 200)}
           className="text-foreground text-sm flex-1 py-3"
         />
       </View>

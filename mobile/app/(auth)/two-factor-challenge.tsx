@@ -52,7 +52,9 @@ export default function TwoFactorChallengeScreen() {
     : /^\d{6}$/.test(normalized);
 
   const submit = () => {
-    if (!params.challenge || !canSubmit) return;
+    // Go pressed twice used the code twice: the second attempt failed and
+    // could burn the emailed code before the first answer arrived.
+    if (!params.challenge || !canSubmit || completeTwoFactorSignIn.isPending) return;
     setError('');
     setNotice('');
     completeTwoFactorSignIn.mutate(

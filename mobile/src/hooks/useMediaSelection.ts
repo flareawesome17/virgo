@@ -121,6 +121,9 @@ export function useDeleteFiles(albumId: string | undefined) {
           : Promise.resolve(),
         queryClient.invalidateQueries({ queryKey: queryKeys.albums.all }),
         queryClient.invalidateQueries({ queryKey: usageQueryKey }),
+        // Counted from the same files: the workspace page kept the old totals.
+        queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all }),
+        queryClient.invalidateQueries({ queryKey: ['storage', 'breakdown'] }),
       ]),
   });
 }

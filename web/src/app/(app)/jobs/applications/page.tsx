@@ -8,5 +8,5 @@ import { redirect } from 'next/navigation';
  * sending somebody to a URL that 404s is worse than an extra hop.
  */
 export default function JobApplicationsPage() {
-  redirect('/jobs/mine');
+  redirect('/jobs/mine?tab=applications');
 }

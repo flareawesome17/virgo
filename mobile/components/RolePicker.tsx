@@ -53,12 +53,20 @@ export function RolePicker({
         const empty = counts !== undefined && !count;
 
         return (
+          // The same width either way. The tick on a chosen chip made it
+          // wider, so choosing one pushed the rest of the row along, and
+          // could move the chip you were about to tap. A chosen chip trades
+          // padding for the tick: 12 + tick 12 + gap 4 + 12, against 20 + 20.
           <Pressable
             key={role}
             disabled={disabled}
             onPress={() => toggle(role)}
-            className={`flex-row items-center gap-1.5 rounded-full px-3.5 py-2 active:scale-[0.96] ${
-              isSelected ? 'bg-action' : 'bg-card'
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: isSelected, disabled }}
+            accessibilityLabel={counts !== undefined ? `${role}, ${count ?? 0}` : role}
+            hitSlop={{ top: 4, bottom: 4 }}
+            className={`flex-row items-center gap-1 rounded-full py-2.5 active:scale-[0.96] ${
+              isSelected ? 'bg-action px-3' : 'bg-card px-5'
             }`}
             style={{
               opacity: disabled ? 0.5 : empty && !isSelected ? 0.55 : 1,
@@ -83,8 +91,8 @@ export function RolePicker({
             </Text>
             {counts !== undefined && (
               <Text
-                className={`text-xs font-bold ${
-                  isSelected ? 'text-white/80' : 'text-muted-foreground'
+                className={`text-xs font-bold ml-0.5 ${
+                  isSelected ? 'text-white' : 'text-muted-foreground'
                 }`}
               >
                 {count ?? 0}

@@ -81,7 +81,10 @@ export const queryClient = new QueryClient({
 // v4: showcases gained unpublishedAt, and a maker's handle can now be null for
 // an unpublished profile.
 // v5: the job board is paged, and a saved board has no pages.
-const CACHE_VERSION = 'v5-jobs-paged';
+// v6: the chat list and every thread are paged, comments come with an
+// `earlier` flag and profile work with a cursor. A saved thread is one array,
+// which the paged thread reads as no pages at all.
+const CACHE_VERSION = 'v6-chat-paged';
 
 /**
  * Queries never written to disk, whatever their staleTime says.

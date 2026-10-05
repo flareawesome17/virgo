@@ -68,3 +68,24 @@ describe('DiscoverService.nearby', () => {
     expect(JSON.stringify(people)).not.toContain('ana@example.com');
   });
 });
+
+describe('DiscoverService.roleCounts', () => {
+  it('counts in the database over everyone in range, not over the list of 50', async () => {
+    const { service, query } = serviceOver([
+      { role: 'Photographer', n: 120 },
+      { role: 'Not a role', n: 3 },
+    ]);
+
+    const counts = await service.roleCounts(ME, 30);
+
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain('unnest(candidates.roles)');
+    expect(sql).toContain('group by r.role');
+    expect(sql).not.toMatch(/limit 50/);
+    // The same candidates as the list, blocks and suspensions included.
+    expect(sql).toMatch(/user_blocks/);
+    expect(params).toEqual([ME, 10.3, 123.9, 30, []]);
+    expect(counts.Photographer).toBe(120);
+    expect(counts).not.toHaveProperty('Not a role');
+  });
+});

@@ -58,8 +58,8 @@ export function VerifyEmailBanner({ children }: { children: ReactNode }) {
     {showing && profile ? (
       <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutUp.duration(180)}>
         <View
-          className="flex-row items-center gap-2.5 px-4 pb-2.5"
-          style={{ paddingTop: insets.top + 8, backgroundColor: '#f59e0b1a' }}
+          className="flex-row items-center gap-2.5 pl-4 pr-1 pb-1.5 bg-warning/10"
+          style={{ paddingTop: insets.top + 6 }}
         >
           <MailWarningIcon size={16} color="#f59e0b" />
           <View className="flex-1 min-w-0">
@@ -67,23 +67,31 @@ export function VerifyEmailBanner({ children }: { children: ReactNode }) {
               Confirm your email to finish setting up
             </Text>
             <Text className="text-muted-foreground text-[11px] mt-0.5">
-              We sent a link to {profile.email}. Until then, changes will not save.
+              We sent a link to {profile.email}.
             </Text>
           </View>
+          {/* The warning token, not amber: white on #f59e0b was about 2:1. */}
           <Pressable
-            className="rounded-lg px-3 py-1.5"
-            style={{ backgroundColor: '#f59e0b', opacity: resend.isPending ? 0.6 : 1 }}
+            className="rounded-lg px-3 min-h-[36px] justify-center bg-warning"
+            style={{ opacity: resend.isPending ? 0.6 : 1 }}
             disabled={resend.isPending}
+            accessibilityRole="button"
+            hitSlop={4}
             onPress={() => resend.mutate()}
           >
             {resend.isPending ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text className="text-white text-[11px] font-bold">Resend</Text>
+              <Text className="text-white text-[12px] font-bold">Resend</Text>
             )}
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => setDismissed(true)} hitSlop={8}>
-            <XIcon size={15} className="text-muted-foreground" />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+            onPress={() => setDismissed(true)}
+            className="w-11 h-11 items-center justify-center active:opacity-60"
+          >
+            <XIcon size={16} className="text-muted-foreground" />
           </Pressable>
         </View>
       </Animated.View>

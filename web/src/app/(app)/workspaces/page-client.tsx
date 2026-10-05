@@ -29,24 +29,54 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useCreateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAlbums } from '@/hooks/useAlbums';
 import { useUsage } from '@/hooks/useUsage';
 import { ACCENT_COLORS, plural } from '@/lib/workspaces';
 import { cn } from '@/lib/utils';
+import {
+  DISCARD_BODY,
+  DISCARD_TITLE,
+  useDiscardGuard,
+  useGuardedClose,
+  useOpeningKey,
+} from '@/lib/discard-guard';
 
-function CreateWorkspaceDialog({
-  open,
-  onOpenChange,
-}: {
+type CreateWorkspaceDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+};
+
+/**
+ * A fresh form for every opening. It stayed mounted between uses, so a name
+ * typed and cancelled was still waiting next time — and "Discard" has to
+ * mean it.
+ */
+function CreateWorkspaceDialog(props: CreateWorkspaceDialogProps) {
+  const opening = useOpeningKey(props.open);
+  return <CreateWorkspaceForm key={opening} {...props} />;
+}
+
+function CreateWorkspaceForm({ open, onOpenChange }: CreateWorkspaceDialogProps) {
   const router = useRouter();
   const create = useCreateWorkspace();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState(ACCENT_COLORS[0].hex);
+  const { dirty } = useDiscardGuard({ name, description, color }, open);
+  // Escape, the overlay, the X and Cancel ask first. Creating closes directly.
+  const guard = useGuardedClose(dirty, onOpenChange);
+  const close = guard.close;
 
   const submit = () => {
     const trimmed = name.trim();
@@ -56,9 +86,6 @@ function CreateWorkspaceDialog({
       {
         onSuccess: (workspace) => {
           onOpenChange(false);
-          setName('');
-          setDescription('');
-          setColor(ACCENT_COLORS[0].hex);
           router.push(`/workspaces/${workspace.id}`);
         },
         onError: (err: Error) => toast.error('Could not create workspace', {
@@ -69,7 +96,7 @@ function CreateWorkspaceDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>New workspace</DialogTitle>
@@ -132,7 +159,7 @@ function CreateWorkspaceDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => close(false)}>
             Cancel
           </Button>
           <Button onClick={submit} disabled={!name.trim() || create.isPending}>
@@ -141,6 +168,19 @@ function CreateWorkspaceDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={guard.asking} onOpenChange={(o) => !o && guard.keepEditing()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{DISCARD_TITLE}</AlertDialogTitle>
+            <AlertDialogDescription>{DISCARD_BODY}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={guard.discard}>Discard</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

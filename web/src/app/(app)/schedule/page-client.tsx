@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Bell,
+  BellOff,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -20,9 +21,10 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { AppShell, PageHeader } from '@/components/app-shell';
-import { EmptyState, ListSkeleton } from '@/components/states';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -59,16 +61,22 @@ import {
   useEventInvitations,
   useInviteToEvent,
   useRespondToEventInvitation,
+  useScheduleEvent,
   useScheduleEvents,
   useUpdateScheduleEvent,
 } from '@/hooks/useScheduleEvents';
-import type { ScheduleEvent } from '@/api';
+import type { Reminder, ScheduleEvent } from '@/api';
 import {
   AttendeeSummary,
   InvitePeople,
   ManageAttendeesDialog,
 } from '@/components/event-invites';
-import { useCreateReminder, useDeleteReminder, useReminders } from '@/hooks/useReminders';
+import {
+  useCreateReminder,
+  useDeleteReminder,
+  useReminders,
+  useUpdateReminder,
+} from '@/hooks/useReminders';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import {
   DAY_DOT_SIZE,
@@ -84,6 +92,13 @@ import {
 } from '@/lib/calendar';
 import type { EventType } from '@/api';
 import { LocationField } from '@/components/location-field';
+import {
+  DISCARD_BODY,
+  DISCARD_TITLE,
+  useDiscardGuard,
+  useGuardedClose,
+  useOpeningKey,
+} from '@/lib/discard-guard';
 
 /**
  * Written out with labels rather than capitalising the value, because one of
@@ -115,13 +130,29 @@ function timeInputValue(event: ScheduleEvent | undefined): string {
 /** The workspace select's value for an event that belongs to none. */
 const NO_WORKSPACE = 'none';
 
-function EventDialog({
-  open,
-  onOpenChange,
-  defaultDate,
-  defaultWorkspaceId,
-  event,
-}: {
+/**
+ * "Discard your changes?", over a form dialog closed with something typed in
+ * it. The X, Cancel, Escape and a stray click on the overlay all threw away a
+ * half-written event or reminder without a word.
+ */
+function DiscardChangesDialog({ guard }: { guard: ReturnType<typeof useGuardedClose> }) {
+  return (
+    <AlertDialog open={guard.asking} onOpenChange={(o) => !o && guard.keepEditing()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{DISCARD_TITLE}</AlertDialogTitle>
+          <AlertDialogDescription>{DISCARD_BODY}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep editing</AlertDialogCancel>
+          <AlertDialogAction onClick={guard.discard}>Discard</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+type EventDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultDate: string;
@@ -129,7 +160,27 @@ function EventDialog({
   defaultWorkspaceId?: string | null;
   /** Present to edit that event; absent to create a new one. */
   event?: ScheduleEvent;
-}) {
+};
+
+/**
+ * Filled afresh on every opening, not just on mount: the New event dialog
+ * stays mounted between uses, so it would otherwise open on the day it was
+ * last opened for, with whatever was typed and thrown away last time. The
+ * form is keyed on the opening instead, which also gives the discard guard a
+ * clean starting point each time.
+ */
+function EventDialog(props: EventDialogProps) {
+  const opening = useOpeningKey(props.open);
+  return <EventDialogForm key={opening} {...props} />;
+}
+
+function EventDialogForm({
+  open,
+  onOpenChange,
+  defaultDate,
+  defaultWorkspaceId,
+  event,
+}: EventDialogProps) {
   const create = useCreateScheduleEvent();
   const update = useUpdateScheduleEvent();
   const invite = useInviteToEvent();
@@ -141,6 +192,10 @@ function EventDialog({
   const [description, setDescription] = useState(event?.description ?? '');
   const [date, setDate] = useState(event?.event_date ?? defaultDate);
   const [time, setTime] = useState(timeInputValue(event));
+  // Said and chosen, as on the phone. An empty time always saved as all day,
+  // but nothing said so, and clearing a time input is not something people
+  // think to do.
+  const [allDay, setAllDay] = useState(editing && !event?.event_time);
   const [type, setType] = useState<EventType>(
     (event?.event_type as EventType | undefined) ?? 'event',
   );
@@ -162,33 +217,15 @@ function EventDialog({
   // button waits for the name the same way it waits for the title.
   const needsLabel = type === 'other' && !otherLabel.trim();
 
-  // Refilled on every open, not just mount: the New event dialog stays mounted
-  // between uses, so without this it would open on the day it was last opened
-  // for — and any instance handed a different event would go on showing the
-  // previous one's values. Adjusted during render rather than in an effect, so
-  // the first frame of the dialog already shows them.
-  const [filledFor, setFilledFor] = useState({ open, event, defaultDate, defaultWorkspaceId });
-  if (
-    open !== filledFor.open ||
-    event !== filledFor.event ||
-    defaultDate !== filledFor.defaultDate ||
-    defaultWorkspaceId !== filledFor.defaultWorkspaceId
-  ) {
-    setFilledFor({ open, event, defaultDate, defaultWorkspaceId });
-    if (open && event) {
-      setTitle(event.title);
-      setDescription(event.description ?? '');
-      setDate(event.event_date);
-      setTime(timeInputValue(event));
-      setType(event.event_type as EventType);
-      setOtherLabel(event.event_type_other ?? '');
-      setLocation(event.location ?? '');
-      setWorkspaceId(event.workspace_id ?? NO_WORKSPACE);
-    } else if (open) {
-      setDate(defaultDate);
-      setWorkspaceId(defaultWorkspaceId ?? NO_WORKSPACE);
-    }
-  }
+  const { dirty } = useDiscardGuard(
+    { title, description, date, time, allDay, type, otherLabel, location, guests, workspaceId },
+    open,
+  );
+  // Escape, the overlay, the X and Cancel all come through `close`. A save
+  // closes through onOpenChange directly, which nobody needs to confirm.
+  const guard = useGuardedClose(dirty, onOpenChange);
+  const close = guard.close;
+  const eventTime = allDay ? null : time || null;
 
   const submit = () => {
     const trimmed = title.trim();
@@ -215,7 +252,7 @@ function EventDialog({
           title: trimmed,
           description: description.trim() || null,
           event_date: date,
-          event_time: time || null,
+          event_time: eventTime,
           ...typeFields,
         },
         {
@@ -235,7 +272,7 @@ function EventDialog({
         title: trimmed,
         description: description.trim() || null,
         event_date: date,
-        event_time: time || null,
+        event_time: eventTime,
         ...typeFields,
       },
       {
@@ -257,13 +294,8 @@ function EventDialog({
               },
             );
           }
+          // Nothing to reset: the next opening mounts a fresh form.
           onOpenChange(false);
-          setTitle('');
-          setDescription('');
-          setTime('');
-          setOtherLabel('');
-          setLocation('');
-          setGuests([]);
         },
         onError: (err: Error) =>
           toast.error('Could not create event', { description: err.message }),
@@ -272,7 +304,7 @@ function EventDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit event' : 'New event'}</DialogTitle>
@@ -283,7 +315,9 @@ function EventDialog({
                 ? // Says who owns it and that the change is not quiet. Editing
                   // somebody else's event should feel like an act with an
                   // audience, because it is one.
-                  'This is not your event. The organiser and everyone going will be told what you changed.'
+                  event?.organiser_name
+                  ? `This is ${event.organiser_name}’s event. They and everyone going will be told what you changed.`
+                  : 'This is not your event. The organiser and everyone going will be told what you changed.'
                 : 'Anyone who accepted sees these changes on their own calendar.'}
           </DialogDescription>
         </DialogHeader>
@@ -319,8 +353,26 @@ function EventDialog({
                 type="time"
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
+                disabled={allDay}
               />
             </div>
+          </div>
+
+          <div className="-mt-1 flex items-center gap-2">
+            <Checkbox
+              id="event-all-day"
+              checked={allDay}
+              onCheckedChange={(checked) => {
+                const next = checked === true;
+                setAllDay(next);
+                // Cleared rather than kept behind the box: unticking it later
+                // should not bring back a time that was decided against.
+                if (next) setTime('');
+              }}
+            />
+            <Label htmlFor="event-all-day" className="font-normal">
+              All day
+            </Label>
           </div>
 
           <div className="grid gap-2">
@@ -412,7 +464,7 @@ function EventDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => close(false)}>
             Cancel
           </Button>
           <Button
@@ -424,23 +476,32 @@ function EventDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <DiscardChangesDialog guard={guard} />
     </Dialog>
   );
 }
 
-function NewReminderDialog({
-  open,
-  onOpenChange,
-}: {
+type NewReminderDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+};
+
+/** Keyed on the opening, as EventDialog is, so each one starts empty. */
+function NewReminderDialog(props: NewReminderDialogProps) {
+  const opening = useOpeningKey(props.open);
+  return <NewReminderForm key={opening} {...props} />;
+}
+
+function NewReminderForm({ open, onOpenChange }: NewReminderDialogProps) {
   const create = useCreateReminder();
   const [title, setTitle] = useState('');
   const [when, setWhen] = useState('');
+  const { dirty } = useDiscardGuard({ title, when }, open);
+  const guard = useGuardedClose(dirty, onOpenChange);
+  const close = guard.close;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>New reminder</DialogTitle>
@@ -472,7 +533,7 @@ function NewReminderDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => close(false)}>
             Cancel
           </Button>
           <Button
@@ -487,11 +548,7 @@ function NewReminderDialog({
                   is_alarm_enabled: true,
                 },
                 {
-                  onSuccess: () => {
-                    onOpenChange(false);
-                    setTitle('');
-                    setWhen('');
-                  },
+                  onSuccess: () => onOpenChange(false),
                   onError: (err: Error) =>
                     toast.error('Could not create reminder', { description: err.message }),
                 },
@@ -503,6 +560,7 @@ function NewReminderDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <DiscardChangesDialog guard={guard} />
     </Dialog>
   );
 }
@@ -612,6 +670,210 @@ function InvitationsTab() {
   );
 }
 
+/**
+ * The two reminder lists, as the phone's All reminders screen asks for them.
+ *
+ * Open ones oldest first, so an overdue reminder is never cut off by the
+ * limit; done ones newest first, and only the last few. One list of the
+ * first hundred, oldest first, filled up with long-finished reminders and
+ * left the ones still waiting off the end.
+ */
+const OPEN_REMINDERS = {
+  is_completed: false,
+  orderBy: 'reminder_time',
+  direction: 'asc',
+  limit: 100,
+} as const;
+const DONE_REMINDERS = {
+  is_completed: true,
+  orderBy: 'reminder_time',
+  direction: 'desc',
+  limit: 30,
+} as const;
+
+function reminderWhen(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/**
+ * Every reminder: overdue first, then what is coming, then what was done
+ * lately — each with a tick.
+ *
+ * It was a flat list with a bin and nothing else. A reminder could not be
+ * ticked off on the web at all, and one whose time had passed sat among the
+ * ones still to come with nothing to say it was late.
+ */
+function RemindersTab({ onNew }: { onNew: () => void }) {
+  const open = useReminders(OPEN_REMINDERS);
+  const done = useReminders(DONE_REMINDERS);
+  const update = useUpdateReminder();
+  const remove = useDeleteReminder();
+  const [deleting, setDeleting] = useState<Reminder | null>(null);
+
+  const now = new Date().getTime();
+  const overdue = open.reminders.filter((r) => Date.parse(r.reminder_time) < now);
+  const upcoming = open.reminders.filter((r) => Date.parse(r.reminder_time) >= now);
+  // A tick moves a reminder between the two lists only once both have been
+  // read again; until then it stays where it was, ticked, rather than
+  // showing twice.
+  const openIds = new Set(open.reminders.map((r) => r.id));
+  const sections = [
+    { key: 'overdue', title: `Overdue · ${overdue.length}`, items: overdue },
+    { key: 'upcoming', title: 'Coming up', items: upcoming },
+    { key: 'done', title: 'Done lately', items: done.reminders.filter((r) => !openIds.has(r.id)) },
+  ].filter((s) => s.items.length > 0);
+
+  const toggle = (reminder: Reminder) =>
+    update.mutate(
+      { id: reminder.id, is_completed: !reminder.is_completed },
+      {
+        onError: (err: Error) =>
+          toast.error('Could not update the reminder', { description: err.message }),
+      },
+    );
+
+  if (open.loadFailed && open.reminders.length === 0) {
+    // Not "No reminders": that would tell someone their reminders are gone
+    // when the request simply never arrived.
+    return (
+      <ErrorState
+        message="Could not load your reminders."
+        onRetry={() => {
+          void open.refetch();
+          void done.refetch();
+        }}
+      />
+    );
+  }
+
+  if ((open.isLoading && open.reminders.length === 0) || (sections.length === 0 && done.isLoading)) {
+    return <ListSkeleton rows={3} />;
+  }
+
+  if (sections.length === 0) {
+    return (
+      <Card>
+        <EmptyState
+          icon={Bell}
+          title="No reminders"
+          description="Reminders alarm on your phone even with no connection."
+          action={
+            <Button size="sm" onClick={onNew}>
+              Add a reminder
+            </Button>
+          }
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex flex-col gap-5">
+        {sections.map((section) => (
+          <section key={section.key} aria-labelledby={`reminders-${section.key}`}>
+            <h3
+              id={`reminders-${section.key}`}
+              className={cn(
+                'mb-2 text-[11px] font-bold uppercase tracking-[0.12em]',
+                section.key === 'overdue' ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {section.title}
+            </h3>
+            <ul className="flex flex-col gap-2">
+              {section.items.map((reminder) => (
+                <li key={reminder.id}>
+                  <Card>
+                    <CardContent className="flex items-center gap-3 py-3">
+                      <Checkbox
+                        checked={reminder.is_completed}
+                        onCheckedChange={() => toggle(reminder)}
+                        aria-label={`${reminder.title}, done`}
+                      />
+                      {reminder.is_alarm_enabled ? (
+                        <Bell className="size-4 shrink-0 text-primary" aria-hidden />
+                      ) : (
+                        <BellOff className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={cn(
+                            'truncate text-sm font-semibold',
+                            reminder.is_completed && 'text-muted-foreground line-through',
+                          )}
+                        >
+                          {reminder.title}
+                        </p>
+                        <p
+                          className={cn(
+                            'mt-0.5 text-xs',
+                            section.key === 'overdue' && !reminder.is_completed
+                              ? 'text-destructive'
+                              : 'text-muted-foreground',
+                          )}
+                        >
+                          {reminderWhen(reminder.reminder_time)}
+                        </p>
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        aria-label="Delete reminder"
+                        onClick={() => setDeleting(reminder)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+
+      {/* The bin deleted on the click, with nothing to say it had worked or
+          failed — beside a tick now, where a slip is easy. */}
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this reminder?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleting?.title} is removed, and its alarm will not go off. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!deleting) return;
+                remove.mutate(deleting.id, {
+                  onError: (err: Error) =>
+                    toast.error('Could not delete the reminder', { description: err.message }),
+                });
+                setDeleting(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+/** "Organised by Ana Reyes", on an event you are a guest at. */
+function OrganisedBy({ event }: { event: ScheduleEvent }) {
+  if (!event.organiser_name) return null;
+  return (
+    <p className="mt-1 truncate text-xs text-muted-foreground">
+      Organised by <span className="font-medium text-foreground">{event.organiser_name}</span>
+    </p>
+  );
+}
+
 function ScheduleContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -632,6 +894,8 @@ function ScheduleContent() {
     null,
   );
   const [tab, setTab] = useState('day');
+  /** The event a notification pointed at (?event=), until it is on screen. */
+  const [linkedEventId, setLinkedEventId] = useState<string | null>(null);
 
   // ?new=1 and ?date=… let links from anywhere land on the right day, already
   // open. Applied during render whenever the query changes, rather than in an
@@ -650,23 +914,63 @@ function ScheduleContent() {
       setCreatingEvent(true);
     }
     // ?tab=invites is where an event-invite notification points, so tapping it
-    // lands on the decision rather than on the calendar.
+    // lands on the decision rather than on the calendar; ?tab=reminders is a
+    // reminder's.
     const wanted = searchParams.get('tab');
     if (wanted && TABS.includes(wanted)) setTab(wanted);
+    // ?event= is an answer or a change to one event. Its date is not in the
+    // link, so it is read first and the day is chosen once it arrives.
+    const linked = searchParams.get('event');
+    if (linked) setLinkedEventId(linked);
   }
 
   // Cleared afterwards so a refresh does not reopen the dialog.
   useEffect(() => {
-    if (searchParams.get('date') || searchParams.get('new') || searchParams.get('tab')) {
+    if (
+      searchParams.get('date') ||
+      searchParams.get('new') ||
+      searchParams.get('tab') ||
+      searchParams.get('event')
+    ) {
       router.replace('/schedule');
     }
   }, [searchParams, router]);
 
   const { events, isLoading } = useScheduleEvents({ limit: 100 });
   const { invitations } = useEventInvitations();
-  const { reminders } = useReminders({ orderBy: 'reminder_time', direction: 'asc', limit: 100 });
+  // The same query as the Reminders tab's, so this costs no second request.
+  const { reminders } = useReminders(OPEN_REMINDERS);
   const removeEvent = useDeleteScheduleEvent();
-  const removeReminder = useDeleteReminder();
+
+  // The linked event, read on its own: it may be past the hundred the list
+  // holds, or the list may not have arrived yet.
+  const linkedQuery = useScheduleEvent(linkedEventId ?? undefined);
+  // Not once a read of it fails: deleted from here, it would otherwise stay
+  // on its day from the copy held before.
+  const linkedEvent =
+    !linkedQuery.isError && linkedQuery.data?.id === linkedEventId ? linkedQuery.data : null;
+  /** The event shown picked out on its day, once the link has been followed. */
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  if (linkedEvent && highlighted !== linkedEvent.id) {
+    setHighlighted(linkedEvent.id);
+    setSelected(linkedEvent.event_date);
+    setCursor(new Date(`${linkedEvent.event_date}T00:00:00`));
+    setTab('day');
+  }
+  // Only before it was shown: a failure after that is the event being deleted
+  // from this page, which needs no telling.
+  const linkedFailed = linkedQuery.isError && !!linkedEventId && highlighted !== linkedEventId;
+  useEffect(() => {
+    // Deleted since, or you are no longer on it. Said, rather than landing on
+    // today as though the link had worked.
+    if (linkedFailed) toast.error('That event is no longer on your schedule');
+  }, [linkedFailed]);
+  useEffect(() => {
+    if (!highlighted) return;
+    document
+      .getElementById(`schedule-event-${highlighted}`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [highlighted]);
 
   const weeks = useMemo(
     () => getMonthWeeks(cursor.getFullYear(), cursor.getMonth()),
@@ -682,7 +986,15 @@ function ScheduleContent() {
   }, [events]);
 
   const now = new Date();
-  const dayEvents = eventsByDate[selected] ?? [];
+  const listedForDay = eventsByDate[selected] ?? [];
+  // The linked event joins its day even when the list does not hold it, so
+  // following a notification never lands on "Nothing on this day".
+  const dayEvents =
+    linkedEvent &&
+    linkedEvent.event_date === selected &&
+    !listedForDay.some((e) => e.id === linkedEvent.id)
+      ? [...listedForDay, linkedEvent]
+      : listedForDay;
   const upcoming = events
     .filter((e) => isEventUpcoming(e.event_date, e.event_time, now))
     .sort((a, b) =>
@@ -846,8 +1158,12 @@ function ScheduleContent() {
                     // Undefined on a just-created event, which is always yours.
                     const mine = event.is_owner !== false;
                     return (
-                      <li key={event.id}>
-                        <Card>
+                      <li key={event.id} id={`schedule-event-${event.id}`}>
+                        <Card
+                          className={cn(
+                            event.id === highlighted && 'border-primary ring-2 ring-primary/30',
+                          )}
+                        >
                           <CardContent className="flex items-start gap-3 py-3">
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-semibold">{event.title}</p>
@@ -866,11 +1182,13 @@ function ScheduleContent() {
                                   {event.description}
                                 </p>
                               )}
-                              {mine && (
-                                <span className="mt-1 block">
-                                  <AttendeeSummary eventId={event.id} />
-                                </span>
-                              )}
+                              {!mine && <OrganisedBy event={event} />}
+                              {/* A guest too: who else is going is theirs to
+                                  read, and was never shown. Read-only either
+                                  way — managing it is the Users button. */}
+                              <span className="mt-1 block">
+                                <AttendeeSummary eventId={event.id} />
+                              </span>
                             </div>
                             <div className="flex shrink-0 flex-col items-end gap-1">
                               <Badge variant="secondary">
@@ -955,15 +1273,17 @@ function ScheduleContent() {
                               {labelForDateKey(event.event_date)}
                               {event.event_time ? ` · ${formatTime(event.event_time)}` : ''}
                             </p>
-                            {event.is_owner !== false ? (
-                              <span className="mt-1 block">
-                                <AttendeeSummary eventId={event.id} />
-                              </span>
-                            ) : (
-                              <Badge variant="outline" className="mt-1 text-[10px]">
-                                Guest
-                              </Badge>
+                            {event.is_owner === false && (
+                              <>
+                                <OrganisedBy event={event} />
+                                <Badge variant="outline" className="mt-1 text-[10px]">
+                                  Guest
+                                </Badge>
+                              </>
                             )}
+                            <span className="mt-1 block">
+                              <AttendeeSummary eventId={event.id} />
+                            </span>
                           </CardContent>
                         </Card>
                       </button>
@@ -978,49 +1298,7 @@ function ScheduleContent() {
             </TabsContent>
 
             <TabsContent value="reminders" className="mt-4">
-              {reminders.length === 0 ? (
-                <Card>
-                  <EmptyState
-                    icon={Bell}
-                    title="No reminders"
-                    description="Reminders alarm on your phone even with no connection."
-                    action={
-                      <Button size="sm" onClick={() => setCreatingReminder(true)}>
-                        Add a reminder
-                      </Button>
-                    }
-                  />
-                </Card>
-              ) : (
-                <ul className="flex flex-col gap-2">
-                  {reminders.map((reminder) => (
-                    <li key={reminder.id}>
-                      <Card>
-                        <CardContent className="flex items-center gap-3 py-3">
-                          <Bell className="size-4 shrink-0 text-primary" />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold">{reminder.title}</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {new Date(reminder.reminder_time).toLocaleString('en-US', {
-                                dateStyle: 'medium',
-                                timeStyle: 'short',
-                              })}
-                            </p>
-                          </div>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            aria-label="Delete reminder"
-                            onClick={() => removeReminder.mutate(reminder.id)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </CardContent>
-                      </Card>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <RemindersTab onNew={() => setCreatingReminder(true)} />
             </TabsContent>
           </Tabs>
         </div>

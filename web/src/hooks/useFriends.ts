@@ -1,12 +1,22 @@
-import { useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
 import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
+import {
+  ApiError,
   friendsApi,
+  hireApi,
   queryKeys,
   type CreateFriendInput,
   type Friend,
   type FriendRequestTarget,
   type ListFriendsParams,
+  type ListResponse,
+  type PeopleUnseen,
   type UpdateFriendInput,
 } from '@/api';
 
@@ -40,6 +50,55 @@ export function useFriends(
     loadFailed: query.isError || query.isPaused,
     friends: query.data?.data ?? ([] as Friend[]),
     total: query.data?.total ?? 0,
+  };
+}
+
+/**
+ * Every accepted connection, however many there are.
+ *
+ * The chat pickers asked for one page of a hundred, so anyone past the
+ * hundredth could not be messaged or added to a group, and there was no
+ * search to reach them either. Pages are fetched one after another until the
+ * total is in, and the pickers search what came back.
+ */
+export function useAllConnections(options: QueryOptions = {}) {
+  const query = useInfiniteQuery({
+    queryKey: [...queryKeys.friends.all, 'all-accepted'],
+    // By name, across every page. Newest first, the list read as no order at
+    // all, and a name could only be found by scrolling the whole of it.
+    queryFn: ({ pageParam }) =>
+      friendsApi.list({
+        status: 'accepted',
+        limit: 100,
+        offset: pageParam,
+        orderBy: 'friend_name',
+        direction: 'asc',
+      }),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, p) => n + p.data.length, 0);
+      return last.data.length > 0 && loaded < last.total ? loaded : undefined;
+    },
+    enabled: options.enabled ?? true,
+  });
+
+  const { hasNextPage, isFetchingNextPage, isError, fetchNextPage } = query;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, isError, fetchNextPage]);
+
+  const friends = useMemo(
+    () => query.data?.pages.flatMap((p) => p.data) ?? ([] as Friend[]),
+    [query.data],
+  );
+
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    /** Nothing has arrived yet, so an empty list says nothing about who you know. */
+    loading: query.data === undefined && !query.isError && !query.isPaused,
+    friends,
   };
 }
 
@@ -98,6 +157,9 @@ export function useDeleteFriend() {
     mutationFn: (id: string) => friendsApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+      // Nearby shows the same relationship: an ex-connection kept a Message
+      // button that failed, and a withdrawn request still read "Requested".
+      queryClient.invalidateQueries({ queryKey: ['discover'] });
       invalidateProfiles(queryClient);
     },
   });
@@ -126,19 +188,44 @@ export function useSendFriendRequest() {
   });
 }
 
+/** Every cached pending list, which is where an answered request is drawn from. */
+const PENDING_LISTS = { queryKey: [...queryKeys.friends.all, 'list'] };
+
 export function useRespondToFriendRequest() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, accept }: { id: string; accept: boolean }) =>
       accept ? friendsApi.accept(id) : friendsApi.decline(id),
-    onSuccess: () => {
-      // Both sides change, and collaborator pickers read the accepted list.
-      queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
-      // Nearby shows the same relationship as a chip (Add, Requested, Accept).
-      queryClient.invalidateQueries({ queryKey: ['discover'] });
-      queryClient.invalidateQueries({ queryKey: queryKeys.collaborators.all });
-      invalidateProfiles(queryClient);
+    /*
+     * Off the list the moment it is answered.
+     *
+     * The buttons came back before the list had refreshed, so a second tap
+     * answered a request that was already answered — and reported an error
+     * for an accept that had worked.
+     */
+    onMutate: async ({ id }) => {
+      await queryClient.cancelQueries(PENDING_LISTS);
+      const before = queryClient.getQueriesData<ListResponse<Friend>>(PENDING_LISTS);
+      queryClient.setQueriesData<ListResponse<Friend>>(PENDING_LISTS, (old) =>
+        old && Array.isArray(old.data) && old.data.some((f) => f.id === id && f.status === 'pending')
+          ? { ...old, data: old.data.filter((f) => f.id !== id), total: Math.max(0, old.total - 1) }
+          : old,
+      );
+      return { before };
     },
+    onError: (_err, _vars, context) => {
+      for (const [key, data] of context?.before ?? []) queryClient.setQueryData(key, data);
+    },
+    // Returned, so the mutation stays pending until the lists have the answer.
+    onSuccess: () =>
+      Promise.all([
+        // Both sides change, and collaborator pickers read the accepted list.
+        queryClient.invalidateQueries({ queryKey: queryKeys.friends.all }),
+        // Nearby shows the same relationship as a chip (Connect, Requested, Accept).
+        queryClient.invalidateQueries({ queryKey: ['discover'] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.collaborators.all }),
+        invalidateProfiles(queryClient),
+      ]),
   });
 }
 
@@ -172,10 +259,9 @@ export function usePeopleSearch(query: string) {
  * rather than re-sorting the whole list on every heartbeat.
  */
 export function useFriendPresence(options: QueryOptions = {}) {
-  const { friends, loadFailed, refetch } = useFriends(
-    { status: 'accepted', limit: 100 },
-    options,
-  );
+  // Every connection, by name: the first hundred, newest first, was all a
+  // list of your connections ever showed.
+  const { friends, loadFailed, loading, refetch } = useAllConnections(options);
 
   const snapshot = useQuery({
     queryKey: queryKeys.friends.presence,
@@ -194,5 +280,68 @@ export function useFriendPresence(options: QueryOptions = {}) {
   // `refetch` passes through for pull-to-refresh: this is the friend list a
   // screen shows, not a separate one, so a screen using it should not have to
   // call useFriends a second time just to be able to reload.
-  return { friends, loadFailed, refetch };
+  return { friends, loadFailed, loading, refetch };
+}
+
+/**
+ * What the Messages dot counts for People: connection requests and hire
+ * enquiries that arrived since People was last opened.
+ *
+ * A request lit the dot until it was answered, so ignoring a stranger meant
+ * a dot that never went out. It now clears on being seen, as the Jobs badge
+ * does; the requests themselves stay listed until they are answered.
+ *
+ * An API from before this answers 404. Then the count is what it always
+ * was — everything still waiting.
+ */
+export function usePeopleUnseen(options: QueryOptions = {}) {
+  const query = useQuery({
+    queryKey: [...queryKeys.friends.all, 'unseen'],
+    queryFn: async (): Promise<PeopleUnseen & { supported: boolean }> => {
+      try {
+        return { ...(await friendsApi.unseen()), supported: true };
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.status !== 404) throw err;
+        const [requests, enquiries] = await Promise.all([
+          friendsApi.list({ status: 'pending', requested_by: 'them', limit: 100 }),
+          hireApi.list(),
+        ]);
+        return {
+          requests: requests.data.length,
+          enquiries: enquiries.data.filter((e) => e.direction === 'received' && e.status === 'new')
+            .length,
+          seenAt: null,
+          // Nothing to mark: the count only falls by answering.
+          supported: false,
+        };
+      }
+    },
+    enabled: options.enabled ?? true,
+    refetchInterval: 120_000,
+  });
+  const requests = query.data?.requests ?? 0;
+  const enquiries = query.data?.enquiries ?? 0;
+  return {
+    ...query,
+    requests,
+    enquiries,
+    count: requests + enquiries,
+    /** Whether the API keeps a seen marker at all; an older one does not. */
+    supported: query.data?.supported ?? true,
+  };
+}
+
+/** Marks People as seen, and clears the dot here at once rather than on the refetch. */
+export function useMarkPeopleSeen() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => friendsApi.markSeen(),
+    onMutate: () => {
+      queryClient.setQueryData<PeopleUnseen>([...queryKeys.friends.all, 'unseen'], (old) =>
+        old ? { ...old, requests: 0, enquiries: 0 } : old,
+      );
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.friends.all, 'unseen'] }),
+  });
 }

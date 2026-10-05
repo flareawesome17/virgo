@@ -10,9 +10,17 @@ import {
   queryKeys,
   type ConversationMessage,
   type NotificationSetting,
-  type Thread,
 } from '@/api';
-import { chatKeys, getOpenConversation } from '@/hooks/useChat';
+import {
+  applyMessageDeleted,
+  chatKeys,
+  flushOutbox,
+  getOpenConversation,
+  insertThreadMessage,
+  isConversationMuted,
+  noteLiveMessage,
+} from '@/hooks/useChat';
+import { removeFromOutbox } from '@/lib/outbox';
 import { useAuth } from '@/hooks/useAuth';
 import {
   registerTypingSender,
@@ -109,9 +117,23 @@ const TOPICS: Record<
     keys: [queryKeys.scheduleEvents.all],
     href: '/schedule?tab=invites',
   },
-  'event-response': { keys: [queryKeys.scheduleEvents.all], href: '/schedule' },
-  'event-updated': { keys: [queryKeys.scheduleEvents.all], href: '/schedule' },
-  'hire-enquiry': { keys: [queryKeys.hire.all], href: '/network?tab=enquiries' },
+  // To the event itself: the schedule opens on its day and points it out.
+  'event-response': {
+    keys: [queryKeys.scheduleEvents.all],
+    href: (data) =>
+      typeof data?.eventId === 'string' ? `/schedule?event=${data.eventId}` : '/schedule',
+  },
+  // Reminders too: a moved event moves its guests' reminders with it.
+  'event-updated': {
+    keys: [queryKeys.scheduleEvents.all, queryKeys.reminders.all],
+    href: (data) =>
+      typeof data?.eventId === 'string' ? `/schedule?event=${data.eventId}` : '/schedule',
+  },
+  // friends.all too: the People badge counts enquiries, and lives there.
+  'hire-enquiry': {
+    keys: [queryKeys.hire.all, queryKeys.friends.all],
+    href: '/network?tab=enquiries',
+  },
   // Accepting also creates a friendship and a conversation, so all three lists
   // are stale for the sender the moment this arrives.
   'hire-response': {
@@ -122,15 +144,27 @@ const TOPICS: Record<
       queryKeys.publicProfiles.all,
       queryKeys.profile.page,
     ],
-    href: '/network?tab=enquiries',
+    // An acceptance carries the chat it opened, which is where to go next.
+    href: (data) =>
+      typeof data?.conversationId === 'string'
+        ? `/chat/${data.conversationId}`
+        : '/network?tab=enquiries',
   },
   // Applications arrive on your own posts, so land on that tab rather than
-  // the board — which is where a bare /jobs/mine opens.
+  // the board — which is where a bare /jobs/mine opens — with the post they
+  // came in on opened.
   'job-application': {
     keys: [queryKeys.jobs.all],
-    href: '/jobs/mine?tab=posted',
+    href: (data) =>
+      typeof data?.postId === 'string'
+        ? `/jobs/mine?tab=posted&post=${data.postId}`
+        : '/jobs/mine?tab=posted',
   },
-  support: { keys: [queryKeys.support.all], href: '/support' },
+  support: {
+    keys: [queryKeys.support.all],
+    href: (data) =>
+      typeof data?.ticketId === 'string' ? `/support?ticket=${data.ticketId}` : '/support',
+  },
   // Confirming or cancelling one moves the jobs-done count on your own page.
   booking: {
     keys: [queryKeys.bookings.all, queryKeys.profile.page],
@@ -161,7 +195,7 @@ const TOPICS: Record<
         ? `/chat/${data.conversationId}`
         : '/jobs/mine?tab=applications',
   },
-  reminder: { keys: [queryKeys.reminders.all], href: '/schedule' },
+  reminder: { keys: [queryKeys.reminders.all], href: '/schedule?tab=reminders' },
   // These two exist on the server and were missing here, so their notifications
   // arrived without refreshing anything.
   // There is no /settings/billing; plans and what you are paying live here.
@@ -293,24 +327,30 @@ export function useRealtime(enabled: boolean): void {
 
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    /** Whether this session has been connected before, so a ready is a reconnect. */
+    let connectedBefore = false;
 
     const apply = (event: ServerEvent) => {
       switch (event.type) {
         case 'message': {
           // Written straight into the cache rather than invalidating: the point
           // is that it appears now, and a refetch is another round trip.
-          queryClient.setQueryData<Thread>(
-            chatKeys.thread(event.conversationId),
-            (old) =>
-              old && !old.data.some((m) => m.id === event.message.id)
-                ? { ...old, data: [event.message, ...old.data] }
-                : old,
-          );
+          insertThreadMessage(queryClient, event.conversationId, event.message);
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
           queryClient.invalidateQueries({ queryKey: chatKeys.unread });
 
           const mine = event.message.sender_id === user.id;
+          // Your own message, back from the server — usually before the send's
+          // own response. It is drawn now, so the bubble that stood in for it
+          // goes now too, rather than the two showing side by side until the
+          // response lands.
+          if (mine && event.message.client_id) removeFromOutbox(event.message.client_id);
           const looking = getOpenConversation() === event.conversationId;
+          noteLiveMessage();
+          // Muting reached push only; in the browser a muted chat chimed and
+          // raised a notification like any other.
+          if (isConversationMuted(queryClient, event.conversationId)) break;
 
           // Sound whenever somebody else writes, including while their thread
           // is open. It sat inside the `!looking` guard below and was silent
@@ -334,22 +374,38 @@ export function useRealtime(enabled: boolean): void {
           break;
         }
         case 'message-deleted':
+          // Patched wherever the message is, a page scrolled back to included.
+          // Refetching the thread only ever refreshed the newest page.
+          applyMessageDeleted(queryClient, event.conversationId, event.messageId, event.scope);
+          queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+          queryClient.invalidateQueries({ queryKey: chatKeys.unread });
+          break;
         case 'read':
         case 'delivered':
-          // Cheaper to refetch than to model each mutation twice: these change
-          // derived state — ticks, counts — the server already computes.
-          queryClient.invalidateQueries({
-            queryKey: chatKeys.thread(event.conversationId),
-          });
+          // Ticks are worked out from each member's receipts, which ride on
+          // the participants; the messages themselves have not changed, and
+          // refetching every loaded page of the thread for a tick was the
+          // expensive way round.
           queryClient.invalidateQueries({
             queryKey: chatKeys.participants(event.conversationId),
           });
-          if (event.type !== 'read') {
+          // You, reading on another device: this one's row and badge are out
+          // of date until the next poll otherwise.
+          if (event.type === 'read' && event.userId === user.id) {
             queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+            queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+            queryClient.invalidateQueries({ queryKey: chatKeys.unread });
           }
           break;
         case 'conversation':
+          // Created, renamed, joined, left or muted. Each view refetches what
+          // it shows; the thread too, which answers "gone" once you have left.
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.conversation(event.conversationId) });
+          queryClient.invalidateQueries({ queryKey: chatKeys.participants(event.conversationId) });
+          queryClient.invalidateQueries({ queryKey: chatKeys.thread(event.conversationId) });
+          queryClient.invalidateQueries({ queryKey: chatKeys.unread });
           break;
         case 'job-posted':
           // Silent on purpose. Somebody else posted a job; that is not an
@@ -421,6 +477,13 @@ export function useRealtime(enabled: boolean): void {
         }
         if (event.type === 'ready') {
           backoff.current = 1000;
+          // A reconnect — after a deploy, a dropped network or a laptop waking
+          // — missed whatever was sent meanwhile. Refetching the chat on screen
+          // catches up now rather than on the next poll, up to a minute later.
+          if (connectedBefore) queryClient.invalidateQueries({ queryKey: ['chat'] });
+          connectedBefore = true;
+          // A live socket is a working connection: whatever is queued goes.
+          void flushOutbox(queryClient);
           return;
         }
         apply(event);
@@ -443,7 +506,11 @@ export function useRealtime(enabled: boolean): void {
     // A tab woken from the background may hold a socket the OS already killed.
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
-      if (socketRef.current?.readyState === WebSocket.OPEN) return;
+      // Connecting counts: opening another beside it left two sockets, and
+      // every message arrived twice.
+      const state = socketRef.current?.readyState;
+      if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) return;
+      if (retry) clearTimeout(retry);
       backoff.current = 1000;
       void connect();
     };

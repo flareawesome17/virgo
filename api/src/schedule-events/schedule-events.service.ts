@@ -156,8 +156,10 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
     }
 
     const payload = this.resolveLocation(this.resolveEventType(data, before));
+    // Says whose it is either way. Without it a guest's own save came back
+    // looking like the organiser's, and Delete and Invite flashed up for them.
     const after = before.is_owner
-      ? await super.update(userId, id, payload)
+      ? { ...(await super.update(userId, id, payload)), is_owner: true }
       : await this.events.updateVisible(userId, id, payload);
 
     // The row was visible a moment ago, so this means it was deleted or the
@@ -181,6 +183,8 @@ export class ScheduleEventsService extends OwnedResourceService<ScheduleEventRow
       before.event_time !== after.event_time
     ) {
       changed.push('the date and time');
+      // "An hour before" has to stay an hour before.
+      await this.events.shiftReminders(after.id, before, after);
     }
     if (before.title !== after.title) changed.push('the title');
     if (before.description !== after.description) changed.push('the notes');

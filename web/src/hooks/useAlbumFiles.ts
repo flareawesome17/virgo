@@ -65,6 +65,11 @@ export function fileDate(createdAt: string): string {
   });
 }
 
+/** How often an album with files still processing asks again. */
+const PROCESSING_POLL_MS = 5_000;
+/** How recent a pending file has to be for that. */
+const PROCESSING_WATCH_MS = 15 * 60_000;
+
 export function useAlbumFiles(
   albumId: string | undefined,
   options: AlbumFilesFilter & { enabled?: boolean } = {},
@@ -87,6 +92,19 @@ export function useAlbumFiles(
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: (enabled ?? true) && !!albumId,
+    // Asked again while something is still being processed. A new upload sat
+    // behind its spinner until the screen was refreshed by hand: nothing told
+    // the album that the thumbnail had been made. Only for files from the
+    // last quarter hour, so one that is stuck does not poll for ever.
+    refetchInterval: (q) => {
+      const since = Date.now() - PROCESSING_WATCH_MS;
+      const waiting = q.state.data?.pages.some((page) =>
+        page.data.some(
+          (f) => f.processingStatus === 'pending' && Date.parse(f.createdAt) > since,
+        ),
+      );
+      return waiting ? PROCESSING_POLL_MS : false;
+    },
   });
 
   const files: StoredFile[] = query.data?.pages.flatMap((page) => page.data) ?? [];

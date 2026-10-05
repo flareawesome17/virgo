@@ -78,8 +78,11 @@ const ACTION_LABELS: Record<NotificationTopic, string> = {
 };
 
 export function actionLabel(n: AppNotification): string {
-  // An accepted application opens the conversation it started.
-  if (n.topic === 'job-response' && typeof n.data.conversationId === 'string') {
+  // An accepted application or enquiry opens the conversation it started.
+  if (
+    (n.topic === 'job-response' || n.topic === 'hire-response') &&
+    typeof n.data.conversationId === 'string'
+  ) {
     return 'Open chat';
   }
   return ACTION_LABELS[n.topic] ?? 'Open';

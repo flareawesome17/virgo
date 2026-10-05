@@ -2,6 +2,7 @@ import { Pressable, Text, View } from 'react-native';
 import { cssInterop } from 'nativewind';
 import type { LucideIcon } from 'lucide-react-native';
 import { PressableScale } from '@/components/PressableScale';
+import { useRevealOnMount } from '@/src/providers/ChromeProvider';
 
 /**
  * The icons arrive from the caller, so they are registered here — once each,
@@ -43,6 +44,8 @@ export function EmptyState({
   /** A quieter second way, as a text link. */
   secondary?: { label: string; onPress: () => void };
 }) {
+  // Nothing here scrolls, so it is the one place hidden bars can come back.
+  useRevealOnMount();
   withColour(Icon);
   const ActionIcon = action?.icon ? withColour(action.icon) : undefined;
 

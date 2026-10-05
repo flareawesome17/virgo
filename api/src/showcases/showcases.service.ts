@@ -79,6 +79,13 @@ export interface ShowcasePiece {
   displaySources: ReturnType<MediaLinkService['displaySources']>;
   /** False when this piece has no web copy, so the owner can see which one. */
   publiclyShown?: boolean;
+  /**
+   * The piece's own size, upright, when it is known. The apps used to draw
+   * every piece at one fixed shape and crop the rest away: a 3:2 photograph
+   * lost close to half of itself on the post.
+   */
+  width?: number | null;
+  height?: number | null;
 }
 
 export interface ShowcaseMaker {
@@ -162,6 +169,8 @@ interface PieceRow {
   hls_prefix: string | null;
   duration_ms: string | number | null;
   display_widths: number[] | null;
+  width_px: number | null;
+  height_px: number | null;
 }
 
 const asIso = (v: Date | string | null): string | null =>
@@ -277,11 +286,12 @@ export class ShowcasesService {
   async byHandle(
     viewerId: string,
     handle: string,
-    opts: { limit?: number } = {},
-  ): Promise<Showcase[]> {
+    opts: { limit?: number; cursor?: string } = {},
+  ): Promise<{ data: Showcase[]; nextCursor: string | null }> {
     const limit = Math.min(Math.max(opts.limit ?? 24, 1), 60);
-    const rows = await this.db.query<ShowcaseRow>(
-      `select s.* from showcases s
+    const after = decodeShowcaseCursor(opts.cursor);
+    const rows = await this.db.query<ShowcaseRow & { cursor_at: string }>(
+      `select s.*, s.published_at::text as cursor_at from showcases s
          join users u on u.id = s.user_id
         where lower(u.handle) = $1
           and s.published_at is not null
@@ -292,14 +302,24 @@ export class ShowcasesService {
           and (u.public_profile = true or u.id = $2)
           and not ${blockedBetween('$2', 's.user_id')}
           and (s.visibility = 'public' or s.user_id = $2 or ${connectedTo('$2', 's.user_id')})
+          -- The next page. Visitors saw the newest 24 and nothing older.
+          and ($4::timestamptz is null or (s.published_at, s.id) < ($4::timestamptz, $5::uuid))
         order by s.published_at desc, s.id desc
         limit $3`,
-      [handle.toLowerCase(), viewerId, limit],
+      [handle.toLowerCase(), viewerId, limit + 1, after?.at ?? null, after?.id ?? null],
     );
 
-    const showcases = await this.hydrate(rows, false);
-    // One whose every piece lost its web copy has nothing to draw.
-    return showcases.filter((s) => s.pieces.length > 0);
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const showcases = await this.hydrate(page, false);
+    const last = page[page.length - 1];
+    return {
+      // One whose every piece lost its web copy has nothing to draw.
+      data: showcases.filter((s) => s.pieces.length > 0),
+      // From the last row read, so a page whose rows were all dropped still
+      // moves on.
+      nextCursor: hasMore && last ? encodeShowcaseCursor(last.cursor_at, last.id) : null,
+    };
   }
 
   // ── writes ─────────────────────────────────────────────────────────────────
@@ -344,18 +364,20 @@ export class ShowcasesService {
     const keys = dto.fileKeys ? await this.usableKeys(userId, dto.fileKeys) : null;
 
     await this.db.transaction(async (client) => {
-      // coalesce($n, column) leaves anything the caller did not send alone. An
-      // explicit null cannot be told from an absent field this way, which is
-      // why clearing a field is done by sending an empty string — trimmed to
-      // null above and below — rather than by sending null.
+      /*
+       * A text field not sent is null here and left alone. One sent empty is
+       * the empty string, and clears it (nullif). It used to be trimmed to
+       * null before it got here — the same as not sent — so coalesce kept the
+       * old text, and Save said it had worked while the caption stayed.
+       */
       await client.query(
         `update showcases set
-           title = coalesce($3, title),
-           caption = coalesce($4, caption),
-           craft_note = coalesce($5, craft_note),
+           title = case when $3::text is null then title else nullif($3, '') end,
+           caption = case when $4::text is null then caption else nullif($4, '') end,
+           craft_note = case when $5::text is null then craft_note else nullif($5, '') end,
            craft_tags = coalesce($6, craft_tags),
-           category = coalesce($7, category),
-           location = coalesce($8, location),
+           category = case when $7::text is null then category else nullif($7, '') end,
+           location = case when $8::text is null then location else nullif($8, '') end,
            visibility = coalesce($9, visibility),
            allow_downloads = coalesce($10, allow_downloads),
            allow_comments = coalesce($11, allow_comments),
@@ -365,12 +387,12 @@ export class ShowcasesService {
         [
           id,
           userId,
-          dto.title === undefined ? null : dto.title.trim() || null,
-          dto.caption === undefined ? null : dto.caption.trim() || null,
-          dto.craftNote === undefined ? null : dto.craftNote.trim() || null,
+          dto.title === undefined ? null : dto.title.trim(),
+          dto.caption === undefined ? null : dto.caption.trim(),
+          dto.craftNote === undefined ? null : dto.craftNote.trim(),
           dto.craftTags === undefined ? null : cleanTags(dto.craftTags),
-          dto.category === undefined ? null : dto.category.trim() || null,
-          dto.location === undefined ? null : dto.location.trim() || null,
+          dto.category === undefined ? null : dto.category.trim(),
+          dto.location === undefined ? null : dto.location.trim(),
           dto.visibility ?? null,
           dto.allowDownloads ?? null,
           dto.allowComments ?? null,
@@ -456,9 +478,12 @@ export class ShowcasesService {
       [userId],
     );
     if (Number(row?.count ?? 0) >= MAX_SHOWCASES) {
-      throw new BadRequestException(
-        `You can have up to ${MAX_SHOWCASES} showcases. Delete one to post another.`,
-      );
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        code: 'SHOWCASE_LIMIT',
+        message: `You can have up to ${MAX_SHOWCASES} showcases. Delete one to post another.`,
+      });
     }
   }
 
@@ -535,6 +560,8 @@ export class ShowcasesService {
             error: 'Bad Request',
             code: 'SHOWCASE_FILM_NOT_READY',
             message: 'That film is still being prepared. Try again in a moment.',
+            // Which one, so the app can point at it.
+            fileKey: key,
           });
         }
         continue;
@@ -549,6 +576,7 @@ export class ShowcasesService {
           error: 'Bad Request',
           code: 'SHOWCASE_TOO_LARGE',
           message: 'That photo is too large to post. Choose one under 40 MB.',
+          fileKey: key,
         });
       }
       const made = await this.thumbs.generate(key, file.content_type, size, {
@@ -561,6 +589,7 @@ export class ShowcasesService {
           error: 'Bad Request',
           code: 'SHOWCASE_NO_WEB_COPY',
           message: "That photo can't be posted. Try a JPEG or PNG copy of it.",
+          fileKey: key,
         });
       }
     }
@@ -591,7 +620,8 @@ export class ShowcasesService {
 
     const pieces = await this.db.query<PieceRow>(
       `select i.showcase_id, i.file_key, f.content_type, f.thumb_key, f.poster_key,
-              f.proxy_key, f.hls_prefix, f.duration_ms, f.display_widths
+              f.proxy_key, f.hls_prefix, f.duration_ms, f.display_widths,
+              f.width_px, f.height_px
          from showcase_items i
          join user_files f on f.key = i.file_key and f.user_id = i.user_id
         where i.showcase_id = any($1::uuid[])
@@ -641,6 +671,9 @@ export class ShowcasesService {
    * recognise is a tile they cannot remove.
    */
   private async presentPiece(row: PieceRow, forOwner: boolean): Promise<ShowcasePiece | null> {
+    // Both or neither: a half-known size is no size.
+    const size =
+      row.width_px && row.height_px ? { width: row.width_px, height: row.height_px } : {};
     if (row.content_type?.startsWith('video/')) {
       // A still to show, and somewhere to play from. The ladder once it is
       // built, the single proxy until then — the same order every player in
@@ -656,6 +689,7 @@ export class ShowcasesService {
           this.mediaLink.hlsUrl(row.hls_prefix) ?? this.mediaLink.url(row.proxy_key),
         durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
         displaySources: [],
+        ...size,
         ...(forOwner ? { publiclyShown: true } : {}),
       };
     }
@@ -676,13 +710,42 @@ export class ShowcasesService {
         kind: 'image',
         url: url ?? '',
         displaySources,
+        ...size,
         publiclyShown: row.thumb_key !== null,
       };
     }
 
     const url = await this.storage.mediaUrl(row.thumb_key, PUBLISHED_URL_TTL_SECONDS);
     if (!url) return null;
-    return { fileKey: row.file_key, kind: 'image', url, displaySources };
+    return { fileKey: row.file_key, kind: 'image', url, displaySources, ...size };
+  }
+}
+
+/**
+ * A keyset cursor on (published_at, id), with the time as Postgres wrote it.
+ *
+ * As text, not a Date: a JavaScript date stops at milliseconds, and a
+ * timestamptz does not. A cursor rounded down to the millisecond skipped any
+ * post published within the same millisecond as the last one on the page.
+ */
+export function encodeShowcaseCursor(at: string, id: string): string {
+  return Buffer.from(`${at}|${id}`, 'utf8').toString('base64url');
+}
+
+const CURSOR_TIME = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)?$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A cursor arrives from a client, so it is checked: a bad one is the first page. */
+export function decodeShowcaseCursor(
+  cursor: string | undefined,
+): { at: string; id: string } | null {
+  if (!cursor) return null;
+  try {
+    const [at, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
+    if (!at || !id || !CURSOR_TIME.test(at) || !UUID.test(id)) return null;
+    return { at, id };
+  } catch {
+    return null;
   }
 }
 

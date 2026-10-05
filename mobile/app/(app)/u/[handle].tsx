@@ -18,6 +18,7 @@ import {
   type ViewerConnection,
 } from '@/src/api';
 import {
+  useDeleteFriend,
   useOpenDirectChat,
   useProfileSettings,
   usePublicProfile,
@@ -141,7 +142,6 @@ export default function ProfileScreen() {
           @{person.handle}
         </Text>
         <Pressable
-          hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel="Share profile"
           onPress={() =>
@@ -149,17 +149,18 @@ export default function ProfileScreen() {
               message: `${person.displayName} on Virgo — ${profileUrl(person.handle, SITE)}`,
             })
           }
+          className="w-11 h-11 -my-2 items-center justify-center active:opacity-60"
         >
-          <Share2Icon size={18} className="text-muted-foreground" />
+          <Share2Icon size={19} className="text-muted-foreground" />
         </Pressable>
         {!isSelf && (
           <Pressable
-            hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel="More options"
             onPress={() => setSafetyOpen(true)}
+            className="w-11 h-11 -my-2 -mr-3 items-center justify-center active:opacity-60"
           >
-            <EllipsisIcon size={18} className="text-muted-foreground" />
+            <EllipsisIcon size={19} className="text-muted-foreground" />
           </Pressable>
         )}
       </View>
@@ -209,15 +210,12 @@ export default function ProfileScreen() {
               </Pressable>
             ) : (
               <>
-                <Pressable
-                  className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2 bg-action active:opacity-90"
-                  onPress={() => router.push(`/hire/${person.handle}`)}
-                  accessibilityRole="button"
-                >
-                  <BriefcaseIcon size={16} className="text-action-foreground" />
-                  <Text className="text-action-foreground text-[15px] font-bold">Hire {first}</Text>
-                </Pressable>
-                {/* Only when the API said where the viewer stands: guessing
+                {/* Where you stand with them comes first: connecting, or
+                    messaging once connected, is what most visits are for.
+                    Hire was the main button on every profile, whether or not
+                    the person was taking bookings.
+
+                    Only when the API said where the viewer stands: guessing
                     would offer Connect to somebody already connected. */}
                 {person.viewer && handle && (
                   <ConnectionActions
@@ -228,6 +226,30 @@ export default function ProfileScreen() {
                     first={first}
                     onStale={() => q.refetch()}
                   />
+                )}
+                {/* Or when the API sent no viewer block (one from before it):
+                    then Hire is the only action there is, as it always was. */}
+                {(person.availableForBookings || !person.viewer) && (
+                  <Pressable
+                    className={`rounded-2xl min-h-[48px] flex-row items-center justify-center gap-2 active:opacity-80 ${
+                      person.viewer ? 'border border-primary' : 'bg-action'
+                    }`}
+                    onPress={() => router.push(`/hire/${person.handle}`)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Hire ${first}`}
+                  >
+                    <BriefcaseIcon
+                      size={16}
+                      className={person.viewer ? 'text-primary' : 'text-action-foreground'}
+                    />
+                    <Text
+                      className={`text-[15px] font-bold ${
+                        person.viewer ? 'text-primary' : 'text-action-foreground'
+                      }`}
+                    >
+                      Hire {first}
+                    </Text>
+                  </Pressable>
                 )}
               </>
             )}
@@ -278,12 +300,12 @@ function NotFound({ onBack }: { onBack: () => void }) {
 }
 
 /**
- * Connect, and what it becomes.
+ * Connect, and what it becomes: Requested (tap to withdraw), Accept or
+ * Ignore for a request they sent you, and Message once connected.
  *
- * Withdrawing, declining and removing stay on Network, where the whole list
- * is. A declined request keeps reading as Requested — the server reports it
- * that way on purpose, so nobody learns they were turned down by watching a
- * button change back.
+ * A declined request keeps reading as Requested — the server reports it that
+ * way on purpose, so nobody learns they were turned down by watching a button
+ * change back. Removing a connection stays on People, where the whole list is.
  *
  * Message only once connected: chat needs a connection, and a button that
  * answers "you can only chat with people you're connected with" is a dead end.
@@ -309,6 +331,7 @@ function ConnectionActions({
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const send = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
+  const remove = useDeleteFriend();
   const openDirect = useOpenDirectChat();
   const [opening, setOpening] = useState(false);
 
@@ -338,18 +361,43 @@ function ConnectionActions({
       },
     );
 
-  const accept = () => {
+  const answer = (accept: boolean) => {
     if (!friendId) return;
     respond.mutate(
-      { id: friendId, accept: true },
+      { id: friendId, accept },
       {
-        onSuccess: () => writeViewer({ connection: 'accepted', friendId }),
+        onSuccess: () =>
+          writeViewer(accept ? { connection: 'accepted', friendId } : { connection: 'none', friendId: null }),
         onError: (err) => {
           onStale();
-          Alert.alert("Couldn't accept the request", profileActionMessage(err, 'accept'));
+          Alert.alert(
+            accept ? "Couldn't accept the request" : "Couldn't decline the request",
+            profileActionMessage(err, accept ? 'accept' : 'decline'),
+          );
         },
       },
     );
+  };
+
+  // "Requested" could not be tapped, so taking a request back meant finding
+  // it on another screen.
+  const withdraw = () => {
+    if (!friendId) return;
+    Alert.alert('Withdraw your request?', `${person.displayName} will no longer see it.`, [
+      { text: 'Keep it', style: 'cancel' },
+      {
+        text: 'Withdraw',
+        style: 'destructive',
+        onPress: () =>
+          remove.mutate(friendId, {
+            onSuccess: () => writeViewer({ connection: 'none', friendId: null }),
+            onError: (err) => {
+              onStale();
+              Alert.alert("Couldn't withdraw it", profileActionMessage(err, 'withdraw'));
+            },
+          }),
+      },
+    ]);
   };
 
   // The profile carries no account id, by design. The viewer's own friends
@@ -384,77 +432,97 @@ function ConnectionActions({
         accessibilityRole="button"
         accessibilityLabel={`Connect with ${first}`}
         accessibilityState={{ busy: send.isPending, disabled: send.isPending }}
-        className="rounded-2xl py-3 border border-primary flex-row items-center justify-center gap-2 active:opacity-80"
+        className="rounded-2xl min-h-[48px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
       >
         {send.isPending ? (
-          <ActivityIndicator size="small" color={palette.primary} />
+          <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
-          <UserPlusIcon size={16} className="text-primary" />
+          <UserPlusIcon size={16} className="text-action-foreground" />
         )}
-        <Text className="text-primary text-[15px] font-bold">Connect</Text>
+        <Text className="text-action-foreground text-[15px] font-bold">Connect</Text>
       </Pressable>
     );
   }
 
   if (connection === 'pending_out') {
     return (
-      <View
-        className="rounded-2xl py-3 bg-muted flex-row items-center justify-center gap-2"
-        accessible
-        accessibilityLabel="Connection requested"
-        accessibilityState={{ disabled: true }}
+      <Pressable
+        onPress={withdraw}
+        disabled={remove.isPending || !friendId}
+        accessibilityRole="button"
+        accessibilityLabel="Requested"
+        accessibilityHint="Withdraws your request"
+        accessibilityState={{ busy: remove.isPending }}
+        className="rounded-2xl min-h-[48px] bg-muted flex-row items-center justify-center gap-2 active:opacity-80"
       >
-        <ClockIcon size={16} className="text-muted-foreground" />
-        <Text className="text-muted-foreground text-[15px] font-bold">Requested</Text>
-      </View>
+        {remove.isPending ? (
+          <ActivityIndicator size="small" color={palette.mutedForeground} />
+        ) : (
+          <ClockIcon size={16} className="text-foreground" />
+        )}
+        <Text className="text-foreground text-[15px] font-bold">Requested</Text>
+      </Pressable>
     );
   }
 
   if (connection === 'pending_in') {
     return (
-      <Pressable
-        onPress={accept}
-        disabled={respond.isPending || !friendId}
-        accessibilityRole="button"
-        accessibilityLabel={`Accept ${first}'s connection request`}
-        accessibilityState={{ busy: respond.isPending, disabled: respond.isPending || !friendId }}
-        className="rounded-2xl py-3 bg-primary flex-row items-center justify-center gap-2 active:opacity-90"
-      >
-        {respond.isPending ? (
-          <ActivityIndicator size="small" color={palette.primaryForeground} />
-        ) : (
-          <UserCheckIcon size={16} className="text-primary-foreground" />
-        )}
-        <Text className="text-primary-foreground text-[15px] font-bold">Accept</Text>
-      </Pressable>
+      // Accept had no Decline beside it, so the only way to say no was to
+      // find the request on People.
+      <View className="flex-row gap-2">
+        <Pressable
+          onPress={() => answer(false)}
+          disabled={respond.isPending || !friendId}
+          accessibilityRole="button"
+          accessibilityLabel={`Ignore ${first}'s connection request`}
+          className="flex-1 rounded-2xl min-h-[48px] bg-muted flex-row items-center justify-center active:opacity-80"
+        >
+          <Text className="text-foreground text-[15px] font-bold">Ignore</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => answer(true)}
+          disabled={respond.isPending || !friendId}
+          accessibilityRole="button"
+          accessibilityLabel={`Accept ${first}'s connection request`}
+          accessibilityState={{ busy: respond.isPending, disabled: respond.isPending || !friendId }}
+          className="flex-[2] rounded-2xl min-h-[48px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
+        >
+          {respond.isPending ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <UserCheckIcon size={16} className="text-action-foreground" />
+          )}
+          <Text className="text-action-foreground text-[15px] font-bold">Accept</Text>
+        </Pressable>
+      </View>
     );
   }
 
   return (
     <View className="flex-row gap-2">
-      <View
-        className="flex-1 rounded-2xl py-3 bg-success/15 flex-row items-center justify-center gap-2"
-        accessible
-        accessibilityLabel={`Connected with ${first}`}
-      >
-        <CheckIcon size={16} className="text-success" />
-        <Text className="text-success text-[15px] font-bold">Connected</Text>
-      </View>
       <Pressable
         onPress={message}
         disabled={opening || !friendId}
         accessibilityRole="button"
         accessibilityLabel={`Message ${first}`}
         accessibilityState={{ busy: opening, disabled: opening || !friendId }}
-        className="flex-1 rounded-2xl py-3 bg-muted flex-row items-center justify-center gap-2 active:opacity-80"
+        className="flex-[2] rounded-2xl min-h-[48px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
       >
         {opening ? (
-          <ActivityIndicator size="small" color={palette.foreground} />
+          <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
-          <MessageCircleIcon size={16} className="text-foreground" />
+          <MessageCircleIcon size={16} className="text-action-foreground" />
         )}
-        <Text className="text-foreground text-[15px] font-bold">Message</Text>
+        <Text className="text-action-foreground text-[15px] font-bold">Message</Text>
       </Pressable>
+      <View
+        className="flex-1 rounded-2xl min-h-[48px] bg-success/15 flex-row items-center justify-center gap-1.5"
+        accessible
+        accessibilityLabel={`Connected with ${first}`}
+      >
+        <CheckIcon size={15} className="text-success" />
+        <Text className="text-success text-[14px] font-bold">Connected</Text>
+      </View>
     </View>
   );
 }

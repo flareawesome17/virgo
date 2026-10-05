@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +21,7 @@ import { BottomSheet, useShade } from '@/components/BottomSheet';
 import { NameSheet } from '@/components/NameSheet';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useWindowInsets } from '@/src/lib/window-insets';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
@@ -72,6 +73,8 @@ import {
 import {
   albumShareApi,
   ApiError,
+  retentionBadge,
+  retentionOf,
   type ShareMediaKind,
   type StoredFile,
   type StoredMediaKind,
@@ -90,6 +93,7 @@ import {
 } from '@/src/lib/media-grid';
 import { daySpan } from '@/src/lib/media-days';
 import { PALETTES } from '@/theme';
+import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
 
 const interop = { className: { target: 'style', nativeStyleToProp: { color: true } } } as const;
 cssInterop(ArrowDownUpIcon, interop);
@@ -207,6 +211,15 @@ export default function AlbumScreen() {
   // "New section…" in the move sheet, waiting for that sheet to finish closing.
   const [nameAfterMove, setNameAfterMove] = useState(false);
   const [saving, setSaving] = useState<{ done: number; total: number } | null>(null);
+  const insets = useSafeAreaInsets();
+  // Set by Cancel, or by leaving the album, to stop after the current file.
+  const stopSaving = useRef(false);
+  useEffect(
+    () => () => {
+      stopSaving.current = true;
+    },
+    [],
+  );
 
   const deleteFiles = useDeleteFiles(albumId);
   const assign = useAssignSection(albumId);
@@ -225,8 +238,23 @@ export default function AlbumScreen() {
   const [sectionMenuFor, setSectionMenuFor] = useState<string | null>(null);
 
   const isOwner = !!album && !!user && album.user_id === user.id;
-  const canManage = isOwner || files.some((file) => file.capabilities.manage);
-  const canDownload = isOwner || files.some((file) => file.capabilities.download);
+  // As the API decides it. View-only members were offered Upload, and every
+  // file then failed once they had been sent back to the album.
+  const canUpload =
+    isOwner || album?.my_access === 'upload' || album?.my_access === 'manage';
+  // From the album's own access first: read off the loaded files, a manage
+  // collaborator lost the Section controls in an empty or filtered view.
+  const access = album?.my_access;
+  const canManage = isOwner || access === 'manage' || files.some((file) => file.capabilities.manage);
+  const canDownload =
+    isOwner ||
+    access === 'download' ||
+    access === 'upload' ||
+    access === 'manage' ||
+    files.some((file) => file.capabilities.download);
+  // Selecting is for doing something with what is selected. View-only members
+  // could select and were then shown an empty action bar.
+  const canSelect = canManage || canDownload;
 
 
   // Selection is of what is on screen. Changing the filter underneath it would
@@ -269,6 +297,8 @@ export default function AlbumScreen() {
     setSelecting(false);
   }, [selection]);
 
+  const { open: openFilm } = useVideoPlayback();
+
   /** The filter the grid is on, for rooms that must read the same pages. */
   const roomQuery = useMemo(() => {
     const parts: string[] = [];
@@ -291,7 +321,13 @@ export default function AlbumScreen() {
           return;
         }
         case 'video':
-          router.push(`/albums/${albumId}/videos?key=${key}${rest}`);
+          // Straight into the player, with this grid's films after it. It
+          // opened the Films room and then the player from there: two screens
+          // to watch one film, and Back landed in a room never asked for.
+          openFilm(
+            file,
+            files.filter((f) => kindOf(f.contentType) === 'video'),
+          );
           return;
         case 'audio':
           router.push(`/albums/${albumId}/audio?key=${key}${rest}`);
@@ -300,7 +336,7 @@ export default function AlbumScreen() {
           if (file.url) await WebBrowser.openBrowserAsync(file.url);
       }
     },
-    [albumId, roomQuery, filter.kind],
+    [albumId, roomQuery, filter.kind, files, openFilm],
   );
 
   const onTile = useCallback(
@@ -313,11 +349,12 @@ export default function AlbumScreen() {
 
   const onLongTile = useCallback(
     (file: StoredFile) => {
+      if (!canSelect) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setSelecting(true);
       selection.toggle(file.key);
     },
-    [selection],
+    [selection, canSelect],
   );
 
   const selectedFiles = useMemo(
@@ -398,8 +435,11 @@ export default function AlbumScreen() {
     }
     if (!(await canSaveToPhotos('these files'))) return;
     let saved = 0;
+    let tried = 0;
+    stopSaving.current = false;
     setSaving({ done: 0, total: targets.length });
     for (const file of targets) {
+      if (stopSaving.current) break;
       try {
         const name = file.originalName.replace(/[^a-z0-9._-]/gi, '_');
         const target = `${FileSystem.cacheDirectory}${Date.now()}-${name}`;
@@ -415,10 +455,19 @@ export default function AlbumScreen() {
       } catch {
         // Counted below; one failure must not stop the rest.
       }
-      setSaving({ done: saved, total: targets.length });
+      tried += 1;
+      setSaving({ done: tried, total: targets.length });
     }
+    const stopped = tried < targets.length;
     setSaving(null);
     leaveSelection();
+    if (stopped) {
+      Alert.alert(
+        'Stopped',
+        `${plural(saved, 'file was', 'files were')} saved before you stopped. The rest were left alone.`,
+      );
+      return;
+    }
     const skippedNote =
       skipped > 0
         ? ` ${plural(skipped, 'file was', 'files were')} left out — Photos only holds photos and videos.`
@@ -613,7 +662,9 @@ export default function AlbumScreen() {
           style: 'destructive',
           onPress: () =>
             deleteAlbum.mutate(albumId, {
-              onSuccess: () => router.dismissTo('/albums'),
+              // Back where it was opened from — a workspace, usually. It
+              // always landed on the list of every album.
+              onSuccess: () => (router.canGoBack() ? router.back() : router.dismissTo('/albums')),
               onError: (error) => Alert.alert('Could not delete the album', problem(error)),
             }),
         },
@@ -636,6 +687,8 @@ export default function AlbumScreen() {
       },
     },
     { label: 'Set status', onPress: () => setStatusOpen(true) },
+    // It could only be chosen once, when the album was made.
+    { label: 'Keep the files…', onPress: () => router.push(`/albums/${albumId}/retention`) },
     { label: 'Delete album', destructive: true, onPress: confirmDeleteAlbum },
   ];
 
@@ -819,13 +872,21 @@ export default function AlbumScreen() {
             <View className={`px-2 py-1 rounded-md ${status.className}`}>
               <Text className={`text-[11px] font-bold uppercase tracking-wide ${status.text}`}>{status.label}</Text>
             </View>
-            {album.retention_days ? (
-              <View className="px-2 py-1 rounded-md bg-muted flex-row items-center gap-1">
+            {/* Days or a date, and the owner's way in to change it. */}
+            {retentionBadge(retentionOf(album)) ? (
+              <Pressable
+                onPress={isOwner ? () => router.push(`/albums/${albumId}/retention`) : undefined}
+                disabled={!isOwner}
+                accessibilityRole={isOwner ? 'button' : 'text'}
+                accessibilityHint={isOwner ? 'Change how long the files are kept' : undefined}
+                hitSlop={8}
+                className="px-2 py-1 rounded-md bg-muted flex-row items-center gap-1 active:opacity-70"
+              >
                 <ShieldIcon size={11} className="text-muted-foreground" />
                 <Text className="text-muted-foreground text-[11px] font-semibold">
-                  Files deleted {album.retention_days} days after upload
+                  {retentionBadge(retentionOf(album))}
                 </Text>
-              </View>
+              </Pressable>
             ) : null}
             <Text className="text-muted-foreground text-xs">
               {[
@@ -849,14 +910,16 @@ export default function AlbumScreen() {
                 <Text className="text-foreground text-sm font-semibold">Client link</Text>
               </Pressable>
             )}
-            <Pressable
-              onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
-              accessibilityRole="button"
-              className="flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-action py-2.5 active:opacity-85"
-            >
-              <UploadIcon size={15} className="text-action-foreground" />
-              <Text className="text-action-foreground text-sm font-bold">Upload</Text>
-            </Pressable>
+            {canUpload && (
+              <Pressable
+                onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
+                accessibilityRole="button"
+                className="flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-action min-h-[44px] active:opacity-85"
+              >
+                <UploadIcon size={15} className="text-action-foreground" />
+                <Text className="text-action-foreground text-sm font-bold">Upload</Text>
+              </Pressable>
+            )}
           </View>
         </View>
       )}
@@ -929,19 +992,19 @@ export default function AlbumScreen() {
             onPress={() => setOrder((current) => (current === 'newest' ? 'oldest' : 'newest'))}
             accessibilityRole="button"
             accessibilityLabel={order === 'newest' ? 'Newest first. Switch to oldest first' : 'Oldest first. Switch to newest first'}
-            className="flex-row items-center gap-1 px-2.5 py-2 rounded-xl border border-border active:opacity-70"
+            className="flex-row items-center gap-1 px-3 min-h-[44px] rounded-xl border border-border active:opacity-70"
           >
             <ArrowDownUpIcon size={13} className="text-foreground" />
             <Text className="text-foreground text-xs font-semibold">
               {order === 'newest' ? 'Newest' : 'Oldest'}
             </Text>
           </Pressable>
-          {!selecting && files.length > 0 && (
+          {!selecting && files.length > 0 && canSelect && (
             <Pressable
               onPress={() => setSelecting(true)}
               accessibilityRole="button"
               accessibilityLabel="Select files"
-              className="px-2.5 py-2 rounded-xl border border-border active:opacity-70"
+              className="min-w-[44px] min-h-[44px] items-center justify-center rounded-xl border border-border active:opacity-70"
             >
               <CheckIcon size={14} className="text-foreground" />
             </Pressable>
@@ -995,15 +1058,20 @@ export default function AlbumScreen() {
                   </View>
                   <Text className="text-foreground text-lg font-bold mt-4">Nothing here yet</Text>
                   <Text className="text-muted-foreground text-sm text-center mt-1 leading-5">
-                    Upload from the shoot and it sorts itself by the day each frame was taken.
+                    {canUpload
+                      ? 'Upload from the shoot and it sorts itself by the day each frame was taken.'
+                      : 'Nothing has been added yet. You’ll see it here when it is.'}
                   </Text>
-                  <Pressable
-                    onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
-                    className="mt-6 bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:opacity-85"
-                  >
-                    <UploadIcon size={17} className="text-action-foreground" />
-                    <Text className="text-action-foreground font-semibold">Upload</Text>
-                  </Pressable>
+                  {canUpload && (
+                    <Pressable
+                      onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
+                      accessibilityRole="button"
+                      className="mt-6 bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:opacity-85"
+                    >
+                      <UploadIcon size={17} className="text-action-foreground" />
+                      <Text className="text-action-foreground font-semibold">Upload</Text>
+                    </Pressable>
+                  )}
                 </View>
               )
             }
@@ -1031,12 +1099,41 @@ export default function AlbumScreen() {
         </SafeAreaView>
       )}
 
+      {/* A strip, not a screen-wide cover: two hundred photos on mobile data
+          locked the album for minutes with no way out. */}
       {saving && (
-        <View className="absolute inset-0 bg-background/80 items-center justify-center" accessibilityLiveRegion="polite">
-          <ActivityIndicator color={palette.primary} />
-          <Text className="text-foreground text-sm font-semibold mt-3">
-            Saving {saving.done + 1 > saving.total ? saving.total : saving.done + 1} of {saving.total}…
-          </Text>
+        <View
+          pointerEvents="box-none"
+          className="absolute left-0 right-0 px-4"
+          style={{ bottom: insets.bottom + 92 }}
+        >
+          <View
+            className="bg-card rounded-2xl px-4 py-3 flex-row items-center gap-3 border border-border"
+            accessibilityLiveRegion="polite"
+          >
+            <ActivityIndicator color={palette.primary} />
+            <View className="flex-1">
+              <Text className="text-foreground text-sm font-semibold">
+                Saving {Math.min(saving.done + 1, saving.total)} of {saving.total} to Photos
+              </Text>
+              <View className="h-1 rounded-full bg-muted mt-2 overflow-hidden">
+                <View
+                  className="h-1 rounded-full bg-primary"
+                  style={{ width: `${Math.round((saving.done / saving.total) * 100)}%` }}
+                />
+              </View>
+            </View>
+            <Pressable
+              onPress={() => {
+                stopSaving.current = true;
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Stop saving"
+              className="min-h-[44px] px-3 justify-center active:opacity-60"
+            >
+              <Text className="text-primary text-sm font-bold">Cancel</Text>
+            </Pressable>
+          </View>
         </View>
       )}
 
@@ -1390,7 +1487,8 @@ function AlbumDetailsSheet({
 }) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
-  const insets = useSafeAreaInsets();
+  // The window's: this <Modal> covers the upload strip, which zeroes the top.
+  const insets = useWindowInsets();
   const shade = useShade();
   const changed = name.trim() !== initialName || description.trim() !== initialDescription;
   const ready = name.trim().length > 0 && changed && !saving;

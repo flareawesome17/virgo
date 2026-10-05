@@ -24,9 +24,35 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { RetentionField } from '@/components/retention-field';
+import { retentionInput, retentionReady, type Retention } from '@/api';
 import { useCreateAlbum } from '@/hooks/useAlbums';
 import { useUsage } from '@/hooks/useUsage';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
+import {
+  DISCARD_BODY,
+  DISCARD_TITLE,
+  useDiscardGuard,
+  useGuardedClose,
+  useOpeningKey,
+} from '@/lib/discard-guard';
+
+type NewAlbumDialogProps = {
+  /** The workspace to create it in; omitted, the dialog asks. */
+  workspaceId?: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
 
 /**
  * Creates an album and opens it.
@@ -35,16 +61,15 @@ import { useWorkspaces } from '@/hooks/useWorkspaces';
  * made on the web. The albums list needs it too, where there is no workspace
  * in context — so without `workspaceId` it asks which workspace it belongs in.
  */
-export function NewAlbumDialog({
-  workspaceId,
-  open,
-  onOpenChange,
-}: {
-  /** The workspace to create it in; omitted, the dialog asks. */
-  workspaceId?: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+export function NewAlbumDialog(props: NewAlbumDialogProps) {
+  // A fresh form for every opening. It stayed mounted between uses, so a
+  // name typed and cancelled was still there next time — and "Discard"
+  // has to mean it.
+  const opening = useOpeningKey(props.open);
+  return <NewAlbumForm key={opening} {...props} />;
+}
+
+function NewAlbumForm({ workspaceId, open, onOpenChange }: NewAlbumDialogProps) {
   const router = useRouter();
   const create = useCreateAlbum();
   // Only your own: an album can only be made in a workspace you own, and one
@@ -57,30 +82,31 @@ export function NewAlbumDialog({
   const { usage, isAlbumLimitReached, albumLimit } = useUsage();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  /** Days to keep the files. 'none' keeps them until deleted by hand. */
-  const [retention, setRetention] = useState('none');
+  const [retention, setRetention] = useState<Retention>({ mode: 'forever' });
   const [chosenWorkspace, setChosenWorkspace] = useState<string | null>(null);
   const target = workspaceId ?? chosenWorkspace ?? workspaces[0]?.id ?? null;
   const targetWorkspace = listed.find((w) => w.id === target);
   // Per workspace, as the plan counts it: this one is full, not all of them.
   const full = !!targetWorkspace && isAlbumLimitReached(targetWorkspace.album_total);
 
+  const { dirty } = useDiscardGuard({ name, description, retention, chosenWorkspace }, open);
+  // Escape, the overlay, the X and Cancel ask first. Creating closes directly.
+  const guard = useGuardedClose(dirty, onOpenChange);
+  const close = guard.close;
+
   const submit = () => {
     const trimmed = name.trim();
-    if (!trimmed || !target || full) return;
+    if (!trimmed || !target || full || !retentionReady(retention)) return;
     create.mutate(
       {
         name: trimmed,
         description: description.trim() || null,
         workspace_id: target,
-        retention_days: retention === 'none' ? null : Number(retention),
+        ...retentionInput(retention),
       },
       {
         onSuccess: (album) => {
           onOpenChange(false);
-          setName('');
-          setDescription('');
-          setRetention('none');
           router.push(`/albums/${album.id}`);
         },
         onError: (err: Error) => toast.error('Could not create album', { description: err.message }),
@@ -91,8 +117,8 @@ export function NewAlbumDialog({
   const noWorkspace = !workspaceId && !isLoading && workspaces.length === 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New album</DialogTitle>
           <DialogDescription>Albums hold the media for one shoot or one delivery.</DialogDescription>
@@ -161,39 +187,38 @@ export function NewAlbumDialog({
                 permanently deletes a client's files could only be chosen on a
                 phone — and only reversed there too. */}
             <div className="grid gap-2">
-              <Label htmlFor="album-retention">Keep files for</Label>
-              <Select value={retention} onValueChange={setRetention}>
-                <SelectTrigger id="album-retention">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Until I delete them</SelectItem>
-                  <SelectItem value="30">30 days after upload</SelectItem>
-                  <SelectItem value="60">60 days after upload</SelectItem>
-                  <SelectItem value="90">90 days after upload</SelectItem>
-                  <SelectItem value="180">180 days after upload</SelectItem>
-                  <SelectItem value="365">1 year after upload</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {retention === 'none'
-                  ? 'Files stay until you remove them.'
-                  : `Each file is deleted ${retention} days after it is uploaded. This cannot be undone.`}
-              </p>
+              <Label>Keep the files</Label>
+              <RetentionField value={retention} onChange={setRetention} />
             </div>
           </div>
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => close(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!name.trim() || !target || full || create.isPending}>
+          <Button
+            onClick={submit}
+            disabled={!name.trim() || !target || full || !retentionReady(retention) || create.isPending}
+          >
             {create.isPending && <Loader2 className="size-4 animate-spin" />}
             Create album
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={guard.asking} onOpenChange={(o) => !o && guard.keepEditing()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{DISCARD_TITLE}</AlertDialogTitle>
+            <AlertDialogDescription>{DISCARD_BODY}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={guard.discard}>Discard</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

@@ -37,8 +37,24 @@ function clock(seconds: number): string {
  *
  * No `<video>` element exists until then, so a feed of twenty films holds no
  * decoders and fetches no bytes beyond the posters.
+ *
+ * The frame is whatever shape it is given. It was always 4:5, which cropped a
+ * 16:9 film to less than half of itself; the feed now passes the clamped
+ * shape of the card, and the post passes the film's own shape with `fit`
+ * "contain", so nothing of it is cut.
  */
-export function ShowcaseFilm({ piece, alt }: { piece: ShowcasePiece; alt: string }) {
+export function ShowcaseFilm({
+  piece,
+  alt,
+  aspect = 4 / 5,
+  fit = 'cover',
+}: {
+  piece: ShowcasePiece;
+  alt: string;
+  /** Width over height of the frame. */
+  aspect?: number;
+  fit?: 'cover' | 'contain';
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [started, setStarted] = useState(false);
@@ -162,7 +178,11 @@ export function ShowcaseFilm({ piece, alt }: { piece: ShowcasePiece; alt: string
   };
 
   return (
-    <div ref={frameRef} className="relative aspect-[4/5] w-full overflow-hidden bg-muted">
+    <div
+      ref={frameRef}
+      className="relative w-full overflow-hidden bg-muted"
+      style={{ aspectRatio: aspect }}
+    >
       {started && playable ? (
         <video
           ref={videoRef}
@@ -174,13 +194,19 @@ export function ShowcaseFilm({ piece, alt }: { piece: ShowcasePiece; alt: string
           loop
           playsInline
           muted={muted}
-          className="size-full object-cover"
+          className={cn('size-full', fit === 'contain' ? 'object-contain' : 'object-cover')}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onError={() => setFailed(true)}
         />
       ) : (
-        <Image src={piece.url} alt={alt} fill sizes="(max-width: 768px) 100vw, 672px" className="object-cover" />
+        <Image
+          src={piece.url}
+          alt={alt}
+          fill
+          sizes="(max-width: 768px) 100vw, 672px"
+          className={fit === 'contain' ? 'object-contain' : 'object-cover'}
+        />
       )}
 
       {/* The whole frame is the control: the first click starts it, and every

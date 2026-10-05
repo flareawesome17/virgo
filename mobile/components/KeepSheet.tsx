@@ -28,7 +28,16 @@ for (const Icon of [BookmarkIcon, CheckIcon, GlobeIcon, LockIcon, PlusIcon]) {
  * hold this showcase; tapping one of those asks, then removes it. Before, a
  * kept post offered "Change where" and could only be kept somewhere else.
  */
-export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: () => void }) {
+export function KeepSheet({
+  item,
+  onClose,
+  onKept,
+}: {
+  item: FeedItem | null;
+  onClose: () => void;
+  /** Where it went, so the next Keep can go there in one tap. */
+  onKept?: (shelf: { id: string; name: string }) => void;
+}) {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { shelves, isLoading, loadFailed, refetch } = useShelves({
@@ -78,7 +87,8 @@ export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: (
         style: 'destructive',
         onPress: () =>
           unkeep.mutate(
-            { shelfId, showcaseId: item.id },
+            // Still "Kept" on the card if another shelf has it too.
+            { shelfId, showcaseId: item.id, stillKept: keptOn.length > 1 },
             {
               onError: (error) =>
                 Alert.alert("Couldn't take it off", profileActionMessage(error, 'keep')),
@@ -110,10 +120,19 @@ export function KeepSheet({ item, onClose }: { item: FeedItem | null; onClose: (
 
   const confirm = () => {
     if (!item || !chosen) return;
+    const shelf = shelves.find((s) => s.id === chosen);
     keep.mutate(
-      { shelfId: chosen, showcaseId: item.id, note: note.trim() || undefined },
       {
-        onSuccess: onClose,
+        shelfId: chosen,
+        showcaseId: item.id,
+        note: note.trim() || undefined,
+        alreadyKept: keptOn.length > 0,
+      },
+      {
+        onSuccess: () => {
+          if (shelf) onKept?.({ id: shelf.id, name: shelf.name });
+          onClose();
+        },
         onError: (error) =>
           Alert.alert("Couldn't keep it", profileActionMessage(error, 'keep')),
       },

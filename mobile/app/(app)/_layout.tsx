@@ -16,9 +16,12 @@ import {
   VerifyEmailBanner,
   VideoSurface,
 } from '@/components';
+import { useOutboxSender } from '@/src/hooks/useChat';
 import { CrashScreen } from '@/components/CrashScreen';
 import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
 import { VideoPlayerProvider } from '@/src/providers/VideoPlayerProvider';
+import { WindowInsetsProvider } from '@/src/lib/window-insets';
+import { AudioDock } from '@/components/AudioDock';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
@@ -161,6 +164,8 @@ export default function AppLayout() {
           its children untouched once the address is confirmed. */}
       <VideoPlayerProvider>
       <AlbumAudioProvider>
+      {/* Above the banners: what a <Modal> reads, since it covers them. */}
+      <WindowInsetsProvider>
         <VerifyEmailBanner>
           {/* Wraps the navigator, not AppTopBar, which renders on the six tab
               screens only — and nobody uploads from a tab. Every route into
@@ -171,14 +176,19 @@ export default function AppLayout() {
                 strip rather than fighting it for the same edge, and around
                 the navigator so a film survives going back to the album. */}
             <VideoSurface>
+              {/* Inside the film's surface, so a recording's strip sits above
+                  a docked film rather than under it. */}
+              <AudioDock>
               <Stack screenOptions={{ headerShown: false }}>
                 {CREATE_FORMS.map((name) => (
                   <Stack.Screen key={name} name={name} options={CREATE_FORM_OPTIONS} />
                 ))}
               </Stack>
+              </AudioDock>
             </VideoSurface>
           </UploadBar>
         </VerifyEmailBanner>
+      </WindowInsetsProvider>
       </AlbumAudioProvider>
       </VideoPlayerProvider>
     </>
@@ -218,6 +228,9 @@ function NotificationServices() {
   useNotificationRouting(true);
   useMessageAlerts(true);
   useRealtime(true);
+  // Messages written offline, or left unsent when the app closed, go out
+  // whenever there is a connection again.
+  useOutboxSender(user?.id);
 
   return null;
 }

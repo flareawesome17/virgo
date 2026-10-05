@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { AppState, Linking, Pressable, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { ArrowUpCircleIcon, XIcon } from 'lucide-react-native';
@@ -25,12 +25,31 @@ for (const Icon of [ArrowUpCircleIcon, XIcon]) {
  *
  * Renders nothing the rest of the time, which is almost always.
  */
+/**
+ * One answer for every tab. Each tab draws its own banner, and each used to
+ * hold its own copy of the update: dismissing it on one tab left it on all
+ * the others until the app restarted.
+ */
+let shared: AvailableUpdate | null = null;
+const listeners = new Set<() => void>();
+const share = (next: AvailableUpdate | null) => {
+  shared = next;
+  listeners.forEach((listener) => listener());
+};
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+const read = () => shared;
+
 export function UpdateBanner() {
-  const [update, setUpdate] = useState<AvailableUpdate | null>(null);
+  const update = useSyncExternalStore(subscribe, read);
 
   const look = useCallback(() => {
     void checkForNewBuild().then((found) => {
-      if (found) setUpdate(found);
+      if (found) share(found);
     });
   }, []);
 
@@ -75,7 +94,7 @@ export function UpdateBanner() {
         <Pressable
           onPress={() => {
             void dismissUpdate(update.version);
-            setUpdate(null);
+            share(null);
           }}
           accessibilityRole="button"
           accessibilityLabel="Dismiss"
