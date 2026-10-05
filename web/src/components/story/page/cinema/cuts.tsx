@@ -1,7 +1,7 @@
 'use client';
 
 import { useMotionValueEvent, useScroll, useSpring, useTransform } from 'framer-motion';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GLIDE, stableViewportHeight, steady, useMotionGate } from '../motion';
 import { camera, clamp01, lerp, seg } from './ease';
 
@@ -50,8 +50,10 @@ const bell = (u: number, a: number, b: number) => {
 export function Cuts({ cuts }: { cuts: readonly Cut[] }) {
   const gate = useMotionGate();
   const { scrollY } = useScroll();
-  // The same glide as the scenes, so the cut and the scene it hides move together.
-  const y = useSpring(scrollY, GLIDE);
+  // The same glide as the scenes, so the cut and the scene it hides move together (none on phones, like them).
+  const glide = useSpring(scrollY, GLIDE);
+  const [stable] = useState(() => steady());
+  const y = stable ? scrollY : glide;
   const tops = useRef<number[]>([]);
   const canvas = useRef<HTMLCanvasElement>(null);
 

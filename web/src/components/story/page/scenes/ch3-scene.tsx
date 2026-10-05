@@ -222,11 +222,8 @@ function ApplicantCard({ p, hire, slot }: { p: MotionValue<number>; hire: Hire; 
   const no = useTransform(yes, (v) => r2(1 - v));
   const rim = useTransform(p, (v) => r2(0.3 * seg(v, b.accept, b.accept + 0.02) + 0.7 * window4(v, b.accept, b.accept + 0.012, b.accept + 0.03, b.accept + 0.1)));
   const reveal = useReveal(p, b.arrive + 0.04, b.arrive + 0.1, ROWS_OUT[0], ROWS_OUT[0] + 0.05, { y: 14, scale: 0.8 });
-  const tool = useTransform(p, (v) => {
-    const k = window4(v, b.accept, b.accept + 0.01, b.accept + 0.02, b.accept + 0.07);
-    const drift = Math.sin((v + slot * 0.31) * 16) * 3;
-    return `translate3d(0,${r2(drift - 6 * k)}px,0) rotate(${r2(gear.tilt + 5 * k)}deg) scale(${r2(1 + 0.12 * k)})`;
-  });
+  // The tool sits still at its own tilt: no wobble with the scroll, no pop on Accept (both read as shaking).
+  const tool = `rotate(${gear.tilt}deg)`;
   return (
     <m.div style={{ transform, opacity }} className={`relative ${slot > 0 ? 'max-lg:-mt-[74px]' : ''}`}>
       <Float className="relative" delay={slot * 1.9} amp={6} tilt={2} duration={6 + slot * 0.7}>
