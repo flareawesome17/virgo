@@ -28,7 +28,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { TabScreen, useTabBottomInset } from '@/components';
+import { SegmentedTabs, TabScreen, useTabBottomInset } from '@/components';
 import { RemoteImage } from '@/components/RemoteImage';
 import {
   useAuth,
@@ -110,23 +110,14 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: bottomInset }}
       >
-        <View
-          accessibilityRole="tablist"
-          className="mx-5 mt-2 mb-1 flex-row rounded-xl bg-secondary p-1"
-        >
-          <SegmentTab
-            label="Profile & account"
-            icon={UserIcon}
-            active={view === 'account'}
-            badge={rewards.length}
-            onPress={() => show('account')}
-          />
-          <SegmentTab
-            label="App"
-            icon={SlidersHorizontalIcon}
-            active={view === 'app'}
-            badge={0}
-            onPress={() => show('app')}
+        <View className="mx-5 mt-2 mb-1">
+          <SegmentedTabs<typeof view>
+            segments={[
+              { key: 'account', label: 'Profile & account', icon: UserIcon, badge: rewards.length },
+              { key: 'app', label: 'App', icon: SlidersHorizontalIcon },
+            ]}
+            value={view}
+            onChange={show}
           />
         </View>
 
@@ -533,41 +524,3 @@ function Section({
   );
 }
 
-/** The two halves, drawn like Connect's Messages/People switch. */
-function SegmentTab({
-  label,
-  icon: Icon,
-  active,
-  badge,
-  onPress,
-}: {
-  label: string;
-  icon: LucideIcon;
-  active: boolean;
-  badge: number;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={badge > 0 ? `${label}, ${badge} waiting` : label}
-      className={`min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-lg px-3 active:scale-[0.98] ${
-        active ? 'bg-card' : 'bg-transparent'
-      }`}
-    >
-      <Icon size={17} className={active ? 'text-primary' : 'text-muted-foreground'} />
-      <Text className={`text-sm font-semibold ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
-        {label}
-      </Text>
-      {badge > 0 && (
-        <View className="min-w-[20px] rounded-full bg-action px-1.5 py-0.5">
-          <Text className="text-action-foreground text-[11px] font-bold text-center">
-            {badge > 99 ? '99+' : badge}
-          </Text>
-        </View>
-      )}
-    </Pressable>
-  );
-}

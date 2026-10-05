@@ -34,6 +34,7 @@ import {
 } from '@/src/hooks';
 import type { Album, AlbumStatus } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
+import { FilterChip } from '@/components/FilterChip';
 import { PALETTES } from '@/theme';
 
 const interop = { className: { target: 'style', nativeStyleToProp: { color: true } } } as const;
@@ -263,22 +264,14 @@ export default function AlbumsListScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingBottom: 4 }}
             >
-              {STATUSES.map((option) => {
-                const active = status === option.key;
-                return (
-                  <Pressable
-                    key={option.key}
-                    onPress={() => setStatus(option.key)}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: active }}
-                    className={`rounded-full px-4 py-2 ${active ? 'bg-foreground' : 'bg-card border border-border'}`}
-                  >
-                    <Text className={`text-sm font-semibold ${active ? 'text-background' : 'text-foreground'}`}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+              {STATUSES.map((option) => (
+                <FilterChip
+                  key={option.key}
+                  label={option.label}
+                  on={status === option.key}
+                  onPress={() => setStatus(option.key)}
+                />
+              ))}
             </ScrollView>
           </View>
         }

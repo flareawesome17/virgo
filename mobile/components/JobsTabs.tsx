@@ -21,6 +21,7 @@ import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { budgetLabel, isRoleFilled, type JobApplication, type JobPost } from '@/src/api';
 import { APPLICATION_LABEL } from '@/src/lib/jobs-format';
 import { JobsFeed } from '@/components/JobsFeed';
+import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { BookingsList } from '@/components/BookingsList';
 import { PersonSafetySheet } from '@/components/PersonSafetySheet';
 import {
@@ -84,41 +85,26 @@ export function JobsTabs({
 
   return (
     <View className="flex-1">
-      {/* Scrolls sideways: four uppercase labels do not fit across a small
-          phone, and a tab pushed off the edge is a tab nobody finds. */}
-      <View className="border-b border-border">
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 20, paddingHorizontal: 20 }}
-        >
-          {([
-            ['browse', 'Browse', false],
-            ['posted', `Posted (${jobs.length})`, waiting > 0],
-            ['applied', 'Applications', false],
+      {/* Four short words fit across the smallest phone, so the strip no
+          longer scrolls sideways — it was uppercase and underlined, which
+          nothing else in the app was. */}
+      <View className="px-5 pt-2 pb-1">
+        <SegmentedTabs<typeof tab>
+          segments={[
+            { key: 'browse', label: 'Browse' },
+            {
+              key: 'posted',
+              label: 'Posted',
+              dot: waiting > 0,
+              accessibilityLabel: `Posted, ${jobs.length}`,
+            },
+            { key: 'applied', label: 'Applied', accessibilityLabel: 'Your applications' },
             // Beside the jobs, as on the web: a booking is where one ends up.
-            ['bookings', 'Bookings', false],
-          ] as const).map(([key, label, dot]) => (
-            <Pressable
-              key={key}
-              onPress={() => setTab(key)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: tab === key }}
-              className={`py-2.5 border-b-2 ${tab === key ? 'border-primary' : 'border-transparent'}`}
-            >
-              <View className="flex-row items-center gap-1.5">
-                <Text
-                  className={`text-[12px] font-bold uppercase tracking-[1.5px] ${
-                    tab === key ? 'text-primary' : 'text-muted-foreground'
-                  }`}
-                >
-                  {label}
-                </Text>
-                {dot && <View className="rounded-full w-1.5 h-1.5 bg-primary" />}
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
+            { key: 'bookings', label: 'Bookings' },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
       </View>
 
       {tab === 'browse' ? (

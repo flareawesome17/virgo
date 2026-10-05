@@ -17,6 +17,7 @@ import {
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
+import { FilterChip } from '@/components/FilterChip';
 
 for (const Icon of [
   BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon, UsersIcon, SearchIcon,
@@ -84,10 +85,10 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 6, paddingRight: 20 }}>
-          <Chip label="All roles" active={!role} onPress={() => setRole(null)} />
+          contentContainerStyle={{ gap: 8, paddingRight: 20 }}>
+          <FilterChip label="All roles" on={!role} onPress={() => setRole(null)} />
           {allRoles.map((r) => (
-            <Chip key={r} label={r} active={role === r}
+            <FilterChip key={r} label={r} on={role === r}
               onPress={() => setRole(role === r ? null : r)} />
           ))}
         </ScrollView>
@@ -154,24 +155,6 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
         </Animated.ScrollView>
       )}
     </View>
-  );
-}
-
-function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className="rounded-full px-3.5 py-2"
-      style={{
-        backgroundColor: active ? '#B66A40' : 'transparent',
-        borderWidth: 1,
-        borderColor: active ? '#B66A40' : '#B66A4040',
-      }}
-    >
-      <Text className="text-[12px] font-semibold" style={{ color: active ? '#fff' : '#B66A40' }}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 

@@ -19,7 +19,7 @@ import {
   ImageIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { TabScreen, useTabBottomInset } from '@/components';
+import { SegmentedTabs, TabScreen, useTabBottomInset } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
@@ -161,12 +161,14 @@ export default function FeedScreen() {
   return (
     <TabScreen title="Feed" create="showcase">
 
-      <View className="px-5 pt-3 pb-2 flex-row items-center gap-2">
-        <ScopeTab label="Everyone" on={scope === 'everyone'} onPress={() => setScope('everyone')} />
-        <ScopeTab
-          label="Connections"
-          on={scope === 'connections'}
-          onPress={() => setScope('connections')}
+      <View className="px-5 pt-2 pb-2">
+        <SegmentedTabs<typeof scope>
+          segments={[
+            { key: 'everyone', label: 'Everyone' },
+            { key: 'connections', label: 'Connections' },
+          ]}
+          value={scope}
+          onChange={setScope}
         />
       </View>
 
@@ -216,31 +218,6 @@ export default function FeedScreen() {
       <KeepSheet item={keeping} onClose={() => setKeeping(null)} />
       <ShowcaseReportSheet showcaseId={reporting} onClose={() => setReporting(null)} />
     </TabScreen>
-  );
-}
-
-function ScopeTab({
-  label,
-  on,
-  onPress,
-}: {
-  label: string;
-  on: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: on }}
-      className={`min-h-11 px-4 rounded-full items-center justify-center ${on ? 'bg-action' : 'bg-secondary'}`}
-    >
-      <Text
-        className={`text-[13px] font-bold ${on ? 'text-action-foreground' : 'text-muted-foreground'}`}
-      >
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 

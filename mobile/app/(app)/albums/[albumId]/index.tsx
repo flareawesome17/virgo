@@ -19,6 +19,7 @@ import {
 import { RemoteImage } from '@/components/RemoteImage';
 import { BottomSheet, useShade } from '@/components/BottomSheet';
 import { NameSheet } from '@/components/NameSheet';
+import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -909,28 +910,20 @@ export default function AlbumScreen() {
         </ScrollView>
 
         <View className="flex-row items-center gap-2 px-4 pb-2.5">
-          <View className="flex-row bg-muted rounded-xl p-0.5 flex-1">
-            {KINDS.map((option) => {
-              const active = kind === option.key;
-              const n =
-                option.key === 'all'
-                  ? counts.image + counts.video + counts.audio + counts.other
-                  : counts[option.key];
-              return (
-                <Pressable
-                  key={option.key}
-                  onPress={() => setKind(option.key)}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: active }}
-                  accessibilityLabel={`${option.label}, ${n}`}
-                  className={`flex-1 items-center py-1.5 rounded-[10px] ${active ? 'bg-card' : ''}`}
-                >
-                  <Text className={`text-xs font-semibold ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          <View className="flex-1">
+            <SegmentedTabs<typeof kind>
+              size="sm"
+              segments={KINDS.map((option) => ({
+                ...option,
+                accessibilityLabel: `${option.label}, ${
+                  option.key === 'all'
+                    ? counts.image + counts.video + counts.audio + counts.other
+                    : counts[option.key]
+                }`,
+              }))}
+              value={kind}
+              onChange={setKind}
+            />
           </View>
           <Pressable
             onPress={() => setOrder((current) => (current === 'newest' ? 'oldest' : 'newest'))}

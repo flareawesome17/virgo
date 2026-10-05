@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, TextInput } from 'react-native';
 import Animated from 'react-native-reanimated';
-import { TabScreen, useTabBottomInset } from '@/components';
+import { FilterChip, TabScreen, useTabBottomInset } from '@/components';
 import { useAuth, useCollaboratorInvitations, useTheme, useWorkspaces, usePlanLimits } from '@/src/hooks';
 import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { useCallback, useMemo, useState } from 'react';
@@ -130,24 +130,14 @@ export default function WorkspacesScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingVertical: 10 }}
               >
-                {SCOPES.map((s) => {
-                  const on = s.key === scope;
-                  return (
-                    <Pressable
-                      key={s.key}
-                      onPress={() => setScope(s.key)}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected: on }}
-                      className={`h-9 rounded-full px-4 justify-center active:scale-[0.98] ${
-                        on ? 'bg-foreground' : 'bg-card border border-border'
-                      }`}
-                    >
-                      <Text className={`text-[13px] ${on ? 'text-background font-bold' : 'text-foreground font-medium'}`}>
-                        {s.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+                {SCOPES.map((s) => (
+                  <FilterChip
+                    key={s.key}
+                    label={s.label}
+                    on={s.key === scope}
+                    onPress={() => setScope(s.key)}
+                  />
+                ))}
               </ScrollView>
             )}
             <View className="h-2" />
