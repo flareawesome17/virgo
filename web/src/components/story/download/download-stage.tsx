@@ -14,17 +14,26 @@ import { PhoneShell } from '../page/scenes/ch6-parts';
  * in front of it, both floating, the tools of the trade drifting round them
  * on a warm key light. Rises in on load; at rest under reduced motion.
  * Decorative: the downloads themselves are the page's real content.
+ *
+ * Phones (under 640 px) have no room to layer: there the window stands alone,
+ * the phone sits below it on the right, and only the camera and the lens float
+ * in the space beside the phone. Nothing covers the window's content. From
+ * 640 px the phone stands in front of the window, and the tools ring them both.
  */
 
 type Piece = { kind: GearKind; className: string; h: number; delay: number; rot: number };
 
-/** Around the window: % of the stage, h in px at desktop (scaled down on phones). */
+/**
+ * Around the devices: % of the stage, h in px at desktop (scaled down on
+ * phones). On phones only the camera and the lens show, in the free space
+ * left of the phone below the window; the rest would land on a screen.
+ */
 const GEAR: Piece[] = [
-  { kind: 'camera', className: 'left-[-6%] top-[-4%]', h: 92, delay: 0.2, rot: -10 },
-  { kind: 'light', className: 'left-[-13%] top-[40%] hidden sm:block', h: 120, delay: 2.1, rot: -4 },
-  { kind: 'lens', className: 'left-[34%] bottom-[-16%]', h: 60, delay: 1.4, rot: 0 },
-  { kind: 'timeline', className: 'right-[-4%] top-[-10%]', h: 56, delay: 0.8, rot: 6 },
-  { kind: 'brush', className: 'left-[44%] top-[-16%] hidden sm:block', h: 70, delay: 2.8, rot: 30 },
+  { kind: 'camera', className: 'bottom-[20%] left-[4%] sm:bottom-auto sm:left-[-6%] sm:top-[-4%]', h: 92, delay: 0.2, rot: -10 },
+  { kind: 'light', className: 'hidden sm:block sm:left-[-13%] sm:top-[40%]', h: 120, delay: 2.1, rot: -4 },
+  { kind: 'lens', className: 'bottom-[3%] left-[30%] sm:bottom-[-16%] sm:left-[34%]', h: 60, delay: 1.4, rot: 0 },
+  { kind: 'timeline', className: 'hidden sm:block sm:right-[-4%] sm:top-[-10%]', h: 56, delay: 0.8, rot: 6 },
+  { kind: 'brush', className: 'hidden sm:block sm:left-[44%] sm:top-[-16%]', h: 70, delay: 2.8, rot: 30 },
 ];
 
 /** A few warm motes rising through the light. Positions are fixed so the page renders the same everywhere. */
@@ -76,8 +85,11 @@ export function DownloadStage() {
         </Float>
       </div>
 
-      {/* The phone in front: the couple's picks, arriving. */}
-      <div className="story-rise absolute -bottom-[14%] right-[-2%] w-[30%] min-w-[118px] max-w-[190px] sm:-bottom-[18%] sm:right-[-6%]" style={rise(0.7)}>
+      {/* The phone: the couple's picks, arriving. Phones: below the window, on the right. From 640 px: in front of it. */}
+      <div
+        className="story-rise relative ml-auto mr-[6%] mt-6 w-[42%] max-w-[170px] sm:absolute sm:-bottom-[18%] sm:right-[-6%] sm:mr-0 sm:mt-0 sm:w-[30%] sm:min-w-[118px] sm:max-w-[190px]"
+        style={rise(0.7)}
+      >
         <Float amp={6} tilt={1.8} duration={6.2} delay={2}>
           <PhoneShell time="4:58" night rotateY={-10}>
             <div className="pt-3">
@@ -103,7 +115,7 @@ export function DownloadStage() {
         </div>
       ))}
 
-      <p className="absolute -bottom-9 left-0 font-mono text-[10.5px] uppercase tracking-[0.2em] text-[#A08E84] sm:-bottom-12">Illustrative</p>
+      <p className="absolute -bottom-7 left-0 font-mono text-[10.5px] uppercase tracking-[0.2em] text-[#A08E84] sm:-bottom-12">Illustrative</p>
     </div>
   );
 }
