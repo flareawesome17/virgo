@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Merged into the app's Info.plist by the bundler, which looks for this file
+    beside tauri.conf.json.
+
+    Nearby asks for the position through the webview's geolocation, and macOS
+    refuses that outright for an app that does not say why it wants it: no
+    prompt, just an error, so Nearby could never find anyone on a Mac. The
+    wording is the phone app's.
+  -->
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Virgo uses your location to show you creatives nearby, and to let people near you find you while you share it in Nearby.</string>
+  <key>NSLocationUsageDescription</key>
+  <string>Virgo uses your location to show you creatives nearby, and to let people near you find you while you share it in Nearby.</string>
+</dict>
+</plist>

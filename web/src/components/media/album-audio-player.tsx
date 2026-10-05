@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { formatBytes, type StoredFile } from '@/api';
 import { Button } from '@/components/ui/button';
+import { downloadHref } from '@/lib/desktop';
 
 type RepeatMode = 'off' | 'all' | 'one';
 
@@ -199,7 +200,8 @@ export function AlbumAudioPlayer({
                 <span className="hidden text-xs text-muted-foreground lg:inline">{formatBytes(file.sizeBytes)}</span>
                 {file.capabilities.download && file.downloadUrl && (
                   <a
-                    href={file.downloadUrl}
+                    // Marked, or the desktop app sends it to the browser.
+                    href={downloadHref(file.downloadUrl)}
                     onClick={(event) => event.stopPropagation()}
                     aria-label={`Download ${file.originalName}`}
                     className="grid size-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-[#e9dfd7] hover:text-foreground dark:hover:bg-white/10"

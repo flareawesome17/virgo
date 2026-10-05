@@ -111,30 +111,80 @@
       }
       body.failed .detail { display: block; }
 
+      /*
+       * A title bar for the splash. On Windows the window has no frame of its
+       * own (the app draws one once it loads), so a start that failed or hung
+       * left a window that could not be moved or closed. The strip drags on
+       * both systems; the buttons are Windows-only, since macOS keeps its own.
+       */
+      .bar {
+        position: fixed;
+        inset: 0 0 auto 0;
+        height: 32px;
+        display: flex;
+        justify-content: flex-end;
+      }
+      #controls:not([hidden]) { display: flex; }
+      .bar button {
+        width: 46px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        cursor: default;
+      }
+      .bar button:hover { background: var(--track); color: var(--fg); }
+      .bar button.close:hover { background: #c42b1c; color: #fff; }
+      .bar svg { pointer-events: none; }
+
       @media (prefers-reduced-motion: reduce) {
         .track i { animation: none; width: 100%; }
       }
     </style>
   </head>
-  <body>
-    <main>
-      <div class="mark">Virgo</div>
-      <div class="track"><i></i></div>
-      <p class="status" id="status">Starting…</p>
+  <body data-tauri-drag-region>
+    <div class="bar" data-tauri-drag-region>
+      <div id="controls" hidden>
+        <button type="button" id="minimise" aria-label="Minimise">
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor" fill="none" /></svg>
+        </button>
+        <button type="button" id="close" class="close" aria-label="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" fill="none" /></svg>
+        </button>
+      </div>
+    </div>
+    <main data-tauri-drag-region>
+      <div class="mark" data-tauri-drag-region>Virgo</div>
+      <div class="track" data-tauri-drag-region><i></i></div>
+      <p class="status" id="status" data-tauri-drag-region>Starting…</p>
       <pre class="detail" id="detail"></pre>
     </main>
 
     <script>
       /*
-       * The shell emits `startup-failed` when the server does not come up. It
-       * is the only Tauri API this page uses; once the server answers, the
-       * webview is moved to it and the ordinary web app takes over, which uses
-       * no Tauri APIs at all.
+       * The shell emits `startup-failed` when the server does not come up.
+       * Besides listening for it, this page only moves, minimises and closes
+       * its own window. Once the server answers, the webview is moved to it
+       * and the web app takes over.
        */
       const slow = setTimeout(() => {
         document.getElementById('status').textContent =
           'Still starting — the first launch after an update takes longer.';
       }, 6000);
+
+      // Dragging is the drag-region attribute. Only an element carrying it
+      // drags, which is why the failure detail, which can be selected and
+      // copied, does not.
+      const win = window.__TAURI__?.window?.getCurrentWindow?.();
+      if (win && /Windows/.test(navigator.userAgent)) {
+        document.getElementById('controls').hidden = false;
+        document.getElementById('minimise').onclick = () => win.minimize().catch(() => {});
+        // Closing the splash quits the app, server and all, as closing the
+        // app window does.
+        document.getElementById('close').onclick = () => win.close().catch(() => {});
+      }
 
       window.__TAURI__?.event?.listen('startup-failed', (event) => {
         clearTimeout(slow);

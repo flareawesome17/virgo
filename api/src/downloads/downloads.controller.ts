@@ -1,4 +1,4 @@
-import { Controller, Get, Logger, Param, Res } from '@nestjs/common';
+import { Controller, Get, Logger, Param, Query, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { Public } from '../auth/public.decorator';
@@ -74,6 +74,12 @@ export class DownloadsController {
    * The path carries the caller's platform and version because Tauri
    * substitutes them into the endpoint URL it was configured with; none of it
    * is trusted for anything beyond choosing which asset to describe.
+   *
+   * `?bundle=` is the same kind of value: which installer put this copy
+   * there, so a Windows MSI install can be updated with the MSI. It is
+   * optional because every copy installed before it existed asks without it.
+   * Express hands a repeated parameter over as an array, so anything that is
+   * not a plain string is treated as absent.
    */
   @Public()
   @Get('updater/:target/:arch/:version')
@@ -81,9 +87,15 @@ export class DownloadsController {
     @Param('target') target: string,
     @Param('arch') arch: string,
     @Param('version') version: string,
+    @Query('bundle') bundle: unknown,
     @Res() res: Response,
   ): Promise<void> {
-    const update = await this.downloads.getUpdate(target, arch, version);
+    const update = await this.downloads.getUpdate(
+      target,
+      arch,
+      version,
+      typeof bundle === 'string' ? bundle : undefined,
+    );
 
     if (!update) {
       res.status(204).end();

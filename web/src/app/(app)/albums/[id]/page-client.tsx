@@ -74,6 +74,7 @@ import {
   type StoredFile,
 } from '@/api';
 import { cn } from '@/lib/utils';
+import { IS_DESKTOP, downloadHref } from '@/lib/desktop';
 
 type KindFilter = 'all' | 'image' | 'video' | 'audio';
 
@@ -98,10 +99,14 @@ function plural(n: number, one: string, many: string): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
 
-/** Hands a signed download to the browser's own download manager. */
+/**
+ * Hands a signed download to the browser's own download manager — or, in the
+ * desktop app, to the shell, which only takes a link marked as a download and
+ * sends anything else to the browser.
+ */
 function startDownload(url: string) {
   const link = document.createElement('a');
-  link.href = url;
+  link.href = downloadHref(url);
   link.rel = 'noopener';
   document.body.appendChild(link);
   link.click();
@@ -307,7 +312,11 @@ function AlbumWorkspace() {
     try {
       startDownload(await storageApi.zipUrl(id, selection.keys()));
       toast.success(`Preparing ${plural(selection.count, 'file', 'files')} as a zip`, {
-        description: 'Your browser takes it from here — large albums can take a while to start.',
+        // The app has no browser to hand it to: the shell saves it itself, and
+        // says so again when it lands.
+        description: IS_DESKTOP
+          ? 'Saving to your Downloads folder — large albums can take a while to start.'
+          : 'Your browser takes it from here — large albums can take a while to start.',
       });
     } catch (error) {
       toast.error('Could not start the download', { description: problem(error) });
