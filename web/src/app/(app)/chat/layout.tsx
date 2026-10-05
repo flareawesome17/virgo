@@ -2,7 +2,7 @@
 
 import { useRouter, useSelectedLayoutSegment } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { ConversationList } from '@/components/chat/conversation-list';
 import { NewChatDialog } from '@/components/chat/new-chat-dialog';
 import { cn } from '@/lib/utils';
@@ -25,7 +25,7 @@ export default function ChatLayout({ children }: { children: ReactNode }) {
   const activeId = segment && segment !== '__PAGE__' ? segment : undefined;
 
   return (
-    <AppShell title="Chat">
+    <Screen title="Chat">
       <div className="flex h-full">
         <div
           className={cn(
@@ -46,6 +46,6 @@ export default function ChatLayout({ children }: { children: ReactNode }) {
         onOpenChange={setCreating}
         onCreated={(id) => router.push(`/chat/${id}`)}
       />
-    </AppShell>
+    </Screen>
   );
 }

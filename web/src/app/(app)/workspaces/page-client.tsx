@@ -2,18 +2,17 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
-import { Archive, ArrowLeft, FolderOpen, Loader2, Plus, Search } from 'lucide-react';
+import { Archive, ArrowLeft, FolderOpen, Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState } from '@/components/states';
 import { WorkspaceInvitations } from '@/components/workspace-invitations';
 import { WorkspaceCard } from '@/components/workspaces/workspace-card';
+import { CreateWorkspaceDialog } from '@/components/workspaces/create-workspace-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -21,169 +20,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { useCreateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces';
+import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAlbums } from '@/hooks/useAlbums';
 import { useUsage } from '@/hooks/useUsage';
-import { ACCENT_COLORS, plural } from '@/lib/workspaces';
+import { plural } from '@/lib/workspaces';
 import { cn } from '@/lib/utils';
-import {
-  DISCARD_BODY,
-  DISCARD_TITLE,
-  useDiscardGuard,
-  useGuardedClose,
-  useOpeningKey,
-} from '@/lib/discard-guard';
-
-type CreateWorkspaceDialogProps = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-};
-
-/**
- * A fresh form for every opening. It stayed mounted between uses, so a name
- * typed and cancelled was still waiting next time — and "Discard" has to
- * mean it.
- */
-function CreateWorkspaceDialog(props: CreateWorkspaceDialogProps) {
-  const opening = useOpeningKey(props.open);
-  return <CreateWorkspaceForm key={opening} {...props} />;
-}
-
-function CreateWorkspaceForm({ open, onOpenChange }: CreateWorkspaceDialogProps) {
-  const router = useRouter();
-  const create = useCreateWorkspace();
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [color, setColor] = useState(ACCENT_COLORS[0].hex);
-  const { dirty } = useDiscardGuard({ name, description, color }, open);
-  // Escape, the overlay, the X and Cancel ask first. Creating closes directly.
-  const guard = useGuardedClose(dirty, onOpenChange);
-  const close = guard.close;
-
-  const submit = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    create.mutate(
-      { name: trimmed, description: description.trim() || null, accent_color: color },
-      {
-        onSuccess: (workspace) => {
-          onOpenChange(false);
-          router.push(`/workspaces/${workspace.id}`);
-        },
-        onError: (err: Error) => toast.error('Could not create workspace', {
-          description: err.message,
-        }),
-      },
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={close}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New workspace</DialogTitle>
-          <DialogDescription>
-            A workspace holds the albums, schedule and people for one client or
-            one strand of work.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <Label htmlFor="ws-name">Name</Label>
-            <Input
-              id="ws-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Reyes Wedding"
-              autoFocus
-              maxLength={200}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit();
-              }}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="ws-description">Description</Label>
-            <Textarea
-              id="ws-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional"
-              rows={3}
-              maxLength={2000}
-            />
-          </div>
-          <fieldset className="grid gap-2">
-            <legend className="mb-2 text-sm font-medium">Colour</legend>
-            <div role="radiogroup" aria-label="Colour" className="flex flex-wrap gap-2">
-              {ACCENT_COLORS.map((c) => {
-                const on = c.hex === color;
-                return (
-                  <button
-                    key={c.hex}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    aria-label={c.name}
-                    title={c.name}
-                    onClick={() => setColor(c.hex)}
-                    className="size-7 rounded-full"
-                    style={{
-                      backgroundColor: c.hex,
-                      boxShadow: on ? `0 0 0 2px var(--background), 0 0 0 4px ${c.hex}` : undefined,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </fieldset>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => close(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!name.trim() || create.isPending}>
-            {create.isPending && <Loader2 className="size-4 animate-spin" />}
-            Create workspace
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-
-      <AlertDialog open={guard.asking} onOpenChange={(o) => !o && guard.keepEditing()}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{DISCARD_TITLE}</AlertDialogTitle>
-            <AlertDialogDescription>{DISCARD_BODY}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep editing</AlertDialogCancel>
-            <AlertDialogAction onClick={guard.discard}>Discard</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Dialog>
-  );
-}
 
 type Scope = 'all' | 'yours' | 'shared';
 type Sort = 'last_activity_at' | 'name' | 'created_at';
@@ -276,7 +117,7 @@ function WorkspacesContent() {
         .join(' · ');
 
   return (
-    <AppShell title="Workspaces">
+    <Screen title="Workspaces">
       <PageHeader
         title={
           showArchived ? (
@@ -291,14 +132,8 @@ function WorkspacesContent() {
           )
         }
         description={isLoading ? undefined : summary}
-        actions={
-          showArchived ? undefined : (
-            <Button onClick={startCreate}>
-              <Plus className="size-4" />
-              New workspace
-            </Button>
-          )
-        }
+        // No "New workspace" here: that is the bar's Create, as on the
+        // phone. The empty state keeps its own, for a first one.
       />
 
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-6">
@@ -413,7 +248,7 @@ function WorkspacesContent() {
       </div>
 
       <CreateWorkspaceDialog open={creating} onOpenChange={setCreating} />
-    </AppShell>
+    </Screen>
   );
 }
 

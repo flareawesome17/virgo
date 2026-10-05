@@ -1,11 +1,40 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { useRouter } from 'next/navigation';
 
 /** What a person is asked before something they typed is thrown away. */
 export const DISCARD_TITLE = 'Discard your changes?';
 export const DISCARD_BODY = "What you've typed here will be lost.";
+
+/*
+ * Every form with something typed in it right now, by where it lives.
+ *
+ * The Create menu's dialogs open over whatever page is on screen, and used to
+ * navigate to what they made. A router.push is not a link click, so nothing
+ * asked first: a half-written job post was thrown away by making a workspace
+ * on top of it. The Create dialogs are scoped as `create`; everything else is
+ * the page's, and isPageDirty says whether leaving would lose any of it.
+ */
+const dirtyForms = new Map<symbol, string>();
+const DiscardScopeContext = createContext('page');
+
+/** Marks the guards beneath it as belonging somewhere other than the page. */
+export const DiscardScope = DiscardScopeContext.Provider;
+
+/** Whether a form outside the Create dialogs has unsaved changes. */
+export function isPageDirty(): boolean {
+  for (const scope of dirtyForms.values()) if (scope !== 'create') return true;
+  return false;
+}
 
 /*
  * The one question a page is waiting on, answered by DiscardPrompt, which is
@@ -91,6 +120,16 @@ export function useDiscardGuard(
   const dirty = ready && base !== null && now !== base;
   const leaving = useRef(false);
   const router = useRouter();
+  const scope = useContext(DiscardScopeContext);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const id = Symbol(scope);
+    dirtyForms.set(id, scope);
+    return () => {
+      dirtyForms.delete(id);
+    };
+  }, [dirty, scope]);
 
   useEffect(() => {
     if (!dirty) return;

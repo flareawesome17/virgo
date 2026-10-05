@@ -17,7 +17,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { NewAlbumDialog } from '@/components/new-album-dialog';
 import { ActivityFeed } from '@/components/workspaces/activity-feed';
@@ -640,7 +640,7 @@ function WorkspacePageBody() {
   const { data: workspace, isLoading, isError, refetch } = useWorkspace(id);
 
   return (
-    <AppShell title={workspace?.name ?? 'Workspace'}>
+    <Screen title={workspace?.name ?? 'Workspace'}>
       {workspace ? (
         workspace.is_owner ? (
           <OwnerWorkspace workspace={workspace} />
@@ -684,7 +684,7 @@ function WorkspacePageBody() {
           </div>
         </>
       )}
-    </AppShell>
+    </Screen>
   );
 }
 

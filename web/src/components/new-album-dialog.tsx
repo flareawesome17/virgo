@@ -35,7 +35,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { RetentionField } from '@/components/retention-field';
-import { retentionInput, retentionReady, type Retention } from '@/api';
+import { retentionInput, retentionReady, type Album, type Retention } from '@/api';
 import { useCreateAlbum } from '@/hooks/useAlbums';
 import { useUsage } from '@/hooks/useUsage';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
@@ -52,6 +52,11 @@ type NewAlbumDialogProps = {
   workspaceId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Where to go once it exists. Absent, the album opens; the Create menu
+   * passes its own, which stays put when the page beneath has unsaved work.
+   */
+  onCreated?: (album: Album) => void;
 };
 
 /**
@@ -69,7 +74,7 @@ export function NewAlbumDialog(props: NewAlbumDialogProps) {
   return <NewAlbumForm key={opening} {...props} />;
 }
 
-function NewAlbumForm({ workspaceId, open, onOpenChange }: NewAlbumDialogProps) {
+function NewAlbumForm({ workspaceId, open, onOpenChange, onCreated }: NewAlbumDialogProps) {
   const router = useRouter();
   const create = useCreateAlbum();
   // Only your own: an album can only be made in a workspace you own, and one
@@ -107,7 +112,8 @@ function NewAlbumForm({ workspaceId, open, onOpenChange }: NewAlbumDialogProps) 
       {
         onSuccess: (album) => {
           onOpenChange(false);
-          router.push(`/albums/${album.id}`);
+          if (onCreated) onCreated(album);
+          else router.push(`/albums/${album.id}`);
         },
         onError: (err: Error) => toast.error('Could not create album', { description: err.message }),
       },

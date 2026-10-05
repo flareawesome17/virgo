@@ -18,7 +18,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -318,7 +318,7 @@ export default function ProfilePage() {
   };
 
   return (
-    <AppShell title="Profile">
+    <Screen title="Profile">
       <PageHeader
         title="Profile"
         description="How you appear to collaborators and clients"
@@ -729,7 +729,7 @@ export default function ProfilePage() {
           </Card>
         </aside>
       </div>
-    </AppShell>
+    </Screen>
   );
 }
 

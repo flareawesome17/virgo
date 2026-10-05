@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { BookingCard } from '@/components/jobs/booking-card';
 import { useBookings } from '@/hooks/useBookings';
@@ -19,7 +19,7 @@ export default function BookingsPage() {
   const { bookings, isLoading, loadFailed, refetch } = useBookings();
 
   return (
-    <AppShell title="Bookings">
+    <Screen title="Bookings">
       <PageHeader
         title="Bookings"
         description="What you and the other person agreed"
@@ -74,6 +74,6 @@ export default function BookingsPage() {
           </div>
         )}
       </div>
-    </AppShell>
+    </Screen>
   );
 }

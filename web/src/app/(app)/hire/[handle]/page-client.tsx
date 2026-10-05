@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Clock, CloudOff, Loader2, MapPin, Send, UserSearch } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -45,34 +45,34 @@ export default function HirePage() {
   // "you've already asked" a moment later. A list that fails to load does not
   // hold the form back: isLoading goes false whether it arrived or not.
   if (profile.isLoading || hire.isLoading) {
-    return <AppShell title="Hire"><CenteredSpinner /></AppShell>;
+    return <Screen title="Hire"><CenteredSpinner /></Screen>;
   }
 
   // A failed load is not a missing profile: saying "not found" to somebody
   // on a bad connection sends them away from a person who is right there.
   if (!profile.notFound && profile.loadFailed) {
     return (
-      <AppShell title="Hire">
+      <Screen title="Hire">
         <EmptyState
           icon={CloudOff}
           title="Could not load this profile"
           description="Check your connection and try again."
           action={<Button onClick={() => profile.refetch()}>Try again</Button>}
         />
-      </AppShell>
+      </Screen>
     );
   }
 
   if (profile.notFound || !profile.profile) {
     return (
-      <AppShell title="Hire">
+      <Screen title="Hire">
         <EmptyState
           icon={UserSearch}
           title="Profile not found"
           description="This profile is private, or the handle has changed."
           action={<Button onClick={() => router.push('/nearby')}>Find collaborators</Button>}
         />
-      </AppShell>
+      </Screen>
     );
   }
 
@@ -114,7 +114,7 @@ export default function HirePage() {
   };
 
   return (
-    <AppShell title={`Hire ${person.displayName ?? ""}`.trim()}>
+    <Screen title={`Hire ${person.displayName ?? ""}`.trim()}>
       <div className="mx-auto w-full max-w-2xl px-6 py-6">
         <Button
           variant="ghost"
@@ -268,6 +268,6 @@ export default function HirePage() {
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+    </Screen>
   );
 }

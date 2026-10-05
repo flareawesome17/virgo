@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImageIcon, Layers, Loader2, Music, Plus, Search, Video, X } from 'lucide-react';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { NewAlbumDialog } from '@/components/new-album-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -94,7 +94,7 @@ export default function AlbumsPage() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <AppShell title="Albums">
+    <Screen title="Albums">
       <PageHeader
         title="Albums"
         description={
@@ -102,12 +102,8 @@ export default function AlbumsPage() {
             ? 'Everything you have shot, by workspace'
             : `${albumsQuery.total.toLocaleString()} album${albumsQuery.total === 1 ? '' : 's'}${groups.length > 1 ? ` in ${groups.length} workspaces` : ''}`
         }
-        actions={
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="size-4" />
-            New album
-          </Button>
-        }
+        // New album is the bar's Create, as on the phone; the empty state
+        // keeps its own.
       />
 
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
@@ -221,7 +217,7 @@ export default function AlbumsPage() {
       </div>
 
       <NewAlbumDialog open={creating} onOpenChange={setCreating} />
-    </AppShell>
+    </Screen>
   );
 }
 

@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -169,7 +169,7 @@ export default function SettingsPage() {
     toast.error(label, { description: err.message });
 
   return (
-    <AppShell title="Settings">
+    <Screen title="Settings">
       <PageHeader title="Settings" description="How the app behaves in this browser" />
 
       <div className="mx-auto w-full max-w-3xl px-6 py-6">
@@ -729,6 +729,6 @@ export default function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </AppShell>
+    </Screen>
   );
 }

@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { track } from '@/lib/analytics';
 import { rateLabel, type Booking } from '@/api';
 import { MAX_ROLE_BUDGET_MINOR } from '@/lib/job-form';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { bookingState } from '@/components/jobs/booking-card';
 import {
@@ -49,26 +49,26 @@ export default function BookingPage() {
 
   if (isLoading) {
     return (
-      <AppShell title="Booking">
+      <Screen title="Booking">
         <CenteredSpinner />
-      </AppShell>
+      </Screen>
     );
   }
 
   if (loadFailed || !booking) {
     return (
-      <AppShell title="Booking">
+      <Screen title="Booking">
         <div className="mx-auto w-full max-w-3xl px-6 py-6">
           <p className="py-16 text-center text-sm text-muted-foreground">
             That booking is not available.
           </p>
         </div>
-      </AppShell>
+      </Screen>
     );
   }
 
   return (
-    <AppShell title="Booking">
+    <Screen title="Booking">
       {/*
         The same container every other page in the app has, and this one did
         not: it rendered straight into the shell, so the back link sat against
@@ -97,7 +97,7 @@ export default function BookingPage() {
           <View booking={booking} onEdit={() => setEditing(true)} />
         )}
       </div>
-    </AppShell>
+    </Screen>
   );
 }
 

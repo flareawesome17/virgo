@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState, ErrorState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -245,7 +245,7 @@ export default function NearbyPage() {
   );
 
   return (
-    <AppShell title="Nearby">
+    <Screen title="Nearby">
       <PageHeader
         title="Nearby"
         description="Freelancers and collaborators around you"
@@ -503,6 +503,6 @@ export default function NearbyPage() {
           )}
         </div>
       </div>
-    </AppShell>
+    </Screen>
   );
 }

@@ -19,7 +19,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { ConnectionActions } from '@/components/connection-actions';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
@@ -58,17 +58,17 @@ export default function AppProfilePage() {
 
   const q = usePublicProfile(handle);
 
-  if (q.isLoading) return <AppShell title="Profile"><CenteredSpinner /></AppShell>;
+  if (q.isLoading) return <Screen title="Profile"><CenteredSpinner /></Screen>;
 
   const notFound = (
-    <AppShell title="Profile">
+    <Screen title="Profile">
       <EmptyState
         icon={UserSearch}
         title="Profile not found"
         description="This profile is private, or the handle has changed."
         action={<Button onClick={() => router.push('/nearby')}>Find collaborators</Button>}
       />
-    </AppShell>
+    </Screen>
   );
 
   // Ahead of any cached copy: a block or an unpublish has to take the page
@@ -79,14 +79,14 @@ export default function AppProfilePage() {
   // a bad connection sends them away from a person who is right there.
   if (q.loadFailed) {
     return (
-      <AppShell title="Profile">
+      <Screen title="Profile">
         <EmptyState
           icon={CloudOff}
           title="Could not load this profile"
           description="Check your connection and try again."
           action={<Button onClick={() => q.refetch()}>Try again</Button>}
         />
-      </AppShell>
+      </Screen>
     );
   }
 
@@ -110,7 +110,7 @@ export default function AppProfilePage() {
   };
 
   return (
-    <AppShell title={person.displayName || 'Profile'}>
+    <Screen title={person.displayName || 'Profile'}>
       <div className="mx-auto w-full max-w-4xl px-6 py-6">
         <Button
           variant="ghost"
@@ -293,7 +293,7 @@ export default function AppProfilePage() {
 
         <ProfileWork handle={person.handle} person={person} />
       </div>
-    </AppShell>
+    </Screen>
   );
 }
 

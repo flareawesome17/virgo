@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 
 // `pending` is what a support reply sets: the customer's move, not ours.
 const STATUS_LABEL: Record<string, string> = {
@@ -74,7 +74,7 @@ function SupportContent() {
   }
 
   return (
-    <AppShell title="Support">
+    <Screen title="Support">
     <div className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -148,7 +148,7 @@ function SupportContent() {
         </div>
       )}
     </div>
-    </AppShell>
+    </Screen>
   );
 }
 
@@ -211,7 +211,7 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const [body, setBody] = useState('');
 
   return (
-    <AppShell title="Support">
+    <Screen title="Support">
     <div className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
       <button
         onClick={onBack}
@@ -285,6 +285,6 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
         </>
       )}
     </div>
-    </AppShell>
+    </Screen>
   );
 }
