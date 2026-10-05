@@ -1,11 +1,17 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, TextInput } from 'react-native';
 import Animated from 'react-native-reanimated';
-import { FilterChip, TabScreen, useTabBottomInset } from '@/components';
+import {
+  CardListSkeleton,
+  EmptyState,
+  FilterChip,
+  TabScreen,
+  useTabBottomInset,
+} from '@/components';
 import { useAuth, useCollaboratorInvitations, useTheme, useWorkspaces, usePlanLimits } from '@/src/hooks';
 import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { useCallback, useMemo, useState } from 'react';
 import { router } from 'expo-router';
-import { ArchiveIcon, ChevronRightIcon, FolderPlusIcon, PlusIcon, SearchIcon } from 'lucide-react-native';
+import { ArchiveIcon, ChevronRightIcon, FolderPlusIcon, SearchIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { WorkspaceInvitations } from '@/components/WorkspaceInvitations';
@@ -14,7 +20,6 @@ import { PALETTES } from '@/theme';
 import type { Workspace } from '@/src/api';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ArchiveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -161,50 +166,38 @@ export default function WorkspacesScreen() {
         ListEmptyComponent={
           // "No workspaces yet" on a failed request tells someone their own
           // work is gone. It is not, and saying so is the worst kind of wrong.
-          isLoading ? null : loadFailed ? (
+          // A placeholder in the list's own shape while it loads. It was null,
+          // which left the screen empty under the bar until it all arrived.
+          isLoading ? (
+            <CardListSkeleton />
+          ) : loadFailed ? (
             <View className="pt-8">
               <LoadFailed what="your workspaces" onRetry={() => refetchWorkspaces()} compact />
             </View>
           ) : workspaces.length > 0 ? (
             // Filtered down to nothing, which is not the same as having none.
-            <View className="px-5 pt-8 items-center gap-3">
-              <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
-                <SearchIcon size={26} className="text-muted-foreground" />
-              </View>
-              <Text className="text-foreground text-lg font-bold">Nothing matches</Text>
-              <Text className="text-muted-foreground text-sm text-center px-8">
-                {query.trim() ? `No workspace matches “${query.trim()}”.` : 'Nothing here yet.'}
-              </Text>
-              <Pressable
-                onPress={() => {
+            <EmptyState
+              icon={SearchIcon}
+              title="Nothing matches"
+              body={query.trim() ? `No workspace matches “${query.trim()}”.` : 'Nothing here yet.'}
+              secondary={{
+                label: 'Show all',
+                onPress: () => {
                   setQuery('');
                   setScope('all');
-                }}
-                className="bg-card rounded-2xl px-5 py-3 active:scale-[0.96]"
-                style={{ borderWidth: 1, borderColor: palette.border }}
-              >
-                <Text className="text-foreground text-sm font-semibold">Show all</Text>
-              </Pressable>
-            </View>
+                },
+              }}
+            />
           ) : (
-            <View className="px-5 pt-8 items-center gap-4">
-              <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
-                <FolderPlusIcon size={28} className="text-muted-foreground" />
-              </View>
-              <View className="items-center gap-1">
-                <Text className="text-foreground text-lg font-bold">No workspaces yet</Text>
-                <Text className="text-muted-foreground text-sm text-center px-8">
-                  A workspace holds the albums, schedule and people for one client.
-                </Text>
-              </View>
-              <Pressable
-                onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
-                className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
-              >
-                <PlusIcon size={18} className="text-white" />
-                <Text className="text-white text-sm font-semibold">Create a workspace</Text>
-              </Pressable>
-            </View>
+            <EmptyState
+              icon={FolderPlusIcon}
+              title="No workspaces yet"
+              body="A workspace holds the albums, schedule and people for one client."
+              action={{
+                label: 'Create a workspace',
+                onPress: guardWorkspaceCreate(() => router.push('/workspaces/create')),
+              }}
+            />
           )
         }
         renderItem={renderItem}

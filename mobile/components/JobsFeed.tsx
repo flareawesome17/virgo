@@ -18,6 +18,9 @@ import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
 import { FilterChip } from '@/components/FilterChip';
+import { EmptyState } from '@/components/EmptyState';
+import { PressableScale } from '@/components/PressableScale';
+import { CardListSkeleton } from '@/components/Skeleton';
 
 for (const Icon of [
   BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon, UsersIcon, SearchIcon,
@@ -95,33 +98,27 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
       </View>
 
       {isLoading && jobs.length === 0 ? (
-        <View className="flex-1 items-center justify-center py-16">
-          <ActivityIndicator color="#B66A40" />
-        </View>
+        <CardListSkeleton />
       ) : loadFailed && jobs.length === 0 ? (
         <LoadFailed what="the job board" onRetry={() => refetch()} />
       ) : jobs.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-10 py-16">
-          <BriefcaseIcon size={30} className="text-muted-foreground" />
-          <Text className="text-foreground text-[15px] font-bold mt-3 text-center">
-            {debouncedPlace
-              ? `Nothing in “${debouncedPlace}”`
-              : role
-                ? `Nothing open for a ${role.toLowerCase()}`
-                : 'No open jobs right now'}
-          </Text>
-          <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
-            {debouncedPlace || role
-              ? 'Try a wider search, or post the job you need doing.'
-              : 'Posts expire when the job does, so this list is always current. Check back, or post the job you need doing.'}
-          </Text>
-          <Pressable
-            className="mt-5 rounded-xl px-5 py-3"
-            style={{ backgroundColor: '#B66A40' }}
-            onPress={() => router.push('/jobs/new')}
-          >
-            <Text className="text-white text-[13px] font-bold">Post a job</Text>
-          </Pressable>
+        <View className="flex-1 justify-center">
+          <EmptyState
+            icon={BriefcaseIcon}
+            title={
+              debouncedPlace
+                ? `Nothing in “${debouncedPlace}”`
+                : role
+                  ? `Nothing open for a ${role.toLowerCase()}`
+                  : 'No open jobs right now'
+            }
+            body={
+              debouncedPlace || role
+                ? 'Try a wider search, or post the job you need doing.'
+                : 'Posts expire when the job does, so this list is always current. Check back, or post the job you need doing.'
+            }
+            action={{ label: 'Post a job', onPress: () => router.push('/jobs/new') }}
+          />
         </View>
       ) : (
         <Animated.ScrollView
@@ -169,9 +166,13 @@ const APPLICATION_LABEL: Record<string, string> = {
 function JobCard({ job }: { job: JobPost }) {
   const budget = budgetLabel(job.budgetMin, job.budgetMax);
   return (
-    <Pressable
+    // It had no press feedback at all. It gives a little now.
+    <PressableScale
       className="bg-card rounded-2xl p-4 gap-2.5"
       onPress={() => router.push(`/jobs/${job.slug}`)}
+      accessibilityRole="button"
+      accessibilityLabel={job.title}
+      scaleTo={0.98}
     >
       <View className="flex-row items-start gap-2.5">
         <RemoteImage
@@ -252,6 +253,6 @@ function JobCard({ job }: { job: JobPost }) {
           </View>
         )}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }

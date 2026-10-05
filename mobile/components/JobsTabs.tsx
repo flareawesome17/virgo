@@ -22,6 +22,8 @@ import { budgetLabel, isRoleFilled, type JobApplication, type JobPost } from '@/
 import { APPLICATION_LABEL } from '@/src/lib/jobs-format';
 import { JobsFeed } from '@/components/JobsFeed';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
+import { EmptyState } from '@/components/EmptyState';
+import { CardListSkeleton } from '@/components/Skeleton';
 import { BookingsList } from '@/components/BookingsList';
 import { PersonSafetySheet } from '@/components/PersonSafetySheet';
 import {
@@ -113,9 +115,7 @@ export function JobsTabs({
         <BookingsList bottomPadding={bottomPadding} />
       ) : tab === 'posted' ? (
         isLoading && jobs.length === 0 ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#B66A40" />
-          </View>
+          <CardListSkeleton count={3} />
         ) : loadFailed && jobs.length === 0 ? (
           <LoadFailed what="your posts" onRetry={() => refetch()} />
         ) : jobs.length === 0 ? (
@@ -619,11 +619,7 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
   };
 
   if (isLoading && applications.length === 0) {
-    return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator color="#B66A40" />
-      </View>
-    );
+    return <CardListSkeleton count={3} />;
   }
 
   if (loadFailed && applications.length === 0) {
@@ -742,19 +738,8 @@ function Empty({
   title: string; body: string; cta: string; onPress: () => void;
 }) {
   return (
-    <View className="flex-1 items-center justify-center px-10">
-      <BriefcaseIcon size={30} className="text-muted-foreground" />
-      <Text className="text-foreground text-[15px] font-bold mt-3 text-center">{title}</Text>
-      <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
-        {body}
-      </Text>
-      <Pressable
-        className="mt-5 rounded-xl px-5 py-3"
-        style={{ backgroundColor: '#B66A40' }}
-        onPress={onPress}
-      >
-        <Text className="text-white text-[13px] font-bold">{cta}</Text>
-      </Pressable>
+    <View className="flex-1 justify-center">
+      <EmptyState icon={BriefcaseIcon} title={title} body={body} action={{ label: cta, onPress }} />
     </View>
   );
 }

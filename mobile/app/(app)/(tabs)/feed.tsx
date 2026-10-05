@@ -19,7 +19,13 @@ import {
   ImageIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { SegmentedTabs, TabScreen, useTabBottomInset } from '@/components';
+import {
+  EmptyState,
+  FeedSkeleton,
+  SegmentedTabs,
+  TabScreen,
+  useTabBottomInset,
+} from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
@@ -173,9 +179,7 @@ export default function FeedScreen() {
       </View>
 
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={palette.primary} />
-        </View>
+        <FeedSkeleton />
       ) : loadFailed && items.length === 0 ? (
         <LoadFailed what="the feed" onRetry={() => refetch()} />
       ) : (
@@ -514,25 +518,17 @@ function FeedFilm({
 
 function EmptyFeed({ scope }: { scope: 'everyone' | 'connections' }) {
   return (
-    <View className="items-center px-10 mt-24">
-      <View className="w-20 h-20 rounded-full bg-primary/10 items-center justify-center mb-5">
-        <ImageIcon size={30} className="text-primary" />
-      </View>
-      <Text className="text-foreground text-lg font-bold">
-        {scope === 'connections' ? 'Nothing from your connections yet' : 'Nothing here yet'}
-      </Text>
-      <Text className="text-muted-foreground text-sm text-center mt-2 leading-5">
-        {scope === 'connections'
-          ? 'When people you are connected with post their work, it shows up here.'
-          : 'Be the first. Post a piece of work and say how you made it — that is what other people come here to read.'}
-      </Text>
-      <Pressable
-        onPress={() => router.push('/showcase/new')}
-        accessibilityRole="button"
-        className="mt-7 min-h-11 bg-action rounded-xl px-7 items-center justify-center active:scale-[0.98]"
-      >
-        <Text className="text-action-foreground text-sm font-bold">Post a showcase</Text>
-      </Pressable>
+    <View className="pt-12">
+      <EmptyState
+        icon={ImageIcon}
+        title={scope === 'connections' ? 'Nothing from your connections yet' : 'Nothing here yet'}
+        body={
+          scope === 'connections'
+            ? 'When people you are connected with post their work, it shows up here.'
+            : 'Be the first. Post a piece of work and say how you made it — that is what other people come here to read.'
+        }
+        action={{ label: 'Post a showcase', onPress: () => router.push('/showcase/new') }}
+      />
     </View>
   );
 }

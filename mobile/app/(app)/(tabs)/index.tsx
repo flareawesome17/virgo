@@ -35,10 +35,11 @@ import {
   FolderPlusIcon,
   ArrowUpRightIcon,
   ChevronRightIcon,
+  HardDriveIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
-import { StorageRing, TabScreen, useTabBottomInset } from '@/components';
+import { PressableScale, Skeleton, StorageRing, TabScreen, useTabBottomInset } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { CHART_COLORS, PALETTES } from '@/theme';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
@@ -46,6 +47,7 @@ import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 cssInterop(CalendarIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ArrowUpRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 
@@ -213,69 +215,31 @@ export default function DashboardScreen() {
           </Text>
         </View>
 
-        {/* ── Where the account stands ── */}
-        <View className="px-5 pt-5">
-          <View className="bg-card rounded-3xl border border-border/40 p-4 flex-row items-center gap-4">
-            {/* An unlimited plan reports no limit, and a ring with no ceiling
-                would draw a full one. It passes 0 and reads as empty. */}
-            <StorageRing
-              fraction={storageLimitBytes ? storageFraction : 0}
-              color={storageFraction >= 0.9 ? palette.destructive : palette.primary}
-              trackColor={palette.muted}
-            />
-            <View className="flex-1 gap-1.5">
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider">
-                Storage
-              </Text>
-              <Text className="text-foreground text-base font-bold">
-                {formatBytes(storageUsedBytes)}{' '}
-                <Text className="text-muted-foreground text-xs font-medium">used</Text>
-              </Text>
-              <Text className="text-foreground text-base font-bold">
-                {storageLimitBytes
-                  ? formatBytes(Math.max(storageLimitBytes - storageUsedBytes, 0))
-                  : 'Unlimited'}{' '}
-                <Text className="text-muted-foreground text-xs font-medium">left</Text>
-              </Text>
-              {storageFraction >= 0.9 && (
-                // Where more cannot be bought (SELLS_PLANS_HERE), the useful
-                // move is seeing what is taking the space.
-                <Pressable
-                  onPress={() =>
-                    router.push(SELLS_PLANS_HERE ? '/settings/storage/plans' : '/settings/storage')
-                  }
-                  accessibilityRole="button"
-                  className="active:opacity-70"
-                >
-                  <Text className="text-primary text-xs font-semibold">
-                    {SELLS_PLANS_HERE ? 'Get more storage' : 'Manage storage'}
-                  </Text>
-                </Pressable>
-              )}
-            </View>
+        {/* Storage moved to the foot of the screen, so when it is nearly full
+            it says so up here instead — the one time it is worth the space. */}
+        {storageLimitBytes ? storageFraction >= 0.9 && (
+          <View className="px-5 pt-2">
+            <PressableScale
+              onPress={() =>
+                router.push(SELLS_PLANS_HERE ? '/settings/storage/plans' : '/settings/storage')
+              }
+              accessibilityRole="button"
+              scaleTo={0.98}
+              className="min-h-12 flex-row items-center gap-3 rounded-2xl bg-destructive/10 px-4 py-3"
+            >
+              <HardDriveIcon size={18} className="text-destructive" />
+              <View className="flex-1">
+                <Text className="text-foreground text-sm font-semibold">
+                  Storage {Math.round(storageFraction * 100)}% full
+                </Text>
+                <Text className="text-muted-foreground text-xs mt-0.5">
+                  {SELLS_PLANS_HERE ? 'Get more room, or see what is taking it' : 'See what is taking the space'}
+                </Text>
+              </View>
+              <ChevronRightIcon size={17} className="text-destructive" />
+            </PressableScale>
           </View>
-
-          <View className="flex-row gap-2.5 mt-3">
-            <StatTile
-              value={connections}
-              label="Connections"
-              tint={palette.primary}
-              onPress={() => router.push('/(app)/(tabs)/connect')}
-            />
-            <StatTile
-              value={myJobs.length}
-              label="Jobs posted"
-              tint={palette.accent}
-              onPress={() => router.push('/jobs/mine')}
-            />
-            {/* Nothing lists finished work yet, so this one only reports. */}
-            <StatTile
-              value={finishedJobs}
-              label="Jobs finished"
-              tint={CHART_COLORS.green}
-            />
-          </View>
-        </View>
+        ) : null}
 
         {/* ── Next up ── */}
         <View className="px-5 pt-4 pb-4">
@@ -285,11 +249,12 @@ export default function DashboardScreen() {
               <LoadFailed what="your schedule" onRetry={() => refetchEvents()} compact />
             </View>
           ) : nextEvent ? (
-            <Pressable
+            <PressableScale
               onPress={() => router.push(`/schedule/${nextEvent.id}`)}
               accessibilityRole="button"
               accessibilityLabel={`Open ${nextEvent.title}`}
-              className="bg-card rounded-3xl border border-border/40 p-5 active:scale-[0.99]"
+              scaleTo={0.98}
+              className="bg-card rounded-3xl border border-border/40 p-5"
             >
               <View className="flex-row items-center justify-between">
                 <View className="rounded-full bg-primary/10 px-3 py-1.5">
@@ -305,12 +270,13 @@ export default function DashboardScreen() {
                   .filter(Boolean)
                   .join(' · ')}
               </Text>
-            </Pressable>
+            </PressableScale>
           ) : (
-            <Pressable
+            <PressableScale
               onPress={() => router.push('/schedule/create')}
               accessibilityRole="button"
-              className="bg-card rounded-3xl border border-border/40 p-5 flex-row items-center gap-4 active:scale-[0.99]"
+              scaleTo={0.98}
+              className="bg-card rounded-3xl border border-border/40 p-5 flex-row items-center gap-4"
             >
               <View className="w-11 h-11 rounded-2xl bg-primary/10 items-center justify-center">
                 <CalendarIcon size={20} className="text-primary" />
@@ -320,7 +286,7 @@ export default function DashboardScreen() {
                 <Text className="text-muted-foreground text-sm mt-0.5">Add a shoot, review, or deadline</Text>
               </View>
               <ChevronRightIcon size={18} className="text-muted-foreground" />
-            </Pressable>
+            </PressableScale>
           )}
         </View>
 
@@ -390,11 +356,13 @@ export default function DashboardScreen() {
           </View>
 
           {albums.length > 0 && (
-            <Pressable
+            <PressableScale
               onPress={() => router.push(`/albums/${albums[0].id}`)}
               accessibilityRole="button"
               accessibilityLabel={`Open album ${albums[0].name}`}
-              className="bg-card rounded-3xl overflow-hidden border border-border/30 mb-3 active:scale-[0.99]"
+              scaleTo={0.98}
+              style={{ marginBottom: 12 }}
+              className="bg-card rounded-3xl overflow-hidden border border-border/30"
             >
               <RemoteImage
                 source={{ uri: albums[0].cover_url || PLACEHOLDER_COVER }}
@@ -410,13 +378,13 @@ export default function DashboardScreen() {
                 </View>
                 <ArrowUpRightIcon size={17} className="text-muted-foreground" />
               </View>
-            </Pressable>
+            </PressableScale>
           )}
 
           {wsLoading ? (
             <View className="gap-3">
               {[1, 2].map((i) => (
-                <View key={i} className="bg-secondary rounded-2xl p-4 h-[72px]" style={{ opacity: 0.55 }} />
+                <Skeleton key={i} className="rounded-2xl" style={{ height: 72 }} />
               ))}
             </View>
           ) : wsFailed && workspaces.length === 0 ? (
@@ -439,10 +407,13 @@ export default function DashboardScreen() {
           ) : (
             <View className="gap-3">
               {workspaces.slice(0, 2).map((ws) => (
-                <Pressable
+                <PressableScale
                   key={ws.id}
                   onPress={() => router.push(`/workspaces/${ws.id}`)}
-                  className="bg-card rounded-2xl p-4 flex-row items-center gap-4 border border-border/30 active:scale-[0.98]"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${ws.name}`}
+                  scaleTo={0.98}
+                  className="bg-card rounded-2xl p-4 flex-row items-center gap-4 border border-border/30"
                 >
                   <View
                     style={{
@@ -467,10 +438,78 @@ export default function DashboardScreen() {
                     </Text>
                   </View>
                   <ArrowUpRightIcon size={16} className="text-muted-foreground" />
-                </Pressable>
+                </PressableScale>
               ))}
             </View>
           )}
+        </View>
+
+        {/* ── Where the account stands ── */}
+        {/* Last, under a name of its own. It opened the screen, above the
+            next shoot, though storage and counts are what you look up now and
+            then, and what is coming up is what you open the app for. */}
+        <View className="px-5 mt-6">
+          <Text className="text-foreground text-xl font-bold tracking-tight mb-3">Your account</Text>
+          <View className="bg-card rounded-3xl border border-border/40 p-4 flex-row items-center gap-4">
+            {/* An unlimited plan reports no limit, and a ring with no ceiling
+                would draw a full one. It passes 0 and reads as empty. */}
+            <StorageRing
+              fraction={storageLimitBytes ? storageFraction : 0}
+              color={storageFraction >= 0.9 ? palette.destructive : palette.primary}
+              trackColor={palette.muted}
+            />
+            <View className="flex-1 gap-1.5">
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider">
+                Storage
+              </Text>
+              <Text className="text-foreground text-base font-bold">
+                {formatBytes(storageUsedBytes)}{' '}
+                <Text className="text-muted-foreground text-xs font-medium">used</Text>
+              </Text>
+              <Text className="text-foreground text-base font-bold">
+                {storageLimitBytes
+                  ? formatBytes(Math.max(storageLimitBytes - storageUsedBytes, 0))
+                  : 'Unlimited'}{' '}
+                <Text className="text-muted-foreground text-xs font-medium">left</Text>
+              </Text>
+              {storageFraction >= 0.9 && (
+                // Where more cannot be bought (SELLS_PLANS_HERE), the useful
+                // move is seeing what is taking the space.
+                <Pressable
+                  onPress={() =>
+                    router.push(SELLS_PLANS_HERE ? '/settings/storage/plans' : '/settings/storage')
+                  }
+                  accessibilityRole="button"
+                  className="active:opacity-70"
+                >
+                  <Text className="text-primary text-xs font-semibold">
+                    {SELLS_PLANS_HERE ? 'Get more storage' : 'Manage storage'}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+
+          <View className="flex-row gap-2.5 mt-3">
+            <StatTile
+              value={connections}
+              label="Connections"
+              tint={palette.primary}
+              onPress={() => router.push('/(app)/(tabs)/connect')}
+            />
+            <StatTile
+              value={myJobs.length}
+              label="Jobs posted"
+              tint={palette.accent}
+              onPress={() => router.push('/jobs/mine')}
+            />
+            {/* Nothing lists finished work yet, so this one only reports. */}
+            <StatTile
+              value={finishedJobs}
+              label="Jobs finished"
+              tint={CHART_COLORS.green}
+            />
+          </View>
         </View>
 
       </Animated.ScrollView>
@@ -498,12 +537,15 @@ function StatTile({
   onPress?: () => void;
 }) {
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       disabled={!onPress}
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={`${value} ${label.toLowerCase()}`}
-      className="flex-1 bg-card rounded-2xl border border-border/40 px-3 py-3 gap-1.5 active:opacity-80"
+      // The one that only reports does not give: nothing would happen.
+      scaleTo={onPress ? 0.96 : 1}
+      style={{ flex: 1 }}
+      className="bg-card rounded-2xl border border-border/40 px-3 py-3 gap-1.5"
     >
       <Text className="text-foreground text-[22px] font-bold tracking-tight">
         {value > 999 ? '999+' : value}
@@ -512,7 +554,7 @@ function StatTile({
         {label}
       </Text>
       <View className="h-[3px] rounded-full" style={{ backgroundColor: tint }} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
