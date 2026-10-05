@@ -1,10 +1,10 @@
 'use client';
 
-import { m, useScroll } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useRef, type ReactNode } from 'react';
 import { useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
-import { useMotionGate } from '../motion';
+import { useMotionGate, useRawProgress } from '../motion';
 
 /**
  * One tile or plan card that eases in as it rises into view and eases out as
@@ -29,7 +29,7 @@ export function Reveal({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const gate = useMotionGate();
-  const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
+  const scrollYProgress = useRawProgress(ref, 'cover');
   const style = useReveal(scrollYProgress, 0.02 + delay, 0.3 + delay, out[0], out[1], { y: 64, scale: 0.88 });
   return (
     <Float className="h-full" delay={delay * 40} amp={4} tilt={1.1} duration={6 + ((delay * 50) % 2)}>

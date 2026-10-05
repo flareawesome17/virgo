@@ -1,7 +1,7 @@
 'use client';
 
-import { LazyMotion, useMotionValue, useScroll, useSpring, type MotionValue } from 'framer-motion';
-import { useEffect, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
+import { LazyMotion, useMotionValue, useMotionValueEvent, useScroll, useSpring, type MotionValue } from 'framer-motion';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import type { Layout } from './sky/choreography';
 
 /**
@@ -82,14 +82,104 @@ export const GLIDE = { stiffness: 170, damping: 32, mass: 0.6, restDelta: 0.0002
 /** Near-instant: when the page itself scrolls smoothly (Lenis), the scenes follow it rather than glide twice. */
 const DIRECT = { stiffness: 2000, damping: 120, mass: 0.2, restDelta: 0.0002 } as const;
 
+let steadyNow: boolean | null = null;
+
+/**
+ * Phones and touch screens get a steady film (owner, 2026-10-05: on an
+ * iPhone the motion read as shaking, "it makes my brain busy"): no 3D turns
+ * (a turning card re-renders its text every frame there, and shimmers), no
+ * idle float, no rotating light. The camera still dollies and pushes, by
+ * translate and scale. Read in transform callbacks, so it is cached and kept
+ * current by a media-query listener rather than queried per frame.
+ */
+export function steady(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (steadyNow === null) {
+    const q = window.matchMedia('(max-width: 1023.98px), (hover: none)');
+    steadyNow = q.matches;
+    q.addEventListener('change', (e) => {
+      steadyNow = e.matches;
+    });
+  }
+  return steadyNow;
+}
+
 /** Whether the page scrolls smoothly (decided before paint: pre-paint.tsx). */
 export function lenisOn(): boolean {
   return typeof document !== 'undefined' && document.documentElement.getAttribute('data-lenis') === 'on';
 }
 
 export function useChapterProgress(target: RefObject<HTMLElement | null>, kind: ProgressKind = 'track'): MotionValue<number> {
+  return useSpring(useRawProgress(target, kind), lenisOn() ? DIRECT : GLIDE);
+}
+
+let smallViewport = 0;
+let smallViewportWidth = 0;
+
+/**
+ * The small viewport's height (100svh), measured once per width. On a phone
+ * it holds still while the address bar slides in and out; innerHeight does
+ * not, and the stages are 100svh tall anyway.
+ */
+export function stableViewportHeight(): number {
+  if (!smallViewport || smallViewportWidth !== window.innerWidth) {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100svh;visibility:hidden;pointer-events:none';
+    document.body.appendChild(probe);
+    smallViewport = probe.offsetHeight || window.innerHeight;
+    smallViewportWidth = window.innerWidth;
+    probe.remove();
+  }
+  return smallViewport;
+}
+
+/**
+ * A chapter's scroll progress (0 → 1, by `kind`), unsmoothed.
+ *
+ * On desktop, Motion's own. On phones (steady), computed here against the
+ * small viewport: Motion measures against innerHeight, which changes by the
+ * address bar's height every time it slides, so every scene on the page
+ * lurched a few per cent at each change of direction (owner, 2026-10-05: "the
+ * frames are shaky"). Measured on mount and when the page's layout changes;
+ * each scroll is then one subtraction and one division.
+ */
+export function useRawProgress(target: RefObject<HTMLElement | null>, kind: ProgressKind = 'track'): MotionValue<number> {
   const { scrollYProgress } = useScroll({ target, offset: [...OFFSETS[kind]] as never });
-  return useSpring(scrollYProgress, lenisOn() ? DIRECT : GLIDE);
+  const { scrollY } = useScroll();
+  const [stable] = useState(() => steady());
+  const out = useMotionValue(0);
+  const range = useRef({ start: 0, end: 1 });
+  const set = (y: number) => {
+    const { start, end } = range.current;
+    const p = (y - start) / (end - start || 1);
+    out.set(p < 0 ? 0 : p > 1 ? 1 : p);
+  };
+  useMotionValueEvent(scrollY, 'change', (y) => stable && set(y));
+  useEffect(() => {
+    const el = target.current;
+    if (!stable || !el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      const top = r.top + window.scrollY;
+      const vh = stableViewportHeight();
+      range.current =
+        kind === 'track'
+          ? { start: top, end: top + r.height - vh }
+          : kind === 'cover'
+            ? { start: top - vh, end: top + r.height }
+            : { start: top - vh, end: top };
+      set(window.scrollY);
+    };
+    measure();
+    // The layout above a chapter can still settle (fonts, a static figure): re-measure when the page's size changes.
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    ro.observe(document.querySelector('.story-page') ?? document.documentElement);
+    return () => ro.disconnect();
+    // `set` reads refs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stable, target, kind]);
+  return stable ? out : scrollYProgress;
 }
 
 // ─── Nearness ─────────────────────────────────────────────────────────
@@ -119,7 +209,16 @@ export function useNear(target: RefObject<HTMLElement | null>, enabled: boolean,
 export function useLayout(): MotionValue<Layout> {
   const layout = useMotionValue<Layout>({ w: 1440, h: 900, mobile: false });
   useEffect(() => {
-    const update = () => layout.set({ w: window.innerWidth, h: window.innerHeight, mobile: window.innerWidth < 1024 });
+    let last = { w: 0, h: 0 };
+    const update = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      // Phones: the address bar sliding in and out as you scroll changes the height by a toolbar's worth.
+      // Re-framing the sky for it reads as a jolt; only a real resize (the width, or a big change: a turn, a split view) does.
+      if (steady() && w === last.w && Math.abs(h - last.h) < last.h * 0.2) return;
+      last = { w, h };
+      layout.set({ w, h, mobile: w < 1024 });
+    };
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);

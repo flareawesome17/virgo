@@ -121,15 +121,15 @@ function Light({ progress }: { progress: MotionValue<number> }) {
     const sink = camera(seg(p, 0.42, 0.58));
     return `translate3d(-50%,calc(-50% + ${r2(lerp(12, 0, rise) + 16 * sink)}svh),0) scale(${r2(lerp(0.6, 1, rise))})`;
   });
-  const rays = useTransform(progress, (p) => `translate3d(-50%,-50%,0) rotate(${r2(p * 36)}deg)`);
   const raysO = useTransform(progress, (p) => r2(0.9 * enter(seg(p, 0, 0.12)) * (1 - night(p))));
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0">
       {/* The golden sky, pre-baked. */}
       <div className="absolute inset-0 bg-[linear-gradient(180deg,#E3A96F_0%,#F0C88E_32%,#F8E3C0_61%,#FFF0D8_62%)]" />
       <m.div
-        style={{ opacity: raysO, transform: rays }}
-        className="absolute left-1/2 top-[62%] size-[150vmax] [background-image:repeating-conic-gradient(from_0deg,rgba(255,243,223,0.16)_0deg_3deg,rgba(255,243,223,0)_3deg_13deg)] [mask-image:radial-gradient(closest-side,#000_10%,transparent_75%)]"
+        // Still: fine stripes turning with the scroll strobe on a phone. They come and go with the light.
+        style={{ opacity: raysO }}
+        className="absolute left-1/2 top-[62%] size-[150vmax] -translate-x-1/2 -translate-y-1/2 [background-image:repeating-conic-gradient(from_0deg,rgba(255,243,223,0.16)_0deg_3deg,rgba(255,243,223,0)_3deg_13deg)] [mask-image:radial-gradient(closest-side,#000_10%,transparent_75%)]"
       />
       <m.div style={{ transform: sun }} className="absolute left-1/2 top-[62%] size-[104px] lg:size-[176px]">
         <div className="absolute -inset-[140%] rounded-full bg-[radial-gradient(closest-side,rgba(255,240,214,0.75),rgba(255,231,194,0.25)_45%,rgba(255,231,194,0)_100%)]" />

@@ -2,7 +2,7 @@
 
 import { useMotionValueEvent, useScroll, useSpring, useTransform } from 'framer-motion';
 import { useEffect, useRef } from 'react';
-import { GLIDE, useMotionGate } from '../motion';
+import { GLIDE, stableViewportHeight, steady, useMotionGate } from '../motion';
 import { camera, clamp01, lerp, seg } from './ease';
 
 /**
@@ -57,7 +57,8 @@ export function Cuts({ cuts }: { cuts: readonly Cut[] }) {
 
   const live = useTransform(y, (v) => {
     if (typeof window === 'undefined') return { i: -1, u: 0 };
-    const h = window.innerHeight;
+    // Phones: the small viewport, which holds still while the address bar slides (motion.tsx).
+    const h = steady() ? stableViewportHeight() : window.innerHeight;
     for (let i = 0; i < tops.current.length; i++) {
       const u = 1 - (tops.current[i] - v) / h;
       if (u > 0 && u < 1) return { i, u };
@@ -80,10 +81,10 @@ export function Cuts({ cuts }: { cuts: readonly Cut[] }) {
     el.style.visibility = 'visible';
     const ctx = el.getContext('2d');
     if (!ctx) return;
-    const dpr = el.width / el.clientWidth || 1;
     const w = el.clientWidth;
     const h = el.clientHeight;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Per axis: on a phone the backing store keeps its size while the address bar slides (see measure).
+    ctx.setTransform(el.width / w || 1, 0, 0, el.height / h || 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
@@ -106,8 +107,15 @@ export function Cuts({ cuts }: { cuts: readonly Cut[] }) {
       if (el) {
         // Two device pixels per CSS pixel at most: the cuts are soft shapes, and every pixel is memory.
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        el.width = Math.round(window.innerWidth * dpr);
-        el.height = Math.round(window.innerHeight * dpr);
+        const width = Math.round(window.innerWidth * dpr);
+        const height = Math.round(window.innerHeight * dpr);
+        // Phones: the address bar sliding changes only the height, a little. Reallocating the canvas
+        // for it (which also clears it) mid-cut flickers, so it keeps its store and stretches to fit.
+        const toolbar = steady() && width === el.width && Math.abs(height - el.height) < el.height * 0.2;
+        if (!toolbar) {
+          el.width = width;
+          el.height = height;
+        }
       }
       draw();
     };
