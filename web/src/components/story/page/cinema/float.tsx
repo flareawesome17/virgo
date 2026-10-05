@@ -5,7 +5,8 @@ import type { CSSProperties, ReactNode } from 'react';
  * bobs and tilts slightly in 3D, on its own rhythm, like a slab hanging in
  * the air. A wrapper of its own, so the CSS animation never fights the
  * camera's transforms on the element around it. Runs only while the story
- * moves, and stops under Pause (`autoplay`). Server-safe.
+ * moves, stops under Pause (`autoplay`), and is off on phones and touch
+ * screens, where it read as shaking (story.css). Server-safe.
  */
 export function Float({
   children,

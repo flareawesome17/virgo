@@ -8,7 +8,7 @@ import { CH6 } from '../../data/strings/page-ch6';
 import { ClientGalleryPage } from '../../mocks/client-gallery';
 import { NotificationList, NotificationRow } from '../../mocks/notification-row';
 import { camera, lerp, r2, seg, window4 } from '../cinema/ease';
-import { LightSweep, useCamera, useReveal } from '../cinema/fx';
+import { LightSweep, turn, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
 import { CH6_LENGTH, LinkCard, PhoneShell } from './ch6-parts';
@@ -235,12 +235,12 @@ function usePicks(progress: MotionValue<number>, root: React.RefObject<HTMLDivEl
 function Mika({ progress }: { progress: MotionValue<number> }) {
   const reveal = useReveal(progress, 0.46, 0.53, 0.63, 0.68, { y: 60, scale: 0.86 });
   const row = useReveal(progress, TOLD - 0.01, TOLD + 0.03, 0.63, 0.68, { y: -16, scale: 0.96 });
-  const turn = useTransform(progress, (p) => `perspective(1200px) rotateY(${r2(lerp(-16, -4, camera(seg(p, 0.46, 0.66))))}deg)`);
+  const turned = useTransform(progress, (p) => turn(0, lerp(-16, -4, camera(seg(p, 0.46, 0.66)))));
   const phone = useRef<HTMLDivElement>(null);
   return (
     <div aria-hidden className="pointer-events-none absolute right-[5vw] top-[30svh] z-20 lg:left-[55%] lg:right-auto lg:top-[20svh]">
       <m.div style={reveal}>
-        <m.div style={{ transform: turn }}>
+        <m.div style={{ transform: turned }}>
           <div ref={phone} className="w-[min(40vw,20svh)] lg:w-[min(230px,26svh)]">
             <Float amp={5} tilt={1.6} duration={5.8} delay={2.6}>
               <PhoneShell time="4:58" night rotateY={-4}>

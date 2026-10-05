@@ -5,7 +5,7 @@ import { Download, Pause, Play } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { DOWNLOAD_PATH, SIGN_IN_URL, SIGN_UP_URL } from '@/components/landing/links';
 import { CHAPTERS, FRAME_COPY as T } from '../../data/strings/page-frame';
-import { useMotionGate } from '../motion';
+import { steady, useMotionGate } from '../motion';
 import { PAUSE_KEY } from '../pre-paint';
 import { r2 } from './ease';
 import { useHud } from './hud';
@@ -91,7 +91,8 @@ export function Frame({
       {/* The texture: one fine dot matrix over the whole film. */}
       <div aria-hidden className="pointer-events-none fixed inset-0 z-[41] overflow-hidden">
         <m.div
-          style={gate.motion ? { transform: drift } : undefined}
+          // Still on phones: a fine pattern moving over the film shimmers there.
+          style={gate.motion && !steady() ? { transform: drift } : undefined}
           className="absolute -inset-y-4 inset-x-0 bg-[radial-gradient(circle,rgba(240,200,142,0.9)_0.7px,transparent_1.3px)] bg-[length:16px_16px] opacity-[0.05] [mask-image:radial-gradient(130%_100%_at_50%_45%,rgba(0,0,0,0.55)_30%,black_100%)]"
         />
       </div>

@@ -105,6 +105,14 @@ Owner, 2026-10-05: the transitions felt rushed.
 - **Settle on held frames:** if the visitor stops partway through a cut (between 6% and 94%), the page eases to the nearer whole scene after 240 ms, instead of resting on a half-closed aperture.
 - **The display type is a serif** (Instrument Serif, `--font-display`, marketing layout only): the headings and every subtitle, set at weight 400, like a film's titles. Body and UI stay in Geist.
 
+## 2b. A steady film on phones
+Owner, 2026-10-05, after an iPhone audit: "those frames are shaky… it makes my brain busy", from Connect down to Everything around the shoot, and in the closing. On phones and touch screens (`motion.tsx` `steady()`: under 1024 px or no hover) the film keeps its dollies and pushes but moves flat:
+- **No 3D turns.** The camera rig and every card's turn are translate and scale only (`useCamera`, `place3d`, `turn` in `cinema/fx.tsx`); depth becomes the scale it would show. The device frames sit flat (story.css). A turning, tilted plane re-renders its text every frame on a phone and shimmers.
+- **No idle float, and no rotating light.** The rays at Saturday's sunrise and behind the closing logo never turn: fine stripes turning with the scroll strobe. The dot matrix holds still.
+- **Progress against the small viewport.** Scroll progress is computed against 100svh, not innerHeight: on an iPhone innerHeight changes by the address bar every time it slides, and every scene lurched a few per cent at each change of direction. The sky and the cuts ignore those height-only resizes too.
+- **The credits move one way.** On phones the names only fade; the roll is the one movement.
+- **One logo at the close.** The flash's logo glides up and shrinks into its place above "Start your journey now." The last screen keeps an empty slot for it, so there are never two.
+
 ## 3. The script (final copy)
 **Prologue: opening title (`#top`)**
 - Small mono line: `A VIRGO STORY`

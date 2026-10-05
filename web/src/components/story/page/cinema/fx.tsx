@@ -2,6 +2,7 @@
 
 import { m, useTransform, type MotionValue } from 'framer-motion';
 import { useMemo } from 'react';
+import { steady } from '../motion';
 import { camera, enter, lerp, r2, seg, window4 } from './ease';
 
 /**
@@ -123,8 +124,34 @@ export function useCamera(progress: MotionValue<number>, keys: readonly { at: nu
     const y = lerp(a.y ?? 0, b.y ?? 0, t);
     const rx = lerp(a.rx ?? 0, b.rx ?? 0, t);
     const ry = lerp(a.ry ?? 0, b.ry ?? 0, t);
+    // Phones: the same dolly, flat (motion.tsx steady()).
+    if (steady()) return `translate3d(${r2(x)}vw,${r2(y)}vh,0) scale(${r2(s)})`;
     return `perspective(1200px) translate3d(${r2(x)}vw,${r2(y)}vh,0) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg) scale(${r2(s)})`;
   });
+}
+
+/**
+ * A layer's 3D turn: perspective, then rotateX and rotateY. None on phones
+ * (motion.tsx steady()), where a turning layer shimmers.
+ */
+export function turn(rx: number, ry: number, perspective = 1200): string {
+  return steady() ? 'none' : `perspective(${perspective}px) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg)`;
+}
+
+/**
+ * A layer placed in depth: lifted by `y` (a CSS length), at depth `z` px
+ * (negative is away), turned `rx`/`ry`, scaled `s`, through `perspective`.
+ * On phones (steady) it is flat: the depth becomes the scale it would show
+ * (capped, so a card passing the camera never grows a layer far past the
+ * screen) and the turn is dropped, so it still flies in from far, without
+ * the shimmer.
+ */
+export function place3d(perspective: number, y: string, z: number, rx: number, ry: number, s = 1): string {
+  if (steady()) {
+    const k = Math.min(3, perspective / Math.max(1, perspective - z));
+    return `translate3d(0,${y},0) scale(${r2(s * k)})`;
+  }
+  return `perspective(${perspective}px) translate3d(0,${y},${r2(z)}px) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg) scale(${r2(s)})`;
 }
 
 /**

@@ -1,7 +1,7 @@
 'use client';
 
-import { m, useTransform, type MotionValue } from 'framer-motion';
-import { useRef, useState } from 'react';
+import { m, useMotionValue, useTransform, type MotionValue } from 'framer-motion';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { camera, clamp01, enter, lerp, r2, seg, window4 } from '../cinema/ease';
 import { Flare, LightSweep, Particles, useReveal } from '../cinema/fx';
 import { GearArt, GEAR_ASPECT } from '../cinema/gear';
@@ -10,6 +10,7 @@ import { Shot, Slate } from '../cinema/shot';
 import { VirgoConstellation, virgoPoint } from '../cinema/virgo-constellation';
 import { FINALE_COPY as T } from '../../data/strings/page-finale';
 import { Credits, MoreLinks, PrimaryCtas } from '../chapters/closing';
+import { steady } from '../motion';
 import { CREW } from './finale-crew';
 
 /**
@@ -26,9 +27,12 @@ import { CREW } from './finale-crew';
  *              there, big, with "VIRGO" under it, rays turning behind it and
  *              a light sweep crossing it (0.46–0.60), the constellation
  *              drawing on out around and behind it (to 0.52);
- * - 0.52–0.62  the logo lifts away; Syrma, the star held back all film, lights
- *              last (0.52–0.60): you;
- * - 0.56–0.80  the last screen eases in, item by item: the logo, "Start your
+ * - 0.52–0.66  the logo glides up and shrinks into its place above the title:
+ *              one logo, from the flash to the last screen, never two (the
+ *              last screen keeps only an empty slot that says where it
+ *              lands). Syrma, the star held back all film, lights last
+ *              (0.52–0.60): you;
+ * - 0.58–0.80  the last screen eases in around it, item by item: "Start your
  *              journey now.", Join / Download / Sign in, the links the footer
  *              used to carry, and the credits, with Virgo settling faint
  *              behind them;
@@ -85,6 +89,10 @@ function Frame({ progress, motes, onFocus }: { progress: MotionValue<number>; mo
   const roll = useTransform(progress, (p) => `translate3d(0,${r2(lerp(6, -8, seg(p, 0, 0.36)))}svh,0)`);
   // The last screen takes clicks only once it is there (keyboard focus jumps the scroll to it: onFocus).
   const events = useTransform(progress, (p) => (p > 0.6 ? 'auto' : 'none'));
+  const screen = useRef<HTMLDivElement>(null);
+  const slot = useRef<HTMLSpanElement>(null);
+  const logo = useRef<HTMLDivElement>(null);
+  const land = useLanding(screen, slot, logo);
 
   return (
     <>
@@ -109,11 +117,11 @@ function Frame({ progress, motes, onFocus }: { progress: MotionValue<number>; mo
         </m.div>
       </div>
 
-      <Sting progress={progress} />
+      <Sting progress={progress} logo={logo} land={land} />
 
       {/* The last screen: the whole frame. */}
-      <m.div style={{ pointerEvents: events }} onFocus={onFocus} className="absolute inset-0 z-30 overflow-hidden">
-        <Closing progress={progress} />
+      <m.div ref={screen} style={{ pointerEvents: events }} onFocus={onFocus} className="absolute inset-0 z-30 overflow-hidden">
+        <Closing progress={progress} slot={slot} />
       </m.div>
 
       <LightSweep progress={progress} from={0.46} to={0.6} />
@@ -125,7 +133,8 @@ function Frame({ progress, motes, onFocus }: { progress: MotionValue<number>; mo
 }
 
 function Crew({ progress }: { progress: MotionValue<number> }) {
-  const head = useReveal(progress, 0, 0.06, 0.26, 0.32, { y: 40, scale: 1 });
+  // Phones: the names only fade; the roll is the one movement (two speeds at once read as shaking).
+  const head = useReveal(progress, 0, 0.06, 0.26, 0.32, { y: steady() ? 0 : 40, scale: 1 });
   return (
     <div className="w-full max-w-3xl">
       <m.p style={head} className="text-center font-mono text-xs uppercase tracking-[0.24em] text-[#D18A5A]">
@@ -143,7 +152,7 @@ function Crew({ progress }: { progress: MotionValue<number> }) {
 
 /** One credit: rises in on its turn, holds, and rises away. */
 function CrewRow({ progress, i, c }: { progress: MotionValue<number>; i: number; c: (typeof CREW)[number] }) {
-  const style = useReveal(progress, 0.02 + i * 0.035, 0.1 + i * 0.035, 0.24 + i * 0.025, 0.32 + i * 0.025, { y: 48, scale: 1 });
+  const style = useReveal(progress, 0.02 + i * 0.035, 0.1 + i * 0.035, 0.24 + i * 0.025, 0.32 + i * 0.025, { y: steady() ? 0 : 48, scale: 1 });
   return (
     <m.li style={style} className="will-change-transform grid justify-items-center gap-2 text-center sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-x-8">
       <span className="order-2 font-mono text-xs uppercase tracking-[0.14em] text-[#BCADA3] sm:order-1 sm:justify-self-end sm:text-[13px] sm:tracking-[0.2em]">
@@ -164,21 +173,25 @@ function CrewRow({ progress, i, c }: { progress: MotionValue<number>; i: number;
  * and the Virgo logo is there with its name under it, rays turning behind.
  * Then it lifts away for the last screen.
  */
-function Sting({ progress }: { progress: MotionValue<number> }) {
-  const shake = useRef<HTMLDivElement>(null);
+function Sting({ progress, logo, land }: { progress: MotionValue<number>; logo: RefObject<HTMLDivElement | null>; land: Landing }) {
   // The star: from a point to a burst, gone in the flash.
   const starO = useTransform(progress, (p) => r2(window4(p, 0.34, 0.38, FLASH - 0.01, FLASH + 0.01)));
-  const starT = useTransform(progress, (p) => `translate3d(-50%,-50%,0) rotate(${r2(lerp(-30, 40, seg(p, 0.34, FLASH)))}deg) scale(${r2(lerp(0.15, 1.6, camera(seg(p, 0.34, FLASH))))})`);
-  // The logo: there at the flash, settling from big, then lifting away as the last screen comes in.
-  const logoO = useTransform(progress, (p) => r2(enter(seg(p, FLASH - 0.005, FLASH + 0.03)) * (1 - seg(p, 0.55, 0.61))));
-  const logoT = useTransform(progress, (p) => {
+  // It turns as it grows on desktop; on phones it only grows (motion.tsx steady()).
+  const spin = steady() ? 0 : 1;
+  const starT = useTransform(progress, (p) => `translate3d(-50%,-50%,0) rotate(${r2(spin * lerp(-30, 40, seg(p, 0.34, FLASH)))}deg) scale(${r2(lerp(0.15, 1.6, camera(seg(p, 0.34, FLASH))))})`);
+  // The logo: there at the flash, settling from big; then one glide, up and smaller, into its place on the last
+  // screen, where it stays. It never fades out and nothing fades in for it, so there is only ever one.
+  const logoO = useTransform(progress, (p) => r2(enter(seg(p, FLASH - 0.005, FLASH + 0.03))));
+  const logoT = useTransform([progress, land.dx, land.dy, land.k], ([p, x, y, k]: number[]) => {
     const settle = camera(seg(p, FLASH, 0.5));
-    const lift = camera(seg(p, 0.52, 0.62));
-    return `translate3d(-50%,calc(-50% - ${r2(lift * 22)}vh),0) scale(${r2(lerp(1.3, 1, settle) * lerp(1, 0.5, lift))})`;
+    const glide = camera(seg(p, 0.52, 0.66));
+    return `translate3d(calc(-50% + ${r2(x * glide)}px),calc(-50% + ${r2(y * glide)}px),0) scale(${r2(lerp(1.3, 1, settle) * lerp(1, k, glide))})`;
   });
-  const nameO = useTransform(progress, (p) => r2(window4(p, 0.45, 0.49, 0.52, 0.57)));
+  // "VIRGO" under it goes before the glide: the name belongs to the flash, not to the last screen.
+  const nameO = useTransform(progress, (p) => r2(window4(p, 0.45, 0.49, 0.5, 0.53)));
   const nameT = useTransform(progress, (p) => `translate3d(0,${r2((1 - enter(seg(p, 0.45, 0.5))) * 14)}px,0)`);
-  const rays = useTransform(progress, (p) => `translate3d(-50%,-50%,0) rotate(${r2(lerp(0, 50, seg(p, FLASH, 0.62)))}deg) scale(${r2(lerp(0.7, 1.15, seg(p, FLASH, 0.6)))})`);
+  // The rays open out; they never turn (fine stripes turning with the scroll strobe).
+  const rays = useTransform(progress, (p) => `translate3d(-50%,-50%,0) scale(${r2(lerp(0.7, 1.15, seg(p, FLASH, 0.6)))})`);
   const raysO = useTransform(progress, (p) => r2(window4(p, FLASH, FLASH + 0.02, 0.52, 0.6) * 0.8));
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 z-20">
@@ -198,19 +211,56 @@ function Sting({ progress }: { progress: MotionValue<number> }) {
           className="relative size-full"
         />
       </m.div>
-      <div ref={shake} className="absolute inset-0">
-        <m.div style={{ opacity: logoO, transform: logoT }} className="absolute left-1/2 top-1/2 flex flex-col items-center">
-          <span className="relative block size-[min(34vmin,180px)]">
-            <span className="absolute -inset-[45%] rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.42),rgba(209,138,90,0.12)_50%,rgba(209,138,90,0))]" />
-            <span className="relative block size-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: 'url(/logo.png)' }} />
-          </span>
-          <m.span style={{ opacity: nameO, transform: nameT }} className="mt-5 pl-[0.6em] font-mono text-sm uppercase tracking-[0.6em] text-[#F0C88E] sm:text-base">
-            {T.name}
-          </m.span>
-        </m.div>
-      </div>
+      {/* Centred on the logo itself (the name hangs below it), so the glide lands it exactly on the slot. */}
+      <m.div ref={logo} style={{ opacity: logoO, transform: logoT }} className="absolute left-1/2 top-1/2 size-[min(34vmin,180px)] will-change-transform">
+        <span className="absolute -inset-[45%] rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.42),rgba(209,138,90,0.12)_50%,rgba(209,138,90,0))]" />
+        <span className="relative block size-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: 'url(/logo.png)' }} />
+        <m.span
+          style={{ opacity: nameO, transform: nameT }}
+          className="absolute left-1/2 top-full mt-5 -translate-x-1/2 whitespace-nowrap pl-[0.6em] font-mono text-sm uppercase tracking-[0.6em] text-[#F0C88E] sm:text-base"
+        >
+          {T.name}
+        </m.span>
+      </m.div>
     </div>
   );
+}
+
+/** From the stage's centre to the slot's, px; and the slot's size over the logo's. */
+type Landing = { dx: MotionValue<number>; dy: MotionValue<number>; k: MotionValue<number> };
+
+/**
+ * Where the one logo lands: `slot` in the last screen's layer `screen` (the
+ * stage's box), for the sting's `logo` at its own size (a transform does not
+ * change offsetWidth). Measured from the layout, never through a transform,
+ * and again whenever the stage resizes.
+ */
+function useLanding(
+  screen: RefObject<HTMLDivElement | null>,
+  slot: RefObject<HTMLSpanElement | null>,
+  logo: RefObject<HTMLDivElement | null>,
+): Landing {
+  const dx = useMotionValue(0);
+  const dy = useMotionValue(-200);
+  const k = useMotionValue(0.4);
+  useEffect(() => {
+    const box = screen.current;
+    if (!box) return;
+    const measure = () => {
+      const a = box.getBoundingClientRect();
+      const b = slot.current?.getBoundingClientRect();
+      const size = logo.current?.offsetWidth;
+      if (!b || !size) return;
+      dx.set(b.left + b.width / 2 - (a.left + a.width / 2));
+      dy.set(b.top + b.height / 2 - (a.top + a.height / 2));
+      k.set(b.width / size);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [screen, slot, logo, dx, dy, k]);
+  return { dx, dy, k };
 }
 
 /**
@@ -252,19 +302,16 @@ function Flash({ progress }: { progress: MotionValue<number> }) {
   );
 }
 
-/** The last screen: the logo, the line, every way in, and the credits, easing in one by one. */
-function Closing({ progress }: { progress: MotionValue<number> }) {
-  const logo = useReveal(progress, 0.56, 0.64, 2, 3, { y: -30, scale: 1.4 });
+/** The last screen: around the logo's place, the line, every way in, and the credits, easing in one by one. */
+function Closing({ progress, slot }: { progress: MotionValue<number>; slot: RefObject<HTMLSpanElement | null> }) {
   const title = useReveal(progress, 0.58, 0.68, 2, 3, { y: 60, scale: 0.9 });
   const ctas = useReveal(progress, 0.62, 0.72, 2, 3, { y: 40, scale: 0.96 });
   const more = useReveal(progress, 0.66, 0.76, 2, 3, { y: 30, scale: 0.98 });
   const fine = useReveal(progress, 0.7, 0.8, 2, 3, { y: 20, scale: 1 });
   return (
     <div className="mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center px-[calc(var(--frame)+1.25rem)] pb-[max(calc(var(--frame)+4rem),env(safe-area-inset-bottom))] pt-[calc(var(--frame)+3.5rem)] text-center sm:px-[calc(var(--frame)+2rem)] sm:pt-[calc(var(--frame)+4.5rem)]">
-      <m.span aria-hidden style={logo} className="relative block size-16 sm:size-20">
-        <span className="absolute -inset-8 rounded-full bg-[radial-gradient(closest-side,rgba(240,200,142,0.3),rgba(240,200,142,0))]" />
-        <span className="relative block size-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: 'url(/logo.png)' }} />
-      </m.span>
+      {/* The logo's place: empty. The one logo glides in from the flash and rests here (Sting). */}
+      <span ref={slot} aria-hidden className="relative block size-16 sm:size-20" />
       <m.h2
         style={title}
         className="mt-6 text-balance text-[clamp(2.25rem,1.1rem+4.6vw,5.25rem)] font-semibold leading-[0.95] tracking-[-0.04em] text-[#F2EDE8]"

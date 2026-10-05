@@ -10,7 +10,7 @@ import { WHEN } from '../../data/story';
 import { LOCK_WALLPAPER, LockNotification, LockScreen, PhoneFrame, lockDate, lockTime } from '../../frames';
 import { NotificationList, NotificationRow } from '../../mocks/notification-row';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
-import { Flare, LightSweep, Particles, useReveal } from '../cinema/fx';
+import { Flare, LightSweep, Particles, place3d, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { GearArt, ROLE_GEAR, type GearKind } from '../cinema/gear';
 import { Illustrative, Shot, Slate, Subtitles, type Line } from '../cinema/shot';
@@ -93,7 +93,7 @@ function Frame({ p }: { p: MotionValue<number> }) {
     const s = lerp(0.6, 1, open) * (1 + 0.05 * seg(v, AT.open[1], AT.push[0])) * (1 + 7 * push * push);
     const rx = lerp(12, 3, open) * (1 - push);
     const ry = lerp(-8, 5, seg(v, 0, AT.push[0])) * (1 - push);
-    return `perspective(1200px) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg) scale(${r2(s)})`;
+    return place3d(1200, '0px', 0, rx, ry, s);
   });
   const fridayOn = useTransform(p, (v) => r2(1 - seg(v, AT.push[1] - 0.05, AT.push[1])));
   const sun = useTransform(p, (v) => r2(seg(v, 0.8, 1)));
@@ -250,7 +250,7 @@ function CrewPhone({
   const transform = useTransform(p, (v) => {
     const a = enter(seg(v, at, at + 0.09));
     const z = side === 0 ? 0 : -140;
-    return `perspective(1000px) translate3d(0,${r2(lerp(40, 0, a))}vh,${z}px) rotateY(${side * -18}deg)`;
+    return place3d(1000, `${r2(lerp(40, 0, a))}vh`, z, 0, side * -18);
   });
   const opacity = useTransform(p, (v) => r2(enter(seg(v, at, at + 0.05))));
   const dark = useTransform(p, (v) => r2(1 - seg(v, AT.light, AT.light + 0.02)));
@@ -294,7 +294,7 @@ function LockPhone({ p }: { p: MotionValue<number> }) {
     const a = camera(seg(v, AT.lock[0], AT.lock[1]));
     const d = camera(seg(v, AT.lock[1], 1));
     const s = lerp(0.6, 1, a) * (1 + 0.08 * d);
-    return `perspective(1100px) translate3d(0,0,${r2(lerp(-500, 0, a))}px) rotateX(${r2(lerp(12, 4, a) - 2 * d)}deg) rotateY(${r2(lerp(-18, -5, a) + 8 * d)}deg) scale(${r2(s)})`;
+    return place3d(1100, '0px', lerp(-500, 0, a), lerp(12, 4, a) - 2 * d, lerp(-18, -5, a) + 8 * d, s);
   });
   const opacity = useTransform(p, (v) => r2(enter(seg(v, AT.lock[0], AT.lock[0] + 0.07))));
   const note = useReveal(p, AT.ring - 0.01, AT.ring + 0.02, 2, 3, { y: -24, scale: 0.94 });

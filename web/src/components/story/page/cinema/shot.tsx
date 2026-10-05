@@ -1,9 +1,9 @@
 'use client';
 
-import { m, useMotionValueEvent, useScroll, useTransform, type MotionValue } from 'framer-motion';
+import { m, useMotionValueEvent, useTransform, type MotionValue } from 'framer-motion';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { hud } from './hud';
-import { useChapterProgress } from '../motion';
+import { useChapterProgress, useRawProgress } from '../motion';
 import { r2, window4 } from './ease';
 
 /**
@@ -32,7 +32,7 @@ export function Shot({
   const track = useRef<HTMLDivElement>(null);
   const progress = useChapterProgress(track, 'track');
   // The raw position, not the glide: the stage must appear exactly as it pins.
-  const { scrollYProgress } = useScroll({ target: track, offset: ['start start', 'end end'] });
+  const scrollYProgress = useRawProgress(track, 'track');
   const visibility = useTransform(scrollYProgress, (p) => (!overlap || p > 0 ? 'visible' : 'hidden'));
   return (
     <div ref={track} className="relative" style={{ height: `${100 + length}svh` }}>

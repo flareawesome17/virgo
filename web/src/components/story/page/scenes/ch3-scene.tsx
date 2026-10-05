@@ -8,7 +8,7 @@ import { Slab } from '../../frames';
 import { ApplicantRow } from '../../mocks/applicant-row';
 import { HiredTermsCard } from '../../mocks/hired-terms-card';
 import { camera, enter, lerp, r2, seg, window4 } from '../cinema/ease';
-import { Flare, LightSweep, Particles, useCamera, useReveal } from '../cinema/fx';
+import { Flare, LightSweep, Particles, place3d, useCamera, useReveal } from '../cinema/fx';
 import { Float } from '../cinema/float';
 import { GearArt, ROLE_GEAR, type GearKind } from '../cinema/gear';
 import { Morph } from '../cinema/morph';
@@ -214,7 +214,7 @@ function ApplicantCard({ p, hire, slot }: { p: MotionValue<number>; hire: Hire; 
     const y = lerp(56, 0, a) + (slot - 1) * 70 * out;
     const rx = lerp(22, 0, a) - 8 * out;
     const ry = lerp(slot === 1 ? -16 : 16, 0, a);
-    return `perspective(900px) translate3d(0,${r2(y)}px,${r2(z)}px) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg)`;
+    return place3d(900, `${r2(y)}px`, z, rx, ry);
   });
   const opacity = useTransform(p, (v) => r2(enter(seg(v, b.arrive, b.arrive + 0.05)) * (1 - seg(v, ROWS_OUT[0] + 0.03, ROWS_OUT[1]))));
   // Accept: the row turns from the buttons to "accepted" and its booking.
@@ -262,7 +262,7 @@ function TermsCard({ p }: { p: MotionValue<number> }) {
     const rx = lerp(20, 5, a) - 6 * turn - 12 * o;
     const z = lerp(-600, 0, a) - 1500 * o;
     const y = lerp(8, 0, a) - 20 * o;
-    return `perspective(1000px) translate3d(0,${r2(y)}vh,${r2(z)}px) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg)`;
+    return place3d(1000, `${r2(y)}vh`, z, rx, ry);
   });
   const opacity = useTransform(p, (v) => r2(enter(seg(v, TERMS.in[0], TERMS.in[0] + 0.05)) * (1 - seg(v, TERMS.out[0] + 0.04, TERMS.out[1]))));
   const done = useTransform(p, (v) => r2(seg(v, TERMS.confirm, TERMS.confirm + 0.02)));
