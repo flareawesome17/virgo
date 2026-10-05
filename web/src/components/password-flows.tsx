@@ -411,8 +411,8 @@ export function ConfirmEmailChangeView() {
                 : message(confirm.error, 'The link may have expired or already been used.')}
             </p>
             <p className="mt-3 text-xs text-muted-foreground">
-              Your account still uses its old address. Ask for a new link from Settings, then
-              Account & security, in the app.
+              Your account still uses its old address. Ask for a new link in the Virgo app on your phone: Settings, then
+              Account & security.
             </p>
           </>
         ) : confirm.isSuccess ? (

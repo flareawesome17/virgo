@@ -75,6 +75,14 @@ export function proxy(request: NextRequest): NextResponse {
       );
     }
 
+    /**
+     * `/login` never existed, but the account-paused email linked to it until
+     * 2026-10, and those emails are still in inboxes.
+     */
+    if (pathname === '/login' || pathname === '/login/') {
+      return NextResponse.redirect(new URL(`/sign-in${search}`, request.url), 308);
+    }
+
     const onAppHost = HANDLE_PATH.exec(pathname);
     if (onAppHost) {
       return NextResponse.rewrite(

@@ -49,6 +49,12 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [challenge, setChallenge] = useState<TwoFactorLoginRequired | null>(
     null,
   );
+  /**
+   * The API's sentence, when the account is paused by its owner. The password
+   * was right, so this is the place to offer the way back; the web used to
+   * show the refusal and nothing else, so a pause could not be undone here.
+   */
+  const [paused, setPaused] = useState<string | null>(null);
 
   const resend = useMutation({
     mutationFn: (address: string) => authApi.requestVerification(address),
@@ -71,8 +77,12 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   });
 
 
-  // Where the guard wanted to go before it bounced here.
-  const next = searchParams.get('next') || '/';
+  // Where the guard wanted to go before it bounced here. A path in this app
+  // only: `//host`, `/\host` and absolute URLs would send a fresh session
+  // elsewhere.
+  const requested = searchParams.get('next');
+  const next =
+    requested && /^\/(?![/\\])/.test(requested) ? requested : '/';
 
   useEffect(() => {
     if (isAuthenticated) router.replace(next);
@@ -97,12 +107,16 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    send();
+  };
+
+  const send = (unpause = false) => {
     // Enter submits the form whatever state the button is in, so a second
     // press while the first request was out sent it again, and an incomplete
     // form went to the server to be refused.
     if (!canSubmit || mutation.isPending) return;
     setError(null);
-
+    setPaused(null);
 
     const payload = isSignUp
       ? {
@@ -111,7 +125,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           displayName: displayName.trim() || undefined,
           roles,
         }
-      : { email: email.trim(), password };
+      : { email: email.trim(), password, ...(unpause ? { unpause: true } : {}) };
 
     mutation.mutate(payload as never, {
       onSuccess: (result: unknown) => {
@@ -132,6 +146,10 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         const authError = err as AuthError;
         if (authError.code === 'EMAIL_NOT_VERIFIED') {
           setUnverified(authError.email ?? email.trim());
+          return;
+        }
+        if (authError.code === 'ACCOUNT_DISABLED' && !unpause) {
+          setPaused(err.message || 'You paused this account.');
           return;
         }
         setError(err.message);
@@ -388,6 +406,34 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
                   >
                     {error}
                   </p>
+                )}
+
+                {paused && (
+                  <div role="alert" className="rounded-md border bg-muted/50 p-3 text-sm">
+                    <p className="font-semibold">This account is paused</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {paused} Unpause it now and sign in?
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={mutation.isPending}
+                        onClick={() => send(true)}
+                      >
+                        {mutation.isPending && <Loader2 className="size-4 animate-spin" />}
+                        Unpause and sign in
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setPaused(null)}
+                      >
+                        Not now
+                      </Button>
+                    </div>
+                  </div>
                 )}
 
                 <Button

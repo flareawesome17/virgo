@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -242,6 +243,7 @@ function wantsDesktopAlert(queryClient: QueryClient, topic: NotificationTopic): 
 function applyNotification(
   event: Extract<ServerEvent, { type: 'notification' }>,
   queryClient: QueryClient,
+  navigate: (href: string) => void,
 ): void {
   const topic = TOPICS[event.topic];
   for (const key of topic?.keys ?? []) {
@@ -260,7 +262,7 @@ function applyNotification(
   toast(event.title, {
     description: event.body,
     action: href
-      ? { label: 'View', onClick: () => (window.location.href = href) }
+      ? { label: 'View', onClick: () => navigate(href) }
       : undefined,
   });
 
@@ -279,7 +281,7 @@ function applyNotification(
       // stacking seven notifications the user has to dismiss one at a time.
       tag: event.topic,
       onClick: () => {
-        if (href) window.location.href = href;
+        if (href) navigate(href);
       },
     });
   }
@@ -303,10 +305,25 @@ function socketUrl(): string {
 export function useRealtime(enabled: boolean): void {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const router = useRouter();
   const socketRef = useRef<WebSocket | null>(null);
   /** Grows on each failed attempt, resets when a connection succeeds. */
   const backoff = useRef(1000);
   const stopped = useRef(false);
+
+  /*
+   * Where a toast's View and a desktop alert's click go: through the router,
+   * not `window.location`. Assigning location reloaded the whole app, which
+   * stopped a playing film, threw away the in-memory cache and, mid-upload,
+   * put up the browser's "leave this page?" prompt. Behind a ref so the socket
+   * below is not reopened if the router object ever changes.
+   */
+  const navigate = useRef<(href: string) => void>((href) => {
+    window.location.href = href;
+  });
+  useEffect(() => {
+    navigate.current = (href) => router.push(href);
+  }, [router]);
 
   useEffect(() => {
     if (!enabled || !user?.id) return;
@@ -367,7 +384,7 @@ export function useRealtime(enabled: boolean): void {
               body: event.message.body,
               tag: event.conversationId,
               onClick: () => {
-                window.location.href = `/chat/${event.conversationId}`;
+                navigate.current(`/chat/${event.conversationId}`);
               },
             });
           }
@@ -422,7 +439,7 @@ export function useRealtime(enabled: boolean): void {
           setTyping(event.conversationId, event.userId, event.name, event.typing);
           break;
         case 'notification':
-          applyNotification(event, queryClient);
+          applyNotification(event, queryClient, (href) => navigate.current(href));
           break;
       }
     };

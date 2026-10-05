@@ -85,9 +85,13 @@ export function ShowcaseFilm({
     videoRef.current?.pause();
   }, []);
 
+  // `started` is a dependency because the <video> only exists once the film
+  // has been started. Without it the effect ran once at mount, found no
+  // element, and never ran again, so a ladder was never attached and the film
+  // stayed black on every engine without native HLS (Firefox, WebView2).
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !source || !hlsViaLibrary) return;
+    if (!started || !video || !source || !hlsViaLibrary) return;
 
     let cancelled = false;
     let instance: { destroy: () => void } | null = null;
@@ -121,7 +125,7 @@ export function ShowcaseFilm({
       cancelled = true;
       instance?.destroy();
     };
-  }, [hlsViaLibrary, source]);
+  }, [started, hlsViaLibrary, source]);
 
   /**
    * Scrolled out of sight, so it stops.

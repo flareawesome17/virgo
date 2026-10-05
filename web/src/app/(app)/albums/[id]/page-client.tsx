@@ -16,6 +16,7 @@ import {
   Link2,
   Loader2,
   MoreHorizontal,
+  Pencil,
   Plus,
   ShieldCheck,
   Trash2,
@@ -53,6 +54,7 @@ import { useVideoPlayback } from '@/components/media/video-playback';
 import { AlbumAudioPlayer } from '@/components/media/album-audio-player';
 import { ShareDialog } from '@/components/media/share-dialog';
 import { RetentionDialog } from '@/components/media/retention-dialog';
+import { AlbumDetailsDialog } from '@/components/media/album-details-dialog';
 import { AlbumGrid, type Density } from '@/components/media/album-grid';
 import { AlbumSections, NameDialog, type SectionFilter } from '@/components/media/album-sections';
 import { useAlbum, useDeleteAlbum, useUpdateAlbum } from '@/hooks/useAlbums';
@@ -167,6 +169,7 @@ function AlbumWorkspace() {
   const [viewerKey, setViewerKey] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [keeping, setKeeping] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
   const [confirmingAlbumDelete, setConfirmingAlbumDelete] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState<string[] | null>(null);
   const [namingForMove, setNamingForMove] = useState(false);
@@ -463,7 +466,12 @@ function AlbumWorkspace() {
                         <MoreHorizontal className="size-5" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuItem onSelect={() => setEditingDetails(true)}>
+                        <Pencil className="size-4" />
+                        Edit name and description
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
                       <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Status</DropdownMenuLabel>
                       <DropdownMenuRadioGroup
                         value={album?.status}
@@ -731,6 +739,15 @@ function AlbumWorkspace() {
 
       <ShareDialog albumId={id} albumName={album?.name ?? 'this album'} open={sharing} onOpenChange={setSharing} />
       {album && isOwner && <RetentionDialog album={album} open={keeping} onOpenChange={setKeeping} />}
+      {album && isOwner && (
+        <AlbumDetailsDialog
+          open={editingDetails}
+          onOpenChange={setEditingDetails}
+          albumId={album.id}
+          name={album.name}
+          description={album.description ?? null}
+        />
+      )}
 
       <NameDialog
         open={namingForMove}

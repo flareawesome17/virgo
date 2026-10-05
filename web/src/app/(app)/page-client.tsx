@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import {
   CalendarDays,
   FolderOpen,
@@ -20,15 +21,17 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAlbums } from '@/hooks/useAlbums';
-import { useScheduleEvents } from '@/hooks/useScheduleEvents';
+import { useScheduleEventRange, useScheduleEvents } from '@/hooks/useScheduleEvents';
 import { useCollaborators } from '@/hooks/useCollaborators';
 import { useUsage } from '@/hooks/useUsage';
 import { formatBytes } from '@/api';
 import {
+  dateToKey,
   eventTypeLabel,
   formatTime,
   isEventUpcoming,
   labelForDateKey,
+  todayKey,
 } from '@/lib/calendar';
 
 function greeting(): string {
@@ -41,21 +44,34 @@ function greeting(): string {
 export default function HomePage() {
   const { profile, user } = useAuth();
   const {
-    workspaces,
+    total: workspaceTotal,
     data: workspacesData,
     isLoading: loadingWorkspaces,
     loadFailed: workspacesFailed,
     refetch: refetchWorkspaces,
   } = useWorkspaces({ limit: 100 });
-  const { albums, data: albumsData } = useAlbums({ limit: 100 });
+  const { albums, total: albumTotal, data: albumsData } = useAlbums({ limit: 100 });
+  /*
+   * The next 60 days, not the account's 100 oldest events. Upcoming was cut
+   * from that list, so an account with a past behind it was told "Nothing
+   * scheduled" with a week of shoots ahead. The count is the server's total.
+   */
+  const [soonWindow] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 60);
+    return { from: todayKey(), to: dateToKey(end) };
+  });
   const {
     events,
-    data: eventsData,
     isLoading: loadingEvents,
     loadFailed: eventsFailed,
     refetch: refetchEvents,
-  } = useScheduleEvents({ limit: 100 });
-  const { collaborators, data: collaboratorsData } = useCollaborators({ limit: 100 });
+  } = useScheduleEventRange(soonWindow.from, soonWindow.to);
+  const { total: eventTotal, data: eventsData } = useScheduleEvents({ limit: 1 });
+  const {
+    total: collaboratorTotal,
+    data: collaboratorsData,
+  } = useCollaborators({ limit: 100 });
   const { storageUsedBytes, storageLimitBytes, storageFraction, usage } = useUsage();
 
   const name = profile?.displayName?.split(' ')[0] || user?.email?.split('@')[0] || '';
@@ -74,11 +90,12 @@ export default function HomePage() {
 
   // Null until each list has arrived, and drawn as a dash: a 0 read as "you
   // have none" for the second or two before the real number came in.
+  // The server's totals, not the length of a list capped at 100.
   const stats = [
-    { label: 'Workspaces', value: workspacesData ? workspaces.length : null, icon: FolderOpen, href: '/workspaces' },
-    { label: 'Albums', value: albumsData ? albums.length : null, icon: Images, href: '/workspaces' },
-    { label: 'Collaborators', value: collaboratorsData ? collaborators.length : null, icon: Users, href: '/network' },
-    { label: 'Events', value: eventsData ? events.length : null, icon: CalendarDays, href: '/schedule' },
+    { label: 'Workspaces', value: workspacesData ? workspaceTotal : null, icon: FolderOpen, href: '/workspaces' },
+    { label: 'Albums', value: albumsData ? albumTotal : null, icon: Images, href: '/albums' },
+    { label: 'Collaborators', value: collaboratorsData ? collaboratorTotal : null, icon: Users, href: '/network' },
+    { label: 'Events', value: eventsData ? eventTotal : null, icon: CalendarDays, href: '/schedule' },
   ];
 
   return (

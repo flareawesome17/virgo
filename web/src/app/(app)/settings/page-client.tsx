@@ -633,7 +633,7 @@ export default function SettingsPage() {
                         toast.success('Account paused', {
                           description: `You can sign in again on ${disabledUntil.slice(0, 10)}.`,
                         });
-                        router.replace('/login');
+                        router.replace('/sign-in');
                       },
                       onError: fail('Could not pause your account'),
                     },
@@ -660,7 +660,7 @@ export default function SettingsPage() {
                       toast.success('Account deleted', {
                         description: `Your account and ${filesDeleted} file${filesDeleted === 1 ? '' : 's'} are gone.`,
                       });
-                      router.replace('/login');
+                      router.replace('/sign-in');
                     },
                     onError: fail('Could not delete your account'),
                   });

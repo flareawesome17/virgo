@@ -29,8 +29,8 @@ import {
   useStopSharingLocation,
 } from '@/hooks/useNearby';
 import { LocationField } from '@/components/location-field';
-import { useScheduleEvents } from '@/hooks/useScheduleEvents';
-import { isEventUpcoming } from '@/lib/calendar';
+import { useScheduleEventRange } from '@/hooks/useScheduleEvents';
+import { dateToKey, isEventUpcoming, todayKey } from '@/lib/calendar';
 import { canonicalLocation, isKnownLocation } from '@/lib/ph-locations';
 import { useFriends, useRespondToFriendRequest, useSendFriendRequest } from '@/hooks/useFriends';
 import { useOpenDirectChat } from '@/hooks/useChat';
@@ -99,7 +99,14 @@ export default function NearbyPage() {
    * is a real event with no coordinates, and offering it would produce a chip
    * that answers with an error — the typed field below still handles it.
    */
-  const { events } = useScheduleEvents({ limit: 100 });
+  // The next 60 days, as Schedule's Upcoming reads them. The 100 oldest held
+  // nothing upcoming at all for an account with a past behind it.
+  const [soonWindow] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 60);
+    return { from: todayKey(), to: dateToKey(end) };
+  });
+  const { events } = useScheduleEventRange(soonWindow.from, soonWindow.to);
   const eventShortcuts = useMemo(() => {
     const now = new Date();
     return events

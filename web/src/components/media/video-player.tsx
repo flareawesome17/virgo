@@ -96,6 +96,11 @@ export function VideoPlayer({
     const handle = (event: KeyboardEvent) => {
       const video = videoRef.current;
       if (!video) return;
+      // Typing a K, M or F into a field, or a space, was taken as a command.
+      // Modifiers are left alone too, so Ctrl+F still searches the page.
+      const target = event.target as HTMLElement | null;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (event.key === ' ' || event.key.toLowerCase() === 'k') { event.preventDefault(); if (video.paused) void video.play(); else video.pause(); }
       else if (event.key === 'ArrowLeft') video.currentTime -= 5;
       else if (event.key === 'ArrowRight') video.currentTime += 5;

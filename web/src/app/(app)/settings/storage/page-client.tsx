@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   CreditCard,
@@ -10,6 +11,7 @@ import {
   Images,
   Loader2,
   Music,
+  Trash2,
   Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -36,12 +38,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useAuth } from '@/hooks/useAuth';
 import { useUsage } from '@/hooks/useUsage';
 import {
+  unassignedFilesKey,
   useAttachToAlbum,
   useStorageBreakdown,
   useUnassignedFiles,
 } from '@/hooks/useStorageAdmin';
+import { useDeleteFiles } from '@/hooks/useMediaSelection';
 import { useAlbums } from '@/hooks/useAlbums';
 import { fileNameFromKey } from '@/hooks/useAlbumFiles';
 import { formatBytes } from '@/api';
@@ -68,13 +83,45 @@ const TYPE_META: Record<
  * gets filed.
  */
 function UnassignedFiles() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
   const { files, isLoading, loadFailed, refetch } = useUnassignedFiles();
   const { albums } = useAlbums({ limit: 100 });
   const attach = useAttachToAlbum();
+  const remove = useDeleteFiles(undefined);
+
+  // Only your own: the server files into an album it checks you own, so
+  // offering a shared one ended in a refusal after the choice was made.
+  const ownAlbums = useMemo(
+    () =>
+      albums.filter((album) =>
+        album.my_access ? album.my_access === 'owner' : album.user_id === user?.id,
+      ),
+    [albums, user?.id],
+  );
 
   const [picked, setPicked] = useState<string[]>([]);
   const [albumId, setAlbumId] = useState('');
   const [assigning, setAssigning] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const deleteNow = () =>
+    remove.mutate(picked, {
+      onSuccess: (result) => {
+        setDeleting(false);
+        setPicked([]);
+        // useDeleteFiles refreshes the album lists; this list is its own key.
+        void queryClient.invalidateQueries({ queryKey: unassignedFilesKey });
+        if (result.failed > 0) {
+          toast.error('Some files were not deleted', {
+            description: `${result.failed} ${result.failed === 1 ? 'is' : 'are'} still here. Try those again.`,
+          });
+        } else {
+          toast.success(`Deleted ${result.deleted} file${result.deleted === 1 ? '' : 's'}`);
+        }
+      },
+      onError: (err: Error) => toast.error('Could not delete', { description: err.message }),
+    });
 
   if (isLoading) return <CenteredSpinner />;
   if (loadFailed) {
@@ -102,6 +149,15 @@ function UnassignedFiles() {
         </p>
         <Button
           size="sm"
+          variant="outline"
+          disabled={picked.length === 0 || remove.isPending}
+          onClick={() => setDeleting(true)}
+        >
+          <Trash2 className="size-3.5" />
+          Delete
+        </Button>
+        <Button
+          size="sm"
           disabled={picked.length === 0}
           onClick={() => setAssigning(true)}
         >
@@ -109,6 +165,34 @@ function UnassignedFiles() {
           File into an album
         </Button>
       </div>
+
+      <AlertDialog open={deleting} onOpenChange={setDeleting}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {picked.length} file{picked.length === 1 ? '' : 's'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              They are removed from storage for good, along with their previews.
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={remove.isPending}
+              onClick={(event) => {
+                // Open until the request settles, so a failure is reported.
+                event.preventDefault();
+                deleteNow();
+              }}
+            >
+              {remove.isPending && <Loader2 className="size-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ul className="max-h-80 overflow-y-auto">
         {files.map((file) => (
@@ -150,13 +234,18 @@ function UnassignedFiles() {
                 <SelectValue placeholder="Choose an album" />
               </SelectTrigger>
               <SelectContent>
-                {albums.map((album) => (
+                {ownAlbums.map((album) => (
                   <SelectItem key={album.id} value={album.id}>
                     {album.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {ownAlbums.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Files can only go into an album of your own, and you have none yet.
+              </p>
+            )}
           </div>
 
           <DialogFooter>

@@ -196,7 +196,7 @@ function OwnerWorkspace({ workspace }: { workspace: Workspace }) {
   const startCreateAlbum = () => {
     if (isAlbumLimitReached(workspace.album_total)) {
       toast.error('This workspace is full', {
-        description: `Your ${usage?.plan ?? 'free'} plan allows ${albumLimit} album${albumLimit === 1 ? '' : 's'} in each workspace. Delete one, use another workspace, or upgrade.`,
+        description: `Your ${usage?.plan ?? 'free'} plan allows ${albumLimit} album${albumLimit === 1 ? '' : 's'} in each workspace. Delete one, or use another workspace.`,
         action: { label: 'See plans', onClick: () => router.push('/settings/plans') },
       });
       return;

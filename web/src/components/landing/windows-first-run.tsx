@@ -28,7 +28,7 @@ export function WindowsFirstRun() {
 
       <div className="mt-4 flex flex-col gap-5 border-t border-[#2A2522] pt-5">
         <p className="text-[14px] leading-relaxed text-[#BCADA3]">
-          Virgo is in beta and its Windows installers are not signed yet, so
+          Virgo&rsquo;s Windows installers are not signed yet, so
           Windows cannot tell who published them. Signing is coming. Which
           message you get depends on how your machine is set up.
         </p>
