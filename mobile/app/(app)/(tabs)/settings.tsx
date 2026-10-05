@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, Alert, Linking } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
 import * as StoreReview from 'expo-store-review';
@@ -29,7 +28,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { AppTopBar } from '@/components';
+import { TabScreen, useTabBottomInset } from '@/components';
 import { RemoteImage } from '@/components/RemoteImage';
 import {
   useAuth,
@@ -84,6 +83,7 @@ const APPEARANCE: Record<string, string> = { light: 'Light', dark: 'Dark', syste
  * link land on the right one.
  */
 export default function SettingsScreen() {
+  const bottomInset = useTabBottomInset();
   const params = useLocalSearchParams<{ view?: string }>();
   const requestedView: SettingsView = params.view === 'app' ? 'app' : 'account';
   const [view, setView] = useState<SettingsView>(requestedView);
@@ -104,12 +104,11 @@ export default function SettingsScreen() {
   const { offers: rewards } = usePromoOffers(!!user?.id);
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <AppTopBar />
+    <TabScreen>
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
       >
         <View className="px-5 pt-4 pb-2">
           <Text className="text-foreground text-[28px] font-bold tracking-tight">Settings</Text>
@@ -140,7 +139,7 @@ export default function SettingsScreen() {
 
         {view === 'account' ? <AccountHalf rewards={rewards.length} /> : <AppHalf />}
       </ScrollView>
-    </SafeAreaView>
+    </TabScreen>
   );
 }
 

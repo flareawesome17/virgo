@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
+import { View, Text, RefreshControl, Pressable } from 'react-native';
+import Animated from 'react-native-reanimated';
 import {
   dateToKey,
   eventColor,
@@ -11,7 +12,6 @@ import {
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
 import { RemoteImage } from '@/components/RemoteImage';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   useAlbums,
   useAuth,
@@ -26,7 +26,7 @@ import {
   useUnseenJobs,
   useMarkJobsSeen,
 } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { formatBytes } from '@/src/api';
 import { useState } from 'react';
 import { router } from 'expo-router';
@@ -40,7 +40,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_COVER } from '@/src/lib/placeholder';
-import { AppTopBar, StorageRing } from '@/components';
+import { StorageRing, TabScreen, useTabBottomInset } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { CHART_COLORS, PALETTES } from '@/theme';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
@@ -87,7 +87,8 @@ function greeting(now = new Date()): string {
 }
 
 export default function DashboardScreen() {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
+  const bottomInset = useTabBottomInset();
   const { count: unseenJobs } = useUnseenJobs();
   const markSeen = useMarkJobsSeen();
 
@@ -190,18 +191,19 @@ export default function DashboardScreen() {
   const workspaceNameById = Object.fromEntries(workspaces.map((w) => [w.id, w.name]));
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <TabScreen>
       {/* Brand, bell, and the Dashboard/Jobs tabs — the same bar on every tab
           screen. Jobs used to be half of this screen, behind a segmented
           control; it has its own address now. */}
-      <AppTopBar />
 
-      <ScrollView
-        onScroll={chrome.onScroll}
+      <Animated.ScrollView
+        onScroll={onScroll}
         scrollEventThrottle={16}
-        className="flex-1"
+        // A style, not className: NativeWind does not reach Reanimated's
+        // components.
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -539,8 +541,8 @@ export default function DashboardScreen() {
           )}
         </View>
 
-      </ScrollView>
-    </SafeAreaView>
+      </Animated.ScrollView>
+    </TabScreen>
   );
 }
 

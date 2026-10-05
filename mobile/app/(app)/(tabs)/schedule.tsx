@@ -1,7 +1,7 @@
-import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, RefreshControl, Pressable } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useAuth, useReminders, useScheduleEventRange, useTheme, useUpdateReminder } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { AppTopBar, AttendeeSummary, EventInvitationsCard } from '@/components';
+import { AttendeeSummary, EventInvitationsCard, TabScreen, useTabBottomInset } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import {
   DAY_DOT_SIZE,
@@ -58,7 +58,8 @@ const EVENT_ICONS: Record<string, LucideIcon> = {
 // rollover; the colour table had drifted into five copies.
 
 export default function ScheduleScreen() {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
+  const bottomInset = useTabBottomInset();
   const { user } = useAuth();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -142,12 +143,11 @@ export default function ScheduleScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <AppTopBar />
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}
-        onScroll={chrome.onScroll}
+    <TabScreen>
+      <Animated.ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}
+        onScroll={onScroll}
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}>
         
         {/* A failed load drew "No upcoming events" and "No active reminders" —
@@ -421,7 +421,7 @@ export default function ScheduleScreen() {
             </View>
           )}
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </Animated.ScrollView>
+    </TabScreen>
   );
 }

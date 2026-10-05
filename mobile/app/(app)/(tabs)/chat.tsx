@@ -24,6 +24,7 @@ import { cssInterop } from 'nativewind';
 import { useConversations, useTheme } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PresenceDot } from '@/components';
+import { useTabBottomInset } from '@/components/TabScreen';
 import { typingLabel, useTypingIn } from '@/src/lib/presence-store';
 import type { Conversation } from '@/src/api';
 import { PALETTES } from '@/theme';
@@ -99,6 +100,7 @@ function whenLabel(iso: string | null): string {
  * notification.
  */
 export default function ChatScreen({ embedded = false }: { embedded?: boolean } = {}) {
+  const bottomInset = useTabBottomInset();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
@@ -184,7 +186,7 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
       <FlatList
         data={conversations}
         keyExtractor={(c) => c.id}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
         keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl

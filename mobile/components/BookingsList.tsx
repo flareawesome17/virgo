@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { router } from 'expo-router';
 import { CalendarIcon, FileTextIcon, MapPinIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useBookings, useTheme } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { rateLabel, type Booking } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
@@ -51,7 +52,7 @@ function day(iso: string | null): string | null {
  * a booking that fell through is part of what happened.
  */
 export function BookingsList({ bottomPadding = 40 }: { bottomPadding?: number }) {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
   const { bookings, isLoading, loadFailed, refetch } = useBookings();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -82,9 +83,9 @@ export function BookingsList({ bottomPadding = 40 }: { bottomPadding?: number })
   }
 
   return (
-    <ScrollView
-          onScroll={chrome.onScroll}
-          scrollEventThrottle={16}
+    <Animated.ScrollView
+      onScroll={onScroll}
+      scrollEventThrottle={16}
       contentContainerStyle={{ padding: 20, paddingBottom: bottomPadding, gap: 10 }}
       refreshControl={
         <RefreshControl
@@ -156,6 +157,6 @@ export function BookingsList({ bottomPadding = 40 }: { bottomPadding?: number })
           </Pressable>
         );
       })}
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }

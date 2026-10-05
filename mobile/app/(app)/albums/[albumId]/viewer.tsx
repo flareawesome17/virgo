@@ -152,7 +152,16 @@ function ZoomablePhoto({
     })
     .onEnd((event) => {
       if (scale.value > 1.01) return;
-      if (Math.abs(event.translationY) > DISMISS_AT || event.velocityY > 900) {
+      if (Math.abs(event.translationY) > DISMISS_AT || Math.abs(event.velocityY) > 900) {
+        // It carries on the way it was thrown, at the speed it was thrown,
+        // while the screen fades out under it. It used to stop where the
+        // finger let go and the whole screen then slid away sideways.
+        const direction = event.translationY < 0 ? -1 : 1;
+        const remaining = height - Math.abs(event.translationY);
+        const speed = Math.max(Math.abs(event.velocityY), 1200) / 1000;
+        dismissY.value = withTiming(direction * height, {
+          duration: Math.min(Math.max(remaining / speed, 120), 280),
+        });
         runOnJS(onDismiss)();
       } else {
         dismissY.value = withSpring(0, SPRING);

@@ -1,8 +1,8 @@
-import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, TextInput } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppTopBar } from '@/components';
+import { View, Text, ScrollView, RefreshControl, Pressable, TextInput } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { TabScreen, useTabBottomInset } from '@/components';
 import { useAuth, useCollaboratorInvitations, useTheme, useWorkspaces, usePlanLimits } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { useCallback, useMemo, useState } from 'react';
 import { router } from 'expo-router';
 import { ArchiveIcon, ChevronRightIcon, FolderPlusIcon, PlusIcon, SearchIcon } from 'lucide-react-native';
@@ -28,7 +28,8 @@ const SCOPES: { key: Scope; label: string }[] = [
 ];
 
 export default function WorkspacesScreen() {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
+  const bottomInset = useTabBottomInset();
   const { guardWorkspaceCreate } = usePlanLimits();
   const { user } = useAuth();
   const { isDark } = useTheme();
@@ -90,14 +91,13 @@ export default function WorkspacesScreen() {
     .join(' · ');
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <AppTopBar />
-      <FlatList
-        onScroll={chrome.onScroll}
+    <TabScreen>
+      <Animated.FlatList
+        onScroll={onScroll}
         scrollEventThrottle={16}
         data={visible}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
         keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />
@@ -242,6 +242,6 @@ export default function WorkspacesScreen() {
         }
         renderItem={renderItem}
       />
-    </SafeAreaView>
+    </TabScreen>
   );
 }

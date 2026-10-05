@@ -1,8 +1,7 @@
 import { View, Text, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
-import { AppTopBar, JobsTabs } from '@/components';
+import { JobsTabs, TabScreen, useTabBottomInset } from '@/components';
 import { useMarkJobsSeen, useUnseenJobs } from '@/src/hooks';
 import { PlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -23,6 +22,7 @@ cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color:
 export default function JobsScreen() {
   const { count: unseenJobs } = useUnseenJobs();
   const markSeen = useMarkJobsSeen();
+  const bottomInset = useTabBottomInset();
 
   // Opening the board is what "seen" means. This used to happen on the top
   // bar's Jobs tab; the tab moved to the bottom bar, and without this the
@@ -37,9 +37,7 @@ export default function JobsScreen() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={['top']}>
-      <AppTopBar />
-
+    <TabScreen>
       <View className="flex-row items-center justify-between px-5 py-3">
         <Text className="text-foreground text-2xl font-bold tracking-tight">Jobs</Text>
         <Pressable
@@ -54,7 +52,7 @@ export default function JobsScreen() {
       </View>
 
       {/* Clears the tab bar, which this screen keeps. */}
-      <JobsTabs bottomPadding={120} />
-    </SafeAreaView>
+      <JobsTabs bottomPadding={bottomInset} />
+    </TabScreen>
   );
 }

@@ -1,4 +1,5 @@
-import { Animated, Platform } from 'react-native';
+import { Platform } from 'react-native';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { Tabs } from 'expo-router';
 import { BottomTabBar, type BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,24 +34,25 @@ const badgeCount = (n: number) => (n > 0 ? (n > 99 ? '99+' : n) : undefined);
  * The stock bar, on Android, with the same going-away behaviour as the iOS
  * capsule.
  *
- * It sits in the navigator's own space rather than floating, so it slides down
- * past the bottom edge. The space it leaves is not reclaimed — a list that
- * reflowed every time the bar went would jump under the finger that sent it
- * away.
+ * It floats over the screens, as the capsule does, and slides down past the
+ * bottom edge on the UI thread. It used to sit in the navigator's own space,
+ * which it kept while away: an empty band where the bar had been, since a list
+ * that reflowed every time the bar went would jump under the finger that sent
+ * it away. Floating, there is no band and nothing reflows. Tab screens keep
+ * the bar's height clear at the foot of their lists (useTabBottomInset), so
+ * nothing is left under it while it shows.
  */
 function SlidingBar(props: BottomTabBarProps) {
   const { hidden } = useChrome();
   const insets = useSafeAreaInsets();
   const height = TAB_CONTENT_HEIGHT + TAB_PADDING_TOP + Math.max(insets.bottom, 8);
 
+  const slide = useAnimatedStyle(() => ({
+    transform: [{ translateY: hidden.value * height }],
+  }));
+
   return (
-    <Animated.View
-      style={{
-        transform: [
-          { translateY: hidden.interpolate({ inputRange: [0, 1], outputRange: [0, height] }) },
-        ],
-      }}
-    >
+    <Animated.View style={[{ position: 'absolute', left: 0, right: 0, bottom: 0 }, slide]}>
       <BottomTabBar {...props} />
     </Animated.View>
   );
@@ -107,6 +109,11 @@ function TabsLayoutInner() {
       screenListeners={{ focus: reveal }}
       screenOptions={{
         headerShown: false,
+        // A short cross-fade between tabs, which Material asks for and which
+        // also covers a tab drawing itself for the first time. It used to cut
+        // straight across, and a tab opened for the first time appeared in
+        // pieces as it rendered.
+        animation: 'fade',
         tabBarStyle: {
           backgroundColor: palette.card,
           borderTopColor: palette.border,

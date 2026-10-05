@@ -28,9 +28,21 @@ const EXIT_MS = 240;
 /** Roughly the keyboard's own curve, so a sheet rises with it rather than after it. */
 const KEYBOARD = Easing.bezier(0.2, 0.8, 0.2, 1);
 
-/** Pulled down this far, or flicked, and it goes. */
+/** Pulled down this far, or flicked (points per millisecond), and it goes. */
 const DISMISS_DISTANCE = 110;
-const DISMISS_VELOCITY = 1.1;
+const DISMISS_VELOCITY = 0.8;
+
+/**
+ * How long a flicked sheet takes to leave: as long as its own speed would
+ * take to carry it off, within reason. It used to stop where the finger let
+ * go and then start again from rest, slowly at first — a visible hitch at the
+ * very moment it should have felt like it was thrown.
+ */
+const FLING_MIN_MS = 140;
+const FLING_MAX_MS = 320;
+
+/** Pulled upwards it gives a little, and no more, so it feels held in place. */
+const OVERPULL = 24;
 
 /**
  * The dim behind a sheet or a dialog. Always a darkening, whatever the theme:
@@ -116,6 +128,8 @@ export function BottomSheet({
   const keyboardShift = useRef(new Animated.Value(0)).current;
   const measured = useRef(0);
   const opened = useRef(false);
+  // Set when it was flicked away: where the finger left it, and how fast.
+  const flung = useRef<{ from: number; velocity: number } | null>(null);
 
   // The latest props, for the gesture handler and the timers, which outlive
   // the render that made them.
@@ -134,6 +148,10 @@ export function BottomSheet({
 
   const rise = () => {
     opened.current = true;
+    // Asked for again while a flick was carrying it off: back from wherever
+    // the flick had got to. A no-op the rest of the time.
+    flung.current = null;
+    Animated.spring(drag, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 18 }).start();
     Animated.timing(progress, {
       toValue: 1,
       duration: reduceMotion ? 160 : ENTER_MS,
@@ -165,6 +183,49 @@ export function BottomSheet({
     }
     // The keyboard goes down with it rather than after it.
     Keyboard.dismiss();
+    const done = ({ finished }: { finished: boolean }) => {
+      // Not finished means it was asked for again on the way down.
+      if (!finished) return;
+      opened.current = false;
+      measured.current = 0;
+      distance.setValue(windowHeight);
+      drag.setValue(0);
+      keyboardShift.setValue(0);
+      setKeyboardLift(0);
+      setMounted(false);
+    };
+
+    // Flicked: it carries on at the speed it was thrown, from where the finger
+    // let go, and the shade fades over the same time. The sheet's own exit
+    // distance is zeroed so the fade does not move it as well.
+    const fling = flung.current;
+    flung.current = null;
+    if (fling && !reduceMotion && measured.current > 0) {
+      const remaining = Math.max(measured.current + 24 - fling.from, 0);
+      // An ease-out starts at twice its average speed, so this duration makes
+      // its first frame match the finger's.
+      const duration = Math.min(
+        Math.max((2 * remaining) / Math.max(fling.velocity, 0.1), FLING_MIN_MS),
+        FLING_MAX_MS,
+      );
+      distance.setValue(0);
+      Animated.parallel([
+        Animated.timing(drag, {
+          toValue: measured.current + 24,
+          duration,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(progress, {
+          toValue: 0,
+          duration,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ]).start(done);
+      return;
+    }
+
     // Down by however tall it is now, which may not be what it was on the way
     // up: a sheet can grow while it is open.
     if (!reduceMotion && measured.current > 0) distance.setValue(measured.current + 24);
@@ -173,16 +234,7 @@ export function BottomSheet({
       duration: reduceMotion ? 120 : EXIT_MS,
       easing: EXIT,
       useNativeDriver: true,
-    }).start(({ finished }) => {
-      // Not finished means it was asked for again on the way down.
-      if (!finished) return;
-      opened.current = false;
-      measured.current = 0;
-      drag.setValue(0);
-      keyboardShift.setValue(0);
-      setKeyboardLift(0);
-      setMounted(false);
-    });
+    }).start(done);
     // The animated values are stable for the life of the sheet, and nothing
     // else it reads should re-run it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -243,15 +295,23 @@ export function BottomSheet({
   const pan = useMemo(() => {
     const settle = () =>
       Animated.spring(drag, { toValue: 0, useNativeDriver: true, bounciness: 0, speed: 18 }).start();
+    // Downwards it follows the finger exactly; upwards it gives a little and
+    // stiffens, rather than stopping dead at the top.
+    const follow = (dy: number) => (dy >= 0 ? dy : -OVERPULL * (1 - Math.exp(dy / (OVERPULL * 2))));
     return PanResponder.create({
       onMoveShouldSetPanResponder: (_e, g) =>
-        latest.current.dismissible && g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderMove: (_e, g) => drag.setValue(Math.max(0, g.dy)),
+        latest.current.dismissible && Math.abs(g.dy) > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_e, g) => drag.setValue(follow(g.dy)),
       onPanResponderRelease: (_e, g) => {
-        if (g.dy > DISMISS_DISTANCE || g.vy > DISMISS_VELOCITY) {
+        if (g.dy > DISMISS_DISTANCE || (g.dy > 0 && g.vy > DISMISS_VELOCITY)) {
+          flung.current = { from: Math.max(g.dy, 0), velocity: Math.max(g.vy, 0) };
           latest.current.onClose();
           requestAnimationFrame(() => {
-            if (latest.current.visible) settle();
+            // Declined: it stays, so it goes back to its place.
+            if (latest.current.visible) {
+              flung.current = null;
+              settle();
+            }
           });
           return;
         }
@@ -338,12 +398,14 @@ export function BottomSheet({
             className={`${surfaceColor} rounded-t-3xl`}
             style={{ paddingBottom: Math.max(insets.bottom, 8), flexShrink: 1 }}
           >
-            {/* The handle: something to pull, and a sign that it can be. */}
+            {/* The handle: something to pull, and a sign that it can be. The
+                strip is taller than the bar drawn in it — a 4pt bar in an 18pt
+                strip was a target the thumb mostly missed. */}
             {handle ? (
               <View
                 {...(dismissible ? pan.panHandlers : {})}
                 accessible={false}
-                className="items-center pt-2.5 pb-1"
+                className="items-center pt-3 pb-3 -mb-2"
               >
                 <View className="w-9 h-1 rounded-full bg-border" />
               </View>
