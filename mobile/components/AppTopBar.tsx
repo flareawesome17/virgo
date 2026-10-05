@@ -1,11 +1,8 @@
-import { useState } from 'react';
-import { Animated, Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 // expo-image rather than RN Image, as everywhere else in this app.
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { NotificationBell } from '@/components/NotificationBell';
-import { UpdateBanner } from '@/components/UpdateBanner';
-import { useChrome } from '@/src/providers/ChromeProvider';
 import { MessageCircleIcon, SettingsIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -28,20 +25,17 @@ for (const Icon of [MessageCircleIcon, SettingsIcon]) {
 const LOGO = require('@/assets/splash-icon.png');
 
 /**
- * The bar every tab screen wears, in two tiers.
+ * The bar every tab screen wears.
  *
- * The first tier is identity and the one action: the mark and wordmark on the
- * left, the bell alone on the right. The second is where you are: Dashboard
- * and Jobs as equal-width tabs. They used to share one row — logo, then bell,
- * then the tabs — and the bell sat between an empty left half and the text
- * tabs, where it read as a stray fourth tab. Giving it a row of its own is
- * what fixes that; spacing alone did not.
- *
- * The Feed joins the second tier when it ships. Listing it before there is
- * anything in it would be a tab that leads to an empty screen.
+ * Identity on the left — the mark and wordmark — and the three things you dip
+ * into on the right: connections, notifications, settings.
  *
  * It appears on all six tab screens rather than on Dashboard alone: without
  * a bar that travels, Workspaces would be a screen with no way back to it.
+ *
+ * It has no motion of its own. TabScreen draws it and slides it away and back
+ * by transform; it used to collapse its own height, which the native driver
+ * cannot animate, so it faded out and then the screen jumped up under it.
  */
 export function AppTopBar() {
   const unread = useUnreadCount();
@@ -51,95 +45,45 @@ export function AppTopBar() {
   // you, and two badges on one icon would be a puzzle rather than a count.
   const connectAlerts = unread + friendRequests;
 
-  const { hidden } = useChrome();
-  // Measured rather than assumed: the row is min-h-11 but grows with the
-  // system font size, and collapsing to a guessed height would clip it or
-  // leave a band behind.
-  const [height, setHeight] = useState(0);
-  const onLayout = (event: LayoutChangeEvent) => {
-    const measured = event.nativeEvent.layout.height;
-    if (measured > 0 && measured !== height) setHeight(measured);
-  };
-
   return (
-    <>
-      {/* Collapsing the height rather than sliding the bar up: the screen
-          below is in normal flow, so the content rises into the space as the
-          bar goes. Height is a layout property and cannot use the native
-          driver — the trade is one short animation off the UI thread against
-          every screen needing a top inset otherwise. */}
-      <Animated.View
-        className="bg-background overflow-hidden"
-        style={
-          height > 0
-            ? {
-                height: hidden.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [height, 0],
-                }),
-                opacity: hidden.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-              }
-            : undefined
-        }
+    <View className="min-h-11 flex-row items-center justify-between bg-background pl-4 pr-1">
+      <Pressable
+        onPress={() => router.navigate('/')}
+        accessibilityRole="button"
+        accessibilityLabel="Virgo, go to Dashboard"
+        hitSlop={8}
+        className="min-h-11 flex-row items-center gap-2 active:opacity-70"
       >
-        <View onLayout={onLayout}>
-        <View className="min-h-11 flex-row items-center justify-between pl-4 pr-1">
-          <Pressable
-            onPress={() => router.navigate('/')}
-            accessibilityRole="button"
-            accessibilityLabel="Virgo, go to Dashboard"
-            hitSlop={8}
-            className="min-h-11 flex-row items-center gap-2 active:opacity-70"
-          >
-            <Image
-              source={LOGO}
-              style={{ width: 28, height: 28 }}
-              contentFit="contain"
-            />
-            <Text className="text-foreground text-[20px] font-bold tracking-tight">
-              Virgo
-            </Text>
-          </Pressable>
+        <Image source={LOGO} style={{ width: 28, height: 28 }} contentFit="contain" />
+        <Text className="text-foreground text-[20px] font-bold tracking-tight">Virgo</Text>
+      </Pressable>
 
-          <View className="flex-row items-center">
-            <Pressable
-              onPress={() => router.navigate('/connect')}
-              accessibilityRole="button"
-              accessibilityLabel={
-                connectAlerts > 0
-                  ? `Connections, ${connectAlerts} waiting`
-                  : 'Connections'
-              }
-              className="w-11 h-11 items-center justify-center active:opacity-70"
-            >
-              <MessageCircleIcon size={22} className="text-foreground" />
-              {connectAlerts > 0 && <Dot count={connectAlerts} />}
-            </Pressable>
+      <View className="flex-row items-center">
+        <Pressable
+          onPress={() => router.navigate('/connect')}
+          accessibilityRole="button"
+          accessibilityLabel={
+            connectAlerts > 0 ? `Connections, ${connectAlerts} waiting` : 'Connections'
+          }
+          className="w-11 h-11 items-center justify-center active:opacity-70"
+        >
+          <MessageCircleIcon size={22} className="text-foreground" />
+          {connectAlerts > 0 && <Dot count={connectAlerts} />}
+        </Pressable>
 
-            <NotificationBell />
+        <NotificationBell />
 
-            <Pressable
-              onPress={() => router.navigate('/settings')}
-              accessibilityRole="button"
-              accessibilityLabel={
-                rewards.length > 0 ? 'Settings, an offer is waiting' : 'Settings'
-              }
-              className="w-11 h-11 items-center justify-center active:opacity-70"
-            >
-              <SettingsIcon size={22} className="text-foreground" />
-              {rewards.length > 0 && <Dot count={rewards.length} />}
-            </Pressable>
-          </View>
-        </View>
-        </View>
-      </Animated.View>
-      {/* Under the bar, not in it: the rows above are a fixed set of
-          destinations, and this is news. Here rather than wrapping the
-          navigator — unlike an upload, which starts from an album, a new
-          build is something you are told about on landing, and the app
-          opens on a tab. Renders nothing the rest of the time. */}
-      <UpdateBanner />
-    </>
+        <Pressable
+          onPress={() => router.navigate('/settings')}
+          accessibilityRole="button"
+          accessibilityLabel={rewards.length > 0 ? 'Settings, an offer is waiting' : 'Settings'}
+          className="w-11 h-11 items-center justify-center active:opacity-70"
+        >
+          <SettingsIcon size={22} className="text-foreground" />
+          {rewards.length > 0 && <Dot count={rewards.length} />}
+        </Pressable>
+      </View>
+    </View>
   );
 }
 

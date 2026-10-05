@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppTopBar } from '@/components';
+import { TabScreen } from '@/components';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MapPinIcon, MessageCircleIcon, UsersIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -31,8 +30,7 @@ export default function ConnectScreen() {
   }, [requestedView]);
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <AppTopBar />
+    <TabScreen>
       <View className="px-5 pt-4 pb-2 flex-row items-center justify-between">
         <View>
           <Text className="text-foreground text-[28px] font-bold tracking-tight">Connect</Text>
@@ -71,7 +69,7 @@ export default function ConnectScreen() {
       </View>
 
       {view === 'messages' ? <ChatScreen embedded /> : <NetworkScreen embedded />}
-    </SafeAreaView>
+    </TabScreen>
   );
 }
 

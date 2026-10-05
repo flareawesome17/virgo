@@ -16,7 +16,8 @@ import {
   useSetJobStatus,
   useWithdrawApplication,
 } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import Animated from 'react-native-reanimated';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { budgetLabel, isRoleFilled, type JobApplication, type JobPost } from '@/src/api';
 import { APPLICATION_LABEL } from '@/src/lib/jobs-format';
 import { JobsFeed } from '@/components/JobsFeed';
@@ -63,7 +64,7 @@ export function JobsTabs({
   initialTab?: JobsTab;
   bottomPadding?: number;
 }) {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
   const [tab, setTab] = useState<JobsTab>(initialTab);
   const { jobs, isLoading, loadFailed, refetch } = useMyJobs();
   const [refreshing, setRefreshing] = useState(false);
@@ -139,8 +140,8 @@ export function JobsTabs({
             onPress={() => router.push('/jobs/new')}
           />
         ) : (
-          <ScrollView
-            onScroll={chrome.onScroll}
+          <Animated.ScrollView
+            onScroll={onScroll}
             scrollEventThrottle={16}
             contentContainerStyle={{ padding: 20, paddingBottom: bottomPadding, gap: 10 }}
             refreshControl={
@@ -148,7 +149,7 @@ export function JobsTabs({
             }
           >
             {jobs.map((job) => <JobRow key={job.id} job={job} />)}
-          </ScrollView>
+          </Animated.ScrollView>
         )
       ) : (
         <MyApplications bottom={bottomPadding} onBrowse={() => setTab('browse')} />
@@ -598,7 +599,7 @@ function Applicants({ postId }: { postId: string }) {
 }
 
 function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => void }) {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
   const { applications, isLoading, loadFailed, refetch } = useMyApplications();
   const withdraw = useWithdrawApplication();
   // Every other tab pulls to refresh; this one did not, which reads as broken
@@ -655,9 +656,9 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
   }
 
   return (
-    <ScrollView
-            onScroll={chrome.onScroll}
-            scrollEventThrottle={16}
+    <Animated.ScrollView
+      onScroll={onScroll}
+      scrollEventThrottle={16}
       contentContainerStyle={{ padding: 20, paddingBottom: bottom, gap: 10 }}
       refreshControl={
         <RefreshControl
@@ -737,7 +738,7 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
           </View>
         );
       })}
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }
 

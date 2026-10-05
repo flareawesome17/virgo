@@ -1,15 +1,14 @@
-import { useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
-  FlatList,
   Pressable,
   RefreshControl,
   Text,
   View,
   type ViewToken,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
 import { router } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import {
@@ -21,19 +20,58 @@ import {
   PlusIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { AppTopBar } from '@/components';
+import { TabScreen, useTabBottomInset } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
 import { KeepSheet } from '@/components/KeepSheet';
 import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
 import { useAuth, useFeed, useLike, useTheme } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { makerOf, type FeedItem } from '@/src/api';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [BookmarkIcon, ChevronUpIcon, FlagIcon, HeartIcon, ImageIcon, PlusIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
+
+/**
+ * Which card's film may play: the one on screen, while the Feed is the screen
+ * being looked at.
+ *
+ * A store each card subscribes to for its own answer, rather than state the
+ * list passes down. As state, every change of card re-rendered every mounted
+ * card — likes, images, films and all — in the middle of the scroll that
+ * caused it. Now only the card that stops and the card that starts hear about
+ * it.
+ */
+interface FilmTurn {
+  set: (next: { id?: string | null; focused?: boolean }) => void;
+  subscribe: (listener: () => void) => () => void;
+  isActive: (id: string) => boolean;
+}
+
+function createFilmTurn(): FilmTurn {
+  let visibleId: string | null = null;
+  let focused = true;
+  const listeners = new Set<() => void>();
+  return {
+    set: (next) => {
+      const id = next.id !== undefined ? next.id : visibleId;
+      const f = next.focused ?? focused;
+      if (id === visibleId && f === focused) return;
+      visibleId = id;
+      focused = f;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    isActive: (id) => focused && visibleId === id,
+  };
 }
 
 /**
@@ -47,7 +85,8 @@ for (const Icon of [BookmarkIcon, ChevronUpIcon, FlagIcon, HeartIcon, ImageIcon,
  * learn anything from is a photograph you scroll past.
  */
 export default function FeedScreen() {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
+  const bottomInset = useTabBottomInset();
   const { user } = useAuth();
   const userId = user?.id;
   const { isDark } = useTheme();
@@ -56,7 +95,7 @@ export default function FeedScreen() {
   const [keeping, setKeeping] = useState<FeedItem | null>(null);
   const [reporting, setReporting] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [visibleId, setVisibleId] = useState<string | null>(null);
+  const filmTurn = useRef(createFilmTurn()).current;
 
   const {
     items,
@@ -90,7 +129,7 @@ export default function FeedScreen() {
     ({ viewableItems }: { viewableItems: ViewToken<FeedItem>[] }) =>
       // `item` is typed non-null but arrives null for a row that has just been
       // removed, and this runs during that frame.
-      setVisibleId(viewableItems[0]?.item?.id ?? null),
+      filmTurn.set({ id: viewableItems[0]?.item?.id ?? null }),
   ).current;
 
   /**
@@ -101,23 +140,27 @@ export default function FeedScreen() {
    * switching tabs or opening the post, with its controls nowhere in sight.
    */
   const focused = useIsFocused();
+  useEffect(() => filmTurn.set({ focused }), [filmTurn, focused]);
+
+  // Stable, so a memoised card is not re-rendered by a new closure each time.
+  const onKeep = useCallback((item: FeedItem) => setKeeping(item), []);
+  const onReport = useCallback((id: string) => setReporting(id), []);
 
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => (
       <Placard
         item={item}
         mine={item.userId === userId}
-        visible={focused && item.id === visibleId}
-        onKeep={() => setKeeping(item)}
-        onReport={() => setReporting(item.id)}
+        filmTurn={filmTurn}
+        onKeep={onKeep}
+        onReport={onReport}
       />
     ),
-    [visibleId, userId, focused],
+    [userId, filmTurn, onKeep, onReport],
   );
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <AppTopBar />
+    <TabScreen>
 
       <View className="px-5 pt-3 pb-2 flex-row items-center gap-2">
         <ScopeTab label="Everyone" on={scope === 'everyone'} onPress={() => setScope('everyone')} />
@@ -144,16 +187,21 @@ export default function FeedScreen() {
       ) : loadFailed && items.length === 0 ? (
         <LoadFailed what="the feed" onRetry={() => refetch()} />
       ) : (
-        <FlatList
-          onScroll={chrome.onScroll}
+        <Animated.FlatList
+          onScroll={onScroll}
           scrollEventThrottle={16}
           data={items}
           keyExtractor={(i) => i.id}
           renderItem={renderItem}
-          extraData={`${visibleId}:${focused}`}
           viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={onViewableItemsChanged}
-          contentContainerStyle={{ paddingBottom: 130 }}
+          // Each card is most of a screen tall, with a photograph or a film in
+          // it. The defaults keep ten screens' worth mounted and add ten at a
+          // time, which is a lot of decoding for a list read one card at once.
+          initialNumToRender={2}
+          maxToRenderPerBatch={2}
+          windowSize={5}
+          contentContainerStyle={{ paddingBottom: bottomInset }}
           showsVerticalScrollIndicator={false}
           onEndReached={onEnd}
           onEndReachedThreshold={0.6}
@@ -177,7 +225,7 @@ export default function FeedScreen() {
 
       <KeepSheet item={keeping} onClose={() => setKeeping(null)} />
       <ShowcaseReportSheet showcaseId={reporting} onClose={() => setReporting(null)} />
-    </SafeAreaView>
+    </TabScreen>
   );
 }
 
@@ -213,10 +261,10 @@ function ScopeTab({
  * ratio, so the placard lands in the same place on every card and the thumb
  * does not have to hunt for Keep.
  */
-function Placard({
+const Placard = memo(function Placard({
   item,
   mine,
-  visible,
+  filmTurn,
   onKeep,
   onReport,
 }: {
@@ -227,10 +275,10 @@ function Placard({
    * the third absurd.
    */
   mine: boolean;
-  /** Whether this card is the one on screen; a film that is not, stops. */
-  visible: boolean;
-  onKeep: () => void;
-  onReport: () => void;
+  /** Whose turn it is to play; a film that is not on screen, stops. */
+  filmTurn: FilmTurn;
+  onKeep: (item: FeedItem) => void;
+  onReport: (id: string) => void;
 }) {
   const { isDark } = useTheme();
   const like = useLike();
@@ -250,12 +298,12 @@ function Placard({
       {cover?.kind === 'video' ? (
         <View style={{ width, height }}>
           {/* Lifted clear of the placard, which overlaps the foot by 32. */}
-          <ShowcaseFilm
+          <FeedFilm
+            id={item.id}
+            filmTurn={filmTurn}
             piece={cover}
             width={width}
             height={height}
-            active={visible}
-            controlsInset={32}
           />
           {item.pieces.length > 1 && (
             <View
@@ -333,7 +381,7 @@ function Placard({
             </View>
             {!mine && (
               <Pressable
-                onPress={onReport}
+                onPress={() => onReport(item.id)}
                 accessibilityRole="button"
                 accessibilityLabel="Report this post"
                 hitSlop={8}
@@ -444,7 +492,7 @@ function Placard({
             <>
               <View className="w-px bg-border my-2.5" />
               <Pressable
-                onPress={onKeep}
+                onPress={() => onKeep(item)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: item.keptByMe }}
                 accessibilityLabel={item.keptByMe ? 'Kept. Change where.' : 'Keep this'}
@@ -470,6 +518,30 @@ function Placard({
         </View>
       </View>
     </View>
+  );
+});
+
+/**
+ * A card's film, and the one part of the card that listens for whose turn it
+ * is — so a change of turn re-renders the film alone.
+ */
+function FeedFilm({
+  id,
+  filmTurn,
+  piece,
+  width,
+  height,
+}: {
+  id: string;
+  filmTurn: FilmTurn;
+  piece: FeedItem['pieces'][number];
+  width: number;
+  height: number;
+}) {
+  const active = useSyncExternalStore(filmTurn.subscribe, () => filmTurn.isActive(id));
+  // Lifted clear of the placard, which overlaps the foot by 32.
+  return (
+    <ShowcaseFilm piece={piece} width={width} height={height} active={active} controlsInset={32} />
   );
 }
 

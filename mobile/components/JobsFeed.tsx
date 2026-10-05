@@ -6,7 +6,8 @@ import { RemoteImage } from '@/components/RemoteImage';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useAuth, useJobs, useRoles } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import Animated from 'react-native-reanimated';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { budgetLabel, distanceLabel, isRoleFilled, type JobPost } from '@/src/api';
 import { jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
@@ -31,7 +32,7 @@ for (const Icon of [
  * assuming a parent, since one host is a tab panel and the other a screen.
  */
 export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
   const { roles: allRoles } = useRoles();
   const [role, setRole] = useState<string | null>(null);
   const [place, setPlace] = useState('');
@@ -122,8 +123,8 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
           </Pressable>
         </View>
       ) : (
-        <ScrollView
-          onScroll={chrome.onScroll}
+        <Animated.ScrollView
+          onScroll={onScroll}
           scrollEventThrottle={16}
           contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: bottomPadding, gap: 10 }}
           refreshControl={
@@ -151,7 +152,7 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
               )}
             </Pressable>
           )}
-        </ScrollView>
+        </Animated.ScrollView>
       )}
     </View>
   );

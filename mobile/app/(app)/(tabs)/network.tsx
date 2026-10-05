@@ -30,6 +30,7 @@ import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PersonSafetySheet } from '@/components/PersonSafetySheet';
+import { useTabBottomInset } from '@/components/TabScreen';
 import { lastSeenLabel, usePresence } from '@/src/lib/presence-store';
 import { ApiError, type Collaborator, type Friend } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
@@ -75,6 +76,7 @@ function useSettled<T>(value: T, ms: number): T {
 }
 
 export default function NetworkScreen({ embedded = false }: { embedded?: boolean } = {}) {
+  const bottomInset = useTabBottomInset();
   const sendRequest = useSendFriendRequest();
   const respond = useRespondToFriendRequest();
 
@@ -306,7 +308,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
       <ScrollView keyboardShouldPersistTaps="handled"
         className="flex-1"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
