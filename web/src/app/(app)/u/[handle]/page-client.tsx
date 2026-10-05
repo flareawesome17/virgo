@@ -13,6 +13,7 @@ import { mutualConnectionsLine, profileUrl } from '@/api';
 import { usePublicProfile } from '@/hooks/useProfile';
 import { ProfileHeader } from '@/components/profile/profile-header';
 import { ProfileWorkTaste, type WorkTasteTab } from '@/components/profile/work-taste';
+import { PersonSafetyMenu, usePersonSafety } from '@/components/people/person-safety';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
 
@@ -36,6 +37,14 @@ export default function AppProfilePage() {
 
   const q = usePublicProfile(handle);
   const [tab, setTab] = useState<WorkTasteTab>('work');
+  // Away once blocked, as on the phone: across a block this profile no
+  // longer exists, and staying would only show "not found".
+  const safety = usePersonSafety('profile', {
+    onBlocked: () => {
+      if (window.history.length > 1) router.back();
+      else router.replace('/feed');
+    },
+  });
   // Your own handle opens your own profile, which shows your drafts, your
   // private shelves and your cover, as the phone's does.
   const isSelf = q.profile?.viewer?.isSelf === true;
@@ -148,6 +157,12 @@ export default function AppProfilePage() {
                   </Link>
                 </Button>
               )}
+              {/* By handle: a public profile carries no account id. */}
+              <PersonSafetyMenu
+                safety={safety}
+                variant="outline"
+                subject={{ name: person.displayName, target: { handle: person.handle } }}
+              />
             </>
           }
         />
@@ -160,6 +175,7 @@ export default function AppProfilePage() {
           onTab={setTab}
         />
       </div>
+      {safety.dialogs}
     </Screen>
   );
 }

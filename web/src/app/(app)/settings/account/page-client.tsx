@@ -7,7 +7,9 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  KeyRound,
   Loader2,
+  Mail,
   PauseCircle,
   ShieldCheck,
   UserX,
@@ -28,6 +30,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { SettingRow } from '@/components/settings/setting-row';
+import { ChangeEmailDialog, ChangePasswordDialog } from '@/components/settings/sign-in-dialogs';
 import { useAuth } from '@/hooks/useAuth';
 
 /** Typed into the box before a delete is allowed to run. */
@@ -40,11 +43,25 @@ const PAUSE_OPTIONS = [7, 14, 30, 90] as const;
  * Account & security: how you sign in, and how to stop.
  *
  * Out of the one long Settings page, as the phone keeps it under Profile &
- * account. Changing the password and the email address come here next.
+ * account. The password and the email address are changed here too: the web
+ * could do neither, and the email confirmation sent you to the phone.
  */
-export default function AccountSettingsPage() {
+export default function AccountSettingsPage({
+  change,
+}: {
+  /** The form to open on arrival, from an old phone address. */
+  change: 'password' | 'email' | null;
+}) {
   const { profile, disableAccount, deleteAccount } = useAuth();
   const router = useRouter();
+
+  const [changing, setChanging] = useState(change);
+  const stopChanging = (open: boolean) => {
+    if (open) return;
+    setChanging(null);
+    // Off the address too, so a reload does not open it again.
+    if (change) router.replace('/settings/account', { scroll: false });
+  };
 
   /** Which closing action is being confirmed, if any. */
   const [closing, setClosing] = useState<'pause' | 'delete' | null>(null);
@@ -83,6 +100,24 @@ export default function AccountSettingsPage() {
         </h2>
         <Card className="py-0">
           <CardContent className="p-0">
+            <SettingRow
+              icon={Mail}
+              title="Email"
+              detail={profile?.email ?? 'The address you sign in with'}
+            >
+              <Button variant="outline" size="sm" onClick={() => setChanging('email')}>
+                Change
+              </Button>
+            </SettingRow>
+            <SettingRow
+              icon={KeyRound}
+              title="Password"
+              detail="Changing it signs out every other phone and browser."
+            >
+              <Button variant="outline" size="sm" onClick={() => setChanging('password')}>
+                Change
+              </Button>
+            </SettingRow>
             <Link
               href="/settings/two-factor"
               className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-accent/50"
@@ -298,6 +333,8 @@ export default function AccountSettingsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <ChangePasswordDialog open={changing === 'password'} onOpenChange={stopChanging} />
+      <ChangeEmailDialog open={changing === 'email'} onOpenChange={stopChanging} />
     </Screen>
   );
 }

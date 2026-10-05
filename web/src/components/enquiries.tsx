@@ -19,6 +19,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { useAnswerEnquiry, useHireEnquiries } from '@/hooks/useHire';
 import type { HireEnquiry } from '@/api';
+import { PersonSafetyMenu, usePersonSafety, type PersonSafety } from '@/components/people/person-safety';
 
 /** "Sat 14 Nov" — a job date is a day, and the year is usually noise. */
 function readableDate(value: string): string {
@@ -43,7 +44,14 @@ function StatusBadge({ status }: { status: HireEnquiry['status'] }) {
   return <Badge>Waiting</Badge>;
 }
 
-export function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
+export function EnquiryCard({
+  enquiry,
+  safety,
+}: {
+  enquiry: HireEnquiry;
+  /** Report and block for the sender, on enquiries sent to you. */
+  safety?: PersonSafety;
+}) {
   const router = useRouter();
   const answer = useAnswerEnquiry();
   const [acting, setActing] = useState<'accept' | 'decline' | null>(null);
@@ -121,6 +129,20 @@ export function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
           </div>
 
           <StatusBadge status={enquiry.status} />
+          {/* By enquiry: it names the sender and carries no account id. A
+              block declines it if it was still waiting, and the refreshed list
+              drops it. */}
+          {safety && isIncoming && (
+            <PersonSafetyMenu
+              safety={safety}
+              className="-mr-2 -mt-1"
+              subject={{
+                name: enquiry.personName,
+                target: { enquiryId: enquiry.id },
+                from: 'enquiries',
+              }}
+            />
+          )}
         </div>
 
         <p className="whitespace-pre-line rounded-lg bg-muted/40 p-3 text-sm leading-relaxed">
@@ -182,6 +204,7 @@ export function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
 /** Both inboxes: what was sent to you, then what you sent. */
 export function EnquiriesTab() {
   const { received, sent, isLoading, loadFailed, refetch } = useHireEnquiries();
+  const safety = usePersonSafety('enquiries');
 
   if (isLoading && received.length === 0 && sent.length === 0) {
     return <ListSkeleton rows={2} />;
@@ -211,7 +234,7 @@ export function EnquiriesTab() {
             Sent to you
           </h3>
           {received.map((enquiry) => (
-            <EnquiryCard key={enquiry.id} enquiry={enquiry} />
+            <EnquiryCard key={enquiry.id} enquiry={enquiry} safety={safety} />
           ))}
         </section>
       )}
@@ -226,6 +249,7 @@ export function EnquiriesTab() {
           ))}
         </section>
       )}
+      {safety.dialogs}
     </div>
   );
 }
