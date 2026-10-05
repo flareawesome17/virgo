@@ -70,7 +70,7 @@ export function useNotificationRouting(enabled: boolean): void {
         // accepted one is the only notification here that has a chat waiting
         // on the other end of it.
         case 'hire_enquiry':
-          router.push('/friends/enquiries');
+          goToTab('/(app)/(tabs)/connect?view=people');
           return;
         case 'hire_response':
           if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);

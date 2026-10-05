@@ -62,6 +62,16 @@ export interface SendRequestResult {
   friend: Friend;
 }
 
+/** What the Messages dot counts for People. */
+export interface PeopleUnseen {
+  /** Connection requests waiting on you that arrived since you last opened People. */
+  requests: number;
+  /** Hire enquiries waiting on you, likewise. */
+  enquiries: number;
+  /** When People was last opened. Null if it never has been. */
+  seenAt: string | null;
+}
+
 export const friendsApi = {
 
   /**
@@ -76,7 +86,24 @@ export const friendsApi = {
   }> {
     return api.get('/friends/presence');
   },
-  /** People matching a name prefix or an exact email address. */
+  /**
+   * Requests and hire enquiries that arrived since People was last opened.
+   * An API from before it answers 404, which useFriends falls back from.
+   */
+  unseen(): Promise<PeopleUnseen> {
+    return api.get<PeopleUnseen>('/friends/unseen');
+  },
+
+  /** People has been looked at: what is waiting stops lighting the dot. */
+  markSeen(): Promise<{ seenAt: string }> {
+    return api.post<{ seenAt: string }>('/friends/seen');
+  },
+
+  /**
+   * People matching the start of any word of a name, a handle (with or
+   * without its @), or an exact email address. Your own connections are
+   * found by name whatever their discovery setting.
+   */
   searchPeople(q: string): Promise<{ data: PersonResult[]; total: number }> {
     return api.get('/friends/search/people', { query: { q } });
   },

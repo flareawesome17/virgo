@@ -30,6 +30,7 @@ import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { formatBytes } from '@/src/api';
 import { useState } from 'react';
 import { router } from 'expo-router';
+import { goToTab } from '@/src/lib/navigation';
 import {
   CalendarIcon,
   FolderPlusIcon,
@@ -495,7 +496,9 @@ export default function DashboardScreen() {
               value={connections}
               label="Connections"
               tint={palette.primary}
-              onPress={() => router.push('/(app)/(tabs)/connect')}
+              // Your connections are on People. With no view, Connect opened
+              // on Messages, so the tile counting connections showed chats.
+              onPress={() => goToTab('/(app)/(tabs)/connect?view=people')}
             />
             <StatTile
               value={myJobs.length}

@@ -84,7 +84,8 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   'event-invite': [queryKeys.scheduleEvents.all],
   'event-response': [queryKeys.scheduleEvents.all],
   'event-updated': [queryKeys.scheduleEvents.all],
-  'hire-enquiry': [queryKeys.hire.all],
+  // Friends too: the Messages dot counts new enquiries under friends.
+  'hire-enquiry': [queryKeys.hire.all, queryKeys.friends.all],
   // Accepting also creates a friendship and a conversation, so all three lists
   // are stale for the sender the moment this arrives.
   'hire-response': [

@@ -155,6 +155,10 @@ export type ProfileAction =
   | 'setting'
   | 'connect'
   | 'accept'
+  | 'decline'
+  | 'withdraw'
+  | 'unfriend'
+  | 'enquiry'
   | 'message'
   | 'showcase'
   | 'editShowcase'
@@ -171,6 +175,12 @@ const ACTION_COPY: Record<ProfileAction, string> = {
   setting: "Couldn't save that setting. Try again later.",
   connect: "Couldn't send the request. Try again.",
   accept: "Couldn't accept the request. Try again.",
+  // Each its own: a failed Decline said "Couldn't accept", a failed
+  // Withdraw "Couldn't send", and a failed unfriend said nothing.
+  decline: "Couldn't decline the request. Try again.",
+  withdraw: "Couldn't withdraw your request. Try again.",
+  unfriend: "Couldn't remove this connection. Try again.",
+  enquiry: "Couldn't answer the enquiry. Try again.",
   message: "Couldn't open the chat. Try again.",
   // 'showcase' was once the portfolio, and posting, commenting, keeping and
   // reporting all borrowed it — so every one of them apologised for not

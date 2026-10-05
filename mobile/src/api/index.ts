@@ -104,6 +104,7 @@ export {
   type ListFriendsParams,
   type PersonResult,
   type SendRequestResult,
+  type PeopleUnseen,
   type UpdateFriendInput,
 } from './endpoints/friends';
 export {

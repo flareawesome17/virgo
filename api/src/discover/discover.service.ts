@@ -41,6 +41,62 @@ function snapToGrid(degrees: number): number {
 }
 
 /**
+ * Everyone who could be nearby, with how far they are from ($2, $3).
+ *
+ * $1 is the caller and $5 the roles wanted (empty for any). The radius, $4,
+ * is applied by whatever wraps this, on the distance alias: nearby() for
+ * the list, roleCounts() for the chips.
+ */
+const NEARBY_CANDIDATES = `
+         select u.id, u.email, u.display_name, u.avatar_url, u.roles,
+                -- Only when the profile is actually published: an unpublished
+                -- handle is not a link, and offering one would 404.
+                case when u.public_profile then u.handle end as handle,
+                -- From both rows, the rule search uses. The caller's row alone
+                -- showed an orphaned request as incoming, and a half-pair as
+                -- a friend.
+                ${relationshipCase('f', 'theirs')} as relationship,
+                -- Whole kilometres. See POSITION_DECIMALS.
+                round((
+                  6371 * acos(
+                    least(1, greatest(-1,
+                      cos(radians($2)) * cos(radians(u.latitude))
+                        * cos(radians(u.longitude) - radians($3))
+                      + sin(radians($2)) * sin(radians(u.latitude))
+                    ))
+                  )
+                )::numeric) as distance_km
+           from users u
+           left join friends f
+             on f.user_id = $1 and f.friend_user_id = u.id
+           left join friends theirs
+             on theirs.user_id = u.id and theirs.friend_user_id = $1
+          where u.id <> $1
+            and u.shares_location = true
+            and u.latitude is not null
+            and u.longitude is not null
+            -- Stale positions are worse than none: someone whose device
+            -- reported a fix months ago is not "nearby" in any useful sense.
+            --
+            -- A city picked by hand is exempt. It was not a reading that has
+            -- since drifted, it was a statement about where somebody is based,
+            -- and expiring it would drop them out of discovery a month later
+            -- with nothing to tell them why.
+            and (u.location_place is not null
+                 or u.location_updated_at > now() - interval '30 days')
+            -- A paused account is not available to hire, and a suspended one
+            -- is not available at all.
+            and (u.disabled_until is null or u.disabled_until <= now())
+            and u.suspended_at is null
+            -- Nobody across a block, either way round.
+            and not ${blockedBetween('$1', 'u.id')}
+            -- Overlap, not containment: somebody who is both a photographer
+            -- and an editor should turn up under either search. Empty array
+            -- means no filter, and && uses the GIN index on users.roles.
+            and ($5::text[] = '{}' or u.roles && $5::text[])
+`;
+
+/**
  * Finding people to work with nearby.
  *
  * Location is opt-in and reciprocal: only users who have turned sharing on are
@@ -51,6 +107,7 @@ function snapToGrid(degrees: number): number {
  * and rounded, so a caller cannot triangulate a position by querying from
  * several points.
  */
+
 @Injectable()
 export class DiscoverService {
   constructor(private readonly db: DatabaseService) {}
@@ -239,54 +296,7 @@ export class DiscoverService {
       //
       // Cheap enough at this scale, and avoids a PostGIS dependency for what is
       // a single radius query.
-      `select * from (
-         select u.id, u.email, u.display_name, u.avatar_url, u.roles,
-                -- Only when the profile is actually published: an unpublished
-                -- handle is not a link, and offering one would 404.
-                case when u.public_profile then u.handle end as handle,
-                -- From both rows, the rule search uses. The caller's row alone
-                -- showed an orphaned request as incoming, and a half-pair as
-                -- a friend.
-                ${relationshipCase('f', 'theirs')} as relationship,
-                -- Whole kilometres. See POSITION_DECIMALS.
-                round((
-                  6371 * acos(
-                    least(1, greatest(-1,
-                      cos(radians($2)) * cos(radians(u.latitude))
-                        * cos(radians(u.longitude) - radians($3))
-                      + sin(radians($2)) * sin(radians(u.latitude))
-                    ))
-                  )
-                )::numeric) as distance_km
-           from users u
-           left join friends f
-             on f.user_id = $1 and f.friend_user_id = u.id
-           left join friends theirs
-             on theirs.user_id = u.id and theirs.friend_user_id = $1
-          where u.id <> $1
-            and u.shares_location = true
-            and u.latitude is not null
-            and u.longitude is not null
-            -- Stale positions are worse than none: someone whose device
-            -- reported a fix months ago is not "nearby" in any useful sense.
-            --
-            -- A city picked by hand is exempt. It was not a reading that has
-            -- since drifted, it was a statement about where somebody is based,
-            -- and expiring it would drop them out of discovery a month later
-            -- with nothing to tell them why.
-            and (u.location_place is not null
-                 or u.location_updated_at > now() - interval '30 days')
-            -- A paused account is not available to hire, and a suspended one
-            -- is not available at all.
-            and (u.disabled_until is null or u.disabled_until <= now())
-            and u.suspended_at is null
-            -- Nobody across a block, either way round.
-            and not ${blockedBetween('$1', 'u.id')}
-            -- Overlap, not containment: somebody who is both a photographer
-            -- and an editor should turn up under either search. Empty array
-            -- means no filter, and && uses the GIN index on users.roles.
-            and ($5::text[] = '{}' or u.roles && $5::text[])
-       ) candidates
+      `select * from (${NEARBY_CANDIDATES}) candidates
         where distance_km <= $4
         order by distance_km
         limit 50`,
@@ -326,14 +336,39 @@ export class DiscoverService {
     /** Same override as `nearby`, or the chips would count a different place. */
     place?: string,
   ): Promise<Record<string, number>> {
-    const { people } = await this.nearby(userId, radiusKm, [], place);
-
     const counts: Record<string, number> = {};
     for (const role of USER_ROLES) counts[role] = 0;
-    for (const person of people) {
-      for (const role of person.roles) {
-        if (role in counts) counts[role] += 1;
-      }
+
+    const me = await this.db.queryOne<{
+      latitude: number | null;
+      longitude: number | null;
+      shares_location: boolean;
+    }>(
+      'select latitude, longitude, shares_location from users where id = $1',
+      [userId],
+    );
+    if (!me?.shares_location || me.latitude == null || me.longitude == null) return counts;
+
+    const from = place?.trim() ? this.resolvePlace(place) : null;
+    // Over everyone in range, not over the list. That stops at the closest
+    // 50, so in a busy city the chips undercounted while the screen said the
+    // number was how many are in range.
+    const rows = await this.db.query<{ role: string; n: number }>(
+      `select r.role, count(*)::int as n
+         from (${NEARBY_CANDIDATES}) candidates
+         cross join lateral unnest(candidates.roles) as r(role)
+        where candidates.distance_km <= $4
+        group by r.role`,
+      [
+        userId,
+        from?.lat ?? me.latitude,
+        from?.lon ?? me.longitude,
+        Math.min(Math.max(radiusKm, 1), MAX_RADIUS_KM),
+        [],
+      ],
+    );
+    for (const { role, n } of rows) {
+      if (role in counts) counts[role] = n;
     }
     return counts;
   }

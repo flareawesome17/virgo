@@ -89,6 +89,9 @@ export {
   useSendFriendRequest,
   useRespondToFriendRequest,
   usePeopleSearch,
+  useAllConnections,
+  usePeopleUnseen,
+  useMarkPeopleSeen,
 } from '@/src/hooks/useFriends'
 
 export {

@@ -45,7 +45,8 @@ const TOPICS: Record<
   'event-invite': { icon: CalendarIcon, href: '/schedule' },
   'event-response': { icon: CalendarIcon, href: '/schedule' },
   'event-updated': { icon: CalendarIcon, href: '/schedule' },
-  'hire-enquiry': { icon: MessageCircleIcon, href: '/friends/enquiries' },
+  // Waiting enquiries are answered on People, beside connection requests.
+  'hire-enquiry': { icon: MessageCircleIcon, href: '/(app)/(tabs)/connect?view=people' },
   'hire-response': { icon: MessageCircleIcon, href: '/friends/enquiries' },
   'job-application': { icon: BriefcaseBusinessIcon, href: '/jobs/mine?tab=posted' },
   'job-response': {

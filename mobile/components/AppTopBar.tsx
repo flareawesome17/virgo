@@ -11,7 +11,7 @@ import { NotificationBell } from '@/components/NotificationBell';
 import { RemoteImage } from '@/components/RemoteImage';
 import {
   useAuth,
-  useIncomingFriendRequests,
+  usePeopleUnseen,
   usePromoOffers,
   useUnreadCount,
 } from '@/src/hooks';
@@ -58,11 +58,16 @@ export function AppTopBar({
   create?: CreateKind;
 }) {
   const unread = useUnreadCount();
-  const { count: friendRequests } = useIncomingFriendRequests();
+  // Requests and hire enquiries that arrived since People was last opened.
+  // Enquiries are paid work and counted nowhere before; requests counted
+  // until answered, so an ignored one kept the dot lit for good.
+  const { count: people } = usePeopleUnseen();
   const { offers: rewards } = usePromoOffers();
   // One dot for both: a message and a request are each somebody waiting on
   // you, and two badges on one icon would be a puzzle rather than a count.
-  const connectAlerts = unread + friendRequests;
+  const connectAlerts = unread + people;
+  // The half the dot is about: People when only people are waiting.
+  const connectHref = unread === 0 && people > 0 ? '/connect?view=people' : '/connect?view=messages';
   const [creating, setCreating] = useState(false);
 
   const openCreate = () => {
@@ -115,7 +120,7 @@ export function AppTopBar({
         </Pressable>
 
         <Pressable
-          onPress={() => router.navigate('/connect')}
+          onPress={() => router.navigate(connectHref)}
           accessibilityRole="button"
           accessibilityLabel={
             connectAlerts > 0 ? `Messages and people, ${connectAlerts} waiting` : 'Messages and people'
