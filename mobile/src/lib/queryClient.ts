@@ -160,7 +160,8 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // v6: showcases gained unpublishedAt, and a maker's handle can now be null for
 // an unpublished profile.
 // v7: the job board is paged, and a saved board has no pages.
-const CACHE_VERSION = 'v7-jobs-paged'
+// v8: the chat list and threads are paged, and a saved thread has no pages.
+const CACHE_VERSION = 'v8-chat-paged'
 
 /**
  * Never written to disk, whatever their staleTime says.

@@ -1,5 +1,11 @@
-import { useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import {
   friendsApi,
   queryKeys,
@@ -40,6 +46,47 @@ export function useFriends(
     loadFailed: query.isError || query.isPaused,
     friends: query.data?.data ?? ([] as Friend[]),
     total: query.data?.total ?? 0,
+  };
+}
+
+/**
+ * Every accepted connection, however many there are.
+ *
+ * The chat pickers asked for one page of a hundred, so anyone past the
+ * hundredth could not be messaged or added to a group, and there was no
+ * search to reach them either. Pages are fetched one after another until the
+ * total is in, and the pickers search what came back.
+ */
+export function useAllConnections(options: QueryOptions = {}) {
+  const query = useInfiniteQuery({
+    queryKey: [...queryKeys.friends.all, 'all-accepted'],
+    queryFn: ({ pageParam }) =>
+      friendsApi.list({ status: 'accepted', limit: 100, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, p) => n + p.data.length, 0);
+      return last.data.length > 0 && loaded < last.total ? loaded : undefined;
+    },
+    enabled: options.enabled ?? true,
+  });
+
+  const { hasNextPage, isFetchingNextPage, isError, fetchNextPage } = query;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, isError, fetchNextPage]);
+
+  const friends = useMemo(
+    () => query.data?.pages.flatMap((p) => p.data) ?? ([] as Friend[]),
+    [query.data],
+  );
+
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    /** Nothing has arrived yet, so an empty list says nothing about who you know. */
+    loading: query.data === undefined && !query.isError && !query.isPaused,
+    friends,
   };
 }
 

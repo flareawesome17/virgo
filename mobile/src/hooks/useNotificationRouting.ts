@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { router } from 'expo-router';
 import { onNotificationTap, type NotificationPayload } from '@/src/lib/notifications';
 import { goToTab } from '@/src/lib/navigation';
+import { getOpenConversation } from '@/src/hooks/useChat';
 
 /**
  * Opens whatever a tapped notification is about.
@@ -22,7 +23,11 @@ export function useNotificationRouting(enabled: boolean): void {
       // a push from whatever screen the tap landed on stacked a second set.
       switch (payload.type) {
         case 'message':
-          if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
+          // Already on screen: opening it again stacked a second copy of the
+          // same thread, and back then went to the first.
+          if (payload.conversationId && payload.conversationId !== getOpenConversation()) {
+            router.push(`/chat/${payload.conversationId}`);
+          }
           return;
         case 'reminder':
           if (payload.reminderId) router.push(`/schedule/reminders/${payload.reminderId}`);

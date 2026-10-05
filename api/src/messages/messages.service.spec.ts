@@ -70,7 +70,20 @@ function harness(
       return (options.everyone ?? [ME, THEM]).map((user_id) => ({ user_id }));
     }
     if (/insert into messages/.test(sql)) {
-      return [{ id: 'm1', conversation_id: CONVO, sender_id: ME, body: String(params[2]) }];
+      return [{ id: 'm1' }];
+    }
+    // The joined read-back: what the response and the live frame carry.
+    if (/where m\.id = \$1$/.test(sql.trim())) {
+      return [
+        {
+          id: params[0],
+          conversation_id: CONVO,
+          sender_id: ME,
+          body: 'hello',
+          sender_name: 'Me',
+          reply_to_body: null,
+        },
+      ];
     }
     if (/select user_id from conversation_participants\s+where conversation_id = \$1 and user_id = \$2/.test(sql)) {
       return [{ user_id: ME }];
@@ -434,5 +447,164 @@ describe('MessagesService reads across a block', () => {
     const [count] = h.ran(/count\(\*\)::text as count\s+from messages m/);
     expect(count.sql).toMatch(/user_blocks/);
     expect(count.sql).toMatch(/ub\.blocked_id = m\.sender_id/);
+  });
+});
+
+describe('MessagesService.send with a client id', () => {
+  const CLIENT = '55555555-5555-4555-8555-555555555555';
+
+  it('stores it, and sends the joined row live and in the response', async () => {
+    const h = harness();
+
+    const row = await h.service.send(ME, CONVO, 'hello', { clientId: CLIENT });
+
+    const [insert] = h.ran(/insert into messages/);
+    expect(insert.sql).toMatch(/on conflict \(sender_id, client_id\) where client_id is not null do nothing/);
+    expect(insert.params[5]).toBe(CLIENT);
+    expect(row).toMatchObject({ id: 'm1', sender_name: 'Me' });
+
+    const [frame] = h.realtime.emitToUsers.mock.calls.filter(([, e]) => e.type === 'message');
+    expect(frame[1].message).toMatchObject({ id: 'm1', sender_name: 'Me' });
+  });
+
+  it('answers a retry with the stored message, and neither sends it live nor bumps the list again', async () => {
+    const h = harness({
+      answer: (sql) => {
+        if (/insert into messages/.test(sql)) return [];
+        if (/where sender_id = \$1 and client_id = \$2::uuid and conversation_id = \$3/.test(sql)) {
+          return [{ id: 'm0' }];
+        }
+        return undefined;
+      },
+    });
+
+    const row = await h.service.send(ME, CONVO, 'hello', { clientId: CLIENT });
+
+    expect(row.id).toBe('m0');
+    expect(h.realtime.emitToUsers).not.toHaveBeenCalled();
+    expect(h.ran(/update conversations set updated_at/)).toHaveLength(0);
+    expect(h.ran(/muted_until is null/)).toHaveLength(0);
+  });
+
+  it('refuses an id already used in another conversation', async () => {
+    const h = harness({
+      answer: (sql) => (/insert into messages/.test(sql) ? [] : undefined),
+    });
+
+    await expect(h.service.send(ME, CONVO, 'hello', { clientId: CLIENT })).rejects.toThrow(
+      'That message id is already in use',
+    );
+  });
+
+  it('sends a null id for an app that makes none', async () => {
+    const h = harness();
+
+    await h.service.send(ME, CONVO, 'hello');
+
+    const [insert] = h.ran(/insert into messages/);
+    expect(insert.params[5]).toBeNull();
+  });
+});
+
+describe('MessagesService group changes are live', () => {
+  const frames = (h: ReturnType<typeof harness>) =>
+    h.realtime.emitToUsers.mock.calls.filter(([, e]) => e.type === 'conversation');
+
+  it('tells everyone in a new group, the creator included', async () => {
+    const h = harness();
+
+    await h.service.createGroup(ME, 'Shoot', [THEM, OTHER]);
+
+    expect(frames(h)).toEqual([[[ME, THEM, OTHER], { type: 'conversation', conversationId: CONVO }]]);
+  });
+
+  it('tells the group and the person added', async () => {
+    const h = harness({
+      everyone: [ME, THEM, OTHER],
+      answer: (sql) => {
+        if (/select is_group from conversations/.test(sql)) return [{ is_group: true }];
+        if (/insert into conversation_participants/.test(sql)) return [{ user_id: OTHER }];
+        return undefined;
+      },
+    });
+
+    await h.service.addMember(ME, CONVO, OTHER);
+
+    expect(frames(h)).toHaveLength(1);
+    expect(frames(h)[0][0]).toEqual([ME, THEM, OTHER]);
+  });
+
+  it('says nothing when the person was already in it', async () => {
+    const h = harness({
+      answer: (sql) => (/select is_group from conversations/.test(sql) ? [{ is_group: true }] : undefined),
+    });
+
+    await h.service.addMember(ME, CONVO, OTHER);
+
+    expect(frames(h)).toHaveLength(0);
+  });
+
+  it('tells the members read before leaving, so the leaver hears it too', async () => {
+    const h = harness({ everyone: [ME, THEM] });
+
+    await h.service.leave(ME, CONVO);
+
+    const read = h.calls.findIndex((c) => /^select user_id from conversation_participants where/.test(c.sql));
+    const removed = h.calls.findIndex((c) => /delete from conversation_participants/.test(c.sql));
+    expect(read).toBeGreaterThan(-1);
+    expect(read).toBeLessThan(removed);
+    expect(frames(h)[0][0]).toEqual([ME, THEM]);
+  });
+
+  it('tells everyone about a rename', async () => {
+    const h = harness({
+      everyone: [ME, THEM, OTHER],
+      answer: (sql) => (/select is_group from conversations/.test(sql) ? [{ is_group: true }] : undefined),
+    });
+
+    await h.service.rename(ME, CONVO, 'New name');
+
+    expect(frames(h)[0][0]).toEqual([ME, THEM, OTHER]);
+  });
+
+  it('tells only the caller when a direct chat is removed from their list', async () => {
+    const h = harness({
+      answer: (sql) => (/select is_group from conversations/.test(sql) ? [{ is_group: false }] : undefined),
+    });
+
+    await h.service.deleteConversation(ME, CONVO);
+
+    expect(frames(h)[0][0]).toEqual([ME]);
+  });
+});
+
+describe('MessagesService list and badge', () => {
+  it('leaves muted conversations out of the tab badge', async () => {
+    const h = harness();
+
+    await h.service.unreadCount(ME);
+
+    const [count] = h.ran(/count\(\*\)::text as count\s+from messages m/);
+    expect(count.sql).toMatch(/p\.muted_until is null or p\.muted_until <= now\(\)/);
+  });
+
+  it('pages the list, newest first with a tie-break, and keeps the old default', async () => {
+    const h = harness();
+
+    await h.service.conversations(ME);
+    await h.service.conversations(ME, { limit: 50, offset: 50 });
+
+    const [first, second] = h.ran(/as other_blocked/);
+    expect(first.sql).toMatch(/order by coalesce\(last\.created_at, c\.created_at\) desc, c\.id desc/);
+    expect(first.params).toEqual([ME, null, null, 100, 0]);
+    expect(second.params).toEqual([ME, null, null, 50, 50]);
+  });
+
+  it('finds one conversation by id, or says it is not there', async () => {
+    const h = harness();
+
+    await expect(h.service.conversation(ME, CONVO)).rejects.toThrow('Conversation not found');
+    const [select] = h.ran(/as other_blocked/);
+    expect(select.params).toEqual([ME, null, CONVO, 1, 0]);
   });
 });

@@ -12,21 +12,23 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { goToTab } from '@/src/lib/navigation';
-import { useState } from 'react';
-import { ArrowLeftIcon, CheckIcon, UsersIcon, UserIcon } from 'lucide-react-native';
+import { useMemo, useState } from 'react';
+import { ArrowLeftIcon, CheckIcon, UsersIcon, UserIcon, SearchIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   useCreateGroupChat,
-  useFriends,
   useOpenDirectChat,
   useTheme,
 } from '@/src/hooks';
+import { useAllConnections } from '@/src/hooks/useFriends';
 import { LoadFailed } from '@/components/LoadFailed';
+import { PALETTES } from '@/theme';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /**
  * Starts a chat.
@@ -39,16 +41,29 @@ cssInterop(UserIcon, { className: { target: 'style', nativeStyleToProp: { color:
  */
 export default function NewChatScreen() {
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [mode, setMode] = useState<'direct' | 'group'>('direct');
+  const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [title, setTitle] = useState('');
 
-  const { friends, loadFailed, refetch } = useFriends({ status: 'accepted', limit: 100 });
+  // Every connection, not the first hundred: past those, nobody could be
+  // messaged from here.
+  const { friends, loadFailed, loading, refetch } = useAllConnections();
   const openDirect = useOpenDirectChat();
   const createGroup = useCreateGroupChat();
 
   // Contacts predating real friendships have no account to chat with.
-  const chattable = friends.filter((f) => f.friend_user_id);
+  const chattable = useMemo(() => friends.filter((f) => f.friend_user_id), [friends]);
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return chattable;
+    return chattable.filter(
+      (f) =>
+        f.friend_name.toLowerCase().includes(q) ||
+        (f.friend_email ?? '').toLowerCase().includes(q),
+    );
+  }, [chattable, search]);
 
   const toggle = (userId: string) => {
     if (mode === 'direct') {
@@ -132,6 +147,8 @@ export default function NewChatScreen() {
                   <Pressable
                     key={m}
                     onPress={() => switchMode(m)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: on }}
                     className={`flex-1 flex-row items-center justify-center gap-2 py-2.5 rounded-xl active:scale-[0.96] ${on ? 'bg-card' : ''}`}
                     style={on ? { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 } : undefined}
                   >
@@ -154,7 +171,8 @@ export default function NewChatScreen() {
                 value={title}
                 onChangeText={setTitle}
                 placeholder="e.g. Reyes Wedding Team"
-                placeholderTextColor="#A89489"
+                placeholderTextColor={palette.mutedForeground}
+                accessibilityLabel="Group name"
                 className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
                 style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
               />
@@ -166,7 +184,28 @@ export default function NewChatScreen() {
               {mode === 'direct' ? 'Choose a connection' : `People (${selected.length})`}
             </Text>
 
-            {loadFailed && chattable.length === 0 ? (
+            {chattable.length > 8 && (
+              <View className="flex-row items-center bg-secondary rounded-xl px-4 h-11 gap-3 mb-3">
+                <SearchIcon size={15} className="text-muted-foreground" />
+                <TextInput
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Search your connections"
+                  placeholderTextColor={palette.mutedForeground}
+                  accessibilityLabel="Search your connections"
+                  autoCorrect={false}
+                  className="text-foreground text-sm flex-1"
+                />
+              </View>
+            )}
+
+            {/* Loading before anything else: "No connections yet" showed for
+                the moment the list took to arrive. */}
+            {loading ? (
+              <View className="bg-card rounded-2xl py-8 items-center">
+                <ActivityIndicator size="small" color={palette.primary} />
+              </View>
+            ) : loadFailed && chattable.length === 0 ? (
               <LoadFailed what="your connections" onRetry={() => refetch()} compact />
             ) : chattable.length === 0 ? (
               <Pressable
@@ -179,19 +218,26 @@ export default function NewChatScreen() {
                 </Text>
                 <Text className="text-primary text-xs font-bold mt-3">Find people</Text>
               </Pressable>
+            ) : shown.length === 0 ? (
+              <Text className="text-muted-foreground text-sm text-center py-6">
+                No connections match “{search.trim()}”.
+              </Text>
             ) : (
               <View
                 className="bg-card rounded-2xl overflow-hidden"
                 style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
               >
-                {chattable.map((f, i) => {
+                {shown.map((f, i) => {
                   const on = selected.includes(f.friend_user_id!);
                   return (
                     <Pressable
                       key={f.id}
                       onPress={() => toggle(f.friend_user_id!)}
-                      className="px-4 py-3 flex-row items-center gap-3 active:bg-muted/30"
-                      style={i < chattable.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
+                      accessibilityRole={mode === 'direct' ? 'radio' : 'checkbox'}
+                      accessibilityState={{ checked: on }}
+                      accessibilityLabel={f.friend_name}
+                      className="px-4 py-3 min-h-[56px] flex-row items-center gap-3 active:bg-muted/30"
+                      style={i < shown.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}
                     >
                       <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
                         <Text style={{ color: '#B66A40', fontWeight: '700' }}>
@@ -226,6 +272,8 @@ export default function NewChatScreen() {
             <Pressable
               onPress={start}
               disabled={selected.length === 0 || busy}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: selected.length === 0 || busy }}
               className={`rounded-2xl py-3.5 items-center flex-row justify-center gap-2 active:scale-[0.97] ${
                 selected.length > 0 ? 'bg-action' : 'bg-muted'
               }`}

@@ -16,6 +16,7 @@ import {
   VerifyEmailBanner,
   VideoSurface,
 } from '@/components';
+import { useOutboxSender } from '@/src/hooks/useChat';
 import { CrashScreen } from '@/components/CrashScreen';
 import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
 import { VideoPlayerProvider } from '@/src/providers/VideoPlayerProvider';
@@ -218,6 +219,9 @@ function NotificationServices() {
   useNotificationRouting(true);
   useMessageAlerts(true);
   useRealtime(true);
+  // Messages written offline, or left unsent when the app closed, go out
+  // whenever there is a connection again.
+  useOutboxSender(user?.id);
 
   return null;
 }

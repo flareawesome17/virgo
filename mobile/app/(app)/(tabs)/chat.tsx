@@ -17,12 +17,12 @@ import {
   PlusIcon,
   SearchIcon,
   XIcon,
-  CheckCheckIcon,
   BellOffIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useConversations, useTheme } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
+import { CardListSkeleton } from '@/components/Skeleton';
 import { PresenceDot } from '@/components';
 import { useTabBottomInset } from '@/components/TabScreen';
 import { typingLabel, useTypingIn } from '@/src/lib/presence-store';
@@ -72,7 +72,6 @@ cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(XIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CheckCheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /** "now" / "14:05" / "Mon" / "3 Aug" — how recent decides the format. */
@@ -114,7 +113,16 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
     return () => clearTimeout(id);
   }, [search]);
 
-  const { conversations, refetch, isFetching, loadFailed } = useConversations(term);
+  const {
+    conversations,
+    refetch,
+    isFetching,
+    loadFailed,
+    loadingFirst,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useConversations(term);
   const searching = term.length > 0;
 
   const onRefresh = useCallback(async () => {
@@ -131,7 +139,7 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
           <Text className="text-muted-foreground text-sm mt-1">
             {searching
               ? `${conversations.length} result${conversations.length === 1 ? '' : 's'}`
-              : `${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`}
+              : `${conversations.length}${hasNextPage ? '+' : ''} conversation${conversations.length === 1 && !hasNextPage ? '' : 's'}`}
           </Text>
         </View>
       </View>}
@@ -195,9 +203,35 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
             tintColor={palette.primary}
           />
         }
+        // Past the first hundred, a page at a time. They could only be found
+        // by searching before.
+        onEndReached={() => {
+          if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+        }}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <View className="py-4 items-center">
+              <ActivityIndicator size="small" color={palette.primary} />
+            </View>
+          ) : null
+        }
         renderItem={({ item }) => (
           <Pressable
             onPress={() => router.push(`/chat/${item.id}`)}
+            accessibilityRole="button"
+            accessibilityLabel={[
+              item.title,
+              item.isGroup ? 'group' : null,
+              item.unread > 0 ? `${item.unread} unread` : null,
+              item.muted ? 'muted' : null,
+              item.lastMessage
+                ? `${item.isGroup && item.lastSender ? `${item.lastSender}: ` : ''}${item.lastMessage}`
+                : 'No messages yet',
+              whenLabel(item.lastAt) || null,
+            ]
+              .filter(Boolean)
+              .join(', ')}
             className="px-5 py-3 flex-row items-center gap-3 active:bg-muted/30"
           >
             {item.isGroup ? (
@@ -245,14 +279,24 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
                 {/* One or the other, never both: two lines would make every
                     row taller the moment somebody touched a key. */}
                 <TypingOrPreview conversation={item} />
+                {/* Nothing when there is nothing unread. A double tick stood in
+                    for "caught up" here, and read as a read receipt on a
+                    message somebody else had sent. A muted chat's count is
+                    greyed: it waits for you without calling for you. */}
                 {item.unread > 0 ? (
-                  <View className="rounded-full bg-action px-2 py-0.5 min-w-[20px] items-center">
-                    <Text className="text-action-foreground text-[11px] font-bold">{item.unread}</Text>
+                  <View
+                    className={`rounded-full px-2 py-0.5 min-w-[20px] items-center ${
+                      item.muted ? 'bg-muted' : 'bg-action'
+                    }`}
+                  >
+                    <Text
+                      className={`text-[11px] font-bold ${
+                        item.muted ? 'text-muted-foreground' : 'text-action-foreground'
+                      }`}
+                    >
+                      {item.unread > 99 ? '99+' : item.unread}
+                    </Text>
                   </View>
-                ) : item.lastMessage ? (
-                  // Nothing unread. The double tick says "caught up" without
-                  // an empty gap where the badge sits on other rows.
-                  <CheckCheckIcon size={14} className="text-muted-foreground" />
                 ) : null}
               </View>
 
@@ -270,7 +314,11 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
           </Pressable>
         )}
         ListEmptyComponent={
-          // An empty inbox and an unreachable server look identical otherwise.
+          // Nothing is said about an inbox that has not arrived yet. It
+          // showed "No conversations" while the first page loaded.
+          loadingFirst ? (
+            <CardListSkeleton />
+          ) : // An empty inbox and an unreachable server look identical otherwise.
           loadFailed ? (
             <View className="mt-20">
               <LoadFailed what="your chats" onRetry={() => refetch()} compact />

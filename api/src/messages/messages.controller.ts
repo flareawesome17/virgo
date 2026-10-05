@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -68,6 +69,15 @@ export class SendMessageDto {
   @ArrayMaxSize(50)
   @IsString({ each: true })
   mentionIds?: string[];
+
+  /**
+   * An id the app made for this message before sending it. Sending the same
+   * one again returns the message already stored instead of storing a copy,
+   * so a retry after a lost response cannot send the words twice.
+   */
+  @IsOptional()
+  @IsUUID('all')
+  clientId?: string;
 }
 
 export class MuteDto {
@@ -123,6 +133,21 @@ export class ConversationsQueryDto {
   @IsString()
   @MaxLength(120)
   q?: string;
+
+  /** A page of the list. Without these it is the newest 100, as it always was. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100_000)
+  offset?: number;
 }
 
 // 'messages', not 'chat': ServicesController already owns POST /chat and
@@ -139,7 +164,7 @@ export class MessagesController {
     @Query() query: ConversationsQueryDto,
   ) {
     return this.messages
-      .conversations(userId, query.q)
+      .conversations(userId, { q: query.q, limit: query.limit, offset: query.offset })
       .then((data) => ({ data, total: data.length }));
   }
 
@@ -187,6 +212,18 @@ export class MessagesController {
       }));
   }
 
+  /**
+   * One conversation, as its row in the list. A thread past the first page of
+   * the list had no title, members or mute state to show until it was found.
+   */
+  @Get(':id')
+  conversation(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.messages.conversation(userId, id);
+  }
+
   @Get(':id/participants')
   participants(@CurrentUser('id') userId: string, @Param('id') id: string) {
     return this.messages
@@ -204,6 +241,7 @@ export class MessagesController {
     return this.messages.send(userId, id, dto.body, {
       replyToId: dto.replyToId,
       mentionIds: dto.mentionIds,
+      clientId: dto.clientId,
     });
   }
 
