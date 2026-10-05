@@ -67,6 +67,25 @@ const VideoPlayerContext = createContext<VideoPlayerContextValue>(FALLBACK);
  * minimising possible at all. Unmounting to shrink would stop playback, so
  * `mode` changes how the player draws rather than whether it exists.
  */
+/**
+ * Pauses the album film, open or docked, from anywhere.
+ *
+ * For a showcase film starting, which sits nowhere near this provider: a feed
+ * film began while a docked album film carried on playing, and the two talked
+ * over each other. The player registers itself (VideoPlayer) while it exists.
+ */
+let pauseDocked: (() => void) | null = null;
+export function registerDockedPause(pause: (() => void) | null): void {
+  pauseDocked = pause;
+}
+export function pauseDockedFilm(): void {
+  try {
+    pauseDocked?.();
+  } catch {
+    // Already released.
+  }
+}
+
 export function VideoPlayerProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<StoredFile | null>(null);
   const [queue, setQueue] = useState<StoredFile[]>([]);

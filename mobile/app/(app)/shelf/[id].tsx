@@ -10,6 +10,7 @@ import { NameSheet } from '@/components/NameSheet';
 import { ActionSheet } from '@/components/WorkspaceBits';
 import { useShelfActions, useShelfEntries, useShelves, useTheme } from '@/src/hooks';
 import { ApiError, makerOf } from '@/src/api';
+import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
 /** The API answers "not yours" and "not there" alike, so ids cannot be probed. */
@@ -56,15 +57,16 @@ export default function ShelfScreen() {
   const rename = (next: string) => {
     setRenaming(false);
     if (!id || next.trim() === shelf?.name) return;
-    updateShelf.mutateAsync({ id, name: next.trim() }).catch((e: Error) =>
-      Alert.alert('Could not rename it', e.message),
+    // In words for the person holding the phone, not the server's.
+    updateShelf.mutateAsync({ id, name: next.trim() }).catch((e: unknown) =>
+      Alert.alert("Couldn't rename it", profileActionMessage(e, 'shelf')),
     );
   };
 
   const togglePrivacy = () => {
     if (!id || !shelf) return;
-    updateShelf.mutateAsync({ id, isPublic: !shelf.isPublic }).catch((e: Error) =>
-      Alert.alert('Could not change who sees it', e.message),
+    updateShelf.mutateAsync({ id, isPublic: !shelf.isPublic }).catch((e: unknown) =>
+      Alert.alert("Couldn't change who sees it", profileActionMessage(e, 'setting')),
     );
   };
 
@@ -81,7 +83,7 @@ export default function ShelfScreen() {
           onPress: () => {
             removeShelf.mutateAsync(id).then(
               () => router.back(),
-              (e: Error) => Alert.alert('Could not delete it', e.message),
+              (e: unknown) => Alert.alert("Couldn't delete it", profileActionMessage(e, 'shelf')),
             );
           },
         },
@@ -97,8 +99,8 @@ export default function ShelfScreen() {
         text: 'Remove',
         style: 'destructive',
         onPress: () => {
-          unkeep.mutateAsync({ shelfId: id, showcaseId }).catch((e: Error) =>
-            Alert.alert('Could not remove it', e.message),
+          unkeep.mutateAsync({ shelfId: id, showcaseId }).catch((e: unknown) =>
+            Alert.alert("Couldn't take it off", profileActionMessage(e, 'keep')),
           );
         },
       },
@@ -206,11 +208,11 @@ export default function ShelfScreen() {
                 {shelf ? (
                   <Pressable
                     onPress={() => remove(entry.showcaseId, entry.title ? `“${entry.title}”` : 'this')}
-                    hitSlop={10}
                     accessibilityRole="button"
                     accessibilityLabel={`Remove ${entry.title ?? 'this'} from the shelf`}
+                    className="min-h-[44px] min-w-[44px] -my-2 px-1 items-start justify-center active:opacity-60"
                   >
-                    <Text className="text-muted-foreground text-[11px] font-semibold">Remove</Text>
+                    <Text className="text-primary text-[13px] font-semibold">Remove</Text>
                   </Pressable>
                 ) : null}
               </View>

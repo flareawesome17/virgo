@@ -258,7 +258,12 @@ export class ShelvesService {
       [userId],
     );
     if (Number(count?.count ?? 0) >= MAX_SHELVES) {
-      throw new BadRequestException(`You can have up to ${MAX_SHELVES} shelves.`);
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        code: 'SHELF_LIMIT',
+        message: `You can have up to ${MAX_SHELVES} shelves.`,
+      });
     }
 
     try {
@@ -368,7 +373,12 @@ export class ShelvesService {
   private asNameClash(err: unknown): Error {
     const code = (err as { code?: string } | null)?.code;
     if (code === '23505') {
-      return new ConflictException('You already have a shelf with that name.');
+      return new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        code: 'SHELF_NAME_TAKEN',
+        message: 'You already have a shelf with that name.',
+      });
     }
     return err as Error;
   }

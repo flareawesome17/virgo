@@ -21,6 +21,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import { canSaveToPhotos } from '@/src/lib/photo-permission';
 import { pauseAlbumAudio } from '@/src/providers/AlbumAudioProvider';
+import { registerDockedPause } from '@/src/providers/VideoPlayerProvider';
 import {
   useVideoPlayer,
   VideoView,
@@ -148,6 +149,12 @@ export function VideoPlayer({
       instance.play();
     },
   );
+
+  // So a showcase film can pause this one (pauseDockedFilm).
+  useEffect(() => {
+    registerDockedPause(() => player.pause());
+    return () => registerDockedPause(null);
+  }, [player]);
 
   /**
    * Whether the controls are up, as state rather than only as a ref.

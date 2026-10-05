@@ -31,6 +31,31 @@ export interface ShowcasePiece {
   displaySources: { width: number; url: string }[];
   /** Only sent to the owner; false when this piece has no web copy. */
   publiclyShown?: boolean;
+  /**
+   * The piece's size, upright. Absent from an older API and on a file whose
+   * size was never read; draw those at a default shape.
+   */
+  width?: number | null;
+  height?: number | null;
+}
+
+/** Width over height, or null when the size is not known. */
+export function pieceAspect(piece: Pick<ShowcasePiece, 'width' | 'height'>): number | null {
+  return piece.width && piece.height ? piece.width / piece.height : null;
+}
+
+/**
+ * The still to draw at a given size, in device pixels.
+ *
+ * The smallest display copy at least that wide, or the widest there is. The
+ * feed drew the 640 px thumbnail full width — two or three times upscaled on
+ * a modern phone, which photographers notice first. `url` (the thumbnail, or
+ * a film's poster) is the fallback, and the placeholder while this loads.
+ */
+export function pieceSource(piece: ShowcasePiece, pixelWidth: number): string {
+  const sources = piece.displaySources ?? [];
+  const fit = sources.find((s) => s.width >= pixelWidth) ?? sources[sources.length - 1];
+  return fit?.url ?? piece.url;
 }
 
 export interface Showcase {
@@ -140,6 +165,13 @@ export interface FeedPage {
   nextCursor: string | null;
 }
 
+/** One page of a profile's work. `nextCursor` is absent from an older API. */
+export interface ProfileWorkPage {
+  data: Showcase[];
+  total: number;
+  nextCursor?: string | null;
+}
+
 export interface ShelfSummary {
   id: string;
   name: string;
@@ -189,6 +221,9 @@ export const feedApi = {
   },
 };
 
+/** See showcasesApi.create. */
+const POSTING_TIMEOUT_MS = 90_000;
+
 export const showcasesApi = {
   mine(): Promise<{ data: Showcase[]; total: number }> {
     return api.get('/me/showcases');
@@ -198,12 +233,17 @@ export const showcasesApi = {
     return api.get(`/showcases/${id}`);
   },
 
+  /**
+   * Posting can encode a web copy of every piece before it answers, which on
+   * a slow connection outran the usual timeout — and the retry posted it a
+   * second time. Given a minute and a half.
+   */
   create(body: NewShowcase): Promise<Showcase> {
-    return api.post('/me/showcases', { body });
+    return api.post('/me/showcases', { body, timeoutMs: POSTING_TIMEOUT_MS });
   },
 
   update(id: string, body: Partial<NewShowcase>): Promise<Showcase> {
-    return api.patch(`/me/showcases/${id}`, { body });
+    return api.patch(`/me/showcases/${id}`, { body, timeoutMs: POSTING_TIMEOUT_MS });
   },
 
   publish(id: string): Promise<Showcase> {
@@ -258,9 +298,15 @@ export const shelvesApi = {
 
 /** Somebody's profile, in its two halves. */
 export const profileWorkApi = {
-  /** What they have posted, newest first, as this viewer may see it. */
-  showcases(handle: string): Promise<{ data: Showcase[]; total: number }> {
-    return api.get(`/profiles/${encodeURIComponent(handle)}/showcases`);
+  /**
+   * What they have posted, newest first, as this viewer may see it, a page at
+   * a time. A visitor saw the newest 24 and nothing older.
+   */
+  showcases(handle: string, cursor?: string): Promise<ProfileWorkPage> {
+    return api.get(
+      `/profiles/${encodeURIComponent(handle)}/showcases`,
+      cursor ? { query: { cursor } } : undefined,
+    );
   },
 
   /** Their public shelves. Private ones are never returned to a visitor. */
@@ -312,22 +358,41 @@ export interface Comment {
   canRemove: boolean;
 }
 
+/**
+ * A page of a thread, read oldest first.
+ *
+ * The first page is the newest; `earlier` is where the one before it starts,
+ * or null at the beginning. An older API sends only `data` (the oldest 30),
+ * which reads here as a thread with nothing earlier.
+ */
+export interface CommentPage {
+  data: Comment[];
+  /** False when the author has turned commenting off. Absent after an add. */
+  allowed?: boolean;
+  earlier?: string | null;
+}
+
 export const commentsApi = {
   /**
-   * The thread, oldest first.
+   * The thread: the newest page, or with `before` (a page's `earlier`) the
+   * page before that.
    *
    * `allowed` is false when the author has turned commenting off — the thread
    * is hidden rather than deleted, and they still see it themselves.
    */
-  list(showcaseId: string): Promise<{ data: Comment[]; allowed: boolean }> {
-    return api.get(`/showcases/${showcaseId}/comments`);
+  list(showcaseId: string, before?: string): Promise<CommentPage> {
+    return api.get(
+      `/showcases/${showcaseId}/comments`,
+      before ? { query: { before } } : undefined,
+    );
   },
 
-  add(showcaseId: string, body: string): Promise<{ data: Comment[] }> {
+  /** Answers with the newest page, the new comment last in it. */
+  add(showcaseId: string, body: string): Promise<CommentPage> {
     return api.post(`/showcases/${showcaseId}/comments`, { body: { body } });
   },
 
-  remove(showcaseId: string, commentId: string): Promise<{ data: Comment[] }> {
+  remove(showcaseId: string, commentId: string): Promise<CommentPage> {
     return api.delete(`/showcases/${showcaseId}/comments/${commentId}`);
   },
 };

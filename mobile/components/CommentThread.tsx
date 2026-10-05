@@ -12,7 +12,7 @@ import { SendIcon, Trash2Icon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
-import { useCommentActions, useComments, useTheme } from '@/src/hooks';
+import { useAuth, useCommentActions, useComments, useTheme } from '@/src/hooks';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
@@ -25,20 +25,38 @@ for (const Icon of [SendIcon, Trash2Icon]) {
  *
  * Oldest first, which is how a conversation reads — newest-first is for a feed,
  * where you are catching up, not for a thread, where you are following along.
+ * The newest page loads, and earlier comments come in above it on request.
  */
 export function CommentThread({
   showcaseId,
   isOwner,
+  total,
   onComposerFocus,
 }: {
   showcaseId: string;
   isOwner: boolean;
+  /**
+   * How many there are in all, from the showcase. The header counted the
+   * ones loaded, so it read 30 while the card said 41.
+   */
+  total?: number;
   /** For a parent that has to scroll the box into view above the keyboard. */
   onComposerFocus?: () => void;
 }) {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { comments, allowed, isLoading, loadFailed, refetch } = useComments(showcaseId);
+  const { user } = useAuth();
+  const {
+    comments,
+    allowed,
+    isLoading,
+    loadFailed,
+    refetch,
+    hasEarlier,
+    loadEarlier,
+    loadingEarlier,
+  } = useComments(showcaseId);
+  const count = Math.max(total ?? 0, comments.length);
   const { add, remove } = useCommentActions(showcaseId);
   const [draft, setDraft] = useState('');
 
@@ -75,19 +93,16 @@ export function CommentThread({
 
   return (
     <View className="px-5 pt-6">
-      <Text className="text-primary text-[10px] font-bold tracking-[1.5px]">
-        {comments.length === 1
-          ? '1 COMMENT'
-          : comments.length > 0
-            ? `${comments.length} COMMENTS`
-            : 'COMMENTS'}
+      <Text className="text-primary text-[11px] font-bold tracking-[1.5px]">
+        {count === 1 ? '1 COMMENT' : count > 0 ? `${count} COMMENTS` : 'COMMENTS'}
       </Text>
 
-      {!allowed ? (
+      {/* The owner still sees the thread with comments off — the server sends
+          it to them so they can keep track of it and remove from it — and it
+          was hidden from them along with everyone else. */}
+      {!allowed && !isOwner ? (
         <Text className="text-muted-foreground text-[13px] leading-5 mt-3">
-          {isOwner
-            ? 'You have commenting turned off for this post. Nobody else sees the thread.'
-            : 'Comments are off for this post.'}
+          Comments are off for this post.
         </Text>
       ) : isLoading ? (
         <View className="py-6 items-center">
@@ -99,9 +114,31 @@ export function CommentThread({
         </View>
       ) : (
         <>
+          {!allowed && (
+            <Text className="text-muted-foreground text-[13px] leading-5 mt-3">
+              You have commenting turned off. Nobody else sees the thread, and nothing new
+              can be added.
+            </Text>
+          )}
+          {hasEarlier && (
+            <Pressable
+              onPress={() => void loadEarlier()}
+              disabled={loadingEarlier}
+              accessibilityRole="button"
+              className="mt-3 min-h-[44px] self-start justify-center active:opacity-60"
+            >
+              {loadingEarlier ? (
+                <ActivityIndicator size="small" color={palette.primary} />
+              ) : (
+                <Text className="text-primary text-[13px] font-bold">View earlier comments</Text>
+              )}
+            </Pressable>
+          )}
           {comments.length === 0 ? (
             <Text className="text-muted-foreground text-[13px] leading-5 mt-3">
-              Nothing said yet. If the note taught you something, that is worth saying.
+              {allowed
+                ? 'Nothing said yet. If the note taught you something, that is worth saying.'
+                : 'Nothing was said before you turned them off.'}
             </Text>
           ) : (
             <View className="mt-3 gap-4">
@@ -115,7 +152,8 @@ export function CommentThread({
                     }
                     accessibilityRole="button"
                     accessibilityLabel={`${comment.author.displayName}'s profile`}
-                    className="w-8 h-8 rounded-full overflow-hidden bg-primary/15 items-center justify-center"
+                    hitSlop={6}
+                    className="w-8 h-8 rounded-full overflow-hidden bg-primary/15 items-center justify-center active:opacity-70"
                   >
                     {comment.author.avatarUrl ? (
                       <RemoteImage
@@ -138,11 +176,13 @@ export function CommentThread({
                   </View>
                   {comment.canRemove && (
                     <Pressable
-                      onPress={() => confirmRemove(comment.id, !isOwner)}
+                      // Yours by who wrote it. Judged by whose post it was,
+                      // the owner deleting their own comment was told "they
+                      // are not told".
+                      onPress={() => confirmRemove(comment.id, comment.author.id === user?.id)}
                       accessibilityRole="button"
                       accessibilityLabel="Remove this comment"
-                      hitSlop={10}
-                      className="w-8 h-8 items-center justify-center active:opacity-60"
+                      className="w-11 h-11 -mr-2 -mt-2 items-center justify-center active:opacity-60"
                     >
                       <Trash2Icon size={14} className="text-muted-foreground" />
                     </Pressable>
@@ -152,6 +192,7 @@ export function CommentThread({
             </View>
           )}
 
+          {allowed && (
           <View className="flex-row items-end gap-2 mt-4">
             <TextInput
               value={draft}
@@ -180,6 +221,7 @@ export function CommentThread({
               )}
             </Pressable>
           </View>
+          )}
         </>
       )}
     </View>

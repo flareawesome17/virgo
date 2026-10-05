@@ -5,7 +5,13 @@ import type { MediaLinkService } from '../storage/media-link.service';
 import type { StorageService } from '../storage/storage.service';
 import { MAX_SOURCE_BYTES, type ThumbnailsService } from '../storage/thumbnails.service';
 import { ShelvesService } from './shelves.service';
-import { MAX_SHOWCASES, ShowcasesService, type Showcase } from './showcases.service';
+import {
+  decodeShowcaseCursor,
+  encodeShowcaseCursor,
+  MAX_SHOWCASES,
+  ShowcasesService,
+  type Showcase,
+} from './showcases.service';
 
 /**
  * What a showcase refuses, and what a shelf refuses.
@@ -273,5 +279,45 @@ describe('keeping somebody’s work', () => {
     await expect(service.keep(ME, 'shelf-9', { showcaseId: 'sc-1' })).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe('step 4: what the apps are told', () => {
+  it('names the piece at fault, so the app can point at it', async () => {
+    const { service } = make([
+      photo('ok.jpg'),
+      photo('huge.tif', { thumb_key: null, size_bytes: MAX_SOURCE_BYTES + 1 }),
+    ]);
+    await expect(service.create(ME, { fileKeys: ['ok.jpg', 'huge.tif'] })).rejects.toMatchObject({
+      response: { code: 'SHOWCASE_TOO_LARGE', fileKey: 'huge.tif' },
+    });
+  });
+
+  it('gives the ceiling a code of its own', async () => {
+    const { service } = make([photo('a.jpg')], { showcaseCount: MAX_SHOWCASES });
+    await expect(service.create(ME, { fileKeys: ['a.jpg'] })).rejects.toMatchObject({
+      response: { code: 'SHOWCASE_LIMIT' },
+    });
+  });
+
+  it('sends an emptied field as empty, which clears it, and an absent one as null', async () => {
+    const { service, inserts } = make([]);
+    await service.update(ME, 'sc-1', { title: '   ', caption: 'New words' });
+    const update = inserts.find((i) => i.sql.includes('update showcases set'))!;
+    expect(update.sql).toContain("else nullif($3, '') end");
+    // title emptied, caption changed, craft note not sent.
+    expect(update.params.slice(2, 5)).toEqual(['', 'New words', null]);
+  });
+
+  it('keeps a cursor to the microsecond, and refuses one that is not a cursor', () => {
+    const at = '2026-10-05 13:45:06.123456+08';
+    const id = '11111111-1111-4111-8111-111111111111';
+    expect(decodeShowcaseCursor(encodeShowcaseCursor(at, id))).toEqual({ at, id });
+    // An older app's cursor, from toISOString, still reads.
+    const old = Buffer.from(`2026-10-05T05:45:06.123Z|${id}`).toString('base64url');
+    expect(decodeShowcaseCursor(old)).toEqual({ at: '2026-10-05T05:45:06.123Z', id });
+    expect(decodeShowcaseCursor('not-a-cursor')).toBeNull();
+    expect(decodeShowcaseCursor(Buffer.from(`yesterday|${id}`).toString('base64url'))).toBeNull();
+    expect(decodeShowcaseCursor(Buffer.from(`${at}|1; drop table`).toString('base64url'))).toBeNull();
   });
 });

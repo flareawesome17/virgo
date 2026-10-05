@@ -237,6 +237,26 @@ export function profileActionMessage(err: unknown, action: ProfileAction): strin
   }
 
   const code = codeOf(err);
+  // Posting, said for what actually went wrong. Every one of these read
+  // "Couldn't post that. Try again." — and a photograph that can never be
+  // posted was retried for ever.
+  if (code === 'SHOWCASE_FILM_NOT_READY') {
+    return 'That film is still being prepared. Give it a minute, then post again.';
+  }
+  if (code === 'SHOWCASE_TOO_LARGE') {
+    return 'That photo is too large to post. Take it out, or choose one under 40 MB.';
+  }
+  if (code === 'SHOWCASE_NO_WEB_COPY') {
+    return "That photo can't be posted. Take it out, or try a JPEG or PNG copy of it.";
+  }
+  if (code === 'SHOWCASE_LIMIT') {
+    return 'You have 100 showcases, which is the most there can be. Delete one to post another.';
+  }
+  if (code === 'COMMENTS_OFF') return 'Comments are off for this post.';
+  if (code === 'SHELF_NAME_TAKEN' || (action === 'shelf' && status === 409)) {
+    return 'You already have a shelf with that name. Choose another, or keep it there.';
+  }
+  if (code === 'SHELF_LIMIT') return "You're at the most shelves you can have. Delete one first.";
   if (code === 'EMAIL_NOT_VERIFIED') {
     return 'Confirm your email address first. The link is in your inbox.';
   }
@@ -268,4 +288,17 @@ export function profileActionMessage(err: unknown, action: ProfileAction): strin
     return "This showcase isn't available any more.";
   }
   return ACTION_COPY[action];
+}
+
+/**
+ * The piece a posting refusal is about, when the server named one — so the
+ * form can mark that photograph rather than leave somebody guessing which of
+ * ten it was.
+ */
+export function faultyPiece(err: unknown): string | null {
+  if (err instanceof ApiError && err.body && typeof err.body === 'object') {
+    const key = (err.body as { fileKey?: unknown }).fileKey;
+    return typeof key === 'string' ? key : null;
+  }
+  return null;
 }
