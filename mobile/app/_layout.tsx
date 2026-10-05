@@ -1,15 +1,22 @@
 import { Stack, type ErrorBoundaryProps } from "expo-router";
+import {
+  DarkTheme,
+  DefaultTheme,
+  ThemeProvider as NavigationThemeProvider,
+  type Theme,
+} from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAuth, useOffline } from "../src/hooks";
 import "@/global.css";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { queryClient, persistOptions } from "@/src/lib/queryClient";
-import { ThemeProvider } from "@/src/providers/ThemeProvider";
+import { ThemeProvider, useTheme } from "@/src/providers/ThemeProvider";
+import { PALETTES } from "@/theme";
 import { wireQueryFocusToAppState } from "@/src/lib/query-focus";
 import { wireOtaUpdates } from "@/src/lib/ota-updates";
 import { UploadProvider } from "@/src/providers/UploadProvider";
@@ -61,15 +68,38 @@ function RootLayoutNav() {
   // where the bundle comes from Metro.
   useEffect(() => wireOtaUpdates(), []);
 
+  // The navigators in the app's own colours. Without a theme React
+  // Navigation paints every screen container its default near-white
+  // (rgb(242, 242, 242)), so whenever a screen was momentarily transparent —
+  // mid-transition, or before it has drawn — that white showed through, even
+  // in dark mode.
+  const { isDark } = useTheme();
+  const navigationTheme = useMemo<Theme>(() => {
+    const base = isDark ? DarkTheme : DefaultTheme;
+    const palette = isDark ? PALETTES.dark : PALETTES.light;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        primary: palette.primary,
+        background: palette.background,
+        card: palette.card,
+        text: palette.foreground,
+        border: palette.border,
+        notification: palette.action,
+      },
+    };
+  }, [isDark]);
+
   return (
-    <>
+    <NavigationThemeProvider value={navigationTheme}>
       <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(app)" />
       </Stack>
-    </>
+    </NavigationThemeProvider>
   );
 }
 

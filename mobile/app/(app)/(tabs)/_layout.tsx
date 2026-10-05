@@ -109,11 +109,11 @@ function TabsLayoutInner() {
       screenListeners={{ focus: reveal }}
       screenOptions={{
         headerShown: false,
-        // A short cross-fade between tabs, which Material asks for and which
-        // also covers a tab drawing itself for the first time. It used to cut
-        // straight across, and a tab opened for the first time appeared in
-        // pieces as it rendered.
-        animation: 'fade',
+        // No transition between tabs: they cut straight across, as the system
+        // tab bars do. A cross-fade was tried and is gone — the navigator
+        // detaches the tab you leave and fades the one you arrive at in from
+        // nothing, and the two together left the Feed at zero opacity on
+        // every other visit: a white screen until you switched away and back.
         tabBarStyle: {
           backgroundColor: palette.card,
           borderTopColor: palette.border,
