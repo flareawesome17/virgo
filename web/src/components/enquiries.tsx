@@ -43,7 +43,7 @@ function StatusBadge({ status }: { status: HireEnquiry['status'] }) {
   return <Badge>Waiting</Badge>;
 }
 
-function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
+export function EnquiryCard({ enquiry }: { enquiry: HireEnquiry }) {
   const router = useRouter();
   const answer = useAnswerEnquiry();
   const [acting, setActing] = useState<'accept' | 'decline' | null>(null);

@@ -30,6 +30,9 @@ export interface ScheduleEventRow {
 export interface VisibleScheduleEventRow extends ScheduleEventRow {
   /** False when you are attending someone else's event. */
   is_owner: boolean;
+  /** Absent on a write's returned row, which goes back to the organiser anyway. */
+  organiser_name?: string | null;
+  organiser_avatar_url?: string | null;
 }
 
 @Injectable()
@@ -87,6 +90,14 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     from schedule_events e
    where ${ScheduleEventsRepository.VISIBLE_TO_$1}`;
 
+  /**
+   * Who organised it, for a guest: they could see who else was going but not
+   * whose event it was.
+   */
+  private static readonly ORGANISER = `(select coalesce(o.display_name, split_part(o.email, '@', 1))
+                 from users o where o.id = e.user_id) as organiser_name,
+              (select o.avatar_url from users o where o.id = e.user_id) as organiser_avatar_url`;
+
   /** Calendar and agenda screens need a window, not offset pagination. */
   async findInRange(
     userId: string,
@@ -94,7 +105,8 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     to: string,
   ): Promise<VisibleScheduleEventRow[]> {
     return this.db.query<VisibleScheduleEventRow>(
-      `select e.*, (e.user_id = $1) as is_owner
+      `select e.*, (e.user_id = $1) as is_owner,
+              ${ScheduleEventsRepository.ORGANISER}
        ${ScheduleEventsRepository.VISIBLE}
          and e.event_date between $2 and $3
        order by e.event_date asc, e.event_time asc nulls last`,
@@ -145,8 +157,11 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     params.push(Math.min(Math.max(options.limit ?? 50, 1), this.maxLimit));
     params.push(Math.max(options.offset ?? 0, 0));
 
+    // The organiser too, so a guest's list can say whose event each one is
+    // without a read per row.
     return this.db.query<VisibleScheduleEventRow>(
-      `select e.*, (e.user_id = $1) as is_owner
+      `select e.*, (e.user_id = $1) as is_owner,
+              ${ScheduleEventsRepository.ORGANISER}
        ${ScheduleEventsRepository.VISIBLE}${where}
        order by e.${orderBy} ${direction}${timeWithinDay}, e.id
        limit $${params.length - 1} offset $${params.length}`,
@@ -183,13 +198,9 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     userId: string,
     id: string,
   ): Promise<VisibleScheduleEventRow | null> {
-    // Who organised it, for a guest: they could see who else was going but
-    // not whose event it was.
     return this.db.queryOne<VisibleScheduleEventRow>(
       `select e.*, (e.user_id = $1) as is_owner,
-              (select coalesce(o.display_name, split_part(o.email, '@', 1))
-                 from users o where o.id = e.user_id) as organiser_name,
-              (select o.avatar_url from users o where o.id = e.user_id) as organiser_avatar_url
+              ${ScheduleEventsRepository.ORGANISER}
        ${ScheduleEventsRepository.VISIBLE}
          and e.id = $2`,
       [userId, id],

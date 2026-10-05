@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Briefcase } from 'lucide-react';
+import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Tooltip,
@@ -10,6 +11,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useFriendPresence } from '@/hooks/useFriends';
+import { useOpenDirectChat } from '@/hooks/useChat';
 import { useCollaborators } from '@/hooks/useCollaborators';
 import { usePresence, lastSeenLabel } from '@/lib/presence-store';
 import { cn } from '@/lib/utils';
@@ -129,12 +131,27 @@ function FriendRow({
 }) {
   const { online, lastSeenAt } = usePresence(friend.friend_user_id);
   const name = friend.friend_name || 'Someone';
+  const router = useRouter();
+  const openDirect = useOpenDirectChat();
+
+  // Opens (or reuses) the chat with them. It linked to /chat?with=…, which
+  // nothing read, so a click landed on the chat list with nobody chosen.
+  const message = () => {
+    if (!friend.friend_user_id || openDirect.isPending) return;
+    openDirect.mutate(friend.friend_user_id, {
+      onSuccess: ({ id }) => router.push(`/chat/${id}`),
+      onError: (err: Error) => toast.error('Could not open the chat', { description: err.message }),
+    });
+  };
 
   return (
     <li className="shrink-0" style={{ order: online ? 0 : 1 }}>
-      <Link
-        href={`/chat?with=${friend.friend_user_id}`}
-        className="flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm hover:bg-accent/50"
+      <button
+        type="button"
+        onClick={message}
+        disabled={!friend.friend_user_id}
+        aria-label={`Message ${name}`}
+        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-sm hover:bg-accent/50 disabled:opacity-60"
       >
         <span className="relative shrink-0">
           <Avatar className="size-7">
@@ -178,7 +195,7 @@ function FriendRow({
         <span className="sr-only">
           {online ? 'online' : lastSeenLabel(lastSeenAt)}
         </span>
-      </Link>
+      </button>
     </li>
   );
 }

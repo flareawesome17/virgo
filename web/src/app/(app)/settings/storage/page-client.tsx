@@ -228,8 +228,10 @@ export default function StorageSettingsPage() {
           <CardContent className="py-6">
             <div className="flex items-end justify-between gap-4">
               <div>
+                {/* Dashes until the reading arrives: "0 B" and "0 files" are
+                    real answers, and they were given before there was one. */}
                 <p className="text-3xl font-bold tabular-nums">
-                  {formatBytes(storageUsedBytes)}
+                  {usage ? formatBytes(storageUsedBytes) : '—'}
                 </p>
                 {/*
                   "on the free plan" only while the plan is the whole story.
@@ -249,7 +251,7 @@ export default function StorageSettingsPage() {
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold tabular-nums">
-                  {usage?.storage.fileCount ?? 0}
+                  {usage ? (usage.storage.fileCount ?? 0) : '—'}
                 </p>
                 <p className="text-xs text-muted-foreground">files</p>
               </div>
@@ -261,14 +263,14 @@ export default function StorageSettingsPage() {
             <div className="mt-5 grid grid-cols-2 gap-3">
               <div className="rounded-lg bg-muted px-3 py-2.5">
                 <p className="text-sm font-bold tabular-nums">
-                  {usage?.workspaces.used ?? 0}
+                  {usage ? usage.workspaces.used : '—'}
                   {usage?.workspaces.limit != null ? ` / ${usage.workspaces.limit}` : ''}
                 </p>
                 <p className="text-xs text-muted-foreground">Workspaces</p>
               </div>
               <div className="rounded-lg bg-muted px-3 py-2.5">
                 <p className="text-sm font-bold tabular-nums">
-                  {usage?.albums.used ?? 0}
+                  {usage ? usage.albums.used : '—'}
                   {usage?.albums.limit != null ? ` / ${usage.albums.limit} each` : ''}
                 </p>
                 <p className="text-xs text-muted-foreground">Albums</p>

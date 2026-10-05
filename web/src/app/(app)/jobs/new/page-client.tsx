@@ -16,6 +16,8 @@ import { useCreateJob } from '@/hooks/useJobs';
 import { JOB_TITLE_MIN, jobPostBlockers, joinBlockers } from '@/lib/job-form';
 import { DatePickerField } from '@/components/date-picker-field';
 import { LocationField } from '@/components/location-field';
+import { copyJobLink } from '@/components/jobs/copy-job-link';
+import { leaveIfDiscarded, useDiscardGuard } from '@/lib/discard-guard';
 
 /** Local, not UTC — toISOString would rule out today west of Greenwich. */
 function todayIso(): string {
@@ -54,6 +56,17 @@ export default function NewJobPage() {
   const [roleBudgets, setRoleBudgets] = useState<
     Record<string, { min: string; max: string }>
   >({});
+
+  // Asks before a half-written post is thrown away: a reload, a closed tab,
+  // a link in the sidebar, or Back.
+  const { dirty, allowLeave } = useDiscardGuard({
+    title,
+    description,
+    rolesWanted,
+    eventDate,
+    location,
+    roleBudgets,
+  });
 
   const setRoleBudget = (role: string, end: 'min' | 'max', value: string) =>
     setRoleBudgets((current) => ({
@@ -99,17 +112,23 @@ export default function NewJobPage() {
         location: location.trim() || undefined,
       },
       {
-        onSuccess: () => {
+        // Onto the post itself, which is what people will see — not the top
+        // of the board, where your own post is one card among thirty — with
+        // the one thing worth doing next. replace, so Back does not reopen
+        // the form for a post that is already up.
+        onSuccess: (post) => {
           track('job_posted', {
             roles: rolesWanted.length,
             withBudget: Object.keys(budgets).length > 0,
             withDate: !!eventDate,
             withLocation: !!location.trim(),
           });
+          allowLeave();
+          router.replace(`/jobs/${post.slug}`);
           toast.success('Your job is live', {
-            description: 'People who do this work can find it now.',
+            description: 'People who do this work can find it now. Share it to reach more of them.',
+            action: { label: 'Copy link', onClick: () => void copyJobLink(post.slug) },
           });
-          router.push('/jobs/mine');
         },
         onError: (error: Error) => toast.error(error.message),
       },
@@ -123,7 +142,12 @@ export default function NewJobPage() {
           variant="ghost"
           size="sm"
           className="-ml-2 mb-4 text-muted-foreground"
-          onClick={() => router.back()}
+          onClick={() =>
+            leaveIfDiscarded(dirty, () => {
+              allowLeave();
+              router.back();
+            })
+          }
         >
           <ArrowLeft className="size-4" />
           Back

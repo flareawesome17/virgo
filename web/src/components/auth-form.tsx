@@ -97,6 +97,10 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    // Enter submits the form whatever state the button is in, so a second
+    // press while the first request was out sent it again, and an incomplete
+    // form went to the server to be refused.
+    if (!canSubmit || mutation.isPending) return;
     setError(null);
 
 

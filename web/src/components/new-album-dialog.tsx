@@ -24,11 +24,35 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { RetentionField } from '@/components/retention-field';
 import { retentionInput, retentionReady, type Retention } from '@/api';
 import { useCreateAlbum } from '@/hooks/useAlbums';
 import { useUsage } from '@/hooks/useUsage';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
+import {
+  DISCARD_BODY,
+  DISCARD_TITLE,
+  useDiscardGuard,
+  useGuardedClose,
+  useOpeningKey,
+} from '@/lib/discard-guard';
+
+type NewAlbumDialogProps = {
+  /** The workspace to create it in; omitted, the dialog asks. */
+  workspaceId?: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
 
 /**
  * Creates an album and opens it.
@@ -37,16 +61,15 @@ import { useWorkspaces } from '@/hooks/useWorkspaces';
  * made on the web. The albums list needs it too, where there is no workspace
  * in context — so without `workspaceId` it asks which workspace it belongs in.
  */
-export function NewAlbumDialog({
-  workspaceId,
-  open,
-  onOpenChange,
-}: {
-  /** The workspace to create it in; omitted, the dialog asks. */
-  workspaceId?: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+export function NewAlbumDialog(props: NewAlbumDialogProps) {
+  // A fresh form for every opening. It stayed mounted between uses, so a
+  // name typed and cancelled was still there next time — and "Discard"
+  // has to mean it.
+  const opening = useOpeningKey(props.open);
+  return <NewAlbumForm key={opening} {...props} />;
+}
+
+function NewAlbumForm({ workspaceId, open, onOpenChange }: NewAlbumDialogProps) {
   const router = useRouter();
   const create = useCreateAlbum();
   // Only your own: an album can only be made in a workspace you own, and one
@@ -66,6 +89,11 @@ export function NewAlbumDialog({
   // Per workspace, as the plan counts it: this one is full, not all of them.
   const full = !!targetWorkspace && isAlbumLimitReached(targetWorkspace.album_total);
 
+  const { dirty } = useDiscardGuard({ name, description, retention, chosenWorkspace }, open);
+  // Escape, the overlay, the X and Cancel ask first. Creating closes directly.
+  const guard = useGuardedClose(dirty, onOpenChange);
+  const close = guard.close;
+
   const submit = () => {
     const trimmed = name.trim();
     if (!trimmed || !target || full || !retentionReady(retention)) return;
@@ -79,9 +107,6 @@ export function NewAlbumDialog({
       {
         onSuccess: (album) => {
           onOpenChange(false);
-          setName('');
-          setDescription('');
-          setRetention({ mode: 'forever' });
           router.push(`/albums/${album.id}`);
         },
         onError: (err: Error) => toast.error('Could not create album', { description: err.message }),
@@ -92,7 +117,7 @@ export function NewAlbumDialog({
   const noWorkspace = !workspaceId && !isLoading && workspaces.length === 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New album</DialogTitle>
@@ -169,7 +194,7 @@ export function NewAlbumDialog({
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => close(false)}>
             Cancel
           </Button>
           <Button
@@ -181,6 +206,19 @@ export function NewAlbumDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={guard.asking} onOpenChange={(o) => !o && guard.keepEditing()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{DISCARD_TITLE}</AlertDialogTitle>
+            <AlertDialogDescription>{DISCARD_BODY}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={guard.discard}>Discard</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

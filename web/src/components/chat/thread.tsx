@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   ArrowLeft,
@@ -10,6 +11,8 @@ import {
   Clock,
   Copy,
   Info,
+  Loader2,
+  MessageSquareOff,
   Reply,
   Send,
   Trash2,
@@ -21,8 +24,17 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { CenteredSpinner, EmptyState } from '@/components/states';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { CenteredSpinner, EmptyState, ErrorState } from '@/components/states';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,36 +43,63 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  flushOutbox,
+  retryOutboxItem,
+  useConversation,
   useDeleteMessage,
   useMarkThreadRead,
+  useOpenConversation,
   useParticipants,
-  useSendMessage,
   useThread,
-  setOpenConversation,
 } from '@/hooks/useChat';
 import { useAuth } from '@/hooks/useAuth';
+import { useUnblock } from '@/hooks/useBlocks';
+import {
+  addToOutbox,
+  newClientId,
+  removeFromOutbox,
+  thawOutbox,
+  useOutbox,
+  type OutboxItem,
+} from '@/lib/outbox';
 import { PresenceDot, PresenceLine, TypingIndicator } from '@/components/presence';
 import { sendTyping } from '@/lib/presence-store';
 import { buzzForMessage } from '@/lib/alerts';
 import { JobAcceptedCard } from '@/components/chat/job-accepted-card';
-import type { ConversationMessage, Participant } from '@/api';
+import { ApiError, type ConversationMessage, type Participant } from '@/api';
 
 type Delivery = 'sending' | 'failed' | 'sent' | 'delivered' | 'read';
 
-interface Outgoing {
-  tempId: string;
-  body: string;
-  replyToId?: string;
-  replyToBody?: string | null;
-  replyToSender?: string | null;
-  mentionIds: string[];
-  status: 'sending' | 'failed';
-}
-
 type Row =
   | { kind: 'message'; message: ConversationMessage }
-  | { kind: 'outgoing'; outgoing: Outgoing }
+  | { kind: 'outgoing'; outgoing: OutboxItem }
   | { kind: 'divider' };
+
+/** What an unsent bubble says under its text. */
+const UNSENT_LABEL: Record<OutboxItem['status'], string> = {
+  sending: 'Sending…',
+  waiting: 'Waiting for connection',
+  failed: 'Not sent',
+  refused: 'Not sent',
+};
+
+/** Whether the tab is the one being looked at. */
+function usePageVisible(): boolean {
+  const [visible, setVisible] = useState(
+    () => typeof document === 'undefined' || document.visibilityState === 'visible',
+  );
+  useEffect(() => {
+    const onChange = () => setVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', onChange);
+    return () => document.removeEventListener('visibilitychange', onChange);
+  }, []);
+  return visible;
+}
+
+/** How a notice addresses someone: by first name, as a person would. */
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] || name;
+}
 
 function timeLabel(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-US', {
@@ -94,18 +133,52 @@ export function Thread({
   onOpenInfo: () => void;
 }) {
   const { user } = useAuth();
-  const { messages, lastReadAt, isLoading } = useThread(conversationId);
+  const queryClient = useQueryClient();
+  const {
+    messages,
+    lastReadAt,
+    isLoading,
+    canSend: threadAllowsSending,
+    blockedByMe,
+    blockId,
+    data: threadData,
+    error: threadError,
+    loadFailed: threadFailed,
+    refetch: refetchThread,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+  } = useThread(conversationId);
+  /*
+   * Nothing is said, and nothing can be sent, until the thread has arrived.
+   *
+   * `canSend` is true when the server does not say — so a thread that failed
+   * to load, or one you are no longer in, would show "No messages yet" over a
+   * composer that failed every send.
+   */
+  const threadReady = threadData !== undefined;
+  const canSend = threadReady && threadAllowsSending;
+  const threadGone =
+    !threadReady &&
+    threadError instanceof ApiError &&
+    (threadError.status === 404 || threadError.status === 403);
+
   const { participants } = useParticipants(conversationId);
-  const send = useSendMessage(conversationId);
+  const { conversation } = useConversation(conversationId);
+  const outbox = useOutbox(conversationId);
   const remove = useDeleteMessage(conversationId);
   const markRead = useMarkThreadRead();
+  const unblock = useUnblock();
+  const visible = usePageVisible();
 
   const [draft, setDraft] = useState('');
-  const [outbox, setOutbox] = useState<Outgoing[]>([]);
   const [replyTo, setReplyTo] = useState<ConversationMessage | null>(null);
   const [mentioned, setMentioned] = useState<Participant[]>([]);
-  const nextTempId = useRef(0);
+  const [askUnblock, setAskUnblock] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const olderRef = useRef<HTMLDivElement>(null);
   const meId = user?.id;
 
   /**
@@ -149,36 +222,98 @@ export function Thread({
   useEffect(() => stopTyping, [stopTyping]);
 
   // Tells the app-wide alert watcher not to fire for this thread — it is on
-  // screen, and this component alerts for itself on a shorter poll.
-  useEffect(() => {
-    setOpenConversation(conversationId);
-    return () => setOpenConversation(null);
-  }, [conversationId]);
+  // screen, and this component alerts for itself.
+  useOpenConversation(conversationId);
 
+  /*
+   * Read when it is actually being looked at.
+   *
+   * Keyed on the newest message rather than on how many are loaded: the
+   * thread was the newest hundred, so in a long one the count stopped
+   * changing, new messages were never marked read and the badge never
+   * cleared. And only while the tab is visible — a chat left open in a
+   * background tab marked messages read that nobody had seen.
+   */
+  const newest = messages[0];
+  const lastMarked = useRef<string | null>(null);
   useEffect(() => {
-    if (messages.length > 0) markRead.mutate(conversationId);
+    if (!newest || !visible) return;
+    if (lastMarked.current === newest.id) return;
+    lastMarked.current = newest.id;
+    markRead.mutate(conversationId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, messages.length]);
+  }, [conversationId, newest?.id, visible]);
 
-  // Buzz on someone else's new message. Keyed on the newest id rather than the
-  // count, so a refetch returning the same messages does not re-fire.
-  const lastSeenId = useRef<string | null>(null);
+  /**
+   * Buzz when someone else's message arrives while you are reading.
+   *
+   * Only for something newer than what was newest before. Keyed on the id
+   * alone, deleting your own newest message buzzed whenever the one before it
+   * was somebody else's. The first load is seeded silently, per conversation —
+   * opening a thread should not buzz at you.
+   */
+  const newestSeen = useRef<{ id: string; at: number } | null>(null);
   useEffect(() => {
-    const newest = messages[0];
     if (!newest) return;
-    const previous = lastSeenId.current;
-    lastSeenId.current = newest.id;
-    if (previous === null || newest.id === previous) return;
+    const at = new Date(newest.created_at).getTime();
+    const previous = newestSeen.current?.id === conversationId ? newestSeen.current.at : null;
+    if (previous !== null && at <= previous) return;
+    newestSeen.current = { id: conversationId, at };
+    if (previous === null) return;
     if (newest.sender_id === user?.id) return;
     buzzForMessage();
-  }, [messages, user?.id]);
+  }, [newest, conversationId, user?.id]);
+
+  /*
+   * A refusal only holds while the thread is frozen. Once it thaws — you
+   * unblocked them from the notice, or from another device — the same send
+   * would go through, so what was refused becomes an ordinary failure with
+   * Retry again.
+   */
+  const couldSend = useRef(canSend);
+  useEffect(() => {
+    const thawed = !couldSend.current && canSend;
+    couldSend.current = canSend;
+    if (thawed) thawOutbox(conversationId);
+  }, [canSend, conversationId]);
+
+  /*
+   * Older messages load as their end of the list comes into view.
+   *
+   * The thread was the newest hundred and nothing else: anything older could
+   * not be reached at all.
+   */
+  useEffect(() => {
+    const target = olderRef.current;
+    const root = scrollRef.current;
+    if (!target || !root || !hasNextPage) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        if (!isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
+      },
+      { root, rootMargin: '400px 0px 0px 0px' },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, threadReady]);
 
   const others = useMemo(
     () => participants.filter((p) => p.id !== user?.id),
     [participants, user?.id],
   );
-  const isGroup = participants.length > 2;
-  const title = isGroup ? `${participants.length} people` : (others[0]?.name ?? 'Conversation');
+  /*
+   * A group is a group because the server says so, not by head count: one
+   * with two members left rendered as a direct chat — the other person's name
+   * and presence where the group should be. And the group's own name was
+   * never shown; the header said "3 people".
+   */
+  const isGroup = conversation?.isGroup ?? participants.length > 2;
+  const title = isGroup
+    ? conversation?.title?.trim() || `${participants.length} people`
+    : (others[0]?.name ?? conversation?.title ?? 'Conversation');
+  /** Who the frozen-thread notice names. */
+  const noticeName = (!isGroup ? others[0]?.name : undefined) ?? conversation?.title ?? title;
 
   /**
    * Read beats delivered beats sent, each a comparison against one timestamp
@@ -266,43 +401,54 @@ export function Thread({
     ];
   }, [messages, outbox, lastReadAt, user?.id]);
 
-  const dispatch = (item: Outgoing) => {
-    setOutbox((prev) =>
-      prev.map((o) => (o.tempId === item.tempId ? { ...o, status: 'sending' } : o)),
-    );
-    send.mutate(
-      { body: item.body, replyToId: item.replyToId, mentionIds: item.mentionIds },
-      {
-        onSuccess: () => setOutbox((prev) => prev.filter((o) => o.tempId !== item.tempId)),
-        // Kept, not discarded: a failed send with the text thrown away is how
-        // people lose messages they thought they had sent.
-        onError: () =>
-          setOutbox((prev) =>
-            prev.map((o) => (o.tempId === item.tempId ? { ...o, status: 'failed' } : o)),
-          ),
-      },
-    );
-  };
-
+  /**
+   * Sends, keeping the text on screen until the server has it.
+   *
+   * Through the outbox, which outlives this thread: a message that cannot go
+   * now goes when the connection comes back, whether or not this chat is
+   * still open, and a retry carries the same id so it is never stored twice.
+   * It was component state, so going to another chat or reloading the tab
+   * threw away whatever had not gone yet.
+   */
   const submit = () => {
     const body = draft.trim();
-    if (!body) return;
-    const item: Outgoing = {
-      tempId: `local-${(nextTempId.current += 1)}`,
+    if (!body || !canSend) return;
+    addToOutbox({
+      clientId: newClientId(),
+      conversationId,
       body,
       replyToId: replyTo?.id,
       replyToBody: replyTo?.body ?? null,
       replyToSender: replyTo?.sender_name ?? null,
       mentionIds: mentioned.filter((p) => body.includes(`@${p.name}`)).map((p) => p.id),
       status: 'sending',
-    };
+      createdAt: new Date().toISOString(),
+      attempts: 0,
+    });
     setDraft('');
     setReplyTo(null);
     setMentioned([]);
     // Sending is the clearest possible "stopped typing".
     stopTyping();
-    setOutbox((prev) => [...prev, item]);
-    dispatch(item);
+    void flushOutbox(queryClient);
+    // What you just sent is what you want to see, wherever you had scrolled.
+    // The list runs bottom-up, so the newest end is the top of the scroll.
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const copyText = (text: string) => {
+    void navigator.clipboard.writeText(text).then(
+      () => toast.success('Copied'),
+      () => toast.error('Could not copy'),
+    );
+  };
+
+  const confirmUnblock = () => {
+    if (!blockId) return;
+    unblock.mutate(blockId, {
+      onSuccess: () => setAskUnblock(false),
+      onError: (err: Error) => toast.error('Could not unblock', { description: err.message }),
+    });
   };
 
   const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -373,196 +519,250 @@ export function Thread({
         </Button>
       </div>
 
-      {/* Messages. Column-reverse keeps the newest pinned as items arrive,
-          without a scroll call that fights someone reading history. */}
-      {isLoading && messages.length === 0 ? (
+      {/* Messages. The scroller itself runs bottom-up, which keeps the newest
+          pinned as items arrive and keeps your place as older pages load
+          above, without a scroll call that fights someone reading history.
+          It was a column-reverse list inside a top-down scroller, which
+          opened a long thread at its oldest message. */}
+      {isLoading && messages.length === 0 && !threadFailed ? (
         <CenteredSpinner className="flex-1" />
+      ) : threadGone ? (
+        <EmptyState
+          icon={MessageSquareOff}
+          title="This conversation isn't available"
+          description="It was deleted, or you're no longer in it."
+          className="flex-1"
+        />
+      ) : !threadReady && threadFailed ? (
+        <div className="flex flex-1 items-center justify-center p-6">
+          <ErrorState
+            message="Couldn't load this conversation."
+            onRetry={() => void refetchThread()}
+          />
+        </div>
       ) : (
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="flex flex-col-reverse gap-2 p-4">
-            {/* First child of a column-reverse list, so it sits visually at
-                the bottom — below the newest message, where a typing bubble
-                belongs. */}
-            <TypingIndicator conversationId={conversationId} meId={meId} />
+        <div
+          ref={scrollRef}
+          className="flex min-h-0 flex-1 flex-col-reverse gap-2 overflow-y-auto p-4"
+        >
+          {/* First child of a column-reverse list, so it sits visually at
+              the bottom — below the newest message, where a typing bubble
+              belongs. */}
+          <TypingIndicator conversationId={conversationId} meId={meId} />
 
-            {rows.length === 0 && (
-              <EmptyState
-                icon={Users}
-                title="No messages yet"
-                description="Say hello."
-              />
-            )}
+          {rows.length === 0 && (
+            <EmptyState
+              icon={Users}
+              title="No messages yet"
+              description={canSend ? 'Say hello.' : undefined}
+            />
+          )}
 
-            {rows.map((row, index) => {
-              if (row.kind === 'divider') {
-                return (
-                  <div key={`divider-${index}`} className="flex items-center gap-3 py-1">
-                    <span className="h-px flex-1 bg-primary/40" />
-                    <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary">
-                      New messages
-                    </span>
-                    <span className="h-px flex-1 bg-primary/40" />
-                  </div>
-                );
-              }
+          {rows.map((row, index) => {
+            if (row.kind === 'divider') {
+              return (
+                <div key={`divider-${index}`} className="flex items-center gap-3 py-1">
+                  <span className="h-px flex-1 bg-primary/40" />
+                  <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary">
+                    New messages
+                  </span>
+                  <span className="h-px flex-1 bg-primary/40" />
+                </div>
+              );
+            }
 
-              if (row.kind === 'outgoing') {
-                const o = row.outgoing;
-                const failed = o.status === 'failed';
-                return (
-                  <div key={o.tempId} className="flex justify-end">
-                    <div
-                      className={cn(
-                        'max-w-[75%] rounded-2xl bg-primary px-3.5 py-2.5 text-primary-foreground',
-                        failed ? 'opacity-75' : 'opacity-85',
-                      )}
-                    >
-                      {o.replyToBody != null && (
-                        <div className="mb-1.5 rounded-lg border-l-2 border-white/60 bg-black/15 px-2 py-1.5">
-                          <p className="text-[10px] font-bold opacity-80">{o.replyToSender}</p>
-                          <p className="truncate text-[11px] opacity-70">{o.replyToBody}</p>
-                        </div>
-                      )}
-                      <p className="whitespace-pre-wrap text-sm">{o.body}</p>
-                      <div className="mt-1 flex items-center gap-1.5 text-[10px] opacity-70">
-                        <span>{failed ? 'Not sent' : 'Sending…'}</span>
-                        <DeliveryMark state={failed ? 'failed' : 'sending'} />
-                        {failed && (
-                          <>
+            if (row.kind === 'outgoing') {
+              const o = row.outgoing;
+              const failed = o.status === 'failed' || o.status === 'refused';
+              return (
+                <div key={o.clientId} className="flex justify-end">
+                  <div
+                    className={cn(
+                      'max-w-[75%] rounded-2xl bg-primary px-3.5 py-2.5 text-primary-foreground',
+                      failed ? 'opacity-75' : 'opacity-85',
+                    )}
+                  >
+                    {o.replyToBody != null && (
+                      <div className="mb-1.5 rounded-lg border-l-2 border-white/60 bg-black/15 px-2 py-1.5">
+                        <p className="text-[10px] font-bold opacity-80">{o.replyToSender}</p>
+                        <p className="truncate text-[11px] opacity-70">{o.replyToBody}</p>
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap text-sm">{o.body}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] opacity-70">
+                      <span>{UNSENT_LABEL[o.status]}</span>
+                      <DeliveryMark state={failed ? 'failed' : 'sending'} />
+                      {failed && (
+                        <>
+                          {/* A refused message would be refused again: Copy
+                              keeps the words for somewhere they can go. */}
+                          {o.status === 'refused' ? (
                             <button
-                              onClick={() => dispatch(o)}
+                              onClick={() => copyText(o.body)}
+                              className="font-bold underline underline-offset-2"
+                            >
+                              Copy
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => retryOutboxItem(queryClient, o.clientId)}
                               className="font-bold underline underline-offset-2"
                             >
                               Retry
                             </button>
-                            <button
-                              onClick={() =>
-                                setOutbox((prev) => prev.filter((x) => x.tempId !== o.tempId))
-                              }
-                              className="underline underline-offset-2"
-                            >
-                              Discard
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
-              const message = row.message;
-              const mine = message.sender_id === user?.id;
-              const deleted = !!message.deleted_at;
-
-              /*
-               * Not a bubble, and not anyone's side of the conversation.
-               *
-               * The app wrote this one, so it sits centred rather than left or
-               * right — attaching it to the poster would read as something
-               * they typed, and the applicant would have no more reason to act
-               * on it than on any other line they sent.
-               */
-              if (message.kind === 'job-accepted' && message.context) {
-                return (
-                  <JobAcceptedCard key={message.id} context={message.context} />
-                );
-              }
-
-              if (deleted) {
-                return (
-                  <div key={message.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
-                    <div className="max-w-[75%] rounded-2xl bg-muted px-3.5 py-2.5">
-                      <p className="text-sm italic text-muted-foreground">
-                        {mine ? 'You deleted this message' : 'This message was deleted'}
-                      </p>
-                    </div>
-                  </div>
-                );
-              }
-
-              const state = mine ? deliveryOf(message.created_at) : 'sent';
-              const seenBy = mine ? readCount(message.created_at) : 0;
-
-              return (
-                <div
-                  key={message.id}
-                  className={cn('group flex items-end gap-1.5', mine ? 'justify-end' : 'justify-start')}
-                >
-                  {/* Actions live on hover, which is what a pointer affords —
-                      no long-press needed. */}
-                  {mine && (
-                    <MessageActions
-                      message={message}
-                      mine={mine}
-                      onReply={() => setReplyTo(message)}
-                      onDelete={deleteMessage}
-                    />
-                  )}
-
-                  <div className="max-w-[75%]">
-                    {isGroup && !mine && (
-                      <p className="mb-0.5 ml-1 text-[11px] text-muted-foreground">
-                        {message.sender_name}
-                      </p>
-                    )}
-                    <div
-                      className={cn(
-                        'rounded-2xl px-3.5 py-2.5',
-                        mine ? 'bg-primary text-primary-foreground' : 'bg-card border',
-                      )}
-                    >
-                      {message.reply_to_id && (
-                        <div
-                          className={cn(
-                            'mb-1.5 rounded-lg border-l-2 px-2 py-1.5',
-                            mine ? 'border-white/60 bg-black/15' : 'border-primary bg-muted',
                           )}
-                        >
-                          <p
-                            className={cn(
-                              'text-[10px] font-bold',
-                              mine ? 'opacity-80' : 'text-primary',
-                            )}
+                          <button
+                            onClick={() => removeFromOutbox(o.clientId)}
+                            className="underline underline-offset-2"
                           >
-                            {message.reply_to_sender ?? 'Message'}
-                          </p>
-                          <p className={cn('truncate text-[11px]', mine ? 'opacity-70' : 'text-muted-foreground')}>
-                            {message.reply_to_deleted
-                              ? 'Message deleted'
-                              : (message.reply_to_body ?? 'Message unavailable')}
-                          </p>
-                        </div>
+                            Discard
+                          </button>
+                        </>
                       )}
-
-                      <p className="whitespace-pre-wrap text-sm">{renderBody(message.body)}</p>
-
-                      <div
-                        className={cn(
-                          'mt-1 flex items-center gap-1 text-[10px]',
-                          mine ? 'opacity-70' : 'text-muted-foreground',
-                        )}
-                      >
-                        <span>{timeLabel(message.created_at)}</span>
-                        {mine && <DeliveryMark state={state} />}
-                        {mine && isGroup && seenBy > 0 && others.length > 1 && <span>{seenBy}</span>}
-                      </div>
                     </div>
                   </div>
-
-                  {!mine && (
-                    <MessageActions
-                      message={message}
-                      mine={mine}
-                      onReply={() => setReplyTo(message)}
-                      onDelete={deleteMessage}
-                    />
-                  )}
                 </div>
               );
-            })}
-          </div>
-        </ScrollArea>
+            }
+
+            const message = row.message;
+            const mine = message.sender_id === user?.id;
+            const deleted = !!message.deleted_at;
+
+            /*
+             * Not a bubble, and not anyone's side of the conversation.
+             *
+             * The app wrote this one, so it sits centred rather than left or
+             * right — attaching it to the poster would read as something
+             * they typed, and the applicant would have no more reason to act
+             * on it than on any other line they sent.
+             */
+            if (message.kind === 'job-accepted' && message.context) {
+              return (
+                <JobAcceptedCard key={message.id} context={message.context} />
+              );
+            }
+
+            if (deleted) {
+              return (
+                <div key={message.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+                  <div className="max-w-[75%] rounded-2xl bg-muted px-3.5 py-2.5">
+                    <p className="text-sm italic text-muted-foreground">
+                      {mine ? 'You deleted this message' : 'This message was deleted'}
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+
+            const state = mine ? deliveryOf(message.created_at) : 'sent';
+            const seenBy = mine ? readCount(message.created_at) : 0;
+
+            return (
+              <div
+                key={message.id}
+                className={cn('group flex items-end gap-1.5', mine ? 'justify-end' : 'justify-start')}
+              >
+                {/* Actions live on hover, which is what a pointer affords —
+                    no long-press needed. */}
+                {mine && (
+                  <MessageActions
+                    message={message}
+                    mine={mine}
+                    onReply={canSend ? () => setReplyTo(message) : undefined}
+                    onCopy={() => copyText(message.body)}
+                    onDelete={deleteMessage}
+                  />
+                )}
+
+                <div className="max-w-[75%]">
+                  {isGroup && !mine && (
+                    <p className="mb-0.5 ml-1 text-[11px] text-muted-foreground">
+                      {message.sender_name}
+                    </p>
+                  )}
+                  <div
+                    className={cn(
+                      'rounded-2xl px-3.5 py-2.5',
+                      mine ? 'bg-primary text-primary-foreground' : 'bg-card border',
+                    )}
+                  >
+                    {message.reply_to_id && (
+                      <div
+                        className={cn(
+                          'mb-1.5 rounded-lg border-l-2 px-2 py-1.5',
+                          mine ? 'border-white/60 bg-black/15' : 'border-primary bg-muted',
+                        )}
+                      >
+                        <p
+                          className={cn(
+                            'text-[10px] font-bold',
+                            mine ? 'opacity-80' : 'text-primary',
+                          )}
+                        >
+                          {message.reply_to_sender ?? 'Message'}
+                        </p>
+                        <p className={cn('truncate text-[11px]', mine ? 'opacity-70' : 'text-muted-foreground')}>
+                          {message.reply_to_deleted
+                            ? 'Message deleted'
+                            : (message.reply_to_body ?? 'Message unavailable')}
+                        </p>
+                      </div>
+                    )}
+
+                    <p className="whitespace-pre-wrap text-sm">{renderBody(message.body)}</p>
+
+                    <div
+                      className={cn(
+                        'mt-1 flex items-center gap-1 text-[10px]',
+                        mine ? 'opacity-70' : 'text-muted-foreground',
+                      )}
+                    >
+                      <span>{timeLabel(message.created_at)}</span>
+                      {mine && <DeliveryMark state={state} />}
+                      {mine && isGroup && seenBy > 0 && others.length > 1 && <span>{seenBy}</span>}
+                    </div>
+                  </div>
+                </div>
+
+                {!mine && (
+                  <MessageActions
+                    message={message}
+                    mine={mine}
+                    onReply={canSend ? () => setReplyTo(message) : undefined}
+                    onCopy={() => copyText(message.body)}
+                    onDelete={deleteMessage}
+                  />
+                )}
+              </div>
+            );
+          })}
+
+          {/* The visual top: older pages load as this comes into view. A
+              failed page was dropped silently before, and scrolling up
+              never tried again. */}
+          {hasNextPage && (
+            <div ref={olderRef} className="flex justify-center py-2">
+              {isFetchNextPageError ? (
+                <button
+                  onClick={() => void fetchNextPage()}
+                  className="text-xs font-semibold text-primary underline underline-offset-2"
+                >
+                  Couldn&apos;t load older messages. Try again
+                </button>
+              ) : isFetchingNextPage ? (
+                <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Loading older messages" />
+              ) : (
+                <button
+                  onClick={() => void fetchNextPage()}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Load older messages
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Mention picker */}
@@ -611,27 +811,80 @@ export function Thread({
         </div>
       )}
 
-      {/* Composer */}
-      <div className="flex shrink-0 items-end gap-2 border-t p-3">
-        <Textarea
-          ref={composerRef}
-          value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            noteTyping(e.target.value);
-          }}
-          // Leaving the box stops the indicator immediately, rather than
-          // letting it time out on the other side.
-          onBlur={stopTyping}
-          onKeyDown={onComposerKeyDown}
-          placeholder={isGroup ? 'Message — @ to mention, Enter to send' : 'Message — Enter to send'}
-          rows={1}
-          className="max-h-40 min-h-10 resize-none"
-        />
-        <Button onClick={submit} disabled={!draft.trim()} size="icon" aria-label="Send">
-          <Send className="size-4" />
-        </Button>
-      </div>
+      {/* Composer, or why there is none. A frozen thread keeps its history but
+          takes no new messages, and a composer that fails every send is worse
+          than a plain line saying so. */}
+      {!canSend ? (
+        threadReady && (
+          <div className="shrink-0 border-t bg-muted/50 px-4 py-3">
+            {blockedByMe ? (
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">You blocked {noticeName}.</p>
+                  <p className="text-xs text-muted-foreground">Unblock them to send messages.</p>
+                </div>
+                {blockId && (
+                  <Button size="sm" variant="outline" onClick={() => setAskUnblock(true)}>
+                    Unblock
+                  </Button>
+                )}
+              </div>
+            ) : (
+              // Worded to say nothing about why. Being blocked must look like
+              // the other person simply not being reachable here.
+              <p className="text-center text-sm text-muted-foreground">
+                You can&apos;t reply to this conversation.
+              </p>
+            )}
+          </div>
+        )
+      ) : (
+        <div className="flex shrink-0 items-end gap-2 border-t p-3">
+          <Textarea
+            ref={composerRef}
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              noteTyping(e.target.value);
+            }}
+            // Leaving the box stops the indicator immediately, rather than
+            // letting it time out on the other side.
+            onBlur={stopTyping}
+            onKeyDown={onComposerKeyDown}
+            placeholder={isGroup ? 'Message — @ to mention, Enter to send' : 'Message — Enter to send'}
+            rows={1}
+            className="max-h-40 min-h-10 resize-none"
+          />
+          <Button onClick={submit} disabled={!draft.trim()} size="icon" aria-label="Send">
+            <Send className="size-4" />
+          </Button>
+        </div>
+      )}
+
+      <AlertDialog open={askUnblock} onOpenChange={setAskUnblock}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unblock {firstName(noticeName)}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They&apos;ll be able to find you and send you requests again. Your connection
+              isn&apos;t restored — send a new request if you want to reconnect.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                // Stays open until it has worked, so a failure is seen.
+                event.preventDefault();
+                confirmUnblock();
+              }}
+              disabled={unblock.isPending}
+            >
+              {unblock.isPending ? 'Unblocking…' : 'Unblock'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -641,11 +894,14 @@ function MessageActions({
   message,
   mine,
   onReply,
+  onCopy,
   onDelete,
 }: {
   message: ConversationMessage;
   mine: boolean;
-  onReply: () => void;
+  /** Absent when the thread takes no new messages: a reply needs somewhere to go. */
+  onReply?: () => void;
+  onCopy: () => void;
   onDelete: (message: ConversationMessage, scope: 'me' | 'everyone') => void;
 }) {
   return (
@@ -663,16 +919,13 @@ function MessageActions({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={mine ? 'end' : 'start'}>
-        <DropdownMenuItem onSelect={onReply}>
-          <Reply className="size-4" />
-          Reply
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => {
-            void navigator.clipboard.writeText(message.body);
-            toast.success('Copied');
-          }}
-        >
+        {onReply && (
+          <DropdownMenuItem onSelect={onReply}>
+            <Reply className="size-4" />
+            Reply
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={onCopy}>
           <Copy className="size-4" />
           Copy
         </DropdownMenuItem>

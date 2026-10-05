@@ -38,6 +38,7 @@ import { RolePicker } from '@/components/role-picker';
 import { PublicProfileCard } from '@/components/public-profile-card';
 import { formatBytes, storageApi, titleFromRoles } from '@/api';
 import { cn } from '@/lib/utils';
+import { useDiscardGuard } from '@/lib/discard-guard';
 import { AVATAR_MAX_EDGE, resizeImage } from '@/lib/image';
 
 /**
@@ -215,6 +216,10 @@ export default function ProfilePage() {
     ) ||
       roles.join(',') !== (profile?.roles ?? []).join(','));
 
+  // Asks before a reload, a closed tab or a link elsewhere throws away what
+  // was typed. Measured from the form as seeded, and again from each save.
+  const guard = useDiscardGuard({ values, roles }, seeded);
+
   /*
    * The address is all-or-nothing.
    *
@@ -229,7 +234,12 @@ export default function ProfilePage() {
     addressProvince: form.addressProvince.trim(),
     addressCountry: form.addressCountry.trim().toUpperCase(),
   };
+  // A saved address counts as started even once every field is emptied.
+  // Empty, it was left out of the save as though untouched, so the old one
+  // stayed on the account while the page said "Profile saved".
+  const hadAddress = Boolean(profile?.addressLine1);
   const addressStarted =
+    hadAddress ||
     Object.values(address).some(Boolean) ||
     !!form.addressLine2.trim() ||
     !!form.addressPostal.trim();
@@ -266,7 +276,10 @@ export default function ProfilePage() {
           : {}),
       },
       {
-        onSuccess: () => toast.success('Profile saved'),
+        onSuccess: () => {
+          guard.markSaved();
+          toast.success('Profile saved');
+        },
         onError: (err: Error) => toast.error('Could not save', { description: err.message }),
       },
     );
@@ -359,7 +372,8 @@ export default function ProfilePage() {
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Badge variant="secondary" className="gap-1.5">
                       <HardDrive className="size-3" />
-                      {formatBytes(storageUsedBytes)}
+                      {/* A dash until the reading arrives, not a "0 B". */}
+                      {usage ? formatBytes(storageUsedBytes) : '—'}
                       {usage?.plan ? ` · ${usage.plan}` : ''}
                     </Badge>
                     <Badge

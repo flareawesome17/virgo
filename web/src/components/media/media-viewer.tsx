@@ -8,6 +8,35 @@ import { VideoPlayer } from '@/components/media/video-player';
 
 const motion = 'transition-[transform,opacity,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]';
 
+/**
+ * "14 March 2026, 4:12 pm", as the camera wrote it.
+ *
+ * Built from its parts rather than parsed: it carries no zone, and parsing
+ * would move a frame shot late at night onto another day for anyone outside
+ * the zone it was taken in. The same helper as the phone's viewer.
+ */
+function takenLabel(takenAt: string): string {
+  const [date, time = '00:00:00'] = takenAt.split('T');
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  return new Date(y, m - 1, d, hh, mm).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+/** When it reached Virgo — a real instant, so this one is parsed. */
+function uploadedLabel(createdAt: string): string {
+  return new Date(createdAt).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: {
   files: StoredFile[];
   index: number;
@@ -119,7 +148,7 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
 
         {files.length > 1 && zoom === 1 && <><button onClick={() => step(-1)} aria-label="Previous item" className={`absolute left-4 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-[#211d1a]/88 text-white/75 backdrop-blur-md hover:text-white ${motion} ${chrome ? 'opacity-100' : 'opacity-0'}`}><ArrowLeft size={19} strokeWidth={1.5} /></button><button onClick={() => step(1)} aria-label="Next item" className={`absolute right-4 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-[#211d1a]/88 text-white/75 backdrop-blur-md hover:text-white ${motion} ${chrome ? 'opacity-100' : 'opacity-0'}`}><ArrowRight size={19} strokeWidth={1.5} /></button></>}
 
-        {showInfo && <aside className="absolute bottom-20 right-4 z-20 w-[min(22rem,calc(100%-2rem))] rounded-[1.5rem] bg-[#211d1a]/96 p-1.5 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)] backdrop-blur-xl"><div className="rounded-[1.15rem] border border-white/[0.08] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/40">File information</p><dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-white/40">Name</dt><dd className="truncate text-right">{file.originalName}</dd><dt className="text-white/40">Type</dt><dd className="text-right">{file.contentType ?? 'Unknown'}</dd><dt className="text-white/40">Size</dt><dd className="text-right">{formatBytes(file.sizeBytes)}</dd><dt className="text-white/40">Dimensions</dt><dd className="text-right">{file.width && file.height ? `${file.width} × ${file.height}` : 'Not available'}</dd></dl></div></aside>}
+        {showInfo && <aside className="absolute bottom-20 right-4 z-20 w-[min(22rem,calc(100%-2rem))] rounded-[1.5rem] bg-[#211d1a]/96 p-1.5 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)] backdrop-blur-xl"><div className="rounded-[1.15rem] border border-white/[0.08] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/40">File information</p><dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-white/40">Name</dt><dd className="truncate text-right">{file.originalName}</dd>{/* When it was taken, from the camera, beside when it arrived. The panel had neither, and the grid's day headings were the only clue. */}{file.takenAt && <><dt className="text-white/40">Taken</dt><dd className="text-right">{takenLabel(file.takenAt)}</dd></>}<dt className="text-white/40">Uploaded</dt><dd className="text-right">{uploadedLabel(file.createdAt)}</dd><dt className="text-white/40">Type</dt><dd className="text-right">{file.contentType ?? 'Unknown'}</dd><dt className="text-white/40">Size</dt><dd className="text-right">{formatBytes(file.sizeBytes)}</dd><dt className="text-white/40">Dimensions</dt><dd className="text-right">{file.width && file.height ? `${file.width} × ${file.height}` : 'Not available'}</dd></dl></div></aside>}
       </main>
 
       {kind === 'image' && files.length > 1 && <footer className={`relative z-20 flex h-16 items-center justify-center gap-2 px-4 ${motion} ${chrome ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'}`}>{files.slice(Math.max(0, index - 4), index + 5).map((item) => <button key={item.key} onClick={() => choose(files.indexOf(item))} aria-label={`View ${item.originalName}`} className={`h-10 w-10 overflow-hidden rounded-lg transition-transform active:scale-95 ${item.key === file.key ? 'ring-2 ring-[#c17745] ring-offset-2 ring-offset-[#141210]' : 'opacity-45 hover:opacity-80'}`}>{ }<img src={item.thumbnailUrl ?? item.url ?? ''} alt={item.originalName} className="size-full object-cover" /></button>)}</footer>}

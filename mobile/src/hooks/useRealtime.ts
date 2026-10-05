@@ -83,7 +83,8 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   'collaborator-response': [queryKeys.collaborators.all, queryKeys.workspaces.all],
   'event-invite': [queryKeys.scheduleEvents.all],
   'event-response': [queryKeys.scheduleEvents.all],
-  'event-updated': [queryKeys.scheduleEvents.all],
+  // Reminders too: a moved event moves its guests' reminders with it.
+  'event-updated': [queryKeys.scheduleEvents.all, queryKeys.reminders.all],
   // Friends too: the Messages dot counts new enquiries under friends.
   'hire-enquiry': [queryKeys.hire.all, queryKeys.friends.all],
   // Accepting also creates a friendship and a conversation, so all three lists
