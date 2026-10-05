@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform, Linking } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { InsetFrame } from '@/components/InsetFrame';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCreateReminder, useReminder, useScheduleEvent, useUpdateReminder } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -191,7 +192,7 @@ export default function CreateReminderScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
       <FormHeader
         title={isEdit ? 'Edit reminder' : 'New reminder'}
         subtitle={event ? `for ${event.title}` : undefined}
@@ -312,6 +313,6 @@ export default function CreateReminderScreen() {
         </Pressable>
       </View>
           </KeyboardAvoidingView>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

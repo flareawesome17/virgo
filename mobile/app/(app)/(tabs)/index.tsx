@@ -504,7 +504,7 @@ export default function DashboardScreen() {
               value={myJobs.length}
               label="Jobs posted"
               tint={palette.accent}
-              onPress={() => router.push('/jobs/mine')}
+              onPress={() => goToTab('/(app)/(tabs)/jobs?tab=posted')}
             />
             {/* Nothing lists finished work yet, so this one only reports. */}
             <StatTile

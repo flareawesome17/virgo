@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { InsetFrame } from '@/components/InsetFrame';
 import {
   useAuth,
   useCreateScheduleEvent,
@@ -242,7 +243,7 @@ export default function CreateEventScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
       <FormHeader title={editing ? 'Edit event' : 'New event'} />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
@@ -413,6 +414,6 @@ export default function CreateEventScreen() {
         </Pressable>
       </View>
           </KeyboardAvoidingView>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

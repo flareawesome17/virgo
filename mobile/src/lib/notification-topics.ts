@@ -48,13 +48,19 @@ const TOPICS: Record<
   // Waiting enquiries are answered on People, beside connection requests.
   'hire-enquiry': { icon: MessageCircleIcon, href: '/(app)/(tabs)/connect?view=people' },
   'hire-response': { icon: MessageCircleIcon, href: '/friends/enquiries' },
-  'job-application': { icon: BriefcaseBusinessIcon, href: '/jobs/mine?tab=posted' },
+  'job-application': {
+    icon: BriefcaseBusinessIcon,
+    href: (d) =>
+      typeof d.postId === 'string'
+        ? `/(app)/(tabs)/jobs?tab=posted&post=${d.postId}`
+        : '/(app)/(tabs)/jobs?tab=posted',
+  },
   'job-response': {
     icon: BriefcaseBusinessIcon,
     href: (d) =>
       typeof d.conversationId === 'string'
         ? `/chat/${d.conversationId}`
-        : '/jobs/mine?tab=applied',
+        : '/(app)/(tabs)/jobs?tab=applied',
   },
   booking: {
     icon: FileTextIcon,

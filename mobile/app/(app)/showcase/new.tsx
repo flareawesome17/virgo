@@ -13,8 +13,8 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import { InsetFrame } from '@/components/InsetFrame';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import {
   AlertCircleIcon,
@@ -559,7 +559,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   const arrangingKey = arranging !== null ? picked[arranging] : undefined;
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
       <FormHeader
         title={editing ? 'Edit showcase' : 'New showcase'}
         action={{
@@ -742,7 +742,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           </Pressable>
         </View>
       </BottomSheet>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }
 

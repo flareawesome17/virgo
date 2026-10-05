@@ -79,8 +79,14 @@ export function useNotificationRouting(enabled: boolean): void {
 
         // An application is answered from your own posts; an accepted one has
         // a chat waiting on the other end of it.
+        // On the post it is about, with its applicants open — it landed on a
+        // second copy of the Jobs tab with every post collapsed.
         case 'job_application':
-          router.push('/jobs/mine');
+          goToTab(
+            payload.postId
+              ? `/(app)/(tabs)/jobs?tab=posted&post=${payload.postId}`
+              : '/(app)/(tabs)/jobs?tab=posted',
+          );
           return;
 
         // Straight to what they chose, not to the album's front page.
@@ -90,8 +96,8 @@ export function useNotificationRouting(enabled: boolean): void {
         case 'job_response':
           if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
           // Their applications, not their own postings — this is the
-          // applicant's side of the workflow, and /jobs/mine opens on Posted.
-          else router.push('/jobs/mine?tab=applications');
+          // applicant's side of the workflow.
+          else goToTab('/(app)/(tabs)/jobs?tab=applied');
           return;
 
         // An announcement about the app itself opens the notification list,

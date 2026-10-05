@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { InsetFrame } from '@/components/InsetFrame';
 import { useAuth, useCreateAlbum, useWorkspaces, useTheme,
   usePlanLimits,
 } from '@/src/hooks';
@@ -123,15 +124,15 @@ export default function CreateAlbumScreen() {
    */
   if (workspacesFailed && listed.length === 0) {
     return (
-      <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <InsetFrame>
         <FormHeader title="New album" />
         <LoadFailed what="your workspaces" onRetry={() => void refetchWorkspaces()} />
-      </SafeAreaView>
+      </InsetFrame>
     );
   }
   if (workspacesLoaded && workspaces.length === 0) {
     return (
-      <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <InsetFrame>
         <FormHeader title="New album" />
         <View className="flex-1 items-center justify-center px-8">
           <Text className="text-foreground text-[17px] font-bold text-center">
@@ -149,12 +150,12 @@ export default function CreateAlbumScreen() {
             <Text className="text-action-foreground text-[15px] font-bold">Create a workspace</Text>
           </Pressable>
         </View>
-      </SafeAreaView>
+      </InsetFrame>
     );
   }
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
       <FormHeader title="New album" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
@@ -446,6 +447,6 @@ export default function CreateAlbumScreen() {
         </Pressable>
       </View>
           </KeyboardAvoidingView>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

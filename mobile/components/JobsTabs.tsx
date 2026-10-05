@@ -1,10 +1,10 @@
 import {
-  View, Text, ScrollView, Pressable, Alert,
+  View, Text, Pressable, Alert,
   ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   useApplicants,
   useDeleteJob,
@@ -14,11 +14,19 @@ import {
   useRespondToApplication,
   usePendingApplicants,
   useSetJobStatus,
+  useTheme,
   useWithdrawApplication,
 } from '@/src/hooks';
 import Animated from 'react-native-reanimated';
 import { useChromeScroll } from '@/src/providers/ChromeProvider';
-import { budgetLabel, isRoleFilled, type JobApplication, type JobPost } from '@/src/api';
+import {
+  ApiError,
+  budgetLabel,
+  isRoleFilled,
+  roleBudgetLabel,
+  type JobApplication,
+  type JobPost,
+} from '@/src/api';
 import { APPLICATION_LABEL } from '@/src/lib/jobs-format';
 import { JobsFeed } from '@/components/JobsFeed';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
@@ -27,58 +35,123 @@ import { CardListSkeleton } from '@/components/Skeleton';
 import { useTabObstruction } from '@/components/TabScreen';
 import { BookingsList } from '@/components/BookingsList';
 import { PersonSafetySheet } from '@/components/PersonSafetySheet';
+import { ActionSheet } from '@/components/WorkspaceBits';
 import {
   BriefcaseIcon, CheckIcon, ChevronDownIcon, EllipsisIcon,
-  MessageCircleIcon, StarIcon, TrashIcon, XIcon,
+  MessageCircleIcon, StarIcon, XIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
+import { PALETTES } from '@/theme';
 
 for (const Icon of [
   BriefcaseIcon, CheckIcon, ChevronDownIcon, EllipsisIcon,
-  MessageCircleIcon, StarIcon, TrashIcon, XIcon,
+  MessageCircleIcon, StarIcon, XIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
 const STATUS_LABEL: Record<JobPost['status'], string> = {
-  open: 'Open', filled: 'Filled', closed: 'Closed', expired: 'Expired',
+  open: 'Open', filled: 'Filled', closed: 'Closed', expired: 'Ended',
 };
+
+/** How long a Decline waits, with Undo, before it is sent and they are told. */
+const DECLINE_UNDO_MS = 5000;
 
 export type JobsTab = 'browse' | 'posted' | 'applied' | 'bookings';
 
 /**
- * Browse, Posted and My applications — the same three the web screen has.
- *
- * Mobile had Browse as its own route and only two tabs here, so the phone was
- * missing a third of the screen the web has. One component now serves the Home
- * tab, the /jobs route and /jobs/mine, which is also what stops them drifting
- * apart again.
- *
- * No header and no SafeAreaView: the host owns those, because one host is a
- * tab panel inside another screen and the others are screens in their own
- * right.
+ * What a failed jobs action says: the server's own sentence where it wrote one
+ * for people ("This post has expired — create a new one."), and plain words
+ * when there was no answer at all.
  */
+function jobError(err: unknown): string {
+  if (err instanceof ApiError && err.status === 0) {
+    return 'Check your connection and try again.';
+  }
+  return (err instanceof Error && err.message) || 'Please try again.';
+}
 
+/**
+ * Browse, Posted, Applied and Bookings.
+ *
+ * Which one shows belongs to whoever hosts this (the Jobs tab keeps it in the
+ * address, so a notification can pick it). Each stays mounted once opened, so
+ * moving between them keeps the board's filters, search and scroll — they
+ * were thrown away on every switch.
+ *
+ * No header and no SafeAreaView: the host owns those.
+ */
 export function JobsTabs({
-  initialTab = 'browse',
+  tab,
+  onTabChange,
+  focusPostId,
   bottomPadding = 40,
 }: {
-  initialTab?: JobsTab;
+  tab: JobsTab;
+  onTabChange: (tab: JobsTab) => void;
+  /** A post to open with its applicants showing — where a new application lands. */
+  focusPostId?: string;
   bottomPadding?: number;
 }) {
+  const { jobs } = useMyJobs();
+  const [visited, setVisited] = useState<Record<JobsTab, boolean>>({
+    browse: tab === 'browse',
+    posted: tab === 'posted',
+    applied: tab === 'applied',
+    bookings: tab === 'bookings',
+  });
+  useEffect(() => {
+    setVisited((current) => (current[tab] ? current : { ...current, [tab]: true }));
+  }, [tab]);
+
+  // Summed from posts already loaded, so this costs no extra request. Only
+  // open posts: an ended post has nobody left to answer.
+  const waiting = jobs.reduce((n, job) => n + (job.status === 'open' ? job.newApplicantCount : 0), 0);
+
+  const pane = (key: JobsTab, node: React.ReactNode) =>
+    visited[key] ? (
+      <View key={key} className="flex-1" style={tab === key ? undefined : { display: 'none' }}>
+        {node}
+      </View>
+    ) : null;
+
+  return (
+    <View className="flex-1">
+      <View className="px-5 pt-2 pb-1">
+        <SegmentedTabs<JobsTab>
+          segments={[
+            { key: 'browse', label: 'Browse' },
+            {
+              key: 'posted',
+              label: 'Posted',
+              dot: waiting > 0,
+              accessibilityLabel: waiting > 0 ? `Posted, ${waiting} waiting on you` : `Posted, ${jobs.length}`,
+            },
+            { key: 'applied', label: 'Applied', accessibilityLabel: 'Your applications' },
+            // Beside the jobs, as on the web: a booking is where one ends up.
+            { key: 'bookings', label: 'Bookings' },
+          ]}
+          value={tab}
+          onChange={onTabChange}
+        />
+      </View>
+
+      {pane('browse', <JobsFeed bottomPadding={bottomPadding} />)}
+      {pane('posted', <Posted bottom={bottomPadding} focusPostId={focusPostId} />)}
+      {pane('applied', <MyApplications bottom={bottomPadding} onBrowse={() => onTabChange('browse')} />)}
+      {pane('bookings', <BookingsList bottomPadding={bottomPadding} />)}
+    </View>
+  );
+}
+
+function Posted({ bottom, focusPostId }: { bottom: number; focusPostId?: string }) {
   const onScroll = useChromeScroll();
-  const [tab, setTab] = useState<JobsTab>(initialTab);
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { jobs, isLoading, loadFailed, refetch } = useMyJobs();
   const [refreshing, setRefreshing] = useState(false);
-
-  // Summed from posts already loaded, so this costs no extra request.
-  //
-  // Without it the trail breaks: the tab-bar badge counts applications, this
-  // view opens on Browse, and Browse has nothing to show for them — you would
-  // be told a number and given nowhere to go and find it.
-  const waiting = jobs.reduce((n, job) => n + job.newApplicantCount, 0);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -86,62 +159,32 @@ export function JobsTabs({
     setRefreshing(false);
   };
 
-  return (
-    <View className="flex-1">
-      {/* Four short words fit across the smallest phone, so the strip no
-          longer scrolls sideways — it was uppercase and underlined, which
-          nothing else in the app was. */}
-      <View className="px-5 pt-2 pb-1">
-        <SegmentedTabs<typeof tab>
-          segments={[
-            { key: 'browse', label: 'Browse' },
-            {
-              key: 'posted',
-              label: 'Posted',
-              dot: waiting > 0,
-              accessibilityLabel: `Posted, ${jobs.length}`,
-            },
-            { key: 'applied', label: 'Applied', accessibilityLabel: 'Your applications' },
-            // Beside the jobs, as on the web: a booking is where one ends up.
-            { key: 'bookings', label: 'Bookings' },
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
-      </View>
+  if (isLoading && jobs.length === 0) return <CardListSkeleton count={3} />;
+  if (loadFailed && jobs.length === 0) return <LoadFailed what="your posts" onRetry={() => refetch()} />;
+  if (jobs.length === 0) {
+    return (
+      <Empty
+        title="You have not posted a job yet"
+        body="Say what you need doing, when, and roughly what you are paying. It goes on the board and the people who do that work can find it."
+        cta="Post a job"
+        onPress={() => router.push('/jobs/new')}
+      />
+    );
+  }
 
-      {tab === 'browse' ? (
-        <JobsFeed bottomPadding={bottomPadding} />
-      ) : tab === 'bookings' ? (
-        <BookingsList bottomPadding={bottomPadding} />
-      ) : tab === 'posted' ? (
-        isLoading && jobs.length === 0 ? (
-          <CardListSkeleton count={3} />
-        ) : loadFailed && jobs.length === 0 ? (
-          <LoadFailed what="your posts" onRetry={() => refetch()} />
-        ) : jobs.length === 0 ? (
-          <Empty
-            title="You have not posted a job yet"
-            body="Say what you need doing, when, and roughly what you are paying. It goes on the board and the people who do that work can find it."
-            cta="Post a job"
-            onPress={() => router.push('/jobs/new')}
-          />
-        ) : (
-          <Animated.ScrollView
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            contentContainerStyle={{ padding: 20, paddingBottom: bottomPadding, gap: 10 }}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#B66A40" />
-            }
-          >
-            {jobs.map((job) => <JobRow key={job.id} job={job} />)}
-          </Animated.ScrollView>
-        )
-      ) : (
-        <MyApplications bottom={bottomPadding} onBrowse={() => setTab('browse')} />
-      )}
-    </View>
+  return (
+    <Animated.ScrollView
+      onScroll={onScroll}
+      scrollEventThrottle={16}
+      contentContainerStyle={{ padding: 20, paddingBottom: bottom, gap: 10 }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />
+      }
+    >
+      {jobs.map((job) => (
+        <JobRow key={job.id} job={job} startOpen={job.id === focusPostId} />
+      ))}
+    </Animated.ScrollView>
   );
 }
 
@@ -158,11 +201,11 @@ function BookingLink({ applicationId }: { applicationId: string }) {
 
   return (
     <Pressable
-      className="rounded-xl px-3 py-2.5"
-      style={{ borderWidth: 1, borderColor: '#B66A40' }}
+      className="rounded-xl px-3.5 min-h-[44px] justify-center border border-primary active:opacity-80"
       onPress={() => router.push(`/bookings/${booking.id}`)}
+      accessibilityRole="button"
     >
-      <Text className="text-[12px] font-bold" style={{ color: '#B66A40' }}>
+      <Text className="text-primary text-[13px] font-bold">
         Booking · {booking.cancelledAt
           ? 'cancelled'
           : booking.confirmed
@@ -175,24 +218,37 @@ function BookingLink({ applicationId }: { applicationId: string }) {
   );
 }
 
-function JobRow({ job }: { job: JobPost }) {
-  const [open, setOpen] = useState(false);
+function JobRow({ job, startOpen }: { job: JobPost; startOpen: boolean }) {
+  const [open, setOpen] = useState(startOpen && job.applicantCount > 0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  /** Asking the server how many people an action would answer, before asking you. */
+  const [checking, setChecking] = useState(false);
   const setStatus = useSetJobStatus();
   const remove = useDeleteJob();
   const pending = usePendingApplicants();
+  // A push for a new application opens this post with its applicants shown.
+  useEffect(() => {
+    if (startOpen && job.applicantCount > 0) setOpen(true);
+  }, [startOpen, job.applicantCount]);
 
   /**
    * Ending a post ends other people's applications.
    *
    * The confirmation names how many, fetched at the moment of asking — "are
    * you sure" does not tell somebody they are about to decline four people.
+   * The tap used to wait on that count with nothing showing, and a second tap
+   * stacked a second alert.
    */
   const end = async (status: 'filled' | 'closed') => {
+    if (checking) return;
+    setChecking(true);
     let waiting = 0;
     try {
       waiting = (await pending.mutateAsync(job.id)).count;
     } catch {
       // Ask anyway, just without the number.
+    } finally {
+      setChecking(false);
     }
     Alert.alert(
       status === 'filled' ? 'Mark this filled?' : 'Close this post?',
@@ -205,26 +261,29 @@ function JobRow({ job }: { job: JobPost }) {
           text: status === 'filled' ? 'Mark filled' : 'Close',
           onPress: () =>
             setStatus.mutate({ id: job.id, status }, {
-              onError: (e: Error) => Alert.alert('Could not update', e.message),
+              onError: (e) => Alert.alert("Couldn't update it", jobError(e)),
             }),
         },
       ],
     );
   };
+
   /**
    * Deleting is worse than ending, and asked less.
    *
    * Filling declines the people waiting; deleting erases them — every
    * application at any status, and every booking made from one, by cascade.
-   * "Applicants will lose it too" was true and far too quiet for that: it does
-   * not say an accepted applicant and the agreement with them go as well.
    */
   const destroy = async () => {
+    if (checking) return;
+    setChecking(true);
     let cost = { applications: 0, bookings: 0 };
     try {
       cost = await pending.mutateAsync(job.id);
     } catch {
       // Ask anyway, just without the numbers.
+    } finally {
+      setChecking(false);
     }
 
     // A post somebody is booked on is not deleted (the server refuses: it
@@ -238,7 +297,7 @@ function JobRow({ job }: { job: JobPost }) {
           : `${cost.bookings} people are booked on this post, and deleting it would delete their bookings without telling them. Closing it takes it off the board and keeps the bookings. To end one, cancel it from Bookings.`,
         [
           { text: 'Keep it', style: 'cancel' },
-          ...(job.status === 'open' ? [{ text: 'Close the post', onPress: () => end('closed') }] : []),
+          ...(job.status === 'open' ? [{ text: 'Close the post', onPress: () => void end('closed') }] : []),
         ],
       );
       return;
@@ -256,182 +315,160 @@ function JobRow({ job }: { job: JobPost }) {
           style: 'destructive',
           onPress: () =>
             remove.mutate(job.id, {
-              onError: (e: Error) => Alert.alert('Could not delete', e.message),
+              onError: (e) => Alert.alert("Couldn't delete it", jobError(e)),
             }),
         },
       ],
     );
   };
 
+  const reopen = () =>
+    setStatus.mutate({ id: job.id, status: 'open' }, {
+      onError: (e) => Alert.alert("Couldn't reopen it", jobError(e)),
+    });
+
+  /*
+   * The post's actions in one menu. Count, "N new", Edit, Mark filled, Close
+   * and the bin came to about 350 pt on a 303 pt card, and the last two were
+   * pushed off its edge.
+   */
+  const actions: { label: string; destructive?: boolean; onPress: () => void }[] = [];
+  if (job.status === 'open') {
+    // Editing keeps the applications; deleting to fix a typo did not.
+    actions.push({ label: 'Edit post', onPress: () => router.push(`/jobs/new?edit=${job.slug}`) });
+    actions.push({ label: 'Mark filled', onPress: () => void end('filled') });
+    actions.push({ label: 'Close post', onPress: () => void end('closed') });
+  } else if (job.status !== 'expired') {
+    // Reopening was never offered, so a misclicked "Mark filled" was
+    // irreversible from the UI even though the API allows it.
+    actions.push({ label: 'Reopen', onPress: reopen });
+  }
+  actions.push({ label: 'Delete post', destructive: true, onPress: () => void destroy() });
+
   const budget = budgetLabel(job.budgetMin, job.budgetMax);
+  const live = job.status === 'open';
 
   return (
     <View className="bg-card rounded-2xl p-4 gap-2.5">
       <View className="flex-row items-start gap-3">
-        <View className="flex-1 min-w-0">
-          <Text className="text-foreground text-[14px] font-bold leading-snug">
-            {job.title}
-          </Text>
-          <Text className="text-muted-foreground text-[11px] mt-0.5">
+        {/* Your own post opens, like anybody else's: it was the one card on
+            the board that did nothing when tapped. */}
+        <Pressable
+          onPress={() => router.push(`/jobs/${job.slug}`)}
+          accessibilityRole="button"
+          accessibilityLabel={`${job.title}. Open the post.`}
+          className="flex-1 min-w-0 active:opacity-70"
+        >
+          <Text className="text-foreground text-[15px] font-bold leading-snug">{job.title}</Text>
+          <Text className="text-muted-foreground text-[12px] mt-0.5">
             {[job.location, budget, `${job.applicantCount} applied`].filter(Boolean).join(' · ')}
           </Text>
-          {/* Which roles are still going, on the poster's own row. Accepting
-              somebody closes their role, and without this the only way to
-              know how much of your own post is live is to open the applicants
-              and work it out. */}
-          {job.rolesWanted.length > 0 && (
-            <View className="mt-1.5 flex-row flex-wrap gap-1.5">
-              {job.rolesWanted.map((r) => {
-                const filled = isRoleFilled(job, r);
-                return (
-                  <View
-                    key={r}
-                    className="rounded-full px-2 py-0.5"
-                    style={{ borderWidth: 1, borderColor: filled ? '#8883' : '#B66A4060' }}
-                  >
-                    <Text
-                      className="text-[10px] font-bold"
-                      style={{ color: filled ? '#9ca3af' : '#B66A40' }}
-                    >
-                      {r} · {filled ? 'filled' : 'open'}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </View>
-        <View className="rounded-full px-2.5 py-1"
-          style={{ backgroundColor: job.status === 'open' ? '#B66A4020' : '#9ca3af20' }}>
-          <Text className="text-[10px] font-bold"
-            style={{ color: job.status === 'open' ? '#B66A40' : '#9ca3af' }}>
+        </Pressable>
+        <View className={`rounded-full px-2.5 py-1 ${live ? 'bg-primary/10' : 'bg-muted'}`}>
+          <Text className={`text-[11px] font-bold ${live ? 'text-primary' : 'text-muted-foreground'}`}>
             {STATUS_LABEL[job.status]}
           </Text>
         </View>
       </View>
 
-      <View className="flex-row items-center gap-3">
+      {/* Which roles are still going, on the poster's own row. */}
+      {job.rolesWanted.length > 0 && (
+        <View className="flex-row flex-wrap gap-1.5">
+          {job.rolesWanted.map((r) => {
+            const filled = isRoleFilled(job, r);
+            return (
+              <View
+                key={r}
+                className={`rounded-full px-2.5 py-0.5 border ${filled ? 'border-border' : 'border-primary/40'}`}
+              >
+                <Text className={`text-[11px] font-bold ${filled ? 'text-muted-foreground' : 'text-primary'}`}>
+                  {r} · {filled ? 'filled' : 'open'}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      <View className="flex-row items-center gap-2">
         <Pressable
-          className="flex-row items-center gap-1.5"
+          className="min-h-[44px] flex-row items-center gap-1.5 pr-2 active:opacity-60"
           disabled={job.applicantCount === 0}
-          style={{ opacity: job.applicantCount === 0 ? 0.4 : 1 }}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open, disabled: job.applicantCount === 0 }}
+          accessibilityLabel={
+            job.applicantCount === 0
+              ? 'No applicants yet'
+              : `${job.applicantCount} applicants${job.newApplicantCount > 0 ? `, ${job.newApplicantCount} new` : ''}. ${open ? 'Hide' : 'Show'} them.`
+          }
+          style={{ opacity: job.applicantCount === 0 ? 0.5 : 1 }}
           onPress={() => setOpen((v) => !v)}
         >
           <ChevronDownIcon
-            size={14}
-            color="#B66A40"
+            size={16}
+            className="text-primary"
             style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
           />
-          <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
+          <Text className="text-primary text-[13px] font-semibold">
             {job.applicantCount === 0
               ? 'No applicants yet'
               : `${job.applicantCount} applicant${job.applicantCount === 1 ? '' : 's'}`}
           </Text>
-          {/* The count alone cannot say whether any of them need you: nine
-              applicants you have already answered look identical to nine you
-              have not. */}
-          {job.newApplicantCount > 0 && (
-            <View
-              className="rounded-full px-1.5 py-0.5"
-              style={{ backgroundColor: '#B66A40' }}
-            >
-              <Text className="text-[10px] font-bold text-white">
+          {/* Only on a post still open: an ended one has nobody left to answer. */}
+          {live && job.newApplicantCount > 0 && (
+            <View className="rounded-full px-2 py-0.5 bg-action">
+              <Text className="text-action-foreground text-[11px] font-bold">
                 {job.newApplicantCount} new
               </Text>
             </View>
           )}
         </Pressable>
 
-        {/* The poster's controls were bare 12pt words, a few points tall —
-            easy to miss, and easy to hit the wrong one of. Each is a full
-            44pt target now. */}
-        {job.status === 'open' ? (
-          <View className="ml-auto flex-row items-center gap-1">
-            {/* Editing keeps the applications; deleting to fix a typo did not. */}
-            <Pressable
-              onPress={() => router.push(`/jobs/new?edit=${job.slug}`)}
-              accessibilityRole="button"
-              hitSlop={4}
-              className="min-h-11 justify-center px-2.5 active:opacity-60"
-            >
-              <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-                Edit
-              </Text>
-            </Pressable>
-            <Pressable
-              disabled={setStatus.isPending}
-              onPress={() => end('filled')}
-              accessibilityRole="button"
-              hitSlop={4}
-              className="min-h-11 justify-center px-2.5 active:opacity-60"
-            >
-              <Text className="text-muted-foreground text-[12px] font-semibold">
-                Mark filled
-              </Text>
-            </Pressable>
-            <Pressable
-              disabled={setStatus.isPending}
-              onPress={() => end('closed')}
-              accessibilityRole="button"
-              hitSlop={4}
-              className="min-h-11 justify-center px-2.5 active:opacity-60"
-            >
-              <Text className="text-muted-foreground text-[12px] font-semibold">
-                Close
-              </Text>
-            </Pressable>
-          </View>
-        ) : job.status !== 'expired' ? (
-          /* Reopening was never offered, so a misclicked "Mark filled" was
-             irreversible from the UI even though the API allows it. */
-          <Pressable
-            className="ml-auto min-h-11 justify-center px-2.5 active:opacity-60"
-            accessibilityRole="button"
-            hitSlop={4}
-            disabled={setStatus.isPending}
-            onPress={() =>
-              setStatus.mutate({ id: job.id, status: 'open' }, {
-                onError: (e: Error) => Alert.alert('Could not update', e.message),
-              })
-            }
-          >
-            <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-              Reopen
-            </Text>
-          </Pressable>
-        ) : null}
-
         <Pressable
-          hitSlop={8}
-          accessibilityLabel="Delete this post"
-          className={job.status === 'open' ? '' : 'ml-auto'}
-          onPress={destroy}
+          onPress={() => setMenuOpen(true)}
+          disabled={checking}
+          accessibilityRole="button"
+          accessibilityLabel={`Actions for ${job.title}`}
+          accessibilityState={{ busy: checking }}
+          className="ml-auto w-11 h-11 items-center justify-center rounded-full active:opacity-60"
         >
-          <TrashIcon size={15} color="#ef4444" />
+          {checking ? (
+            <ActivityIndicator size="small" color="#A85D35" />
+          ) : (
+            <EllipsisIcon size={18} className="text-muted-foreground" />
+          )}
         </Pressable>
       </View>
 
-      {open && <Applicants postId={job.id} />}
+      {open && <Applicants job={job} />}
+
+      <ActionSheet
+        visible={menuOpen}
+        title={job.title}
+        actions={actions}
+        onClose={() => setMenuOpen(false)}
+      />
     </View>
   );
 }
 
-function Applicants({ postId }: { postId: string }) {
-  const { applications, isLoading, loadFailed, refetch } = useApplicants(postId);
+function Applicants({ job }: { job: JobPost }) {
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
+  const { applications, isLoading, loadFailed, refetch } = useApplicants(job.id);
   const respond = useRespondToApplication();
   const [acting, setActing] = useState<string | null>(null);
   /** The applicant whose More menu is open. */
   const [safetyFor, setSafetyFor] = useState<JobApplication | null>(null);
 
-  if (isLoading) {
-    return <ActivityIndicator color="#B66A40" style={{ marginVertical: 12 }} />;
-  }
-
-  if (loadFailed) {
-    return <LoadFailed what="the applicants" onRetry={() => refetch()} compact />;
-  }
-
-  const answer = (id: string, status: 'shortlisted' | 'accepted' | 'declined') => {
+  /*
+   * Declines wait, with Undo. A decline tells somebody they were not chosen,
+   * and it went on one tap with no way back. Leaving the list sends any
+   * still waiting rather than dropping them.
+   */
+  const [declining, setDeclining] = useState<Record<string, true>>({});
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const send = (id: string, status: 'shortlisted' | 'accepted' | 'declined') => {
     setActing(id);
     respond.mutate({ id, status }, {
       onSuccess: (result) => {
@@ -439,141 +476,230 @@ function Applicants({ postId }: { postId: string }) {
           router.push(`/chat/${result.conversationId}`);
         }
       },
-      onError: (e: Error) => Alert.alert('Could not respond', e.message),
-      onSettled: () => setActing(null),
+      onError: (e) => Alert.alert("Couldn't answer them", jobError(e)),
+      onSettled: () => {
+        setActing(null);
+        setDeclining((current) => {
+          if (!current[id]) return current;
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+      },
+    });
+  };
+  useEffect(() => {
+    const pendingTimers = timers.current;
+    return () => {
+      // Sent now rather than lost.
+      pendingTimers.forEach((timer, id) => {
+        clearTimeout(timer);
+        respond.mutate({ id, status: 'declined' });
+      });
+      pendingTimers.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const decline = (id: string) => {
+    setDeclining((current) => ({ ...current, [id]: true }));
+    timers.current.set(
+      id,
+      setTimeout(() => {
+        timers.current.delete(id);
+        send(id, 'declined');
+      }, DECLINE_UNDO_MS),
+    );
+  };
+  const undo = (id: string) => {
+    const timer = timers.current.get(id);
+    if (timer) clearTimeout(timer);
+    timers.current.delete(id);
+    setDeclining((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
     });
   };
 
+  /*
+   * Accepting asks first, and says what it is agreeing to: Accept made a
+   * booking, a connection and a chat on one tap.
+   */
+  const accept = (app: JobApplication) => {
+    const rate = app.role ? roleBudgetLabel(job.roleBudgets, app.role) : budgetLabel(job.budgetMin, job.budgetMax);
+    const as = app.role ? ` as ${app.role}` : '';
+    Alert.alert(
+      `Hire ${app.personName}${as}?`,
+      [
+        rate ? `At ${rate}, which you can change on the booking.` : 'You set the rate on the booking.',
+        `This books them for “${job.title}”, connects you, and opens a chat with them.`,
+      ].join(' '),
+      [
+        { text: 'Not yet', style: 'cancel' },
+        { text: 'Hire', onPress: () => send(app.id, 'accepted') },
+      ],
+    );
+  };
+
+  if (isLoading) {
+    return <ActivityIndicator color={palette.primary} style={{ marginVertical: 12 }} />;
+  }
+
+  // An empty list read as "nobody applied" when the list had failed to load.
+  if (loadFailed && applications.length === 0) {
+    return <LoadFailed what="the applicants" onRetry={() => refetch()} compact />;
+  }
+
+  const live = job.status === 'open';
+
   return (
     <View className="gap-2 border-t border-border pt-3">
-      {applications.map((app) => (
-        <View key={app.id} className="bg-background rounded-xl p-3 gap-2">
-          <View className="flex-row items-start gap-2.5">
-            <RemoteImage
-              source={{ uri: app.personAvatarUrl ?? PLACEHOLDER_IMAGE }}
-              style={{ width: 30, height: 30, borderRadius: 15 }}
-            />
-            <View className="flex-1 min-w-0">
-              {app.personHandle ? (
-                <Pressable onPress={() => router.push(`/u/${app.personHandle}`)}>
-                  <Text className="text-[13px] font-semibold" style={{ color: '#B66A40' }}>
+      {applications.map((app) => {
+        const waitingOnYou = app.status !== 'accepted' && app.status !== 'declined';
+        // Booking a role twice is refused now; offering it was the bug.
+        const roleTaken = !!app.role && isRoleFilled(job, app.role);
+        const beingDeclined = !!declining[app.id];
+        return (
+          <View key={app.id} className="bg-background rounded-xl p-3 gap-2">
+            <View className="flex-row items-center gap-2.5">
+              <Pressable
+                onPress={app.personHandle ? () => router.push(`/u/${app.personHandle}`) : undefined}
+                disabled={!app.personHandle}
+                accessibilityRole={app.personHandle ? 'button' : undefined}
+                accessibilityLabel={app.personHandle ? `${app.personName}'s profile` : app.personName}
+                className="flex-1 min-w-0 min-h-[44px] flex-row items-center gap-2.5 active:opacity-70"
+              >
+                <RemoteImage
+                  source={{ uri: app.personAvatarUrl ?? PLACEHOLDER_IMAGE }}
+                  style={{ width: 36, height: 36, borderRadius: 18 }}
+                />
+                <View className="flex-1 min-w-0">
+                  <Text
+                    className={`text-[14px] font-semibold ${app.personHandle ? 'text-primary' : 'text-foreground'}`}
+                    numberOfLines={1}
+                  >
                     {app.personName}
                   </Text>
-                </Pressable>
-              ) : (
-                <Text className="text-foreground text-[13px] font-semibold">
-                  {app.personName}
+                  <Text className="text-muted-foreground text-[12px]" numberOfLines={1}>
+                    {app.personRoles.join(', ') || 'No roles listed'}
+                  </Text>
+                </View>
+              </Pressable>
+              {/* What they applied for, which on a post wanting three roles is
+                  the first thing you need. */}
+              {app.role && (
+                <View className="rounded-full px-2 py-0.5 border border-border">
+                  <Text className="text-muted-foreground text-[11px] font-bold">{app.role}</Text>
+                </View>
+              )}
+              {app.status !== 'new' && (
+                <Text
+                  className={`text-[11px] font-bold uppercase ${app.status === 'accepted' ? 'text-success' : 'text-muted-foreground'}`}
+                >
+                  {APPLICATION_LABEL[app.status] ?? app.status}
                 </Text>
               )}
-              <Text className="text-muted-foreground text-[11px]">
-                {app.personRoles.join(', ') || 'No roles listed'}
-              </Text>
-            </View>
-            {/* What they applied for, which on a post wanting three roles is
-                the first thing you need and used to be nowhere. */}
-            {app.role && (
-              <View
-                className="rounded-full px-2 py-0.5"
-                style={{ borderWidth: 1, borderColor: '#8884' }}
-              >
-                <Text className="text-muted-foreground text-[10px] font-bold">
-                  {app.role}
-                </Text>
-              </View>
-            )}
-            {app.status !== 'new' && (
-              <Text className="text-[10px] font-bold uppercase"
-                style={{ color: app.status === 'accepted' ? '#10b981' : '#9ca3af' }}>
-                {app.status}
-              </Text>
-            )}
-            {/* An applicant is usually a stranger, and the application is the
-                only thing on this screen that names them. */}
-            <Pressable
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={`More options for ${app.personName}`}
-              onPress={() => setSafetyFor(app)}
-            >
-              <EllipsisIcon size={16} className="text-muted-foreground" />
-            </Pressable>
-          </View>
-
-          {/*
-            Applications no longer carry a message. Older ones do, and those
-            are worth reading — so it renders when present, and the portfolio
-            stands in its place when it is not. The work is better evidence
-            than the paragraph was.
-          */}
-          {app.message ? (
-            <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
-          ) : app.personHandle ? (
-            <Pressable onPress={() => router.push(`/u/${app.personHandle}`)}>
-              <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-                See their work
-              </Text>
-            </Pressable>
-          ) : (
-            <Text className="text-muted-foreground text-[12px] leading-5">
-              They have not published a profile yet.
-            </Text>
-          )}
-
-          {app.status !== 'accepted' && app.status !== 'declined' && (
-            <View className="flex-row items-center gap-2">
+              {/* An applicant is usually a stranger, and the application is the
+                  only thing on this screen that names them. */}
               <Pressable
-                className="rounded-lg px-3 min-h-11 flex-row items-center gap-1.5"
-                style={{ backgroundColor: '#B66A40' }}
-                disabled={respond.isPending}
                 accessibilityRole="button"
-                onPress={() => answer(app.id, 'accepted')}
+                accessibilityLabel={`More options for ${app.personName}`}
+                onPress={() => setSafetyFor(app)}
+                className="w-11 h-11 -mr-2 items-center justify-center active:opacity-60"
               >
-                {acting === app.id
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <CheckIcon size={13} color="#fff" />}
-                <Text className="text-white text-[12px] font-bold">Accept</Text>
+                <EllipsisIcon size={16} className="text-muted-foreground" />
               </Pressable>
-              {app.status !== 'shortlisted' && (
+            </View>
+
+            {/* Older applications carry a message; newer ones lean on the
+                portfolio, which says more than the paragraph did. */}
+            {app.message ? (
+              <Text className="text-muted-foreground text-[13px] leading-5">{app.message}</Text>
+            ) : app.personHandle ? (
+              <Pressable
+                onPress={() => router.push(`/u/${app.personHandle}`)}
+                accessibilityRole="button"
+                className="self-start min-h-[44px] justify-center active:opacity-60"
+              >
+                <Text className="text-primary text-[13px] font-semibold">See their work</Text>
+              </Pressable>
+            ) : (
+              <Text className="text-muted-foreground text-[13px] leading-5">
+                They have not published a profile yet.
+              </Text>
+            )}
+
+            {waitingOnYou && beingDeclined ? (
+              <View className="flex-row items-center gap-2 rounded-lg bg-muted pl-3">
+                <Text className="flex-1 text-foreground text-[13px]">
+                  Declined. They will be told in a moment.
+                </Text>
                 <Pressable
-                  className="min-h-11 px-2.5 flex-row items-center gap-1.5 active:opacity-60"
+                  onPress={() => undo(app.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Undo declining ${app.personName}`}
+                  className="min-h-[44px] px-4 justify-center active:opacity-60"
+                >
+                  <Text className="text-primary text-[13px] font-bold">Undo</Text>
+                </Pressable>
+              </View>
+            ) : waitingOnYou ? (
+              <View className="flex-row items-center gap-2">
+                {/* A post that has ended takes no one on: only Decline, which
+                    answers them. Nor a role somebody already holds. */}
+                {live && !roleTaken && (
+                  <Pressable
+                    className="rounded-lg px-3.5 min-h-11 flex-row items-center gap-1.5 bg-action active:opacity-90"
+                    disabled={respond.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Hire ${app.personName}`}
+                    onPress={() => accept(app)}
+                  >
+                    {acting === app.id
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <CheckIcon size={14} className="text-action-foreground" />}
+                    <Text className="text-action-foreground text-[13px] font-bold">Accept</Text>
+                  </Pressable>
+                )}
+                {live && roleTaken && (
+                  <Text className="text-muted-foreground text-[12px]">
+                    {app.role} is booked. Cancel that booking to hire someone else.
+                  </Text>
+                )}
+                {live && !roleTaken && app.status !== 'shortlisted' && (
+                  <Pressable
+                    className="min-h-11 px-2.5 flex-row items-center gap-1.5 active:opacity-60"
+                    disabled={respond.isPending}
+                    accessibilityRole="button"
+                    onPress={() => send(app.id, 'shortlisted')}
+                  >
+                    <StarIcon size={14} className="text-muted-foreground" />
+                    <Text className="text-foreground text-[13px] font-semibold">Shortlist</Text>
+                  </Pressable>
+                )}
+                <Pressable
+                  className="min-h-11 px-2.5 flex-row items-center gap-1.5 ml-auto active:opacity-60"
                   disabled={respond.isPending}
                   accessibilityRole="button"
-                  onPress={() => answer(app.id, 'shortlisted')}
+                  accessibilityLabel={`Decline ${app.personName}`}
+                  onPress={() => decline(app.id)}
                 >
-                  <StarIcon size={13} className="text-muted-foreground" />
-                  <Text className="text-muted-foreground text-[12px] font-semibold">Shortlist</Text>
+                  <XIcon size={14} className="text-muted-foreground" />
+                  <Text className="text-foreground text-[13px]">Decline</Text>
                 </Pressable>
-              )}
-              <Pressable
-                className="min-h-11 px-2.5 flex-row items-center gap-1.5 ml-auto active:opacity-60"
-                disabled={respond.isPending}
-                accessibilityRole="button"
-                onPress={() => answer(app.id, 'declined')}
-              >
-                <XIcon size={13} className="text-muted-foreground" />
-                <Text className="text-muted-foreground text-[12px]">Decline</Text>
-              </Pressable>
-            </View>
-          )}
+              </View>
+            ) : null}
 
-          {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
-          {app.status === 'accepted' && app.conversationId && (
-            <Pressable
-              className="flex-row items-center gap-1.5"
-              onPress={() => router.push(`/chat/${app.conversationId}`)}
-            >
-              <MessageCircleIcon size={13} color="#B66A40" />
-              <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-                Open chat
-              </Text>
-            </Pressable>
-          )}
-        </View>
-      ))}
+            {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
+            {app.status === 'accepted' && app.conversationId && (
+              <OpenChat conversationId={app.conversationId} />
+            )}
+          </View>
+        );
+      })}
 
-      {/* By application: the row carries no account id. A block declines the
-          application if it was still waiting, and the refreshed list drops it.
-          Its sheets are modals, so they take no room in this column. */}
+      {/* By application: the row carries no account id. */}
       <PersonSafetySheet
         visible={!!safetyFor}
         onClose={() => setSafetyFor(null)}
@@ -585,12 +711,25 @@ function Applicants({ postId }: { postId: string }) {
   );
 }
 
+function OpenChat({ conversationId }: { conversationId: string }) {
+  return (
+    <Pressable
+      className="self-start min-h-[44px] flex-row items-center gap-1.5 active:opacity-60"
+      onPress={() => router.push(`/chat/${conversationId}`)}
+      accessibilityRole="button"
+    >
+      <MessageCircleIcon size={15} className="text-primary" />
+      <Text className="text-primary text-[13px] font-semibold">Open chat</Text>
+    </Pressable>
+  );
+}
+
 function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => void }) {
   const onScroll = useChromeScroll();
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { applications, isLoading, loadFailed, refetch } = useMyApplications();
   const withdraw = useWithdrawApplication();
-  // Every other tab pulls to refresh; this one did not, which reads as broken
-  // on the screen most likely to be checked repeatedly for an answer.
   const [refreshing, setRefreshing] = useState(false);
 
   const confirmWithdraw = (app: JobApplication) =>
@@ -605,8 +744,8 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
           onPress: () => {
             // mutateAsync, not per-call callbacks: those are dropped if the
             // tab unmounts before the answer lands, and a failure would vanish.
-            withdraw.mutateAsync(app.id).catch((e: Error) =>
-              Alert.alert('Could not withdraw it', e.message),
+            withdraw.mutateAsync(app.id).catch((e) =>
+              Alert.alert("Couldn't withdraw it", jobError(e)),
             );
           },
         },
@@ -619,14 +758,10 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
     setRefreshing(false);
   };
 
-  if (isLoading && applications.length === 0) {
-    return <CardListSkeleton count={3} />;
-  }
-
+  if (isLoading && applications.length === 0) return <CardListSkeleton count={3} />;
   if (loadFailed && applications.length === 0) {
     return <LoadFailed what="your applications" onRetry={() => refetch()} />;
   }
-
   if (applications.length === 0) {
     return (
       <Empty
@@ -644,63 +779,57 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
       scrollEventThrottle={16}
       contentContainerStyle={{ padding: 20, paddingBottom: bottom, gap: 10 }}
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor="#B66A40"
-        />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />
       }
     >
       {applications.map((app) => {
         /*
-         * An application nobody answered outlives its post. It went on saying
-         * "Applied" after the post expired, closed or filled, and tapping it
-         * opened a post that was no longer there — "Job not found". What
-         * happened to the post is the answer, so it is what the row says, and
-         * a post that is gone is not offered as a link.
+         * What happened to the post is the answer once it has ended, so it is
+         * what the row says. The status comes from the server as everybody
+         * sees it — a post past its date reads ended, not open — so a Withdraw
+         * is no longer offered on a post that would not open. A post you were
+         * hired on always opens.
          */
         const postGone = app.postStatus !== 'open';
         const unanswered = app.status === 'new' || app.status === 'shortlisted';
         const label =
           postGone && unanswered ? POST_ENDED_LABEL[app.postStatus] : APPLICATION_LABEL[app.status];
+        const opens = app.status === 'accepted' || !postGone;
         return (
           <View key={app.id} className="bg-card rounded-2xl p-4 gap-2">
             <View className="flex-row items-start gap-3">
               <Pressable
-                className="flex-1 min-w-0"
-                disabled={postGone && unanswered}
+                className="flex-1 min-w-0 active:opacity-70"
+                disabled={!opens}
+                accessibilityRole={opens ? 'button' : undefined}
                 onPress={() => router.push(`/jobs/${app.postSlug}`)}
               >
-                <Text className="text-foreground text-[14px] font-bold leading-snug">
-                  {app.postTitle}
-                </Text>
-                <Text className="text-muted-foreground text-[11px] mt-0.5">
-                  {/* Which role, since applying to a post that wanted three of
-                      them was otherwise unrecorded on your own side. */}
+                <Text className="text-foreground text-[15px] font-bold leading-snug">{app.postTitle}</Text>
+                <Text className="text-muted-foreground text-[12px] mt-0.5">
                   {[app.role, `Applied ${new Date(app.createdAt).toLocaleDateString()}`]
                     .filter(Boolean)
                     .join(' · ')}
                 </Text>
               </Pressable>
-              <Text className="text-[10px] font-bold uppercase"
-                style={{ color: app.status === 'accepted' ? '#10b981' : '#9ca3af' }}>
+              <Text
+                className={`text-[11px] font-bold uppercase ${app.status === 'accepted' ? 'text-success' : 'text-muted-foreground'}`}
+              >
                 {label}
               </Text>
             </View>
 
             {app.message && (
-              <Text className="text-muted-foreground text-[12px] leading-5">{app.message}</Text>
+              <Text className="text-muted-foreground text-[13px] leading-5">{app.message}</Text>
             )}
 
             {unanswered && !postGone && (
               <Pressable
-                className="self-start py-1"
-                hitSlop={8}
+                className="self-start min-h-[44px] px-4 rounded-xl border border-border justify-center active:opacity-70"
                 accessibilityRole="button"
                 disabled={withdraw.isPending && withdraw.variables === app.id}
                 onPress={() => confirmWithdraw(app)}
               >
-                <Text className="text-muted-foreground text-[12px] font-semibold">
+                <Text className="text-foreground text-[13px] font-semibold">
                   {withdraw.isPending && withdraw.variables === app.id ? 'Withdrawing…' : 'Withdraw'}
                 </Text>
               </Pressable>
@@ -708,15 +837,7 @@ function MyApplications({ bottom, onBrowse }: { bottom: number; onBrowse: () => 
 
             {app.status === 'accepted' && <BookingLink applicationId={app.id} />}
             {app.status === 'accepted' && app.conversationId && (
-              <Pressable
-                className="flex-row items-center gap-1.5"
-                onPress={() => router.push(`/chat/${app.conversationId}`)}
-              >
-                <MessageCircleIcon size={13} color="#B66A40" />
-                <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-                  Open chat
-                </Text>
-              </Pressable>
+              <OpenChat conversationId={app.conversationId} />
             )}
           </View>
         );
@@ -730,7 +851,7 @@ const POST_ENDED_LABEL: Record<string, string> = {
   open: 'Applied',
   filled: 'Post filled',
   closed: 'Post closed',
-  expired: 'Post expired',
+  expired: 'Post ended',
 };
 
 function Empty({

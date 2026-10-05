@@ -683,6 +683,8 @@ export interface NotificationPayload {
   workspaceId?: string;
   fromUserId?: string;
   bookingId?: string;
+  /** For 'job_application': the post it is on, opened with its applicants. */
+  postId?: string;
   /** For 'support_reply': the request that was answered. */
   ticketId?: string;
   /** A reward; sent with no type at all. */

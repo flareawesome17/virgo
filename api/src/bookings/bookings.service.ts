@@ -319,6 +319,10 @@ export class BookingsService {
     if (patch.rateMinor != null && patch.rateMinor < 0) {
       throw new BadRequestException('A rate cannot be negative');
     }
+    // The most a role can be posted at. Past an int it was a server error.
+    if (patch.rateMinor != null && patch.rateMinor > 50_000_000) {
+      throw new BadRequestException('A rate can be at most ₱500,000');
+    }
 
     await this.db.query(
       `update job_bookings

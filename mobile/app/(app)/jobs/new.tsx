@@ -1,11 +1,13 @@
 import {
-  View, Text, ScrollView, Pressable, TextInput, Alert,
+  View, Text, ScrollView, Pressable, TextInput, Alert, Share,
   ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PALETTES } from '@/theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { InsetFrame } from '@/components/InsetFrame';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { useCreateJob, useJob, useRoles, useUpdateJob } from '@/src/hooks';
+import { useCreateJob, useJob, useRoles, useTheme, useUpdateJob } from '@/src/hooks';
 import { DetailFallback } from '@/components/DetailFallback';
 import { SendIcon } from 'lucide-react-native';
 import { FormHeader } from '@/components/FormHeader';
@@ -60,6 +62,8 @@ export default function NewJobScreen() {
     refetch: refetchRoles,
   } = useRoles();
 
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [rolesWanted, setRolesWanted] = useState<string[]>([]);
@@ -156,7 +160,7 @@ export default function NewJobScreen() {
         },
         {
           onSuccess: () => router.back(),
-          onError: (error: Error) => Alert.alert('Could not save', error.message),
+          onError: (error: Error) => Alert.alert("Couldn't save it", error.message),
         },
       );
       return;
@@ -172,11 +176,21 @@ export default function NewJobScreen() {
         location: location.trim() || undefined,
       },
       {
-        onSuccess: () => {
-          Alert.alert('Your job is live', 'People who do this work can find it now.');
-          router.replace('/jobs/mine');
+        // Onto the post itself, which is what people will see — not a second
+        // copy of the Jobs tab — with the one thing worth doing next.
+        onSuccess: (post) => {
+          router.replace(`/jobs/${post.slug}`);
+          Alert.alert('Your job is live', 'People who do this work can find it now. Share it to reach more of them.', [
+            { text: 'Not now', style: 'cancel' },
+            {
+              text: 'Share',
+              onPress: () =>
+                void Share.share({ message: `${post.title} — https://virgo.ph/jobs/${post.slug}` })
+                  .catch(() => undefined),
+            },
+          ]);
         },
-        onError: (error: Error) => Alert.alert('Could not post', error.message),
+        onError: (error: Error) => Alert.alert("Couldn't post it", error.message),
       },
     );
   };
@@ -195,7 +209,7 @@ export default function NewJobScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={['top']}>
+    <InsetFrame>
       <FormHeader title={isEdit ? 'Edit job' : 'Post a job'} />
 
       <KeyboardAvoidingView
@@ -238,7 +252,7 @@ export default function NewJobScreen() {
             {rolesFailed && allRoles.length === 0 ? (
               <LoadFailed what="the list of roles" onRetry={() => void refetchRoles()} compact />
             ) : rolesLoading && allRoles.length === 0 ? (
-              <ActivityIndicator color="#B66A40" style={{ paddingVertical: 12 }} />
+              <ActivityIndicator color={palette.primary} style={{ paddingVertical: 12 }} />
             ) : null}
             <View className="flex-row flex-wrap gap-2">
               {allRoles.map((role) => {
@@ -251,15 +265,11 @@ export default function NewJobScreen() {
                         on ? current.filter((r) => r !== role) : [...current, role],
                       )
                     }
-                    className="rounded-full px-3.5 py-2"
-                    style={{
-                      backgroundColor: on ? '#B66A40' : 'transparent',
-                      borderWidth: 1,
-                      borderColor: on ? '#B66A40' : '#B66A4055',
-                    }}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    className={`rounded-full px-4 min-h-[44px] justify-center border ${on ? 'bg-primary border-primary' : 'border-primary/40'}`}
                   >
-                    <Text className="text-[12px] font-semibold"
-                      style={{ color: on ? '#fff' : '#B66A40' }}>
+                    <Text className={`text-[13px] font-semibold ${on ? 'text-primary-foreground' : 'text-primary'}`}>
                       {role}
                     </Text>
                   </Pressable>
@@ -326,8 +336,7 @@ export default function NewJobScreen() {
                 </View>
               ))}
               <Text
-                className="text-[11px]"
-                style={{ color: budgetBackwards || budgetTooHigh ? '#ef4444' : '#9ca3af' }}
+                className={`text-[12px] ${budgetBackwards || budgetTooHigh ? 'text-destructive' : 'text-muted-foreground'}`}
               >
                 {budgetBackwards
                   ? 'The lower figure needs to be the smaller one.'
@@ -358,15 +367,17 @@ export default function NewJobScreen() {
           </Field>
 
           <Pressable
-            className="rounded-2xl py-4 flex-row items-center justify-center gap-2"
-            style={{ backgroundColor: '#B66A40', opacity: !ready || saving ? 0.4 : 1 }}
+            className="rounded-2xl min-h-[52px] flex-row items-center justify-center gap-2 bg-action"
+            style={{ opacity: !ready || saving ? 0.45 : 1 }}
             disabled={!ready || saving}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !ready || saving, busy: saving }}
             onPress={submit}
           >
             {saving
               ? <ActivityIndicator size="small" color="#fff" />
-              : <SendIcon size={16} color="#fff" />}
-            <Text className="text-white text-[15px] font-bold">
+              : <SendIcon size={16} className="text-action-foreground" />}
+            <Text className="text-action-foreground text-[15px] font-bold">
               {isEdit ? 'Save changes' : 'Post it'}
             </Text>
           </Pressable>
@@ -378,7 +389,7 @@ export default function NewJobScreen() {
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }
 
