@@ -321,6 +321,20 @@ fn start_server(resources: PathBuf) -> Result<u16, String> {
     let port = APP_PORT;
 
     let mut command = Command::new(&node);
+
+    // Before server.js, so it is in place when Next names its process: on
+    // macOS that name checks the server in with Launch Services as an app of
+    // its own, and a "node" tile appeared in the Dock beside Virgo. The file
+    // is staged beside server.js; a build staged before it existed starts
+    // without it, as it always did.
+    #[cfg(target_os = "macos")]
+    {
+        let keep_title = resources.join("keep-process-title.cjs");
+        if keep_title.is_file() {
+            command.arg("--require").arg(&keep_title);
+        }
+    }
+
     command
         .arg(&server_js)
         // `current_dir` matters: Next resolves `.next/static` and `public`

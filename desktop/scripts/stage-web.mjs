@@ -169,6 +169,13 @@ mkdirSync(RESOURCES, { recursive: true });
 // server.js, its package.json, and the traced subset of node_modules.
 cpSync(standalone, RESOURCES, { recursive: true });
 
+// Required ahead of server.js on macOS, where Next naming its process put a
+// second "node" app in the Dock. See the file for why.
+copyFileSync(
+  join(desktop, 'scripts', 'keep-process-title.cjs'),
+  join(RESOURCES, 'keep-process-title.cjs'),
+);
+
 // sharp is traced in for next/image, which the desktop build switches off
 // (web/next.config.ts). Left in, its native binaries would be unsigned code in
 // a notarised app, and the runner's arm64 copies in the Intel one.
