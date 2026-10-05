@@ -382,8 +382,9 @@ function Flyer({ i, progress }: { i: number; progress: MotionValue<number> }) {
     const e = camera(seg(p, a, a + FLIGHT));
     const s = wideNow() ? src.d : src.m;
     const dx = (s.cx - (col + 0.5)) * (1 - e) * 100;
-    const dy = (s.cy - (row + 0.5)) * (1 - e) * 100 - Math.sin(Math.PI * e) * 45;
-    const sc = lerp(0.3, 1, e) + Math.sin(Math.PI * e) * 0.12;
+    // A straight glide into place, growing to its size and no further (the arc and the overshoot read as a bounce).
+    const dy = (s.cy - (row + 0.5)) * (1 - e) * 100;
+    const sc = lerp(0.3, 1, e);
     return `translate3d(${r2(dx)}%,${r2(dy)}%,0) scale(${r2(sc)})`;
   });
   const opacity = useTransform(progress, (p) => {

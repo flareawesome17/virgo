@@ -111,6 +111,13 @@ Owner, 2026-10-05, after an iPhone audit: "those frames are shaky… it makes my
 - **No idle float, and no rotating light.** The rays at Saturday's sunrise and behind the closing logo never turn: fine stripes turning with the scroll strobe. The dot matrix holds still.
 - **Progress against the small viewport.** Scroll progress is computed against 100svh, not innerHeight: on an iPhone innerHeight changes by the address bar every time it slides, and every scene lurched a few per cent at each change of direction. The sky and the cuts ignore those height-only resizes too.
 - **The credits move one way.** On phones the names only fade; the roll is the one movement.
+- **Still, not springy** (a second iPhone audit, the same day: the cards still bounced as the page scrolled). On phones:
+  - the progress follows the finger exactly, with no spring: the pinned stage moves with the finger, and sprung cards trailed it and seemed to bounce against it;
+  - the camera only dollies (scale), with no drift up and down between keys;
+  - items and subtitles fade in place instead of rising;
+  - no dust, no light sweeps, no drifting haze, and no ambient loops, which is also fewer layers in memory;
+  - a push through glass stops at 2× (`PHONE_PUSH`), where desktop goes to 4–8×.
+- **Removed on every screen** (bounces by design): Ch3's tools wobbling on a sine of the scroll and popping on Accept; Ch5's frames arcing in and overshooting their size. Ch1's Post it press stays on desktop only.
 - **One logo at the close.** The flash's logo glides up and shrinks into its place above "Start your journey now." The last screen keeps an empty slot for it, so there are never two.
 
 ## 3. The script (final copy)

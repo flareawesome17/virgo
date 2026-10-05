@@ -53,6 +53,8 @@ export function Particles({
       warm: rnd() > 0.4,
     }));
   }, [count, seed]);
+  // Phones: no dust. It is motion for its own sake, and a layer per mote.
+  if (steady()) return null;
   return (
     <div aria-hidden className={`pointer-events-none absolute inset-0 z-20 overflow-hidden ${className}`}>
       {motes.map((mote, i) => (
@@ -88,6 +90,8 @@ function MoteDot({ progress, push, mote }: { progress: MotionValue<number>; push
 export function LightSweep({ progress, from, to, warm = true }: { progress: MotionValue<number>; from: number; to: number; warm?: boolean }) {
   const transform = useTransform(progress, (p) => `translate3d(${r2(lerp(-120, 120, camera(seg(p, from, to))))}%,0,0) rotate(18deg)`);
   const opacity = useTransform(progress, (p) => r2(window4(p, from, from + (to - from) * 0.2, to - (to - from) * 0.2, to) * 0.55));
+  // Phones: no sweep (a band crossing the screen as it scrolls, and a layer twice its height).
+  if (steady()) return null;
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
       <m.div
@@ -101,7 +105,8 @@ export function LightSweep({ progress, from, to, warm = true }: { progress: Moti
 /** A lens flare at (x%, y%) that blooms over [from, to]. */
 export function Flare({ progress, from, to, x = 50, y = 40, size = 520 }: { progress: MotionValue<number>; from: number; to: number; x?: number; y?: number; size?: number }) {
   const opacity = useTransform(progress, (p) => r2(window4(p, from, from + (to - from) * 0.3, to - (to - from) * 0.4, to) * 0.7));
-  const transform = useTransform(progress, (p) => `translate3d(-50%,-50%,0) scale(${r2(lerp(0.6, 1.15, seg(p, from, to)))})`);
+  // Phones: the light comes and goes without growing.
+  const transform = useTransform(progress, (p) => `translate3d(-50%,-50%,0) scale(${steady() ? 1 : r2(lerp(0.6, 1.15, seg(p, from, to)))})`);
   return (
     <m.div
       aria-hidden
@@ -124,11 +129,16 @@ export function useCamera(progress: MotionValue<number>, keys: readonly { at: nu
     const y = lerp(a.y ?? 0, b.y ?? 0, t);
     const rx = lerp(a.rx ?? 0, b.rx ?? 0, t);
     const ry = lerp(a.ry ?? 0, b.ry ?? 0, t);
-    // Phones: the same dolly, flat (motion.tsx steady()).
-    if (steady()) return `translate3d(${r2(x)}vw,${r2(y)}vh,0) scale(${r2(s)})`;
+    // Phones: the dolly alone, flat and level (motion.tsx steady()): the drift up and down between keys read as
+    // bobbing. A push through glass stops at PHONE_PUSH; the shot fades as it goes, and past that a phone redraws
+    // the whole layer at several times the screen, which is memory it does not have.
+    if (steady()) return `scale(${r2(Math.min(s, PHONE_PUSH))})`;
     return `perspective(1200px) translate3d(${r2(x)}vw,${r2(y)}vh,0) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg) scale(${r2(s)})`;
   });
 }
+
+/** The furthest a camera pushes in on a phone (see useCamera). */
+export const PHONE_PUSH = 2;
 
 /**
  * A layer's 3D turn: perspective, then rotateX and rotateY. None on phones
@@ -139,19 +149,19 @@ export function turn(rx: number, ry: number, perspective = 1200): string {
 }
 
 /**
- * A layer placed in depth: lifted by `y` (a CSS length), at depth `z` px
- * (negative is away), turned `rx`/`ry`, scaled `s`, through `perspective`.
- * On phones (steady) it is flat: the depth becomes the scale it would show
- * (capped, so a card passing the camera never grows a layer far past the
- * screen) and the turn is dropped, so it still flies in from far, without
- * the shimmer.
+ * A layer placed in depth: moved by `x` and `y` (CSS lengths), at depth `z`
+ * px (negative is away), turned `rx`/`ry`, scaled `s`, through
+ * `perspective`. On phones (steady) it is flat: the depth becomes the scale
+ * it would show (capped at PHONE_PUSH, so a card passing the camera never
+ * grows a layer far past the screen) and the turn is dropped, so it still
+ * flies in from far, without the shimmer.
  */
-export function place3d(perspective: number, y: string, z: number, rx: number, ry: number, s = 1): string {
+export function place3d(perspective: number, y: string, z: number, rx: number, ry: number, s = 1, x = '0px'): string {
   if (steady()) {
-    const k = Math.min(3, perspective / Math.max(1, perspective - z));
-    return `translate3d(0,${y},0) scale(${r2(s * k)})`;
+    const k = perspective / Math.max(1, perspective - z);
+    return `translate3d(${x},${y},0) scale(${r2(Math.min(PHONE_PUSH, s * k))})`;
   }
-  return `perspective(${perspective}px) translate3d(0,${y},${r2(z)}px) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg) scale(${r2(s)})`;
+  return `perspective(${perspective}px) translate3d(${x},${y},${r2(z)}px) rotateX(${r2(rx)}deg) rotateY(${r2(ry)}deg) scale(${r2(s)})`;
 }
 
 /**
@@ -162,6 +172,8 @@ export function place3d(perspective: number, y: string, z: number, rx: number, r
 export function useReveal(progress: MotionValue<number>, a: number, b: number, c: number, d: number, { y = 24, scale = 0.96 } = {}) {
   const opacity = useTransform(progress, (p) => r2(window4(p, a, b, c, d)));
   const transform = useTransform(progress, (p) => {
+    // Phones: items fade in place. Rising and settling as the page scrolls read as bouncing.
+    if (steady()) return 'none';
     const i = enter(seg(p, a, b));
     const o = seg(p, c, d);
     return `translate3d(0,${r2((1 - i) * y - o * o * o * y)}px,0) scale(${r2(scale + (1 - scale) * i)})`;
