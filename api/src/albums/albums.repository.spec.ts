@@ -59,6 +59,7 @@ function album(id: string, coverKey: string | null = null): AlbumRow {
     item_count: 0,
     status: 'draft',
     retention_days: null,
+    retention_until: null,
     created_at: new Date('2026-09-01T00:00:00Z'),
     updated_at: new Date('2026-09-01T00:00:00Z'),
   };

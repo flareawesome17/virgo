@@ -87,6 +87,12 @@ export interface Album {
   my_access?: 'owner' | 'view' | 'download' | 'upload' | 'manage' | null;
   status: AlbumStatus;
   retention_days: number | null;
+  /**
+   * The last day the files are kept, YYYY-MM-DD, when the album keeps them
+   * until a date rather than for a number of days. Optional: albums saved on
+   * a device before the field existed have none.
+   */
+  retention_until?: string | null;
   created_at: string;
   updated_at: string;
 }

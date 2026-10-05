@@ -17,6 +17,7 @@ import {
   Loader2,
   MoreHorizontal,
   Plus,
+  ShieldCheck,
   Trash2,
   Upload,
   X,
@@ -51,6 +52,7 @@ import { MediaViewer } from '@/components/media/media-viewer';
 import { useVideoPlayback } from '@/components/media/video-playback';
 import { AlbumAudioPlayer } from '@/components/media/album-audio-player';
 import { ShareDialog } from '@/components/media/share-dialog';
+import { RetentionDialog } from '@/components/media/retention-dialog';
 import { AlbumGrid, type Density } from '@/components/media/album-grid';
 import { AlbumSections, NameDialog, type SectionFilter } from '@/components/media/album-sections';
 import { useAlbum, useDeleteAlbum, useUpdateAlbum } from '@/hooks/useAlbums';
@@ -59,7 +61,14 @@ import { useAlbumSections, useAssignSection, useCreateSection } from '@/hooks/us
 import { useDeleteFiles, useSelection } from '@/hooks/useMediaSelection';
 import { useAuth } from '@/hooks/useAuth';
 import { useWorkspace } from '@/hooks/useWorkspaces';
-import { kindOf, storageApi, type AlbumStatus, type StoredFile } from '@/api';
+import {
+  kindOf,
+  retentionBadge,
+  retentionOf,
+  storageApi,
+  type AlbumStatus,
+  type StoredFile,
+} from '@/api';
 import { cn } from '@/lib/utils';
 
 type KindFilter = 'all' | 'image' | 'video' | 'audio';
@@ -157,6 +166,7 @@ function AlbumWorkspace() {
 
   const [viewerKey, setViewerKey] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [keeping, setKeeping] = useState(false);
   const [confirmingAlbumDelete, setConfirmingAlbumDelete] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState<string[] | null>(null);
   const [namingForMove, setNamingForMove] = useState(false);
@@ -362,6 +372,24 @@ function AlbumWorkspace() {
                       .filter(Boolean)
                       .join(' · ') || 'Empty'}
                   </span>
+                  {album && retentionBadge(retentionOf(album)) && (
+                    isOwner ? (
+                      <button
+                        type="button"
+                        onClick={() => setKeeping(true)}
+                        title="Change how long the files are kept"
+                        className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 font-medium hover:bg-muted hover:text-foreground"
+                      >
+                        <ShieldCheck className="size-3.5" aria-hidden />
+                        {retentionBadge(retentionOf(album))}
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5">
+                        <ShieldCheck className="size-3.5" aria-hidden />
+                        {retentionBadge(retentionOf(album))}
+                      </span>
+                    )
+                  )}
                   {sectionsQuery.picked > 0 && (
                     <button
                       type="button"
@@ -432,6 +460,11 @@ function AlbumWorkspace() {
                           </DropdownMenuRadioItem>
                         ))}
                       </DropdownMenuRadioGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => setKeeping(true)}>
+                        <ShieldCheck className="size-4" />
+                        Keep the files…
+                      </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem variant="destructive" onSelect={() => setConfirmingAlbumDelete(true)}>
                         <Trash2 className="size-4" />
@@ -675,6 +708,7 @@ function AlbumWorkspace() {
       )}
 
       <ShareDialog albumId={id} albumName={album?.name ?? 'this album'} open={sharing} onOpenChange={setSharing} />
+      {album && isOwner && <RetentionDialog album={album} open={keeping} onOpenChange={setKeeping} />}
 
       <NameDialog
         open={namingForMove}

@@ -72,6 +72,8 @@ import {
 import {
   albumShareApi,
   ApiError,
+  retentionBadge,
+  retentionOf,
   type ShareMediaKind,
   type StoredFile,
   type StoredMediaKind,
@@ -636,6 +638,8 @@ export default function AlbumScreen() {
       },
     },
     { label: 'Set status', onPress: () => setStatusOpen(true) },
+    // It could only be chosen once, when the album was made.
+    { label: 'Keep the files…', onPress: () => router.push(`/albums/${albumId}/retention`) },
     { label: 'Delete album', destructive: true, onPress: confirmDeleteAlbum },
   ];
 
@@ -819,13 +823,21 @@ export default function AlbumScreen() {
             <View className={`px-2 py-1 rounded-md ${status.className}`}>
               <Text className={`text-[11px] font-bold uppercase tracking-wide ${status.text}`}>{status.label}</Text>
             </View>
-            {album.retention_days ? (
-              <View className="px-2 py-1 rounded-md bg-muted flex-row items-center gap-1">
+            {/* Days or a date, and the owner's way in to change it. */}
+            {retentionBadge(retentionOf(album)) ? (
+              <Pressable
+                onPress={isOwner ? () => router.push(`/albums/${albumId}/retention`) : undefined}
+                disabled={!isOwner}
+                accessibilityRole={isOwner ? 'button' : 'text'}
+                accessibilityHint={isOwner ? 'Change how long the files are kept' : undefined}
+                hitSlop={8}
+                className="px-2 py-1 rounded-md bg-muted flex-row items-center gap-1 active:opacity-70"
+              >
                 <ShieldIcon size={11} className="text-muted-foreground" />
                 <Text className="text-muted-foreground text-[11px] font-semibold">
-                  Files deleted {album.retention_days} days after upload
+                  {retentionBadge(retentionOf(album))}
                 </Text>
-              </View>
+              </Pressable>
             ) : null}
             <Text className="text-muted-foreground text-xs">
               {[

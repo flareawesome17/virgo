@@ -4,11 +4,19 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
+  Max,
   MaxLength,
   Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
+
+/** Ten years. Longer than any contract, short enough to catch a typo. */
+export const MAX_RETENTION_DAYS = 3650;
+
+/** `YYYY-MM-DD`. Whether it is a real day, and a future one, is the service's. */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 import { ListQueryDto } from '../../common/dto/list-query.dto';
 
 const STATUSES = ['draft', 'review', 'delivered'] as const;
@@ -61,10 +69,19 @@ export class CreateAlbumDto {
   @IsIn(STATUSES)
   status?: (typeof STATUSES)[number];
 
+  /** Days after each upload. Null keeps the files until they are deleted. */
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsInt()
   @Min(0)
-  retention_days?: number;
+  @Max(MAX_RETENTION_DAYS)
+  retention_days?: number | null;
+
+  /** Or the last day the files are kept, in Manila. Null for none. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Matches(DATE_ONLY, { message: 'retention_until must be a date, YYYY-MM-DD' })
+  retention_until?: string | null;
 }
 
 export class UpdateAlbumDto {
@@ -103,10 +120,19 @@ export class UpdateAlbumDto {
   @IsIn(STATUSES)
   status?: (typeof STATUSES)[number];
 
+  /** Days after each upload. Null keeps the files until they are deleted. */
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsInt()
   @Min(0)
-  retention_days?: number;
+  @Max(MAX_RETENTION_DAYS)
+  retention_days?: number | null;
+
+  /** Or the last day the files are kept, in Manila. Null for none. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Matches(DATE_ONLY, { message: 'retention_until must be a date, YYYY-MM-DD' })
+  retention_until?: string | null;
 }
 
 export class ListAlbumsDto extends ListQueryDto {

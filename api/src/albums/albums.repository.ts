@@ -55,6 +55,8 @@ export interface AlbumRow {
   my_access?: ResolvedAccess;
   status: AlbumStatus;
   retention_days: number | null;
+  /** The last day the files are kept, `YYYY-MM-DD`. Exclusive with retention_days. */
+  retention_until: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -75,6 +77,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     'cover_key',
     'status',
     'retention_days',
+    'retention_until',
   ];
 
   protected readonly filterableColumns = ['workspace_id', 'status'];

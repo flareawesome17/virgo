@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DatabaseService } from '../database/database.service';
 import { NotifyService } from '../notifications/notify.service';
+import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
 import { StorageService } from '../storage/storage.service';
 
 interface ExpiringFile {
@@ -23,6 +24,10 @@ interface ExpiringFile {
  * The window is measured from when each file was uploaded, not from when the
  * album was made. An album worked on over three weeks should not have its last
  * upload deleted on the same day as its first.
+ *
+ * Or an album is kept until a date (`retention_until`, in Manila): every file
+ * stays through that day and goes in the first sweep after it, whenever it
+ * was uploaded.
  *
  * Deliberately quiet about *what* it removed beyond a count: this runs
  * unattended, and a log line naming a client's files is a log line that
@@ -78,13 +83,16 @@ export class AlbumRetentionService {
       `select a.user_id as owner_id, f.album_id, a.name as album_name, f.key
          from user_files f
          join albums a on a.id = f.album_id
-        where a.retention_days is not null
-          -- 0 would mean "delete immediately", which is a mis-set value rather
-          -- than an intent. Treated as off.
-          and a.retention_days > 0
-          and f.created_at < now() - make_interval(days => a.retention_days)
+        where (a.retention_days is not null
+                -- 0 would mean "delete immediately", which is a mis-set value
+                -- rather than an intent. Treated as off.
+                and a.retention_days > 0
+                and f.created_at < now() - make_interval(days => a.retention_days))
+           -- Kept through the day itself, in Manila, whatever the server's zone.
+           or (a.retention_until is not null
+               and a.retention_until < (now() at time zone $1)::date)
         limit 5000`,
-      [],
+      [MEDIA_LOCAL_ZONE],
     );
 
     if (expiring.length === 0) return { albums: 0, deleted: 0, failed: 0 };
@@ -162,15 +170,20 @@ export class AlbumRetentionService {
     return this.db.query(
       `select a.id as album_id, a.name as album_name,
               count(*)::int as files,
-              min(f.created_at + make_interval(days => a.retention_days)) as next_deletion
+              min(case
+                    when a.retention_until is not null
+                      -- The first moment after the last day, in Manila.
+                      then ((a.retention_until + 1)::timestamp at time zone $2)
+                    else f.created_at + make_interval(days => a.retention_days)
+                  end) as next_deletion
          from user_files f
          join albums a on a.id = f.album_id
         where a.user_id = $1
-          and a.retention_days is not null
-          and a.retention_days > 0
+          and ((a.retention_days is not null and a.retention_days > 0)
+               or a.retention_until is not null)
         group by a.id, a.name
         order by next_deletion`,
-      [userId],
+      [userId, MEDIA_LOCAL_ZONE],
     );
   }
 }
