@@ -20,6 +20,8 @@ import { PALETTES } from "@/theme";
 import { wireQueryFocusToAppState } from "@/src/lib/query-focus";
 import { wireOtaUpdates } from "@/src/lib/ota-updates";
 import { UploadProvider } from "@/src/providers/UploadProvider";
+import { KeyboardDoneBar } from '@/components/KeyboardDoneBar';
+import { guardDoublePush } from '@/src/lib/navigation';
 import { CrashScreen } from "@/components/CrashScreen";
 
 /**
@@ -125,11 +127,15 @@ function QueryProvider({ children }: { children: ReactNode }) {
     </PersistQueryClientProvider>
   );
 }
+// Before anything can be tapped.
+guardDoublePush();
+
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
+          <KeyboardDoneBar />
           <QueryProvider>
             {/* Inside QueryProvider, because the queue invalidates album and
                 usage queries as files land — and above the navigator, so an

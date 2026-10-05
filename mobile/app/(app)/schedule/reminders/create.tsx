@@ -5,6 +5,7 @@ import { DetailFallback } from '@/components/DetailFallback';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCreateReminder, useReminder, useScheduleEvent, useUpdateReminder } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { FormHeader } from '@/components/FormHeader';
 import { useEffect, useRef, useState } from 'react';
 import { ensurePermissions } from '@/src/lib/notifications';
@@ -129,6 +130,13 @@ export default function CreateReminderScreen() {
     setPushEnabled(existing.has_push_notification);
   }, [existing]);
 
+  // The time is left out of a new one: it follows the event as that loads,
+  // which is not something anybody typed.
+  const { allowLeave } = useDiscardGuard(
+    { title, description, alarmEnabled, pushEnabled, ...(isEdit ? { when: when.getTime() } : {}) },
+    !isEdit || filled.current,
+  );
+
   const createReminder = useCreateReminder();
   const updateReminder = useUpdateReminder();
   const saving = createReminder.isPending || updateReminder.isPending;
@@ -146,7 +154,10 @@ export default function CreateReminderScreen() {
       has_push_notification: pushEnabled,
     };
     const done = {
-      onSuccess: () => router.back(),
+      onSuccess: () => {
+        allowLeave();
+        router.back();
+      },
       onError: (err: any) =>
         Alert.alert(
           isEdit ? 'Could not save the reminder' : 'Could not create reminder',
@@ -230,7 +241,7 @@ export default function CreateReminderScreen() {
         className="flex-1"
       >
 
-      <ScrollView
+      <ScrollView keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 140 }}

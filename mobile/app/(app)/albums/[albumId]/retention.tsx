@@ -84,7 +84,7 @@ function RetentionEditor({ album }: { album: Album }) {
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <ScreenHeader title="Keep the files" subtitle={album.name} />
-      <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 32, gap: 16 }}
           keyboardShouldPersistTaps="handled"

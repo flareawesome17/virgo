@@ -12,6 +12,7 @@ import {
   useTheme,
 } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { FormHeader } from '@/components/FormHeader';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -128,6 +129,11 @@ export default function CreateEventScreen() {
   }, [existing]);
 
   // Archived ones too, so an event already filed under one still shows it.
+  const { allowLeave } = useDiscardGuard(
+    { eventType, otherLabel, location, title, description, when: when.getTime(), hasTime, guests },
+    !editing || (!!existing && prefilledFor.current === existing.id),
+  );
+
   const { workspaces: listed } = useWorkspaces(
     { orderBy: 'name', direction: 'asc', limit: 100, archived: 'include' },
     { enabled: !!user?.id },
@@ -192,7 +198,10 @@ export default function CreateEventScreen() {
         ...(guestEdit ? {} : { workspace_id: selectedWsId }),
       },
       {
-        onSuccess: () => router.back(),
+        onSuccess: () => {
+          allowLeave();
+          router.back();
+        },
         onError: (err: any) =>
           Alert.alert(
             'Could not save the event',
@@ -234,6 +243,7 @@ export default function CreateEventScreen() {
               );
             }
           }
+          allowLeave();
           router.replace(`/schedule/${event.id}`);
         },
         // Show what actually went wrong. A flat "Could not create event"
@@ -274,7 +284,7 @@ export default function CreateEventScreen() {
         className="flex-1"
       >
 
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
+      <ScrollView keyboardDismissMode="on-drag" className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
 
         {/* Event Type */}
         <View className="px-5 mt-5">

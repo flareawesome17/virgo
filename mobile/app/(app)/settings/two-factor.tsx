@@ -7,6 +7,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -391,6 +392,7 @@ function EmailSetup({
         onChangeText={onCodeChange}
         onSubmitEditing={onConfirm}
         keyboardType="number-pad"
+        inputAccessoryViewID={KEYBOARD_DONE}
         textContentType="oneTimeCode"
         placeholder="000000"
         placeholderTextColor={palette.mutedForeground}

@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useWindowInsets } from '@/src/lib/window-insets';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -57,7 +58,7 @@ export default function BookingScreen() {
       />
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {isLoading ? (
           <ActivityIndicator color={palette.primary} className="mt-10" />
@@ -127,7 +128,7 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
   const canEdit = booking.yourSide === 'poster';
 
   return (
-    <ScrollView contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
+    <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
       <View>
         <Text className="text-foreground text-[18px] font-bold">
           {booking.postTitle}
@@ -359,7 +360,7 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
   };
 
   return (
-    <ScrollView contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
+    <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
       <View>
         <Text className="text-foreground text-[17px] font-bold">Edit the terms</Text>
         <Text className="text-muted-foreground mt-1 text-[12px] leading-5">
@@ -438,6 +439,7 @@ function Field({
         onChangeText={onChange}
         multiline={multiline}
         keyboardType={keyboardType}
+        inputAccessoryViewID={keyboardType ? KEYBOARD_DONE : undefined}
         accessibilityLabel={label}
         className={`text-foreground rounded-lg border px-3 py-3 text-[15px] ${error ? 'border-destructive' : 'border-border'}`}
         style={multiline ? { minHeight: 90, textAlignVertical: 'top' } : undefined}

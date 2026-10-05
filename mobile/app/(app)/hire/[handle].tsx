@@ -144,7 +144,7 @@ export default function HireScreen() {
       </View>
 
       {waiting && !askAgain ? (
-        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 16 }}>
+        <ScrollView keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 16 }}>
           <View className="flex-row items-center gap-3.5">
             <RemoteImage
               source={{ uri: person.avatarUrl ?? PLACEHOLDER_IMAGE }}
@@ -163,13 +163,13 @@ export default function HireScreen() {
             <View className="flex-row items-center gap-2">
               <ClockIcon size={16} className="text-primary" />
               <Text className="text-foreground text-[15px] font-bold flex-1">
-                You've already asked {firstName}
+                You’ve already asked {firstName}
               </Text>
             </View>
             <Text className="text-muted-foreground text-[13px] leading-5">
               Sent {new Date(waiting.createdAt).toLocaleDateString()}
-              {waiting.roleWanted ? ` for ${waiting.roleWanted}` : ''}. They haven't answered yet —
-              you'll hear when they do, and a chat opens if they accept.
+              {waiting.roleWanted ? ` for ${waiting.roleWanted}` : ''}. They haven’t answered yet —
+              you’ll hear when they do, and a chat opens if they accept.
             </Text>
             <Text className="text-foreground text-[13px] leading-5 mt-1" numberOfLines={4}>
               “{waiting.message}”
@@ -193,10 +193,10 @@ export default function HireScreen() {
       ) : (
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={8}
       >
-        <ScrollView
+        <ScrollView keyboardDismissMode="on-drag"
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 20 }}
           keyboardShouldPersistTaps="handled"
         >

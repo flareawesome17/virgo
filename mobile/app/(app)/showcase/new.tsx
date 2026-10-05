@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { InsetFrame } from '@/components/InsetFrame';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import {
@@ -147,6 +148,16 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
    * fetched twice.
    */
   const [albumId, setAlbumId] = useState<string | undefined>(undefined);
+  // A chosen set of work and a written caption are worth asking about.
+  const { allowLeave } = useDiscardGuard({
+    picked,
+    title,
+    caption,
+    craftNote,
+    tags,
+    allowComments,
+    showHire,
+  });
   const { albums } = useAlbums({ orderBy: 'created_at', direction: 'desc', limit: 100 });
   const files = useInfiniteQuery({
     queryKey: albumFilesQueryKey(albumId),
@@ -253,7 +264,10 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         // To the post itself, in place of this form: after Post you were put
         // back on the Feed to look for it. replace() keeps the stack as it
         // was under the form, so Back from the post goes where you came from.
-        onSuccess: (created) => router.replace(`/showcase/${created.id}`),
+        onSuccess: (created) => {
+          allowLeave();
+          router.replace(`/showcase/${created.id}`);
+        },
         onError: (error) => failed(error, 'showcase'),
       },
     );
@@ -283,7 +297,10 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         },
       })
       .then(
-        () => router.back(),
+        () => {
+          allowLeave();
+          router.back();
+        },
         (error) => failed(error, 'editShowcase'),
       );
   };
@@ -573,7 +590,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
       />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
       >
         <FlatList

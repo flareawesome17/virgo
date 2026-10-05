@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useTheme } from '@/src/hooks';
 import { useQuery } from '@tanstack/react-query';
@@ -385,7 +386,7 @@ export default function SignUpScreen() {
                     <Field label="Postal code" hint="Optional.">
                       <TextInput value={postal} onChangeText={setPostal} placeholder="6000"
                         placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                        keyboardType="number-pad" maxLength={20} />
+                        keyboardType="number-pad" inputAccessoryViewID={KEYBOARD_DONE} maxLength={20} />
                     </Field>
                   </View>
                   <View className="flex-1">

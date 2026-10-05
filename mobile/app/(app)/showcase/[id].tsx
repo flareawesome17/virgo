@@ -337,7 +337,7 @@ export default function ShowcaseScreen() {
           under the keyboard; Android resizes the window itself. */}
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
           ref={scrollRef}
@@ -578,7 +578,7 @@ export default function ShowcaseScreen() {
               className="min-h-[52px] flex-row items-center gap-3 border-b border-border active:opacity-60"
             >
               <UserIcon size={18} className="text-foreground" />
-              <Text className="text-foreground text-base">View {maker.displayName}'s profile</Text>
+              <Text className="text-foreground text-base">View {maker.displayName}’s profile</Text>
             </Pressable>
           ) : null}
           <Pressable

@@ -7,6 +7,7 @@ import { useCreateWorkspace,
   useTheme,
 } from '@/src/hooks';
 import { router } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { FormHeader } from '@/components/FormHeader';
 import { useState } from 'react';
 import {
@@ -37,6 +38,7 @@ export default function CreateWorkspaceScreen() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [accentColor, setAccentColor] = useState('#B66A40');
+  const { allowLeave } = useDiscardGuard({ name, description, accentColor });
 
   // The API owns id generation and the created_at / updated_at timestamps, so
   // none of them are sent from here any more.
@@ -50,7 +52,10 @@ export default function CreateWorkspaceScreen() {
         accent_color: accentColor,
       },
       {
-        onSuccess: (workspace) => router.replace(`/workspaces/${workspace.id}`),
+        onSuccess: (workspace) => {
+          allowLeave();
+          router.replace(`/workspaces/${workspace.id}`);
+        },
         onError: (err) => {
           Alert.alert('Error', 'Could not create workspace. Please try again.');
           console.error(err);
@@ -73,7 +78,7 @@ export default function CreateWorkspaceScreen() {
         className="flex-1"
       >
 
-      <ScrollView
+      <ScrollView keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}

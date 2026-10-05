@@ -200,10 +200,10 @@ export default function JobDetailScreen() {
 
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={8}
       >
-        <ScrollView
+        <ScrollView keyboardDismissMode="on-drag"
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 16 }}
           keyboardShouldPersistTaps="handled"
         >

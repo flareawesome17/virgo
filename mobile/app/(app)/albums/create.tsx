@@ -7,6 +7,7 @@ import { useAuth, useCreateAlbum, useWorkspaces, useTheme,
   usePlanLimits,
 } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { ApiError, retentionInput, type Retention } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { FormHeader } from '@/components/FormHeader';
@@ -38,6 +39,7 @@ export default function CreateAlbumScreen() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [retention, setRetention] = useState<Retention>({ mode: 'forever' });
+  const { allowLeave } = useDiscardGuard({ name, description, retention });
 
   // Only your own: an album can only be made in a workspace you own, and
   // offering one shared with you ended in "Unknown workspace" at the end of
@@ -88,7 +90,10 @@ export default function CreateAlbumScreen() {
         status: 'draft',
       },
       {
-        onSuccess: (album) => router.replace(`/albums/${album.id}`),
+        onSuccess: (album) => {
+          allowLeave();
+          router.replace(`/albums/${album.id}`);
+        },
         // The server's own words when it refused (a full workspace, a name too
         // long); a generic line only when it could not be reached.
         onError: (error) =>
@@ -151,7 +156,7 @@ export default function CreateAlbumScreen() {
         className="flex-1"
       >
 
-      <ScrollView
+      <ScrollView keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 140 }}

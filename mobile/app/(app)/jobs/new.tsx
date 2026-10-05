@@ -2,10 +2,12 @@ import {
   View, Text, ScrollView, Pressable, TextInput, Alert, Share,
   ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { PALETTES } from '@/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InsetFrame } from '@/components/InsetFrame';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { useEffect, useRef, useState } from 'react';
 import { useCreateJob, useJob, useRoles, useTheme, useUpdateJob } from '@/src/hooks';
 import { DetailFallback } from '@/components/DetailFallback';
@@ -102,6 +104,12 @@ export default function NewJobScreen() {
     );
   }, [editing.data]);
 
+  // Asks before a half-written post is closed (X, back, swipe).
+  const { allowLeave } = useDiscardGuard(
+    { title, description, rolesWanted, eventDate, location, roleBudgets },
+    !isEdit || filled.current,
+  );
+
   const setRoleBudget = (role: string, end: 'min' | 'max', value: string) =>
     setRoleBudgets((current) => ({
       ...current,
@@ -159,7 +167,10 @@ export default function NewJobScreen() {
           location: location.trim() || null,
         },
         {
-          onSuccess: () => router.back(),
+          onSuccess: () => {
+            allowLeave();
+            router.back();
+          },
           onError: (error: Error) => Alert.alert("Couldn't save it", error.message),
         },
       );
@@ -179,6 +190,7 @@ export default function NewJobScreen() {
         // Onto the post itself, which is what people will see — not a second
         // copy of the Jobs tab — with the one thing worth doing next.
         onSuccess: (post) => {
+          allowLeave();
           router.replace(`/jobs/${post.slug}`);
           Alert.alert('Your job is live', 'People who do this work can find it now. Share it to reach more of them.', [
             { text: 'Not now', style: 'cancel' },
@@ -214,10 +226,10 @@ export default function NewJobScreen() {
 
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={8}
       >
-        <ScrollView
+        <ScrollView keyboardDismissMode="on-drag"
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 18 }}
           keyboardShouldPersistTaps="handled"
         >
@@ -322,6 +334,7 @@ export default function NewJobScreen() {
                       placeholder="from 30,000"
                       placeholderTextColor="#9ca3af"
                       keyboardType="numeric"
+                      inputAccessoryViewID={KEYBOARD_DONE}
                       className="bg-card flex-1 rounded-xl px-3.5 py-3 text-foreground text-sm"
                     />
                     <TextInput
@@ -330,6 +343,7 @@ export default function NewJobScreen() {
                       placeholder="up to 45,000"
                       placeholderTextColor="#9ca3af"
                       keyboardType="numeric"
+                      inputAccessoryViewID={KEYBOARD_DONE}
                       className="bg-card flex-1 rounded-xl px-3.5 py-3 text-foreground text-sm"
                     />
                   </View>

@@ -36,3 +36,30 @@ export function openHref(href: string): void {
   if (isTabHref(href)) goToTab(href as Href);
   else router.push(href as Href);
 }
+
+/** How close together two identical pushes are one tap counted twice. */
+const DOUBLE_TAP_MS = 600;
+let lastPush: { key: string; at: number } | null = null;
+let guarded = false;
+
+/**
+ * One screen per tap.
+ *
+ * A quick double tap on a row or a tile pushed the same screen twice, and
+ * Back then landed on its copy. The same destination pushed again within
+ * DOUBLE_TAP_MS is dropped, for every push in the app at once rather than
+ * screen by screen. Anything else — another destination, a later tap — goes
+ * through as before. Installed once, at startup.
+ */
+export function guardDoublePush(): void {
+  if (guarded) return;
+  guarded = true;
+  const push = router.push.bind(router);
+  router.push = ((href: Href, options?: unknown) => {
+    const key = typeof href === 'string' ? href : JSON.stringify(href);
+    const now = Date.now();
+    if (lastPush && lastPush.key === key && now - lastPush.at < DOUBLE_TAP_MS) return;
+    lastPush = { key, at: now };
+    return (push as (h: Href, o?: unknown) => void)(href, options);
+  }) as typeof router.push;
+}
