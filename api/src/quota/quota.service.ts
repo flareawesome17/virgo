@@ -311,8 +311,11 @@ export class QuotaService {
     if (!Number.isFinite(limits.workspaces)) return;
     const used = await this.countRows('workspaces', userId);
     if (used >= limits.workspaces) {
+      // No "upgrade": there is nothing to upgrade to while launch is free. And
+      // countRows counts archived workspaces, so archiving one frees nothing;
+      // deleting is the only way back under the limit.
       throw new ForbiddenException(
-        `Your plan includes ${limits.workspaces} workspace${limits.workspaces === 1 ? '' : 's'}. Upgrade to add more.`,
+        `Your plan includes ${limits.workspaces} workspace${limits.workspaces === 1 ? '' : 's'}. Archived ones count too, so delete one you have finished with to add another.`,
       );
     }
   }
@@ -340,7 +343,7 @@ export class QuotaService {
     if (used >= limits.albumsPerWorkspace) {
       const n = limits.albumsPerWorkspace;
       throw new ForbiddenException(
-        `Your plan includes ${n} album${n === 1 ? '' : 's'} per workspace. Upgrade to add more.`,
+        `Your plan includes ${n} album${n === 1 ? '' : 's'} per workspace. Delete one you have finished with, or use another workspace.`,
       );
     }
   }
