@@ -145,6 +145,8 @@ export const notificationsApi = {
   list(params: NotificationListParams = {}): Promise<{
     data: AppNotification[];
     unread: number;
+    /** With a category: how many of that kind are unread. Older APIs omit it. */
+    categoryUnread?: number;
   }> {
     const q = withClient();
     if (params.limit) q.set('limit', String(params.limit));
@@ -168,10 +170,10 @@ export const notificationsApi = {
     return api.get(`/notifications/unread-count?${withClient().toString()}`);
   },
 
-  /** Some of them, or — with no ids — all of them. */
-  markRead(ids?: string[]): Promise<{ updated: number }> {
+  /** Some of them, or — with no ids — all of them, or all of one kind. */
+  markRead(ids?: string[], category?: NotificationCategory | null): Promise<{ updated: number }> {
     return api.post(`/notifications/read?${withClient().toString()}`, {
-      body: ids ? { ids } : {},
+      body: ids ? { ids } : category ? { category } : {},
     });
   },
 

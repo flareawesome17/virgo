@@ -62,12 +62,23 @@ export function WorkspaceInvitations() {
               </View>
             </View>
             <View className="flex-row gap-2">
+              {/* Asked first: it cannot be taken back from here, and a stray tap
+                  on a card full of buttons was enough. */}
               <Pressable
-                onPress={() => answer(inv.id, false)}
+                onPress={() =>
+                  Alert.alert(
+                    `Decline ${workspace}?`,
+                    `${inv.inviter_name ?? 'They'} would have to invite you again.`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Decline', style: 'destructive', onPress: () => answer(inv.id, false) },
+                    ],
+                  )
+                }
                 disabled={busy}
                 accessibilityRole="button"
                 accessibilityLabel={`Decline the invitation to ${workspace}`}
-                className="flex-1 h-10 rounded-xl bg-muted items-center justify-center active:scale-[0.97]"
+                className="flex-1 h-11 rounded-xl bg-muted items-center justify-center active:scale-[0.97]"
               >
                 {busy && !acting?.accept ? (
                   <ActivityIndicator size="small" />

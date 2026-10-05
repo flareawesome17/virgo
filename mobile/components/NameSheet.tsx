@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useWindowInsets } from '@/src/lib/window-insets';
 import { useShade } from '@/components/BottomSheet';
 
 /**
@@ -35,7 +35,8 @@ export function NameSheet({
   onSave: (name: string) => void;
 }) {
   const [value, setValue] = useState(initial);
-  const insets = useSafeAreaInsets();
+  // The window's: this covers the banners, which zero the top inset.
+  const insets = useWindowInsets();
   const shade = useShade();
   const ready = value.trim().length > 0;
 

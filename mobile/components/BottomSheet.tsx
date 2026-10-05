@@ -11,7 +11,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useWindowInsets } from '@/src/lib/window-insets';
 import { useTheme } from '@/src/hooks';
 import { PALETTES } from '@/theme';
 
@@ -106,7 +106,8 @@ export function BottomSheet({
   children: ReactNode;
 }) {
   const shade = useShade();
-  const insets = useSafeAreaInsets();
+  // The window's: this covers the banners, which zero the top inset.
+  const insets = useWindowInsets();
   const { height: windowHeight } = useWindowDimensions();
 
   // Mounted from the moment it is asked for until it has finished leaving.

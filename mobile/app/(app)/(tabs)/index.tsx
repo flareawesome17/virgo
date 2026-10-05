@@ -126,22 +126,14 @@ export default function DashboardScreen() {
     refetch: refetchEvents,
   } = useScheduleEventRange(soonWindow.from, soonWindow.to);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await Promise.all([
-      refetchWorkspaces(),
-      refetchAlbums(),
-      refetchEvents(),
-    ]);
-    setRefreshing(false);
-  };
-
   // Real cloud usage from the API — recorded from what B2 reports when an
   // upload is confirmed. Was hardcoded 128.4 / 512 GB.
   const {
+    usage,
     storageUsedBytes,
     storageLimitBytes,
     storageFraction,
+    refetch: refetchUsage,
   } = useUsage({ enabled: !!user?.id });
 
   /*
@@ -150,13 +142,13 @@ export default function DashboardScreen() {
    * because only the server's total is wanted here — the rows themselves are
    * the Connect screen's business.
    */
-  const { total: connections } = useFriends(
+  const { total: connections, refetch: refetchConnections } = useFriends(
     { status: 'accepted', limit: 1 },
     enabled,
   );
 
   /** Posts this account has put up, whatever became of them. */
-  const { jobs: myJobs } = useMyJobs();
+  const { jobs: myJobs, refetch: refetchMyJobs } = useMyJobs();
 
   /*
    * Work finished, counted from bookings rather than from posts, and from both
@@ -164,14 +156,29 @@ export default function DashboardScreen() {
    * filled. Finished means it was confirmed, was never cancelled, and its date
    * has passed — bookings carry no status field of their own.
    */
-  const { bookings } = useBookings(!!user?.id);
+  const { bookings, refetch: refetchBookings } = useBookings(!!user?.id);
+  // By the calendar day. new Date('2026-10-05') is midnight UTC, which is
+  // 8 AM here, so today's booking counted as finished from breakfast on.
+  const today = todayKey();
   const finishedJobs = bookings.filter(
-    (b) =>
-      b.confirmed &&
-      !b.cancelledAt &&
-      b.eventDate != null &&
-      new Date(b.eventDate) < new Date(),
+    (b) => b.confirmed && !b.cancelledAt && b.eventDate != null && b.eventDate < today,
   ).length;
+
+  // Everything the screen shows. It left usage, connections, jobs and
+  // bookings out, so a pull refreshed half the numbers.
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([
+      refetchWorkspaces(),
+      refetchAlbums(),
+      refetchEvents(),
+      refetchUsage(),
+      refetchConnections(),
+      refetchMyJobs(),
+      refetchBookings(),
+    ]);
+    setRefreshing(false);
+  };
 
   // Both of these had no time filter at all — `events[0]` and `slice(0, 3)`
   // over an ascending list meant the oldest events, past ones included.
@@ -318,7 +325,7 @@ export default function DashboardScreen() {
           <View className="px-5 mb-1">
             <View className="flex-row items-center justify-between mb-3">
               <Text className="text-foreground text-xl font-bold tracking-tight">Later</Text>
-              <Pressable onPress={() => router.push('/schedule')} className="flex-row items-center gap-1 active:opacity-60">
+              <Pressable onPress={() => router.push('/schedule')} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
                 <Text className="text-primary text-sm font-semibold">See all</Text>
                 <ChevronRightIcon size={14} className="text-primary" />
               </Pressable>
@@ -350,7 +357,7 @@ export default function DashboardScreen() {
         <View className="px-5 mt-6">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-xl font-bold tracking-tight">Recent work</Text>
-            <Pressable onPress={() => router.push('/workspaces')} className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push('/workspaces')} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
               <Text className="text-primary text-sm font-semibold">Workspaces</Text>
               <ChevronRightIcon size={14} className="text-primary" />
             </Pressable>
@@ -463,14 +470,18 @@ export default function DashboardScreen() {
               <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider">
                 Storage
               </Text>
+              {/* Nothing until it has loaded: "0 B used · Unlimited left" was
+                  what a slow or offline start said, and both were wrong. */}
               <Text className="text-foreground text-base font-bold">
-                {formatBytes(storageUsedBytes)}{' '}
+                {usage ? formatBytes(storageUsedBytes) : '—'}{' '}
                 <Text className="text-muted-foreground text-xs font-medium">used</Text>
               </Text>
               <Text className="text-foreground text-base font-bold">
-                {storageLimitBytes
-                  ? formatBytes(Math.max(storageLimitBytes - storageUsedBytes, 0))
-                  : 'Unlimited'}{' '}
+                {!usage
+                  ? '—'
+                  : storageLimitBytes
+                    ? formatBytes(Math.max(storageLimitBytes - storageUsedBytes, 0))
+                    : 'Unlimited'}{' '}
                 <Text className="text-muted-foreground text-xs font-medium">left</Text>
               </Text>
               {storageFraction >= 0.9 && (

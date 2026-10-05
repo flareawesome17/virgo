@@ -39,7 +39,9 @@ export default function SignInScreen() {
   const canSubmit = email.trim().length > 0 && password.length > 0;
 
   const handleSignIn = (unpause = false) => {
-    if (!canSubmit) return;
+    // The keyboard's Go as well as the button: a second press while the
+    // first was in flight signed in twice, or asked for a second code.
+    if (!canSubmit || signIn.isPending) return;
     setErrorMsg('');
     signIn.mutate(
       { email: email.trim(), password, ...(unpause ? { unpause: true } : {}) },

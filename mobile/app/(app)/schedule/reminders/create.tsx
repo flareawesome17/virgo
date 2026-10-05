@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InsetFrame } from '@/components/InsetFrame';
+import { DetailFallback } from '@/components/DetailFallback';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCreateReminder, useReminder, useScheduleEvent, useUpdateReminder } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -86,7 +87,13 @@ export default function CreateReminderScreen() {
    * was: a wrong time meant deleting it and starting again.
    */
   const { eventId: eventParam, edit: editId } = useLocalSearchParams<{ eventId?: string; edit?: string }>();
-  const { data: existing } = useReminder(editId);
+  const {
+    data: existing,
+    error: existingError,
+    isError: existingFailed,
+    isPaused: existingPaused,
+    refetch: refetchExisting,
+  } = useReminder(editId);
   const isEdit = Boolean(editId);
   const eventId = eventParam ?? existing?.schedule_event_id ?? undefined;
 
@@ -174,7 +181,12 @@ export default function CreateReminderScreen() {
     if (alarmEnabled || pushEnabled) {
       // Denied notifications made an alerting reminder silent, and nothing
       // said so: it simply never went off.
-      const allowed = await ensurePermissions();
+      //
+      // Straight to the system's question, past an earlier "Not now": saving
+      // an alerting reminder is the reason to ask. Through the explainer, a
+      // "Not now" from days before ended here in "Open Settings", where iOS
+      // had no switch to show because it had never been asked.
+      const allowed = await ensurePermissions({ explain: false });
       if (!allowed) {
         Alert.alert(
           'Notifications are off for Virgo',
@@ -190,6 +202,20 @@ export default function CreateReminderScreen() {
     }
     save();
   };
+
+  // Not a blank form while the reminder loads, or when it cannot.
+  if (isEdit && !existing) {
+    return (
+      <DetailFallback
+        title="Edit reminder"
+        what="this reminder"
+        gone="It was deleted."
+        error={existingError}
+        failed={existingFailed || existingPaused}
+        onRetry={() => void refetchExisting()}
+      />
+    );
+  }
 
   return (
     <InsetFrame>

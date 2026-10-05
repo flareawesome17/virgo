@@ -136,6 +136,9 @@ export interface ScheduleEvent {
    * comes back from the insert, which has nobody else's invitation to consider.
    */
   is_owner?: boolean;
+  /** Whose event it is, on a single read. For a guest to see who organised it. */
+  organiser_name?: string | null;
+  organiser_avatar_url?: string | null;
 }
 
 export type AttendeeStatus = 'pending' | 'accepted' | 'declined';

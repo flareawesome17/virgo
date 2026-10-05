@@ -460,6 +460,8 @@ export default function PhotoViewerScreen() {
               // changed too; only the file list used to be refreshed.
               void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
               void queryClient.invalidateQueries({ queryKey: usageQueryKey });
+              void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
+              void queryClient.invalidateQueries({ queryKey: ['storage', 'breakdown'] });
               if (!neighbour) router.back();
             } catch (error) {
               Alert.alert(
@@ -526,6 +528,11 @@ export default function PhotoViewerScreen() {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         scrollEnabled={!zoomed}
+        // The photo on screen and one either side. The default window kept
+        // about twenty-one full-screen photographs decoded at once.
+        windowSize={3}
+        initialNumToRender={1}
+        maxToRenderPerBatch={2}
         initialScrollIndex={Math.min(currentIndex, Math.max(photos.length - 1, 0))}
         getItemLayout={(_, index) => ({
           length: width,
@@ -609,8 +616,11 @@ export default function PhotoViewerScreen() {
         >
           {showInfo && (
             <View className="mx-4 mb-3 rounded-2xl bg-black/55 px-4 py-3">
+              {/* When it was taken, from the camera. It showed the upload
+                  date under that label. */}
+              {photo.takenAt ? <InfoRow label="Taken" value={takenLabel(photo.takenAt)} /> : null}
               <InfoRow
-                label="Taken"
+                label="Uploaded"
                 value={new Date(photo.createdAt).toLocaleDateString('en-GB', {
                   day: 'numeric',
                   month: 'long',
@@ -733,6 +743,26 @@ function Action({
       {children}
     </Pressable>
   );
+}
+
+/**
+ * "14 March 2026, 4:12 pm", as the camera wrote it.
+ *
+ * Built from its parts rather than parsed: it carries no zone, and parsing
+ * would move a frame shot late at night onto another day for anyone outside
+ * the zone it was taken in.
+ */
+function takenLabel(takenAt: string): string {
+  const [date, time = '00:00:00'] = takenAt.split('T');
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  return new Date(y, m - 1, d, hh, mm).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {

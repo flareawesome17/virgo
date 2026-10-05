@@ -114,7 +114,8 @@ function NotificationsPageInner() {
 
   const {
     notifications,
-    unread,
+    unread: allUnread,
+    categoryUnread,
     isLoading,
     loadFailed,
     refetch,
@@ -122,6 +123,8 @@ function NotificationsPageInner() {
     fetchNextPage,
     isFetchingNextPage,
   } = useNotificationFeed({ unread: unreadOnly, category });
+  // Inside a kind, its own count and its own "mark all".
+  const unread = category ? (categoryUnread ?? allUnread) : allUnread;
   const markRead = useMarkNotificationsRead();
   const days = useMemo(() => groupByDay(notifications), [notifications]);
 
@@ -152,7 +155,7 @@ function NotificationsPageInner() {
             {unread > 0 && (
               <Button
                 variant="outline"
-                onClick={() => markRead.mutate(undefined)}
+                onClick={() => markRead.mutate(category ? { category } : undefined)}
                 disabled={markRead.isPending}
               >
                 <CheckCheck className="size-4" />

@@ -112,9 +112,14 @@ export default function AlbumsListScreen() {
     },
     { enabled: !!user?.id },
   );
-  const { workspaces, refetch: refetchWorkspaces } = useWorkspaces({ limit: 100 }, { enabled: !!user?.id });
+  // Archived ones too, for the labels: albums in a workspace you archived
+  // were filed under "Shared with you", because its name could not be found.
+  const { workspaces, refetch: refetchWorkspaces } = useWorkspaces(
+    { limit: 100, archived: 'include' },
+    { enabled: !!user?.id },
+  );
   const workspaceName = useMemo(
-    () => new Map(workspaces.map((w) => [w.id, w.name])),
+    () => new Map(workspaces.map((w) => [w.id, w.archived_at ? `${w.name} · archived` : w.name])),
     [workspaces],
   );
 

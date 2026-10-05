@@ -121,7 +121,7 @@ export default function CalendarScreen() {
                   style={{ flex: 1 }} className="items-center pt-1 pb-2">
                   <View className={`w-9 h-9 rounded-xl items-center justify-center mb-1 ${
                     cell.isToday ? 'bg-action' : isSel ? 'bg-primary/10' : ''}`}>
-                    <Text className={`text-sm font-bold ${cell.isOutside ? 'text-muted-foreground/20' : cell.isToday ? 'text-white' : isSel ? 'text-primary' : 'text-foreground'}`}>
+                    <Text className={`text-sm font-bold ${cell.isOutside ? 'text-muted-foreground/60' : cell.isToday ? 'text-white' : isSel ? 'text-primary' : 'text-foreground'}`}>
                       {cell.day}
                     </Text>
                   </View>

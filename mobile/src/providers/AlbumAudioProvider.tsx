@@ -11,6 +11,8 @@ import {
 } from "react";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { enterAlbumMode, setAlbumPlaying } from "@/src/lib/audio-mode";
+import { registerAudioPause } from "@/src/lib/media-focus";
+import { pauseDockedFilm } from "@/src/providers/VideoPlayerProvider";
 import type { StoredFile } from "@/src/api";
 
 type RepeatMode = "off" | "all" | "one";
@@ -207,6 +209,8 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
         );
       }
       setCurrentIndex(index);
+      // One at a time: a docked film kept playing under the recording.
+      pauseDockedFilm();
       void enterAlbumMode().then(() => player.play());
     },
     [albumName, artworkUrl, player, rate],
@@ -240,6 +244,8 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
         );
       }
       setCurrentIndex(index);
+      // One at a time: a docked film kept playing under the recording.
+      pauseDockedFilm();
       void enterAlbumMode().then(() => player.play());
     },
     [player, rate],
@@ -298,6 +304,13 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
     setQueue([]);
   }, [player]);
 
+  // So a film starting can pause this, without the two providers importing
+  // each other (media-focus).
+  useEffect(() => {
+    registerAudioPause(() => player.pause());
+    return () => registerAudioPause(null);
+  }, [player]);
+
   const value = useMemo<AlbumAudioContextValue>(
     () => ({
       queue,
@@ -315,7 +328,14 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
       repeat,
       rate,
       playQueue,
-      toggle: () => (status.playing ? player.pause() : player.play()),
+      toggle: () => {
+        if (status.playing) {
+          player.pause();
+          return;
+        }
+        pauseDockedFilm();
+        player.play();
+      },
       next,
       previous,
       seekTo: (seconds) =>

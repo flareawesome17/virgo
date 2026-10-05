@@ -1,8 +1,10 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PALETTES } from '@/theme';
 import { InsetFrame } from '@/components/InsetFrame';
 import { useCreateWorkspace,
   usePlanLimits,
+  useTheme,
 } from '@/src/hooks';
 import { router } from 'expo-router';
 import { FormHeader } from '@/components/FormHeader';
@@ -29,6 +31,7 @@ const ACCENT_COLORS = [
 ];
 
 export default function CreateWorkspaceScreen() {
+  const placeholderColor = (useTheme().isDark ? PALETTES.dark : PALETTES.light).mutedForeground;
   const { atWorkspaceLimit, workspaceLimit, plan } = usePlanLimits();
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
@@ -80,17 +83,16 @@ export default function CreateWorkspaceScreen() {
         {/* Explains the disabled Create button. Without this the form simply
             refuses to submit with no stated reason. */}
         {atWorkspaceLimit && (
-          <View className="mx-5 mt-4 rounded-2xl p-4" style={{ backgroundColor: '#C76B4A18' }}>
-            <Text className="text-[#C76B4A] text-sm font-bold">Workspace limit reached</Text>
-            <Text className="text-[#C76B4A] text-xs mt-1">
+          <View className="mx-5 mt-4 rounded-2xl p-4 bg-warning/10">
+            <Text className="text-warning text-sm font-bold">Workspace limit reached</Text>
+            <Text className="text-warning text-xs mt-1">
               The {plan} plan includes {workspaceLimit} workspace
               {workspaceLimit === 1 ? '' : 's'}.{' '}
               {SELLS_PLANS_HERE ? 'Delete one, or upgrade to add another.' : 'Delete one to add another.'}
             </Text>
             <Pressable
               onPress={() => router.push('/settings/storage/plans')}
-              className="mt-3 rounded-xl py-2.5 items-center active:scale-[0.97]"
-              style={{ backgroundColor: '#C76B4A' }}
+              className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
             >
               <Text className="text-white text-xs font-bold">See plans</Text>
             </Pressable>
@@ -108,7 +110,7 @@ export default function CreateWorkspaceScreen() {
               value={name}
               onChangeText={setName}
               placeholder="e.g. Spring Collection 2026"
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',
@@ -130,7 +132,7 @@ export default function CreateWorkspaceScreen() {
               value={description}
               onChangeText={setDescription}
               placeholder="Brief description of this workspace..."
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',

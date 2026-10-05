@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useWindowInsets } from '@/src/lib/window-insets';
 
 /**
  * SafeAreaView, for a screen that covers the whole display from a layer of
@@ -15,19 +16,30 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  *
  * The window's insets, from context, are the right ones for anything that
  * covers the whole screen, and they are right on Android too.
+ *
+ * The window's, not the banners': while an upload runs the strip zeroes the
+ * top inset for what is under it, and on iOS a full-screen modal is not under
+ * it. On Android the same form opens in the navigator, below the strip, and
+ * the zeroed inset is right. `modal` is for a <Modal>, which covers the
+ * whole window on both.
  */
 export function InsetFrame({
   edges = ['top'],
   className = 'flex-1 bg-background',
   style,
+  modal = false,
   children,
 }: {
   edges?: ('top' | 'bottom')[];
   className?: string;
   style?: StyleProp<ViewStyle>;
+  /** Inside a <Modal>: the window's insets on both platforms. */
+  modal?: boolean;
   children: ReactNode;
 }) {
-  const insets = useSafeAreaInsets();
+  const local = useSafeAreaInsets();
+  const window = useWindowInsets();
+  const insets = modal || Platform.OS === 'ios' ? window : local;
   return (
     <View
       className={className}

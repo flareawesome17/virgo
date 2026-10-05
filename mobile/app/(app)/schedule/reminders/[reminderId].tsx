@@ -56,7 +56,14 @@ export default function ReminderDetailScreen() {
   // The id is injected here so call sites stay as plain partial updates.
   const updateReminderMutation = useUpdateReminder();
   const updateReminder = (updates: UpdateReminderInput) =>
-    updateReminderMutation.mutate({ id: reminderId, ...updates });
+    updateReminderMutation.mutate(
+      { id: reminderId, ...updates },
+      {
+        // It used to fail silently and leave the switch where you put it.
+        onError: (error) =>
+          Alert.alert("Couldn't change it", error instanceof Error ? error.message : 'Please try again.'),
+      },
+    );
 
   const deleteReminderMutation = useDeleteReminder();
   // Asked first: it went on the first tap, with no undo, and failed silently.

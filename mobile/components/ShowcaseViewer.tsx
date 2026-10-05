@@ -11,7 +11,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useWindowInsets } from '@/src/lib/window-insets';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   interpolate,
@@ -181,7 +181,8 @@ export function ShowcaseViewer({
   onClose: () => void;
 }) {
   const { width, height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
+  // The window's: this covers the banners, which zero the top inset.
+  const insets = useWindowInsets();
   const [index, setIndex] = useState(startIndex);
   const [zoomed, setZoomed] = useState(false);
   const pager = useRef<FlatList<ShowcasePiece>>(null);

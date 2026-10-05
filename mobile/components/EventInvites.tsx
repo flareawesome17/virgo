@@ -223,7 +223,16 @@ export function InvitePeoplePicker({
  * Rendered only for the organiser: an attendee can see who else is coming from
  * the same endpoint, but has nothing here to change.
  */
-export function EventAttendeesSection({ eventId }: { eventId: string }) {
+export function EventAttendeesSection({
+  eventId,
+  readOnly = false,
+  organiser,
+}: {
+  eventId: string;
+  /** A guest's view: who organised it and who is going, nothing to change. */
+  readOnly?: boolean;
+  organiser?: { name: string; avatarUrl: string | null } | null;
+}) {
   const { isDark } = useTheme();
   const { attendees } = useEventAttendees(eventId);
   const invite = useInviteToEvent();
@@ -255,28 +264,50 @@ export function EventAttendeesSection({ eventId }: { eventId: string }) {
       {
         text: 'Remove',
         style: 'destructive',
-        onPress: () => uninvite.mutate({ eventId, userId }),
+        onPress: () =>
+          uninvite.mutate(
+            { eventId, userId },
+            {
+              onError: (err: Error) =>
+                Alert.alert("Couldn't remove them", err?.message || 'Please try again.'),
+            },
+          ),
       },
     ]);
 
   return (
     <View className="px-5 mt-5">
       <View className="flex-row items-center justify-between mb-3">
-        <Text className="text-foreground text-base font-bold tracking-tight">
+        <Text accessibilityRole="header" className="text-foreground text-base font-bold tracking-tight">
           Who’s coming
         </Text>
-        <Pressable
-          onPress={() => setPicking((open) => !open)}
-          className="flex-row items-center gap-1 active:opacity-60"
-        >
-          <UserPlusIcon size={13} className="text-primary" />
-          <Text className="text-primary text-sm font-semibold">
-            {picking ? 'Close' : 'Invite'}
-          </Text>
-        </Pressable>
+        {!readOnly && (
+          <Pressable
+            onPress={() => setPicking((open) => !open)}
+            accessibilityRole="button"
+            className="flex-row items-center gap-1 min-h-[44px] px-2 -mr-2 active:opacity-60"
+          >
+            <UserPlusIcon size={14} className="text-primary" />
+            <Text className="text-primary text-sm font-semibold">
+              {picking ? 'Close' : 'Invite'}
+            </Text>
+          </Pressable>
+        )}
       </View>
 
-      {attendees.length === 0 && !picking ? (
+      {organiser && (
+        <View className="bg-card rounded-2xl flex-row items-center gap-3 px-4 py-3 mb-2">
+          <PersonAvatar name={organiser.name} avatarUrl={organiser.avatarUrl} />
+          <View className="flex-1 min-w-0">
+            <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+              {organiser.name}
+            </Text>
+            <Text className="text-muted-foreground text-[12px] mt-0.5">Organiser</Text>
+          </View>
+        </View>
+      )}
+
+      {attendees.length === 0 && !picking && readOnly ? null : attendees.length === 0 && !picking ? (
         <View className="bg-card rounded-2xl p-6 items-center gap-2">
           <UsersIcon size={18} className="text-muted-foreground" />
           <Text className="text-muted-foreground text-sm">Nobody invited yet</Text>
@@ -314,12 +345,14 @@ export function EventAttendeesSection({ eventId }: { eventId: string }) {
                   {STATUS_LABEL[person.status]}
                 </Text>
               </View>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${person.name}`} hitSlop={8}
-                onPress={() => remove(person.user_id, person.name)}
-                className="w-8 h-8 items-center justify-center active:opacity-60"
-              >
-                <XIcon size={14} className="text-muted-foreground" />
-              </Pressable>
+              {!readOnly && (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${person.name}`}
+                  onPress={() => remove(person.user_id, person.name)}
+                  className="w-11 h-11 -mr-2 items-center justify-center active:opacity-60"
+                >
+                  <XIcon size={16} className="text-muted-foreground" />
+                </Pressable>
+              )}
             </View>
           ))}
         </View>

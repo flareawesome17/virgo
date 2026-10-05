@@ -544,9 +544,9 @@ export function VideoPlayer({
                 and leaves it playing, which a cross would promise to stop. */}
             <Pressable
               onPress={onMinimise ?? onClose}
-              hitSlop={8}
+              accessibilityRole="button"
               accessibilityLabel={onMinimise ? 'Minimise' : 'Close'}
-              className="w-10 h-10 rounded-full bg-black/45 items-center justify-center active:opacity-70"
+              className="w-11 h-11 rounded-full bg-black/45 items-center justify-center active:opacity-70"
             >
               <ChevronDownIcon size={20} color="#fff" />
             </Pressable>
@@ -556,6 +556,18 @@ export function VideoPlayer({
             >
               {file.mediaTitle || file.originalName}
             </Text>
+            {/* And a way to stop it. There was only minimise, so the film went
+                on playing in the corner whether you wanted it or not. */}
+            {onMinimise && (
+              <Pressable
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                className="w-11 h-11 rounded-full bg-black/45 items-center justify-center active:opacity-70"
+              >
+                <XIcon size={18} color="#fff" />
+              </Pressable>
+            )}
           </View>
         </SafeAreaView>
 

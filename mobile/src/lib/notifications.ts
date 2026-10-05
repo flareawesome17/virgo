@@ -492,6 +492,16 @@ export async function syncReminderNotifications(
 ): Promise<ReminderSync | null> {
   const N = loadNotifications();
   if (!N) return null;
+  // Asked only when there is something to alert for. The sync runs at
+  // launch, and it put the explainer up on first launch for people with no
+  // reminders at all.
+  const alerting = reminders.some(
+    (r) =>
+      !r.is_completed &&
+      (r.is_alarm_enabled || r.has_push_notification) &&
+      Date.parse(r.reminder_time) > Date.now(),
+  );
+  if (!alerting && !(await hasNotificationPermission())) return null;
   if (!(await ensurePermissions())) return null;
   await ensureChannels();
 
@@ -685,6 +695,8 @@ export interface NotificationPayload {
   bookingId?: string;
   /** For 'job_application': the post it is on, opened with its applicants. */
   postId?: string;
+  /** The stored notification this push is, to mark read when it is opened. */
+  notificationId?: string;
   /** For 'support_reply': the request that was answered. */
   ticketId?: string;
   /** A reward; sent with no type at all. */

@@ -66,7 +66,11 @@ export function VideoSurface({ children }: { children: ReactNode }) {
               : undefined
           }
         >
+          {/* Keyed by film: one that stalled left the next on its error
+              screen, and the mute icon could disagree with the sound. The
+              mode is not in the key, so shrinking still never restarts it. */}
           <VideoPlayer
+            key={current.key}
             file={current}
             mode={mode}
             onClose={close}

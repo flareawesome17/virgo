@@ -5,7 +5,7 @@ import {
   SafeAreaInsetsContext,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { UploadCloudIcon, AlertCircleIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useUploadQueue } from '@/src/providers/UploadProvider';
@@ -45,6 +45,7 @@ for (const Icon of [UploadCloudIcon, AlertCircleIcon]) {
  */
 export function UploadBar({ children }: { children: ReactNode }) {
   const { tasks, active, overall, remaining } = useUploadQueue();
+  const pathname = usePathname();
   const insets = useSafeAreaInsets();
 
   const failed = tasks.filter((task) => task.status === 'failed').length;
@@ -64,7 +65,10 @@ export function UploadBar({ children }: { children: ReactNode }) {
     {showing ? (
       <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutUp.duration(180)}>
         <Pressable
-          onPress={() => router.push('/albums/upload')}
+          onPress={() => {
+            // Already there: it pushed another copy on every tap.
+            if (pathname !== '/albums/upload') router.push('/albums/upload');
+          }}
           accessibilityRole="button"
           accessibilityLabel={
             active

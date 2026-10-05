@@ -47,15 +47,40 @@ export function useCreateReminder() {
   });
 }
 
+/**
+ * Changes a reminder, on screen at once.
+ *
+ * The tick and the alarm and push switches waited for the server, so a tap
+ * did nothing visible for a moment, and a failure did nothing at all. They
+ * change on the tap now and go back if the server refuses; the caller says so.
+ */
 export function useUpdateReminder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...input }: UpdateReminderInput & { id: string }) =>
       remindersApi.update(id, input),
+    onMutate: async ({ id, ...input }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.reminders.all });
+      const before = queryClient.getQueriesData<unknown>({ queryKey: queryKeys.reminders.all });
+      const apply = (r: Reminder) => (r.id === id ? { ...r, ...input } : r);
+      queryClient.setQueriesData<unknown>({ queryKey: queryKeys.reminders.all }, (data: unknown) => {
+        if (!data || typeof data !== 'object') return data;
+        if ('data' in data && Array.isArray((data as { data: unknown }).data)) {
+          const list = data as { data: Reminder[] };
+          return { ...list, data: list.data.map(apply) };
+        }
+        if ('id' in data && (data as Reminder).id === id) return apply(data as Reminder);
+        return data;
+      });
+      return { before };
+    },
+    onError: (_error, _input, context) => {
+      for (const [key, data] of context?.before ?? []) queryClient.setQueryData(key, data);
+    },
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.reminders.detail(updated.id), updated);
-      queryClient.invalidateQueries({ queryKey: queryKeys.reminders.all });
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.reminders.all }),
   });
 }
 

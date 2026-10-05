@@ -669,7 +669,7 @@ function NowPlaying({
         style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 520 }}
         pointerEvents="none"
       />
-      <InsetFrame edges={['top', 'bottom']} className="flex-1">
+      <InsetFrame edges={['top', 'bottom']} className="flex-1" modal>
         <View className="px-5 pt-2 flex-row items-center">
           <Pressable
             onPress={onClose}

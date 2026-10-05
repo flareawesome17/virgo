@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { type StoredFile } from '@/src/api';
+import { pauseAlbumAudio } from '@/src/lib/media-focus';
 
 /**
  * How much of the screen the player is taking.
@@ -92,6 +93,8 @@ export function VideoPlayerProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<VideoMode>('full');
 
   const open = useCallback((file: StoredFile, films: StoredFile[] = []) => {
+    // A film and a recording do not play over each other.
+    pauseAlbumAudio();
     setCurrent(file);
     // Falls back to the file alone, so the player always has a queue to look
     // itself up in and `hasNext` is answerable without a special case.

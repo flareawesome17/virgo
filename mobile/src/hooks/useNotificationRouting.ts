@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { router } from 'expo-router';
 import { onNotificationTap, type NotificationPayload } from '@/src/lib/notifications';
 import { goToTab } from '@/src/lib/navigation';
 import { getOpenConversation } from '@/src/hooks/useChat';
+import { useMarkNotificationsRead } from '@/src/hooks/useNotifications';
 
 /**
  * Opens whatever a tapped notification is about.
@@ -15,10 +16,19 @@ import { getOpenConversation } from '@/src/hooks/useChat';
  * signed-out user at a protected screen.
  */
 export function useNotificationRouting(enabled: boolean): void {
+  // In a ref: the tap listener is set up once, and the mutation's identity
+  // changes with every render.
+  const markRead = useMarkNotificationsRead();
+  const markReadRef = useRef(markRead);
+  markReadRef.current = markRead;
+
   useEffect(() => {
     if (!enabled) return;
 
     const go = (payload: NotificationPayload) => {
+      // Opened is read. The bell went on counting a push you had tapped.
+      if (payload.notificationId) markReadRef.current.mutate([payload.notificationId]);
+
       // Tab destinations go back to the tabs that are already there (goToTab):
       // a push from whatever screen the tap landed on stacked a second set.
       switch (payload.type) {

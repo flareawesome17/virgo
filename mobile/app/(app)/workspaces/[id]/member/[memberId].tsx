@@ -55,7 +55,14 @@ export default function MemberAccessScreen() {
     loadFailed: membersFailed,
     refetch: refetchMembers,
   } = useWorkspaceMembers(id);
-  const member = members.find((m) => m.id === memberId && m.status === 'accepted');
+  // Someone still invited too. "Isn't shared yet → Share" brought you to
+  // Members, where an invitee offered only Resend and Cancel: no way to say
+  // what they should see. The API takes it either way; it applies once they
+  // accept.
+  const member = members.find(
+    (m) => m.id === memberId && (m.status === 'accepted' || m.status === 'pending'),
+  );
+  const invited = member?.status === 'pending';
   const albumsQuery = useCollaboratorAlbums(memberId ?? null);
   const albums = albumsQuery.albums;
 
@@ -179,9 +186,10 @@ export default function MemberAccessScreen() {
             <Text className="text-foreground text-[22px] font-bold" numberOfLines={1}>
               {member.name}
             </Text>
-            <Text className="text-muted-foreground text-[13px] mt-0.5" numberOfLines={1}>
-              {workspace ? `In ${workspace.name}` : 'In this workspace'}
-              {since ? ` since ${since}` : ''}
+            <Text className="text-muted-foreground text-[13px] mt-0.5" numberOfLines={2}>
+              {invited
+                ? "Invited, hasn't joined yet. What you choose here is theirs when they accept."
+                : `${workspace ? `In ${workspace.name}` : 'In this workspace'}${since ? ` since ${since}` : ''}`}
             </Text>
           </View>
         </View>

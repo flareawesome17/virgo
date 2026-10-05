@@ -3,7 +3,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useTheme } from '@/src/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { authApi } from '@/src/api';
-import { Redirect, router } from 'expo-router';
+import { Redirect, router, useNavigation } from 'expo-router';
+import { usePreventRemove } from '@react-navigation/native';
 import { useState } from 'react';
 import {
   ArrowLeftIcon, UserIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
@@ -58,6 +59,22 @@ export default function SignUpScreen() {
 
   const [step, setStep] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+
+  /*
+   * Back, the button or the swipe, steps back through the wizard. It left
+   * sign-up altogether from any step, and everything typed went with it.
+   * Only going back is held: finishing replaces the screen, and that goes
+   * through as asked.
+   */
+  const navigation = useNavigation();
+  usePreventRemove(step > 0, ({ data }) => {
+    if (data.action.type !== 'GO_BACK' && data.action.type !== 'POP') {
+      navigation.dispatch(data.action);
+      return;
+    }
+    setErrorMsg('');
+    setStep((s) => Math.max(0, s - 1));
+  });
   const [showPassword, setShowPassword] = useState(false);
 
   // Step 1

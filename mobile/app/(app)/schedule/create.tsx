@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+import { DetailFallback } from '@/components/DetailFallback';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InsetFrame } from '@/components/InsetFrame';
 import {
@@ -94,7 +95,13 @@ export default function CreateEventScreen() {
   const [showWsPicker, setShowWsPicker] = useState(false);
   const [guests, setGuests] = useState<string[]>([]);
 
-  const { data: existing } = useScheduleEvent(eventId ?? undefined);
+  const {
+    data: existing,
+    error: existingError,
+    isError: existingFailed,
+    isPaused: existingPaused,
+    refetch: refetchExisting,
+  } = useScheduleEvent(eventId ?? undefined);
 
   // Once per event, not on every refetch: React Query refreshing in the
   // background must not overwrite what is being typed.
@@ -242,6 +249,21 @@ export default function CreateEventScreen() {
     );
   };
 
+  // Editing opened on an empty form, as if creating, until the event arrived
+  // — and stayed that way when it did not.
+  if (editing && !existing) {
+    return (
+      <DetailFallback
+        title="Edit event"
+        what="this event"
+        gone="It was deleted, or you were taken off it."
+        error={existingError}
+        failed={existingFailed || existingPaused}
+        onRetry={() => void refetchExisting()}
+      />
+    );
+  }
+
   return (
     <InsetFrame>
       <FormHeader title={editing ? 'Edit event' : 'New event'} />
@@ -288,7 +310,7 @@ export default function CreateEventScreen() {
         <View className="px-5 mt-5">
           <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Title</Text>
           <TextInput value={title} onChangeText={setTitle} placeholder="e.g. Look 2 — Studio Session" placeholderTextColor="#A89489"
-            className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }} autoFocus />
+            className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }} autoFocus={!editing} />
         </View>
 
         {/* Description */}
@@ -308,17 +330,29 @@ export default function CreateEventScreen() {
             value={when}
             onChange={(next) => setWhen(next)}
           />
-          <DateTimeField
-            // Says so rather than showing a plausible-looking 9:00 for an
-            // all-day event. Touching the picker is what gives it a time.
-            label={hasTime ? 'Time' : 'Time (not set)'}
-            mode="time"
-            value={when}
-            onChange={(next) => {
-              setWhen(next);
-              setHasTime(true);
-            }}
-          />
+          {hasTime && (
+            <DateTimeField
+              label="Time"
+              mode="time"
+              value={when}
+              onChange={(next) => {
+                setWhen(next);
+                setHasTime(true);
+              }}
+            />
+          )}
+        </View>
+        {/* All day, said and chosen. Only an event made on the web could be
+            one; here every new event got 9:00 whether it had a time or not. */}
+        <View className="px-5 mt-3">
+          <View className="bg-card rounded-2xl px-4 min-h-[52px] flex-row items-center justify-between">
+            <Text className="text-foreground text-[15px] font-semibold">All day</Text>
+            <Switch
+              value={!hasTime}
+              onValueChange={(allDay) => setHasTime(!allDay)}
+              accessibilityLabel="All day"
+            />
+          </View>
         </View>
 
         {/* Where */}

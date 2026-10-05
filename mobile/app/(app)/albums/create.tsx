@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PALETTES } from '@/theme';
 import { InsetFrame } from '@/components/InsetFrame';
 import { RetentionPicker, retentionReady } from '@/components/RetentionPicker';
 import { useAuth, useCreateAlbum, useWorkspaces, useTheme,
@@ -27,6 +28,7 @@ cssInterop(ChevronDownIcon, { className: { target: 'style', nativeStyleToProp: {
 cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function CreateAlbumScreen() {
+  const placeholderColor = (useTheme().isDark ? PALETTES.dark : PALETTES.light).mutedForeground;
   const { isAlbumLimitReached, albumLimit, plan } = usePlanLimits();
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -158,9 +160,9 @@ export default function CreateAlbumScreen() {
 
         {/* Explains the disabled Create button. */}
         {atAlbumLimit && (
-          <View className="mx-5 mt-4 rounded-2xl p-4" style={{ backgroundColor: '#C76B4A18' }}>
-            <Text className="text-[#C76B4A] text-sm font-bold">{selectedWs?.name} is full</Text>
-            <Text className="text-[#C76B4A] text-xs mt-1">
+          <View className="mx-5 mt-4 rounded-2xl p-4 bg-warning/10">
+            <Text className="text-warning text-sm font-bold">{selectedWs?.name} is full</Text>
+            <Text className="text-warning text-xs mt-1">
               The {plan} plan allows {albumLimit} album{albumLimit === 1 ? '' : 's'} in each
               workspace. Choose another workspace or delete an album
               {SELLS_PLANS_HERE ? ', or upgrade.' : '.'}
@@ -168,8 +170,7 @@ export default function CreateAlbumScreen() {
             <Pressable
               onPress={() => router.push('/settings/storage/plans')}
               accessibilityRole="button"
-              className="mt-3 rounded-xl py-2.5 items-center active:scale-[0.97]"
-              style={{ backgroundColor: '#C76B4A' }}
+              className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
             >
               <Text className="text-white text-xs font-bold">See plans</Text>
             </Pressable>
@@ -279,7 +280,7 @@ export default function CreateAlbumScreen() {
               value={name}
               onChangeText={setName}
               placeholder="e.g. Look 1 — Golden Hour"
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',
@@ -300,7 +301,7 @@ export default function CreateAlbumScreen() {
               value={description}
               onChangeText={setDescription}
               placeholder="Brief description of this album..."
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',

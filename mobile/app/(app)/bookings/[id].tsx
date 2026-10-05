@@ -11,7 +11,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useWindowInsets } from '@/src/lib/window-insets';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   useBooking,
@@ -469,7 +470,7 @@ function CancelSheet({
   onCancel: (reason: string) => void;
 }) {
   const [reason, setReason] = useState('');
-  const insets = useSafeAreaInsets();
+  const insets = useWindowInsets();
   const shade = useShade();
 
   return (

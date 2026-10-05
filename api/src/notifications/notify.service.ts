@@ -172,6 +172,9 @@ export class NotifyService {
     const wants = (d: Delivery, channel: NotificationChannel) =>
       allows(stored.get(d.userId), CATEGORY_OF_TOPIC[d.topic], channel);
 
+    // The stored row each delivery became, so a tapped push can mark it read.
+    const rowOf = new Map(deliveries.map((d, i) => [d, ids[i]] as const));
+
     try {
       const pushed = deliveries.filter((d) => wants(d, 'push'));
       const tokensByUser = new Map<string, string[]>();
@@ -193,7 +196,11 @@ export class NotifyService {
             // while the device is dozing — an invitation that arrives an hour
             // late is one the organiser has already given up on.
             priority: d.priority ?? (d.topic === 'reminder' ? 'default' : 'high'),
-            data: d.data ?? {},
+            // Opening a push read the notification, but the bell kept
+            // counting it: the phone had no way to say which one it was.
+            data: rowOf.get(d)
+              ? { ...(d.data ?? {}), notificationId: rowOf.get(d) }
+              : (d.data ?? {}),
           });
         }
       }
