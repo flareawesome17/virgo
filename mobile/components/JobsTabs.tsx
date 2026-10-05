@@ -24,6 +24,7 @@ import { JobsFeed } from '@/components/JobsFeed';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { EmptyState } from '@/components/EmptyState';
 import { CardListSkeleton } from '@/components/Skeleton';
+import { useTabObstruction } from '@/components/TabScreen';
 import { BookingsList } from '@/components/BookingsList';
 import { PersonSafetySheet } from '@/components/PersonSafetySheet';
 import {
@@ -737,8 +738,9 @@ function Empty({
 }: {
   title: string; body: string; cta: string; onPress: () => void;
 }) {
+  const obstruction = useTabObstruction();
   return (
-    <View className="flex-1 justify-center">
+    <View className="flex-1 justify-center" style={{ paddingBottom: obstruction }}>
       <EmptyState icon={BriefcaseIcon} title={title} body={body} action={{ label: cta, onPress }} />
     </View>
   );

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { router } from 'expo-router';
 import { onNotificationTap, type NotificationPayload } from '@/src/lib/notifications';
+import { goToTab } from '@/src/lib/navigation';
 
 /**
  * Opens whatever a tapped notification is about.
@@ -17,6 +18,8 @@ export function useNotificationRouting(enabled: boolean): void {
     if (!enabled) return;
 
     const go = (payload: NotificationPayload) => {
+      // Tab destinations go back to the tabs that are already there (goToTab):
+      // a push from whatever screen the tap landed on stacked a second set.
       switch (payload.type) {
         case 'message':
           if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
@@ -29,7 +32,7 @@ export function useNotificationRouting(enabled: boolean): void {
         // is. Not the event's own screen: it is not on your calendar until you
         // accept, so opening it would show a page you cannot act on.
         case 'event_invite':
-          router.push('/(app)/(tabs)/schedule');
+          goToTab('/(app)/(tabs)/schedule');
           return;
         // A response is about an event you own, so the event itself is right.
         // A move is about one you accepted, which you can also open — the
@@ -37,13 +40,13 @@ export function useNotificationRouting(enabled: boolean): void {
         case 'event_response':
         case 'event_updated':
           if (payload.eventId) router.push(`/schedule/${payload.eventId}`);
-          else router.push('/(app)/(tabs)/schedule');
+          else goToTab('/(app)/(tabs)/schedule');
           return;
 
         // Friendships are answered from Network.
         case 'friend_request':
         case 'friend_accepted':
-          router.push('/(app)/(tabs)/connect?view=people');
+          goToTab('/(app)/(tabs)/connect?view=people');
           return;
 
         // A workspace invitation is answered on Workspaces, where it shows
@@ -51,11 +54,11 @@ export function useNotificationRouting(enabled: boolean): void {
         // it any more. An answer — or someone leaving — is about one of your
         // own workspaces, so it opens that workspace's members.
         case 'collaborator_invite':
-          router.push('/(app)/(tabs)/workspaces');
+          goToTab('/(app)/(tabs)/workspaces');
           return;
         case 'collaborator_response':
           if (payload.workspaceId) router.push(`/workspaces/${payload.workspaceId}?tab=members`);
-          else router.push('/(app)/(tabs)/workspaces');
+          else goToTab('/(app)/(tabs)/workspaces');
           return;
 
         // Both sides of a hire enquiry are answered from the same list, and an

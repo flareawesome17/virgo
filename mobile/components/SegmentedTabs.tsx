@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { LucideIcon } from 'lucide-react-native';
+import { useChrome } from '@/src/providers/ChromeProvider';
 
 /** The lozenge's glide between segments: Material's standard curve. */
 const GLIDE = { duration: 220, easing: Easing.bezier(0.2, 0, 0, 1) };
@@ -45,6 +46,9 @@ export function SegmentedTabs<K extends string>({
   /** `sm` for a control inside a card or a header row. */
   size?: 'md' | 'sm';
 }) {
+  // A new view can be shorter than the screen, and a list that cannot
+  // scroll cannot bring hidden bars back; so a switch brings them back.
+  const { reveal } = useChrome();
   const index = Math.max(0, segments.findIndex((s) => s.key === value));
   const [width, setWidth] = useState(0);
   const segmentWidth = width > 0 ? (width - PADDING * 2) / segments.length : 0;
@@ -107,8 +111,12 @@ export function SegmentedTabs<K extends string>({
           <Pressable
             key={segment.key}
             onPress={() => {
-              if (!on) onChange(segment.key);
+              if (on) return;
+              onChange(segment.key);
+              reveal();
             }}
+            // The small size is 36pt to look at and 44pt to touch.
+            hitSlop={size === 'sm' ? { top: 4, bottom: 4 } : undefined}
             accessibilityRole="tab"
             accessibilityState={{ selected: on }}
             accessibilityLabel={

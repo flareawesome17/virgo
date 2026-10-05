@@ -11,6 +11,7 @@ import { RemoteImage } from '@/components/RemoteImage';
 import { BottomSheet } from '@/components/BottomSheet';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
+import { goToTab } from '@/src/lib/navigation';
 import { useMemo, useState } from 'react';
 import {
   ArrowLeftIcon,
@@ -419,7 +420,7 @@ export default function ConversationInfoScreen() {
             </Text>
             <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
               <Pressable
-                onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
+                onPress={() => goToTab('/(app)/(tabs)/connect?view=people')}
                 className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
                 style={{ borderBottomWidth: 1, borderBottomColor: border }}
               >

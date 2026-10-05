@@ -1,4 +1,5 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import {
   Easing,
   makeMutable,
@@ -124,6 +125,25 @@ export function useChrome(): Chrome {
 
 export function useBarHeight(): BarHeight {
   return useContext(BarHeightContext);
+}
+
+/**
+ * Brings the bars back when the screen shows something too short to scroll:
+ * an empty state, a failure, a placeholder.
+ *
+ * Scrolling is the only other thing that moves them, and a list that fits
+ * the screen cannot scroll. Switch the Feed to an empty Connections, or Jobs
+ * to an empty sub-tab, with the bars hidden, and nothing could bring them
+ * back — no top bar, no +, no tabs. Only on the screen in front, so a tab in
+ * the background loading its empty state does not move them under the
+ * screen you are on.
+ */
+export function useRevealOnMount(): void {
+  const { reveal } = useChrome();
+  const focused = useIsFocused();
+  useEffect(() => {
+    if (focused) reveal();
+  }, [focused, reveal]);
 }
 
 /**

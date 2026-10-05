@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
+import { goToTab } from '@/src/lib/navigation';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
   type LucideIcon,
@@ -689,7 +690,7 @@ function SharedView({ workspace }: { workspace: Workspace }) {
               }
             />
           )}
-          <Chip icon={CalendarPlusIcon} label="Schedule" onPress={() => router.push('/(app)/(tabs)/schedule')} />
+          <Chip icon={CalendarPlusIcon} label="Schedule" onPress={() => goToTab('/(app)/(tabs)/schedule')} />
         </View>
 
         <View>

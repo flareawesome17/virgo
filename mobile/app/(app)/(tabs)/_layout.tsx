@@ -95,6 +95,10 @@ function TabsLayoutInner() {
 
   return (
     <Tabs
+      // Back goes to the tab you came from. The default is the first tab, so
+      // Schedule → your photo → Settings → back landed on the Dashboard, and
+      // Settings and Connect have no back button of their own.
+      backBehavior="history"
       // iOS gets the floating capsule. Android — and the web preview, which
       // reports its own platform — keep the stock bar with the options below,
       // exactly as before.

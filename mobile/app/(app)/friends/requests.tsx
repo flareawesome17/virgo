@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useFriends, useRespondToFriendRequest, useTheme } from '@/src/hooks';
 import { useState } from 'react';
 import { router } from 'expo-router';
+import { goToTab } from '@/src/lib/navigation';
 import { ArrowLeftIcon, CheckIcon, XIcon, ClockIcon, UserPlusIcon, EllipsisIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
@@ -150,7 +151,7 @@ export default function FriendRequestsScreen() {
                   <Text className="text-foreground text-lg font-bold">No pending requests</Text>
                   <Text className="text-muted-foreground text-sm text-center px-8">Send connection requests to work with other creatives</Text>
                 </View>
-                <Pressable onPress={() => router.push('/(app)/(tabs)/connect?view=people')} className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]">
+                <Pressable onPress={() => goToTab('/(app)/(tabs)/connect?view=people')} className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]">
                   <UserPlusIcon size={18} className="text-white" /><Text className="text-white text-sm font-semibold">Find people</Text>
                 </Pressable>
               </View>

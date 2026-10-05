@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Pressable, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -298,14 +298,16 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
 
   return (
     <SafeAreaView edges={embedded ? [] : ['top']} className="flex-1 bg-background">
-      {/* Lifts the form above the keyboard. Without this the fields nearest
-          the bottom sat underneath it on iOS with no way to scroll to them. */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
+      {/* The scroll view keeps its own content clear of the keyboard
+          (automaticallyAdjustKeyboardInsets), and a drag puts the keyboard
+          away. A KeyboardAvoidingView here measured itself against a frame
+          that starts below the bars and runs past the bottom edge, and
+          under-lifted by about the height of both. */}
+      <View className="flex-1">
 
       <ScrollView keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+        keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: bottomInset }}
@@ -687,7 +689,7 @@ export default function NetworkScreen({ embedded = false }: { embedded?: boolean
           ))
         )}
       </ScrollView>
-          </KeyboardAvoidingView>
+      </View>
 
       {/* By account id, which a request carries and a legacy free-text row
           does not — those rows get no button. A block deletes the request on

@@ -305,11 +305,17 @@ export default function PhotoViewerScreen() {
   const [saving, setSaving] = useState(false);
   const [sharing, setSharing] = useState(false);
   const chrome = useSharedValue(1);
+  // Whether the controls are showing, for touches. Their opacity alone hid
+  // them without taking them away: a tap that hid them left the filmstrip,
+  // close, Save and Remove all still answering, unseen.
+  const [chromeShown, setChromeShown] = useState(true);
 
   const photo = photos[currentIndex] ?? photos[0];
 
   const toggleChrome = useCallback(() => {
-    chrome.value = withTiming(chrome.value > 0.5 ? 0 : 1, { duration: 180 });
+    const next = chrome.value > 0.5 ? 0 : 1;
+    chrome.value = withTiming(next, { duration: 180 });
+    setChromeShown(next === 1);
   }, [chrome]);
 
   const chromeStyle = useAnimatedStyle(() => ({ opacity: chrome.value }));
@@ -554,7 +560,7 @@ export default function PhotoViewerScreen() {
 
       <Animated.View
         style={chromeStyle}
-        pointerEvents={zoomed ? 'none' : 'box-none'}
+        pointerEvents={zoomed || !chromeShown ? 'none' : 'box-none'}
         className="absolute inset-0"
       >
         <LinearGradient

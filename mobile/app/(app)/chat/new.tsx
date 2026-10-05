@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { goToTab } from '@/src/lib/navigation';
 import { useState } from 'react';
 import { ArrowLeftIcon, CheckIcon, UsersIcon, UserIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -169,7 +170,7 @@ export default function NewChatScreen() {
               <LoadFailed what="your connections" onRetry={() => refetch()} compact />
             ) : chattable.length === 0 ? (
               <Pressable
-                onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
+                onPress={() => goToTab('/(app)/(tabs)/connect?view=people')}
                 className="bg-card rounded-2xl px-4 py-6 items-center active:scale-[0.98]"
               >
                 <Text className="text-foreground text-sm font-semibold">No connections yet</Text>

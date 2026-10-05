@@ -1,6 +1,8 @@
 import { View, Text, Pressable } from 'react-native';
 import { CloudOffIcon, RotateCwIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { useTabObstruction } from '@/components/TabScreen';
+import { useRevealOnMount } from '@/src/providers/ChromeProvider';
 
 cssInterop(CloudOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(RotateCwIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -29,8 +31,15 @@ export function LoadFailed({
   /** For inline use inside a card, where a full-height block would be odd. */
   compact?: boolean;
 }) {
+  // Nothing here scrolls, so it is the one place hidden bars can come back.
+  useRevealOnMount();
+  const obstruction = useTabObstruction();
   return (
-    <View className={`items-center px-10 ${compact ? 'py-6' : 'flex-1 justify-center'}`}>
+    <View
+      className={`items-center px-10 ${compact ? 'py-6' : 'flex-1 justify-center'}`}
+      // Centred in what can be seen, not in a frame that runs under the tab bar.
+      style={compact ? undefined : { paddingBottom: obstruction }}
+    >
       <CloudOffIcon size={compact ? 22 : 30} className="text-muted-foreground" />
       <Text className="text-foreground text-[15px] font-bold mt-3 text-center">
         Could not load {what}

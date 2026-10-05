@@ -16,7 +16,6 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { router } from 'expo-router';
 import {
   useEventAttendees,
   useEventInvitations,
@@ -139,14 +138,14 @@ export function InvitePeoplePicker({
 
   if (invitable.length === 0) {
     return (
-      <Pressable
-        onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
-        className="bg-card rounded-2xl px-4 py-4 active:opacity-70"
-      >
+      // Not a link: leaving would close the event form and lose it. It used to
+      // push a second set of tabs over the form, and named a "Network tab"
+      // that no longer exists.
+      <View className="bg-card rounded-2xl px-4 py-4">
         <Text className="text-muted-foreground text-sm">
-          Add connections from the Network tab to invite them to events.
+          Invite people you are connected with. Connect with people from Connect › People, then come back.
         </Text>
-      </Pressable>
+      </View>
     );
   }
 
