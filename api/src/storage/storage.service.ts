@@ -11,6 +11,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
+  DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -71,6 +72,9 @@ export { contentDisposition } from './download-names';
  * video through the API's memory and bandwidth, which is the fastest way to
  * make a media app fall over.
  */
+/** How many single deletes go at once when DeleteObjects cannot be used. */
+const SINGLE_DELETE_CONCURRENCY = 8;
+
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
@@ -118,6 +122,100 @@ export class StorageService {
           maxAttempts: 3,
         })
       : null;
+  }
+
+  /**
+   * Set once DeleteObjects has been refused as a request, so later deletes
+   * go straight to deleting one object at a time. Per process: a deploy that
+   * fixes the store, or a new store, gets asked again.
+   */
+  private bulkDeleteRefused = false;
+
+  /**
+   * Deletes objects, and returns the keys confirmed gone. Never throws.
+   *
+   * DeleteObjects first: a thousand at a time, one request per bucket. The
+   * SDK sends it with a CRC32 checksum and no Content-MD5 — since its 2025
+   * integrity change, and whatever requestChecksumCalculation says — and a
+   * store that wants Content-MD5 there refuses the whole request. Every delete
+   * in the app went through it, so every delete failed: an owner's, a
+   * manager's, and the retention sweep's. Whatever it did not confirm gone,
+   * because the request was refused or the key came back in its Errors, is
+   * tried again on its own with DeleteObject, which carries no checksum.
+   *
+   * Logs counts and codes, never keys: a log line naming a client's files
+   * outlives the files.
+   */
+  private async deleteFromBuckets(
+    keys: readonly string[],
+    context: string,
+  ): Promise<Set<string>> {
+    const client = this.requireClient();
+    const gone = new Set<string>();
+    const retry: string[] = [];
+    const describe = (err: unknown) => {
+      const e = err as { name?: string; Code?: string; message?: string; $metadata?: { httpStatusCode?: number } };
+      return `${e.$metadata?.httpStatusCode ?? '?'} ${e.Code ?? e.name ?? 'Error'}: ${String(e.message ?? err).slice(0, 160)}`;
+    };
+
+    for (let i = 0; i < keys.length; i += 1000) {
+      const batch = keys.slice(i, i + 1000);
+      if (this.bulkDeleteRefused) {
+        retry.push(...batch);
+        continue;
+      }
+      const byBucket = new Map<string, string[]>();
+      for (const key of batch) {
+        const bucket = this.config.bucketForKey(key);
+        byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), key]);
+      }
+      await Promise.all(
+        [...byBucket].map(async ([Bucket, list]) => {
+          try {
+            const result = await client.send(
+              new DeleteObjectsCommand({
+                Bucket,
+                Delete: { Objects: list.map((Key) => ({ Key })), Quiet: false },
+              }),
+            );
+            for (const item of result.Deleted ?? []) if (item.Key) gone.add(item.Key);
+            const errors = result.Errors ?? [];
+            if (errors.length > 0) {
+              this.logger.warn(
+                `${context}: ${errors.length} object(s) refused by DeleteObjects (${errors[0].Code ?? 'unknown'}); trying them one at a time`,
+              );
+            }
+            for (const key of list) if (!gone.has(key)) retry.push(key);
+          } catch (err) {
+            // Refused as a request, rather than lost on the way: it will be
+            // refused the same way next time.
+            const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+            if (status === 400 || status === 501) this.bulkDeleteRefused = true;
+            this.logger.warn(`${context}: DeleteObjects failed (${describe(err)}); deleting one at a time`);
+            retry.push(...list);
+          }
+        }),
+      );
+    }
+
+    // A few at a time: hundreds at once would trip the store's rate limits.
+    for (let i = 0; i < retry.length; i += SINGLE_DELETE_CONCURRENCY) {
+      let failed = 0;
+      let reason = '';
+      await Promise.all(
+        retry.slice(i, i + SINGLE_DELETE_CONCURRENCY).map(async (Key) => {
+          try {
+            await client.send(new DeleteObjectCommand({ Bucket: this.config.bucketForKey(Key), Key }));
+            gone.add(Key);
+          } catch (err) {
+            failed += 1;
+            reason ||= describe(err);
+          }
+        }),
+      );
+      if (failed > 0) this.logger.warn(`${context}: ${failed} object(s) could not be deleted (${reason})`);
+    }
+    return gone;
   }
 
   private requireClient(): S3Client {
@@ -541,30 +639,15 @@ export class StorageService {
   }
 
   async deleteObject(userId: string, key: string): Promise<void> {
-    const client = this.requireClient();
+    this.requireClient();
     // Destroying someone else's media is the highest bar there is.
     await this.assertCanAccess(userId, key, 'manage');
 
     const targets = await this.quota.objectAndDerivedKeys([key]);
-    const deleted = new Set<string>();
-    const byBucket = new Map<string, string[]>();
-    for (const target of targets.length > 0 ? targets : [key]) {
-      const bucket = this.config.bucketForKey(target);
-      byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), target]);
-    }
-    const results = await Promise.all(
-      [...byBucket].map(([Bucket, keys]) =>
-        client.send(
-          new DeleteObjectsCommand({
-            Bucket,
-            Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
-          }),
-        ),
-      ),
+    const deleted = await this.deleteFromBuckets(
+      targets.length > 0 ? targets : [key],
+      'delete',
     );
-    for (const result of results) {
-      for (const item of result.Deleted ?? []) if (item.Key) deleted.add(item.Key);
-    }
     if (!deleted.has(key)) {
       throw new ServiceUnavailableException('Could not delete media');
     }
@@ -599,7 +682,7 @@ export class StorageService {
     keys: readonly string[],
   ): Promise<{ deleted: number; failed: number }> {
     if (keys.length === 0) return { deleted: 0, failed: 0 };
-    const client = this.requireClient();
+    this.requireClient();
     for (const key of keys) this.assertSafeKey(key);
 
     const rows = await this.quota.fileOwnership(keys);
@@ -619,32 +702,7 @@ export class StorageService {
 
     const known = rows.map((row) => row.key);
     const targets = await this.quota.objectAndDerivedKeys(known);
-    const gone = new Set<string>();
-    for (let i = 0; i < targets.length; i += 1000) {
-      const byBucket = new Map<string, string[]>();
-      for (const key of targets.slice(i, i + 1000)) {
-        const bucket = this.config.bucketForKey(key);
-        byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), key]);
-      }
-      try {
-        const results = await Promise.all(
-          [...byBucket].map(([Bucket, batch]) =>
-            client.send(
-              new DeleteObjectsCommand({
-                Bucket,
-                Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: false },
-              }),
-            ),
-          ),
-        );
-        for (const result of results) {
-          for (const item of result.Deleted ?? []) if (item.Key) gone.add(item.Key);
-        }
-      } catch (err) {
-        // One bad batch must not strand the rest.
-        this.logger.error(`deleteMany batch failed for ${userId}: ${String(err)}`);
-      }
-    }
+    const gone = await this.deleteFromBuckets(targets, `deleteMany for ${userId}`);
 
     const deleted = known.filter((key) => gone.has(key));
     await this.quota.forgetKeys(deleted);
@@ -739,7 +797,7 @@ export class StorageService {
   async wipeAll(
     userId: string,
   ): Promise<{ deleted: number; failed: number; freedBytes: number }> {
-    const client = this.requireClient();
+    this.requireClient();
 
     const files = await this.quota.allFiles(userId);
     const coverUrl = await this.quota.coverUrl(userId);
@@ -776,54 +834,12 @@ export class StorageService {
     if (failed > 0) {
       this.logger.warn(`wipeAll: skipped ${failed} malformed key(s) for ${userId}`);
     }
-    const deletedKeys: string[] = [];
-
-    for (let i = 0; i < keys.length; i += 1000) {
-      const batch = keys.slice(i, i + 1000);
-
-      try {
-        // A batch can straddle both buckets — avatars and covers live in the
-        // public one, everything else in the private one — and DeleteObjects
-        // takes exactly one bucket, so the batch is split by where each key
-        // actually is.
-        const byBucket = new Map<string, string[]>();
-        for (const key of batch) {
-          const b = this.config.bucketForKey(key);
-          const list = byBucket.get(b) ?? [];
-          list.push(key);
-          byBucket.set(b, list);
-        }
-
-        const results = await Promise.all(
-          [...byBucket].map(([Bucket, keys]) =>
-            client.send(
-              new DeleteObjectsCommand({
-                Bucket,
-                Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
-              }),
-            ),
-          ),
-        );
-        const res = {
-          Deleted: results.flatMap((r) => r.Deleted ?? []),
-          Errors: results.flatMap((r) => r.Errors ?? []),
-        };
-        for (const d of res.Deleted ?? []) {
-          if (d.Key) deletedKeys.push(d.Key);
-        }
-        failed += (res.Errors ?? []).length;
-        if (res.Errors?.length) {
-          this.logger.warn(
-            `wipeAll: ${res.Errors.length} object(s) failed to delete for ${userId}`,
-          );
-        }
-      } catch (err) {
-        // A whole batch failing is not fatal — keep going so one bad batch
-        // does not strand the rest of the user's storage.
-        failed += batch.length;
-        this.logger.error(`wipeAll batch failed for ${userId}: ${String(err)}`);
-      }
-    }
+    // Split by bucket inside: avatars and covers live in the public one and
+    // everything else in the private one. Never throws, so one bad batch does
+    // not strand the rest of the user's storage.
+    const gone = await this.deleteFromBuckets(keys, `wipeAll for ${userId}`);
+    const deletedKeys = keys.filter((key) => gone.has(key));
+    failed += keys.length - deletedKeys.length;
 
     await this.quota.forgetFiles(userId, deletedKeys);
     const after = await this.quota.storageUsed(userId);
