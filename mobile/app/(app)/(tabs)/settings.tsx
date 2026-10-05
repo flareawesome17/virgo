@@ -104,22 +104,15 @@ export default function SettingsScreen() {
   const { offers: rewards } = usePromoOffers(!!user?.id);
 
   return (
-    <TabScreen>
+    <TabScreen title="Settings">
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: bottomInset }}
       >
-        <View className="px-5 pt-4 pb-2">
-          <Text className="text-foreground text-[28px] font-bold tracking-tight">Settings</Text>
-          <Text className="text-muted-foreground text-sm mt-1">
-            Your account, and how the app works
-          </Text>
-        </View>
-
         <View
           accessibilityRole="tablist"
-          className="mx-5 mt-3 mb-1 flex-row rounded-xl bg-secondary p-1"
+          className="mx-5 mt-2 mb-1 flex-row rounded-xl bg-secondary p-1"
         >
           <SegmentTab
             label="Profile & account"

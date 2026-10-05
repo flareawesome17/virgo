@@ -143,7 +143,7 @@ export default function ScheduleScreen() {
   };
 
   return (
-    <TabScreen>
+    <TabScreen title="Schedule" create="event">
       <Animated.ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -159,22 +159,8 @@ export default function ScheduleScreen() {
           </View>
         )}
 
-        {/* Header */}
-        <View className="px-5 pt-4 pb-1 flex-row items-center justify-between">
-          <View>
-            <Text className="text-foreground text-[28px] font-bold tracking-tight">Schedule</Text>
-            <Text className="text-muted-foreground text-sm mt-1">{events.length} events · {activeReminders.length} reminders</Text>
-          </View>
-          <Pressable
-            onPress={() => router.push('/schedule/create')}
-            accessibilityRole="button"
-            accessibilityLabel="Create an event"
-            className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
-          >
-            <PlusIcon size={20} className="text-action-foreground" />
-          </Pressable>
-        </View>
-
+        {/* No title row: the screen's name is in the top bar, and a new event
+            or reminder is its +. The month comes first. */}
         {/* Month Calendar */}
         <View className="mx-5 mt-4 bg-secondary rounded-2xl p-4">
           {/* Month navigator */}

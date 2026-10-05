@@ -3,11 +3,11 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCreateReminder, useReminder, useScheduleEvent, useUpdateReminder } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
+import { FormHeader } from '@/components/FormHeader';
 import { useEffect, useRef, useState } from 'react';
 import { ensurePermissions } from '@/src/lib/notifications';
 import { combineDateAndTime } from '@/src/lib/calendar';
 import {
-  ArrowLeftIcon,
   BellIcon,
   BellOffIcon,
   ToggleLeftIcon,
@@ -16,7 +16,6 @@ import {
 import { cssInterop } from 'nativewind';
 import { DateTimeField } from '@/components';
 
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ToggleLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -193,6 +192,10 @@ export default function CreateReminderScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <FormHeader
+        title={isEdit ? 'Edit reminder' : 'New reminder'}
+        subtitle={event ? `for ${event.title}` : undefined}
+      />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
       <KeyboardAvoidingView
@@ -206,25 +209,6 @@ export default function CreateReminderScreen() {
         contentContainerStyle={{ paddingBottom: 140 }}
         keyboardShouldPersistTaps="handled"
       >
-        <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable accessibilityRole="button" accessibilityLabel="Back"
-            onPress={() => router.back()}
-            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-          >
-            <ArrowLeftIcon size={18} className="text-foreground" />
-          </Pressable>
-          <View>
-            <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              {isEdit ? 'Edit reminder' : 'New reminder'}
-            </Text>
-            {event ? (
-              <Text className="text-muted-foreground text-sm mt-0.5" numberOfLines={1}>
-                for {event.title}
-              </Text>
-            ) : null}
-          </View>
-        </View>
 
         {/* Title */}
         <View className="px-5 mt-5">

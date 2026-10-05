@@ -83,15 +83,8 @@ export default function WorkspacesScreen() {
     );
   }, [workspaces, yours, shared, query, scope]);
 
-  const summary = [
-    yours.length > 0 && `${yours.length} yours`,
-    shared.length > 0 && `${shared.length} shared with you`,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
   return (
-    <TabScreen>
+    <TabScreen title="Workspaces" create="workspace">
       <Animated.FlatList
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -104,25 +97,9 @@ export default function WorkspacesScreen() {
         }
         ListHeaderComponent={
           <View>
-            <View className="px-5 pt-4 pb-1 flex-row items-center justify-between">
-              <View className="flex-1 min-w-0">
-                <Text className="text-foreground text-[28px] font-bold tracking-tight">Workspaces</Text>
-                {summary ? (
-                  <Text className="text-muted-foreground text-sm mt-1">{summary}</Text>
-                ) : null}
-              </View>
-              <Pressable
-                onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
-                accessibilityRole="button"
-                accessibilityLabel="Create a workspace"
-                className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
-              >
-                <PlusIcon size={20} className="text-action-foreground" />
-              </Pressable>
-            </View>
-
-            {/* Under the title, above the list it would join: an invitation is
-                the one thing on this screen waiting on somebody else. */}
+            {/* First, above the list it would join: an invitation is the one
+                thing on this screen waiting on somebody else. The screen's
+                name is in the top bar, and making one is its +. */}
             <WorkspaceInvitations />
 
             {workspaces.length > 0 && (

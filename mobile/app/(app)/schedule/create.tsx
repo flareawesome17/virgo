@@ -10,9 +10,10 @@ import {
   useTheme,
 } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
+import { FormHeader } from '@/components/FormHeader';
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeftIcon, TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
+  TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
   CalendarDaysIcon, ClockIcon, CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -27,7 +28,6 @@ import {
 } from '@/src/lib/calendar';
 import { useHoldUpdates } from '@/src/lib/ota-updates';
 
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -243,6 +243,7 @@ export default function CreateEventScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      <FormHeader title={editing ? 'Edit event' : 'New event'} />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
       <KeyboardAvoidingView
@@ -251,13 +252,6 @@ export default function CreateEventScreen() {
       >
 
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
-        <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <ArrowLeftIcon size={18} className="text-foreground" />
-          </Pressable>
-          <Text className="text-foreground text-[22px] font-bold tracking-tight">{editing ? 'Edit event' : 'New event'}</Text>
-        </View>
 
         {/* Event Type */}
         <View className="px-5 mt-5">
@@ -410,7 +404,7 @@ export default function CreateEventScreen() {
       <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background flex-row gap-3" style={{ paddingBottom: insets.bottom + 16 }}>
         <Pressable onPress={() => router.back()} className="flex-1 bg-card rounded-2xl py-3.5 items-center active:scale-[0.97]"
           style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-          <Text className="text-foreground text-base font-semibold">Back</Text>
+          <Text className="text-foreground text-base font-semibold">Cancel</Text>
         </Pressable>
         <Pressable onPress={() => canSave && (editing ? handleUpdate() : handleCreate())} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-action' : 'bg-muted'}`} disabled={!canSave || saving}>
           <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>
