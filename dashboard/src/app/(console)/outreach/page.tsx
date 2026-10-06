@@ -148,8 +148,8 @@ function BroadcastsTab() {
       cell: (b) =>
         b.delivered ? (
           <span>
-            {num(b.opened)}
-            <span className="ml-1 text-xs text-muted-foreground">{Math.round((b.opened / b.delivered) * 100)}%</span>
+            {num(b.opened)}{' '}
+            <span className="text-xs text-muted-foreground">({Math.round((b.opened / b.delivered) * 100)}%)</span>
           </span>
         ) : (
           <span className="text-muted-foreground">—</span>
