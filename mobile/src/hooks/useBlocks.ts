@@ -117,6 +117,7 @@ export function useReportPerson() {
       reason: UserReportReason;
       note?: string;
       from?: ReportSource;
+      messages?: { conversationId: string; messageIds: string[] };
     }) => blocksApi.report(input),
   });
 }

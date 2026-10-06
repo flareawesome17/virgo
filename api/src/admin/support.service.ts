@@ -26,6 +26,8 @@ export const SUPPORT_CATEGORIES = [
   'bookings',
   'bug',
   'feedback',
+  // Warnings from moderation: opened by staff, answered by the customer.
+  'safety',
   'other',
 ] as const;
 
@@ -106,6 +108,51 @@ export class SupportService {
       await this.bell(agents.map((a) => a.id), 'ticket.new', id, `New ticket: ${subject}`, who);
     }
     return { id, subject, status: 'open' };
+  }
+
+  /**
+   * A thread staff start: a message to a customer in their support inbox,
+   * which they can answer like any reply. Moderation's warnings arrive this
+   * way, so an appeal has somewhere to go.
+   *
+   * Opened by staff (`origin`), so the desk's speed numbers leave it out; held
+   * by whoever wrote it; waiting on the customer. They hear about it in the
+   * app and by push. Any email is the caller's to send: a warning's says
+   * more than "Support replied".
+   */
+  async openFromStaff(
+    userId: string,
+    subject: string,
+    body: string,
+    staff: { id: string; name: string },
+    category: (typeof SUPPORT_CATEGORIES)[number] = 'other',
+  ): Promise<string> {
+    const user = await this.db.queryOne<{ email: string }>('select email from users where id = $1', [
+      userId,
+    ]);
+    if (!user) throw new NotFoundException('No such account');
+    const id = await this.db.transaction(async (tx) => {
+      const ticket = await tx.query<{ id: string }>(
+        `insert into support_tickets
+           (user_id, user_email, subject, status, category, assigned_to, origin,
+            first_replied_at, due_at)
+         values ($1, $2, $3, 'pending', $4, $5, 'staff', now(), now()) returning id`,
+        [userId, user.email, subject.slice(0, 200), category, staff.id],
+      );
+      await tx.query(
+        `insert into support_messages (ticket_id, author_type, author_id, author_name, body)
+         values ($1, 'admin', $2, $3, $4)`,
+        [ticket.rows[0].id, staff.id, staff.name, body.trim()],
+      );
+      return ticket.rows[0].id;
+    });
+    await this.notifier.notify([userId], {
+      topic: 'support',
+      title: 'A message from Virgo',
+      body: subject,
+      data: { type: 'support_reply', ticketId: id },
+    });
+    return id;
   }
 
   /** The caller's own tickets. Scoped by user_id — never by a supplied id. */
@@ -669,12 +716,15 @@ export class SupportService {
            (count(*) filter (where first_replied_at is not null and first_replied_at <= due_at))::float
              / nullif(count(*) filter (where first_replied_at is not null), 0) as on_time
          from support_tickets
-        where created_at > now() - make_interval(days => $1)`,
+        where created_at > now() - make_interval(days => $1)
+          -- A warning staff opened was "answered" as it was written.
+          and origin = 'customer'`,
         [window],
       ),
       this.db.query(
         `select d::date as day,
-                (select count(*) from support_tickets where created_at::date = d::date)::int as opened,
+                (select count(*) from support_tickets
+                  where created_at::date = d::date and origin = 'customer')::int as opened,
                 (select count(*) from support_tickets where resolved_at::date = d::date)::int as resolved
            from generate_series(now() - make_interval(days => $1 - 1), now(), interval '1 day') d
           order by d`,

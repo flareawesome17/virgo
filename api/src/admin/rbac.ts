@@ -46,6 +46,10 @@ export const ADMIN_PERMISSIONS = [
 
   'content.read',
   'content.moderate',
+  // Reading what was said in a reported chat: the copy taken when it was
+  // reported, never the conversation. Private messages, so it sits with the
+  // people who act on reports rather than with everyone who can see them.
+  'content.evidence',
 
   'billing.read',
   'billing.manage',
@@ -59,6 +63,12 @@ export const ADMIN_PERMISSIONS = [
   'support.read',
   'support.reply',
   'support.manage',
+
+  // Reaching many customers at once: segments, broadcasts and app-update
+  // announcements. Sending is its own permission, because a message to
+  // everyone cannot be taken back.
+  'outreach.read',
+  'outreach.manage',
 
   'system.read',
 
@@ -122,7 +132,8 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: 'Content',
     permissions: [
       { key: 'content.read', label: 'See content and reports', description: 'Albums, client links and what people reported.' },
-      { key: 'content.moderate', label: 'Moderate', description: 'Hide posts and jobs, revoke client links.' },
+      { key: 'content.moderate', label: 'Moderate', description: 'Close reports: dismiss, hide posts and jobs, warn, remove comments, revoke client links.' },
+      { key: 'content.evidence', label: 'Read reported messages', description: 'The messages a chat report brought with it, copied when it was filed. Never the conversation itself.' },
     ],
   },
   {
@@ -132,6 +143,14 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'support.read', label: 'Read tickets', description: 'Every ticket and its thread, internal notes included.' },
       { key: 'support.reply', label: 'Reply', description: 'Answer customers and leave internal notes.' },
       { key: 'support.manage', label: 'Triage', description: 'Change status and priority, assign tickets.' },
+    ],
+  },
+  {
+    key: 'outreach',
+    label: 'Outreach',
+    permissions: [
+      { key: 'outreach.read', label: 'See outreach', description: 'Segments and their counts, broadcasts and how they went, app-update announcements.' },
+      { key: 'outreach.manage', label: 'Send', description: 'Save segments, send and schedule broadcasts, announce app updates.' },
     ],
   },
   {
@@ -183,6 +202,7 @@ const SUPPORT: AdminPermission[] = [
   'billing.read',
   'support.read',
   'support.reply',
+  'outreach.read',
   'system.read',
 ];
 
@@ -192,8 +212,10 @@ const ADMIN: AdminPermission[] = [
   'users.setPlan',
   'users.security',
   'content.moderate',
+  'content.evidence',
   'billing.manage',
   'support.manage',
+  'outreach.manage',
   'audit.read',
   'admins.read',
 ];
@@ -212,6 +234,7 @@ export const ROLE_PERMISSIONS: Record<SystemRole, readonly AdminPermission[]> = 
     'content.read',
     'billing.read',
     'support.read',
+    'outreach.read',
     'system.read',
   ],
   support: SUPPORT,

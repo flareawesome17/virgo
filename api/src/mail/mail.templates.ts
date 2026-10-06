@@ -679,6 +679,49 @@ export function supportReply(options: {
 }
 
 /**
+ * The safety team writing to someone about something they posted or did.
+ *
+ * Unlike a suspension, a warning says why — that is its point — in the words
+ * staff wrote, quoted as text. The link opens the same message in their
+ * support inbox, where they can answer it.
+ */
+export function moderationNotice(options: {
+  name: string;
+  /** "your post “Golden hour”", "your account". */
+  about: string;
+  message: string;
+  url: string;
+  /**
+   * The account was suspended with this message. They cannot sign in to
+   * answer it, so the email offers a reply to itself instead of a link.
+   */
+  suspended?: boolean;
+}): RenderedEmail {
+  const intro = `Hi ${options.name}, Virgo's safety team is writing to you about ${options.about}:`;
+  const outro = options.suspended
+    ? 'You cannot sign in while your account is suspended. To ask about it, reply to this email or write to support@virgo.ph.'
+    : 'If you think we got this wrong, reply to the message in the app and a person will look at it again.';
+  return {
+    subject: `A message from Virgo about ${options.about}`,
+    html: layout({
+      heading: 'A message from Virgo',
+      intro,
+      quote: options.message,
+      ...(options.suspended ? {} : { cta: { label: 'Open the message', url: options.url } }),
+      outro,
+    }),
+    text: [
+      intro,
+      '',
+      options.message,
+      '',
+      outro,
+      ...(options.suspended ? [] : ['', `Open the message: ${options.url}`]),
+    ].join('\n'),
+  };
+}
+
+/**
  * Staff suspended the account.
  *
  * Says what happened and how to ask about it, and nothing about why: the

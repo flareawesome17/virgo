@@ -51,7 +51,12 @@ export type NotificationTopic =
    * to every session an account has open, phone and browser alike. It reaches
    * the list through the feed, which asks each client what it is.
    */
-  | 'app-update';
+  | 'app-update'
+  /**
+   * News from Virgo, sent from the console to a segment of accounts. In the
+   * 'updates' category, so whoever switched those off is not pushed.
+   */
+  | 'announcement';
 
 /** What the server pushes. Discriminated on `type`. */
 export type ServerEvent =

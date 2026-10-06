@@ -17,6 +17,7 @@ import {
   useSignOutCustomer,
   useSignOutCustomerDevice,
 } from '@/hooks/useConsole';
+import { RESOLUTION_LABEL } from '@/components/console/moderation';
 import { DataTable, type Column } from '@/components/console/data-table';
 import {
   DataState,
@@ -311,7 +312,43 @@ export function SafetyTab({ id }: { id: string }) {
     { id: 'by', header: 'Reported by', cell: (r) => (r.reporter_id ? <Link href={`/virgo-users/${r.reporter_id}`} className="hover:underline">{r.reporter_name}</Link> : <span className="text-muted-foreground">a deleted account</span>) },
     { id: 'source', header: 'From', cell: (r) => <span className="text-muted-foreground">{r.source ?? '—'}</span> },
     { id: 'note', header: 'Note', cell: (r) => <span className="block max-w-md truncate text-muted-foreground" title={r.note ?? undefined}>{r.note ?? '—'}</span> },
+    {
+      id: 'status',
+      header: 'Status',
+      cell: (r) =>
+        !r.status ? (
+          <span className="text-muted-foreground">—</span>
+        ) : r.status === 'open' ? (
+          <Link href={`/moderation/user/${id}`} className="hover:underline">
+            <StatusDot tone="warn">Open</StatusDot>
+          </Link>
+        ) : (
+          <StatusDot tone={r.status === 'dismissed' ? 'muted' : 'ok'}>{RESOLUTION_LABEL[r.resolution ?? ''] ?? r.status}</StatusDot>
+        ),
+    },
     { id: 'when', header: 'When', cell: (r) => <span className="text-muted-foreground">{when(r.created_at)}</span> },
+  ];
+  const actionColumns: Column<NonNullable<CustomerSafety['actions']>[number]>[] = [
+    {
+      id: 'action',
+      header: 'Decision',
+      cell: (a) => <span className={a.action === 'dismiss' ? 'text-muted-foreground' : 'font-medium text-destructive'}>{RESOLUTION_LABEL[a.action] ?? a.action}</span>,
+    },
+    { id: 'about', header: 'About', cell: (a) => <span className="block max-w-xs truncate">{a.target_label ?? '—'}</span> },
+    {
+      id: 'told',
+      header: 'Told them',
+      cell: (a) =>
+        a.ticket_id ? (
+          <Link href={`/support/${a.ticket_id}`} className="block max-w-sm truncate hover:underline" title={a.message ?? undefined}>
+            {a.message}
+          </Link>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    { id: 'by', header: 'By', cell: (a) => <span className="text-muted-foreground">{a.admin_name ?? '—'}</span> },
+    { id: 'when', header: 'When', cell: (a) => <span className="text-muted-foreground">{when(a.created_at)}</span> },
   ];
   const madeColumns: Column<CustomerSafety['made'][number]>[] = [
     { id: 'reason', header: 'Reason', cell: (r) => <span className="font-medium capitalize">{r.reason}</span> },
@@ -330,8 +367,12 @@ export function SafetyTab({ id }: { id: string }) {
               { label: 'Blocked by', value: num(data.counts.blocked_by), hint: `they block ${num(data.counts.blocking)}` },
               { label: 'Reports on their posts', value: num(data.counts.post_reports + data.counts.job_reports), hint: `${num(data.counts.post_reports)} posts · ${num(data.counts.job_reports)} jobs` },
               { label: 'Taken down', value: num(data.counts.hidden_posts + data.counts.hidden_jobs), hint: `${num(data.counts.hidden_posts)} posts · ${num(data.counts.hidden_jobs)} jobs` },
+              { label: 'Strikes', value: num(data.counts.strikes ?? 0), tone: data.counts.strikes ? 'danger' : 'default', hint: 'decisions against them' },
             ]}
           />
+          <Section title="Moderation record">
+            <DataTable id="customer-moderation" columns={actionColumns} rows={data.actions ?? []} rowKey={(a) => a.id} isLoading={false} isError={false} empty="Nothing decided about them" />
+          </Section>
           <Section title="Reports about them">
             <DataTable id="customer-reports-against" columns={againstColumns} rows={data.against} rowKey={(r) => r.id} isLoading={false} isError={false} empty="Nobody has reported them" />
           </Section>

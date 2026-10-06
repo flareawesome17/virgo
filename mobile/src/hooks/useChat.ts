@@ -49,6 +49,35 @@ export const chatKeys = {
 export type ConversationPages = InfiniteData<{ data: Conversation[]; total: number }, number>;
 export type ThreadPages = InfiniteData<Thread, string | undefined>;
 
+/** How many of a chat's latest messages a report from it may carry. */
+export const REPORTED_MESSAGES = 20;
+
+/**
+ * The latest messages between two people in a chat, as this device already
+ * has them, for a report about one of them.
+ *
+ * Read from the cached thread rather than fetched: what goes with a report
+ * is what the reporter could see, and nothing is loaded just to send it.
+ * Deleted messages are left out. The API checks every id again and copies
+ * only what passed between the two of them.
+ */
+export function reportableMessageIds(
+  queryClient: QueryClient,
+  conversationId: string,
+  people: string[],
+): string[] {
+  const cached = queryClient.getQueryData<ThreadPages>(chatKeys.thread(conversationId));
+  const ids: string[] = [];
+  for (const page of cached?.pages ?? []) {
+    for (const m of page.data) {
+      if (m.deleted_at || !people.includes(m.sender_id) || ids.includes(m.id)) continue;
+      ids.push(m.id);
+      if (ids.length === REPORTED_MESSAGES) return ids;
+    }
+  }
+  return ids;
+}
+
 /**
  * The list's page size.
  *

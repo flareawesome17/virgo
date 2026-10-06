@@ -55,6 +55,8 @@ const ROUTES: Record<NotificationTopic, string | ((d: Data) => string)> = {
   // An announcement opens its link when it has one, and otherwise has said
   // all it needs to: there is no page in the app it belongs to.
   'app-update': (d) => (typeof d?.url === 'string' ? d.url : ''),
+  // News from Virgo, the same: its link, or nowhere.
+  announcement: (d) => (typeof d?.url === 'string' ? d.url : ''),
 };
 
 /** Where a notification of this kind leads, or null when it has nowhere to go. */

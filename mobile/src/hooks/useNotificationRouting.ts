@@ -115,6 +115,8 @@ export function useNotificationRouting(enabled: boolean): void {
         // directly, which would take someone from a push straight out of the
         // app into a browser they did not ask for.
         case 'app-update':
+        // News, the same way: its words are in the list, and so is its link.
+        case 'announcement':
           router.push('/notifications');
           return;
 

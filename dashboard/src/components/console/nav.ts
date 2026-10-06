@@ -1,10 +1,12 @@
 import {
   Activity,
   CreditCard,
+  Flag,
   FolderOpen,
   Gift,
   LayoutDashboard,
   LifeBuoy,
+  Megaphone,
   ScrollText,
   ShieldCheck,
   Users,
@@ -70,12 +72,26 @@ export const NAV: NavGroup[] = [
     label: 'Platform',
     items: [
       {
+        href: '/moderation',
+        label: 'Moderation',
+        icon: Flag,
+        permission: 'content.read',
+        badge: 'reports',
+        keywords: 'reports reported safety abuse warn hide suspend comments',
+      },
+      {
+        href: '/outreach',
+        label: 'Outreach',
+        icon: Megaphone,
+        permission: 'outreach.read',
+        keywords: 'broadcast announce segments push message everyone app update news',
+      },
+      {
         href: '/content',
         label: 'Content',
         icon: FolderOpen,
         permission: 'content.read',
-        badge: 'reports',
-        keywords: 'albums links reports moderation',
+        keywords: 'albums client links',
       },
       {
         href: '/billing',

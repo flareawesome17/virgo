@@ -34,6 +34,7 @@ import { AdminCustomersService } from './admin-customers.service';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminService } from './admin.service';
 import { AuditService } from './audit.service';
+import { cleanFilters } from './audience';
 import {
   AdminGuard,
   AllowsPendingSetup,
@@ -280,33 +281,15 @@ export class AdminController {
 
   @RequirePermission('users.read')
   @Get('users')
-  users(
-    @Query('q') q?: string,
-    @Query('plan') plan?: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
-    @Query('sort') sort?: string,
-    @Query('dir') dir?: string,
-    @Query('status') status?: string,
-    @Query('seen') seen?: string,
-    @Query('tag') tag?: string,
-    @Query('platform') platform?: string,
-    @Query('twoFactor') twoFactor?: string,
-    @Query('full') full?: string,
-  ) {
+  users(@Query() query: Record<string, string | undefined>) {
+    // Every audience filter the API understands (audience.ts), each checked;
+    // anything else in the query string is dropped.
     return this.admin.users({
-      q,
-      plan,
-      limit: limit ? Number(limit) : undefined,
-      offset: offset ? Number(offset) : undefined,
-      sort,
-      dir,
-      status,
-      seen,
-      tag,
-      platform,
-      twoFactor,
-      full,
+      ...cleanFilters(query),
+      limit: query.limit ? Number(query.limit) : undefined,
+      offset: query.offset ? Number(query.offset) : undefined,
+      sort: query.sort,
+      dir: query.dir,
     });
   }
 
@@ -394,38 +377,6 @@ export class AdminController {
       detail: { albumId: result.album_id },
     });
     return result;
-  }
-
-  @RequirePermission('content.read')
-  @Get('job-reports')
-  jobReports(@Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.admin.jobReports({
-      limit: limit ? Number(limit) : undefined,
-      offset: offset ? Number(offset) : undefined,
-    });
-  }
-
-  /**
-   * Reports about people. The same permission as job reports: reading a
-   * report is triage, and suspending still needs users.disable.
-   */
-  @RequirePermission('content.read')
-  @Get('user-reports')
-  userReports(@Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.admin.userReports({
-      limit: limit ? Number(limit) : undefined,
-      offset: offset ? Number(offset) : undefined,
-    });
-  }
-
-  /** Reports about posts. Triage, like the two above. */
-  @RequirePermission('content.read')
-  @Get('showcase-reports')
-  showcaseReports(@Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.admin.showcaseReports({
-      limit: limit ? Number(limit) : undefined,
-      offset: offset ? Number(offset) : undefined,
-    });
   }
 
   @RequirePermission('content.moderate')

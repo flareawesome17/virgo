@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Ban,
   Bell,
@@ -55,6 +56,7 @@ import {
   useMuteConversation,
   useParticipants,
   useRenameConversation,
+  reportableMessageIds,
 } from '@/hooks/useChat';
 import { useAllConnections } from '@/hooks/useFriends';
 import { useAuth } from '@/hooks/useAuth';
@@ -100,6 +102,7 @@ export function ConversationInfo({
   onLeft: () => void;
 }) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { participants } = useParticipants(conversationId);
   const { conversation } = useConversation(conversationId);
   // Every connection, not the first hundred: past the hundredth nobody could
@@ -374,7 +377,21 @@ export function ConversationInfo({
                       variant="outline"
                       className="h-auto justify-start py-2.5"
                       onClick={() =>
-                        safety.report({ name: direct.name, target: { userId: direct.id } })
+                        safety.report({
+                          name: direct.name,
+                          target: { userId: direct.id },
+                          // The latest messages between the two of you, as
+                          // this browser already has them.
+                          messages: user
+                            ? {
+                                conversationId,
+                                messageIds: reportableMessageIds(queryClient, conversationId, [
+                                  user.id,
+                                  direct.id,
+                                ]),
+                              }
+                            : null,
+                        })
                       }
                     >
                       <Flag className="size-4" />

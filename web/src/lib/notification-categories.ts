@@ -75,6 +75,7 @@ const ACTION_LABELS: Record<NotificationTopic, string> = {
   support: 'Open support',
   promo: 'Open rewards',
   'app-update': 'Read more',
+  announcement: 'Read more',
 };
 
 export function actionLabel(n: AppNotification): string {

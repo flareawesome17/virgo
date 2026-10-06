@@ -51,6 +51,7 @@ export const CATEGORY_OF_TOPIC: Record<NotificationTopic, NotificationCategory> 
   reminder: 'schedule',
   billing: 'billing',
   'app-update': 'updates',
+  announcement: 'updates',
   promo: 'offers',
   support: 'support',
 };

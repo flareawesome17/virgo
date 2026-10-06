@@ -143,29 +143,19 @@ describe('AdminService.setUserDisabled', () => {
   });
 });
 
-describe('AdminService.userReports', () => {
-  it('clamps the page and joins the target and, when they still exist, the reporter', async () => {
-    const { service, query } = suspensionHarness();
-
-    await service.userReports({ limit: 0 });
-    await service.userReports({ limit: 500, offset: -3 });
-
-    expect(query.mock.calls[0][1]).toEqual([1, 0]);
-    expect(query.mock.calls[1][1]).toEqual([100, 0]);
-    const [sql] = query.mock.calls[0];
-    expect(sql).toMatch(/join users t on t\.id = r\.target_id/);
-    expect(sql).toMatch(/left join users u on u\.id = r\.reporter_id/);
-    expect(sql).toMatch(/as target_report_count/);
-  });
-
-  it('adds people reports to the overview without folding them into job reports', async () => {
+describe('AdminService reports and suspensions', () => {
+  it('counts the open reports of each kind, and all of them together', async () => {
     const { service, queryOne } = suspensionHarness();
-    queryOne.mockImplementationOnce(async () => ({ reports: '2', user_reports: '5' }));
+    queryOne.mockImplementationOnce(async () => ({ reports: '2', user_reports: '5', showcase_reports: '1' }));
 
     const overview = await service.overview(30);
 
     expect(overview.totals.userReports).toBe(5);
     expect(overview.totals.reports).toBe(2);
+    expect(overview.totals.showcaseReports).toBe(1);
+    expect(overview.totals.openReports).toBe(8);
+    const [sql] = queryOne.mock.calls[0] as unknown as [string];
+    expect(sql).toMatch(/from user_reports where status = 'open'/);
   });
 
   it('shows the suspension on the account list and page', async () => {

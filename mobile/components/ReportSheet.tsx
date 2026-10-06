@@ -5,6 +5,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Switch,
   Text,
   TextInput,
   View,
@@ -28,6 +29,10 @@ const NOTE_LIMIT = 500;
  * present an alert over a modal that is still sliding away, and one raised in
  * that window is simply never shown. A failure stays in the sheet as `error`,
  * with the reason and the note still filled in, so sending again is one tap.
+ *
+ * `include` offers to send something along with the report — a chat's latest
+ * messages — on by default, and the choice comes back as onSubmit's third
+ * argument.
  */
 export function ReportSheet<T extends string>({
   visible,
@@ -39,6 +44,7 @@ export function ReportSheet<T extends string>({
   onSubmit,
   onClose,
   onClosed,
+  include,
 }: {
   visible: boolean;
   title: string;
@@ -47,16 +53,19 @@ export function ReportSheet<T extends string>({
   pending?: boolean;
   /** Shown under the note. Already worded for people, never a raw message. */
   error?: string | null;
-  onSubmit: (reason: T, note: string) => void;
+  onSubmit: (reason: T, note: string, included: boolean) => void;
   onClose: () => void;
   /** Once the sheet has fully gone, which is when an Alert can follow it. */
   onClosed?: () => void;
+  /** Something to send along, which the person can switch off. */
+  include?: { label: string; detail: string } | null;
 }) {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
   const [reason, setReason] = useState<T | null>(null);
   const [note, setNote] = useState('');
+  const [included, setIncluded] = useState(true);
 
   // Cleared as it opens rather than as it closes, so the sheet does not
   // visibly empty itself on its way down. State set during render rather than
@@ -67,6 +76,7 @@ export function ReportSheet<T extends string>({
     if (visible) {
       setReason(null);
       setNote('');
+      setIncluded(true);
     }
   }
 
@@ -120,6 +130,25 @@ export function ReportSheet<T extends string>({
           {`${note.length}/${NOTE_LIMIT}`}
         </Text>
 
+        {include ? (
+          <View className="mt-2 flex-row items-center gap-3 rounded-2xl bg-muted px-4 py-3">
+            <View className="flex-1">
+              <Text className="text-foreground text-sm font-semibold">{include.label}</Text>
+              <Text className="text-muted-foreground text-xs mt-0.5">{include.detail}</Text>
+            </View>
+            <Switch
+              value={included}
+              onValueChange={setIncluded}
+              disabled={pending}
+              accessibilityLabel={include.label}
+              trackColor={{ true: palette.primary, false: palette.border }}
+              // White on every platform, as the app's other switches are;
+              // left alone, Android and the web draw it in their own colour.
+              thumbColor="#FFFFFF"
+            />
+          </View>
+        ) : null}
+
         {/* The live region is the wrapper, which is always there, rather
             than the message, which comes and goes: TalkBack reads a live
             region when what is inside it changes, and one that has only
@@ -133,7 +162,7 @@ export function ReportSheet<T extends string>({
           accessibilityState={{ disabled: !ready }}
           disabled={!ready}
           onPress={() => {
-            if (reason !== null) onSubmit(reason, note);
+            if (reason !== null) onSubmit(reason, note, !!include && included);
           }}
           className={`mt-4 rounded-2xl py-3.5 flex-row items-center justify-center gap-2 bg-action ${
             ready || pending ? '' : 'opacity-40'

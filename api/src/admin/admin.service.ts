@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { StorageService } from '../storage/storage.service';
 import { MailService } from '../mail/mail.service';
 import { PLAN_CATALOGUE, limitsFor, toJsonLimit } from '../quota/quota.config';
+import { audienceWhere, planStorageCase, storageThreshold, type AudienceFilters } from './audience';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { VisitsService } from '../visits/visits.service';
 
@@ -30,60 +31,14 @@ export function userOrder(sort?: string, dir?: string): string {
   return `${column} ${direction} nulls last, u.id ${direction}`;
 }
 
-export interface UsersQuery {
-  q?: string;
-  plan?: string;
+/** The people list: an audience (see audience.ts), paged and sorted. */
+export interface UsersQuery extends AudienceFilters {
   limit?: number;
   offset?: number;
   sort?: string;
   dir?: string;
-  /** active, suspended, paused or unverified. */
-  status?: string;
-  /**
-   * week (seen in the last 7 days) or quiet (not in 30). There is no "never":
-   * last_seen_at defaults to the moment an account is made.
-   */
-  seen?: string;
-  /** A tag's id. */
-  tag?: string;
-  /** ios or android: has push turned on for that platform. */
-  platform?: string;
-  /** on or off. */
-  twoFactor?: string;
-  /** 'true': at 80% or more of what the account may store. */
-  full?: string;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** The account states, as the console's badges read them (lib/account-state.ts). */
-const USER_STATUS: Record<string, string> = {
-  suspended: 'u.suspended_at is not null',
-  paused: 'u.suspended_at is null and u.disabled_until > now()',
-  unverified:
-    'u.suspended_at is null and (u.disabled_until is null or u.disabled_until <= now()) and u.email_verified_at is null',
-  active:
-    'u.suspended_at is null and (u.disabled_until is null or u.disabled_until <= now()) and u.email_verified_at is not null',
-};
-
-const USER_SEEN: Record<string, string> = {
-  week: "u.last_seen_at > now() - interval '7 days'",
-  quiet: "(u.last_seen_at is null or u.last_seen_at < now() - interval '30 days')",
-};
-
-/**
- * Each plan's storage allowance as SQL, for "nearly full". The allowances live
- * in quota.config.ts, not the database, so the CASE is written from them; an
- * unlimited plan is never nearly full.
- */
-function planStorageCase(column: string): string {
-  const names = new Set([...PLAN_CATALOGUE.map((p) => p.name), 'pro']);
-  const arms = [...names].map((name) => {
-    const bytes = limitsFor(name).storageBytes;
-    return `when '${name}' then ${Number.isFinite(bytes) ? Math.round(bytes) : '1e18'}`;
-  });
-  return `(case ${column} ${arms.join(' ')} else ${Math.round(limitsFor('free').storageBytes)} end)::numeric`;
-}
 
 /**
  * Everything the console reads and writes about the platform.
@@ -123,8 +78,9 @@ export class AdminService {
          (select count(*) from hiring_posts where status = 'open')::text      as jobs_open,
          (select count(*) from hiring_applications)::text                     as applications,
          (select count(*) from support_tickets where status in ('open','pending'))::text as tickets_open,
-         (select count(*) from hiring_post_reports)::text                     as reports,
-         (select count(*) from user_reports)::text                            as user_reports`,
+         (select count(*) from hiring_post_reports where status = 'open')::text as reports,
+         (select count(*) from user_reports where status = 'open')::text      as user_reports,
+         (select count(*) from showcase_reports where status = 'open')::text  as showcase_reports`,
       [String(days)],
     );
 
@@ -165,10 +121,15 @@ export class AdminService {
         openJobs: Number(counts?.jobs_open ?? 0),
         applications: Number(counts?.applications ?? 0),
         openTickets: Number(counts?.tickets_open ?? 0),
-        // Job reports only, still: the console before this release reads it
-        // as that. People reports are their own number.
+        // Open reports, waiting in the moderation queue. `reports` is job
+        // posts only, as the console before this release reads it.
         reports: Number(counts?.reports ?? 0),
         userReports: Number(counts?.user_reports ?? 0),
+        showcaseReports: Number(counts?.showcase_reports ?? 0),
+        openReports:
+          Number(counts?.reports ?? 0) +
+          Number(counts?.user_reports ?? 0) +
+          Number(counts?.showcase_reports ?? 0),
       },
       signups,
       uploads,
@@ -182,8 +143,6 @@ export class AdminService {
   async users(params: UsersQuery) {
     const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
     const offset = Math.max(params.offset ?? 0, 0);
-    const q = params.q?.trim() ? `%${params.q.trim()}%` : null;
-    const plan = params.plan?.trim() || null;
     const orderBy = userOrder(params.sort, params.dir);
 
     /*
@@ -192,30 +151,15 @@ export class AdminService {
      * `full` needs the storage figure, which only exists after the select, so
      * the whole list is a CTE and the filters apply to it.
      */
-    const args: unknown[] = [q, plan];
-    const where: string[] = [
-      '($1::text is null or u.email ilike $1 or u.display_name ilike $1 or u.handle ilike $1)',
-      '($2::text is null or u.plan = $2)',
-    ];
-    const status = USER_STATUS[params.status ?? ''];
-    if (status) where.push(status);
-    const seen = USER_SEEN[params.seen ?? ''];
-    if (seen) where.push(seen);
-    if (params.twoFactor === 'on') where.push('u.two_factor_enabled_at is not null');
-    if (params.twoFactor === 'off') where.push('u.two_factor_enabled_at is null');
-    if (params.tag && UUID.test(params.tag)) {
-      args.push(params.tag);
-      where.push(
-        `exists (select 1 from customer_tag_links l where l.user_id = u.id and l.tag_id = $${args.length}::uuid)`,
-      );
-    }
-    if (params.platform === 'ios' || params.platform === 'android') {
-      args.push(params.platform);
-      where.push(
-        `exists (select 1 from push_tokens p where p.user_id = u.id and p.platform = $${args.length} and p.disabled_at is null)`,
-      );
-    }
-    const outer = params.full === 'true' ? `where storage_bytes >= 0.8 * (${planStorageCase('plan')} + bonus_storage_bytes)` : '';
+    const args: unknown[] = [];
+    const where = audienceWhere(params, args);
+    if (where.length === 0) where.push('true');
+    const threshold = storageThreshold(params);
+    if (threshold !== null) args.push(threshold);
+    const outer =
+      threshold !== null
+        ? `where storage_bytes >= $${args.length}::numeric * (${planStorageCase('plan')} + bonus_storage_bytes)`
+        : '';
 
     const base = `
       with base as (
@@ -547,104 +491,6 @@ export class AdminService {
     );
     if (!row) throw new NotFoundException('No such link, or it is already revoked');
     return row;
-  }
-
-  async jobReports(params: { limit?: number; offset?: number }) {
-    const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
-    const offset = Math.max(params.offset ?? 0, 0);
-    const rows = await this.db.query(
-      `select r.*, p.title, p.slug, p.status as post_status, p.hidden_at,
-              u.email as reporter_email
-         from hiring_post_reports r
-         join hiring_posts p on p.id = r.post_id
-         left join users u on u.id = r.reporter_user_id
-        order by r.created_at desc limit $1 offset $2`,
-      [limit, offset],
-    );
-    const total = await this.db.queryOne<{ count: string }>(
-      'select count(*)::text as count from hiring_post_reports',
-    );
-    return { data: rows, total: Number(total?.count ?? 0) };
-  }
-
-  /**
-   * Reports about people, newest first.
-   *
-   * Each row carries the target's running count and whether they are already
-   * suspended, which is what decides whether anyone needs to act. Target and
-   * reporter addresses are shown, as they are for job reports, to the same
-   * permission.
-   */
-  async userReports(params: { limit?: number; offset?: number }) {
-    const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
-    const offset = Math.max(params.offset ?? 0, 0);
-    const rows = await this.db.query(
-      `select r.id, r.reason, r.note, r.source, r.created_at, r.target_id,
-              coalesce(nullif(btrim(t.display_name), ''), split_part(t.email, '@', 1))
-                as target_name,
-              t.handle as target_handle,
-              t.email as target_email,
-              t.suspended_at as target_suspended_at,
-              r.reporter_id,
-              u.email as reporter_email,
-              (select count(*) from user_reports x where x.target_id = r.target_id)::int
-                as target_report_count
-         from user_reports r
-         join users t on t.id = r.target_id
-         left join users u on u.id = r.reporter_id
-        order by r.created_at desc limit $1 offset $2`,
-      [limit, offset],
-    );
-    const total = await this.db.queryOne<{ count: string }>(
-      'select count(*)::text as count from user_reports',
-    );
-    return { data: rows, total: Number(total?.count ?? 0) };
-  }
-
-  /**
-   * Reported showcases, newest first, with the post and whoever made it.
-   *
-   * The cover comes from the showcase's first piece, because a moderator
-   * deciding whether a photograph should stay up needs to see the photograph.
-   */
-  async showcaseReports({ limit = 50, offset = 0 }: { limit?: number; offset?: number }) {
-    const rows = await this.db.query(
-      `select r.id, r.reason, r.note, r.created_at, r.showcase_id,
-              s.title, s.caption, s.hidden_at, s.published_at,
-              s.user_id as author_id,
-              coalesce(nullif(btrim(a.display_name), ''), split_part(a.email, '@', 1))
-                as author_name,
-              a.handle as author_handle,
-              a.email as author_email,
-              a.suspended_at as author_suspended_at,
-              r.reporter_id,
-              u.email as reporter_email,
-              (select count(*) from showcase_reports x where x.showcase_id = r.showcase_id)::int
-                as showcase_report_count,
-              (
-                -- A photograph's thumbnail, or a film's poster frame. A
-                -- moderator judging a reported film sees only that frame here;
-                -- the whole showcase is one tap away in the app, which is where
-                -- a decision that needs the footage has to be made.
-                select coalesce(f.thumb_key, f.poster_key)
-                  from showcase_items si
-                  join user_files f on f.key = si.file_key and f.user_id = si.user_id
-                 where si.showcase_id = s.id
-                   and coalesce(f.thumb_key, f.poster_key) is not null
-                 order by si.position, si.created_at
-                 limit 1
-              ) as thumb_key
-         from showcase_reports r
-         join showcases s on s.id = r.showcase_id
-         join users a on a.id = s.user_id
-         left join users u on u.id = r.reporter_id
-        order by r.created_at desc limit $1 offset $2`,
-      [limit, offset],
-    );
-    const total = await this.db.queryOne<{ count: string }>(
-      'select count(*)::text as count from showcase_reports',
-    );
-    return { data: rows, total: Number(total?.count ?? 0) };
   }
 
   /**
