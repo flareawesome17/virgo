@@ -102,4 +102,14 @@ describe('ModerationService.resolve', () => {
     await quiet.service.resolve('user', PERSON, STAFF, { action: 'suspend', notify: false });
     expect(quiet.customers.notifySuspension).not.toHaveBeenCalled();
   });
+
+  it('tells a suspended person to answer by email, since they cannot sign in to the message', async () => {
+    const { service, mail } = harness();
+    await service.resolve('user', PERSON, STAFF, { action: 'suspend', message: 'Suspended for threats.' });
+    const [, email] = mail.send.mock.calls[0] as unknown as [string, { text: string; html: string }];
+    expect(email.text).toContain('Suspended for threats.');
+    expect(email.text).toContain('reply to this email');
+    expect(email.text).not.toContain('/support?ticket=');
+    expect(email.html).not.toContain('Open the message');
+  });
 });

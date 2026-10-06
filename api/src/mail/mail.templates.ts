@@ -691,20 +691,33 @@ export function moderationNotice(options: {
   about: string;
   message: string;
   url: string;
+  /**
+   * The account was suspended with this message. They cannot sign in to
+   * answer it, so the email offers a reply to itself instead of a link.
+   */
+  suspended?: boolean;
 }): RenderedEmail {
   const intro = `Hi ${options.name}, Virgo's safety team is writing to you about ${options.about}:`;
-  const outro =
-    'If you think we got this wrong, reply to the message in the app and a person will look at it again.';
+  const outro = options.suspended
+    ? 'You cannot sign in while your account is suspended. To ask about it, reply to this email or write to support@virgo.ph.'
+    : 'If you think we got this wrong, reply to the message in the app and a person will look at it again.';
   return {
     subject: `A message from Virgo about ${options.about}`,
     html: layout({
       heading: 'A message from Virgo',
       intro,
       quote: options.message,
-      cta: { label: 'Open the message', url: options.url },
+      ...(options.suspended ? {} : { cta: { label: 'Open the message', url: options.url } }),
       outro,
     }),
-    text: [intro, '', options.message, '', outro, '', `Open the message: ${options.url}`].join('\n'),
+    text: [
+      intro,
+      '',
+      options.message,
+      '',
+      outro,
+      ...(options.suspended ? [] : ['', `Open the message: ${options.url}`]),
+    ].join('\n'),
   };
 }
 

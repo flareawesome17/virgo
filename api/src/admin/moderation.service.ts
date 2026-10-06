@@ -120,6 +120,7 @@ export class ModerationService {
                 count(*) filter (where status = 'open')::int as open,
                 count(*)::int as total,
                 count(distinct reporter_id)::int as reporters,
+                count(distinct reporter_id) filter (where status = 'open')::int as open_reporters,
                 array_agg(distinct reason) filter (where status = 'open') as open_reasons,
                 array_agg(distinct reason) as reasons,
                 array_agg(distinct source) filter (where source is not null) as sources,
@@ -291,7 +292,9 @@ export class ModerationService {
     }
 
     const ticketId =
-      message && subject.id ? await this.warn(subject.id, kind, label, message, staff) : null;
+      message && subject.id
+        ? await this.warn(subject.id, kind, label, message, staff, input.action === 'suspend')
+        : null;
 
     const { table, target } = REPORTS[kind];
     const closed = await this.db.query<{ id: string }>(
@@ -430,6 +433,7 @@ export class ModerationService {
     label: string | null,
     message: string,
     staff: Staff,
+    suspended = false,
   ): Promise<string | null> {
     const about =
       kind === 'job'
@@ -454,6 +458,7 @@ export class ModerationService {
             about,
             message,
             url: `${this.mailConfig.appUrl}/support?ticket=${encodeURIComponent(ticketId)}`,
+            suspended,
           }),
         )
         .catch((error: Error) => this.logger.error(`could not email a warning: ${error.message}`));

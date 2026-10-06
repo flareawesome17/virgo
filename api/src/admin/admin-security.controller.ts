@@ -49,7 +49,8 @@ class RoleBodyDto {
   @IsOptional() @IsBoolean() requiresTwoFactor?: boolean;
 }
 class PresenceDto {
-  @IsIn(['user', 'ticket']) targetType!: 'user' | 'ticket';
+  // 'case' is a moderation case, addressed as kind:id.
+  @IsIn(['user', 'ticket', 'case']) targetType!: 'user' | 'ticket' | 'case';
   @IsString() @MinLength(1) @MaxLength(64) targetId!: string;
   @IsOptional() @IsIn(['viewing', 'replying']) state?: 'viewing' | 'replying';
 }
