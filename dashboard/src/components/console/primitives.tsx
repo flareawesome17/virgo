@@ -207,6 +207,20 @@ export function until(value: string | null | undefined): string {
   return `in ${days} day${days === 1 ? '' : 's'}`;
 }
 
+/**
+ * A calendar date, for when the day itself is the point: "Nov 12, 2026".
+ *
+ * A billing period's end is in the future, which `when` reads as "just now".
+ */
+export function day(value: string | null | undefined): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString('en-PH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 export function when(value: string | null | undefined): string {
   if (!value) return '—';
   const d = new Date(value);

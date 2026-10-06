@@ -5,8 +5,8 @@ import {
   DataState,
   PageHeader,
   StatCard,
+  day,
   peso,
-  when,
 } from '@/components/console/primitives';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -25,7 +25,7 @@ export default function BillingPage() {
     <>
       <PageHeader
         title="Billing"
-        description="Subscriptions and what they are worth. Nothing is purchasable during the pre-release, so this stays quiet by design."
+        description="Subscriptions and what they are worth. Virgo is free for now, so this stays quiet until paid plans go on sale."
       />
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -42,7 +42,7 @@ export default function BillingPage() {
         isLoading={isLoading}
         isError={isError}
         isEmpty={!!data && data.data.length === 0}
-        emptyLabel="No subscriptions. Expected while paid plans are switched off."
+        emptyLabel="No subscriptions yet. Expected while Virgo is free."
         onRetry={() => void refetch()}
       >
         <div className="rounded-lg border">
@@ -90,7 +90,7 @@ export default function BillingPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {when(row.current_period_end as string)}
+                      {day(row.current_period_end as string)}
                     </TableCell>
                   </TableRow>
                 );

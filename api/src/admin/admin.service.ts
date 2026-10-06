@@ -233,6 +233,9 @@ export class AdminService {
       albums,
       subscription,
       tickets,
+      // What the plan picker offers, so the console never lists a plan the
+      // API would refuse or misses one it would take.
+      plans: PLAN_CATALOGUE.map(({ name, label }) => ({ name, label })),
     };
   }
 

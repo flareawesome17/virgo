@@ -28,7 +28,12 @@ import { AdminAuthService, RESET_TTL_MINUTES } from './admin-auth.service';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminService } from './admin.service';
 import { AuditService } from './audit.service';
-import { AdminGuard, CurrentAdmin, RequirePermission } from './admin.guard';
+import {
+  AdminGuard,
+  AllowsPendingPasswordChange,
+  CurrentAdmin,
+  RequirePermission,
+} from './admin.guard';
 import type { AdminIdentity } from './admin-auth.service';
 import { ADMIN_ROLES, ROLE_DESCRIPTION, ROLE_LABEL } from './rbac';
 
@@ -188,6 +193,7 @@ export class AdminController {
 
   /** Who am I and what may I do — the console renders its nav from this. */
   @RequirePermission('overview.read')
+  @AllowsPendingPasswordChange()
   @Get('me')
   me(@CurrentAdmin() admin: AdminIdentity) {
     return {
@@ -210,6 +216,7 @@ export class AdminController {
    * them out of the console entirely.
    */
   @RequirePermission('overview.read')
+  @AllowsPendingPasswordChange()
   @HttpCode(200)
   @Post('me/password')
   async changeOwnPassword(
@@ -360,6 +367,8 @@ export class AdminController {
     });
   }
 
+  /** Reports about posts. Triage, like the two above. */
+  @RequirePermission('content.read')
   @Get('showcase-reports')
   showcaseReports(@Query('limit') limit?: string, @Query('offset') offset?: string) {
     return this.admin.showcaseReports({
@@ -491,7 +500,7 @@ export class AdminController {
     @Body() dto: PasswordDto,
     @CurrentAdmin() admin: AdminIdentity,
   ) {
-    const result = await this.accounts.setPassword(id, dto.password);
+    const result = await this.accounts.setPassword(id, dto.password, admin.id);
     await this.audit.record(admin, {
       action: 'admin.setPassword',
       targetType: 'admin',
