@@ -334,10 +334,14 @@ export class SupportService {
          left join admin_users a on a.id = t.assigned_to
         ${where}
         order by
-          -- Late first, then urgent, then whoever has waited longest.
+          -- Late first, then what still needs us ahead of history, then
+          -- urgent. Among the live ones whoever has waited longest leads;
+          -- history reads newest first.
           (t.first_replied_at is null and t.due_at < now() and t.status in ('open', 'pending')) desc,
+          case t.status when 'open' then 0 when 'pending' then 1 else 2 end,
           case t.priority when 'urgent' then 0 when 'high' then 1
                           when 'normal' then 2 else 3 end,
+          case when t.status in ('open', 'pending') then t.updated_at end asc nulls last,
           t.updated_at desc
         limit $5 offset $6`,
       [...args, limit, offset],
