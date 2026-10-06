@@ -10,19 +10,22 @@ import {
   useSetUserPlan,
   useUser,
 } from '@/hooks/useConsole';
+import { DataTable, type Column } from '@/components/console/data-table';
 import {
   DataState,
-  PageHeader,
-  StatCard,
+  Field,
+  Panel,
+  StatStrip,
   bytes,
   day,
+  num,
   peso,
   when,
 } from '@/components/console/primitives';
+import { useRecordTab } from '@/components/console/record-tabs';
 import { isPaused, isSuspended } from '@/lib/account-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -31,14 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 
 /** Used only when the API is older than the list it now sends. */
 const FALLBACK_PLANS = [
@@ -97,6 +92,44 @@ interface UserDetail {
   plans?: { name: string; label: string }[];
 }
 
+type Album = UserDetail['albums'][number];
+
+/** Every album is already loaded, so these sort on the page. */
+const ALBUM_COLUMNS: Column<Album>[] = [
+  {
+    id: 'name',
+    header: 'Name',
+    sort: (a) => a.name,
+    cell: (a) => <span className="font-medium">{a.name}</span>,
+  },
+  {
+    id: 'status',
+    header: 'Status',
+    sort: (a) => a.status,
+    cell: (a) => <span className="capitalize text-muted-foreground">{a.status}</span>,
+  },
+  {
+    id: 'items',
+    header: 'Items',
+    sort: (a) => a.item_count,
+    className: 'text-right tabular-nums',
+    cell: (a) => num(a.item_count),
+  },
+  {
+    id: 'links',
+    header: 'Live links',
+    sort: (a) => a.share_links,
+    className: 'text-right tabular-nums',
+    cell: (a) => num(a.share_links),
+  },
+  {
+    id: 'created',
+    header: 'Created',
+    sort: (a) => a.created_at,
+    cell: (a) => <span className="text-muted-foreground">{when(a.created_at)}</span>,
+  },
+];
+
 export default function VirgoUserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { can } = useMe();
@@ -112,6 +145,9 @@ export default function VirgoUserDetailPage() {
   // does not end a pause the person chose, and the console should not look
   // as if it had.
   const paused = !!u && isPaused(u);
+  const name = u ? String(u.display_name || u.email || 'Account') : undefined;
+
+  useRecordTab({ href: `/virgo-users/${id}`, kind: 'user', title: name });
 
   // An account can carry a plan the catalogue no longer lists — `pro`, the old
   // name for Freelancer. Offered as-is, so the picker shows what it has rather
@@ -126,9 +162,9 @@ export default function VirgoUserDetailPage() {
     <>
       <Link
         href="/virgo-users"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" />
+        <ArrowLeft className="size-3.5" />
         Virgo users
       </Link>
 
@@ -139,300 +175,206 @@ export default function VirgoUserDetailPage() {
         onRetry={() => void refetch()}
       >
         {d && u && (
-          <>
-            <PageHeader
-              title={String(u.display_name || u.email || 'Account')}
-              description={String(u.email)}
-              action={
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="capitalize">
-                    {String(u.plan)}
-                  </Badge>
-                  {suspended && <Badge variant="destructive">Suspended</Badge>}
-                  {paused && <Badge variant="outline">Paused</Badge>}
-                </div>
-              }
+          <div className="space-y-4">
+            <header className="flex flex-wrap items-center gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+                {(name ?? '?').slice(0, 2).toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-lg font-semibold tracking-tight">{name}</h1>
+                <p className="truncate text-sm text-muted-foreground">
+                  {String(u.email)}
+                  {u.handle ? ` · @${String(u.handle)}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="capitalize">
+                  {String(u.plan)}
+                </Badge>
+                {suspended && <Badge variant="destructive">Suspended</Badge>}
+                {paused && <Badge variant="outline">Paused</Badge>}
+              </div>
+            </header>
+
+            <StatStrip
+              items={[
+                {
+                  label: 'Storage',
+                  value: bytes(d.storage.bytes),
+                  hint: d.storage.limitBytes ? `of ${bytes(d.storage.limitBytes)}` : 'unlimited',
+                },
+                { label: 'Files', value: num(d.storage.files) },
+                {
+                  label: 'Workspaces',
+                  value: num(d.workspaces.length),
+                  hint:
+                    d.limits.workspaces === null ? 'unlimited' : `limit ${d.limits.workspaces}`,
+                },
+                { label: 'Albums', value: num(d.albums.length) },
+              ]}
             />
 
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <StatCard
-                label="Storage"
-                value={bytes(d.storage.bytes)}
-                hint={
-                  d.storage.limitBytes
-                    ? `of ${bytes(d.storage.limitBytes)}`
-                    : 'unlimited'
-                }
-              />
-              <StatCard label="Files" value={d.storage.files} />
-              <StatCard
-                label="Workspaces"
-                value={d.workspaces.length}
-                hint={
-                  d.limits.workspaces === null
-                    ? 'unlimited'
-                    : `limit ${d.limits.workspaces}`
-                }
-              />
-              <StatCard label="Albums" value={d.albums.length} />
-            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Panel title="Account" bodyClassName="py-2">
+                <Field label="Joined" value={when(u.created_at as string)} />
+                <Field label="Last seen" value={when(u.last_seen_at as string)} />
+                <Field label="Email verified" value={u.email_verified_at ? 'Yes' : 'No'} />
+                <Field label="Handle" value={(u.handle as string) || '—'} />
+                <Field label="Public profile" value={u.public_profile ? 'Published' : 'Private'} />
+                <Field label="Discoverable" value={u.discoverable ? 'Yes' : 'No'} />
+                <Field label="Location" value={(u.location as string) || '—'} />
+              </Panel>
 
-            <div className="mt-6 grid gap-3 lg:grid-cols-2">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Account</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-1.5 p-4 pt-0 text-sm">
-                  <Field label="Joined" value={when(u.created_at as string)} />
-                  <Field label="Last seen" value={when(u.last_seen_at as string)} />
-                  <Field
-                    label="Email verified"
-                    value={u.email_verified_at ? 'Yes' : 'No'}
-                  />
-                  <Field label="Handle" value={(u.handle as string) || '—'} />
-                  <Field
-                    label="Public profile"
-                    value={u.public_profile ? 'Published' : 'Private'}
-                  />
-                  <Field
-                    label="Discoverable"
-                    value={u.discoverable ? 'Yes' : 'No'}
-                  />
-                  <Field label="Location" value={(u.location as string) || '—'} />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Actions</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 p-4 pt-0">
-                  {can('users.setPlan') ? (
-                    <div>
-                      <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                        Plan
-                      </p>
-                      <Select
-                        value={String(u.plan)}
-                        onValueChange={(v) => setPlan.mutate(v)}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {planOptions.map((p) => (
-                            <SelectItem key={p.name} value={p.name} className="capitalize">
-                              {p.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="mt-1.5 text-[11px] text-muted-foreground">
-                        Changes limits immediately. No payment is taken and no
-                        subscription is created.
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Your role cannot change plans.
+              <Panel title="Actions" bodyClassName="space-y-4">
+                {can('users.setPlan') ? (
+                  <div>
+                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">Plan</p>
+                    <Select value={String(u.plan)} onValueChange={(v) => setPlan.mutate(v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {planOptions.map((p) => (
+                          <SelectItem key={p.name} value={p.name} className="capitalize">
+                            {p.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      Changes limits immediately. No payment is taken and no subscription is
+                      created.
                     </p>
-                  )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Your role cannot change plans.</p>
+                )}
 
-                  {can('users.disable') && (
-                    <div className="border-t pt-4">
-                      <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                        Access
-                      </p>
-                      {!suspended && (
-                        <Input
-                          value={reason}
-                          onChange={(e) => setReason(e.target.value)}
-                          placeholder="Reason (recorded in the audit log)"
-                          className="mb-2"
-                        />
-                      )}
-                      <Button
-                        variant={suspended ? 'secondary' : 'destructive'}
-                        size="sm"
-                        disabled={setDisabled.isPending}
-                        onClick={() =>
-                          setDisabled.mutate({
-                            disabled: !suspended,
-                            reason: reason || undefined,
-                          })
-                        }
-                      >
-                        {suspended ? 'Restore access' : 'Suspend account'}
-                      </Button>
-                      {/* Said here because it was not always true: the old
-                          switch only stamped a column nothing enforced. The
-                          15 minutes is the life of an access token already
-                          issued; refresh and sign-in are refused at once. */}
-                      <p className="mt-1.5 text-[11px] text-muted-foreground">
-                        {suspended
-                          ? 'Lets them sign in again. '
-                          : 'Signs them out everywhere within 15 minutes and stops them signing back in. '}
-                        Their media is untouched either way.
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="mt-6 grid gap-3 lg:grid-cols-2">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Subscription</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-1.5 p-4 pt-0 text-sm">
-                  {d.subscription ? (
-                    <>
-                      <Field
-                        label="Plan"
-                        value={String(d.subscription.plan_name)}
+                {can('users.disable') && (
+                  <div className="border-t pt-4">
+                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">Access</p>
+                    {!suspended && (
+                      <Input
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        placeholder="Reason (recorded in the audit log)"
+                        className="mb-2"
                       />
-                      <Field label="Status" value={d.subscription.status} />
-                      <Field
-                        label="Amount"
-                        value={`${peso(Number(d.subscription.amount_minor))} · ${
-                          d.subscription.kind === 'subscription'
-                            ? 'monthly'
-                            : 'one month'
-                        }`}
-                      />
-                      <Field
-                        label="Period ends"
-                        value={day(d.subscription.current_period_end)}
-                      />
-                      {d.subscription.cancelled_at && (
-                        <Field
-                          label="Cancelled"
-                          value={day(d.subscription.cancelled_at)}
-                        />
-                      )}
-                      <Field label="Started" value={day(d.subscription.created_at)} />
-                    </>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Never subscribed. Their plan was set at sign-up or here.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">
-                    Support tickets
-                    {d.tickets.length === 10 && (
-                      <span className="ml-1.5 font-normal text-muted-foreground">
-                        · latest 10
-                      </span>
                     )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 pt-0 text-sm">
-                  {d.tickets.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No tickets.</p>
-                  ) : (
-                    <ul className="-mx-2 space-y-0.5">
-                      {d.tickets.map((t) => {
-                        const row = (
-                          <>
-                            <span className="min-w-0 flex-1 truncate font-medium">
-                              {t.subject}
-                            </span>
-                            {(t.priority === 'high' || t.priority === 'urgent') && (
-                              <Badge
-                                variant={PRIORITY_VARIANT[t.priority]}
-                                className="capitalize"
-                              >
-                                {t.priority}
-                              </Badge>
-                            )}
-                            <Badge variant="outline" className="capitalize">
-                              {t.status}
+                    <Button
+                      variant={suspended ? 'secondary' : 'destructive'}
+                      size="sm"
+                      disabled={setDisabled.isPending}
+                      onClick={() =>
+                        setDisabled.mutate({
+                          disabled: !suspended,
+                          reason: reason || undefined,
+                        })
+                      }
+                    >
+                      {suspended ? 'Restore access' : 'Suspend account'}
+                    </Button>
+                    {/* Said here because it was not always true: the old
+                        switch only stamped a column nothing enforced. The
+                        15 minutes is the life of an access token already
+                        issued; refresh and sign-in are refused at once. */}
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      {suspended
+                        ? 'Lets them sign in again. '
+                        : 'Signs them out everywhere within 15 minutes and stops them signing back in. '}
+                      Their media is untouched either way.
+                    </p>
+                  </div>
+                )}
+              </Panel>
+
+              <Panel title="Subscription" bodyClassName="py-2">
+                {d.subscription ? (
+                  <>
+                    <Field label="Plan" value={d.subscription.plan_name} />
+                    <Field label="Status" value={d.subscription.status} />
+                    <Field
+                      label="Amount"
+                      value={`${peso(Number(d.subscription.amount_minor))} · ${
+                        d.subscription.kind === 'subscription' ? 'monthly' : 'one month'
+                      }`}
+                    />
+                    <Field label="Period ends" value={day(d.subscription.current_period_end)} />
+                    {d.subscription.cancelled_at && (
+                      <Field label="Cancelled" value={day(d.subscription.cancelled_at)} />
+                    )}
+                    <Field label="Started" value={day(d.subscription.created_at)} />
+                  </>
+                ) : (
+                  <p className="py-1 text-xs text-muted-foreground">
+                    Never subscribed. Their plan was set at sign-up or here.
+                  </p>
+                )}
+              </Panel>
+
+              <Panel
+                title={d.tickets.length === 10 ? 'Support tickets · latest 10' : 'Support tickets'}
+                bodyClassName="p-1.5"
+              >
+                {d.tickets.length === 0 ? (
+                  <p className="px-2.5 py-2 text-xs text-muted-foreground">No tickets.</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {d.tickets.map((t) => {
+                      const row = (
+                        <>
+                          <span className="min-w-0 flex-1 truncate font-medium">{t.subject}</span>
+                          {(t.priority === 'high' || t.priority === 'urgent') && (
+                            <Badge variant={PRIORITY_VARIANT[t.priority]} className="capitalize">
+                              {t.priority}
                             </Badge>
-                            <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">
-                              {when(t.created_at)}
-                            </span>
-                          </>
-                        );
-                        return (
-                          <li key={t.id}>
-                            {can('support.read') ? (
-                              <Link
-                                href={`/support/${t.id}`}
-                                className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted"
-                              >
-                                {row}
-                              </Link>
-                            ) : (
-                              <div className="flex items-center gap-2 px-2 py-1.5">
-                                {row}
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </CardContent>
-              </Card>
+                          )}
+                          <Badge variant="outline" className="capitalize">
+                            {t.status}
+                          </Badge>
+                          <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">
+                            {when(t.created_at)}
+                          </span>
+                        </>
+                      );
+                      return (
+                        <li key={t.id}>
+                          {can('support.read') ? (
+                            <Link
+                              href={`/support/${t.id}`}
+                              className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm hover:bg-muted"
+                            >
+                              {row}
+                            </Link>
+                          ) : (
+                            <div className="flex items-center gap-2 px-2.5 py-1.5 text-sm">
+                              {row}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </Panel>
             </div>
 
             {d.albums.length > 0 && (
-              <Card className="mt-6">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Albums</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Items</TableHead>
-                        <TableHead>Live links</TableHead>
-                        <TableHead>Created</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {d.albums.map((a) => (
-                        <TableRow key={a.id}>
-                          <TableCell className="font-medium">{a.name}</TableCell>
-                          <TableCell className="capitalize text-muted-foreground">
-                            {a.status}
-                          </TableCell>
-                          <TableCell className="tabular-nums">
-                            {a.item_count}
-                          </TableCell>
-                          <TableCell className="tabular-nums">
-                            {a.share_links}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {when(a.created_at)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+              <section>
+                <p className="caption mb-2">Albums</p>
+                <DataTable
+                  id="user-albums"
+                  columns={ALBUM_COLUMNS}
+                  rows={d.albums}
+                  rowKey={(a) => a.id}
+                  isLoading={false}
+                  isError={false}
+                />
+              </section>
             )}
-          </>
+          </div>
         )}
       </DataState>
     </>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="truncate font-medium">{value}</span>
-    </div>
   );
 }

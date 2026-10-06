@@ -10,11 +10,11 @@ import {
   useSetAccountDisabled,
   useSetAccountRole,
 } from '@/hooks/useConsole';
-import type { AdminRole } from '@/api/console';
-import { DataState, PageHeader, when } from '@/components/console/primitives';
+import type { AdminRole, ConsoleAccount } from '@/api/console';
+import { DataTable, type Column } from '@/components/console/data-table';
+import { PageHeader, StatusDot, when } from '@/components/console/primitives';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -24,18 +24,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 
 export default function ConsoleUsersPage() {
   const { me, can } = useMe();
-  const { data, isLoading, isError, refetch } = useAccounts();
+  const { data, isLoading, isError, isFetching, refetch } = useAccounts();
   const create = useCreateAccount();
   const setRole = useSetAccountRole();
   const setDisabled = useSetAccountDisabled();
@@ -44,6 +36,110 @@ export default function ConsoleUsersPage() {
 
   const manage = can('admins.manage');
   const roles = me?.roles ?? [];
+  const roleOrder = roles.map((r) => r.name);
+
+  const columns: Column<ConsoleAccount>[] = [
+    {
+      id: 'name',
+      header: 'Name',
+      sort: (a) => a.name,
+      cell: (a) => (
+        <>
+          <span className="block font-medium">
+            {a.name}
+            {a.id === me?.id && (
+              <span className="ml-2 text-xs font-normal text-muted-foreground">you</span>
+            )}
+          </span>
+          <span className="block text-xs text-muted-foreground">{a.email}</span>
+        </>
+      ),
+      csv: (a) => a.email,
+    },
+    {
+      id: 'role',
+      header: 'Role',
+      sort: (a) => roleOrder.indexOf(a.role),
+      cell: (a) =>
+        // Your own role is never editable here — an owner who could demote
+        // themselves can lock the console, and one who could promote
+        // themselves makes every other permission check decorative. The
+        // server refuses it too.
+        manage && a.id !== me?.id ? (
+          <Select
+            value={a.role}
+            onValueChange={(v) => setRole.mutate({ id: a.id, role: v as AdminRole })}
+          >
+            <SelectTrigger size="sm" className="w-32 capitalize">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {roles.map((r) => (
+                <SelectItem key={r.name} value={r.name}>
+                  {r.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Badge variant="secondary" className="capitalize">
+            {a.role}
+          </Badge>
+        ),
+      csv: (a) => a.role,
+    },
+    {
+      id: 'login',
+      header: 'Last sign-in',
+      sort: (a) => a.last_login_at,
+      cell: (a) => <span className="text-muted-foreground">{when(a.last_login_at)}</span>,
+      csv: (a) => a.last_login_at,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      cell: (a) =>
+        a.disabled_at ? (
+          <StatusDot tone="danger">Disabled</StatusDot>
+        ) : (
+          <StatusDot tone="ok">Active</StatusDot>
+        ),
+      csv: (a) => (a.disabled_at ? 'disabled' : 'active'),
+    },
+    ...(manage
+      ? [
+          {
+            id: 'actions',
+            header: '',
+            className: 'text-right',
+            cell: (a: ConsoleAccount) =>
+              a.id !== me?.id && (
+                <div className="flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setDisabled.mutate({ id: a.id, disabled: !a.disabled_at })}
+                  >
+                    {a.disabled_at ? 'Enable' : 'Disable'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => {
+                      if (confirm(`Remove ${a.email} from the console? Their audit history stays.`)) {
+                        remove.mutate(a.id);
+                      }
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ),
+          } satisfies Column<ConsoleAccount>,
+        ]
+      : []),
+  ];
 
   return (
     <>
@@ -61,150 +157,38 @@ export default function ConsoleUsersPage() {
       />
 
       {open && manage && (
-        <Card className="mb-5">
-          <CardContent className="p-4">
-            <NewAccountForm
-              roles={roles}
-              busy={create.isPending}
-              onSubmit={(input) =>
-                create.mutate(input, { onSuccess: () => setOpen(false) })
-              }
-            />
-          </CardContent>
-        </Card>
+        <div className="mb-5 rounded-lg border bg-card p-4">
+          <NewAccountForm
+            roles={roles}
+            busy={create.isPending}
+            onSubmit={(input) => create.mutate(input, { onSuccess: () => setOpen(false) })}
+          />
+        </div>
       )}
 
       {roles.length > 0 && (
-        <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-5 grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-2 lg:grid-cols-4">
           {roles.map((r) => (
-            <div key={r.name} className="rounded-lg border p-3">
-              <p className="text-sm font-semibold">{r.label}</p>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                {r.description}
-              </p>
+            <div key={r.name} className="bg-card p-3">
+              <p className="caption">{r.label}</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{r.description}</p>
             </div>
           ))}
         </div>
       )}
 
-      <DataState
+      <DataTable
+        id="console-users"
+        columns={columns}
+        rows={data}
+        rowKey={(a) => a.id}
         isLoading={isLoading}
         isError={isError}
-        isEmpty={false}
+        isFetching={isFetching}
         onRetry={() => void refetch()}
-      >
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Last sign-in</TableHead>
-                <TableHead>Status</TableHead>
-                {manage && <TableHead />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data?.map((a) => {
-                const self = a.id === me?.id;
-                return (
-                  <TableRow key={a.id}>
-                    <TableCell>
-                      <span className="block font-medium">
-                        {a.name}
-                        {self && (
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            you
-                          </span>
-                        )}
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        {a.email}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {/* Your own role is never editable here — an owner who
-                          could demote themselves can lock the console, and one
-                          who could promote themselves makes every other
-                          permission check decorative. The server refuses it
-                          too. */}
-                      {manage && !self ? (
-                        <Select
-                          value={a.role}
-                          onValueChange={(v) =>
-                            setRole.mutate({ id: a.id, role: v as AdminRole })
-                          }
-                        >
-                          <SelectTrigger className="w-32 capitalize">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {roles.map((r) => (
-                              <SelectItem key={r.name} value={r.name}>
-                                {r.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Badge variant="secondary" className="capitalize">
-                          {a.role}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {when(a.last_login_at)}
-                    </TableCell>
-                    <TableCell>
-                      {a.disabled_at ? (
-                        <Badge variant="destructive">Disabled</Badge>
-                      ) : (
-                        <Badge variant="secondary">Active</Badge>
-                      )}
-                    </TableCell>
-                    {manage && (
-                      <TableCell className="text-right">
-                        {!self && (
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() =>
-                                setDisabled.mutate({
-                                  id: a.id,
-                                  disabled: !a.disabled_at,
-                                })
-                              }
-                            >
-                              {a.disabled_at ? 'Enable' : 'Disable'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-destructive"
-                              onClick={() => {
-                                if (
-                                  confirm(
-                                    `Remove ${a.email} from the console? Their audit history stays.`,
-                                  )
-                                ) {
-                                  remove.mutate(a.id);
-                                }
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                        )}
-                      </TableCell>
-                    )}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </DataState>
+        empty="No console accounts"
+        exportName="console-users"
+      />
     </>
   );
 }

@@ -7,6 +7,30 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { VisitsService } from '../visits/visits.service';
 
 /**
+ * The columns the people list can be ordered by.
+ *
+ * A fixed map rather than the caller's string: ORDER BY cannot take a bind
+ * parameter, so anything not named here never reaches the SQL. `storage_bytes`
+ * and `albums` are the select list's own aliases. `u.id` breaks ties, so a page
+ * boundary never lands between two rows that compare equal and shows one twice.
+ */
+const USER_SORTS: Record<string, string> = {
+  joined: 'u.created_at',
+  last_seen: 'u.last_seen_at',
+  storage: 'storage_bytes',
+  albums: 'albums',
+  email: 'u.email',
+};
+
+export function userOrder(sort?: string, dir?: string): string {
+  const column = USER_SORTS[sort ?? ''] ?? USER_SORTS.joined;
+  const direction = dir === 'asc' ? 'asc' : 'desc';
+  // Never-seen accounts go last either way: "nulls first" on a descending
+  // last-seen sort would open the list with the people who never came back.
+  return `${column} ${direction} nulls last, u.id ${direction}`;
+}
+
+/**
  * Everything the console reads and writes about the platform.
  *
  * Queries live here rather than in the controllers so the shapes the dashboard
@@ -100,11 +124,19 @@ export class AdminService {
 
   // ------------------------------------------------------------------- users
 
-  async users(params: { q?: string; plan?: string; limit?: number; offset?: number }) {
+  async users(params: {
+    q?: string;
+    plan?: string;
+    limit?: number;
+    offset?: number;
+    sort?: string;
+    dir?: string;
+  }) {
     const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
     const offset = Math.max(params.offset ?? 0, 0);
     const q = params.q?.trim() ? `%${params.q.trim()}%` : null;
     const plan = params.plan?.trim() || null;
+    const orderBy = userOrder(params.sort, params.dir);
 
     const rows = await this.db.query<{
       plan: string;
@@ -128,7 +160,7 @@ export class AdminService {
          from users u
         where ($3::text is null or u.email ilike $3 or u.display_name ilike $3 or u.handle ilike $3)
           and ($4::text is null or u.plan = $4)
-        order by u.created_at desc
+        order by ${orderBy}
         limit $1 offset $2`,
       [limit, offset, q, plan],
     );
@@ -362,7 +394,7 @@ export class AdminService {
       // it on the wire.
       `select l.id, l.album_id, l.purpose, l.media_kinds, l.created_at,
               l.expires_at, l.revoked_at,
-              a.name as album_name, u.email as owner_email
+              a.name as album_name, u.id as owner_id, u.email as owner_email
          from album_share_links l
          join albums a on a.id = l.album_id
          join users u on u.id = l.user_id
