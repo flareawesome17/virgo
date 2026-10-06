@@ -206,6 +206,87 @@ export interface AdminUserRow {
   tags?: Tag[];
 }
 
+/**
+ * Who a set of filters means: the people list's filters, as segments,
+ * broadcasts and promo grants use them. Mirrors api/src/admin/audience.ts.
+ */
+export interface AudienceFilters {
+  q?: string;
+  plan?: string;
+  status?: string;
+  seen?: string;
+  tag?: string;
+  platform?: string;
+  twoFactor?: string;
+  storageAbove?: number;
+  joinedAfter?: string;
+  joinedBefore?: string;
+  referred?: string;
+  versionBelow?: string;
+}
+
+export interface AudienceCount {
+  /** The filters as the API understood them. */
+  filters: AudienceFilters;
+  count: number;
+  /** Of those, how many have a phone a push can reach. */
+  withPhone: number;
+  preview: { id: string; name: string; email: string; last_seen_at: string | null }[];
+}
+
+export interface Segment {
+  id: string;
+  name: string;
+  description: string | null;
+  filters: AudienceFilters;
+  created_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Counted when listed: who it reaches today. */
+  count: number;
+}
+
+export interface Broadcast {
+  id: string;
+  title: string;
+  body: string;
+  url: string | null;
+  segment_id: string | null;
+  segment_name: string | null;
+  filters: AudienceFilters;
+  push: boolean;
+  status: 'scheduled' | 'sending' | 'sent' | 'cancelled';
+  send_at: string;
+  per_minute: number;
+  started_at: string | null;
+  finished_at: string | null;
+  /** Fixed when sending starts. */
+  recipients: number | null;
+  delivered: number;
+  pushed: number;
+  push_failed: number;
+  opened: number;
+  created_by_name: string | null;
+  cancelled_by_name: string | null;
+  created_at: string;
+}
+
+export interface AppUpdateRow {
+  id: string;
+  slug: string;
+  platforms: string[];
+  min_version: string | null;
+  max_version: string | null;
+  version: string | null;
+  title: string;
+  body: string;
+  url: string | null;
+  published_at: string;
+  pushed: number | null;
+  created_by_name: string | null;
+  reads: number;
+}
+
 /** What a report can be about. */
 export type CaseKind = 'user' | 'job' | 'showcase';
 export type CaseAction = 'dismiss' | 'hide' | 'warn' | 'suspend';
@@ -832,6 +913,43 @@ export const console_ = {
 
   setShowcaseHidden: (id: string, hidden: boolean) =>
     api.patch(`/admin/showcases/${id}/hidden`, { hidden }),
+
+  audience: (filters: AudienceFilters) =>
+    api.post<AudienceCount>('/admin/outreach/audience', { filters }),
+  segments: () => api.get<Segment[]>('/admin/outreach/segments'),
+  saveSegment: (input: { name: string; description?: string | null; filters: AudienceFilters }, id?: string) =>
+    id
+      ? api.patch<Segment>(`/admin/outreach/segments/${id}`, input)
+      : api.post<Segment>('/admin/outreach/segments', input),
+  removeSegment: (id: string) => api.delete(`/admin/outreach/segments/${id}`),
+  broadcasts: () => api.get<Broadcast[]>('/admin/outreach/broadcasts'),
+  createBroadcast: (input: {
+    title: string;
+    body: string;
+    url?: string | null;
+    segmentId?: string | null;
+    push?: boolean;
+    sendAt?: string | null;
+    perMinute?: number;
+  }) => api.post<{ id: string; status: string; send_at: string }>('/admin/outreach/broadcasts', input),
+  cancelBroadcast: (id: string) => api.post(`/admin/outreach/broadcasts/${id}/cancel`),
+  sendBroadcastNow: (id: string) => api.post(`/admin/outreach/broadcasts/${id}/send-now`),
+  appUpdates: () => api.get<AppUpdateRow[]>('/admin/outreach/app-updates'),
+  announceUpdate: (input: {
+    slug: string;
+    platforms: string[];
+    version?: string;
+    minVersion?: string;
+    maxVersion?: string;
+    title: string;
+    body: string;
+    url?: string;
+    push?: boolean;
+  }) => api.post<{ id: string; created: boolean; pushed: number }>('/admin/outreach/app-updates', input),
+  grantPromoToSegment: (id: string, segmentId: string) =>
+    api.post<{ matched: number; granted: number; segment: string }>(`/admin/promos/${id}/grants/segment`, {
+      segmentId,
+    }),
 
   moderationCases: (p: CaseQuery) =>
     api.get<Paged<ModerationCase> & { counts: Partial<Record<CaseKind, number>> }>(

@@ -6,6 +6,7 @@ import {
   Gift,
   LayoutDashboard,
   LifeBuoy,
+  Megaphone,
   ScrollText,
   ShieldCheck,
   Users,
@@ -77,6 +78,13 @@ export const NAV: NavGroup[] = [
         permission: 'content.read',
         badge: 'reports',
         keywords: 'reports reported safety abuse warn hide suspend comments',
+      },
+      {
+        href: '/outreach',
+        label: 'Outreach',
+        icon: Megaphone,
+        permission: 'outreach.read',
+        keywords: 'broadcast announce segments push message everyone app update news',
       },
       {
         href: '/content',

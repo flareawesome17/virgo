@@ -6,9 +6,11 @@ import type { Promo, PromoGrant } from '@/api/console';
 import {
   useCreatePromo,
   useGrantPromo,
+  useGrantPromoToSegment,
   useMe,
   usePromoGrants,
   usePromos,
+  useSegments,
   useSetPromoActive,
   useUsers,
 } from '@/hooks/useConsole';
@@ -237,11 +239,18 @@ function CreatePromoDialog() {
  * search so a batch can be assembled across several queries.
  */
 function GrantDialog({ promo }: { promo: Promo }) {
+  const { can } = useMe();
   const [open, setOpen] = useState(false);
+  // People picked by hand, or a whole segment chosen on the server.
+  const [mode, setMode] = useState<'people' | 'segment'>('people');
+  const [segmentId, setSegmentId] = useState('');
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<Record<string, string>>({});
   const { data, isLoading } = useUsers({ q: q.trim() || undefined, limit: 50 });
   const grant = useGrantPromo();
+  const segments = useSegments(open && mode === 'segment' && can('outreach.read'));
+  const grantSegment = useGrantPromoToSegment();
+  const segment = segments.data?.find((s) => s.id === segmentId);
 
   const ids = useMemo(() => Object.keys(selected), [selected]);
 
@@ -277,6 +286,45 @@ function GrantDialog({ promo }: { promo: Promo }) {
           </DialogDescription>
         </DialogHeader>
 
+        {can('outreach.read') && (
+          <div className="flex gap-1" role="radiogroup" aria-label="Offer to">
+            {(['people', 'segment'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={mode === m}
+                onClick={() => setMode(m)}
+                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${mode === m ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground'}`}
+              >
+                {m === 'people' ? 'People I pick' : 'A whole segment'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {mode === 'segment' ? (
+          <div className="space-y-3">
+            <Select value={segmentId} onValueChange={setSegmentId}>
+              <SelectTrigger aria-label="Segment" className="w-full">
+                <SelectValue placeholder={segments.isLoading ? 'Loading…' : 'Choose a segment'} />
+              </SelectTrigger>
+              <SelectContent>
+                {segments.data?.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name} · {s.count.toLocaleString()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {segment
+                ? `Everyone in “${segment.name}” today — ${segment.count.toLocaleString()} people — except anyone who has it already. They are told in the app.`
+                : 'Segments are made under Outreach.'}
+            </p>
+          </div>
+        ) : (
+          <>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -327,7 +375,33 @@ function GrantDialog({ promo }: { promo: Promo }) {
             })}
           </div>
         </ScrollArea>
+          </>
+        )}
 
+        {mode === 'segment' ? (
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!segment || grantSegment.isPending}
+              onClick={() =>
+                segment &&
+                grantSegment.mutate(
+                  { id: promo.id, segmentId: segment.id },
+                  {
+                    onSuccess: () => {
+                      setOpen(false);
+                      setSegmentId('');
+                    },
+                  },
+                )
+              }
+            >
+              {grantSegment.isPending ? 'Offering…' : segment ? `Offer to ${segment.count.toLocaleString()}` : 'Offer'}
+            </Button>
+          </DialogFooter>
+        ) : (
         <DialogFooter className="sm:justify-between">
           <span className="self-center text-sm text-muted-foreground">
             {ids.length === 0
@@ -346,6 +420,7 @@ function GrantDialog({ promo }: { promo: Promo }) {
             </Button>
           </span>
         </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );
