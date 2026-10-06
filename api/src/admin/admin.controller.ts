@@ -396,38 +396,6 @@ export class AdminController {
     return result;
   }
 
-  @RequirePermission('content.read')
-  @Get('job-reports')
-  jobReports(@Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.admin.jobReports({
-      limit: limit ? Number(limit) : undefined,
-      offset: offset ? Number(offset) : undefined,
-    });
-  }
-
-  /**
-   * Reports about people. The same permission as job reports: reading a
-   * report is triage, and suspending still needs users.disable.
-   */
-  @RequirePermission('content.read')
-  @Get('user-reports')
-  userReports(@Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.admin.userReports({
-      limit: limit ? Number(limit) : undefined,
-      offset: offset ? Number(offset) : undefined,
-    });
-  }
-
-  /** Reports about posts. Triage, like the two above. */
-  @RequirePermission('content.read')
-  @Get('showcase-reports')
-  showcaseReports(@Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.admin.showcaseReports({
-      limit: limit ? Number(limit) : undefined,
-      offset: offset ? Number(offset) : undefined,
-    });
-  }
-
   @RequirePermission('content.moderate')
   @Patch('showcases/:id/hidden')
   async setShowcaseHidden(

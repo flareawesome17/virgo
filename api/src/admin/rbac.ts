@@ -46,6 +46,10 @@ export const ADMIN_PERMISSIONS = [
 
   'content.read',
   'content.moderate',
+  // Reading what was said in a reported chat: the copy taken when it was
+  // reported, never the conversation. Private messages, so it sits with the
+  // people who act on reports rather than with everyone who can see them.
+  'content.evidence',
 
   'billing.read',
   'billing.manage',
@@ -122,7 +126,8 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: 'Content',
     permissions: [
       { key: 'content.read', label: 'See content and reports', description: 'Albums, client links and what people reported.' },
-      { key: 'content.moderate', label: 'Moderate', description: 'Hide posts and jobs, revoke client links.' },
+      { key: 'content.moderate', label: 'Moderate', description: 'Close reports: dismiss, hide posts and jobs, warn, remove comments, revoke client links.' },
+      { key: 'content.evidence', label: 'Read reported messages', description: 'The messages a chat report brought with it, copied when it was filed. Never the conversation itself.' },
     ],
   },
   {
@@ -192,6 +197,7 @@ const ADMIN: AdminPermission[] = [
   'users.setPlan',
   'users.security',
   'content.moderate',
+  'content.evidence',
   'billing.manage',
   'support.manage',
   'audit.read',

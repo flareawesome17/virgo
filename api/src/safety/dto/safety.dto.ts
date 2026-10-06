@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsIn,
   IsOptional,
   IsString,
@@ -6,6 +8,9 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+/** How many messages a chat report may carry. */
+export const MAX_EVIDENCE_MESSAGES = 20;
 import { HANDLE_MAX, HANDLE_MIN } from '../../profiles/handles';
 
 /**
@@ -77,4 +82,19 @@ export class ReportPersonDto extends PersonRefDto {
   @IsOptional()
   @IsIn(REPORT_SOURCES)
   from?: (typeof REPORT_SOURCES)[number];
+
+  /**
+   * A report from a chat: the conversation, and the latest messages the
+   * reporter could see in it. Only messages between the two of them are
+   * kept, copied as they are now — see ReportsService.captureEvidence.
+   */
+  @IsOptional()
+  @IsUUID('all')
+  conversationId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_EVIDENCE_MESSAGES)
+  @IsUUID('all', { each: true })
+  messageIds?: string[];
 }

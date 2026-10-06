@@ -14,15 +14,18 @@ import { ReportsService } from './reports.service';
 const REPORTER = '11111111-1111-4111-8111-111111111111';
 const TARGET = '22222222-2222-4222-8222-222222222222';
 
-function serviceOver(options: { inserted?: boolean; sendRejects?: boolean } = {}) {
-  const query = jest.fn(async (sql: string, _params?: unknown[]) =>
-    /insert into user_reports/.test(sql) && options.inserted !== false ? [{ id: 'r1' }] : [],
+function serviceOver(
+  options: { inserted?: boolean; sendRejects?: boolean; evidenceRejects?: boolean } = {},
+) {
+  const query = jest.fn(async (sql: string, _params?: unknown[]) => {
+    if (/insert into report_evidence/.test(sql) && options.evidenceRejects) throw new Error('db down');
+    return /insert into user_reports/.test(sql) && options.inserted !== false ? [{ id: 'r1' }] : [];
+  });
+  const queryOne = jest.fn(async (sql: string, _params?: unknown[]) =>
+    /select id from user_reports/.test(sql)
+      ? { id: 'r-open' }
+      : { name: 'Ana Cruz', handle: 'ana', n: 3 },
   );
-  const queryOne = jest.fn(async (_sql: string, _params?: unknown[]) => ({
-    name: 'Ana Cruz',
-    handle: 'ana',
-    n: 3,
-  }));
   const db = { query, queryOne } as unknown as DatabaseService;
   const blocks = { resolvePerson: jest.fn(async () => TARGET) };
   const mail = {
@@ -87,7 +90,48 @@ describe('ReportsService.report', () => {
 
     const insert = query.mock.calls.find(([sql]) => /insert into user_reports/.test(sql))!;
     expect(insert[1]).toEqual([REPORTER, TARGET, 'harassment', null, 'chat']);
-    expect(insert[0]).toMatch(/on conflict \(reporter_id, target_id\) do nothing/);
+    expect(insert[0]).toMatch(/on conflict \(reporter_id, target_id\) where status = 'open' do nothing/);
+  });
+
+  describe('from a chat', () => {
+    const CONVERSATION = '33333333-3333-4333-8333-333333333333';
+    const MESSAGES = ['44444444-4444-4444-8444-444444444444', '55555555-5555-4555-8555-555555555555'];
+    const CHAT = { ...DTO, from: 'chat', conversationId: CONVERSATION, messageIds: MESSAGES } as ReportPersonDto;
+    const evidenceOf = (query: jest.Mock) =>
+      query.mock.calls.find(([sql]) => /insert into report_evidence/.test(sql as string)) as
+        | [string, unknown[]]
+        | undefined;
+
+    it('copies the messages, only between the two of them and only what the reporter could see', async () => {
+      const { service, query } = serviceOver();
+      await service.report(REPORTER, CHAT);
+      const [sql, params] = evidenceOf(query)!;
+      expect(params).toEqual(['r1', REPORTER, TARGET, CONVERSATION, MESSAGES]);
+      expect(sql).toContain('m.sender_id in ($2, $3)');
+      expect(sql).toContain('m.deleted_at is null');
+      expect(sql).toContain('me.cleared_at');
+      expect(sql).toContain('message_deletions');
+      expect(sql).toContain('them.user_id = $3');
+    });
+
+    it('adds a second report\'s messages to the one still open', async () => {
+      const { service, query, mail } = serviceOver({ inserted: false });
+      await service.report(REPORTER, CHAT);
+      expect(evidenceOf(query)![1][0]).toBe('r-open');
+      expect(mail.send).not.toHaveBeenCalled();
+    });
+
+    it('keeps no messages for a report from anywhere else', async () => {
+      const { service, query } = serviceOver();
+      await service.report(REPORTER, { ...CHAT, from: 'profile' } as ReportPersonDto);
+      expect(evidenceOf(query)).toBeUndefined();
+    });
+
+    it('still files the report when the copy fails', async () => {
+      const { service, mail } = serviceOver({ evidenceRejects: true });
+      await expect(service.report(REPORTER, CHAT)).resolves.toEqual({ reported: true });
+      expect(mail.send).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('resolves the person the same way a block does', async () => {
@@ -125,6 +169,21 @@ describe('ReportPersonDto', () => {
     await expect(
       validate({ userId: TARGET, reason: 'spam', note: 'x'.repeat(500) }),
     ).resolves.toBeInstanceOf(ReportPersonDto);
+  });
+
+  it('takes up to twenty message ids from a chat, and only uuids', async () => {
+    const id = (n: number) => `${String(n).padStart(8, '0')}-4444-4444-8444-444444444444`;
+    const twenty = Array.from({ length: 20 }, (_, i) => id(i));
+    const conversationId = '33333333-3333-4333-8333-333333333333';
+    await expect(
+      validate({ userId: TARGET, reason: 'harassment', from: 'chat', conversationId, messageIds: twenty }),
+    ).resolves.toBeInstanceOf(ReportPersonDto);
+    await expect(
+      validate({ userId: TARGET, reason: 'harassment', from: 'chat', conversationId, messageIds: [...twenty, id(20)] }),
+    ).rejects.toThrow();
+    await expect(
+      validate({ userId: TARGET, reason: 'harassment', from: 'chat', conversationId, messageIds: ['nope'] }),
+    ).rejects.toThrow();
   });
 
   it('refuses ids that are not uuids', async () => {

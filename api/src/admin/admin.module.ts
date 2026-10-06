@@ -18,6 +18,8 @@ import { AdminService } from './admin.service';
 import { AuditService } from './audit.service';
 import { PresenceService } from './presence.service';
 import { AdminSupportController, SupportController } from './support.controller';
+import { AdminModerationController } from './moderation.controller';
+import { ModerationService } from './moderation.service';
 import { SupportService } from './support.service';
 import { VisitsModule } from '../visits/visits.module';
 import { VisitsService } from '../visits/visits.service';
@@ -58,6 +60,7 @@ import { AdminPromosController } from '../promos/admin-promos.controller';
     AdminCustomersController,
     AdminSupportController,
     SupportController,
+    AdminModerationController,
     AdminPromosController,
   ],
   providers: [
@@ -68,6 +71,7 @@ import { AdminPromosController } from '../promos/admin-promos.controller';
     AdminGuard,
     AuditService,
     SupportService,
+    ModerationService,
     AdminSecurityService,
     AdminRolesService,
     PresenceService,

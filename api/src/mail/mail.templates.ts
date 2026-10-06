@@ -679,6 +679,36 @@ export function supportReply(options: {
 }
 
 /**
+ * The safety team writing to someone about something they posted or did.
+ *
+ * Unlike a suspension, a warning says why — that is its point — in the words
+ * staff wrote, quoted as text. The link opens the same message in their
+ * support inbox, where they can answer it.
+ */
+export function moderationNotice(options: {
+  name: string;
+  /** "your post “Golden hour”", "your account". */
+  about: string;
+  message: string;
+  url: string;
+}): RenderedEmail {
+  const intro = `Hi ${options.name}, Virgo's safety team is writing to you about ${options.about}:`;
+  const outro =
+    'If you think we got this wrong, reply to the message in the app and a person will look at it again.';
+  return {
+    subject: `A message from Virgo about ${options.about}`,
+    html: layout({
+      heading: 'A message from Virgo',
+      intro,
+      quote: options.message,
+      cta: { label: 'Open the message', url: options.url },
+      outro,
+    }),
+    text: [intro, '', options.message, '', outro, '', `Open the message: ${options.url}`].join('\n'),
+  };
+}
+
+/**
  * Staff suspended the account.
  *
  * Says what happened and how to ask about it, and nothing about why: the
