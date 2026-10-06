@@ -35,9 +35,16 @@ export class DatabaseExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
 
-    // Nest's own exceptions already carry a safe, intentional payload.
+    // Nest's own exceptions already carry a safe, intentional payload. One
+    // built from a string — ThrottlerException always is — would go out as a
+    // bare JSON string, so it gets the { statusCode, message } every other
+    // error has.
     if (exception instanceof HttpException) {
-      response.status(exception.getStatus()).json(exception.getResponse());
+      const status = exception.getStatus();
+      const body = exception.getResponse();
+      response
+        .status(status)
+        .json(typeof body === 'string' ? { statusCode: status, message: body } : body);
       return;
     }
 

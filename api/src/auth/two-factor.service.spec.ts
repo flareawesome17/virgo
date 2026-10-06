@@ -123,6 +123,22 @@ describe('TwoFactorService email challenges', () => {
     });
   });
 
+  // The filter sends getResponse() as the body, and the apps show its
+  // `message`; a string-built exception has none.
+  it('refuses a resend inside the minute with a { statusCode, message } 429', async () => {
+    const { service, users } = createSubject();
+    const challenge = await service.createLoginChallenge(user);
+    users.replaceTwoFactorChallengeCode = jest.fn().mockResolvedValue(null);
+
+    await expect(service.resend(challenge.challengeToken)).rejects.toMatchObject({
+      status: 429,
+      response: {
+        statusCode: 429,
+        message: 'Wait one minute before requesting another code.',
+      },
+    });
+  });
+
   it('refuses a wrong password with 403, not 401', async () => {
     const { service } = createSubject();
 
