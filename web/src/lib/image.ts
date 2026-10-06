@@ -11,6 +11,8 @@
  * equivalent has to go through expo-image-manipulator — there is no canvas.
  */
 
+import { COVER_ASPECT, coverCropRect } from '@/api';
+
 /** Matches the server's `AVATAR_EDGE`. */
 export const AVATAR_MAX_EDGE = 512;
 
@@ -68,4 +70,39 @@ export async function resizeImage(file: File, maxEdge: number): Promise<File> {
 
 function stripExtension(name: string): string {
   return name.replace(/\.[^./]+$/, '') || 'image';
+}
+
+/** = COVER_EDGE in api thumbnails.service.ts, which keeps a cover no wider. */
+export const COVER_MAX_WIDTH = 2048;
+
+/**
+ * The cover as it will be stored: cropped to the cover's 2:1 where the person
+ * put it, at most COVER_MAX_WIDTH wide, re-encoded as JPEG.
+ *
+ * The server only resizes a cover; the crop is the client's, as it is on the
+ * phone (coverCropRect is the same maths). Throws on any failure, and the
+ * caller then uploads nothing: falling back to the original would send the
+ * camera file, EXIF and GPS included, to a public address.
+ */
+export async function renderCover(file: File, focusY = 0.5): Promise<File> {
+  if (typeof createImageBitmap !== 'function') throw new Error('This browser cannot prepare a cover.');
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  try {
+    const rect = coverCropRect(bitmap.width, bitmap.height, focusY);
+    const width = Math.min(COVER_MAX_WIDTH, rect.width);
+    const height = Math.round(width / COVER_ASPECT);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('This browser cannot prepare a cover.');
+    ctx.drawImage(bitmap, rect.originX, rect.originY, rect.width, rect.height, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.85),
+    );
+    if (!blob) throw new Error('This browser cannot prepare a cover.');
+    return new File([blob], `${stripExtension(file.name)}-cover.jpg`, { type: 'image/jpeg' });
+  } finally {
+    bitmap.close();
+  }
 }

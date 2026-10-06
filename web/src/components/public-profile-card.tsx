@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -39,7 +40,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
-import { profilesApi, profileUrl, storageApi, kindOf, type PortfolioItem } from '@/api';
+import { profilesApi, storageApi, kindOf, type PortfolioItem } from '@/api';
 import {
   usePortfolio,
   usePortfolioActions,
@@ -51,9 +52,6 @@ import { useAlbums } from '@/hooks/useAlbums';
 
 const MAX_IMAGES = 24;
 const MAX_ALBUMS = 12;
-
-/** Where a claimed handle actually resolves. */
-const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
 
 /**
  * A profile photo or a cover. They are the account's own uploads too, but a
@@ -563,17 +561,15 @@ export function PublicProfileCard() {
 
         <HandleField current={settings.handle} changedAt={settings.handleChangedAt} />
 
-        {settings.published && settings.handle && (
-          <a
-            href={profileUrl(settings.handle, SITE)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-          >
-            <ExternalLink className="size-3.5" />
-            View your public page
-          </a>
-        )}
+        {/* In the app, not virgo.ph in a new tab: the desktop app opens no
+            second window, and your page is here with your drafts too. */}
+        <Link
+          href="/profile"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+        >
+          <ExternalLink className="size-3.5" />
+          {settings.published ? 'View your public page' : 'See your page as it will look'}
+        </Link>
 
         <div className="space-y-3 border-t pt-5">
           <div className="flex items-center justify-between gap-3">

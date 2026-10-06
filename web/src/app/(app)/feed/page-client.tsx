@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bookmark, Heart, ImageIcon, Loader2, MessageCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader, Screen } from '@/components/app-shell';
@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/card';
 import { ShowcaseFilm } from '@/components/media/showcase-film';
 import { PieceCarousel, PieceImage, feedAspect } from '@/components/showcase/showcase-media';
 import { ShowcaseMenu } from '@/components/showcase/showcase-menu';
+import { OwnShowcaseMenu } from '@/components/showcase/owner-menu';
 import { ShowcaseReportDialog } from '@/components/showcase/report-dialog';
 import { useKeepFlow } from '@/components/showcase/keep-flow';
 import { useAuth } from '@/hooks/useAuth';
@@ -37,7 +38,8 @@ const NOTE_CUT = 200;
  *
  * Each card is the phone's: the work at its own shape, every piece of a set a
  * swipe or a click away, and a heart, a keep and a "…" that behave as they do
- * there. Posting and editing still happen on the phone.
+ * there. Posting is the bar's Create, or the button here when the feed is
+ * empty; your own posts carry their own "…" to edit, take down or delete.
  */
 export default function PageClient() {
   const [scope, setScope] = useState<'everyone' | 'connections'>('everyone');
@@ -128,8 +130,13 @@ export default function PageClient() {
               {scope === 'connections' ? 'Nothing from your connections yet' : 'Nothing here yet'}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Showcases are posted from the phone app.
+              {scope === 'connections'
+                ? 'When the people you are connected to post work, it shows up here.'
+                : 'A piece of work, and a note on how you made it. Yours could be the first.'}
             </p>
+            <Button asChild className="mt-4">
+              <Link href="/showcase/new">Post a showcase</Link>
+            </Button>
           </Card>
         ) : (
           <div className="mt-4 space-y-5">
@@ -154,15 +161,10 @@ export default function PageClient() {
                 </Button>
               </div>
             ) : hasNextPage ? (
-              <div className="grid place-items-center py-4">
-                <Button
-                  variant="secondary"
-                  disabled={isFetchingNextPage}
-                  onClick={() => void fetchNextPage()}
-                >
-                  {isFetchingNextPage ? 'Loading…' : 'Show more'}
-                </Button>
-              </div>
+              <MoreOnScroll
+                loading={isFetchingNextPage}
+                onReach={() => void fetchNextPage()}
+              />
             ) : (
               <p className="py-4 text-center text-xs text-muted-foreground">
                 You&rsquo;re all caught up.
@@ -206,7 +208,7 @@ function Placard({
   const label = item.title ?? `${maker.displayName}'s showcase`;
   // Your own profile needs no published handle; anybody else's is only
   // reachable once they have published one.
-  const profileHref = mine ? '/settings/profile' : maker.handle ? `/u/${maker.handle}` : null;
+  const profileHref = mine ? '/profile' : maker.handle ? `/u/${maker.handle}` : null;
 
   return (
     <Card className="gap-0 overflow-hidden py-0">
@@ -266,7 +268,11 @@ function Placard({
               <Link href={`/hire/${maker.handle}`}>Hire</Link>
             </Button>
           )}
-          {!mine && <ShowcaseMenu maker={maker} onReport={() => onReport(item.id)} />}
+          {mine ? (
+            <OwnShowcaseMenu showcase={item} />
+          ) : (
+            <ShowcaseMenu maker={maker} onReport={() => onReport(item.id)} />
+          )}
         </div>
 
         {item.title && (
@@ -364,6 +370,44 @@ function Placard({
         </div>
       </div>
     </Card>
+  );
+}
+
+/**
+ * The next page, fetched as the end of the feed comes into view, as the phone
+ * does. It was a "Show more" button every twelve cards. The button stays, for
+ * a browser without IntersectionObserver and for anyone who gets there first.
+ */
+function MoreOnScroll({ loading, onReach }: { loading: boolean; onReach: () => void }) {
+  const marker = useRef<HTMLDivElement>(null);
+  const reach = useRef(onReach);
+  const busy = useRef(loading);
+  useEffect(() => {
+    reach.current = onReach;
+    busy.current = loading;
+  }, [onReach, loading]);
+
+  useEffect(() => {
+    const el = marker.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    // A little before the end, so the next cards are there when it arrives.
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // Never a second request while one is out.
+        if (entry.isIntersecting && !busy.current) reach.current();
+      },
+      { rootMargin: '600px 0px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={marker} className="grid place-items-center py-4">
+      <Button variant="secondary" disabled={loading} onClick={onReach}>
+        {loading ? 'Loading…' : 'Show more'}
+      </Button>
+    </div>
   );
 }
 
