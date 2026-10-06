@@ -158,7 +158,7 @@ export class HireService {
         fromName: name,
         roleWanted,
         when: input.eventDate ? this.readableDate(input.eventDate) : null,
-        url: `${this.mailConfig.appUrl}/network?tab=enquiries`,
+        url: `${this.mailConfig.appUrl}/people?tab=enquiries`,
       }),
     });
 

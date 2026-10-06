@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeft,
   CreditCard,
   FileQuestion,
   FolderInput,
@@ -23,6 +22,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -57,9 +57,13 @@ import {
   useUnassignedFiles,
 } from '@/hooks/useStorageAdmin';
 import { useDeleteFiles } from '@/hooks/useMediaSelection';
+import { useWipeStorage } from '@/hooks/useStorageAdmin';
 import { useAlbums } from '@/hooks/useAlbums';
 import { fileNameFromKey } from '@/hooks/useAlbumFiles';
 import { formatBytes } from '@/api';
+
+/** Typed into the box before a wipe is allowed to run. */
+const CONFIRM_WORD = 'DELETE';
 
 const TYPE_META: Record<
   string,
@@ -288,19 +292,18 @@ export default function StorageSettingsPage() {
   const byType = breakdown?.byType ?? [];
   const byAlbum = breakdown?.byAlbum ?? [];
 
+  // Wiping everything lived on the long Settings page; it belongs with the
+  // storage it empties.
+  const wipe = useWipeStorage();
+  const [confirmingWipe, setConfirmingWipe] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const fail = (label: string) => (err: Error) =>
+    toast.error(label, { description: err.message });
+
   return (
     <Screen title="Storage">
       <PageHeader
-        title={
-          <span className="flex items-center gap-2">
-            <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
-              <Link href="/settings" aria-label="Back">
-                <ArrowLeft className="size-4" />
-              </Link>
-            </Button>
-            Storage
-          </span>
-        }
+        title="Storage"
         description="What you have uploaded, and where it sits"
         actions={
           <Button asChild variant="outline">
@@ -312,7 +315,7 @@ export default function StorageSettingsPage() {
         }
       />
 
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <div className="w-full max-w-3xl">
         <Card>
           <CardContent className="py-6">
             <div className="flex items-end justify-between gap-4">
@@ -461,7 +464,93 @@ export default function StorageSettingsPage() {
             <UnassignedFiles />
           </CardContent>
         </Card>
+
+        {/* Last, and apart: it cannot be undone. */}
+        <h2 className="mb-2 mt-8 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Wipe
+        </h2>
+        <Card className="border-destructive/25">
+          <CardContent className="py-5">
+            <div className="flex items-start gap-4">
+              <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-destructive/10">
+                <Trash2 className="size-4 text-destructive" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Wipe cloud data</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  Deletes every photo, video and audio file you have uploaded,
+                  across all workspaces. This cannot be undone.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 text-destructive hover:text-destructive"
+                onClick={() => {
+                  setConfirmText('');
+                  setConfirmingWipe(true);
+                }}
+              >
+                Wipe
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      <AlertDialog open={confirmingWipe} onOpenChange={setConfirmingWipe}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Wipe every uploaded file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {/* "Deletes 0 B" before the reading arrives would make the wipe
+                  sound harmless. */}
+              This deletes {usage ? `${formatBytes(storageUsedBytes)} of media` : 'every file you have uploaded'}{' '}
+              from storage permanently. Albums and workspaces survive, but they
+              will be empty. We cannot recover the files for you.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="grid gap-2">
+            <p className="text-sm">
+              Type <span className="font-mono font-bold">{CONFIRM_WORD}</span> to confirm.
+            </p>
+            <Input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={CONFIRM_WORD}
+              autoComplete="off"
+            />
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirmText !== CONFIRM_WORD || wipe.isPending}
+              onClick={(event) => {
+                // The dialog closes on action by default; keep it open while
+                // the request runs so the result can be reported.
+                event.preventDefault();
+                wipe.mutate(undefined, {
+                  onSuccess: (result) => {
+                    setConfirmingWipe(false);
+                    toast.success(`Deleted ${result.deleted} file${result.deleted === 1 ? '' : 's'}`, {
+                      description:
+                        result.failed > 0
+                          ? `${result.failed} could not be deleted and still count towards your quota.`
+                          : `Freed ${formatBytes(result.freedBytes)}.`,
+                    });
+                  },
+                  onError: fail('Could not wipe storage'),
+                });
+              }}
+            >
+              {wipe.isPending && <Loader2 className="size-4 animate-spin" />}
+              Wipe everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Screen>
   );
 }

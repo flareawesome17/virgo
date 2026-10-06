@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState, ErrorState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -40,7 +39,7 @@ import type { NearbyPerson } from '@/api';
 /** The API caps the radius at 200km. */
 const RADII = [5, 25, 50, 100, 200];
 
-export default function NearbyPage() {
+export function NearbyTab() {
   const router = useRouter();
   const [radiusKm, setRadiusKm] = useState(50);
   /** Empty means everyone; otherwise only people who do one of these. */
@@ -245,13 +244,7 @@ export default function NearbyPage() {
   );
 
   return (
-    <Screen title="Nearby">
-      <PageHeader
-        title="Nearby"
-        description="Freelancers and collaborators around you"
-      />
-
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+    <div>
         {/* Sharing opt-in */}
         <Card>
           <CardContent className="py-5">
@@ -502,7 +495,6 @@ export default function NearbyPage() {
             </div>
           )}
         </div>
-      </div>
-    </Screen>
+    </div>
   );
 }

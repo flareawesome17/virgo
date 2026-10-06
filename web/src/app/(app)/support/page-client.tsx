@@ -75,7 +75,7 @@ function SupportContent() {
 
   return (
     <Screen title="Support">
-    <div className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
+    <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Support</h1>
@@ -212,7 +212,7 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
 
   return (
     <Screen title="Support">
-    <div className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
+    <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
       <button
         onClick={onBack}
         className="mb-4 text-sm text-muted-foreground hover:text-foreground"

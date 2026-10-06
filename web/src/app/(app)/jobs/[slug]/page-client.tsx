@@ -107,7 +107,7 @@ export default function JobPage() {
           // Filled and closed posts still open, saying so; what does not open
           // is one that has ended or been taken down.
           description="This post has ended or been taken down."
-          action={<Button onClick={() => router.push('/jobs/mine')}>Browse jobs</Button>}
+          action={<Button onClick={() => router.push('/jobs')}>Browse jobs</Button>}
         />
       </Screen>
     );
@@ -136,7 +136,7 @@ export default function JobPage() {
 
   return (
     <Screen title={job.data.title}>
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
         <Button
           variant="ghost"
           size="sm"
@@ -154,7 +154,7 @@ export default function JobPage() {
               : post.status === 'expired'
                 ? 'This job has ended.'
                 : 'This post is closed.'}{' '}
-            <Link href="/jobs/mine" className="font-semibold underline">
+            <Link href="/jobs" className="font-semibold underline">
               See what else is open
             </Link>
           </div>
@@ -304,7 +304,7 @@ export default function JobPage() {
                 {/* To this post's row with its applicants open, not the top
                     of the board with every post shut. */}
                 <Button asChild variant="outline">
-                  <Link href={`/jobs/mine?tab=posted&post=${post.id}`}>
+                  <Link href={`/jobs?tab=posted&post=${post.id}`}>
                     <Users className="size-4" />
                     Manage post
                   </Link>

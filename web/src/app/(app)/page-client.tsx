@@ -93,13 +93,13 @@ export default function HomePage() {
   const stats = [
     { label: 'Workspaces', value: workspacesData ? workspaceTotal : null, icon: FolderOpen, href: '/workspaces' },
     { label: 'Albums', value: albumsData ? albumTotal : null, icon: Images, href: '/albums' },
-    { label: 'Collaborators', value: collaboratorsData ? collaboratorTotal : null, icon: Users, href: '/network' },
+    { label: 'Collaborators', value: collaboratorsData ? collaboratorTotal : null, icon: Users, href: '/people' },
     { label: 'Events', value: eventsData ? eventTotal : null, icon: CalendarDays, href: '/schedule' },
   ];
 
   return (
     <Screen title="Dashboard">
-      <div className="mx-auto w-full max-w-6xl px-6 py-6">
+      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6">
         {/* The greeting is the page's own; the bar carries its name. The
             "New workspace" button that sat here is the bar's Create now. */}
         <div className="mb-6">
@@ -293,7 +293,7 @@ export default function HomePage() {
                 <h3 className="text-sm font-semibold">Quick actions</h3>
                 <div className="mt-3 flex flex-col gap-2">
                   <Button asChild variant="outline" size="sm" className="justify-start">
-                    <Link href="/network">
+                    <Link href="/people">
                       <UserPlus className="size-4" />
                       Find collaborators
                     </Link>

@@ -8,7 +8,6 @@ import {
   Check,
   ChevronDown,
   Eye,
-  FileText,
   Loader2,
   MessageCircle,
   Search,
@@ -19,6 +18,7 @@ import {
 import { toast } from 'sonner';
 import { track } from '@/lib/analytics';
 import { ApplicationBadge } from '@/components/jobs/application-state';
+import { BookingsList } from '@/components/jobs/bookings-list';
 import { BookingCard } from '@/components/jobs/booking-card';
 import { useBookings } from '@/hooks/useBookings';
 import type { Booking, JobApplication } from '@/api';
@@ -1032,22 +1032,21 @@ export default function MyJobsPage() {
   );
 }
 
-type JobsTab = 'browse' | 'posted' | 'applications';
+type JobsTab = 'browse' | 'posted' | 'applied' | 'bookings';
 
 /**
  * Every spelling a link might use for a tab.
  *
- * The applications tab was `applications` in every link to it — the apply
- * page, the notification bell, the realtime toasts — and `applied` on the tab
- * itself, so none of those links matched and all of them opened on Browse.
- * The phone calls it `applied`, so both are accepted here, and a link built
- * for one client does not miss on the other.
+ * The phone's keys, so a link built for one client lands on the other: the
+ * board, your posts, your applications and your bookings. `applications`
+ * is what older links and emails say for the third, so it still works.
  */
 const TAB_ALIASES: Record<string, JobsTab> = {
   browse: 'browse',
   posted: 'posted',
-  applications: 'applications',
-  applied: 'applications',
+  applied: 'applied',
+  applications: 'applied',
+  bookings: 'bookings',
 };
 
 function MyJobs() {
@@ -1073,15 +1072,7 @@ function MyJobs() {
   const setTab = (next: string) =>
     // replace, not push: flipping tabs should not fill the back button with
     // the same screen four times. Drops ?post= too — it was about arriving.
-    router.replace(next === 'browse' ? '/jobs/mine' : `/jobs/mine?tab=${next}`);
-
-  // The phone keeps Bookings as a fourth tab on this screen; on the web they
-  // have a page of their own, so a link shaped for the phone goes there
-  // rather than falling through to the board.
-  const toBookings = requested === 'bookings';
-  useEffect(() => {
-    if (toBookings) router.replace('/bookings');
-  }, [toBookings, router]);
+    router.replace(next === 'browse' ? '/jobs' : `/jobs?tab=${next}`);
 
   /*
    * Looking at the board is what "seen" means.
@@ -1100,25 +1091,15 @@ function MyJobs() {
   const { count: unseen } = useUnseenJobs();
   const { mutate: markJobsSeen } = useMarkJobsSeen();
   useEffect(() => {
-    // Not on the way through to Bookings, which shows nobody the board.
-    if (tab === 'browse' && !toBookings && unseen > 0) markJobsSeen();
-  }, [tab, toBookings, unseen, markJobsSeen]);
+    if (tab === 'browse' && unseen > 0) markJobsSeen();
+  }, [tab, unseen, markJobsSeen]);
 
   return (
     <Screen title="Jobs">
       <PageHeader
         title="Jobs"
-        description="Find work, and manage what you have posted"
-        // Posting is the bar's Create, as on the phone. Bookings has no row
-        // in the sidebar any more, so its way in is here until it is a tab.
-        actions={
-          <Button asChild variant="outline">
-            <Link href="/bookings">
-              <FileText className="size-4" />
-              Bookings
-            </Link>
-          </Button>
-        }
+        description="Find work, manage what you have posted, and what you agreed"
+        // Posting is the bar's Create, as on the phone.
       />
 
       {/*
@@ -1129,12 +1110,13 @@ function MyJobs() {
         nothing to do. The board always has something in it, so it is the
         honest default and it matches where the phone's Jobs entry goes.
       */}
-      <div className="mx-auto w-full max-w-4xl px-6 py-6">
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
         <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="browse">Browse</TabsTrigger>
           <TabsTrigger value="posted">Posted ({jobs.length})</TabsTrigger>
-          <TabsTrigger value="applications">My applications</TabsTrigger>
+          <TabsTrigger value="applied" aria-label="Your applications">Applied</TabsTrigger>
+          <TabsTrigger value="bookings">Bookings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="browse" className="mt-4">
@@ -1168,8 +1150,12 @@ function MyJobs() {
           )}
         </TabsContent>
 
-        <TabsContent value="applications" className="mt-4">
+        <TabsContent value="applied" className="mt-4">
           <MyApplications onBrowse={() => setTab('browse')} />
+        </TabsContent>
+
+        <TabsContent value="bookings" className="mt-4">
+          <BookingsList />
         </TabsContent>
         </Tabs>
       </div>

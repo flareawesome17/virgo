@@ -1,10 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  ArrowLeft,
   BriefcaseBusiness,
   ChevronRight,
   Loader2,
@@ -17,7 +16,6 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { PageHeader, Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -44,15 +42,13 @@ import {
   useDeleteFriend,
   useFriendPresence,
   useFriends,
-  useMarkPeopleSeen,
   usePeopleSearch,
-  usePeopleUnseen,
   useRespondToFriendRequest,
   useSendFriendRequest,
 } from '@/hooks/useFriends';
 import { useOpenDirectChat } from '@/hooks/useChat';
 import { useHireEnquiries } from '@/hooks/useHire';
-import { EnquiriesTab, EnquiryCard } from '@/components/enquiries';
+import { EnquiryCard } from '@/components/enquiries';
 import { lastSeenLabel, usePresence } from '@/lib/presence-store';
 import { ApiError, type Friend } from '@/api';
 
@@ -88,7 +84,7 @@ function SectionTitle({
 }
 
 /** Whether the tab is the one being looked at. */
-function usePageVisible(): boolean {
+export function usePageVisible(): boolean {
   const [visible, setVisible] = useState(
     () => typeof document === 'undefined' || document.visibilityState === 'visible',
   );
@@ -208,12 +204,7 @@ function ConnectionRow({ friend, onRemove }: { friend: Friend; onRemove: () => v
  * hire enquiries behind a third tab with nothing pointing at them. Enquiries
  * and requests are paid work and people waiting on an answer, so they lead.
  */
-function NetworkPageBody() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  // Notifications and the "sent" toast link to ?tab=enquiries, which opens
-  // every enquiry, answered and sent ones too.
-  const showingEnquiries = searchParams.get('tab') === 'enquiries';
+export function PeopleTab() {
   const [search, setSearch] = useState('');
   const [term, setTerm] = useState('');
 
@@ -227,9 +218,6 @@ function NetworkPageBody() {
   const respond = useRespondToFriendRequest();
   const removeFriend = useDeleteFriend();
   const hire = useHireEnquiries();
-  const unseen = usePeopleUnseen();
-  const markSeen = useMarkPeopleSeen();
-  const visible = usePageVisible();
 
   // Requests addressed to me. `requested_by: 'them'` is the recipient's side
   // of the pair the server writes.
@@ -241,22 +229,6 @@ function NetworkPageBody() {
 
   const [withdrawing, setWithdrawing] = useState<Friend | null>(null);
   const [removing, setRemoving] = useState<Friend | null>(null);
-
-  /*
-   * Opening People is seeing what is waiting there: the requests stay listed
-   * until they are answered, but they stop lighting the nav's badge. On
-   * arriving, and again if one lands while you are looking at the page.
-   */
-  const waitingUnseen = unseen.count;
-  const wasLooking = useRef(false);
-  useEffect(() => {
-    const arrived = visible && !wasLooking.current;
-    wasLooking.current = visible;
-    // Not again on an API without the marker: its count only falls by
-    // answering, and marking again on every refetch would never stop.
-    if (arrived || (visible && waitingUnseen > 0 && unseen.supported)) markSeen.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, waitingUnseen]);
 
   const answer = (row: Friend, accept: boolean) =>
     respond.mutate(
@@ -324,42 +296,10 @@ function NetworkPageBody() {
   const otherEnquiries = hire.enquiries.length - pendingEnquiries.length;
   const connectionCount = connections.friends.length;
 
-  if (showingEnquiries) {
-    return (
-      <Screen title="People">
-        <PageHeader
-          title="Hire enquiries"
-          description="Work people have asked you about, and what you have asked others."
-          actions={
-            <Button variant="outline" onClick={() => router.push('/network')}>
-              <ArrowLeft className="size-4" />
-              People
-            </Button>
-          }
-        />
-        <div className="mx-auto w-full max-w-4xl px-6 py-6">
-          <EnquiriesTab />
-        </div>
-      </Screen>
-    );
-  }
 
   return (
-    <Screen title="People">
-      <PageHeader
-        title="People"
-        description={`${connectionCount} connection${connectionCount === 1 ? '' : 's'}`}
-        actions={
-          <Button asChild variant="outline">
-            <Link href="/nearby">
-              <MapPin className="size-4" />
-              Nearby
-            </Link>
-          </Button>
-        }
-      />
-
-      <div className="mx-auto w-full max-w-4xl px-6 py-6">
+    <>
+      <div>
         <div className="relative mb-6">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -482,7 +422,7 @@ function NetworkPageBody() {
                   count={pendingEnquiries.length}
                   action={
                     <Button asChild size="sm" variant="ghost">
-                      <Link href="/network?tab=enquiries">See all</Link>
+                      <Link href="/people?tab=enquiries">See all</Link>
                     </Button>
                   }
                 />
@@ -495,7 +435,7 @@ function NetworkPageBody() {
             ) : otherEnquiries > 0 ? (
               // Answered and sent ones still need a way in.
               <Link
-                href="/network?tab=enquiries"
+                href="/people?tab=enquiries"
                 className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm font-semibold hover:bg-accent/50"
               >
                 <BriefcaseBusiness className="size-4 text-primary" />
@@ -608,7 +548,7 @@ function NetworkPageBody() {
                     description="Search for someone above, or see who works near you. You can chat and work with the people you're connected to."
                     action={
                       <Button asChild size="sm" variant="outline">
-                        <Link href="/nearby">
+                        <Link href="/people?tab=nearby">
                           <MapPin className="size-4" />
                           Nearby
                         </Link>
@@ -684,19 +624,6 @@ function NetworkPageBody() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Screen>
-  );
-}
-
-/**
- * Suspense is required, not decorative: useSearchParams (for ?tab=enquiries)
- * opts the tree into client rendering, and Next fails the build without a
- * boundary around it.
- */
-export default function NetworkPage() {
-  return (
-    <Suspense fallback={null}>
-      <NetworkPageBody />
-    </Suspense>
+    </>
   );
 }

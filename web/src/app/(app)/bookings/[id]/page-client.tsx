@@ -58,7 +58,7 @@ export default function BookingPage() {
   if (loadFailed || !booking) {
     return (
       <Screen title="Booking">
-        <div className="mx-auto w-full max-w-3xl px-6 py-6">
+        <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
           <p className="py-16 text-center text-sm text-muted-foreground">
             That booking is not available.
           </p>
@@ -79,9 +79,9 @@ export default function BookingPage() {
         max-w-3xl to match the other detail pages (a job post, settings,
         nearby) rather than the wider list pages.
       */}
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
         <Link
-          href="/bookings"
+          href="/jobs?tab=bookings"
           className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />

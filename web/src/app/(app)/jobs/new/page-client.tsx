@@ -154,7 +154,7 @@ export default function NewJobPage() {
 
   return (
     <Screen title="Post a job">
-      <div className="mx-auto w-full max-w-2xl px-6 py-6">
+      <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6">
         <Button
           variant="ghost"
           size="sm"

@@ -30,7 +30,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!shouldRedirect) return;
-    // The query too: a link like /jobs/mine?tab=posted&post=… lost everything
+    // The query too: a link like /jobs?tab=posted&post=… lost everything
     // after the path, and landed on the right page showing the wrong thing.
     // Read from location rather than useSearchParams, which would need a
     // Suspense boundary around every signed-in page.

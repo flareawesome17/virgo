@@ -1,13 +1,15 @@
-import { redirect } from 'next/navigation';
+import type { Metadata } from 'next';
+import PageClient from './page-client';
 
-/**
- * The board's short address.
+/*
+ * The Jobs screen: the board, your posts, your applications and your
+ * bookings, as tabs. It lived at /jobs/mine, with Bookings a page of its own;
+ * the old addresses redirect here (proxy.ts).
  *
- * The proxy sends `virgo.ph/jobs` — the old public board, and still the
- * address anybody would guess — to this host unchanged, where nothing
- * answered it: a 404. The board lives on the Jobs screen, which opens on
- * Browse.
+ * A server component so the tab title can be a real metadata export.
  */
-export default function JobsPage() {
-  redirect('/jobs/mine');
+export const metadata: Metadata = { title: 'Jobs' };
+
+export default function Page() {
+  return <PageClient />;
 }

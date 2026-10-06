@@ -66,7 +66,7 @@ export default function AppProfilePage() {
         icon={UserSearch}
         title="Profile not found"
         description="This profile is private, or the handle has changed."
-        action={<Button onClick={() => router.push('/nearby')}>Find collaborators</Button>}
+        action={<Button onClick={() => router.push('/people?tab=nearby')}>Find collaborators</Button>}
       />
     </Screen>
   );
@@ -111,7 +111,7 @@ export default function AppProfilePage() {
 
   return (
     <Screen title={person.displayName || 'Profile'}>
-      <div className="mx-auto w-full max-w-4xl px-6 py-6">
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
         <Button
           variant="ghost"
           size="sm"
@@ -195,7 +195,7 @@ export default function AppProfilePage() {
                 </Button>
                 {isSelf ? (
                   <Button asChild variant="outline">
-                    <Link href="/profile">
+                    <Link href="/settings/profile">
                       <Pencil className="size-4" />
                       Edit profile
                     </Link>

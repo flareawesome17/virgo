@@ -1208,7 +1208,7 @@ export class HiringService {
       email: jobApplication({
         applicantName: name,
         jobTitle: post.title,
-        url: `${this.mailConfig.appUrl}/jobs/mine`,
+        url: `${this.mailConfig.appUrl}/jobs`,
       }),
     });
 

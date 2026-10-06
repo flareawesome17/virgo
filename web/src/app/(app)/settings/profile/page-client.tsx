@@ -5,14 +5,11 @@ import { useState } from 'react';
 import {
   CalendarDays,
   Camera,
-  CreditCard,
   FolderOpen,
   HardDrive,
   Images,
   Loader2,
   Lock,
-  LogOut,
-  Settings,
   Users,
   Wifi,
   WifiOff,
@@ -51,7 +48,7 @@ import { AVATAR_MAX_EDGE, resizeImage } from '@/lib/image';
  * not disagree about where anything lives.
  */
 export default function ProfilePage() {
-  const { user, profile, updateProfile, signOut } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
   const online = useOnline();
 
   // Counts only, so one row each: the totals are the server's, and the
@@ -292,7 +289,7 @@ export default function ProfilePage() {
   const stats = [
     { label: 'Workspaces', value: workspaceTotal, icon: FolderOpen, href: '/workspaces' },
     { label: 'Albums', value: albumTotal, icon: Images, href: '/albums' },
-    { label: 'Collaborators', value: collaboratorTotal, icon: Users, href: '/network' },
+    { label: 'Collaborators', value: collaboratorTotal, icon: Users, href: '/people' },
     { label: 'Events', value: eventTotal, icon: CalendarDays, href: '/schedule' },
   ];
 
@@ -322,17 +319,11 @@ export default function ProfilePage() {
       <PageHeader
         title="Profile"
         description="How you appear to collaborators and clients"
-        actions={
-          <Button asChild variant="outline">
-            <Link href="/settings">
-              <Settings className="size-4" />
-              Settings
-            </Link>
-          </Button>
-        }
       />
 
-      <div className="mx-auto grid w-full max-w-5xl gap-6 px-6 py-6 lg:grid-cols-[1fr_18rem]">
+      {/* Inside the settings layout, which places it; the side column waits
+          for xl now that the settings list sits beside it. */}
+      <div className="grid w-full gap-6 xl:grid-cols-[1fr_16rem]">
         <div className="min-w-0">
           <Card>
             <CardContent className="py-6">
@@ -695,38 +686,6 @@ export default function ProfilePage() {
             })}
           </div>
 
-          <Card>
-            <CardContent className="flex flex-col gap-2 py-5">
-              <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                Account
-              </p>
-              <Button asChild variant="outline" className="justify-start">
-                <Link href="/settings/storage">
-                  <CreditCard className="size-4" />
-                  Storage &amp; plan
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="justify-start">
-                <Link href="/settings">
-                  <Settings className="size-4" />
-                  Settings
-                </Link>
-              </Button>
-              <Button
-                variant="outline"
-                className="justify-start text-destructive hover:text-destructive"
-                disabled={signOut.isPending}
-                onClick={() => signOut.mutate()}
-              >
-                {signOut.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <LogOut className="size-4" />
-                )}
-                Sign out
-              </Button>
-            </CardContent>
-          </Card>
         </aside>
       </div>
     </Screen>
