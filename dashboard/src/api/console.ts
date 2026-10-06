@@ -197,6 +197,9 @@ export interface AdminUserRow {
   /** How much of `storage_limit_bytes` came from promos rather than the plan. */
   storage_bonus_bytes: number;
   albums: number;
+  two_factor?: boolean;
+  /** Absent from an API older than tags. */
+  tags?: Tag[];
 }
 
 /** Somebody in the app reported an account. Mirrors AdminService.userReports. */
@@ -291,7 +294,266 @@ export type UsersQuery = {
   offset?: number;
   sort?: UserSort;
   dir?: 'asc' | 'desc';
+  /** active, suspended, paused or unverified. */
+  status?: string;
+  /** week (seen in the last 7 days) or quiet (not in 30). */
+  seen?: string;
+  /** A tag's id. */
+  tag?: string;
+  /** ios or android, with push on. */
+  platform?: string;
+  twoFactor?: 'on' | 'off';
+  /** 'true': at 80% or more of their allowance. */
+  full?: 'true';
 };
+
+/** One account in full. Mirrors AdminService.user. */
+export interface CustomerDetail {
+  user: {
+    id: string;
+    email: string;
+    display_name: string | null;
+    avatar_url: string | null;
+    plan: string;
+    plan_since: string | null;
+    roles: string[];
+    title: string | null;
+    bio: string | null;
+    location: string | null;
+    website: string | null;
+    phone: string | null;
+    studio_name: string | null;
+    social_handle: string | null;
+    handle: string | null;
+    public_profile: boolean;
+    discoverable: boolean;
+    available_for_bookings: boolean | null;
+    address_line1: string | null;
+    address_line2: string | null;
+    address_city: string | null;
+    address_province: string | null;
+    address_postal: string | null;
+    address_country: string | null;
+    created_at: string;
+    last_seen_at: string | null;
+    email_verified_at: string | null;
+    disabled_at: string | null;
+    /** Absent, not null, from an API older than suspensions. See isSuspended. */
+    suspended_at?: string | null;
+    disabled_until?: string | null;
+    two_factor?: boolean;
+    referral_code: string | null;
+    referred_at: string | null;
+    referred_by_user_id: string | null;
+    referred_by_name: string | null;
+  };
+  storage: { bytes: number; files: number; limitBytes: number | null; bonusBytes?: number };
+  limits: { workspaces: number | null; albumsPerWorkspace: number | null };
+  workspaces: { id: string; name: string; created_at: string; archived_at?: string | null }[];
+  albums: {
+    id: string;
+    name: string;
+    status: string;
+    workspace_id?: string;
+    item_count: number;
+    bytes?: number | string;
+    share_links: number;
+    retention_days?: number | null;
+    created_at: string;
+  }[];
+  /** The latest one, whatever its status. */
+  subscription: {
+    id: string;
+    plan_name: string;
+    status: string;
+    amount_minor: number | string;
+    currency: string;
+    kind: 'subscription' | 'one_time';
+    current_period_end: string | null;
+    cancelled_at: string | null;
+    created_at: string;
+  } | null;
+  tickets: {
+    id: string;
+    subject: string;
+    status: string;
+    priority: string;
+    created_at: string;
+    updated_at?: string;
+  }[];
+  tags?: Tag[];
+  pinnedNotes?: { id: string; admin_name: string; body: string; created_at: string }[];
+  referrals?: number;
+  /** What the plan picker may offer. Absent from an API older than it. */
+  plans?: { name: string; label: string }[];
+}
+
+export const TAG_COLORS = ['neutral', 'terracotta', 'green', 'amber', 'red', 'blue', 'violet'] as const;
+export type TagColor = (typeof TAG_COLORS)[number];
+
+export interface Tag {
+  id: string;
+  label: string;
+  color: TagColor;
+}
+
+export interface TagWithCount extends Tag {
+  customers: number;
+  created_at: string;
+}
+
+export interface CustomerNote {
+  id: string;
+  admin_id: string | null;
+  admin_name: string;
+  body: string;
+  pinned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TimelineEvent {
+  at: string;
+  kind: string;
+  title: string;
+  detail: string | null;
+  /** The staff member, for something done in the console. */
+  actor: string | null;
+  /** Somewhere in the console this links to. */
+  link: string | null;
+}
+
+export interface CustomerBilling {
+  subscriptions: {
+    id: string;
+    plan_name: string;
+    status: string;
+    amount_minor: number;
+    currency: string;
+    kind: string;
+    current_period_end: string | null;
+    cancelled_at: string | null;
+    created_at: string;
+  }[];
+  promos: {
+    id: string;
+    name: string;
+    kind: string;
+    storage_bytes: string;
+    extra_workspaces: number;
+    extra_albums_per_workspace: number;
+    claimed_at: string | null;
+    expires_at: string | null;
+    created_at: string;
+    referred_name: string | null;
+  }[];
+}
+
+export interface CustomerMarketplace {
+  posts: {
+    id: string;
+    slug: string;
+    title: string;
+    status: string;
+    hidden_at: string | null;
+    event_date: string | null;
+    created_at: string;
+    applications: number;
+  }[];
+  applications: {
+    id: string;
+    status: string;
+    role: string | null;
+    created_at: string;
+    title: string;
+    poster_id: string;
+    poster_name: string;
+  }[];
+  enquiries: {
+    id: string;
+    role_wanted: string | null;
+    event_date: string | null;
+    budget: string | null;
+    status: string;
+    created_at: string;
+    direction: 'sent' | 'received';
+    other_id: string;
+    other_name: string;
+  }[];
+  bookings: {
+    id: string;
+    role: string;
+    event_date: string | null;
+    rate_minor: number;
+    currency: string;
+    created_at: string;
+    cancelled_at: string | null;
+    cancel_reason: string | null;
+    locked_at: string | null;
+    poster_confirmed_at: string | null;
+    creative_confirmed_at: string | null;
+    side: 'hired' | 'booked';
+    other_id: string;
+    other_name: string;
+  }[];
+  totals: { earnedMinor: number; spentMinor: number };
+}
+
+export interface CustomerSafety {
+  against: {
+    id: string;
+    reason: string;
+    note: string | null;
+    source: string | null;
+    created_at: string;
+    reporter_id: string | null;
+    reporter_name: string | null;
+  }[];
+  made: {
+    id: string;
+    reason: string;
+    note: string | null;
+    source: string | null;
+    created_at: string;
+    target_id: string;
+    target_name: string;
+  }[];
+  counts: {
+    blocked_by: number;
+    blocking: number;
+    post_reports: number;
+    job_reports: number;
+    hidden_posts: number;
+    hidden_jobs: number;
+  };
+}
+
+export interface CustomerDevices {
+  sessions: {
+    family_id: string;
+    signed_in_at: string;
+    last_active_at: string;
+    user_agent: string | null;
+  }[];
+  push: {
+    id: string;
+    platform: string;
+    app_version: string | null;
+    created_at: string;
+    updated_at: string;
+    disabled_at: string | null;
+  }[];
+}
+
+export interface SavedView {
+  id: string;
+  name: string;
+  query: Partial<UsersQuery>;
+  shared: boolean;
+  admin_id: string;
+  owner_name: string;
+  mine: boolean;
+}
 
 /** Turns `{a: 1, b: undefined}` into `?a=1` — undefined must not become "undefined". */
 function qs(params: Record<string, string | number | undefined>): string {
@@ -355,9 +617,9 @@ export const console_ = {
 
   users: (p: UsersQuery) =>
     api.get<Paged<AdminUserRow>>(`/admin/users${qs(p)}`),
-  user: (id: string) => api.get<Record<string, unknown>>(`/admin/users/${id}`),
-  setUserDisabled: (id: string, disabled: boolean, reason?: string) =>
-    api.patch(`/admin/users/${id}/disabled`, { disabled, reason }),
+  user: (id: string) => api.get<CustomerDetail>(`/admin/users/${id}`),
+  setUserDisabled: (id: string, disabled: boolean, reason?: string, notify?: boolean) =>
+    api.patch<{ emailed: boolean }>(`/admin/users/${id}/disabled`, { disabled, reason, notify }),
   setUserPlan: (id: string, plan: string) =>
     api.patch(`/admin/users/${id}/plan`, { plan }),
 
@@ -479,4 +741,45 @@ export const console_ = {
     api.post<{ others: PresenceOther[] }>('/admin/presence', { targetType, targetId, state }),
   leavePresence: (targetType: 'user' | 'ticket', targetId: string) =>
     api.post('/admin/presence/leave', { targetType, targetId }),
+
+  // ─── Customer 360 ───────────────────────────────────────────────────────
+  timeline: (id: string, before?: string) =>
+    api.get<{ data: TimelineEvent[]; nextBefore: string | null }>(
+      `/admin/users/${id}/timeline${qs({ before, limit: 40 })}`,
+    ),
+  customerBilling: (id: string) => api.get<CustomerBilling>(`/admin/users/${id}/billing`),
+  customerMarketplace: (id: string) =>
+    api.get<CustomerMarketplace>(`/admin/users/${id}/marketplace`),
+  customerSafety: (id: string) => api.get<CustomerSafety>(`/admin/users/${id}/safety`),
+  customerDevices: (id: string) => api.get<CustomerDevices>(`/admin/users/${id}/devices`),
+
+  sendPasswordReset: (id: string) => api.post(`/admin/users/${id}/password-reset-email`),
+  sendVerification: (id: string) => api.post(`/admin/users/${id}/verification-email`),
+  markVerified: (id: string) => api.post(`/admin/users/${id}/verify`),
+  resetCustomerTwoFactor: (id: string) => api.post(`/admin/users/${id}/2fa/reset`),
+  signOutCustomer: (id: string) => api.post(`/admin/users/${id}/sign-out`),
+  signOutCustomerDevice: (id: string, familyId: string) =>
+    api.post(`/admin/users/${id}/devices/${familyId}/sign-out`),
+  deleteCustomer: (id: string, confirmEmail: string) =>
+    api.post<{ deleted: true; filesDeleted: number }>(`/admin/users/${id}/delete`, { confirmEmail }),
+
+  notes: (id: string) => api.get<CustomerNote[]>(`/admin/users/${id}/notes`),
+  addNote: (id: string, body: string, pinned?: boolean) =>
+    api.post<CustomerNote>(`/admin/users/${id}/notes`, { body, pinned }),
+  updateNote: (id: string, noteId: string, patch: { body?: string; pinned?: boolean }) =>
+    api.patch<CustomerNote>(`/admin/users/${id}/notes/${noteId}`, patch),
+  removeNote: (id: string, noteId: string) => api.delete(`/admin/users/${id}/notes/${noteId}`),
+
+  tags: () => api.get<TagWithCount[]>('/admin/tags'),
+  createTag: (label: string, color?: TagColor) => api.post<Tag>('/admin/tags', { label, color }),
+  removeTag: (id: string) => api.delete(`/admin/tags/${id}`),
+  setCustomerTags: (id: string, tagIds: string[]) =>
+    api.put<Tag[]>(`/admin/users/${id}/tags`, { tagIds }),
+  bulkTags: (userIds: string[], add: string[], remove: string[]) =>
+    api.post<{ changed: number }>('/admin/users/bulk/tags', { userIds, add, remove }),
+
+  views: () => api.get<SavedView[]>('/admin/views?scope=users'),
+  saveView: (name: string, query: Partial<UsersQuery>, shared: boolean) =>
+    api.post<SavedView>('/admin/views', { scope: 'users', name, query, shared }),
+  removeView: (id: string) => api.delete(`/admin/views/${id}`),
 };
