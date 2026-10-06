@@ -250,17 +250,91 @@ export interface ShowcaseReportRow {
   thumb_key: string | null;
 }
 
+export const SUPPORT_CATEGORIES = [
+  'account',
+  'billing',
+  'uploads',
+  'sharing',
+  'bookings',
+  'bug',
+  'feedback',
+  'other',
+] as const;
+export type SupportCategory = (typeof SUPPORT_CATEGORIES)[number];
+
 export interface Ticket {
   id: string;
   subject: string;
   status: 'open' | 'pending' | 'resolved' | 'closed';
   priority: 'low' | 'normal' | 'high' | 'urgent';
+  category?: SupportCategory | null;
   user_email: string;
   user_id: string | null;
   created_at: string;
   updated_at: string;
+  first_replied_at?: string | null;
+  /** When the first reply is owed. */
+  due_at?: string | null;
+  /** Unanswered past due_at. */
+  overdue?: boolean;
+  /** Open, and the customer's last message was at this time. */
+  waiting_since?: string | null;
+  assigned_to?: string | null;
   assigned_name: string | null;
   messages: number;
+}
+
+export type TicketQuery = {
+  queue?: 'mine' | 'unassigned' | 'overdue';
+  status?: string;
+  q?: string;
+  category?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export interface Agent {
+  id: string;
+  name: string;
+  email: string;
+  /** Open and pending tickets they hold. */
+  open: number;
+}
+
+export interface Macro {
+  id: string;
+  title: string;
+  body: string;
+  set_status: 'pending' | 'resolved' | 'closed' | null;
+  created_by_name: string | null;
+  use_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupportInsights {
+  days: number;
+  now: { open: number; pending: number; unassigned: number; overdue: number };
+  speed: { first_reply_hours: number | null; resolution_hours: number | null; on_time: number | null };
+  flow: { day: string; opened: number; resolved: number }[];
+  agents: {
+    id: string;
+    name: string;
+    open: number;
+    resolved: number;
+    replies: number;
+    first_reply_hours: number | null;
+  }[];
+}
+
+export interface StaffNotification {
+  id: string;
+  kind: 'ticket.new' | 'ticket.assigned' | 'ticket.reply';
+  ticket_id: string | null;
+  title: string;
+  body: string | null;
+  read_at: string | null;
+  created_at: string;
 }
 
 export interface ConsoleAccount {
@@ -656,10 +730,13 @@ export const console_ = {
       activeSessions: number;
     }>('/admin/system/health'),
 
-  tickets: (p: { status?: string; q?: string; limit?: number; offset?: number }) =>
-    api.get<Paged<Ticket> & { counts: { status: string; count: number }[] }>(
-      `/admin/support/tickets${qs(p)}`,
-    ),
+  tickets: (p: TicketQuery) =>
+    api.get<
+      Paged<Ticket> & {
+        counts: { status: string; count: number }[];
+        queues?: { mine: number; unassigned: number; overdue: number };
+      }
+    >(`/admin/support/tickets${qs(p)}`),
   ticket: (id: string) =>
     api.get<{
       ticket: Record<string, unknown>;
@@ -672,12 +749,31 @@ export const console_ = {
         created_at: string;
       }[];
     }>(`/admin/support/tickets/${id}`),
-  replyTicket: (id: string, body: string, internal = false) =>
-    api.post(`/admin/support/tickets/${id}/reply`, { body, internal }),
+  replyTicket: (
+    id: string,
+    body: string,
+    internal = false,
+    options: { setStatus?: string; macroId?: string } = {},
+  ) => api.post(`/admin/support/tickets/${id}/reply`, { body, internal, ...options }),
   updateTicket: (
     id: string,
-    patch: { status?: string; priority?: string; assignedTo?: string | null },
+    patch: { status?: string; priority?: string; assignedTo?: string | null; category?: string | null },
   ) => api.patch(`/admin/support/tickets/${id}`, patch),
+  takeTicket: (id: string) => api.post(`/admin/support/tickets/${id}/take`),
+  agents: () => api.get<Agent[]>('/admin/support/agents'),
+  supportInsights: (days = 30) => api.get<SupportInsights>(`/admin/support/insights?days=${days}`),
+  macros: () => api.get<Macro[]>('/admin/support/macros'),
+  saveMacro: (input: { title: string; body: string; setStatus?: string | null }, id?: string) =>
+    id
+      ? api.patch(`/admin/support/macros/${id}`, input)
+      : api.post('/admin/support/macros', input),
+  removeMacro: (id: string) => api.delete(`/admin/support/macros/${id}`),
+  supportSettings: () => api.get<{ autoAssign: boolean }>('/admin/support/settings'),
+  setSupportSettings: (autoAssign: boolean) =>
+    api.patch<{ autoAssign: boolean }>('/admin/support/settings', { autoAssign }),
+  staffNotifications: () =>
+    api.get<{ items: StaffNotification[]; unread: number }>('/admin/support/notifications'),
+  markNotificationsRead: (ids?: string[]) => api.post('/admin/support/notifications/read', { ids }),
 
   accounts: () => api.get<ConsoleAccount[]>('/admin/accounts'),
   createAccount: (input: {

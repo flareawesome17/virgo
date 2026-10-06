@@ -11,6 +11,7 @@ import {
   Kbd,
   useCommandPaletteShortcut,
 } from '@/components/console/command-palette';
+import { NotificationBell } from '@/components/console/bell';
 import { ForcePasswordChange } from '@/components/console/force-password-change';
 import { ForceTwoFactorSetup } from '@/components/console/force-two-factor-setup';
 import { RecordTabBar, RecordTabsProvider } from '@/components/console/record-tabs';
@@ -154,7 +155,8 @@ function Shell({
             <RecordTabBar />
           </div>
 
-          <div className="flex shrink-0 items-center border-l px-2">
+          <div className="flex shrink-0 items-center gap-1 border-l px-2">
+            {me.permissions.includes('support.read') && <NotificationBell />}
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}

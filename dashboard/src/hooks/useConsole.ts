@@ -17,6 +17,7 @@ import {
   type PromoInput,
   type RoleInput,
   type TagColor,
+  type TicketQuery,
   type UsersQuery,
 } from '@/api/console';
 
@@ -134,10 +135,7 @@ export function useHealth() {
   });
 }
 
-export function useTickets(
-  p: { status?: string; q?: string; limit?: number; offset?: number },
-  enabled = true,
-) {
+export function useTickets(p: TicketQuery, enabled = true) {
   return useQuery({
     queryKey: keys.tickets(p),
     queryFn: () => console_.tickets(p),
@@ -225,20 +223,94 @@ export function useSetJobHidden() {
   );
 }
 
+/** What a ticket change can move: the thread, the queues, the desk numbers. */
+const ticketKeys = (id: string): QueryKey[] => [keys.ticket(id), ['tickets'], ['supportInsights']];
+
 export function useReplyTicket(id: string) {
   return useConsoleMutation(
-    ({ body, internal }: { body: string; internal: boolean }) =>
-      console_.replyTicket(id, body, internal),
-    { success: 'Sent', invalidate: [keys.ticket(id), ['tickets']] },
+    ({
+      body,
+      internal,
+      setStatus,
+      macroId,
+    }: {
+      body: string;
+      internal: boolean;
+      setStatus?: string;
+      macroId?: string;
+    }) => console_.replyTicket(id, body, internal, { setStatus, macroId }),
+    { success: 'Sent', invalidate: [...ticketKeys(id), ['macros']] },
   );
 }
 
 export function useUpdateTicket(id: string) {
   return useConsoleMutation(
-    (patch: { status?: string; priority?: string; assignedTo?: string | null }) =>
+    (patch: { status?: string; priority?: string; assignedTo?: string | null; category?: string | null }) =>
       console_.updateTicket(id, patch),
-    { success: 'Ticket updated', invalidate: [keys.ticket(id), ['tickets']] },
+    { success: 'Ticket updated', invalidate: ticketKeys(id) },
   );
+}
+
+export function useTakeTicket(id: string) {
+  return useConsoleMutation(() => console_.takeTicket(id), {
+    success: 'It is yours',
+    invalidate: ticketKeys(id),
+  });
+}
+
+export function useAgents(enabled = true) {
+  return useQuery({ queryKey: ['agents'], queryFn: console_.agents, enabled, staleTime: 60_000 });
+}
+
+export function useSupportInsights(days = 30) {
+  return useQuery({ queryKey: ['supportInsights', days], queryFn: () => console_.supportInsights(days) });
+}
+
+export function useMacros() {
+  return useQuery({ queryKey: ['macros'], queryFn: console_.macros });
+}
+
+export function useSaveMacro() {
+  return useConsoleMutation(
+    ({ id, input }: { id?: string; input: { title: string; body: string; setStatus?: string | null } }) =>
+      console_.saveMacro(input, id),
+    { success: 'Saved', invalidate: [['macros']] },
+  );
+}
+
+export function useRemoveMacro() {
+  return useConsoleMutation((id: string) => console_.removeMacro(id), {
+    success: 'Removed',
+    invalidate: [['macros']],
+  });
+}
+
+export function useSupportSettings() {
+  return useQuery({ queryKey: ['supportSettings'], queryFn: console_.supportSettings });
+}
+
+export function useSetSupportSettings() {
+  return useConsoleMutation((autoAssign: boolean) => console_.setSupportSettings(autoAssign), {
+    success: 'Saved',
+    invalidate: [['supportSettings']],
+  });
+}
+
+/** The bell. Polled, because there is no console socket; 30s is near enough. */
+export function useStaffNotifications() {
+  return useQuery({
+    queryKey: ['staffNotifications'],
+    queryFn: console_.staffNotifications,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useMarkNotificationsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids?: string[]) => console_.markNotificationsRead(ids),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['staffNotifications'] }),
+  });
 }
 
 export function useCreateAccount() {
