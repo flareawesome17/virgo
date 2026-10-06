@@ -11,6 +11,7 @@ import {
   useUpdateTicket,
 } from '@/hooks/useConsole';
 import { DataState, PageHeader, when } from '@/components/console/primitives';
+import { useRecordTab } from '@/components/console/record-tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -39,6 +40,12 @@ export default function TicketPage() {
 
   const ticket = data?.ticket as Record<string, string | null> | undefined;
 
+  useRecordTab({
+    href: `/support/${id}`,
+    kind: 'ticket',
+    title: ticket ? String(ticket.subject) : undefined,
+  });
+
   function send() {
     if (!body.trim()) return;
     reply.mutate(
@@ -51,9 +58,9 @@ export default function TicketPage() {
     <>
       <Link
         href="/support"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" />
+        <ArrowLeft className="size-3.5" />
         Support
       </Link>
 

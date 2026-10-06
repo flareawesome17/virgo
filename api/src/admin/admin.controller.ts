@@ -254,12 +254,16 @@ export class AdminController {
     @Query('plan') plan?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
   ) {
     return this.admin.users({
       q,
       plan,
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
+      sort,
+      dir,
     });
   }
 

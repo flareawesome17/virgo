@@ -1,13 +1,19 @@
 'use client';
 
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
   type QueryKey,
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { console_, type AdminRole, type PromoInput } from '@/api/console';
+import {
+  console_,
+  type AdminRole,
+  type PromoInput,
+  type UsersQuery,
+} from '@/api/console';
 
 export const keys = {
   me: ['me'] as QueryKey,
@@ -49,8 +55,15 @@ export function useOverview(days = 30, enabled = true) {
   });
 }
 
-export function useUsers(p: { q?: string; plan?: string; limit?: number; offset?: number }) {
-  return useQuery({ queryKey: keys.users(p), queryFn: () => console_.users(p) });
+export function useUsers(p: UsersQuery, enabled = true) {
+  return useQuery({
+    queryKey: keys.users(p),
+    queryFn: () => console_.users(p),
+    enabled,
+    // The next page keeps the current one on screen while it loads, rather
+    // than collapsing the table to skeletons on every click of Next.
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useUser(id: string) {
@@ -58,11 +71,19 @@ export function useUser(id: string) {
 }
 
 export function useAlbums(p: { q?: string; limit?: number; offset?: number }) {
-  return useQuery({ queryKey: keys.albums(p), queryFn: () => console_.albums(p) });
+  return useQuery({
+    queryKey: keys.albums(p),
+    queryFn: () => console_.albums(p),
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useShareLinks(p: { limit?: number; offset?: number }) {
-  return useQuery({ queryKey: keys.shareLinks(p), queryFn: () => console_.shareLinks(p) });
+  return useQuery({
+    queryKey: keys.shareLinks(p),
+    queryFn: () => console_.shareLinks(p),
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useJobReports(p: { limit?: number; offset?: number }) {
@@ -103,8 +124,16 @@ export function useHealth() {
   });
 }
 
-export function useTickets(p: { status?: string; q?: string; limit?: number; offset?: number }) {
-  return useQuery({ queryKey: keys.tickets(p), queryFn: () => console_.tickets(p) });
+export function useTickets(
+  p: { status?: string; q?: string; limit?: number; offset?: number },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: keys.tickets(p),
+    queryFn: () => console_.tickets(p),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useTicket(id: string) {
@@ -116,7 +145,11 @@ export function useAccounts() {
 }
 
 export function useAudit(p: { limit?: number; offset?: number; targetId?: string }) {
-  return useQuery({ queryKey: keys.audit(p), queryFn: () => console_.audit(p) });
+  return useQuery({
+    queryKey: keys.audit(p),
+    queryFn: () => console_.audit(p),
+    placeholderData: keepPreviousData,
+  });
 }
 
 /**

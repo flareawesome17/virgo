@@ -3,7 +3,7 @@ import type { MailService } from '../mail/mail.service';
 import type { RealtimeGateway } from '../realtime/realtime.gateway';
 import type { StorageService } from '../storage/storage.service';
 import type { VisitsService } from '../visits/visits.service';
-import { AdminService } from './admin.service';
+import { AdminService, userOrder } from './admin.service';
 
 /**
  * How many items the console says an album holds.
@@ -175,5 +175,30 @@ describe('AdminService.userReports', () => {
     expect(query.mock.calls[0][0]).toMatch(/u\.suspended_at/);
     const account = queryOne.mock.calls.find(([sql]) => sql.includes('from users where id'))!;
     expect(account[0]).toMatch(/suspended_at/);
+  });
+});
+
+/**
+ * Ordering the people list.
+ *
+ * ORDER BY cannot be a bind parameter, so the column comes from a fixed map.
+ * Anything else the console sends must fall back to newest-first rather than
+ * reach the SQL.
+ */
+describe('userOrder', () => {
+  it('defaults to newest accounts first', () => {
+    expect(userOrder()).toBe('u.created_at desc nulls last, u.id desc');
+  });
+
+  it('orders by a known column in either direction', () => {
+    expect(userOrder('last_seen', 'desc')).toBe('u.last_seen_at desc nulls last, u.id desc');
+    expect(userOrder('storage', 'asc')).toBe('storage_bytes asc nulls last, u.id asc');
+  });
+
+  it('never lets an unknown column or direction through', () => {
+    expect(userOrder('email; drop table users', 'asc')).toBe(
+      'u.created_at asc nulls last, u.id asc',
+    );
+    expect(userOrder('email', 'desc; select 1')).toBe('u.email desc nulls last, u.id desc');
   });
 });

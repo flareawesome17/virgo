@@ -167,6 +167,20 @@ export interface ConsoleAccount {
   permissions: string[];
 }
 
+/** What the people list can be ordered by. Mirrors USER_SORTS in admin.service.ts. */
+export type UserSort = 'joined' | 'last_seen' | 'storage' | 'albums' | 'email';
+
+// A type rather than an interface: qs() takes a string-keyed record, and only
+// a type alias is assignable to one.
+export type UsersQuery = {
+  q?: string;
+  plan?: string;
+  limit?: number;
+  offset?: number;
+  sort?: UserSort;
+  dir?: 'asc' | 'desc';
+};
+
 /** Turns `{a: 1, b: undefined}` into `?a=1` — undefined must not become "undefined". */
 function qs(params: Record<string, string | number | undefined>): string {
   const entries = Object.entries(params).filter(
@@ -227,7 +241,7 @@ export const console_ = {
   me: () => api.get<AdminMe>('/admin/me'),
   overview: (days = 30) => api.get<Overview>(`/admin/overview?days=${days}`),
 
-  users: (p: { q?: string; plan?: string; limit?: number; offset?: number }) =>
+  users: (p: UsersQuery) =>
     api.get<Paged<AdminUserRow>>(`/admin/users${qs(p)}`),
   user: (id: string) => api.get<Record<string, unknown>>(`/admin/users/${id}`),
   setUserDisabled: (id: string, disabled: boolean, reason?: string) =>
