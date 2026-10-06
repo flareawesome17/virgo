@@ -119,6 +119,7 @@ export const PRIVACY: Clause[] = [
       'Content: the photos, videos and audio you upload; the albums, workspaces, events, reminders and messages you create; and the showcases, comments, likes, shelves, job posts, applications, enquiries and bookings you make.',
       'Safety: reports you make or that are made about you, and the people you have blocked.',
       'Device: a push notification token and the app version, so notifications reach the right phone.',
+      'Sign-ins: the kind of device and browser each session signed in from, such as "iPhone app" or "Chrome on Windows" — never your IP address — so our support team can help you sign out a device you no longer have.',
       'Location: only if you turn on location sharing. See below.',
     ],
   },

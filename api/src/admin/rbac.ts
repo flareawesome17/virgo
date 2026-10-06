@@ -31,6 +31,18 @@ export const ADMIN_PERMISSIONS = [
   'users.read',
   'users.disable',
   'users.setPlan',
+  // Notes and tags on a customer — writing down what happened, so the next
+  // person to pick up the account does not ask the customer again.
+  'users.notes',
+  // Sending a customer the emails they could ask for themselves: a password
+  // reset link, a fresh verification link. Nothing changes until they act.
+  'users.assist',
+  // Changing an account's security on its behalf: marking it verified,
+  // removing its two-factor, signing its devices out. A social-engineering
+  // target, so it sits with admins, not support.
+  'users.security',
+  // Deleting an account and everything in it. Owner-only.
+  'users.delete',
 
   'content.read',
   'content.moderate',
@@ -70,8 +82,8 @@ export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];
  */
 export const SIGNED_IN = '@signed-in' as const;
 
-/** What a custom role may never hold. See `admins.manage` above. */
-export const OWNER_ONLY: readonly AdminPermission[] = ['admins.manage'];
+/** What a custom role may never hold. See `admins.manage` and `users.delete` above. */
+export const OWNER_ONLY: readonly AdminPermission[] = ['admins.manage', 'users.delete'];
 
 export interface PermissionGroup {
   key: string;
@@ -99,6 +111,10 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'users.read', label: 'Look up accounts', description: 'Profiles, storage, albums and tickets.' },
       { key: 'users.disable', label: 'Suspend accounts', description: 'Sign someone out everywhere and stop them signing in.' },
       { key: 'users.setPlan', label: 'Change plans', description: 'Raise or lower what an account may store.' },
+      { key: 'users.notes', label: 'Notes and tags', description: 'Write internal notes and tag customers.' },
+      { key: 'users.assist', label: 'Send account emails', description: 'Password reset and verification links, sent to the customer.' },
+      { key: 'users.security', label: 'Change account security', description: 'Mark verified, remove two-factor, sign devices out.' },
+      { key: 'users.delete', label: 'Delete accounts', description: 'Owner only. Removes the account and every file in it.' },
     ],
   },
   {
@@ -161,6 +177,8 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
 const SUPPORT: AdminPermission[] = [
   'overview.read',
   'users.read',
+  'users.notes',
+  'users.assist',
   'content.read',
   'billing.read',
   'support.read',
@@ -172,6 +190,7 @@ const ADMIN: AdminPermission[] = [
   ...SUPPORT,
   'users.disable',
   'users.setPlan',
+  'users.security',
   'content.moderate',
   'billing.manage',
   'support.manage',
@@ -253,11 +272,10 @@ export function validateCustomPermissions(list: readonly string[]): string[] {
   for (const raw of list) {
     const entry = raw.trim();
     if (entry.endsWith('.*')) {
+      // Allowed even where the area holds an owner-only permission: the
+      // wildcard expands to everything else in it (see expandPermissions).
       const area = entry.slice(0, -2);
       if (!areas.has(area)) throw new Error(`Unknown area: ${entry}`);
-      if (OWNER_ONLY.some((p) => p.startsWith(`${area}.`))) {
-        throw new Error(`${entry} would include owner-only permissions. Pick them one by one.`);
-      }
       kept.add(entry);
     } else if (isPermission(entry)) {
       if (OWNER_ONLY.includes(entry)) {

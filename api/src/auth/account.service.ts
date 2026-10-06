@@ -11,7 +11,7 @@ import { MailConfig } from '../mail/mail.config';
 import { MailService } from '../mail/mail.service';
 import { accountDisabled, accountDeleted } from '../mail/mail.templates';
 import { StorageService } from '../storage/storage.service';
-import { UsersRepository, type PublicUser } from './users.repository';
+import { UsersRepository, type PublicUser, type UserRow } from './users.repository';
 import { toPublicUser } from './users.repository';
 
 /** The longest pause on offer. */
@@ -129,7 +129,23 @@ export class AccountService {
     userId: string,
     password: string,
   ): Promise<{ deleted: true; filesDeleted: number }> {
-    const user = await this.assertPassword(userId, password);
+    return this.erase(await this.assertPassword(userId, password));
+  }
+
+  /**
+   * The console's way in: an owner, who has typed the account's address back
+   * to confirm, instead of the account's own password. The same steps in the
+   * same order as above — plan, files, email, row — so a deletion from the
+   * console is never a lesser one.
+   */
+  async removeByStaff(userId: string): Promise<{ deleted: true; filesDeleted: number }> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new NotFoundException('Account not found');
+    return this.erase(user);
+  }
+
+  private async erase(user: UserRow): Promise<{ deleted: true; filesDeleted: number }> {
+    const userId = user.id;
 
     // Before anything is deleted: once the account is gone there is nothing
     // left to cancel a plan from, and PayMongo would keep charging the card.

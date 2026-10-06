@@ -5,6 +5,7 @@ import { Reflector } from '@nestjs/core';
 import { AdminPromosController } from '../promos/admin-promos.controller';
 import type { AdminAuthService, AdminIdentity } from './admin-auth.service';
 import { AdminController } from './admin.controller';
+import { AdminCustomersController } from './admin-customers.controller';
 import { AdminSecurityController } from './admin-security.controller';
 import { AdminGuard, PENDING_SETUP_KEY, PERMISSION_KEY } from './admin.guard';
 import { AdminSupportController } from './support.controller';
@@ -14,6 +15,7 @@ import { permissionsFor } from './rbac';
 const GUARDED = [
   AdminController,
   AdminSecurityController,
+  AdminCustomersController,
   AdminSupportController,
   AdminPromosController,
 ];

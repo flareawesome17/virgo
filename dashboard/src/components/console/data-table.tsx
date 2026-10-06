@@ -142,6 +142,7 @@ export function DataTable<T>({
   expanded,
   onRowClick,
   columnPicker = columns.length > 5,
+  selection,
 }: {
   /** Names the saved column choice. Unique per table. */
   id: string;
@@ -172,6 +173,8 @@ export function DataTable<T>({
   expanded?: (row: T) => React.ReactNode | null;
   /** The Columns menu. Offered by default once a table is wide enough to need it. */
   columnPicker?: boolean;
+  /** Ticks down the left edge, for bulk actions on the rows on screen. */
+  selection?: { selected: Set<string>; onChange: (next: Set<string>) => void };
 }) {
   const router = useRouter();
   const [hidden, setHidden] = useState(() => loadHidden(id, columns));
@@ -242,6 +245,7 @@ export function DataTable<T>({
   }
 
   const exportable = visible.filter((c) => c.csv);
+  const span = visible.length + (selection ? 1 : 0);
   const clickable = !!rowHref || !!onRowClick;
   const showToolbar = !!(search || filters || actions || hideable.length || exportName || onRetry);
 
@@ -328,6 +332,28 @@ export function DataTable<T>({
           <table className="w-full caption-bottom text-sm">
             <thead className="border-b bg-muted/40">
               <tr>
+                {selection && (
+                  <th className="w-10 pl-4">
+                    <SelectBox
+                      label="Select every row on this page"
+                      checked={
+                        !!shown?.length && shown.every((r) => selection.selected.has(rowKey(r)))
+                      }
+                      indeterminate={
+                        !!shown?.some((r) => selection.selected.has(rowKey(r))) &&
+                        !shown?.every((r) => selection.selected.has(rowKey(r)))
+                      }
+                      onChange={(on) => {
+                        const next = new Set(selection.selected);
+                        for (const r of shown ?? []) {
+                          if (on) next.add(rowKey(r));
+                          else next.delete(rowKey(r));
+                        }
+                        selection.onChange(next);
+                      }}
+                    />
+                  </th>
+                )}
                 {visible.map((c) => {
                   const sorted = activeSort?.key === c.id ? activeSort.dir : null;
                   return (
@@ -368,6 +394,7 @@ export function DataTable<T>({
               {isLoading ? (
                 Array.from({ length: 6 }).map((_, i) => (
                   <tr key={i} className="border-b last:border-0">
+                    {selection && <td className="pl-4" />}
                     {visible.map((c) => (
                       <td key={c.id} className="px-3 py-3 first:pl-4">
                         <Skeleton className="h-4 w-full max-w-40" />
@@ -377,7 +404,7 @@ export function DataTable<T>({
                 ))
               ) : isError ? (
                 <tr>
-                  <td colSpan={visible.length}>
+                  <td colSpan={span}>
                     <div className="flex flex-col items-center gap-2 py-12 text-center">
                       <AlertTriangle className="size-5 text-warning" />
                       <p className="text-sm font-medium">Could not load this</p>
@@ -394,7 +421,7 @@ export function DataTable<T>({
                 </tr>
               ) : !shown?.length ? (
                 <tr>
-                  <td colSpan={visible.length}>
+                  <td colSpan={span}>
                     <div className="flex flex-col items-center gap-2 py-12 text-center">
                       <Inbox className="size-5 text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">{empty}</p>
@@ -413,8 +440,23 @@ export function DataTable<T>({
                           'border-b transition-colors last:border-0 hover:bg-muted/40',
                           clickable && 'cursor-pointer',
                           detail && 'bg-muted/30',
+                          selection?.selected.has(rowKey(row)) && 'bg-primary/5',
                         )}
                       >
+                        {selection && (
+                          <td className="w-10 pl-4 align-middle">
+                            <SelectBox
+                              label="Select this row"
+                              checked={selection.selected.has(rowKey(row))}
+                              onChange={(on) => {
+                                const next = new Set(selection.selected);
+                                if (on) next.add(rowKey(row));
+                                else next.delete(rowKey(row));
+                                selection.onChange(next);
+                              }}
+                            />
+                          </td>
+                        )}
                         {visible.map((c) => (
                           <td key={c.id} className={cn('px-3 py-2.5 align-middle first:pl-4', c.className)}>
                             {c.cell(row)}
@@ -423,7 +465,7 @@ export function DataTable<T>({
                       </tr>
                       {detail && (
                         <tr className="border-b bg-muted/20 last:border-0">
-                          <td colSpan={visible.length} className="p-0">
+                          <td colSpan={span} className="p-0">
                             {detail}
                           </td>
                         </tr>
@@ -439,6 +481,31 @@ export function DataTable<T>({
         {pagination && pagination.total > 0 && <Pager {...pagination} />}
       </div>
     </div>
+  );
+}
+
+function SelectBox({
+  checked,
+  indeterminate,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  onChange: (on: boolean) => void;
+  label: string;
+}) {
+  return (
+    <input
+      type="checkbox"
+      aria-label={label}
+      checked={checked}
+      ref={(el) => {
+        if (el) el.indeterminate = !!indeterminate;
+      }}
+      onChange={(e) => onChange(e.target.checked)}
+      className="size-4 cursor-pointer align-middle accent-primary"
+    />
   );
 }
 

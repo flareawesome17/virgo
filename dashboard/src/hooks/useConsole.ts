@@ -2,6 +2,7 @@
 
 import {
   keepPreviousData,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -15,6 +16,7 @@ import {
   type AuditQuery,
   type PromoInput,
   type RoleInput,
+  type TagColor,
   type UsersQuery,
 } from '@/api/console';
 
@@ -190,13 +192,13 @@ function useConsoleMutation<TArgs, TResult>(
 
 export function useSetUserDisabled(userId: string) {
   return useConsoleMutation(
-    ({ disabled, reason }: { disabled: boolean; reason?: string }) =>
-      console_.setUserDisabled(userId, disabled, reason),
+    ({ disabled, reason, notify }: { disabled: boolean; reason?: string; notify?: boolean }) =>
+      console_.setUserDisabled(userId, disabled, reason, notify),
     {
       success: 'Account updated',
       // The people reports carry the target's suspension, and a moderator
       // who suspends from a report goes straight back to that list.
-      invalidate: [keys.user(userId), ['users'], ['userReports']],
+      invalidate: [keys.user(userId), ['users'], ['userReports'], ['timeline', userId]],
     },
   );
 }
@@ -504,4 +506,181 @@ export function usePresence(
   }, [targetType, targetId]);
 
   return query.data?.others ?? [];
+}
+
+// ─── Customer 360 ──────────────────────────────────────────────────────────
+
+/** What changes on an account page when staff act on it. */
+const accountKeys = (id: string): QueryKey[] => [keys.user(id), ['timeline', id], ['users']];
+
+/** The timeline, a page at a time, older pages fetched as you scroll to them. */
+export function useTimeline(id: string) {
+  return useInfiniteQuery({
+    queryKey: ['timeline', id],
+    queryFn: ({ pageParam }) => console_.timeline(id, pageParam ?? undefined),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextBefore,
+    enabled: !!id,
+  });
+}
+
+export function useCustomerBilling(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ['customerBilling', id],
+    queryFn: () => console_.customerBilling(id),
+    enabled: !!id && enabled,
+  });
+}
+
+export function useCustomerMarketplace(id: string) {
+  return useQuery({
+    queryKey: ['customerMarketplace', id],
+    queryFn: () => console_.customerMarketplace(id),
+    enabled: !!id,
+  });
+}
+
+export function useCustomerSafety(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ['customerSafety', id],
+    queryFn: () => console_.customerSafety(id),
+    enabled: !!id && enabled,
+  });
+}
+
+export function useCustomerDevices(id: string) {
+  return useQuery({
+    queryKey: ['customerDevices', id],
+    queryFn: () => console_.customerDevices(id),
+    enabled: !!id,
+  });
+}
+
+export function useSendPasswordReset(id: string) {
+  return useConsoleMutation(() => console_.sendPasswordReset(id), {
+    success: 'Password reset email sent',
+    invalidate: accountKeys(id),
+  });
+}
+
+export function useSendVerification(id: string) {
+  return useConsoleMutation(() => console_.sendVerification(id), {
+    success: 'Verification email sent',
+    invalidate: accountKeys(id),
+  });
+}
+
+export function useMarkVerified(id: string) {
+  return useConsoleMutation(() => console_.markVerified(id), {
+    success: 'Email marked as confirmed',
+    invalidate: accountKeys(id),
+  });
+}
+
+export function useResetCustomerTwoFactor(id: string) {
+  return useConsoleMutation(() => console_.resetCustomerTwoFactor(id), {
+    success: 'Two-factor removed and every device signed out',
+    invalidate: [...accountKeys(id), ['customerDevices', id]],
+  });
+}
+
+export function useSignOutCustomer(id: string) {
+  return useConsoleMutation(() => console_.signOutCustomer(id), {
+    success: 'Signed out everywhere',
+    invalidate: [...accountKeys(id), ['customerDevices', id]],
+  });
+}
+
+export function useSignOutCustomerDevice(id: string) {
+  return useConsoleMutation((familyId: string) => console_.signOutCustomerDevice(id, familyId), {
+    success: 'That device is signed out',
+    invalidate: [['customerDevices', id], ['timeline', id]],
+  });
+}
+
+export function useDeleteCustomer(id: string) {
+  return useConsoleMutation((confirmEmail: string) => console_.deleteCustomer(id, confirmEmail), {
+    success: 'Account deleted',
+    invalidate: [['users']],
+  });
+}
+
+export function useNotes(id: string) {
+  return useQuery({ queryKey: ['notes', id], queryFn: () => console_.notes(id), enabled: !!id });
+}
+
+const noteKeys = (id: string): QueryKey[] => [['notes', id], keys.user(id), ['timeline', id]];
+
+export function useAddNote(id: string) {
+  return useConsoleMutation(
+    ({ body, pinned }: { body: string; pinned?: boolean }) => console_.addNote(id, body, pinned),
+    { success: 'Note saved', invalidate: noteKeys(id) },
+  );
+}
+
+export function useUpdateNote(id: string) {
+  return useConsoleMutation(
+    ({ noteId, patch }: { noteId: string; patch: { body?: string; pinned?: boolean } }) =>
+      console_.updateNote(id, noteId, patch),
+    { success: 'Note updated', invalidate: noteKeys(id) },
+  );
+}
+
+export function useRemoveNote(id: string) {
+  return useConsoleMutation((noteId: string) => console_.removeNote(id, noteId), {
+    success: 'Note deleted',
+    invalidate: noteKeys(id),
+  });
+}
+
+export function useTags(enabled = true) {
+  return useQuery({ queryKey: ['tags'], queryFn: console_.tags, enabled, staleTime: 60_000 });
+}
+
+export function useCreateTag() {
+  return useConsoleMutation(
+    ({ label, color }: { label: string; color?: TagColor }) => console_.createTag(label, color),
+    { success: 'Tag created', invalidate: [['tags']] },
+  );
+}
+
+export function useRemoveTag() {
+  return useConsoleMutation((tagId: string) => console_.removeTag(tagId), {
+    success: 'Tag deleted from everyone',
+    invalidate: [['tags'], ['users'], ['user']],
+  });
+}
+
+export function useSetCustomerTags(id: string) {
+  return useConsoleMutation((tagIds: string[]) => console_.setCustomerTags(id, tagIds), {
+    success: 'Tags saved',
+    invalidate: [...accountKeys(id), ['tags']],
+  });
+}
+
+export function useBulkTags() {
+  return useConsoleMutation(
+    ({ userIds, add, remove }: { userIds: string[]; add: string[]; remove: string[] }) =>
+      console_.bulkTags(userIds, add, remove),
+    { success: 'Tags updated', invalidate: [['users'], ['tags'], ['user']] },
+  );
+}
+
+export function useViews() {
+  return useQuery({ queryKey: ['views'], queryFn: console_.views });
+}
+
+export function useSaveView() {
+  return useConsoleMutation(
+    ({ name, query, shared }: { name: string; query: Partial<UsersQuery>; shared: boolean }) =>
+      console_.saveView(name, query, shared),
+    { success: 'View saved', invalidate: [['views']] },
+  );
+}
+
+export function useRemoveView() {
+  return useConsoleMutation((viewId: string) => console_.removeView(viewId), {
+    success: 'View removed',
+    invalidate: [['views']],
+  });
 }

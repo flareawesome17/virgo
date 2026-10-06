@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { AuthModule } from '../auth/auth.module';
 import { MailModule } from '../mail/mail.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { StorageModule } from '../storage/storage.module';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminAuthService } from './admin-auth.service';
+import { AdminCustomersController } from './admin-customers.controller';
+import { AdminCustomersService } from './admin-customers.service';
 import { AdminRolesService } from './admin-roles.service';
 import { AdminSecurityController } from './admin-security.controller';
 import { AdminSecurityService } from './admin-security.service';
@@ -36,6 +39,9 @@ import { AdminPromosController } from '../promos/admin-promos.controller';
 @Module({
   imports: [
     JwtModule.register({}),
+    // Customer 360 sends the app's own reset and verification emails and
+    // deletes through the app's own path, rather than keeping copies.
+    AuthModule,
     StorageModule,
     MailModule,
     NotificationsModule,
@@ -49,6 +55,7 @@ import { AdminPromosController } from '../promos/admin-promos.controller';
     AdminAuthController,
     AdminController,
     AdminSecurityController,
+    AdminCustomersController,
     AdminSupportController,
     SupportController,
     AdminPromosController,
@@ -64,6 +71,7 @@ import { AdminPromosController } from '../promos/admin-promos.controller';
     AdminSecurityService,
     AdminRolesService,
     PresenceService,
+    AdminCustomersService,
   ],
 })
 export class AdminModule {}
