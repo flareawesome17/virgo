@@ -225,10 +225,63 @@ export class PromosService {
    * sent 30 fresh offers.
    */
   async grantTo(promoId: string, userIds: string[]): Promise<{ granted: number }> {
-    const promo = await this.db.queryOne<PromoRow>(
-      'select * from promos where id = $1',
-      [promoId],
+    const promo = await this.offerable(promoId);
+    if (userIds.length === 0) return { granted: 0 };
+
+    const rows = await this.db.query<{ user_id: string }>(
+      `insert into promo_grants (promo_id, user_id, expires_at)
+       select $1, u.id, $3
+         from unnest($2::uuid[]) as sel(id)
+         join users u on u.id = sel.id
+       on conflict do nothing
+       returning user_id`,
+      [promoId, userIds, this.expiryOf(promo)],
     );
+    await this.tellGrantees(promo, rows.map((r) => r.user_id));
+
+    this.logger.log(
+      `promo ${promoId}: offered to ${rows.length} of ${userIds.length} selected`,
+    );
+    return { granted: rows.length };
+  }
+
+  /**
+   * Offers a targeted promo to everyone an audience query selects — a whole
+   * segment, which can be thousands, so the ids never travel through the
+   * console. One insert does it; telling them follows in the background, a
+   * chunk at a time, and is not waited for.
+   *
+   * `audience` is a SELECT of user ids built by the console's audience
+   * builder, with its own bind parameters after this method's first two.
+   * Suspended accounts are left out.
+   */
+  async grantToAudience(
+    promoId: string,
+    audience: { sql: string; args: unknown[] },
+  ): Promise<{ matched: number; granted: number }> {
+    const promo = await this.offerable(promoId);
+    const matched = await this.db.queryOne<{ count: number }>(
+      `select count(*)::int as count from (${audience.sql}) a`,
+      audience.args,
+    );
+    const rows = await this.db.query<{ user_id: string }>(
+      `insert into promo_grants (promo_id, user_id, expires_at)
+       select $${audience.args.length + 1}::uuid, a.id, $${audience.args.length + 2}::timestamptz
+         from (${audience.sql}) a
+       on conflict do nothing
+       returning user_id`,
+      [...audience.args, promoId, this.expiryOf(promo)],
+    );
+    void this.tellGrantees(promo, rows.map((r) => r.user_id)).catch((err: Error) =>
+      this.logger.error(`promo ${promoId}: telling grantees failed: ${err.message}`),
+    );
+    this.logger.log(`promo ${promoId}: offered to ${rows.length} of ${matched?.count ?? 0} in a segment`);
+    return { matched: matched?.count ?? 0, granted: rows.length };
+  }
+
+  /** A promo that can be handed out now, or why not. */
+  private async offerable(promoId: string): Promise<PromoRow> {
+    const promo = await this.db.queryOne<PromoRow>('select * from promos where id = $1', [promoId]);
     if (!promo) throw new NotFoundException('Promo not found');
     if (promo.kind !== 'targeted') {
       throw new BadRequestException(
@@ -238,38 +291,30 @@ export class PromosService {
     if (!promo.active) {
       throw new BadRequestException('Switch the promo on before offering it.');
     }
-    if (userIds.length === 0) return { granted: 0 };
+    return promo;
+  }
 
-    const expiresAt = promo.claim_window_days
+  private expiryOf(promo: PromoRow): Date | null {
+    return promo.claim_window_days
       ? new Date(Date.now() + promo.claim_window_days * 86_400_000)
       : null;
+  }
 
-    const rows = await this.db.query<{ user_id: string }>(
-      `insert into promo_grants (promo_id, user_id, expires_at)
-       select $1, u.id, $3
-         from unnest($2::uuid[]) as sel(id)
-         join users u on u.id = sel.id
-       on conflict do nothing
-       returning user_id`,
-      [promoId, userIds, expiresAt],
-    );
-
+  /**
+   * Tells the people just offered a promo, five hundred to a call. It was
+   * one call per person, all at once: fine for thirty, a flood for a
+   * segment of thousands.
+   */
+  private async tellGrantees(promo: PromoRow, userIds: string[]): Promise<void> {
     const label = this.rewardLabel(this.present(promo));
-    await Promise.all(
-      rows.map((r) =>
-        this.notify.notify([r.user_id], {
-          topic: 'promo',
-          title: promo.name,
-          body: `${label} is waiting for you. Open it to claim.`,
-          data: { promoId },
-        }),
-      ),
-    );
-
-    this.logger.log(
-      `promo ${promoId}: offered to ${rows.length} of ${userIds.length} selected`,
-    );
-    return { granted: rows.length };
+    for (let i = 0; i < userIds.length; i += 500) {
+      await this.notify.notify(userIds.slice(i, i + 500), {
+        topic: 'promo',
+        title: promo.name,
+        body: `${label} is waiting for you. Open it to claim.`,
+        data: { promoId: promo.id },
+      });
+    }
   }
 
   /**

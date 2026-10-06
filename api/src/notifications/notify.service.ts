@@ -29,7 +29,7 @@ export interface Notification {
    * Left unset, it is derived from the topic — see channelFor. Setting it by
    * hand at every call site is how invitations ended up silent.
    */
-  channelId?: 'alarms' | 'reminders' | 'messages' | 'invitations';
+  channelId?: 'alarms' | 'reminders' | 'messages' | 'invitations' | 'updates';
   sound?: 'default' | null;
   priority?: 'default' | 'normal' | 'high';
   /**
@@ -44,6 +44,11 @@ export interface Notification {
    * pushed as well.
    */
   skipTokens?: readonly string[];
+  /**
+   * false: the list and the live frame only, no push. A broadcast sent
+   * quietly, to be found the next time somebody opens the app.
+   */
+  push?: boolean;
 }
 
 /** One notification aimed at one person. */
@@ -176,7 +181,7 @@ export class NotifyService {
     const rowOf = new Map(deliveries.map((d, i) => [d, ids[i]] as const));
 
     try {
-      const pushed = deliveries.filter((d) => wants(d, 'push'));
+      const pushed = deliveries.filter((d) => d.push !== false && wants(d, 'push'));
       const tokensByUser = new Map<string, string[]>();
       for (const userId of new Set(pushed.map((d) => d.userId))) {
         tokensByUser.set(userId, await this.push.tokensFor(userId));

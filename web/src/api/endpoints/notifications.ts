@@ -33,7 +33,9 @@ export type NotificationTopic =
    * and version on the server, so a phone and a browser signed in to the same
    * account each see only the updates that concern them.
    */
-  | 'app-update';
+  | 'app-update'
+  /** News from Virgo, sent from the console to many accounts at once. */
+  | 'announcement';
 
 export interface AppNotification {
   id: string;
@@ -88,6 +90,7 @@ export const CATEGORY_OF_TOPIC: Record<NotificationTopic, NotificationCategory> 
   reminder: 'schedule',
   billing: 'billing',
   'app-update': 'updates',
+  announcement: 'updates',
   promo: 'offers',
   support: 'support',
 };

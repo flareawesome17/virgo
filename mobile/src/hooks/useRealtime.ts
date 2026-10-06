@@ -123,6 +123,8 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   // version, and a frame reaches every session an account has open. Listed
   // so the table stays complete; it reaches the list through the feed.
   'app-update': [],
+  // News: nothing cached changes, the list is refreshed for every frame.
+  announcement: [],
 };
 
 function applyNotification(

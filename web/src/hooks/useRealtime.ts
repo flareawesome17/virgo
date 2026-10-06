@@ -137,6 +137,8 @@ const TOPICS: Record<NotificationTopic, { keys: readonly (readonly unknown[])[] 
   // version, and a frame reaches every session an account has open. Listed
   // so the table stays complete; it reaches the list through the feed.
   'app-update': { keys: [] },
+  // News: nothing cached changes, the list is refreshed for every frame.
+  announcement: { keys: [] },
 };
 
 /**

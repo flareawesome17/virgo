@@ -17,6 +17,7 @@ import {
   type PromoInput,
   type RoleInput,
   type TagColor,
+  type AudienceFilters,
   type CaseAction,
   type CaseKind,
   type CaseQuery,
@@ -97,6 +98,101 @@ export function useShareLinks(p: { limit?: number; offset?: number }) {
     queryKey: keys.shareLinks(p),
     queryFn: () => console_.shareLinks(p),
     placeholderData: keepPreviousData,
+  });
+}
+
+// ─── Outreach ───────────────────────────────────────────────────────────────
+
+/** Who these filters reach, recounted as they change (callers debounce). */
+export function useAudience(filters: AudienceFilters, enabled = true) {
+  return useQuery({
+    queryKey: ['outreach', 'audience', filters],
+    queryFn: () => console_.audience(filters),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useSegments(enabled = true) {
+  return useQuery({ queryKey: ['outreach', 'segments'], queryFn: console_.segments, enabled });
+}
+
+export function useSaveSegment() {
+  return useConsoleMutation(
+    ({ id, input }: { id?: string; input: { name: string; description?: string | null; filters: AudienceFilters } }) =>
+      console_.saveSegment(input, id),
+    { success: 'Segment saved', invalidate: [['outreach']] },
+  );
+}
+
+export function useRemoveSegment() {
+  return useConsoleMutation((id: string) => console_.removeSegment(id), {
+    success: 'Segment deleted',
+    invalidate: [['outreach']],
+  });
+}
+
+/** Polled while anything is sending, so the counts move on their own. */
+export function useBroadcasts() {
+  return useQuery({
+    queryKey: ['outreach', 'broadcasts'],
+    queryFn: console_.broadcasts,
+    refetchInterval: (q) =>
+      q.state.data?.some((b) => b.status === 'sending' || b.status === 'scheduled') ? 15_000 : false,
+  });
+}
+
+export function useCreateBroadcast() {
+  return useConsoleMutation(
+    (input: Parameters<typeof console_.createBroadcast>[0]) => console_.createBroadcast(input),
+    { success: 'Broadcast scheduled', invalidate: [['outreach']] },
+  );
+}
+
+export function useCancelBroadcast() {
+  return useConsoleMutation((id: string) => console_.cancelBroadcast(id), {
+    success: 'Broadcast cancelled',
+    invalidate: [['outreach']],
+  });
+}
+
+export function useSendBroadcastNow() {
+  return useConsoleMutation((id: string) => console_.sendBroadcastNow(id), {
+    success: 'Sending on the next minute',
+    invalidate: [['outreach']],
+  });
+}
+
+export function useAppUpdates() {
+  return useQuery({ queryKey: ['outreach', 'appUpdates'], queryFn: console_.appUpdates });
+}
+
+export function useAnnounceUpdate() {
+  return useConsoleMutation(
+    (input: Parameters<typeof console_.announceUpdate>[0]) => console_.announceUpdate(input),
+    { success: 'Update announced', invalidate: [['outreach']] },
+  );
+}
+
+export function useGrantPromoToSegment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, segmentId }: { id: string; segmentId: string }) =>
+      console_.grantPromoToSegment(id, segmentId),
+    onSuccess: (r) => {
+      if (r.granted === 0) {
+        toast.info('Nothing to send', { description: `Everyone in “${r.segment}” already had this promo.` });
+      } else {
+        toast.success(`Offered to ${r.granted.toLocaleString()}`, {
+          description:
+            r.granted < r.matched
+              ? `${(r.matched - r.granted).toLocaleString()} of “${r.segment}” already had it.`
+              : `Everyone in “${r.segment}”.`,
+        });
+      }
+      for (const key of [['promos'], ['promoGrants'], ['audit']]) void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'That did not work'),
   });
 }
 

@@ -681,6 +681,8 @@ export interface NotificationPayload {
     | 'client_picks'
     /** An update announcement for this app. */
     | 'app-update'
+    /** News from Virgo, broadcast from the console. */
+    | 'announcement'
     | 'booking'
     | 'support_reply'
     | 'billing'
@@ -703,6 +705,8 @@ export interface NotificationPayload {
   promoId?: string;
   /** For 'app-update': the announcement, and what to open from it. */
   updateId?: string;
+  /** For 'announcement': the broadcast it came from. */
+  broadcastId?: string;
   url?: string;
 }
 
