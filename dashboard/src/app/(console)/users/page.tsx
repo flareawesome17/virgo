@@ -262,7 +262,8 @@ function NewAccountForm({
           placeholder="At least 12 characters"
         />
         <p className="text-[11px] text-muted-foreground">
-          Shown as text so you can copy it to them. They should change it.
+          Shown as text so you can copy it to them. They choose their own the
+          first time they sign in.
         </p>
       </div>
       <div className="space-y-1.5">

@@ -25,6 +25,18 @@ export const PERMISSION_KEY = 'admin:permission';
 export const RequirePermission = (permission: AdminPermission) =>
   SetMetadata(PERMISSION_KEY, permission);
 
+export const PASSWORD_CHANGE_KEY = 'admin:allowsPendingPasswordChange';
+
+/**
+ * Marks the routes an account may still use while it must change its password.
+ *
+ * Only reading who you are and changing the password itself. Everything else
+ * is refused until then, here rather than only in the console's layout — a
+ * password someone else chose must not be usable against the API directly.
+ */
+export const AllowsPendingPasswordChange = () =>
+  SetMetadata(PASSWORD_CHANGE_KEY, true);
+
 export interface AdminRequest extends Request {
   admin?: AdminIdentity;
 }
@@ -73,6 +85,16 @@ export class AdminGuard implements CanActivate {
     // a mistake on an admin API is "nobody", not "everybody".
     if (!required) {
       throw new ForbiddenException('This action is not available');
+    }
+
+    if (
+      admin.mustChangePassword &&
+      !this.reflector.getAllAndOverride<boolean>(PASSWORD_CHANGE_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ])
+    ) {
+      throw new ForbiddenException('Choose a new password before continuing');
     }
 
     if (!admin.permissions.includes(required)) {

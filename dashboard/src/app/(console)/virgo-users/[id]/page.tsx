@@ -15,6 +15,8 @@ import {
   PageHeader,
   StatCard,
   bytes,
+  day,
+  peso,
   when,
 } from '@/components/console/primitives';
 import { isPaused, isSuspended } from '@/lib/account-state';
@@ -38,7 +40,20 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-const PLANS = ['free', 'freelance', 'studio', 'business'];
+/** Used only when the API is older than the list it now sends. */
+const FALLBACK_PLANS = [
+  { name: 'free', label: 'Free' },
+  { name: 'freelance', label: 'Freelancer' },
+  { name: 'studio', label: 'Studio' },
+  { name: 'business', label: 'Business' },
+];
+
+const PRIORITY_VARIANT: Record<string, 'destructive' | 'default' | 'secondary' | 'outline'> = {
+  urgent: 'destructive',
+  high: 'default',
+  normal: 'secondary',
+  low: 'outline',
+};
 
 interface UserDetail {
   user: Record<string, string | boolean | null> & {
@@ -58,8 +73,28 @@ interface UserDetail {
     share_links: number;
     created_at: string;
   }[];
-  subscription: Record<string, string | number | null> | null;
-  tickets: { id: string; subject: string; status: string; created_at: string }[];
+  /** The latest one, whatever its status. */
+  subscription: {
+    id: string;
+    plan_name: string;
+    status: string;
+    amount_minor: number | string;
+    currency: string;
+    kind: 'subscription' | 'one_time';
+    current_period_end: string | null;
+    cancelled_at: string | null;
+    created_at: string;
+  } | null;
+  /** The latest 10. */
+  tickets: {
+    id: string;
+    subject: string;
+    status: string;
+    priority: string;
+    created_at: string;
+  }[];
+  /** What the plan picker may offer. Absent from an API older than it. */
+  plans?: { name: string; label: string }[];
 }
 
 export default function VirgoUserDetailPage() {
@@ -77,6 +112,15 @@ export default function VirgoUserDetailPage() {
   // does not end a pause the person chose, and the console should not look
   // as if it had.
   const paused = !!u && isPaused(u);
+
+  // An account can carry a plan the catalogue no longer lists — `pro`, the old
+  // name for Freelancer. Offered as-is, so the picker shows what it has rather
+  // than going blank.
+  const plans = d?.plans ?? FALLBACK_PLANS;
+  const planOptions =
+    u && !plans.some((p) => p.name === u.plan)
+      ? [...plans, { name: String(u.plan), label: String(u.plan) }]
+      : plans;
 
   return (
     <>
@@ -176,9 +220,9 @@ export default function VirgoUserDetailPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {PLANS.map((p) => (
-                            <SelectItem key={p} value={p} className="capitalize">
-                              {p}
+                          {planOptions.map((p) => (
+                            <SelectItem key={p.name} value={p.name} className="capitalize">
+                              {p.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -231,6 +275,108 @@ export default function VirgoUserDetailPage() {
                         Their media is untouched either way.
                       </p>
                     </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="mt-6 grid gap-3 lg:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Subscription</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1.5 p-4 pt-0 text-sm">
+                  {d.subscription ? (
+                    <>
+                      <Field
+                        label="Plan"
+                        value={String(d.subscription.plan_name)}
+                      />
+                      <Field label="Status" value={d.subscription.status} />
+                      <Field
+                        label="Amount"
+                        value={`${peso(Number(d.subscription.amount_minor))} · ${
+                          d.subscription.kind === 'subscription'
+                            ? 'monthly'
+                            : 'one month'
+                        }`}
+                      />
+                      <Field
+                        label="Period ends"
+                        value={day(d.subscription.current_period_end)}
+                      />
+                      {d.subscription.cancelled_at && (
+                        <Field
+                          label="Cancelled"
+                          value={day(d.subscription.cancelled_at)}
+                        />
+                      )}
+                      <Field label="Started" value={day(d.subscription.created_at)} />
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Never subscribed. Their plan was set at sign-up or here.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">
+                    Support tickets
+                    {d.tickets.length === 10 && (
+                      <span className="ml-1.5 font-normal text-muted-foreground">
+                        · latest 10
+                      </span>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 pt-0 text-sm">
+                  {d.tickets.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No tickets.</p>
+                  ) : (
+                    <ul className="-mx-2 space-y-0.5">
+                      {d.tickets.map((t) => {
+                        const row = (
+                          <>
+                            <span className="min-w-0 flex-1 truncate font-medium">
+                              {t.subject}
+                            </span>
+                            {(t.priority === 'high' || t.priority === 'urgent') && (
+                              <Badge
+                                variant={PRIORITY_VARIANT[t.priority]}
+                                className="capitalize"
+                              >
+                                {t.priority}
+                              </Badge>
+                            )}
+                            <Badge variant="outline" className="capitalize">
+                              {t.status}
+                            </Badge>
+                            <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">
+                              {when(t.created_at)}
+                            </span>
+                          </>
+                        );
+                        return (
+                          <li key={t.id}>
+                            {can('support.read') ? (
+                              <Link
+                                href={`/support/${t.id}`}
+                                className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted"
+                              >
+                                {row}
+                              </Link>
+                            ) : (
+                              <div className="flex items-center gap-2 px-2 py-1.5">
+                                {row}
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                 </CardContent>
               </Card>

@@ -31,8 +31,10 @@ export default function ConsoleLayout({
 
   // The nav's counts come from the overview, which the Overview page is
   // fetching anyway — same query key, so this is a cache read rather than a
-  // second request. Skipped entirely for a role that cannot see it.
-  const canSeeOverview = me?.permissions.includes('overview.read') ?? false;
+  // second request. Skipped entirely for a role that cannot see it, and while
+  // the password still has to be changed — the API refuses it until then.
+  const canSeeOverview =
+    (me?.permissions.includes('overview.read') ?? false) && !me?.mustChangePassword;
   const { data: overview } = useOverview(30, canSeeOverview);
 
   // Bounce before rendering anything if there is no token at all — otherwise

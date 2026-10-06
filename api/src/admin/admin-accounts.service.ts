@@ -79,9 +79,12 @@ export class AdminAccountsService {
 
     const hash = await this.auth.hashPassword(input.password);
     try {
+      // The password was typed by whoever made the account, and usually sent
+      // to the new person over chat. It gets them in once; they choose their
+      // own before they can do anything else.
       const row = await this.db.queryOne(
-        `insert into admin_users (email, name, password_hash, role)
-         values ($1, $2, $3, $4)
+        `insert into admin_users (email, name, password_hash, role, must_change_password)
+         values ($1, $2, $3, $4, true)
          returning id, email, name, role, created_at`,
         [input.email.trim().toLowerCase(), input.name.trim(), hash, input.role],
       );
@@ -133,17 +136,22 @@ export class AdminAccountsService {
     return row;
   }
 
-  async setPassword(id: string, password: string) {
+  async setPassword(id: string, password: string, actingAdminId: string) {
     if (password.length < 12) {
       throw new BadRequestException(
         'Console passwords must be at least 12 characters',
       );
     }
     const hash = await this.auth.hashPassword(password);
+    // A password set for somebody else is known to two people, so its owner
+    // replaces it at their next sign-in. Setting your own is just a change.
     const row = await this.db.queryOne(
-      `update admin_users set password_hash = $2, updated_at = now()
+      `update admin_users
+          set password_hash = $2,
+              must_change_password = (id <> $3::uuid),
+              updated_at = now()
         where id = $1 returning id, email`,
-      [id, hash],
+      [id, hash, actingAdminId],
     );
     if (!row) throw new NotFoundException('No such console account');
     // Changing a password ends every other session, which is the whole point

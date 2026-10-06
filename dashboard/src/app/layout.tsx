@@ -1,6 +1,17 @@
 import type { Metadata } from 'next';
+import { Geist, Geist_Mono } from 'next/font/google';
 import { Providers } from './providers';
 import './globals.css';
+
+/**
+ * The app's typefaces, as web/src/app/fonts.ts declares them.
+ *
+ * globals.css has pointed `font-sans` at `--font-geist-sans` from the start,
+ * but nothing here defined it, so the whole console fell through to the
+ * browser's default serif.
+ */
+const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
+const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 
 /**
  * The management console.
@@ -28,7 +39,11 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable}`}
+    >
       <body className="min-h-dvh bg-background font-sans antialiased">
         <Providers>{children}</Providers>
       </body>
