@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { StorageService } from '../storage/storage.service';
 import { MailService } from '../mail/mail.service';
 import { PLAN_CATALOGUE, limitsFor, toJsonLimit } from '../quota/quota.config';
+import { audienceWhere, planStorageCase, storageThreshold, type AudienceFilters } from './audience';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { VisitsService } from '../visits/visits.service';
 
@@ -30,60 +31,14 @@ export function userOrder(sort?: string, dir?: string): string {
   return `${column} ${direction} nulls last, u.id ${direction}`;
 }
 
-export interface UsersQuery {
-  q?: string;
-  plan?: string;
+/** The people list: an audience (see audience.ts), paged and sorted. */
+export interface UsersQuery extends AudienceFilters {
   limit?: number;
   offset?: number;
   sort?: string;
   dir?: string;
-  /** active, suspended, paused or unverified. */
-  status?: string;
-  /**
-   * week (seen in the last 7 days) or quiet (not in 30). There is no "never":
-   * last_seen_at defaults to the moment an account is made.
-   */
-  seen?: string;
-  /** A tag's id. */
-  tag?: string;
-  /** ios or android: has push turned on for that platform. */
-  platform?: string;
-  /** on or off. */
-  twoFactor?: string;
-  /** 'true': at 80% or more of what the account may store. */
-  full?: string;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** The account states, as the console's badges read them (lib/account-state.ts). */
-const USER_STATUS: Record<string, string> = {
-  suspended: 'u.suspended_at is not null',
-  paused: 'u.suspended_at is null and u.disabled_until > now()',
-  unverified:
-    'u.suspended_at is null and (u.disabled_until is null or u.disabled_until <= now()) and u.email_verified_at is null',
-  active:
-    'u.suspended_at is null and (u.disabled_until is null or u.disabled_until <= now()) and u.email_verified_at is not null',
-};
-
-const USER_SEEN: Record<string, string> = {
-  week: "u.last_seen_at > now() - interval '7 days'",
-  quiet: "(u.last_seen_at is null or u.last_seen_at < now() - interval '30 days')",
-};
-
-/**
- * Each plan's storage allowance as SQL, for "nearly full". The allowances live
- * in quota.config.ts, not the database, so the CASE is written from them; an
- * unlimited plan is never nearly full.
- */
-function planStorageCase(column: string): string {
-  const names = new Set([...PLAN_CATALOGUE.map((p) => p.name), 'pro']);
-  const arms = [...names].map((name) => {
-    const bytes = limitsFor(name).storageBytes;
-    return `when '${name}' then ${Number.isFinite(bytes) ? Math.round(bytes) : '1e18'}`;
-  });
-  return `(case ${column} ${arms.join(' ')} else ${Math.round(limitsFor('free').storageBytes)} end)::numeric`;
-}
 
 /**
  * Everything the console reads and writes about the platform.
@@ -188,8 +143,6 @@ export class AdminService {
   async users(params: UsersQuery) {
     const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
     const offset = Math.max(params.offset ?? 0, 0);
-    const q = params.q?.trim() ? `%${params.q.trim()}%` : null;
-    const plan = params.plan?.trim() || null;
     const orderBy = userOrder(params.sort, params.dir);
 
     /*
@@ -198,30 +151,15 @@ export class AdminService {
      * `full` needs the storage figure, which only exists after the select, so
      * the whole list is a CTE and the filters apply to it.
      */
-    const args: unknown[] = [q, plan];
-    const where: string[] = [
-      '($1::text is null or u.email ilike $1 or u.display_name ilike $1 or u.handle ilike $1)',
-      '($2::text is null or u.plan = $2)',
-    ];
-    const status = USER_STATUS[params.status ?? ''];
-    if (status) where.push(status);
-    const seen = USER_SEEN[params.seen ?? ''];
-    if (seen) where.push(seen);
-    if (params.twoFactor === 'on') where.push('u.two_factor_enabled_at is not null');
-    if (params.twoFactor === 'off') where.push('u.two_factor_enabled_at is null');
-    if (params.tag && UUID.test(params.tag)) {
-      args.push(params.tag);
-      where.push(
-        `exists (select 1 from customer_tag_links l where l.user_id = u.id and l.tag_id = $${args.length}::uuid)`,
-      );
-    }
-    if (params.platform === 'ios' || params.platform === 'android') {
-      args.push(params.platform);
-      where.push(
-        `exists (select 1 from push_tokens p where p.user_id = u.id and p.platform = $${args.length} and p.disabled_at is null)`,
-      );
-    }
-    const outer = params.full === 'true' ? `where storage_bytes >= 0.8 * (${planStorageCase('plan')} + bonus_storage_bytes)` : '';
+    const args: unknown[] = [];
+    const where = audienceWhere(params, args);
+    if (where.length === 0) where.push('true');
+    const threshold = storageThreshold(params);
+    if (threshold !== null) args.push(threshold);
+    const outer =
+      threshold !== null
+        ? `where storage_bytes >= $${args.length}::numeric * (${planStorageCase('plan')} + bonus_storage_bytes)`
+        : '';
 
     const base = `
       with base as (

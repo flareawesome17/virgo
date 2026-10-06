@@ -64,6 +64,12 @@ export const ADMIN_PERMISSIONS = [
   'support.reply',
   'support.manage',
 
+  // Reaching many customers at once: segments, broadcasts and app-update
+  // announcements. Sending is its own permission, because a message to
+  // everyone cannot be taken back.
+  'outreach.read',
+  'outreach.manage',
+
   'system.read',
 
   // Managing the console's own accounts, roles and sessions. Owner-only: an
@@ -140,6 +146,14 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ],
   },
   {
+    key: 'outreach',
+    label: 'Outreach',
+    permissions: [
+      { key: 'outreach.read', label: 'See outreach', description: 'Segments and their counts, broadcasts and how they went, app-update announcements.' },
+      { key: 'outreach.manage', label: 'Send', description: 'Save segments, send and schedule broadcasts, announce app updates.' },
+    ],
+  },
+  {
     key: 'billing',
     label: 'Billing',
     permissions: [
@@ -188,6 +202,7 @@ const SUPPORT: AdminPermission[] = [
   'billing.read',
   'support.read',
   'support.reply',
+  'outreach.read',
   'system.read',
 ];
 
@@ -200,6 +215,7 @@ const ADMIN: AdminPermission[] = [
   'content.evidence',
   'billing.manage',
   'support.manage',
+  'outreach.manage',
   'audit.read',
   'admins.read',
 ];
@@ -218,6 +234,7 @@ export const ROLE_PERMISSIONS: Record<SystemRole, readonly AdminPermission[]> = 
     'content.read',
     'billing.read',
     'support.read',
+    'outreach.read',
     'system.read',
   ],
   support: SUPPORT,
