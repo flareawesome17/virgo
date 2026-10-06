@@ -16,6 +16,7 @@ import {
   Heart,
   LifeBuoy,
   Mail,
+  Megaphone,
   MessageCircle,
   Settings,
   Sparkles,
@@ -68,6 +69,7 @@ const ICONS: Record<NotificationTopic, LucideIcon> = {
   support: LifeBuoy,
   promo: Gift,
   'app-update': Sparkles,
+  announcement: Megaphone,
 };
 
 /**

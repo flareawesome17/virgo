@@ -7,6 +7,7 @@ import {
   GiftIcon,
   HeartIcon,
   LifeBuoyIcon,
+  MegaphoneIcon,
   MessageCircleIcon,
   SparklesIcon,
   Trash2Icon,
@@ -101,6 +102,11 @@ const TOPICS: Record<
   // all it needs to.
   'app-update': {
     icon: SparklesIcon,
+    href: (d) => (typeof d.url === 'string' ? d.url : ''),
+  },
+  // News from Virgo: its link when it has one, otherwise it has said its piece.
+  announcement: {
+    icon: MegaphoneIcon,
     href: (d) => (typeof d.url === 'string' ? d.url : ''),
   },
 };
