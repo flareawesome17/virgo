@@ -11,10 +11,10 @@ import {
   useState,
 } from 'react';
 import { ContextMenu } from 'radix-ui';
-import { LifeBuoy, User, X } from 'lucide-react';
+import { Flag, LifeBuoy, User, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type RecordKind = 'user' | 'ticket';
+export type RecordKind = 'user' | 'ticket' | 'case';
 
 export interface RecordTab {
   href: string;
@@ -24,8 +24,8 @@ export interface RecordTab {
 }
 
 /** Where closing the last record of a kind goes back to. */
-const HOME: Record<RecordKind, string> = { user: '/virgo-users', ticket: '/support' };
-const ICON = { user: User, ticket: LifeBuoy } as const;
+const HOME: Record<RecordKind, string> = { user: '/virgo-users', ticket: '/support', case: '/moderation' };
+const ICON = { user: User, ticket: LifeBuoy, case: Flag } as const;
 
 /**
  * Enough to work a queue, few enough to read. Opening one more drops the

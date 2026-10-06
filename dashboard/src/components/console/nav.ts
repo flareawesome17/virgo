@@ -1,6 +1,7 @@
 import {
   Activity,
   CreditCard,
+  Flag,
   FolderOpen,
   Gift,
   LayoutDashboard,
@@ -70,12 +71,19 @@ export const NAV: NavGroup[] = [
     label: 'Platform',
     items: [
       {
+        href: '/moderation',
+        label: 'Moderation',
+        icon: Flag,
+        permission: 'content.read',
+        badge: 'reports',
+        keywords: 'reports reported safety abuse warn hide suspend comments',
+      },
+      {
         href: '/content',
         label: 'Content',
         icon: FolderOpen,
         permission: 'content.read',
-        badge: 'reports',
-        keywords: 'albums links reports moderation',
+        keywords: 'albums client links',
       },
       {
         href: '/billing',

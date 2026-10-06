@@ -118,14 +118,12 @@ export default function OverviewPage() {
                   href={can('support.read') ? '/support' : undefined}
                 />
                 <AttentionRow
-                  label="Reported people"
-                  value={data.totals.userReports ?? 0}
-                  href={can('content.read') ? '/content' : undefined}
-                />
-                <AttentionRow
-                  label="Reported job posts"
-                  value={data.totals.reports}
-                  href={can('content.read') ? '/content' : undefined}
+                  label="Reports to review"
+                  value={
+                    data.totals.openReports ??
+                    data.totals.reports + (data.totals.userReports ?? 0)
+                  }
+                  href={can('content.read') ? '/moderation' : undefined}
                 />
               </Panel>
 
