@@ -140,6 +140,28 @@ export class AccountFlowsService {
   }
 
   /**
+   * Marks an address confirmed without the link — the console's answer to
+   * "the email never came". The referral pays out exactly as it would have:
+   * this is the moment the address counts as proven.
+   */
+  async markVerified(userId: string): Promise<{ verified: boolean; changed: boolean }> {
+    const flipped = await this.db.query<{ id: string }>(
+      `update users set email_verified_at = now()
+        where id = $1 and email_verified_at is null
+        returning id`,
+      [userId],
+    );
+    if (flipped.length > 0) {
+      try {
+        await this.promos.payReferral(userId);
+      } catch (err) {
+        this.logger.error(`Referral payout failed for ${userId}: ${String(err)}`);
+      }
+    }
+    return { verified: true, changed: flipped.length > 0 };
+  }
+
+  /**
    * Starts a password reset.
    *
    * Always resolves the same way. An attacker enumerating addresses learns

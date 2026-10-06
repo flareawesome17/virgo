@@ -116,7 +116,10 @@ export class AuthService {
    * gets a refusal instead of tokens, whichever path it came in by. Setup used
    * to be the gap — it issued a fresh pair without asking.
    */
-  private async issueTokens(user: UserRow): Promise<AuthTokens> {
+  private async issueTokens(
+    user: UserRow,
+    device: { familyId?: string; userAgent?: string } = {},
+  ): Promise<AuthTokens> {
     this.assertVerified(user);
     this.assertNotDisabled(user);
 
@@ -137,6 +140,7 @@ export class AuthService {
       user.id,
       this.hashRefreshToken(refreshToken),
       expiresAt,
+      device,
     );
 
     return { accessToken, refreshToken, expiresIn: accessTtl };
@@ -264,7 +268,7 @@ export class AuthService {
   async login(
     email: string,
     password: string,
-    options: { unpause?: boolean } = {},
+    options: { unpause?: boolean; userAgent?: string } = {},
   ): Promise<AuthResult | TwoFactorLoginRequired> {
     const normalized = this.normalizeEmail(email);
     let user = await this.users.findByEmail(normalized);
@@ -312,17 +316,21 @@ export class AuthService {
       };
     }
 
-    return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
+    return {
+      user: toPublicUser(user),
+      ...(await this.issueTokens(user, { userAgent: options.userAgent })),
+    };
   }
 
   async completeTwoFactorLogin(
     challengeToken: string,
     code: string,
+    userAgent?: string,
   ): Promise<AuthResult> {
     // Refused by issueTokens if the account was suspended or paused while
     // the code was on its way.
     const user = await this.twoFactor.completeLoginChallenge(challengeToken, code);
-    return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
+    return { user: toPublicUser(user), ...(await this.issueTokens(user, { userAgent })) };
   }
 
   async twoFactorStatus(userId: string) {
@@ -391,7 +399,7 @@ export class AuthService {
    * a stolen token is usable at most once and the theft surfaces when the
    * legitimate client's next refresh fails.
    */
-  async refresh(refreshToken: string): Promise<AuthResult> {
+  async refresh(refreshToken: string, userAgent?: string): Promise<AuthResult> {
     const tokenHash = this.hashRefreshToken(refreshToken);
     const stored = await this.users.findActiveRefreshToken(tokenHash);
     if (!stored) throw new UnauthorizedException('Invalid refresh token');
@@ -403,7 +411,15 @@ export class AuthService {
     // leaving it replayable. issueTokens is what refuses it.
     await this.users.revokeRefreshToken(tokenHash);
 
-    return { user: toPublicUser(user), ...(await this.issueTokens(user)) };
+    // The same device: its family carries over. A token from before devices
+    // were tracked starts a family of its own here.
+    return {
+      user: toPublicUser(user),
+      ...(await this.issueTokens(user, {
+        familyId: stored.family_id ?? undefined,
+        userAgent: userAgent ?? stored.user_agent ?? undefined,
+      })),
+    };
   }
 
   /**

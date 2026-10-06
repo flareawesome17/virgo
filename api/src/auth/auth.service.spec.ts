@@ -168,3 +168,49 @@ describe('AuthService.login and a paused account', () => {
     expect(users.enable).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * A signed-in device is one family of refresh tokens, so the console can list
+ * it as one row and sign it out. Refreshing must keep the family, and only
+ * the device type is kept — never an address.
+ */
+describe('AuthService and the device a session belongs to', () => {
+  it('starts a new device at sign-in, with its User-Agent', async () => {
+    const { service, users } = serviceFor(userWith());
+    await service.login('mika@example.com', PASSWORD, { userAgent: 'Virgo/1 CFNetwork Darwin' });
+    expect(users.storeRefreshToken).toHaveBeenCalledWith(
+      'user-1',
+      expect.any(String),
+      expect.any(Date),
+      { userAgent: 'Virgo/1 CFNetwork Darwin' },
+    );
+  });
+
+  it('keeps the device across a refresh', async () => {
+    const { service, users } = serviceFor(userWith());
+    users.findActiveRefreshToken.mockResolvedValueOnce({
+      id: 't1',
+      user_id: 'user-1',
+      family_id: 'family-1',
+      user_agent: 'okhttp/4.12',
+    } as never);
+    await service.refresh('refresh-token');
+    expect(users.storeRefreshToken).toHaveBeenCalledWith(
+      'user-1',
+      expect.any(String),
+      expect.any(Date),
+      { familyId: 'family-1', userAgent: 'okhttp/4.12' },
+    );
+  });
+
+  it('gives a token from before devices were tracked a family of its own', async () => {
+    const { service, users } = serviceFor(userWith());
+    await service.refresh('refresh-token', 'Mozilla/5.0 Chrome');
+    expect(users.storeRefreshToken).toHaveBeenCalledWith(
+      'user-1',
+      expect.any(String),
+      expect.any(Date),
+      { familyId: undefined, userAgent: 'Mozilla/5.0 Chrome' },
+    );
+  });
+});

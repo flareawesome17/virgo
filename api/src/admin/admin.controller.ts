@@ -16,30 +16,54 @@ import { Throttle } from '@nestjs/throttler';
 import {
   IsBoolean,
   IsEmail,
-  IsIn,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
 import type { Request } from 'express';
 import { Public } from '../auth/public.decorator';
-import { AdminAuthService, RESET_TTL_MINUTES } from './admin-auth.service';
+import {
+  AdminAuthService,
+  RESET_TTL_MINUTES,
+  type RequestContext,
+} from './admin-auth.service';
+import { AdminRolesService } from './admin-roles.service';
+import { AdminCustomersService } from './admin-customers.service';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminService } from './admin.service';
 import { AuditService } from './audit.service';
 import {
   AdminGuard,
-  AllowsPendingPasswordChange,
+  AllowsPendingSetup,
   CurrentAdmin,
   RequirePermission,
+  SignedIn,
 } from './admin.guard';
 import type { AdminIdentity } from './admin-auth.service';
-import { ADMIN_ROLES, ROLE_DESCRIPTION, ROLE_LABEL } from './rbac';
 
 class LoginDto {
   @IsEmail() email!: string;
   @IsString() @MinLength(1) password!: string;
+}
+class TwoFactorLoginDto {
+  @IsString() @MinLength(1) challenge!: string;
+  @IsString() @MinLength(6) @MaxLength(20) code!: string;
+}
+
+/** A role's name: a built-in one or a custom role's slug. */
+const ROLE_NAME = /^[a-z][a-z0-9-]{1,31}$/;
+
+/**
+ * Where a request came from. Cloudflare's header first: behind the tunnel,
+ * `req.ip` is the tunnel, not the person.
+ */
+export function contextOf(req: Request): RequestContext {
+  return {
+    ip: (req.headers['cf-connecting-ip'] as string) || req.ip,
+    userAgent: req.headers['user-agent'],
+  };
 }
 class TokenDto {
   @IsString() refreshToken!: string;
@@ -55,14 +79,16 @@ class CreateAdminDto {
   @IsEmail() email!: string;
   @IsString() @MinLength(1) @MaxLength(120) name!: string;
   @IsString() @MinLength(12) password!: string;
-  @IsIn(ADMIN_ROLES as unknown as string[]) role!: string;
+  @Matches(ROLE_NAME) role!: string;
 }
 class RoleDto {
-  @IsIn(ADMIN_ROLES as unknown as string[]) role!: string;
+  @Matches(ROLE_NAME) role!: string;
 }
 class DisabledDto {
   @IsBoolean() disabled!: boolean;
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
+  /** Email the customer that it happened. Ignored for console accounts. */
+  @IsOptional() @IsBoolean() notify?: boolean;
 }
 class PasswordDto {
   @IsString() @MinLength(12) password!: string;
@@ -99,14 +125,25 @@ export class AdminAuthController {
   @HttpCode(200)
   @Post('login')
   login(@Body() dto: LoginDto, @Req() req: Request) {
-    return this.auth.login(dto.email, dto.password, req.headers['user-agent']);
+    return this.auth.login(dto.email, dto.password, contextOf(req));
+  }
+
+  /**
+   * The second step, for an account with two-factor. Throttled as hard as the
+   * first: six digits are a small space, and the lockout counts these too.
+   */
+  @Throttle({ default: { limit: 8, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('login/2fa')
+  loginTwoFactor(@Body() dto: TwoFactorLoginDto, @Req() req: Request) {
+    return this.auth.completeTwoFactor(dto.challenge, dto.code, contextOf(req));
   }
 
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @HttpCode(200)
   @Post('refresh')
   refresh(@Body() dto: TokenDto, @Req() req: Request) {
-    return this.auth.refresh(dto.refreshToken, req.headers['user-agent']);
+    return this.auth.refresh(dto.refreshToken, contextOf(req));
   }
 
   @HttpCode(200)
@@ -189,22 +226,16 @@ export class AdminController {
     private readonly accounts: AdminAccountsService,
     private readonly audit: AuditService,
     private readonly auth: AdminAuthService,
+    private readonly roles: AdminRolesService,
+    private readonly customers: AdminCustomersService,
   ) {}
 
   /** Who am I and what may I do — the console renders its nav from this. */
-  @RequirePermission('overview.read')
-  @AllowsPendingPasswordChange()
+  @SignedIn()
+  @AllowsPendingSetup()
   @Get('me')
-  me(@CurrentAdmin() admin: AdminIdentity) {
-    return {
-      ...admin,
-      roleLabel: ROLE_LABEL[admin.role],
-      roles: ADMIN_ROLES.map((role) => ({
-        name: role,
-        label: ROLE_LABEL[role],
-        description: ROLE_DESCRIPTION[role],
-      })),
-    };
+  async me(@CurrentAdmin() admin: AdminIdentity) {
+    return { ...admin, roles: await this.roles.summaries() };
   }
 
   /**
@@ -215,8 +246,8 @@ export class AdminController {
    * seeded password must be able to, and requiring anything higher would lock
    * them out of the console entirely.
    */
-  @RequirePermission('overview.read')
-  @AllowsPendingPasswordChange()
+  @SignedIn()
+  @AllowsPendingSetup()
   @HttpCode(200)
   @Post('me/password')
   async changeOwnPassword(
@@ -254,19 +285,38 @@ export class AdminController {
     @Query('plan') plan?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
+    @Query('status') status?: string,
+    @Query('seen') seen?: string,
+    @Query('tag') tag?: string,
+    @Query('platform') platform?: string,
+    @Query('twoFactor') twoFactor?: string,
+    @Query('full') full?: string,
   ) {
     return this.admin.users({
       q,
       plan,
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
+      sort,
+      dir,
+      status,
+      seen,
+      tag,
+      platform,
+      twoFactor,
+      full,
     });
   }
 
   @RequirePermission('users.read')
   @Get('users/:id')
-  user(@Param('id') id: string) {
-    return this.admin.user(id);
+  async user(@Param('id') id: string, @CurrentAdmin() admin: AdminIdentity) {
+    const result = await this.admin.user(id);
+    // After the read, so a 404 for a mistyped id leaves no trace.
+    await this.audit.recordView(admin, 'user', id);
+    return result;
   }
 
   @RequirePermission('users.disable')
@@ -277,13 +327,14 @@ export class AdminController {
     @CurrentAdmin() admin: AdminIdentity,
   ) {
     const result = await this.admin.setUserDisabled(id, dto.disabled, dto.reason);
+    const emailed = dto.notify ? await this.customers.notifySuspension(id, dto.disabled) : false;
     await this.audit.record(admin, {
       action: dto.disabled ? 'user.disable' : 'user.enable',
       targetType: 'user',
       targetId: id,
-      detail: { email: result.email, reason: dto.reason ?? null },
+      detail: { email: result.email, reason: dto.reason ?? null, emailed },
     });
-    return result;
+    return { ...result, emailed };
   }
 
   @RequirePermission('users.setPlan')
@@ -533,12 +584,33 @@ export class AdminController {
   auditLog(
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('adminId') adminId?: string,
+    @Query('action') action?: string,
+    @Query('targetType') targetType?: string,
     @Query('targetId') targetId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('includeViews') includeViews?: string,
   ) {
+    const date = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
+    const uuid = (v?: string) =>
+      v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : undefined;
     return this.audit.list({
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
+      adminId: uuid(adminId),
+      action,
+      targetType,
       targetId,
+      from: date(from),
+      to: date(to),
+      includeViews: includeViews === 'true',
     });
+  }
+
+  @RequirePermission('audit.read')
+  @Get('audit/facets')
+  auditFacets() {
+    return this.audit.facets();
   }
 }

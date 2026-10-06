@@ -29,12 +29,14 @@ function layout(options: {
   intro: string;
   /** Large, copyable verification code shown between the intro and CTA. */
   code?: string;
+  /** Somebody's own words, quoted under the intro with their line breaks kept. */
+  quote?: string;
   cta?: { label: string; url: string };
   /** Sits under the button, usually the raw URL and how long it lasts. */
   fineprint?: string[];
   outro?: string;
 }): string {
-  const { heading, intro, code, cta, fineprint = [], outro } = options;
+  const { heading, intro, code, quote, cta, fineprint = [], outro } = options;
 
   return `<!doctype html>
 <html lang="en">
@@ -60,6 +62,12 @@ function layout(options: {
       <div style="background:${CARD};border:1px solid ${BORDER};border-radius:16px;padding:32px;">
         <h1 style="margin:0 0 12px;font-size:21px;line-height:1.3;font-weight:700;color:${INK};">${escapeHtml(heading)}</h1>
         <p style="margin:0;font-size:15px;line-height:1.6;color:${MUTED};">${escapeHtml(intro)}</p>
+
+        ${
+          quote
+            ? `<div style="margin:18px 0 0;padding:14px 16px;border-left:3px solid ${BORDER};background:${PAPER};border-radius:0 10px 10px 0;font-size:15px;line-height:1.6;color:${INK};white-space:pre-wrap;">${escapeHtml(quote)}</div>`
+            : ''
+        }
 
         ${
           code
@@ -619,6 +627,98 @@ export function eventInvite(options: {
  * The point is the same as passwordChanged: if this was not you, this email is
  * how you find out, and it names the date so nobody has to guess.
  */
+/**
+ * Support answered a ticket.
+ *
+ * The reply itself is in the email, so it can be read without opening the
+ * app; the link opens the thread to answer back. Plain text in both parts —
+ * a staff member's words are never treated as HTML.
+ */
+export function supportReply(options: {
+  name: string;
+  subject: string;
+  agent: string;
+  reply: string;
+  url: string;
+  /** Files sent with the reply. Never attached here: they stay behind sign-in. */
+  files?: number;
+  /** The reply resolved or closed the ticket, which is when a rating is asked for. */
+  resolved?: boolean;
+}): RenderedEmail {
+  const excerpt =
+    options.reply.length > 1200 ? `${options.reply.slice(0, 1200).trimEnd()}…` : options.reply;
+  const intro = `Hi ${options.name}, ${options.agent} from Virgo support replied to "${options.subject}":`;
+  const files = options.files
+    ? options.files === 1
+      ? `${options.agent} sent a file with this. Open the conversation to see it.`
+      : `${options.agent} sent ${options.files} files with this. Open the conversation to see them.`
+    : null;
+  const outro = options.resolved
+    ? 'We have marked this resolved. If it is not, reply and it opens again; if it is, you can tell us how we did.'
+    : 'Reply in the app or on the web so the whole conversation stays in one place.';
+  return {
+    subject: `Re: ${options.subject}`,
+    html: layout({
+      heading: 'Support replied',
+      intro,
+      quote: excerpt,
+      cta: { label: 'Open the conversation', url: options.url },
+      outro: files ? `${files} ${outro}` : outro,
+    }),
+    text: [
+      intro,
+      '',
+      excerpt,
+      '',
+      ...(files ? [files] : []),
+      outro,
+      '',
+      `Open the conversation: ${options.url}`,
+    ].join('\n'),
+  };
+}
+
+/**
+ * Staff suspended the account.
+ *
+ * Says what happened and how to ask about it, and nothing about why: the
+ * reason recorded in the console is an internal note, and wording a policy
+ * decision for the person it concerns is a reply, not a template.
+ */
+export function accountSuspended(options: { name: string }): RenderedEmail {
+  const intro = `Hi ${options.name}, your Virgo account has been suspended. You will not be able to sign in while it is. Nothing has been deleted — your workspaces, albums and files are kept as they are.`;
+  return {
+    subject: 'Your Virgo account has been suspended',
+    html: layout({
+      heading: 'Your account is suspended',
+      intro,
+      outro: 'If you think this is a mistake, reply to this email or write to support@virgo.ph and we will look at it.',
+    }),
+    text: [
+      'Your account is suspended',
+      '',
+      intro,
+      '',
+      'If you think this is a mistake, reply to this email or write to support@virgo.ph.',
+    ].join('\n'),
+  };
+}
+
+/** Staff lifted a suspension. */
+export function accountRestored(options: { name: string; url: string }): RenderedEmail {
+  const intro = `Hi ${options.name}, your Virgo account is active again. You can sign in as before, and everything is where you left it.`;
+  return {
+    subject: 'Your Virgo account is active again',
+    html: layout({
+      heading: 'Welcome back',
+      intro,
+      cta: { label: 'Sign in', url: options.url },
+      outro: 'Questions? Reply to this email or write to support@virgo.ph.',
+    }),
+    text: ['Your account is active again', '', intro, '', `Sign in: ${options.url}`].join('\n'),
+  };
+}
+
 export function accountDisabled(options: {
   name: string;
   until: string;

@@ -60,6 +60,18 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* The small uppercase label Termix puts over every section, stat and filter.
+   One utility, so a table header, a stat label and a palette group read as
+   the same thing. */
+@utility caption {
+  font-size: 11px;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
 /* The palette itself — :root and .dark — is generated from design/tokens.json
    into tokens.css, imported above. It used to be written out here by hand,
    under a comment claiming it matched the phone app, which it did not. */

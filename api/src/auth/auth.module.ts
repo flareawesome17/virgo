@@ -41,6 +41,9 @@ import { TwoFactorService } from './two-factor.service';
     UsersRepository,
     TwoFactorService,
   ],
-  exports: [AuthService],
+  // The console reuses these rather than keeping copies: a reset email, a
+  // verification link and a deletion from the console must be exactly the
+  // ones the app sends and does.
+  exports: [AuthService, AccountService, AccountFlowsService, UsersRepository],
 })
 export class AuthModule {}

@@ -84,7 +84,8 @@ export const queryClient = new QueryClient({
 // v6: the chat list and every thread are paged, comments come with an
 // `earlier` flag and profile work with a cursor. A saved thread is one array,
 // which the paged thread reads as no pages at all.
-const CACHE_VERSION = 'v6-chat-paged';
+// v7: a support thread's messages carry their files, and its ticket a rating.
+const CACHE_VERSION = 'v7-support-files';
 
 /**
  * Queries never written to disk, whatever their staleTime says.
