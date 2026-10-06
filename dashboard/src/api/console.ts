@@ -1,7 +1,14 @@
 import { api } from './client';
 
-/** Mirrors ADMIN_ROLES in api/src/admin/rbac.ts. */
-export type AdminRole = 'owner' | 'admin' | 'support' | 'viewer';
+/** A role's name: one of the four built in, or a custom role's slug. */
+export type AdminRole = string;
+
+export interface RoleSummary {
+  name: AdminRole;
+  label: string;
+  description: string;
+  system: boolean;
+}
 
 export interface AdminMe {
   id: string;
@@ -10,9 +17,106 @@ export interface AdminMe {
   role: AdminRole;
   roleLabel: string;
   permissions: string[];
-  /** True while the account still holds the password the server generated. */
+  /** True while the account still holds a password somebody else chose. */
   mustChangePassword: boolean;
-  roles: { name: AdminRole; label: string; description: string }[];
+  twoFactorEnabled: boolean;
+  /** Their role requires two-factor. */
+  twoFactorRequired: boolean;
+  /** Their role requires two-factor and they have not set it up. */
+  mustSetUpTwoFactor: boolean;
+  sessionId?: string;
+  roles: RoleSummary[];
+}
+
+export interface SessionRow {
+  id: string;
+  admin_id: string;
+  admin_name: string;
+  admin_email: string;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+}
+
+export type LoginOutcome = 'success' | 'bad_password' | 'bad_code' | 'locked' | 'disabled' | 'unknown';
+
+export interface LoginEvent {
+  id: string;
+  admin_id: string | null;
+  admin_name: string | null;
+  email: string;
+  outcome: LoginOutcome;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface MySecurity {
+  twoFactorEnabled: boolean;
+  recoveryCodesLeft: number;
+  currentSessionId: string | null;
+  sessions: SessionRow[];
+  logins: LoginEvent[];
+}
+
+export interface PermissionGroup {
+  key: string;
+  label: string;
+  permissions: { key: string; label: string; description: string }[];
+}
+
+export interface Role {
+  name: AdminRole;
+  label: string;
+  description: string;
+  system: boolean;
+  requiresTwoFactor: boolean;
+  members: number;
+  /** As stored for a custom role, `area.*` wildcards included. Empty for built-in. */
+  grants: string[];
+  /** What the role actually allows, wildcards expanded. */
+  permissions: string[];
+}
+
+export interface RoleInput {
+  label?: string;
+  description?: string;
+  permissions?: string[];
+  requiresTwoFactor?: boolean;
+}
+
+export interface AuditEntry {
+  id: string;
+  admin_id: string | null;
+  admin_email: string;
+  admin_name: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  /** The person behind a user id, when the target is one. */
+  target_label: string | null;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export type AuditQuery = {
+  limit?: number;
+  offset?: number;
+  adminId?: string;
+  action?: string;
+  targetType?: string;
+  targetId?: string;
+  from?: string;
+  to?: string;
+  includeViews?: 'true';
+};
+
+export interface PresenceOther {
+  adminId: string;
+  name: string;
+  state: 'viewing' | 'replying';
 }
 
 export interface Paged<T> {
@@ -161,9 +265,17 @@ export interface ConsoleAccount {
   email: string;
   name: string;
   role: AdminRole;
+  role_label: string;
   disabled_at: string | null;
   last_login_at: string | null;
   created_at: string;
+  must_change_password: boolean;
+  two_factor: boolean;
+  role_requires_two_factor: boolean;
+  /** Set only while the lock is in force. */
+  locked_until: string | null;
+  failed_logins: number;
+  sessions: number;
   permissions: string[];
 }
 
@@ -328,16 +440,43 @@ export const console_ = {
   grantPromo: (id: string, userIds: string[]) =>
     api.post<{ granted: number }>(`/admin/promos/${id}/grants`, { userIds }),
 
-  audit: (p: { limit?: number; offset?: number; targetId?: string }) =>
-    api.get<
-      Paged<{
-        id: string;
-        admin_email: string;
-        action: string;
-        target_type: string | null;
-        target_id: string | null;
-        detail: Record<string, unknown>;
-        created_at: string;
-      }>
-    >(`/admin/audit${qs(p)}`),
+  audit: (p: AuditQuery) => api.get<Paged<AuditEntry>>(`/admin/audit${qs(p)}`),
+  auditFacets: () =>
+    api.get<{ actions: string[]; admins: { id: string; name: string; email: string }[] }>(
+      '/admin/audit/facets',
+    ),
+
+  // ─── your own security ──────────────────────────────────────────────────
+  mySecurity: () => api.get<MySecurity>('/admin/me/security'),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post<{ ok: true; reauthenticate: true }>('/admin/me/password', {
+      currentPassword,
+      newPassword,
+    }),
+  startTwoFactor: () => api.post<{ secret: string; uri: string }>('/admin/me/2fa/setup'),
+  enableTwoFactor: (code: string) =>
+    api.post<{ recoveryCodes: string[] }>('/admin/me/2fa/enable', { code }),
+  disableTwoFactor: (password: string) => api.post('/admin/me/2fa/disable', { password }),
+  regenerateRecoveryCodes: (code: string) =>
+    api.post<{ recoveryCodes: string[] }>('/admin/me/2fa/recovery-codes', { code }),
+  endMySession: (id: string) => api.delete(`/admin/me/sessions/${id}`),
+  endMyOtherSessions: () => api.post<{ ended: number }>('/admin/me/sessions/end-others'),
+
+  // ─── the team's security ────────────────────────────────────────────────
+  logins: (p: { adminId?: string; outcome?: string; limit?: number; offset?: number }) =>
+    api.get<Paged<LoginEvent>>(`/admin/security/logins${qs(p)}`),
+  sessions: () => api.get<SessionRow[]>('/admin/security/sessions'),
+  endSession: (id: string) => api.delete(`/admin/security/sessions/${id}`),
+  unlockAccount: (id: string) => api.post(`/admin/accounts/${id}/unlock`),
+  resetTwoFactor: (id: string) => api.post(`/admin/accounts/${id}/2fa/reset`),
+
+  roles: () => api.get<{ roles: Role[]; catalog: PermissionGroup[] }>('/admin/roles'),
+  createRole: (input: RoleInput) => api.post<{ name: string }>('/admin/roles', input),
+  updateRole: (name: string, input: RoleInput) => api.patch(`/admin/roles/${name}`, input),
+  removeRole: (name: string) => api.delete(`/admin/roles/${name}`),
+
+  presence: (targetType: 'user' | 'ticket', targetId: string, state: 'viewing' | 'replying') =>
+    api.post<{ others: PresenceOther[] }>('/admin/presence', { targetType, targetId, state }),
+  leavePresence: (targetType: 'user' | 'ticket', targetId: string) =>
+    api.post('/admin/presence/leave', { targetType, targetId }),
 };

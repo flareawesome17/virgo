@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useMe, useOverview } from '@/hooks/useConsole';
 import {
@@ -14,6 +15,7 @@ import {
   num,
 } from '@/components/console/primitives';
 import { FilterChips } from '@/components/console/data-table';
+import { NAV } from '@/components/console/nav';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -24,9 +26,20 @@ const WINDOWS = [
 ] as const;
 
 export default function OverviewPage() {
-  const { can } = useMe();
+  const router = useRouter();
+  const { me, can } = useMe();
   const [days, setDays] = useState<'7' | '30' | '90'>('30');
-  const { data, isLoading, isError, refetch } = useOverview(Number(days));
+  const allowed = can('overview.read');
+  const { data, isLoading, isError, refetch } = useOverview(Number(days), allowed);
+
+  // A custom role need not include the overview. Its home is then the first
+  // page it can open, rather than a page of 403s.
+  useEffect(() => {
+    if (!me || allowed) return;
+    const first = NAV.flatMap((g) => g.items).find((i) => me.permissions.includes(i.permission));
+    router.replace(first?.href ?? '/account');
+  }, [me, allowed, router]);
+  if (!allowed) return null;
 
   return (
     <>

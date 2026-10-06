@@ -110,7 +110,7 @@ function CreatePromoDialog() {
           New promo
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>New promo</DialogTitle>
           <DialogDescription>
@@ -268,7 +268,7 @@ function GrantDialog({ promo }: { promo: Promo }) {
           Offer to…
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Offer “{promo.name}”</DialogTitle>
           <DialogDescription>

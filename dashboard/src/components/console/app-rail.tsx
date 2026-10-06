@@ -197,12 +197,15 @@ export function RailFooter({
   expanded,
   pinned,
   onPinnedChange,
+  onNavigate,
 }: {
   me: AdminMe;
   expanded: boolean;
   pinned?: boolean;
   onPinnedChange?: (pinned: boolean) => void;
+  onNavigate?: () => void;
 }) {
+  const pathname = usePathname();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const current = THEMES.find((t) => t.value === theme) ?? THEMES[2];
@@ -240,15 +243,33 @@ export function RailFooter({
         </button>
       )}
 
-      <div className="flex h-11 items-center gap-3 px-1" title={expanded ? undefined : me.email}>
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-bold text-primary">
+      {/* Your own account: password, two-factor, sessions. */}
+      <Link
+        href="/account"
+        onClick={onNavigate}
+        aria-current={pathname === '/account' ? 'page' : undefined}
+        title={expanded ? undefined : `${me.name} — My account`}
+        className={cn(
+          'flex h-11 items-center gap-3 rounded-md px-1 transition-colors hover:bg-sidebar-accent',
+          pathname === '/account' && 'bg-primary/10',
+        )}
+      >
+        <span className="relative grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-bold text-primary">
           {me.name.slice(0, 2).toUpperCase()}
+          {!me.twoFactorEnabled && (
+            <span
+              className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-sidebar bg-warning"
+              aria-label="Two-factor is off"
+            />
+          )}
         </span>
         <span className={cn('min-w-0 flex-1 leading-tight', !expanded && 'invisible')}>
           <span className="block truncate text-sm font-medium">{me.name}</span>
-          <span className="block truncate text-[11px] text-muted-foreground">{me.email}</span>
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {me.twoFactorEnabled ? me.email : 'Two-factor is off'}
+          </span>
         </span>
-      </div>
+      </Link>
 
       <button
         type="button"

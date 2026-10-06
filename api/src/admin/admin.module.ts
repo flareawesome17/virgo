@@ -5,11 +5,15 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { StorageModule } from '../storage/storage.module';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminAuthService } from './admin-auth.service';
+import { AdminRolesService } from './admin-roles.service';
+import { AdminSecurityController } from './admin-security.controller';
+import { AdminSecurityService } from './admin-security.service';
 import { AdminSeedService } from './admin-seed.service';
 import { AdminAuthController, AdminController } from './admin.controller';
 import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
 import { AuditService } from './audit.service';
+import { PresenceService } from './presence.service';
 import { AdminSupportController, SupportController } from './support.controller';
 import { SupportService } from './support.service';
 import { VisitsModule } from '../visits/visits.module';
@@ -44,6 +48,7 @@ import { AdminPromosController } from '../promos/admin-promos.controller';
   controllers: [
     AdminAuthController,
     AdminController,
+    AdminSecurityController,
     AdminSupportController,
     SupportController,
     AdminPromosController,
@@ -56,6 +61,9 @@ import { AdminPromosController } from '../promos/admin-promos.controller';
     AdminGuard,
     AuditService,
     SupportService,
+    AdminSecurityService,
+    AdminRolesService,
+    PresenceService,
   ],
 })
 export class AdminModule {}

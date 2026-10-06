@@ -6,10 +6,12 @@ import { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import {
   useMe,
+  usePresence,
   useSetUserDisabled,
   useSetUserPlan,
   useUser,
 } from '@/hooks/useConsole';
+import { PresenceBar } from '@/components/console/presence';
 import { DataTable, type Column } from '@/components/console/data-table';
 import {
   DataState,
@@ -148,6 +150,7 @@ export default function VirgoUserDetailPage() {
   const name = u ? String(u.display_name || u.email || 'Account') : undefined;
 
   useRecordTab({ href: `/virgo-users/${id}`, kind: 'user', title: name });
+  const others = usePresence('user', id);
 
   // An account can carry a plan the catalogue no longer lists — `pro`, the old
   // name for Freelancer. Offered as-is, so the picker shows what it has rather
@@ -187,7 +190,8 @@ export default function VirgoUserDetailPage() {
                   {u.handle ? ` · @${String(u.handle)}` : ''}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <PresenceBar others={others} />
                 <Badge variant="secondary" className="capitalize">
                   {String(u.plan)}
                 </Badge>
