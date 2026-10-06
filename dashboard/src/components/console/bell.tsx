@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Popover } from 'radix-ui';
-import { Bell, Inbox, MessageCircleReply, UserRoundCheck } from 'lucide-react';
+import { Bell, Inbox, MessageCircleReply, Star, UserRoundCheck } from 'lucide-react';
 import type { StaffNotification } from '@/api/console';
 import { useMarkNotificationsRead, useStaffNotifications } from '@/hooks/useConsole';
 import { when } from './primitives';
@@ -13,11 +13,12 @@ const ICON = {
   'ticket.new': Inbox,
   'ticket.assigned': UserRoundCheck,
   'ticket.reply': MessageCircleReply,
+  'ticket.rated': Star,
 } as const;
 
 /**
- * The console's bell: a ticket came in, one was handed to you, or a customer
- * wrote back. Opening one marks it read and goes to the ticket.
+ * The console's bell: a ticket came in, one was handed to you, a customer
+ * wrote back, or rated how it went. Opening one marks it read and goes to the ticket.
  */
 export function NotificationBell() {
   const router = useRouter();

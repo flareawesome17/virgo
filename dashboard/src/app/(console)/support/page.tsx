@@ -27,6 +27,7 @@ import {
   when,
 } from '@/components/console/primitives';
 import { PRIORITY_VARIANT, STATUS_TONE, dueLabel } from '@/components/console/support';
+import { Stars } from '@/components/console/support-files';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -138,6 +139,13 @@ const COLUMNS: Column<Ticket>[] = [
         <span className="text-xs text-muted-foreground">nobody yet</span>
       ),
     csv: (t) => t.assigned_name,
+  },
+  {
+    id: 'rating',
+    header: 'Rating',
+    cell: (t) =>
+      t.rating ? <Stars value={t.rating} /> : <span className="text-xs text-muted-foreground">—</span>,
+    csv: (t) => t.rating ?? '',
   },
   {
     id: 'updated',
@@ -310,6 +318,21 @@ function InsightsTab() {
       className: 'text-right tabular-nums',
       cell: (a) => hoursLabel(a.first_reply_hours),
     },
+    {
+      id: 'satisfied',
+      header: 'Satisfied',
+      sort: (a) => (a.ratings ? (a.satisfied ?? 0) : -1),
+      className: 'text-right tabular-nums',
+      cell: (a) =>
+        a.ratings ? (
+          <span title={`${a.ratings} rating${a.ratings === 1 ? '' : 's'}`}>
+            {Math.round((a.satisfied ?? 0) * 100)}%{' '}
+            <span className="text-xs text-muted-foreground">of {num(a.ratings)}</span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
   ];
 
   return (
@@ -328,6 +351,18 @@ function InsightsTab() {
                   label: 'Answered on time',
                   value: data.speed.on_time === null ? '—' : `${Math.round(data.speed.on_time * 100)}%`,
                   hint: `median resolution ${hoursLabel(data.speed.resolution_hours)}`,
+                },
+                {
+                  // The share who gave 4 or 5, which moves when service
+                  // does; an average hides a run of ones behind a few fives.
+                  label: 'Satisfied',
+                  value:
+                    data.ratings?.count && data.ratings.satisfied !== null
+                      ? `${Math.round(data.ratings.satisfied * 100)}%`
+                      : '—',
+                  hint: data.ratings?.count
+                    ? `${num(data.ratings.count)} rating${data.ratings.count === 1 ? '' : 's'}, average ${(data.ratings.average ?? 0).toFixed(1)}`
+                    : 'no ratings yet',
                 },
               ]}
             />
