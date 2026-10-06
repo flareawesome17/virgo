@@ -79,6 +79,7 @@ export function usePersonSafety({
   blockId,
   onBlocked,
   onUnblocked,
+  messages,
 }: {
   name: string;
   target: PersonRef | null;
@@ -86,6 +87,11 @@ export function usePersonSafety({
   blockId?: string | null;
   onBlocked?: (block: BlockedPerson) => void;
   onUnblocked?: () => void;
+  /**
+   * A chat's latest messages to offer with a report, read when the report
+   * opens. The sheet says so and lets them be left out.
+   */
+  messages?: () => { conversationId: string; messageIds: string[] } | null;
 }) {
   const block = useBlockPerson();
   const unblock = useUnblock();
@@ -94,6 +100,9 @@ export function usePersonSafety({
 
   const [reportOpen, setReportOpen] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [attached, setAttached] = useState<{ conversationId: string; messageIds: string[] } | null>(
+    null,
+  );
   /** What to show once the report sheet has finished closing. */
   const after = useRef<(() => void) | null>(null);
 
@@ -126,14 +135,17 @@ export function usePersonSafety({
   const openReport = () => {
     if (!target) return;
     setReportError(null);
+    // As the chat is now: what the person sees on screen as they report.
+    const found = messages?.() ?? null;
+    setAttached(found && found.messageIds.length > 0 ? found : null);
     setReportOpen(true);
   };
 
-  const submitReport = (reason: UserReportReason, note: string) => {
+  const submitReport = (reason: UserReportReason, note: string, included: boolean) => {
     if (!target) return;
     setReportError(null);
     report.mutate(
-      { ref: target, reason, note, from: source },
+      { ref: target, reason, note, from: source, messages: included && attached ? attached : undefined },
       {
         onSuccess: () => {
           // Queued, not shown: the sheet is still on screen, and iOS drops an
@@ -161,6 +173,14 @@ export function usePersonSafety({
       pending={report.isPending}
       error={reportError}
       onSubmit={submitReport}
+      include={
+        attached
+          ? {
+              label: `Include the last ${attached.messageIds.length} message${attached.messageIds.length === 1 ? '' : 's'}`,
+              detail: 'From this chat, so we can see what happened. Only Virgo’s safety team reads them.',
+            }
+          : null
+      }
       onClose={() => setReportOpen(false)}
       onClosed={() => {
         const run = after.current;
