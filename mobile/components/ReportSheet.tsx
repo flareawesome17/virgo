@@ -142,6 +142,9 @@ export function ReportSheet<T extends string>({
               disabled={pending}
               accessibilityLabel={include.label}
               trackColor={{ true: palette.primary, false: palette.border }}
+              // White on every platform, as the app's other switches are;
+              // left alone, Android and the web draw it in their own colour.
+              thumbColor="#FFFFFF"
             />
           </View>
         ) : null}
