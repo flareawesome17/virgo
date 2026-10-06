@@ -295,6 +295,38 @@ function withoutContentLength(
 }
 
 /**
+ * Streams a file on this device to a signed PUT, reporting progress — the
+ * transfer half of uploadFile, for tickets minted elsewhere (support
+ * attachments). Content-Length is dropped for the reason given in uploadFile.
+ */
+export async function putFileToBucket(
+  fileUri: string,
+  ticket: { uploadUrl: string; requiredHeaders: Record<string, string> },
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
+  const task = FileSystem.createUploadTask(
+    ticket.uploadUrl,
+    fileUri,
+    {
+      httpMethod: 'PUT',
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      headers: withoutContentLength(ticket.requiredHeaders),
+    },
+    (data) => {
+      if (data.totalBytesExpectedToSend > 0) {
+        onProgress?.(Math.min(data.totalBytesSent / data.totalBytesExpectedToSend, 1));
+      }
+    },
+  );
+  const response = await task.uploadAsync();
+  if (!response) throw new ApiError(0, 'Upload was cancelled.');
+  if (response.status < 200 || response.status >= 300) {
+    throw new ApiError(response.status, 'Upload failed. Please try again.');
+  }
+  onProgress?.(1);
+}
+
+/**
  * The largest single file the API will issue a ticket for.
  *
  * Mirrors MAX_UPLOAD_BYTES in api/src/storage/storage.config.ts. Duplicated
