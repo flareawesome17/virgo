@@ -46,7 +46,7 @@ export function InvitePeople({
   onChange,
   /** Already invited; shown as such rather than offered again. */
   disabledIds = [],
-  emptyHint = 'Add friends from the Network screen to invite them to events.',
+  emptyHint = 'Connect with people in People to invite them to events.',
 }: {
   selected: string[];
   onChange: (ids: string[]) => void;

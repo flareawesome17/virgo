@@ -15,7 +15,7 @@ import {
   ShieldOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -189,7 +189,7 @@ export default function TwoFactorSettingsPage() {
   };
 
   return (
-    <AppShell title="Two-factor authentication">
+    <Screen title="Two-factor authentication">
       <PageHeader
         title={
           <span className="flex items-center gap-2">
@@ -279,7 +279,7 @@ export default function TwoFactorSettingsPage() {
           </p>
         )}
       </div>
-    </AppShell>
+    </Screen>
   );
 }
 

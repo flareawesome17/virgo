@@ -8,11 +8,10 @@ import {
   HardDrive,
   Images,
   MessageCircle,
-  Plus,
   UserPlus,
   Users,
 } from 'lucide-react';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -99,21 +98,17 @@ export default function HomePage() {
   ];
 
   return (
-    <AppShell title="Dashboard">
-      <PageHeader
-        title={`${greeting()}${name ? `, ${name}` : ''}`}
-        description="Everything on your plate today."
-        actions={
-          <Button asChild>
-            <Link href="/workspaces?new=1">
-              <Plus className="size-4" />
-              New workspace
-            </Link>
-          </Button>
-        }
-      />
-
+    <Screen title="Dashboard">
       <div className="mx-auto w-full max-w-6xl px-6 py-6">
+        {/* The greeting is the page's own; the bar carries its name. The
+            "New workspace" button that sat here is the bar's Create now. */}
+        <div className="mb-6">
+          <h1 className="text-xl font-bold tracking-tight">
+            {`${greeting()}${name ? `, ${name}` : ''}`}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">Everything on your plate today.</p>
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {stats.map((stat) => {
@@ -292,20 +287,11 @@ export default function HomePage() {
 
             <Card>
               <CardContent className="py-5">
+                {/* Making things is the bar's Create, as on the phone, which
+                    dropped its own quick-create row; these two are ways to
+                    other people, which Create does not do. */}
                 <h3 className="text-sm font-semibold">Quick actions</h3>
                 <div className="mt-3 flex flex-col gap-2">
-                  <Button asChild variant="outline" size="sm" className="justify-start">
-                    <Link href="/workspaces?new=1">
-                      <FolderOpen className="size-4" />
-                      New workspace
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm" className="justify-start">
-                    <Link href="/schedule?new=1">
-                      <CalendarDays className="size-4" />
-                      Schedule an event
-                    </Link>
-                  </Button>
                   <Button asChild variant="outline" size="sm" className="justify-start">
                     <Link href="/network">
                       <UserPlus className="size-4" />
@@ -324,6 +310,6 @@ export default function HomePage() {
           </aside>
         </div>
       </div>
-    </AppShell>
+    </Screen>
   );
 }

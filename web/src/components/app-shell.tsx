@@ -3,23 +3,39 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { useState, type ComponentType, type ReactNode } from 'react';
 import {
-  Bell,
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentType,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { useTheme } from 'next-themes';
+import {
   BriefcaseBusiness,
-  FileText,
-  Gift,
-  LifeBuoy,
   CalendarDays,
   FolderOpen,
+  Gift,
   Home,
-  LayoutGrid,
   Images,
+  LayoutGrid,
+  LifeBuoy,
   LogOut,
-  MapPin,
-  MessageCircle,
   Menu,
+  MessageCircle,
+  Monitor,
+  Moon,
+  PencilLine,
   Settings,
+  Sun,
+  UserRound,
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -33,26 +49,33 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/useAuth';
 import { useUnreadCount } from '@/hooks/useChat';
 import { useCollaboratorInvitations } from '@/hooks/useCollaborators';
 import { usePeopleUnseen } from '@/hooks/useFriends';
+import { useProfileSettings } from '@/hooks/useProfile';
 import { SidebarFriends } from '@/components/sidebar-friends';
 import { useEventInvitations } from '@/hooks/useScheduleEvents';
 import { useUnseenJobs } from '@/hooks/useJobs';
 import { usePromoOffers } from '@/hooks/usePromos';
-import { useUnreadNotifications } from '@/hooks/useNotifications';
 import { NotificationBell } from '@/components/notification-bell';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
 import { DesktopUpdateBanner } from '@/components/desktop-update-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { UploadDock } from '@/components/upload/upload-dock';
-
 import { DesktopTitleBar } from '@/components/desktop-title-bar';
+import { CreateMenu } from '@/components/shell/create';
+import { useHydrated } from '@/lib/hydration';
+
+type BadgeKind = 'unread' | 'invitations' | 'friendRequests' | 'eventInvites' | 'newJobs';
 
 interface NavItem {
   href: string;
@@ -61,53 +84,54 @@ interface NavItem {
   /** Other routes that belong to this item, so it stays lit on them. */
   also?: string[];
   /** Which live count fills this item's badge slot, if any. */
-  badge?:
-    | 'unread'
-    | 'invitations'
-    | 'friendRequests'
-    | 'eventInvites'
-    | 'newJobs'
-    | 'rewards'
-    | 'notifications';
+  badge?: BadgeKind;
 }
 
+/*
+ * Eight places, grouped as the phone groups them: its tabs first, then the
+ * work, then the people. Notifications live behind the bell, and Rewards,
+ * Support and Settings behind your picture, as they do on the phone; they
+ * were thirteen rows here, competing with the places you actually go.
+ *
+ * Bookings and Nearby keep their pages and are reached from Jobs and People
+ * until those pages take them in as tabs.
+ */
 const NAV: { heading?: string; items: NavItem[] }[] = [
   {
     items: [
       { href: '/', label: 'Dashboard', icon: Home },
       // A post opened from the feed is still the feed.
       { href: '/feed', label: 'Feed', icon: LayoutGrid, also: ['/showcase'] },
+      // A booking is where a job ends up.
+      {
+        href: '/jobs/mine',
+        label: 'Jobs',
+        icon: BriefcaseBusiness,
+        also: ['/jobs', '/bookings', '/hire'],
+        badge: 'newJobs',
+      },
+    ],
+  },
+  {
+    heading: 'Work',
+    items: [
       { href: '/workspaces', label: 'Workspaces', icon: FolderOpen, badge: 'invitations' },
-      // Every album across every workspace. There was no way to reach an album
-      // on the web without first remembering which workspace it was in.
+      // Every album across every workspace.
       { href: '/albums', label: 'Albums', icon: Images },
       { href: '/schedule', label: 'Schedule', icon: CalendarDays, badge: 'eventInvites' },
     ],
   },
   {
-    heading: 'People',
+    heading: 'Connect',
     items: [
-      { href: '/network', label: 'People', icon: Users, badge: 'friendRequests' },
-      { href: '/chat', label: 'Chat', icon: MessageCircle, badge: 'unread' },
-      { href: '/nearby', label: 'Nearby', icon: MapPin },
-      { href: '/jobs/mine', label: 'Jobs', icon: BriefcaseBusiness, badge: 'newJobs' },
-      // Beside Jobs, because a booking is where a job ends up.
-      { href: '/bookings', label: 'Bookings', icon: FileText },
-      // In the sidebar as well as behind the bell. The page used to be reachable
-      // only from a small link at the foot of the bell's popover, and people
-      // looking for somewhere to read their notifications did not find it.
-      { href: '/notifications', label: 'Notifications', icon: Bell, badge: 'notifications' },
-    ],
-  },
-  {
-    // Its own group at the bottom rather than buried in settings. During a
-    // pre-release the most valuable thing a user can do is tell you what
-    // broke, and a support link nobody finds collects nothing.
-    items: [
-      // Badged, because an offer can expire — a reward nobody noticed in time
-      // is worse than no reward at all.
-      { href: '/rewards', label: 'Rewards', icon: Gift, badge: 'rewards' },
-      { href: '/support', label: 'Support', icon: LifeBuoy },
+      { href: '/chat', label: 'Messages', icon: MessageCircle, badge: 'unread' },
+      {
+        href: '/network',
+        label: 'People',
+        icon: Users,
+        also: ['/nearby', '/u'],
+        badge: 'friendRequests',
+      },
     ],
   },
 ];
@@ -119,6 +143,24 @@ function initials(name: string | null | undefined, email: string | undefined): s
   return source.slice(0, 2).toUpperCase();
 }
 
+function isActive(item: NavItem, pathname: string): boolean {
+  // Exact match for the root, prefix for everything else, so /workspaces/abc
+  // still lights up Workspaces.
+  if (item.href === '/') return pathname === '/';
+  return [item.href, ...(item.also ?? [])].some(
+    (href) => pathname === href || pathname.startsWith(`${href}/`),
+  );
+}
+
+function CountBadge({ count, className }: { count: number; className?: string }) {
+  if (!(count > 0)) return null;
+  return (
+    <Badge className={cn('h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums', className)}>
+      {count > 99 ? '99+' : count}
+    </Badge>
+  );
+}
+
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const unread = useUnreadCount();
@@ -126,41 +168,32 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   // appear anywhere else — so the count has to live on the nav itself.
   const { invitations } = useCollaboratorInvitations();
   // Connection requests and hire enquiries that arrived since People was last
-  // opened. Kept out of the page so the count is visible from anywhere, which
-  // is the point of a badge; opening People clears it, and the requests stay
-  // listed there until they are answered. Enquiries were counted nowhere.
+  // opened. Opening People clears it; the requests stay listed there.
   const { count: friendRequests } = usePeopleUnseen();
   // Invitations to somebody else's shoot, waiting on an answer.
   const { invitations: eventInvites } = useEventInvitations();
-  // Open postings this user has not looked at, plus applications on their own
-  // posts that nobody has answered. The nav is the only place the second one
-  // surfaces — an application otherwise announced itself over the socket and
-  // by email and left no trace in the app at all.
+  // Open postings not yet looked at, plus unanswered applications on your own.
   const { total: newJobs } = useUnseenJobs();
-  // Rewards waiting to be claimed. Cheap — the list is almost always empty,
-  // and it is the only surface that says an offer arrived.
-  const { offers: rewards } = usePromoOffers();
-  // The same count as the bell's badge — one query, shared through the cache.
-  const { count: notifications } = useUnreadNotifications();
+
+  const counts: Record<BadgeKind, number> = {
+    unread,
+    invitations: invitations.length,
+    friendRequests,
+    eventInvites: eventInvites.length,
+    newJobs,
+  };
 
   return (
-    <nav className="flex flex-col gap-6 px-3 py-2">
+    <nav className="flex flex-col gap-5 px-3 py-2">
       {NAV.map((group, i) => (
-        <div key={group.heading ?? i} className="flex flex-col gap-1">
+        <div key={group.heading ?? i} className="flex flex-col gap-0.5">
           {group.heading && (
             <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {group.heading}
             </p>
           )}
           {group.items.map((item) => {
-            // Exact match for the root, prefix for everything else, so
-            // /workspaces/abc still lights up Workspaces.
-            const active =
-              item.href === '/'
-                ? pathname === '/'
-                : [item.href, ...(item.also ?? [])].some(
-                    (href) => pathname === href || pathname.startsWith(`${href}/`),
-                  );
+            const active = isActive(item, pathname);
             const Icon = item.icon;
             return (
               <Link
@@ -175,61 +208,22 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                     : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground',
                 )}
               >
-                <Icon
-                  className={cn('size-4 shrink-0', active && 'text-primary')}
-                />
+                <Icon className={cn('size-4 shrink-0', active && 'text-primary')} />
                 <span className="flex-1 truncate">{item.label}</span>
-                {item.badge === 'unread' && unread > 0 && (
-                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
-                    {unread > 99 ? '99+' : unread}
-                  </Badge>
-                )}
-                {item.badge === 'eventInvites' && eventInvites.length > 0 && (
-                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
-                    {eventInvites.length > 99 ? '99+' : eventInvites.length}
-                  </Badge>
-                )}
-                {item.badge === 'newJobs' && newJobs > 0 && (
-                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
-                    {newJobs > 99 ? '99+' : newJobs}
-                  </Badge>
-                )}
-                {item.badge === 'friendRequests' && friendRequests > 0 && (
-                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
-                    {friendRequests > 99 ? '99+' : friendRequests}
-                  </Badge>
-                )}
-                {item.badge === 'rewards' && rewards.length > 0 && (
-                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
-                    {rewards.length > 99 ? '99+' : rewards.length}
-                  </Badge>
-                )}
-                {item.badge === 'invitations' && invitations.length > 0 && (
-                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
-                    {invitations.length > 99 ? '99+' : invitations.length}
-                  </Badge>
-                )}
-                {item.badge === 'notifications' && notifications > 0 && (
-                  <Badge className="h-5 min-w-5 justify-center px-1.5 text-[11px] tabular-nums">
-                    {notifications > 99 ? '99+' : notifications}
-                  </Badge>
-                )}
+                {item.badge && <CountBadge count={counts[item.badge]} />}
               </Link>
             );
           })}
         </div>
       ))}
-
     </nav>
   );
 }
 
 function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
-  const { profile, user, signOut } = useAuth();
-
   return (
     <div className="flex h-full flex-col bg-sidebar">
-      <div className="flex h-14 items-center gap-2.5 px-5">
+      <Link href="/" onClick={onNavigate} className="flex h-14 shrink-0 items-center gap-2.5 px-5">
         {/* The mark is transparent, so it sits on either palette without a
             plate behind it. */}
         <Image
@@ -246,211 +240,351 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
             Creative OS
           </p>
         </div>
-      </div>
+      </Link>
 
-      {/* min-h-0 is what makes this scroll instead of grow.
-          A flex item defaults to min-height:auto, so flex-1 alone cannot
-          shrink it below its own content — the nav pushed itself past the
-          bottom of the sidebar, taking the profile button and the last few
-          links off the screen, and never showed a scrollbar because as far
-          as the browser was concerned nothing overflowed. On a short window
-          Support and the sign-out menu were simply unreachable. */}
-      {/* A plain scroller, not Radix's ScrollArea.
-
-          ScrollArea exists to draw a custom scrollbar, and this sidebar wants
-          none — so hiding its bar with a class meant fighting a component for
-          the one thing it is for, and losing if it ever set the property
-          inline. Dropping it removes the argument: the native bar is hidden by
-          `.no-scrollbar`, there is no second bar to hide, and scrolling by
-          wheel, trackpad, keyboard and touch is untouched. */}
+      {/* min-h-0 is what makes this scroll instead of grow; the native bar is
+          hidden by `.no-scrollbar`. */}
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <NavLinks onNavigate={onNavigate} />
       </div>
 
-      {/* Below the destinations, not among them: these are people, and a row
-          that changes colour when somebody signs in does not belong in a list
-          of places. Outside the nav's scroller too — it owns its own, so a
-          long friends list no longer pushes Rewards and Support out of reach.
-          Renders nothing until there are friends with accounts. */}
-      {/* px-3 replaces the padding it used to inherit from the nav, so the
-          rows keep their original indent. min-h-0 rather than shrink-0: on a
-          short window this block gives height back to the nav above it, down
-          to the floor the component sets on itself. */}
-      <div className="min-h-0 px-3">
+      {/* Below the destinations, not among them: these are people. It owns its
+          own scroller, and gives height back to the nav on a short window. */}
+      <div className="min-h-0 px-3 pb-3">
         <SidebarFriends />
-      </div>
-
-      <div className="shrink-0 border-t p-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/60">
-              <Avatar className="size-8">
-                {profile?.avatarUrl && <AvatarImage src={profile.avatarUrl} alt="" />}
-                <AvatarFallback className="bg-primary/15 text-xs font-bold text-primary">
-                  {initials(profile?.displayName, user?.email)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold leading-tight">
-                  {profile?.displayName || 'Your profile'}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {user?.email}
-                </p>
-              </div>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="top" className="w-56">
-            <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
-              {user?.email}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link href="/profile" onClick={onNavigate}>
-                <Users className="size-4" />
-                Profile
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/settings" onClick={onNavigate}>
-                <Settings className="size-4" />
-                Settings
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              onSelect={() => signOut.mutate()}
-            >
-              <LogOut className="size-4" />
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* The running release: the image's version in a browser, the staged
-            bundle's in the desktop app, which until now showed nothing at all.
-            Absent entirely on a local build, because a local build is not a
-            release and labelling it with one would be a small lie told on every
-            screen. */}
-        {RELEASE_LABEL && (
-          <p
-            className="mt-2 px-2 text-center text-[10px] tabular-nums text-muted-foreground/60"
-            title={
-              APP_COMMIT
-                ? `Release ${RELEASE_LABEL} · commit ${APP_COMMIT}`
-                : undefined
-            }
-          >
-            {RELEASE_LABEL}
-          </p>
-        )}
       </div>
     </div>
   );
 }
 
-/**
- * The signed-in frame.
- *
- * A persistent sidebar rather than the app's bottom tab bar: a browser window
- * is wide and long-lived, so navigation belongs where it stays visible and
- * every destination is one click away, instead of five slots competing for the
- * bottom of a phone.
- *
- * Under `lg` it collapses into a sheet, which is the same navigation on a
- * narrow window rather than a second, cut-down one.
- */
-export function AppShell({
-  children,
-  title,
-  actions,
-}: {
-  /**
-   * Shown in the mobile header, where the sidebar is hidden, and used as the
-   * browser tab title.
-   *
-   * One prop for both so a route cannot name itself two different things.
-   * Every signed-in page is a client component, and Next's `metadata` export
-   * is Server Components only, so the tab title has to be set from here.
-   */
-  title?: string;
-  children: ReactNode;
-  actions?: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
+const THEMES = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'System', icon: Monitor },
+] as const;
 
-  /*
-   * `title` names the mobile header only. It does NOT set the browser tab.
-   *
-   * Two ways were tried and neither holds. Assigning document.title from an
-   * effect is overwritten about 7ms later, when Next re-asserts the route's
-   * title from its metadata after client navigation. Rendering a <title> and
-   * letting React 19 hoist it does better but still races: measured on the
-   * deployed build it won on four routes and lost on four, leaving two <title>
-   * elements in the head and the outcome depending on document order.
-   *
-   * Doing this properly means what the Next docs prescribe — `metadata` is
-   * Server Components only, so each page.tsx becomes a thin server component
-   * exporting it, with the client half beside it. That is the right fix and it
-   * is twenty files; it is not something to graft on from here.
-   */
+/**
+ * Your picture, at the end of the bar: who you are, and everything about your
+ * account. The phone keeps Profile and Settings behind the same picture.
+ *
+ * Rewards and Support moved in here from the sidebar, and the theme from the
+ * bar. Rewards marks the picture, because an offer can expire unnoticed.
+ */
+function AccountMenu() {
+  const { profile, user, signOut } = useAuth();
+  const { data: settings } = useProfileSettings();
+  const { offers: rewards } = usePromoOffers();
+  const { theme, setTheme } = useTheme();
+  const hydrated = useHydrated();
+  const publicHref =
+    settings?.handle && settings.published ? `/u/${settings.handle}` : '/profile';
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={rewards.length > 0 ? 'Your account, rewards waiting' : 'Your account'}
+          className="relative ml-0.5 rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <Avatar className="size-8">
+            {profile?.avatarUrl && <AvatarImage src={profile.avatarUrl} alt="" />}
+            <AvatarFallback className="bg-primary/15 text-xs font-bold text-primary">
+              {initials(profile?.displayName, user?.email)}
+            </AvatarFallback>
+          </Avatar>
+          {rewards.length > 0 && (
+            <span
+              aria-hidden
+              className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-background bg-primary"
+            />
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuLabel className="font-normal">
+          <p className="truncate text-sm font-semibold">{profile?.displayName || 'Your profile'}</p>
+          <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href={publicHref}>
+            <UserRound className="size-4" />
+            Your profile
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/profile">
+            <PencilLine className="size-4" />
+            Edit profile
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings">
+            <Settings className="size-4" />
+            Settings
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/rewards">
+            <Gift className="size-4" />
+            <span className="flex-1">Rewards</span>
+            <CountBadge count={rewards.length} />
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/support">
+            <LifeBuoy className="size-4" />
+            Support
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Sun className="size-4" />
+            Theme
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuRadioGroup
+              value={hydrated ? (theme ?? 'system') : undefined}
+              onValueChange={setTheme}
+            >
+              {THEMES.map((option) => {
+                const Icon = option.icon;
+                return (
+                  <DropdownMenuRadioItem key={option.value} value={option.value}>
+                    <Icon className="size-4" />
+                    {option.label}
+                  </DropdownMenuRadioItem>
+                );
+              })}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => signOut.mutate()}>
+          <LogOut className="size-4" />
+          Sign out
+        </DropdownMenuItem>
+        {/* The running release, absent on a local build, which is not one. */}
+        {RELEASE_LABEL && (
+          <p
+            className="px-2 pb-1 pt-2 text-[10px] tabular-nums text-muted-foreground/70"
+            title={APP_COMMIT ? `Release ${RELEASE_LABEL} · commit ${APP_COMMIT}` : undefined}
+          >
+            {RELEASE_LABEL}
+          </p>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Messages, in the bar where the sidebar is folded away. */
+function MessagesButton() {
+  const unread = useUnreadCount();
+  return (
+    <Button asChild variant="ghost" size="icon" className="relative lg:hidden">
+      <Link href="/chat" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'}>
+        <MessageCircle className="size-5" />
+        {unread > 0 && (
+          <span
+            aria-hidden
+            className="absolute right-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none tabular-nums text-primary-foreground"
+          >
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </Link>
+    </Button>
+  );
+}
+
+/*
+ * Where a page puts its name and its buttons: three places in the shell's
+ * bar, filled from the page by portal.
+ *
+ * Portals rather than state lifted into the shell. A page's actions are
+ * elements made fresh on every render; setting them into the shell's state
+ * would re-render the shell, which re-renders the page, which makes them again.
+ */
+interface Slots {
+  title: HTMLElement | null;
+  fallback: HTMLElement | null;
+  actions: HTMLElement | null;
+}
+
+const SlotsContext = createContext<Slots>({ title: null, fallback: null, actions: null });
+
+const WIDE = '(min-width: 768px)';
+
+function subscribeWide(onChange: () => void) {
+  const query = window.matchMedia(WIDE);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+}
+
+/** Whether the bar has room for a page's buttons. */
+function useWideBar(): boolean {
+  return useSyncExternalStore(
+    subscribeWide,
+    () => window.matchMedia(WIDE).matches,
+    () => true,
+  );
+}
+
+/*
+ * Where each page was scrolled to, so Back returns to it.
+ *
+ * The scroller is the shell's, which now outlives the pages, so a page
+ * opened from a link would otherwise start wherever the last one was left.
+ * Positions are kept per history entry, as the browser keeps its own for the
+ * window: the Navigation API names every entry, and the name is already the
+ * new one by the time the next page is drawn. A new entry starts at the top;
+ * one you come back to returns to where it was.
+ *
+ * Not `popstate`: the router draws the page Back lands on before a popstate
+ * listener runs, so a flag set there arrived one navigation late. Where the
+ * Navigation API is missing, every page starts at the top, as it always did.
+ */
+type NavigationLike = { currentEntry?: { key: string } | null };
+
+function currentEntryKey(): string | null {
+  const nav = (window as unknown as { navigation?: NavigationLike }).navigation;
+  return nav?.currentEntry?.key ?? null;
+}
+
+/** Returns the ref for the scroller it looks after. */
+function useScrollMemory(): RefObject<HTMLElement | null> {
+  const scroller = useRef<HTMLElement>(null);
+  const pathname = usePathname();
+  const positions = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const remember = () => {
+      const key = currentEntryKey();
+      if (key) positions.current.set(key, el.scrollTop);
+    };
+    // As it happens, and once more as a link is followed, while the page
+    // being left is still the one on screen.
+    const onClick = (event: MouseEvent) => {
+      if ((event.target as Element | null)?.closest?.('a[href]')) remember();
+    };
+    el.addEventListener('scroll', remember, { passive: true });
+    document.addEventListener('click', onClick, true);
+    return () => {
+      el.removeEventListener('scroll', remember);
+      document.removeEventListener('click', onClick, true);
+    };
+  }, []);
+
+  // Before paint, so the page never shows at the last one's position.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const key = currentEntryKey();
+    const target = key ? positions.current.get(key) : undefined;
+    el.scrollTop = target ?? 0;
+    if (target === undefined || Math.abs(el.scrollTop - target) <= 2) return;
+    // Not all of the page is drawn yet, so it is tried again as it fills in,
+    // for up to a second.
+    const started = performance.now();
+    const timer = window.setInterval(() => {
+      el.scrollTop = target;
+      if (Math.abs(el.scrollTop - target) <= 2 || performance.now() - started > 1000) {
+        window.clearInterval(timer);
+      }
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, [pathname]);
+
+  return scroller;
+}
+
+/**
+ * The signed-in frame, mounted once by the (app) layout.
+ *
+ * It used to be rendered by every page, so every click threw it away and
+ * built it again: the sidebar and friends list jumped back to the top, the
+ * bell and upload dock closed, a dismissed banner came back and the desktop
+ * update restarted its download. As part of the layout it stays put, and
+ * the pages change inside it.
+ *
+ * One bar at every width, shaped like the phone's: the page's name, its
+ * buttons, then Create, Messages (where the sidebar is folded away), the bell
+ * and your picture. Under `lg` the sidebar is a sheet: the same navigation on
+ * a narrow window rather than a second, cut-down one.
+ */
+export function AppShell({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  // The setters are the refs: stable, and called once each element exists.
+  const [titleEl, setTitleEl] = useState<HTMLDivElement | null>(null);
+  const [fallbackEl, setFallbackEl] = useState<HTMLDivElement | null>(null);
+  const [actionsEl, setActionsEl] = useState<HTMLDivElement | null>(null);
+  const slots = useMemo(
+    () => ({ title: titleEl, fallback: fallbackEl, actions: actionsEl }),
+    [titleEl, fallbackEl, actionsEl],
+  );
+  const scroller = useScrollMemory();
 
   return (
     // data-app-shell is what globals.css keys `body { overflow: hidden }` off.
-    // The rule has to be conditional: it keeps the sidebar still while the app
-    // scrolls, and it stops the marketing page scrolling at all.
-    //
-    // h-dvh, not h-full. h-full inherits from html/body, whose 100% is the
-    // *large* viewport — the height a phone browser would have if its URL bar
-    // were retracted. With the bar on screen the app was that much taller than
-    // the room it had, and because body is overflow:hidden here, the part
-    // underneath could not be scrolled to. dvh tracks what is actually visible.
+    // h-dvh, not h-full: dvh tracks what is actually visible on a phone.
     <div data-app-shell className="flex h-dvh flex-col">
-      {/* Renders nothing on the web, where the browser owns the chrome. In the
-          desktop app it is the title bar: the whole strip on Windows, where
-          decorations are off, and a drag region beside the native traffic
-          lights on macOS. The column wrapper is what gives it somewhere to sit
-          above the sidebar rather than beside it. */}
+      {/* Renders nothing on the web. In the desktop app it is the title bar. */}
       <DesktopTitleBar />
 
       <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-64 shrink-0 border-r lg:block">
+        <aside className="hidden w-60 shrink-0 border-r lg:block">
           <SidebarBody />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 lg:hidden">
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Open navigation">
-                <Menu className="size-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-72 p-0">
-              <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <SidebarBody onNavigate={() => setOpen(false)} />
-            </SheetContent>
-          </Sheet>
-          <span className="flex-1 truncate text-sm font-semibold">
-            {title ?? 'Virgo'}
-          </span>
-          <NotificationBell />
-          <ThemeToggle />
-          {actions}
-        </header>
+          <header className="flex h-14 shrink-0 items-center gap-1.5 border-b bg-background px-2 sm:gap-2 sm:px-4">
+            <Sheet open={open} onOpenChange={setOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation">
+                  <Menu className="size-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-72 p-0">
+                <SheetTitle className="sr-only">Navigation</SheetTitle>
+                <SidebarBody onNavigate={() => setOpen(false)} />
+              </SheetContent>
+            </Sheet>
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          {/* Above the verification notice: that one is about this account and
-              comes back every load until it is resolved, while this is about
-              the application itself and can be dismissed for good. Renders
-              nothing at all in the web build. */}
-          {/* First of the three: being offline explains most other failures,
-              so it belongs above them rather than under. */}
+            {/* The page's own heading when it has one, its plain name when
+                not: the second shows only while the first is empty. */}
+            <div className="flex min-w-0 flex-1 items-center">
+              <div
+                ref={setTitleEl}
+                className="peer flex min-w-0 flex-1 items-center gap-2 empty:hidden"
+              />
+              <div
+                ref={setFallbackEl}
+                className="hidden min-w-0 flex-1 items-center text-[15px] font-semibold peer-empty:flex"
+              />
+            </div>
+
+            <div ref={setActionsEl} className="flex shrink-0 items-center gap-2 empty:hidden" />
+            <CreateMenu />
+            <MessagesButton />
+            <NotificationBell />
+            <AccountMenu />
+          </header>
+
+          {/* Banners above the scroller rather than inside it: a full-height
+              page such as Chat was a banner taller than the room it had, and
+              its composer slid off the bottom. Offline first: being offline
+              explains most other failures. */}
           <OfflineBanner />
           <DesktopUpdateBanner />
           <VerifyEmailBanner />
-          {children}
+
+          <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
+            <SlotsContext.Provider value={slots}>{children}</SlotsContext.Provider>
           </main>
         </div>
       </div>
@@ -461,16 +595,32 @@ export function AppShell({
 }
 
 /**
- * The header inside a page's scroll area.
+ * A page inside the shell.
  *
- * Separate from the shell's mobile bar, which is outside the scroll area and
- * pinned by the layout itself.
+ * `title` is the page's plain name for the bar, shown when the page has no
+ * PageHeader of its own. The browser tab's title is the route's metadata,
+ * set in each page.tsx.
+ */
+export function Screen({ title, children }: { title?: ReactNode; children: ReactNode }) {
+  const { fallback } = useContext(SlotsContext);
+  return (
+    <>
+      {fallback &&
+        title != null &&
+        createPortal(<span className="truncate">{title}</span>, fallback)}
+      {children}
+    </>
+  );
+}
+
+/**
+ * A page's heading and buttons, drawn in the shell's bar.
  *
- * Sticky, because of what lives in it. The bell is here — it is the only way
- * into the notification list — and so are a page's actions, and both were
- * scrolling out of reach on any list long enough to be worth scrolling. A
- * solid background rather than a blur: content passes directly underneath
- * this, and translucency over a dense list is noise, not depth.
+ * The bar replaces the page-sized title every screen used to carry, as the
+ * phone's did: one name per screen, in one place, with the page's own buttons
+ * beside it, and the description as the line under the name. Where the bar
+ * has no room for the buttons, on a phone-sized window, they sit at the top
+ * of the page instead.
  */
 export function PageHeader({
   title,
@@ -483,28 +633,31 @@ export function PageHeader({
   actions?: ReactNode;
   className?: string;
 }) {
+  const { title: titleSlot, actions: actionsSlot } = useContext(SlotsContext);
+  const wide = useWideBar();
+
   return (
-    <div
-      className={cn(
-        'sticky top-0 z-30 flex flex-wrap items-start justify-between gap-4 border-b bg-background px-6 py-5',
-        className,
-      )}
-    >
-      <div className="min-w-0">
-        <h1 className="truncate text-xl font-bold tracking-tight">{title}</h1>
-        {description && (
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    <>
+      {titleSlot &&
+        createPortal(
+          <div className="min-w-0">
+            <h1 className="flex min-w-0 items-center gap-1 truncate text-[15px] font-semibold leading-tight">
+              {title}
+            </h1>
+            {description && (
+              <p className="hidden truncate text-xs text-muted-foreground sm:block">
+                {description}
+              </p>
+            )}
+          </div>,
+          titleSlot,
         )}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {/* Under `lg` this sits in the shell's own bar instead, which is
-            already pinned — two bells on one screen is one too many. */}
-        <span className="hidden lg:inline-flex">
-          <NotificationBell />
-          <ThemeToggle />
-        </span>
-        {actions}
-      </div>
-    </div>
+      {actions && wide && actionsSlot && createPortal(actions, actionsSlot)}
+      {actions && !wide && (
+        <div className={cn('flex flex-wrap items-center justify-end gap-2 px-4 pt-3', className)}>
+          {actions}
+        </div>
+      )}
+    </>
   );
 }

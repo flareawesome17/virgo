@@ -18,7 +18,7 @@ import {
   type ClaimedPromo,
   type OfferedPromo,
 } from '@/api';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import {
   useClaimPromo,
@@ -309,7 +309,7 @@ export default function RewardsPage() {
   const [claimed, setClaimed] = useState<ClaimedPromo | null>(null);
 
   return (
-    <AppShell title="Rewards">
+    <Screen title="Rewards">
       <PageHeader
         title="Rewards"
         description="What is waiting for you, and how to earn more"
@@ -361,6 +361,6 @@ export default function RewardsPage() {
       </div>
 
       <ClaimedDialog result={claimed} onClose={() => setClaimed(null)} />
-    </AppShell>
+    </Screen>
   );
 }

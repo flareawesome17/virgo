@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { Bookmark, Heart, ImageIcon, Loader2, MessageCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ShowcaseFilm } from '@/components/media/showcase-film';
@@ -76,7 +76,7 @@ export default function PageClient() {
   };
 
   return (
-    <AppShell title="Feed">
+    <Screen title="Feed">
       <div ref={top} className="mx-auto w-full max-w-2xl px-6 py-6">
         <PageHeader
           title="Feed"
@@ -174,7 +174,7 @@ export default function PageClient() {
 
       {keepFlow.element}
       <ShowcaseReportDialog showcaseId={reporting} onClose={() => setReporting(null)} />
-    </AppShell>
+    </Screen>
   );
 }
 

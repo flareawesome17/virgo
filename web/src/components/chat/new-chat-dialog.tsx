@@ -151,7 +151,7 @@ export function NewChatDialog({
           </p>
         ) : chattable.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            No friends yet. Find people on the Network page first.
+            No connections yet. Find people in People first.
           </p>
         ) : (
           <ScrollArea className="max-h-64">

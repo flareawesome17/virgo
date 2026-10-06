@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Bell, CheckCheck, Settings } from 'lucide-react';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { NotificationRow, notificationHref } from '@/components/notification-bell';
 import { NotificationDetail } from '@/components/notification-detail';
 import { Button } from '@/components/ui/button';
@@ -144,7 +144,7 @@ function NotificationsPageInner() {
       : 'Nothing yet';
 
   return (
-    <AppShell title="Notifications">
+    <Screen title="Notifications">
       <PageHeader
         title="Notifications"
         description={
@@ -297,7 +297,7 @@ function NotificationsPageInner() {
           </div>
         </div>
       </div>
-    </AppShell>
+    </Screen>
   );
 }
 

@@ -15,7 +15,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -96,11 +96,11 @@ export default function JobPage() {
   const conversationId =
     applications.find((a) => a.postSlug === slug)?.conversationId ?? null;
 
-  if (job.isLoading) return <AppShell title="Job"><CenteredSpinner /></AppShell>;
+  if (job.isLoading) return <Screen title="Job"><CenteredSpinner /></Screen>;
 
   if (job.isError || !job.data) {
     return (
-      <AppShell title="Job">
+      <Screen title="Job">
         <EmptyState
           icon={BriefcaseBusiness}
           title="Job not found"
@@ -109,7 +109,7 @@ export default function JobPage() {
           description="This post has ended or been taken down."
           action={<Button onClick={() => router.push('/jobs/mine')}>Browse jobs</Button>}
         />
-      </AppShell>
+      </Screen>
     );
   }
 
@@ -135,7 +135,7 @@ export default function JobPage() {
   };
 
   return (
-    <AppShell title={job.data.title}>
+    <Screen title={job.data.title}>
       <div className="mx-auto w-full max-w-3xl px-6 py-6">
         <Button
           variant="ghost"
@@ -342,7 +342,7 @@ export default function JobPage() {
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+    </Screen>
   );
 }
 

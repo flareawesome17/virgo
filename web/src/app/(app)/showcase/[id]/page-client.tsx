@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Bookmark, CloudOff, Heart, ImageOff, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -76,16 +76,16 @@ export default function ShowcasePage() {
   if (!showcase) {
     if (isLoading) {
       return (
-        <AppShell title="Showcase">
+        <Screen title="Showcase">
           <CenteredSpinner />
-        </AppShell>
+        </Screen>
       );
     }
     // Gone is not offline. A post taken down or deleted must not say "check
     // your connection", with a Try again that can only ever fail again.
     const gone = error instanceof ApiError && (error.status === 404 || error.status === 403);
     return (
-      <AppShell title="Showcase">
+      <Screen title="Showcase">
         {gone || !loadFailed ? (
           <EmptyState
             icon={ImageOff}
@@ -101,7 +101,7 @@ export default function ShowcasePage() {
             action={<Button onClick={() => void refetch()}>Try again</Button>}
           />
         )}
-      </AppShell>
+      </Screen>
     );
   }
 
@@ -125,7 +125,7 @@ export default function ShowcasePage() {
   };
 
   return (
-    <AppShell title={showcase.title ?? 'Showcase'}>
+    <Screen title={showcase.title ?? 'Showcase'}>
       <div className="mx-auto w-full max-w-2xl px-6 py-6">
         <Button
           variant="ghost"
@@ -283,7 +283,7 @@ export default function ShowcasePage() {
       />
       {keepFlow.element}
       <ShowcaseReportDialog showcaseId={reporting} onClose={() => setReporting(null)} />
-    </AppShell>
+    </Screen>
   );
 }
 

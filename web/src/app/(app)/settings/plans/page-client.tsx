@@ -6,7 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Check, Info, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -133,7 +133,7 @@ function PlansContent() {
   };
 
   return (
-    <AppShell title="Plans">
+    <Screen title="Plans">
       <PageHeader
         title={
           <span className="flex items-center gap-2">
@@ -337,7 +337,7 @@ function PlansContent() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </AppShell>
+    </Screen>
   );
 }
 

@@ -24,9 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell } from '@/components/app-shell';
-import { NotificationBell } from '@/components/notification-bell';
-import { ThemeToggle } from '@/components/theme-toggle';
+import { Screen } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -48,7 +46,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { UploadDropzone, openFilePicker, openFolderPicker } from '@/components/media/upload-dropzone';
+import {
+  UploadDropzone,
+  openFilePicker,
+  openFolderPicker,
+} from '@/components/media/upload-dropzone';
 import { MediaViewer } from '@/components/media/media-viewer';
 import { useVideoPlayback } from '@/components/media/video-playback';
 import { AlbumAudioPlayer } from '@/components/media/album-audio-player';
@@ -353,7 +355,7 @@ function AlbumWorkspace() {
   const busy = assign.isPending || deleteFiles.isPending || zipping;
 
   return (
-    <AppShell title={album?.name ?? 'Album'}>
+    <Screen title={album?.name ?? 'Album'}>
       <UploadDropzone
         target={{ scope: 'albums', albumId: id, albumName: album?.name }}
         disabled={!canUpload}
@@ -501,12 +503,6 @@ function AlbumWorkspace() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
-                {/* The shell's own bar carries these under lg; up here they
-                    would otherwise be missing from this page at desktop size. */}
-                <span className="hidden lg:inline-flex">
-                  <NotificationBell />
-                  <ThemeToggle />
-                </span>
               </div>
             </div>
           </div>
@@ -810,7 +806,7 @@ function AlbumWorkspace() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </AppShell>
+    </Screen>
   );
 }
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { track } from '@/lib/analytics';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -153,7 +153,7 @@ export default function NewJobPage() {
   };
 
   return (
-    <AppShell title="Post a job">
+    <Screen title="Post a job">
       <div className="mx-auto w-full max-w-2xl px-6 py-6">
         <Button
           variant="ghost"
@@ -366,6 +366,6 @@ export default function NewJobPage() {
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+    </Screen>
   );
 }

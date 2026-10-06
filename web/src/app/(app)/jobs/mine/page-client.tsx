@@ -8,9 +8,9 @@ import {
   Check,
   ChevronDown,
   Eye,
+  FileText,
   Loader2,
   MessageCircle,
-  Plus,
   Search,
   Star,
   Trash2,
@@ -26,7 +26,7 @@ import type { Booking, JobApplication } from '@/api';
 /** The booking for one application, or undefined if there is none yet. */
 const bookingFor = (bookings: Booking[], applicationId: string) =>
   bookings.find((b) => b.applicationId === applicationId);
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -1105,15 +1105,17 @@ function MyJobs() {
   }, [tab, toBookings, unseen, markJobsSeen]);
 
   return (
-    <AppShell title="Jobs">
+    <Screen title="Jobs">
       <PageHeader
         title="Jobs"
         description="Find work, and manage what you have posted"
+        // Posting is the bar's Create, as on the phone. Bookings has no row
+        // in the sidebar any more, so its way in is here until it is a tab.
         actions={
-          <Button asChild>
-            <Link href="/jobs/new">
-              <Plus className="size-4" />
-              Post a job
+          <Button asChild variant="outline">
+            <Link href="/bookings">
+              <FileText className="size-4" />
+              Bookings
             </Link>
           </Button>
         }
@@ -1171,6 +1173,6 @@ function MyJobs() {
         </TabsContent>
         </Tabs>
       </div>
-    </AppShell>
+    </Screen>
   );
 }

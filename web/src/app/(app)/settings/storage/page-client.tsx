@@ -15,7 +15,7 @@ import {
   Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState, ErrorState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -289,7 +289,7 @@ export default function StorageSettingsPage() {
   const byAlbum = breakdown?.byAlbum ?? [];
 
   return (
-    <AppShell title="Storage">
+    <Screen title="Storage">
       <PageHeader
         title={
           <span className="flex items-center gap-2">
@@ -462,6 +462,6 @@ export default function StorageSettingsPage() {
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+    </Screen>
   );
 }

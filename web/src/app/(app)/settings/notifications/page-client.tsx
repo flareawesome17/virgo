@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -77,7 +77,7 @@ export default function NotificationSettingsPage() {
     );
 
   return (
-    <AppShell title="Notification settings">
+    <Screen title="Notification settings">
       <PageHeader
         title={
           <span className="flex items-center gap-2">
@@ -151,6 +151,6 @@ export default function NotificationSettingsPage() {
           </>
         )}
       </div>
-    </AppShell>
+    </Screen>
   );
 }
