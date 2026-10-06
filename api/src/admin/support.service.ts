@@ -3,6 +3,7 @@ import { DatabaseService } from '../database/database.service';
 import { MailConfig } from '../mail/mail.config';
 import { supportReply } from '../mail/mail.templates';
 import { NotifyService } from '../notifications/notify.service';
+import { SupportFilesService } from '../storage/support-files.service';
 import { permissionsFor } from './rbac';
 
 /**
@@ -66,17 +67,19 @@ export class SupportService {
     private readonly db: DatabaseService,
     private readonly notifier: NotifyService,
     private readonly mailConfig: MailConfig,
+    private readonly files: SupportFilesService,
   ) {}
 
   // ----------------------------------------------------------- the customer
 
   /** Opens a ticket. The account is already authenticated, so no email needed. */
-  async open(userId: string, subject: string, body: string) {
+  async open(userId: string, subject: string, body: string, attachments: string[] = []) {
     const user = await this.db.queryOne<{ email: string; display_name: string | null }>(
       'select email, display_name from users where id = $1',
       [userId],
     );
     if (!user) throw new NotFoundException('No such account');
+    const files = await this.files.verify({ userId }, attachments);
     const assignee = (await this.autoAssignOn()) ? await this.lightestAgent() : null;
 
     const id = await this.db.transaction(async (tx) => {
@@ -86,11 +89,12 @@ export class SupportService {
         [userId, user.email, subject.trim().slice(0, 200), assignee?.id ?? null],
       );
       const ticketId = ticket.rows[0].id;
-      await tx.query(
+      const message = await tx.query<{ id: string }>(
         `insert into support_messages (ticket_id, author_type, author_id, author_name, body)
-         values ($1, 'user', $2, $3, $4)`,
+         values ($1, 'user', $2, $3, $4) returning id`,
         [ticketId, userId, user.display_name?.trim() || user.email, body.trim()],
       );
+      await this.files.attach(tx, { userId }, files, ticketId, message.rows[0].id);
       return ticketId;
     });
 
@@ -126,23 +130,76 @@ export class SupportService {
    */
   async threadForUser(userId: string, ticketId: string) {
     const ticket = await this.db.queryOne(
-      `select id, subject, status, priority, created_at, updated_at
+      `select id, subject, status, priority, created_at, updated_at,
+              rating, rating_comment, rated_at
          from support_tickets where id = $1 and user_id = $2`,
       [ticketId, userId],
     );
     if (!ticket) throw new NotFoundException('No such ticket');
 
-    const messages = await this.db.query(
+    // A note's files are filtered with the note: they are only ever looked up
+    // by the ids of messages this query returned.
+    const messages = await this.db.query<{ id: string }>(
       `select id, author_type, author_name, body, created_at
          from support_messages
         where ticket_id = $1 and internal = false
         order by created_at`,
       [ticketId],
     );
-    return { ticket, messages };
+    return { ticket, messages: await this.withFiles(messages) };
   }
 
-  async replyAsUser(userId: string, ticketId: string, body: string) {
+  /** Each message with its files, signed for an hour. */
+  private async withFiles<T extends { id: string }>(messages: T[]) {
+    const files = await this.files.forMessages(messages.map((m) => m.id));
+    return messages.map((m) => ({ ...m, attachments: files.get(m.id) ?? [] }));
+  }
+
+  /**
+   * The customer's verdict on a finished ticket: 1 to 5, and a comment if
+   * they like. Only once it is resolved or closed — mid-conversation it
+   * would score help that has not finished. Rating again replaces it.
+   * Whoever held the ticket hears about it, good or bad.
+   */
+  async rate(userId: string, ticketId: string, rating: number, comment?: string) {
+    const row = await this.db.queryOne<{
+      subject: string;
+      status: string;
+      assigned_to: string | null;
+      rating: number | null;
+      rating_comment: string | null;
+      name: string;
+    }>(
+      `select t.subject, t.status, t.assigned_to, t.rating, t.rating_comment,
+              coalesce(nullif(trim(u.display_name), ''), u.email) as name
+         from support_tickets t join users u on u.id = t.user_id
+        where t.id = $1 and t.user_id = $2`,
+      [ticketId, userId],
+    );
+    if (!row) throw new NotFoundException('No such ticket');
+    if (row.status !== 'resolved' && row.status !== 'closed') {
+      throw new BadRequestException('You can rate this once it is resolved.');
+    }
+    const text = comment?.trim() || null;
+    // Not updated_at: a rating is not activity, and must not move the
+    // ticket up anyone's queue.
+    await this.db.query(
+      'update support_tickets set rating = $2, rating_comment = $3, rated_at = now() where id = $1',
+      [ticketId, rating, text],
+    );
+    if (row.assigned_to && (row.rating !== rating || row.rating_comment !== text)) {
+      await this.bell(
+        [row.assigned_to],
+        'ticket.rated',
+        ticketId,
+        `${row.name} rated your help ${rating}/5`,
+        text ?? row.subject,
+      );
+    }
+    return { rating, comment: text };
+  }
+
+  async replyAsUser(userId: string, ticketId: string, body: string, attachments: string[] = []) {
     const row = await this.db.queryOne<{
       email: string;
       display_name: string | null;
@@ -155,23 +212,27 @@ export class SupportService {
       [userId, ticketId],
     );
     if (!row) throw new NotFoundException('No such ticket');
+    const files = await this.files.verify({ userId }, attachments);
 
-    await this.db.query(
-      `insert into support_messages (ticket_id, author_type, author_id, author_name, body)
-       values ($1, 'user', $2, $3, $4)`,
-      [ticketId, userId, row.display_name?.trim() || row.email, body.trim()],
-    );
-    // Back to open: a customer replying to something marked resolved is
-    // telling you it was not. And to something pending — waiting on them,
-    // which is what an admin reply sets — it means the ball is back with us;
-    // left pending, the app went on telling them it was waiting on them.
-    await this.db.query(
-      `update support_tickets
-          set updated_at = now(),
-              status = case when status in ('resolved','closed','pending') then 'open' else status end
-        where id = $1`,
-      [ticketId],
-    );
+    await this.db.transaction(async (tx) => {
+      const message = await tx.query<{ id: string }>(
+        `insert into support_messages (ticket_id, author_type, author_id, author_name, body)
+         values ($1, 'user', $2, $3, $4) returning id`,
+        [ticketId, userId, row.display_name?.trim() || row.email, body.trim()],
+      );
+      await this.files.attach(tx, { userId }, files, ticketId, message.rows[0].id);
+      // Back to open: a customer replying to something marked resolved is
+      // telling you it was not. And to something pending — waiting on them,
+      // which is what an admin reply sets — it means the ball is back with us;
+      // left pending, the app went on telling them it was waiting on them.
+      await tx.query(
+        `update support_tickets
+            set updated_at = now(),
+                status = case when status in ('resolved','closed','pending') then 'open' else status end
+          where id = $1`,
+        [ticketId],
+      );
+    });
 
     // Whoever holds the ticket hears that the customer wrote back.
     if (row.assigned_to) {
@@ -246,7 +307,7 @@ export class SupportService {
   /** Writes to the console's bell. Never throws: a missed ping must not fail a ticket. */
   private async bell(
     adminIds: string[],
-    kind: 'ticket.new' | 'ticket.assigned' | 'ticket.reply',
+    kind: 'ticket.new' | 'ticket.assigned' | 'ticket.reply' | 'ticket.rated',
     ticketId: string,
     title: string,
     body?: string,
@@ -320,7 +381,7 @@ export class SupportService {
     const rows = await this.db.query(
       `select t.id, t.subject, t.status, t.priority, t.category, t.user_email, t.user_id,
               t.created_at, t.updated_at, t.first_replied_at, t.resolved_at, t.due_at,
-              t.assigned_to, a.name as assigned_name,
+              t.assigned_to, a.name as assigned_name, t.rating,
               (t.first_replied_at is null and t.due_at < now()
                 and t.status in ('open', 'pending')) as overdue,
               (select count(*) from support_messages m where m.ticket_id = t.id)::int as messages,
@@ -381,12 +442,12 @@ export class SupportService {
     );
     if (!ticket) throw new NotFoundException('No such ticket');
 
-    const messages = await this.db.query(
+    const messages = await this.db.query<{ id: string }>(
       `select id, author_type, author_name, body, internal, created_at
          from support_messages where ticket_id = $1 order by created_at`,
       [ticketId],
     );
-    return { ticket, messages };
+    return { ticket, messages: await this.withFiles(messages) };
   }
 
   /**
@@ -402,7 +463,7 @@ export class SupportService {
     admin: { id: string; name: string },
     body: string,
     internal: boolean,
-    options: { setStatus?: string; macroId?: string } = {},
+    options: { setStatus?: string; macroId?: string; attachments?: string[] } = {},
   ) {
     const ticket = await this.db.queryOne<{
       user_id: string | null;
@@ -420,13 +481,18 @@ export class SupportService {
     if (!ticket) throw new NotFoundException('No such ticket');
     const text = body.trim();
     if (!text) throw new BadRequestException('Write something first');
+    const owner = { adminId: admin.id };
+    const files = await this.files.verify(owner, options.attachments ?? []);
 
-    await this.db.query(
-      `insert into support_messages
-         (ticket_id, author_type, author_id, author_name, body, internal)
-       values ($1, 'admin', $2, $3, $4, $5)`,
-      [ticketId, admin.id, admin.name, text, internal],
-    );
+    await this.db.transaction(async (tx) => {
+      const message = await tx.query<{ id: string }>(
+        `insert into support_messages
+           (ticket_id, author_type, author_id, author_name, body, internal)
+         values ($1, 'admin', $2, $3, $4, $5) returning id`,
+        [ticketId, admin.id, admin.name, text, internal],
+      );
+      await this.files.attach(tx, owner, files, ticketId, message.rows[0].id);
+    });
 
     const nextStatus =
       !internal && options.setStatus && ['pending', 'resolved', 'closed'].includes(options.setStatus)
@@ -471,6 +537,8 @@ export class SupportService {
           agent: admin.name.split(' ')[0],
           reply: text,
           url: `${this.mailConfig.appUrl}/support?ticket=${encodeURIComponent(ticketId)}`,
+          files: files.length,
+          resolved: nextStatus === 'resolved' || nextStatus === 'closed',
         }),
       });
     }
@@ -582,7 +650,7 @@ export class SupportService {
    */
   async insights(days = 30) {
     const window = Math.min(Math.max(days, 1), 365);
-    const [now, speed, flow, agents] = await Promise.all([
+    const [now, speed, flow, agents, ratings] = await Promise.all([
       this.db.queryOne<Record<string, number>>(
         `select
            count(*) filter (where status = 'open')::int as open,
@@ -625,7 +693,12 @@ export class SupportService {
                           (order by extract(epoch from t.first_replied_at - t.created_at)) / 3600
                    from support_tickets t
                   where t.assigned_to = a.id and t.first_replied_at is not null
-                    and t.created_at > now() - make_interval(days => $1)) as first_reply_hours
+                    and t.created_at > now() - make_interval(days => $1)) as first_reply_hours,
+                (select count(*) from support_tickets t
+                  where t.assigned_to = a.id and t.rated_at > now() - make_interval(days => $1))::int as ratings,
+                (select (count(*) filter (where t.rating >= 4))::float / nullif(count(*), 0)
+                   from support_tickets t
+                  where t.assigned_to = a.id and t.rated_at > now() - make_interval(days => $1)) as satisfied
            from admin_users a
           where a.disabled_at is null
             and exists (select 1 from support_tickets t where t.assigned_to = a.id
@@ -634,7 +707,17 @@ export class SupportService {
           order by a.name`,
         [window],
       ),
+      // By when it was rated, not when the ticket opened: a verdict counts in
+      // the window it was given.
+      this.db.queryOne<{ count: number; average: number | null; satisfied: number | null }>(
+        `select count(*)::int as count,
+                avg(rating)::float as average,
+                (count(*) filter (where rating >= 4))::float / nullif(count(*), 0) as satisfied
+           from support_tickets
+          where rated_at > now() - make_interval(days => $1)`,
+        [window],
+      ),
     ]);
-    return { days: window, now, speed, flow, agents };
+    return { days: window, now, speed, flow, agents, ratings };
   }
 }

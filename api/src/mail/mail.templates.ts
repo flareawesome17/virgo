@@ -640,10 +640,22 @@ export function supportReply(options: {
   agent: string;
   reply: string;
   url: string;
+  /** Files sent with the reply. Never attached here: they stay behind sign-in. */
+  files?: number;
+  /** The reply resolved or closed the ticket, which is when a rating is asked for. */
+  resolved?: boolean;
 }): RenderedEmail {
   const excerpt =
     options.reply.length > 1200 ? `${options.reply.slice(0, 1200).trimEnd()}…` : options.reply;
   const intro = `Hi ${options.name}, ${options.agent} from Virgo support replied to "${options.subject}":`;
+  const files = options.files
+    ? options.files === 1
+      ? `${options.agent} sent a file with this. Open the conversation to see it.`
+      : `${options.agent} sent ${options.files} files with this. Open the conversation to see them.`
+    : null;
+  const outro = options.resolved
+    ? 'We have marked this resolved. If it is not, reply and it opens again; if it is, you can tell us how we did.'
+    : 'Reply in the app or on the web so the whole conversation stays in one place.';
   return {
     subject: `Re: ${options.subject}`,
     html: layout({
@@ -651,9 +663,18 @@ export function supportReply(options: {
       intro,
       quote: excerpt,
       cta: { label: 'Open the conversation', url: options.url },
-      outro: 'Reply in the app or on the web so the whole conversation stays in one place.',
+      outro: files ? `${files} ${outro}` : outro,
     }),
-    text: [intro, '', excerpt, '', `Open the conversation: ${options.url}`].join('\n'),
+    text: [
+      intro,
+      '',
+      excerpt,
+      '',
+      ...(files ? [files] : []),
+      outro,
+      '',
+      `Open the conversation: ${options.url}`,
+    ].join('\n'),
   };
 }
 

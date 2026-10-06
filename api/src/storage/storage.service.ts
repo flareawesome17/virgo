@@ -75,6 +75,9 @@ export { contentDisposition } from './download-names';
 /** How many single deletes go at once when DeleteObjects cannot be used. */
 const SINGLE_DELETE_CONCURRENCY = 8;
 
+/** Keys the server mints for itself, outside any user's prefix. */
+const SERVER_KEY = /^support\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
+
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
@@ -423,6 +426,86 @@ export class StorageService {
         Date.now() + UPLOAD_URL_TTL_SECONDS * 1000,
       ).toISOString(),
     };
+  }
+
+  /**
+   * Refuses any key outside the prefixes the server mints for itself.
+   *
+   * The three methods below skip the `users/<id>/` ownership check, because
+   * what they handle belongs to no one's library: support attachments, whose
+   * owner is a row in `support_attachments`. Holding them to their own prefix
+   * is what stops them being a way round that check.
+   */
+  private assertServerKey(key: string): void {
+    this.assertSafeKey(key);
+    if (!SERVER_KEY.test(key)) {
+      throw new BadRequestException('Invalid object key');
+    }
+  }
+
+  /**
+   * A presigned PUT for a key the server minted — see assertServerKey.
+   *
+   * Type and size are signed in, as for every upload, so the bytes that
+   * arrive are the ones declared. Nothing is recorded against storage: the
+   * caller keeps its own row.
+   */
+  async signServerUpload(
+    key: string,
+    contentType: string,
+    contentLength: number,
+  ): Promise<Omit<UploadTicket, 'key' | 'publicUrl'>> {
+    const client = this.requireClient();
+    this.assertServerKey(key);
+    const uploadUrl = await getSignedUrl(
+      client,
+      new PutObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        ContentType: contentType,
+        ContentLength: contentLength,
+      }),
+      { expiresIn: UPLOAD_URL_TTL_SECONDS },
+    );
+    return {
+      uploadUrl,
+      requiredHeaders: {
+        'Content-Type': contentType,
+        'Content-Length': String(contentLength),
+      },
+      expiresAt: new Date(Date.now() + UPLOAD_URL_TTL_SECONDS * 1000).toISOString(),
+    };
+  }
+
+  /** What landed under a server-minted key; null when nothing did. */
+  async headServerObject(
+    key: string,
+  ): Promise<{ size: number; contentType?: string } | null> {
+    const client = this.requireClient();
+    this.assertServerKey(key);
+    try {
+      const head = await client.send(
+        new HeadObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
+      );
+      return { size: head.ContentLength ?? 0, contentType: head.ContentType };
+    } catch (err) {
+      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+      if (status === 404) return null;
+      this.logger.error(`HEAD failed for a server object: ${String(err)}`);
+      throw new ServiceUnavailableException('Could not reach storage');
+    }
+  }
+
+  /** Deletes server-minted objects; the keys confirmed gone come back. */
+  async deleteServerObjects(keys: readonly string[], context: string): Promise<Set<string>> {
+    for (const key of keys) this.assertServerKey(key);
+    if (keys.length === 0) return new Set();
+    return this.deleteFromBuckets(keys, context);
+  }
+
+  /** Whether objects can be signed at all here. */
+  get configured(): boolean {
+    return this.client !== null;
   }
 
   /**

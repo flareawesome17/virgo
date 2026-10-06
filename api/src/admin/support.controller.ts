@@ -18,10 +18,13 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -29,17 +32,40 @@ import { Public } from '../auth/public.decorator';
 import { AdminGuard, CurrentAdmin, RequirePermission, SignedIn } from './admin.guard';
 import type { AdminIdentity } from './admin-auth.service';
 import { AuditService } from './audit.service';
+import {
+  MAX_FILES_PER_MESSAGE,
+  MAX_SUPPORT_FILE_BYTES,
+  SUPPORT_FILE_TYPES,
+  SupportFilesService,
+} from '../storage/support-files.service';
 import { SUPPORT_CATEGORIES, SupportService } from './support.service';
 
 const STATUSES = ['open', 'pending', 'resolved', 'closed'];
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
 
-class OpenTicketDto {
+/** Uploads signed by POST attachments, sent with the message. */
+class WithFilesDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_FILES_PER_MESSAGE)
+  @IsUUID('all', { each: true })
+  attachments?: string[];
+}
+class OpenTicketDto extends WithFilesDto {
   @IsString() @MinLength(3) @MaxLength(200) subject!: string;
   @IsString() @MinLength(10) @MaxLength(5000) body!: string;
 }
-class ReplyDto {
+class ReplyDto extends WithFilesDto {
   @IsString() @MinLength(1) @MaxLength(5000) body!: string;
+}
+class UploadDto {
+  @IsIn(SUPPORT_FILE_TYPES as unknown as string[]) contentType!: string;
+  @IsInt() @Min(1) @Max(MAX_SUPPORT_FILE_BYTES) contentLength!: number;
+  @IsOptional() @IsString() @MaxLength(255) name?: string;
+}
+class RateDto {
+  @IsInt() @Min(1) @Max(5) rating!: number;
+  @IsOptional() @IsString() @MaxLength(1000) comment?: string;
 }
 class AdminReplyDto extends ReplyDto {
   /** What sending does to the ticket — a canned reply's "and resolve it". */
@@ -76,12 +102,39 @@ class ReadDto {
  */
 @Controller('support')
 export class SupportController {
-  constructor(private readonly support: SupportService) {}
+  constructor(
+    private readonly support: SupportService,
+    private readonly files: SupportFilesService,
+  ) {}
 
   @Throttle({ default: { limit: 5, ttl: 3_600_000 } })
   @Post('tickets')
   open(@CurrentUser('id') userId: string, @Body() dto: OpenTicketDto) {
-    return this.support.open(userId, dto.subject, dto.body);
+    return this.support.open(userId, dto.subject, dto.body, dto.attachments);
+  }
+
+  /**
+   * Signs one file's upload, ahead of the message it goes with. The id that
+   * comes back is what the message sends; the file is not part of anything
+   * until then, and is swept a day on if it never is.
+   */
+  @Throttle({ default: { limit: 30, ttl: 3_600_000 } })
+  @Post('attachments')
+  @HttpCode(200)
+  upload(@CurrentUser('id') userId: string, @Body() dto: UploadDto) {
+    return this.files.createUpload({ userId }, dto);
+  }
+
+  /** How it went, once a ticket is resolved or closed. */
+  @Throttle({ default: { limit: 20, ttl: 3_600_000 } })
+  @Post('tickets/:id/rating')
+  @HttpCode(200)
+  rate(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RateDto,
+  ) {
+    return this.support.rate(userId, id, dto.rating, dto.comment);
   }
 
   @Get('tickets')
@@ -102,7 +155,7 @@ export class SupportController {
     @Param('id') id: string,
     @Body() dto: ReplyDto,
   ) {
-    return this.support.replyAsUser(userId, id, dto.body);
+    return this.support.replyAsUser(userId, id, dto.body, dto.attachments);
   }
 }
 
@@ -114,6 +167,7 @@ export class AdminSupportController {
   constructor(
     private readonly support: SupportService,
     private readonly audit: AuditService,
+    private readonly files: SupportFilesService,
   ) {}
 
   @RequirePermission('support.read')
@@ -159,15 +213,27 @@ export class AdminSupportController {
       { id: admin.id, name: admin.name },
       dto.body,
       dto.internal ?? false,
-      { setStatus: dto.setStatus, macroId: dto.macroId },
+      { setStatus: dto.setStatus, macroId: dto.macroId, attachments: dto.attachments },
     );
     await this.audit.record(admin, {
       action: dto.internal ? 'support.note' : 'support.reply',
       targetType: 'ticket',
       targetId: id,
-      detail: dto.setStatus || dto.macroId ? { setStatus: dto.setStatus, macro: dto.macroId } : {},
+      detail: {
+        ...(dto.setStatus ? { setStatus: dto.setStatus } : {}),
+        ...(dto.macroId ? { macro: dto.macroId } : {}),
+        ...(dto.attachments?.length ? { files: dto.attachments.length } : {}),
+      },
     });
     return result;
+  }
+
+  /** Signs a file for a staff reply or note — the console's half of attachments. */
+  @RequirePermission('support.reply')
+  @Post('attachments')
+  @HttpCode(200)
+  upload(@CurrentAdmin() admin: AdminIdentity, @Body() dto: UploadDto) {
+    return this.files.createUpload({ adminId: admin.id }, dto);
   }
 
   /**

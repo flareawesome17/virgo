@@ -1,4 +1,4 @@
-import { friendRequest, jobPostReported, userReported } from './mail.templates';
+import { friendRequest, jobPostReported, supportReply, userReported } from './mail.templates';
 
 /** The two emails staff get about reports, and the one a connection request sends. */
 
@@ -80,5 +80,35 @@ describe('friendRequest', () => {
     expect(email.subject.toLowerCase()).not.toContain('friend');
     expect(email.html.toLowerCase()).not.toContain('friend');
     expect(email.text.toLowerCase()).not.toContain('friend');
+  });
+});
+
+describe('supportReply', () => {
+  const base = {
+    name: 'Ana',
+    subject: 'Album cover will not change',
+    agent: 'Sam',
+    reply: 'Fixed <b>now</b>.\nTry it again?',
+    url: 'https://web.virgo.ph/support?ticket=1',
+  };
+
+  it('quotes the reply as text, line breaks kept', () => {
+    const email = supportReply(base);
+    expect(email.html).not.toContain('<b>now</b>');
+    expect(email.html).toContain('&lt;b&gt;now&lt;/b&gt;');
+    expect(email.text).toContain('Fixed <b>now</b>.\nTry it again?');
+  });
+
+  it('says when files came with it, without attaching them', () => {
+    expect(supportReply({ ...base, files: 1 }).text).toContain('Sam sent a file with this.');
+    const two = supportReply({ ...base, files: 2 });
+    expect(two.text).toContain('Sam sent 2 files with this. Open the conversation to see them.');
+    expect(two.html).toContain('Sam sent 2 files with this.');
+    expect(supportReply(base).text).not.toContain('sent a file');
+  });
+
+  it('asks how it went only once the ticket is resolved', () => {
+    expect(supportReply({ ...base, resolved: true }).text).toContain('tell us how we did');
+    expect(supportReply(base).text).not.toContain('tell us how we did');
   });
 });

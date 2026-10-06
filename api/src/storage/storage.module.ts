@@ -7,6 +7,7 @@ import { HlsService } from './hls.service';
 import { MediaLinkService } from './media-link.service';
 import { MediaProcessingService } from './media-processing.service';
 import { MediaSweepService } from './media-sweep.service';
+import { SupportFilesService } from './support-files.service';
 
 @Module({
   controllers: [StorageController],
@@ -18,19 +19,22 @@ import { MediaSweepService } from './media-sweep.service';
     MediaProcessingService,
     HlsService,
     MediaSweepService,
+    SupportFilesService,
   ],
   // StorageConfig is exported so other modules can turn an object key into a
   // public URL without depending on the whole storage service. MediaLinkService
   // is exported for the same reason — the client gallery signs its own
   // rendition URLs and needs the media origin for its Content-Security-Policy.
   // HlsService is exported because sharing an album is what queues a ladder,
-  // and that happens in AlbumShareService.
+  // and that happens in AlbumShareService. SupportFilesService is shared by
+  // the support desk and by account deletion, which erases a customer's files.
   exports: [
     StorageService,
     StorageConfig,
     ThumbnailsService,
     MediaLinkService,
     HlsService,
+    SupportFilesService,
   ],
 })
 export class StorageModule {}
