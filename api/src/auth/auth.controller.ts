@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Patch, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
@@ -197,16 +197,22 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(200)
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password, { unpause: dto.unpause === true });
+  login(@Body() dto: LoginDto, @Headers('user-agent') userAgent?: string) {
+    return this.auth.login(dto.email, dto.password, {
+      unpause: dto.unpause === true,
+      userAgent,
+    });
   }
 
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(200)
   @Post('login/2fa')
-  completeTwoFactorLogin(@Body() dto: CompleteTwoFactorLoginDto) {
-    return this.auth.completeTwoFactorLogin(dto.challengeToken, dto.code);
+  completeTwoFactorLogin(
+    @Body() dto: CompleteTwoFactorLoginDto,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    return this.auth.completeTwoFactorLogin(dto.challengeToken, dto.code, userAgent);
   }
 
   @Public()
@@ -269,8 +275,8 @@ export class AuthController {
   @Public()
   @HttpCode(200)
   @Post('refresh')
-  refresh(@Body() dto: RefreshDto) {
-    return this.auth.refresh(dto.refreshToken);
+  refresh(@Body() dto: RefreshDto, @Headers('user-agent') userAgent?: string) {
+    return this.auth.refresh(dto.refreshToken, userAgent);
   }
 
   @Public()

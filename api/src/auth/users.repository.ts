@@ -277,24 +277,36 @@ export class UsersRepository {
     );
   }
 
+  /**
+   * Stores a refresh token for one signed-in device.
+   *
+   * `familyId` is the device: a new one at sign-in, carried over on every
+   * refresh, so the console can list "iPhone app, signed in 3 weeks ago" as
+   * one row and sign that one out. `userAgent` is the only thing kept about
+   * the device — never its IP address (see the privacy policy).
+   */
   async storeRefreshToken(
     userId: string,
     tokenHash: string,
     expiresAt: Date,
+    device: { familyId?: string; userAgent?: string } = {},
   ): Promise<void> {
     await this.db.query(
-      `insert into refresh_tokens (user_id, token_hash, expires_at)
-       values ($1, $2, $3)`,
-      [userId, tokenHash, expiresAt],
+      `insert into refresh_tokens (user_id, token_hash, expires_at, family_id, user_agent)
+       values ($1, $2, $3, coalesce($4::uuid, gen_random_uuid()), $5)`,
+      [userId, tokenHash, expiresAt, device.familyId ?? null, device.userAgent?.slice(0, 300) ?? null],
     );
   }
 
   /** Returns the row only when it is unrevoked and unexpired. */
-  async findActiveRefreshToken(
-    tokenHash: string,
-  ): Promise<{ id: string; user_id: string } | null> {
-    return this.db.queryOne<{ id: string; user_id: string }>(
-      `select id, user_id from refresh_tokens
+  async findActiveRefreshToken(tokenHash: string): Promise<{
+    id: string;
+    user_id: string;
+    family_id: string | null;
+    user_agent: string | null;
+  } | null> {
+    return this.db.queryOne(
+      `select id, user_id, family_id, user_agent from refresh_tokens
         where token_hash = $1
           and revoked_at is null
           and expires_at > now()`,

@@ -30,6 +30,7 @@ import {
   type RequestContext,
 } from './admin-auth.service';
 import { AdminRolesService } from './admin-roles.service';
+import { AdminCustomersService } from './admin-customers.service';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminService } from './admin.service';
 import { AuditService } from './audit.service';
@@ -86,6 +87,8 @@ class RoleDto {
 class DisabledDto {
   @IsBoolean() disabled!: boolean;
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
+  /** Email the customer that it happened. Ignored for console accounts. */
+  @IsOptional() @IsBoolean() notify?: boolean;
 }
 class PasswordDto {
   @IsString() @MinLength(12) password!: string;
@@ -224,6 +227,7 @@ export class AdminController {
     private readonly audit: AuditService,
     private readonly auth: AdminAuthService,
     private readonly roles: AdminRolesService,
+    private readonly customers: AdminCustomersService,
   ) {}
 
   /** Who am I and what may I do — the console renders its nav from this. */
@@ -283,6 +287,12 @@ export class AdminController {
     @Query('offset') offset?: string,
     @Query('sort') sort?: string,
     @Query('dir') dir?: string,
+    @Query('status') status?: string,
+    @Query('seen') seen?: string,
+    @Query('tag') tag?: string,
+    @Query('platform') platform?: string,
+    @Query('twoFactor') twoFactor?: string,
+    @Query('full') full?: string,
   ) {
     return this.admin.users({
       q,
@@ -291,6 +301,12 @@ export class AdminController {
       offset: offset ? Number(offset) : undefined,
       sort,
       dir,
+      status,
+      seen,
+      tag,
+      platform,
+      twoFactor,
+      full,
     });
   }
 
@@ -311,13 +327,14 @@ export class AdminController {
     @CurrentAdmin() admin: AdminIdentity,
   ) {
     const result = await this.admin.setUserDisabled(id, dto.disabled, dto.reason);
+    const emailed = dto.notify ? await this.customers.notifySuspension(id, dto.disabled) : false;
     await this.audit.record(admin, {
       action: dto.disabled ? 'user.disable' : 'user.enable',
       targetType: 'user',
       targetId: id,
-      detail: { email: result.email, reason: dto.reason ?? null },
+      detail: { email: result.email, reason: dto.reason ?? null, emailed },
     });
-    return result;
+    return { ...result, emailed };
   }
 
   @RequirePermission('users.setPlan')

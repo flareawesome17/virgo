@@ -19,6 +19,11 @@ import { AdminService, userOrder } from './admin.service';
  * back to the column. Only a real Postgres can prove the count itself.
  */
 
+/** The one query that reads the account row itself (with its referrer joined). */
+function readsAccount(sql: string): boolean {
+  return /from users u\s+left join users r[\s\S]*where u\.id = \$1/.test(sql);
+}
+
 /** Whether a query reads the stored column, rather than naming a count after it. */
 function readsStoredCount(sql: string): boolean {
   return /\bitem_count\b/.test(sql.replace(/\bas\s+item_count\b/g, ''));
@@ -30,7 +35,7 @@ function serviceOver() {
   const query = jest.fn(async (_sql: string, _params?: unknown[]) => [] as unknown[]);
   // Only the account itself has to exist; every other single row may be absent.
   const queryOne = jest.fn(async (sql: string, _params?: unknown[]) =>
-    sql.includes('from users where id') ? { id: 'user-1', plan: 'free' } : null,
+    readsAccount(sql) ? { id: 'user-1', plan: 'free' } : null,
   );
   const db = { query, queryOne } as unknown as DatabaseService;
 
@@ -166,14 +171,14 @@ describe('AdminService.userReports', () => {
   it('shows the suspension on the account list and page', async () => {
     const { service, query, queryOne } = suspensionHarness();
     queryOne.mockImplementation(async (sql: string) =>
-      sql.includes('from users where id') ? { id: 'user-1', plan: 'free' } : null,
+      readsAccount(sql) ? { id: 'user-1', plan: 'free' } : null,
     );
 
     await service.users({});
     await service.user('user-1');
 
     expect(query.mock.calls[0][0]).toMatch(/u\.suspended_at/);
-    const account = queryOne.mock.calls.find(([sql]) => sql.includes('from users where id'))!;
+    const account = queryOne.mock.calls.find(([sql]) => readsAccount(sql))!;
     expect(account[0]).toMatch(/suspended_at/);
   });
 });

@@ -619,6 +619,47 @@ export function eventInvite(options: {
  * The point is the same as passwordChanged: if this was not you, this email is
  * how you find out, and it names the date so nobody has to guess.
  */
+/**
+ * Staff suspended the account.
+ *
+ * Says what happened and how to ask about it, and nothing about why: the
+ * reason recorded in the console is an internal note, and wording a policy
+ * decision for the person it concerns is a reply, not a template.
+ */
+export function accountSuspended(options: { name: string }): RenderedEmail {
+  const intro = `Hi ${options.name}, your Virgo account has been suspended. You will not be able to sign in while it is. Nothing has been deleted — your workspaces, albums and files are kept as they are.`;
+  return {
+    subject: 'Your Virgo account has been suspended',
+    html: layout({
+      heading: 'Your account is suspended',
+      intro,
+      outro: 'If you think this is a mistake, reply to this email or write to support@virgo.ph and we will look at it.',
+    }),
+    text: [
+      'Your account is suspended',
+      '',
+      intro,
+      '',
+      'If you think this is a mistake, reply to this email or write to support@virgo.ph.',
+    ].join('\n'),
+  };
+}
+
+/** Staff lifted a suspension. */
+export function accountRestored(options: { name: string; url: string }): RenderedEmail {
+  const intro = `Hi ${options.name}, your Virgo account is active again. You can sign in as before, and everything is where you left it.`;
+  return {
+    subject: 'Your Virgo account is active again',
+    html: layout({
+      heading: 'Welcome back',
+      intro,
+      cta: { label: 'Sign in', url: options.url },
+      outro: 'Questions? Reply to this email or write to support@virgo.ph.',
+    }),
+    text: ['Your account is active again', '', intro, '', `Sign in: ${options.url}`].join('\n'),
+  };
+}
+
 export function accountDisabled(options: {
   name: string;
   until: string;
