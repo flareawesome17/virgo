@@ -57,12 +57,14 @@ export default function CreateWorkspaceScreen() {
           allowLeave();
           router.replace(`/workspaces/${workspace.id}`);
         },
-        // The server's own words when it refused (the workspace limit, when
-        // the count here was stale); a generic line only when it failed.
+        // A 403 here is the workspace limit (the count on this screen was
+        // stale), and its message is written for people, so it is shown as
+        // is. Anything else gets the generic line: a 400's wording comes from
+        // the validator and is not meant to be read.
         onError: (err) => {
           Alert.alert(
             'Could not create workspace',
-            err instanceof ApiError && err.status > 0 && err.status < 500
+            err instanceof ApiError && err.status === 403
               ? err.message
               : 'Please try again.',
           );
