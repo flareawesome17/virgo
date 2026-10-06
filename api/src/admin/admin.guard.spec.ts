@@ -5,12 +5,18 @@ import { Reflector } from '@nestjs/core';
 import { AdminPromosController } from '../promos/admin-promos.controller';
 import type { AdminAuthService, AdminIdentity } from './admin-auth.service';
 import { AdminController } from './admin.controller';
-import { AdminGuard, PASSWORD_CHANGE_KEY, PERMISSION_KEY } from './admin.guard';
+import { AdminSecurityController } from './admin-security.controller';
+import { AdminGuard, PENDING_SETUP_KEY, PERMISSION_KEY } from './admin.guard';
 import { AdminSupportController } from './support.controller';
 import { permissionsFor } from './rbac';
 
 /** Every controller AdminGuard sits in front of. */
-const GUARDED = [AdminController, AdminSupportController, AdminPromosController];
+const GUARDED = [
+  AdminController,
+  AdminSecurityController,
+  AdminSupportController,
+  AdminPromosController,
+];
 
 /** The handlers on a controller that Nest routes to. */
 function routes(controller: { prototype: object }) {
@@ -39,13 +45,18 @@ describe('console routes', () => {
     },
   );
 
-  it('lets a pending password change reach only "me" and the change itself', () => {
+  it('lets unfinished setup reach only "me", the password change and two-factor setup', () => {
     const open = GUARDED.flatMap((controller) =>
       routes(controller)
-        .filter(({ handler }) => Reflect.getMetadata(PASSWORD_CHANGE_KEY, handler))
+        .filter(({ handler }) => Reflect.getMetadata(PENDING_SETUP_KEY, handler))
         .map(({ name }) => `${controller.name}.${name}`),
     );
-    expect(open.sort()).toEqual(['AdminController.changeOwnPassword', 'AdminController.me']);
+    expect(open.sort()).toEqual([
+      'AdminController.changeOwnPassword',
+      'AdminController.me',
+      'AdminSecurityController.enableTwoFactor',
+      'AdminSecurityController.setUpTwoFactor',
+    ]);
   });
 });
 
@@ -56,8 +67,11 @@ describe('AdminGuard and a password someone else chose', () => {
       email: 'staff@virgo.ph',
       name: 'Staff',
       role: 'owner',
+      roleLabel: 'Owner',
       permissions: permissionsFor('owner'),
       mustChangePassword: false,
+      twoFactorEnabled: true,
+      mustSetUpTwoFactor: false,
       ...identity,
     };
     const auth = { verify: jest.fn(async () => admin) } as unknown as AdminAuthService;
@@ -94,5 +108,58 @@ describe('AdminGuard and a password someone else chose', () => {
   it('lets the account through once it has its own password', async () => {
     const guard = guardFor({ mustChangePassword: false });
     await expect(guard.canActivate(contextFor(proto.overview))).resolves.toBe(true);
+  });
+});
+
+describe('AdminGuard and two-factor a role requires', () => {
+  const security = AdminSecurityController.prototype;
+
+  function guardFor(identity: Partial<AdminIdentity>) {
+    const admin: AdminIdentity = {
+      id: 'admin-1',
+      email: 'staff@virgo.ph',
+      name: 'Staff',
+      role: 'admin',
+      roleLabel: 'Admin',
+      permissions: permissionsFor('admin'),
+      mustChangePassword: false,
+      twoFactorEnabled: false,
+      mustSetUpTwoFactor: true,
+      ...identity,
+    };
+    const auth = { verify: jest.fn(async () => admin) } as unknown as AdminAuthService;
+    return new AdminGuard(auth, new Reflector());
+  }
+
+  function contextFor(handler: object, controller: object): ExecutionContext {
+    const req = { headers: { authorization: 'Bearer token' } };
+    return {
+      switchToHttp: () => ({ getRequest: () => req }),
+      getHandler: () => handler,
+      getClass: () => controller,
+    } as unknown as ExecutionContext;
+  }
+
+  it('holds the account at setup until it has enrolled', async () => {
+    const guard = guardFor({});
+    await expect(
+      guard.canActivate(contextFor(AdminController.prototype.users, AdminController)),
+    ).rejects.toThrow('Set up two-factor sign-in before continuing');
+    await expect(
+      guard.canActivate(contextFor(security.setUpTwoFactor, AdminSecurityController)),
+    ).resolves.toBe(true);
+    await expect(
+      guard.canActivate(contextFor(AdminController.prototype.me, AdminController)),
+    ).resolves.toBe(true);
+  });
+
+  it('serves a signed-in route to a custom role with no permissions at all', async () => {
+    const guard = guardFor({ role: 'night-shift', permissions: [], mustSetUpTwoFactor: false });
+    await expect(
+      guard.canActivate(contextFor(security.mySecurity, AdminSecurityController)),
+    ).resolves.toBe(true);
+    await expect(
+      guard.canActivate(contextFor(AdminController.prototype.overview, AdminController)),
+    ).rejects.toThrow(ForbiddenException);
   });
 });

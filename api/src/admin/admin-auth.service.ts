@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -12,7 +14,9 @@ import * as bcrypt from 'bcryptjs';
 import { DatabaseService } from '../database/database.service';
 import { MailService } from '../mail/mail.service';
 import { adminPasswordReset } from '../mail/mail.templates';
+import { AuditService } from './audit.service';
 import { permissionsFor, type AdminPermission, type AdminRole } from './rbac';
+import { digestRecoveryCode, openSecret, verifyTotp } from './totp';
 
 /** Short, because a console session is a bigger prize than an app session. */
 const ACCESS_TTL = '30m';
@@ -31,31 +35,55 @@ const REFRESH_TTL_DAYS = 7;
 export const RESET_TTL_MINUTES = 5;
 
 /**
- * The audience claim.
+ * Wrong passwords or codes in a row before an account is locked, and for how
+ * long. Time-limited rather than until an owner steps in: anyone who knows a
+ * staff email could otherwise lock that person out indefinitely. An owner can
+ * unlock early from the console.
+ */
+export const LOCK_AFTER_FAILURES = 5;
+export const LOCK_MINUTES = 15;
+
+/**
+ * The audience claims.
  *
  * Belt and braces alongside the separate secret: even if the two keys were
  * ever misconfigured to match, an app token would still be refused here and a
- * console token refused by the app.
+ * console token refused by the app. The two-factor challenge has its own, so
+ * a challenge can never be presented as an access token.
  */
 const ADMIN_AUDIENCE = 'virgo-admin';
+const CHALLENGE_AUDIENCE = 'virgo-admin-2fa';
+const CHALLENGE_TTL = '5m';
+
+/** Where a request came from, for sessions and the sign-in record. */
+export interface RequestContext {
+  ip?: string;
+  userAgent?: string;
+}
 
 export interface AdminIdentity {
   id: string;
   email: string;
   name: string;
   role: AdminRole;
+  roleLabel: string;
   permissions: readonly AdminPermission[];
   /**
-   * True while the account still has the password the server generated for it.
+   * True while the account still has a password somebody else chose.
    *
    * Carried on the identity rather than only in the login response so it
    * survives a refresh — otherwise reloading the console would step straight
    * past the change screen.
    */
   mustChangePassword: boolean;
+  twoFactorEnabled: boolean;
+  /** Their role requires two-factor and they have not set it up yet. */
+  mustSetUpTwoFactor: boolean;
+  /** This request's session. Absent on a token from before sessions existed. */
+  sessionId?: string;
 }
 
-interface AdminRow {
+export interface AdminRow {
   id: string;
   email: string;
   name: string;
@@ -64,7 +92,28 @@ interface AdminRow {
   disabled_at: Date | null;
   must_change_password: boolean;
   sessions_valid_from: Date | null;
+  totp_secret: string | null;
+  totp_enabled_at: Date | null;
+  totp_last_step: string | null;
+  recovery_codes: string[];
+  failed_logins: number;
+  locked_until: Date | null;
+  role_label: string;
+  role_permissions: string[];
+  role_system: boolean;
+  role_requires_two_factor: boolean;
 }
+
+/** An account and the role it holds, which is where its permissions come from. */
+const ACCOUNT = `
+  select u.*, r.label as role_label, r.permissions as role_permissions,
+         r.system as role_system, r.requires_two_factor as role_requires_two_factor
+    from admin_users u
+    join admin_roles r on r.name = u.role`;
+
+export type LoginResult =
+  | { accessToken: string; refreshToken: string; admin: AdminIdentity }
+  | { twoFactorRequired: true; challenge: string };
 
 @Injectable()
 export class AdminAuthService {
@@ -75,6 +124,7 @@ export class AdminAuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly mail: MailService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -85,7 +135,7 @@ export class AdminAuthService {
    * whole module exists to avoid — so the console fails closed and says so
    * rather than quietly running with shared trust.
    */
-  private secret(): string {
+  secret(): string {
     const secret = this.config.get<string>('ADMIN_JWT_SECRET');
     if (!secret || secret.length < 32) {
       throw new ServiceUnavailableException(
@@ -104,105 +154,302 @@ export class AdminAuthService {
     return bcrypt.hash(password, rounds);
   }
 
-  private identity(row: AdminRow): AdminIdentity {
+  async checkPassword(adminId: string, password: string): Promise<boolean> {
+    const row = await this.db.queryOne<{ password_hash: string }>(
+      'select password_hash from admin_users where id = $1',
+      [adminId],
+    );
+    return !!row && (await bcrypt.compare(password, row.password_hash));
+  }
+
+  async findById(id: string): Promise<AdminRow | null> {
+    return this.db.queryOne<AdminRow>(`${ACCOUNT} where u.id = $1`, [id]);
+  }
+
+  identity(row: AdminRow, sessionId?: string): AdminIdentity {
+    const twoFactorEnabled = !!row.totp_enabled_at;
     return {
       id: row.id,
       email: row.email,
       name: row.name,
       role: row.role,
-      permissions: permissionsFor(row.role),
+      roleLabel: row.role_label,
+      permissions: permissionsFor(row.role, row.role_permissions, row.role_system),
       mustChangePassword: row.must_change_password,
+      twoFactorEnabled,
+      mustSetUpTwoFactor: row.role_requires_two_factor && !twoFactorEnabled,
+      sessionId,
     };
   }
 
   /**
    * Verifies an access token and returns who it belongs to.
    *
-   * The role is re-read from the database on every request rather than trusted
-   * from the token. Demoting someone has to take effect immediately — a token
-   * minted while they were an owner must not keep owner powers for its
-   * remaining 30 minutes.
+   * The role and its permissions are re-read from the database on every
+   * request rather than trusted from the token. Demoting someone, or taking a
+   * permission off their role, has to take effect immediately — a token
+   * minted before must not keep the old powers for its remaining 30 minutes.
+   * The same read refuses a token whose session has been ended.
    */
   async verify(token: string): Promise<AdminIdentity> {
-    let sub: string;
-    let issuedAt: number | undefined;
+    let payload: { sub: string; iat?: number; sid?: string };
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string; iat?: number }>(
-        token,
-        { secret: this.secret(), audience: ADMIN_AUDIENCE },
-      );
-      sub = payload.sub;
-      issuedAt = payload.iat;
+      payload = await this.jwt.verifyAsync(token, {
+        secret: this.secret(),
+        audience: ADMIN_AUDIENCE,
+      });
     } catch {
       throw new UnauthorizedException('Session expired');
     }
 
-    const row = await this.db.queryOne<AdminRow>(
-      'select * from admin_users where id = $1',
-      [sub],
+    const row = await this.db.queryOne<
+      AdminRow & { session_found: boolean; session_revoked_at: Date | null }
+    >(
+      `select a.*, s.id is not null as session_found, s.revoked_at as session_revoked_at
+         from (${ACCOUNT} where u.id = $1) a
+         left join admin_sessions s on s.id = $2::uuid and s.admin_id = a.id`,
+      [payload.sub, payload.sid ?? null],
     );
     if (!row || row.disabled_at) throw new UnauthorizedException('Session expired');
 
+    // A session that was ended — by its owner from another browser, by an
+    // owner, by a password change — stops here rather than when the token runs
+    // out.
+    if (payload.sid && (!row.session_found || row.session_revoked_at)) {
+      throw new UnauthorizedException('Session expired');
+    }
+
     /*
      * Refuse a token minted before the account's sessions were invalidated.
-     *
-     * Revoking refresh tokens alone left the previous holder with a working
-     * access token for the rest of its 30 minutes — the exact window that
-     * matters when the password was changed because somebody else saw it.
      *
      * `iat` is in seconds and floors, so a token issued in the same second as
      * the change can read as older than it. One second of slack, which is
      * shorter than any real attack and long enough to avoid logging out the
      * person who just typed the new password.
      */
-    if (row.sessions_valid_from && issuedAt !== undefined) {
+    if (row.sessions_valid_from && payload.iat !== undefined) {
       const cutoff = Math.floor(row.sessions_valid_from.getTime() / 1000);
-      if (issuedAt < cutoff - 1) {
+      if (payload.iat < cutoff - 1) {
         throw new UnauthorizedException('Session expired');
       }
     }
 
-    return this.identity(row);
+    return this.identity(row, payload.sid);
   }
 
-  private async issue(row: AdminRow, userAgent?: string) {
+  /** Starts a session, or continues one on refresh, and mints its tokens. */
+  private async issue(row: AdminRow, ctx: RequestContext, sessionId?: string) {
+    let sid = sessionId;
+    if (sid) {
+      await this.db.query(
+        `update admin_sessions
+            set last_seen_at = now(), ip = coalesce($2, ip), user_agent = coalesce($3, user_agent),
+                expires_at = now() + make_interval(days => $4)
+          where id = $1`,
+        [sid, ctx.ip ?? null, ctx.userAgent?.slice(0, 300) ?? null, REFRESH_TTL_DAYS],
+      );
+    } else {
+      const session = await this.db.queryOne<{ id: string }>(
+        `insert into admin_sessions (admin_id, ip, user_agent, expires_at)
+         values ($1, $2, $3, now() + make_interval(days => $4))
+         returning id`,
+        [row.id, ctx.ip ?? null, ctx.userAgent?.slice(0, 300) ?? null, REFRESH_TTL_DAYS],
+      );
+      sid = session!.id;
+    }
+
     const accessToken = await this.jwt.signAsync(
-      { sub: row.id, email: row.email },
+      { sub: row.id, email: row.email, sid },
       { secret: this.secret(), audience: ADMIN_AUDIENCE, expiresIn: ACCESS_TTL },
     );
 
     const refreshToken = randomBytes(32).toString('base64url');
     const expires = new Date(Date.now() + REFRESH_TTL_DAYS * 86_400_000);
     await this.db.query(
-      `insert into admin_refresh_tokens (admin_id, token_hash, expires_at, user_agent)
-       values ($1, $2, $3, $4)`,
-      [row.id, this.hashToken(refreshToken), expires, userAgent?.slice(0, 300) ?? null],
+      `insert into admin_refresh_tokens (admin_id, token_hash, expires_at, user_agent, session_id)
+       values ($1, $2, $3, $4, $5)`,
+      [row.id, this.hashToken(refreshToken), expires, ctx.userAgent?.slice(0, 300) ?? null, sid],
     );
 
-    return { accessToken, refreshToken, admin: this.identity(row) };
+    return { accessToken, refreshToken, admin: this.identity(row, sid) };
   }
 
-  async login(email: string, password: string, userAgent?: string) {
+  /** Writes the sign-in record. Never throws: it must not decide a sign-in. */
+  private async record(
+    adminId: string | null,
+    email: string,
+    outcome: 'success' | 'bad_password' | 'bad_code' | 'locked' | 'disabled' | 'unknown',
+    ctx: RequestContext,
+  ): Promise<void> {
+    try {
+      await this.db.query(
+        `insert into admin_login_events (admin_id, email, outcome, ip, user_agent)
+         values ($1, $2, $3, $4, $5)`,
+        [
+          adminId,
+          email.trim().toLowerCase().slice(0, 254),
+          outcome,
+          ctx.ip?.slice(0, 60) ?? null,
+          ctx.userAgent?.slice(0, 300) ?? null,
+        ],
+      );
+    } catch (err) {
+      this.logger.error(`Could not record a console sign-in: ${String(err)}`);
+    }
+  }
+
+  private lockedMessage(until: Date): HttpException {
+    const minutes = Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60_000));
+    return new HttpException(
+      `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or ask an owner to unlock the account.`,
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+  }
+
+  /**
+   * Counts a wrong password or code, and locks the account on the fifth in a
+   * row. One statement, so two wrong guesses at once cannot both read the old
+   * count and leave the account unlocked.
+   */
+  private async fail(
+    row: AdminRow,
+    email: string,
+    outcome: 'bad_password' | 'bad_code',
+    ctx: RequestContext,
+  ): Promise<void> {
+    const after = await this.db.queryOne<{ locked_until: Date | null }>(
+      `update admin_users
+          set locked_until = case when failed_logins + 1 >= $2
+                                  then now() + make_interval(mins => $3)
+                                  else locked_until end,
+              failed_logins = case when failed_logins + 1 >= $2 then 0 else failed_logins + 1 end
+        where id = $1
+        returning locked_until`,
+      [row.id, LOCK_AFTER_FAILURES, LOCK_MINUTES],
+    );
+    await this.record(row.id, email, outcome, ctx);
+    if (after?.locked_until && after.locked_until > new Date()) {
+      this.logger.warn(`Console account ${row.email} locked after repeated failures`);
+    }
+  }
+
+  private async succeed(row: AdminRow, email: string, ctx: RequestContext) {
+    await this.db.query(
+      `update admin_users
+          set failed_logins = 0, locked_until = null, last_login_at = now()
+        where id = $1`,
+      [row.id],
+    );
+    await this.record(row.id, email, 'success', ctx);
+    return this.issue(row, ctx);
+  }
+
+  async login(email: string, password: string, ctx: RequestContext): Promise<LoginResult> {
     const row = await this.db.queryOne<AdminRow>(
-      'select * from admin_users where lower(email) = lower($1)',
+      `${ACCOUNT} where lower(u.email) = lower($1)`,
       [email],
     );
+
+    if (row?.locked_until && row.locked_until > new Date()) {
+      await this.record(row.id, email, 'locked', ctx);
+      throw this.lockedMessage(row.locked_until);
+    }
 
     // One message and one timing profile for every failure. Distinguishing
     // "no such account" from "wrong password" tells an attacker which console
     // emails are real, and this is the one login worth that effort.
     const hash = row?.password_hash ?? '$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinva';
     const ok = await bcrypt.compare(password, hash);
-    if (!row || !ok || row.disabled_at) {
-      this.logger.warn(`Failed console login for ${email}`);
-      throw new UnauthorizedException('Email or password is incorrect');
+    const refused = new UnauthorizedException('Email or password is incorrect');
+    if (!row) {
+      await this.record(null, email, 'unknown', ctx);
+      throw refused;
+    }
+    if (!ok) {
+      await this.fail(row, email, 'bad_password', ctx);
+      throw refused;
+    }
+    if (row.disabled_at) {
+      await this.record(row.id, email, 'disabled', ctx);
+      throw refused;
     }
 
-    await this.db.query(
-      'update admin_users set last_login_at = now() where id = $1',
-      [row.id],
+    // The password was right; the account is not signed in until the second
+    // factor is. Wrong codes count toward the same lockout as wrong passwords.
+    if (row.totp_enabled_at) {
+      const challenge = await this.jwt.signAsync(
+        { sub: row.id },
+        { secret: this.secret(), audience: CHALLENGE_AUDIENCE, expiresIn: CHALLENGE_TTL },
+      );
+      return { twoFactorRequired: true, challenge };
+    }
+
+    return this.succeed(row, email, ctx);
+  }
+
+  /**
+   * The second step: a code from the authenticator app, or a recovery code.
+   *
+   * A recovery code is removed in the same statement that checks it, so one
+   * cannot be spent twice by two requests racing.
+   */
+  async completeTwoFactor(challenge: string, code: string, ctx: RequestContext) {
+    let sub: string;
+    try {
+      ({ sub } = await this.jwt.verifyAsync<{ sub: string }>(challenge, {
+        secret: this.secret(),
+        audience: CHALLENGE_AUDIENCE,
+      }));
+    } catch {
+      throw new UnauthorizedException('That sign-in took too long. Start again.');
+    }
+
+    const row = await this.findById(sub);
+    if (!row || row.disabled_at || !row.totp_enabled_at || !row.totp_secret) {
+      throw new UnauthorizedException('Start the sign-in again.');
+    }
+    if (row.locked_until && row.locked_until > new Date()) {
+      await this.record(row.id, row.email, 'locked', ctx);
+      throw this.lockedMessage(row.locked_until);
+    }
+
+    const secret = openSecret(row.totp_secret, this.secret());
+    const lastStep = row.totp_last_step === null ? null : Number(row.totp_last_step);
+    const step = secret ? verifyTotp(secret, code, { lastStep }) : null;
+    if (step !== null) {
+      // Conditional, so the same code presented twice at once is accepted once.
+      const claimed = await this.db.queryOne(
+        `update admin_users set totp_last_step = $2
+          where id = $1 and (totp_last_step is null or totp_last_step < $2)
+          returning id`,
+        [row.id, step],
+      );
+      if (claimed) return this.succeed(row, row.email, ctx);
+    } else {
+      const spent = await this.db.queryOne<{ remaining: number }>(
+        `update admin_users
+            set recovery_codes = array_remove(recovery_codes, $2)
+          where id = $1 and $2 = any(recovery_codes)
+          returning cardinality(recovery_codes) as remaining`,
+        [row.id, digestRecoveryCode(code)],
+      );
+      if (spent) {
+        await this.audit.record(row, {
+          action: 'admin.recoveryCodeUsed',
+          targetType: 'admin',
+          targetId: row.id,
+          detail: { remaining: spent.remaining },
+        });
+        return this.succeed(row, row.email, ctx);
+      }
+    }
+
+    await this.fail(row, row.email, 'bad_code', ctx);
+    throw new UnauthorizedException(
+      secret
+        ? 'That code did not work. Codes change every 30 seconds — try the current one.'
+        : 'The authenticator key on this account cannot be read. Use a recovery code.',
     );
-    return this.issue(row, userAgent);
   }
 
   /**
@@ -210,32 +457,53 @@ export class AdminAuthService {
    *
    * Rotating rather than reusing: a stolen refresh token is then good for at
    * most one use, and the theft shows up as the real admin being logged out.
+   * The session carries over, so "Chrome on the office laptop" stays one row.
    */
-  async refresh(token: string, userAgent?: string) {
-    const found = await this.db.queryOne<{ id: string; admin_id: string }>(
-      `select id, admin_id from admin_refresh_tokens
-        where token_hash = $1 and revoked_at is null and expires_at > now()`,
+  async refresh(token: string, ctx: RequestContext) {
+    const found = await this.db.queryOne<{
+      id: string;
+      admin_id: string;
+      session_id: string | null;
+      session_revoked_at: Date | null;
+    }>(
+      `select t.id, t.admin_id, t.session_id, s.revoked_at as session_revoked_at
+         from admin_refresh_tokens t
+         left join admin_sessions s on s.id = t.session_id
+        where t.token_hash = $1 and t.revoked_at is null and t.expires_at > now()`,
       [this.hashToken(token)],
     );
-    if (!found) throw new UnauthorizedException('Session expired');
+    if (!found || found.session_revoked_at) throw new UnauthorizedException('Session expired');
 
     await this.db.query(
       'update admin_refresh_tokens set revoked_at = now() where id = $1',
       [found.id],
     );
 
-    const row = await this.db.queryOne<AdminRow>(
-      'select * from admin_users where id = $1',
-      [found.admin_id],
-    );
+    const row = await this.findById(found.admin_id);
     if (!row || row.disabled_at) throw new UnauthorizedException('Session expired');
-    return this.issue(row, userAgent);
+    // A token from before sessions existed starts one now.
+    return this.issue(row, ctx, found.session_id ?? undefined);
   }
 
   async logout(token: string): Promise<void> {
-    await this.db.query(
-      'update admin_refresh_tokens set revoked_at = now() where token_hash = $1',
+    const row = await this.db.queryOne<{ session_id: string | null }>(
+      `update admin_refresh_tokens set revoked_at = now()
+        where token_hash = $1 returning session_id`,
       [this.hashToken(token)],
+    );
+    if (row?.session_id) await this.endSession(row.session_id);
+  }
+
+  /** Ends one session: its refresh tokens now, its access token on next use. */
+  async endSession(sessionId: string): Promise<void> {
+    await this.db.query(
+      'update admin_sessions set revoked_at = now() where id = $1 and revoked_at is null',
+      [sessionId],
+    );
+    await this.db.query(
+      `update admin_refresh_tokens set revoked_at = now()
+        where session_id = $1 and revoked_at is null`,
+      [sessionId],
     );
   }
 
@@ -260,8 +528,8 @@ export class AdminAuthService {
       );
     }
 
-    const row = await this.db.queryOne<AdminRow>(
-      'select * from admin_users where id = $1',
+    const row = await this.db.queryOne<{ password_hash: string }>(
+      'select password_hash from admin_users where id = $1',
       [adminId],
     );
     if (!row) throw new UnauthorizedException('Session expired');
@@ -341,7 +609,9 @@ export class AdminAuthService {
    * Redeems a reset token.
    *
    * One message for expired, already-used and never-existed, for the same
-   * reason the request side says nothing.
+   * reason the request side says nothing. It does not touch two-factor: the
+   * next sign-in still asks for a code, so a reset link alone — an inbox — is
+   * not a way in.
    */
   async resetPassword(token: string, newPassword: string): Promise<void> {
     if (newPassword.length < 12) {
@@ -365,29 +635,45 @@ export class AdminAuthService {
       'update admin_password_resets set used_at = now() where id = $1',
       [found.id],
     );
-    await this.db.query(
+    const row = await this.db.queryOne<{ id: string; email: string }>(
       `update admin_users
           set password_hash = $2,
               -- They just chose it, so there is nothing left to force.
               must_change_password = false,
+              -- Proving the inbox is theirs is enough to clear a lockout.
+              failed_logins = 0,
+              locked_until = null,
               sessions_valid_from = now(),
               updated_at = now()
-        where id = $1`,
+        where id = $1
+        returning id, email`,
       [found.admin_id, await this.hashPassword(newPassword)],
     );
     // Whoever was signed in before is signed out. If the reason for the reset
     // was a compromise, leaving their session alive would defeat it.
     await this.revokeAllFor(found.admin_id);
+    if (row) {
+      await this.audit.record(row, {
+        action: 'admin.passwordReset',
+        targetType: 'admin',
+        targetId: row.id,
+      });
+    }
   }
 
   /**
-   * Ends every session for one admin — used when disabling or demoting them.
+   * Ends every session for one admin — used when disabling or demoting them,
+   * and on a password change.
    *
-   * Both halves: the stored refresh tokens, and the stateless access tokens,
-   * which are cut off by moving `sessions_valid_from` forward. Revoking only
-   * the first leaves a usable token behind for up to ACCESS_TTL.
+   * All three halves: the sessions, their refresh tokens, and any access token
+   * minted before now, cut off by moving `sessions_valid_from` forward.
    */
   async revokeAllFor(adminId: string): Promise<void> {
+    await this.db.query(
+      `update admin_sessions set revoked_at = now()
+        where admin_id = $1 and revoked_at is null`,
+      [adminId],
+    );
     await this.db.query(
       `update admin_refresh_tokens set revoked_at = now()
         where admin_id = $1 and revoked_at is null`,
