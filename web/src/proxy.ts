@@ -73,14 +73,12 @@ const MOVED: Record<string, string> = {
   '/schedule/agenda': '/schedule?tab=upcoming',
   '/schedule/reminders': '/schedule?tab=reminders',
   '/settings/public-profile': '/settings/profile',
-  '/settings/password': '/settings/account',
-  '/settings/email': '/settings/account',
+  '/settings/password': '/settings/account?change=password',
+  '/settings/email': '/settings/account?change=email',
   '/settings/storage/plans': '/settings/plans',
   '/settings/storage/unfiled': '/settings/storage',
   '/settings/theme': '/settings',
   '/settings/privacy': '/settings',
-  '/settings/about': '/settings',
-  '/settings/help': '/support',
 };
 
 /**

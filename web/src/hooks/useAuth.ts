@@ -302,6 +302,37 @@ export function useAuth() {
     },
   });
 
+  /** Signs every other device out; this one keeps going on the pair it is handed. */
+  const changePassword = useMutation({
+    mutationFn: async ({
+      currentPassword,
+      newPassword,
+    }: {
+      currentPassword: string;
+      newPassword: string;
+    }) => {
+      try {
+        return await authApi.changePassword(currentPassword, newPassword);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.auth.session, result.user);
+    },
+  });
+
+  /** Only sends a link: the session's address stays as it is until it is opened. */
+  const requestEmailChange = useMutation({
+    mutationFn: async ({ password, newEmail }: { password: string; newEmail: string }) => {
+      try {
+        return await authApi.requestEmailChange(password, newEmail);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+  });
+
   const signOut = useMutation({
     mutationFn: async () => {
       await authApi.logout();
@@ -357,6 +388,8 @@ export function useAuth() {
     signUp,
     signOut,
     updateProfile,
+    changePassword,
+    requestEmailChange,
     disableAccount,
     deleteAccount,
   };

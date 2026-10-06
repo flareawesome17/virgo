@@ -156,7 +156,7 @@ export function CreateProvider({ children }: { children: ReactNode }) {
       // Checked as it is chosen, as on the phone, not after the form is filled.
       if (kind === 'workspace' && atWorkspaceLimit) {
         toast.error('Workspace limit reached', {
-          description: `Your ${usage?.plan ?? 'free'} plan includes ${usage?.workspaces.limit} workspace${usage?.workspaces.limit === 1 ? '' : 's'}. Delete or archive one to add another.`,
+          description: `Your ${usage?.plan ?? 'free'} plan includes ${usage?.workspaces.limit} workspace${usage?.workspaces.limit === 1 ? '' : 's'}. Archived ones count too, so delete one you have finished with to add another.`,
         });
         return;
       }

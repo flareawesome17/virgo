@@ -8,6 +8,7 @@ import {
   Banknote,
   BriefcaseBusiness,
   CalendarDays,
+  Ellipsis,
   Flag,
   MapPin,
   Send,
@@ -25,6 +26,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -38,6 +41,7 @@ import {
 } from '@/api';
 import { cn } from '@/lib/utils';
 import { useJob, useMyApplications, useReportJob } from '@/hooks/useJobs';
+import { PersonSafetyItems, usePersonSafety } from '@/components/people/person-safety';
 import {
   ApplicationBadge,
   ApplicationState,
@@ -85,6 +89,14 @@ export default function JobPage() {
   const job = useJob(slug);
   const report = useReportJob();
   const [reported, setReported] = useState(false);
+  // By post: it names the poster and carries no account id. Across a block
+  // the post is gone, so blocking goes back, as on the phone.
+  const safety = usePersonSafety('job', {
+    onBlocked: () => {
+      if (window.history.length > 1) router.back();
+      else router.replace('/jobs');
+    },
+  });
   /*
    * The conversation, if acceptance already opened one.
    *
@@ -172,25 +184,37 @@ export default function JobPage() {
                 <Button variant="ghost" size="icon" onClick={share} aria-label="Copy link">
                   <Share2 className="size-4" />
                 </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Report this post"
-                      disabled={reported || report.isPending}
-                    >
-                      <Flag className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {REPORT_REASONS.map((r) => (
-                      <DropdownMenuItem key={r.value} onClick={() => flag(r.value)}>
-                        {r.label}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* The post and the person behind it are reported apart: what is
+                    wrong with one post is not always wrong with its poster. */}
+                {!post.isMine && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label="More for this post">
+                        <Ellipsis className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-52">
+                      <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Flag className="size-3.5" />
+                        {reported ? 'Post reported' : 'Report this post'}
+                      </DropdownMenuLabel>
+                      {REPORT_REASONS.map((r) => (
+                        <DropdownMenuItem
+                          key={r.value}
+                          disabled={reported || report.isPending}
+                          onSelect={() => flag(r.value)}
+                        >
+                          {r.label}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                      <PersonSafetyItems
+                        safety={safety}
+                        subject={{ name: post.postedBy.displayName, target: { jobPostId: post.id } }}
+                      />
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
             </div>
 
@@ -342,6 +366,7 @@ export default function JobPage() {
           </CardContent>
         </Card>
       </div>
+      {safety.dialogs}
     </Screen>
   );
 }

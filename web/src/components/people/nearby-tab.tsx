@@ -35,12 +35,16 @@ import { useFriends, useRespondToFriendRequest, useSendFriendRequest } from '@/h
 import { useOpenDirectChat } from '@/hooks/useChat';
 import { RolePicker } from '@/components/role-picker';
 import type { NearbyPerson } from '@/api';
+import { PersonSafetyMenu, usePersonSafety } from '@/components/people/person-safety';
 
 /** The API caps the radius at 200km. */
 const RADII = [5, 25, 50, 100, 200];
 
 export function NearbyTab() {
   const router = useRouter();
+  // A block refreshes the discover queries, and the server leaves the person
+  // out of the next answer.
+  const safety = usePersonSafety('nearby');
   const [radiusKm, setRadiusKm] = useState(50);
   /** Empty means everyone; otherwise only people who do one of these. */
   const [roleFilter, setRoleFilter] = useState<string[]>([]);
@@ -240,6 +244,12 @@ export function NearbyTab() {
           Add
         </Button>
       )}
+      {/* Nearby is where strangers meet, so every row carries the way out. */}
+      <PersonSafetyMenu
+        safety={safety}
+        className="-mr-2"
+        subject={{ name: person.name, target: { userId: person.id } }}
+      />
     </li>
   );
 
@@ -495,6 +505,7 @@ export function NearbyTab() {
             </div>
           )}
         </div>
+      {safety.dialogs}
     </div>
   );
 }

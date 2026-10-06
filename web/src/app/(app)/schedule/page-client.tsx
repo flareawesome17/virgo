@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Bell,
   BellOff,
+  BellPlus,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -197,6 +198,25 @@ function reminderWhen(iso: string): string {
 }
 
 /**
+ * "For Reyes wedding", on a reminder made for an event.
+ *
+ * A reminder carries only the event's id. The page already holds most events
+ * it could name, so those are used as they are; the rest — an overdue
+ * reminder's event from months back — are read one by one.
+ */
+function ReminderEvent({ eventId, known }: { eventId: string; known?: ScheduleEvent }) {
+  const { data } = useScheduleEvent(known ? undefined : eventId);
+  const event = known ?? data;
+  return (
+    <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+      <CalendarDays className="size-3 shrink-0" aria-hidden />
+      {/* Still for an event while it loads, or when you can no longer see it. */}
+      <span className="truncate">{event ? `For ${event.title}` : 'For an event'}</span>
+    </span>
+  );
+}
+
+/**
  * Every reminder: overdue first, then what is coming, then what was done
  * lately — each with a tick.
  *
@@ -204,12 +224,22 @@ function reminderWhen(iso: string): string {
  * ticked off on the web at all, and one whose time had passed sat among the
  * ones still to come with nothing to say it was late.
  */
-function RemindersTab({ onNew }: { onNew: () => void }) {
+function RemindersTab({
+  onNew,
+  knownEvents,
+}: {
+  onNew: () => void;
+  /** The events the page already holds, by id, for naming a reminder's. */
+  knownEvents: Map<string, ScheduleEvent>;
+}) {
   const open = useReminders(OPEN_REMINDERS);
   const done = useReminders(DONE_REMINDERS);
   const update = useUpdateReminder();
   const remove = useDeleteReminder();
   const [deleting, setDeleting] = useState<Reminder | null>(null);
+  // A reminder could not be changed here at all: a wrong time meant deleting
+  // it and starting again. Clicking it opens the same form it was made with.
+  const [editing, setEditing] = useState<Reminder | null>(null);
 
   const now = new Date().getTime();
   const overdue = open.reminders.filter((r) => Date.parse(r.reminder_time) < now);
@@ -285,38 +315,53 @@ function RemindersTab({ onNew }: { onNew: () => void }) {
             <ul className="flex flex-col gap-2">
               {section.items.map((reminder) => (
                 <li key={reminder.id}>
-                  <Card>
+                  <Card className="transition-colors hover:border-primary/40">
                     <CardContent className="flex items-center gap-3 py-3">
                       <Checkbox
                         checked={reminder.is_completed}
                         onCheckedChange={() => toggle(reminder)}
                         aria-label={`${reminder.title}, done`}
                       />
-                      {reminder.is_alarm_enabled ? (
-                        <Bell className="size-4 shrink-0 text-primary" aria-hidden />
-                      ) : (
-                        <BellOff className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className={cn(
-                            'truncate text-sm font-semibold',
-                            reminder.is_completed && 'text-muted-foreground line-through',
+                      {/* The tick and the bin sit outside it, so neither
+                          opens the form on the way. */}
+                      <button
+                        type="button"
+                        aria-haspopup="dialog"
+                        onClick={() => setEditing(reminder)}
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                      >
+                        {reminder.is_alarm_enabled ? (
+                          <Bell className="size-4 shrink-0 text-primary" aria-hidden />
+                        ) : (
+                          <BellOff className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                        )}
+                        <span className="block min-w-0 flex-1">
+                          <span
+                            className={cn(
+                              'block truncate text-sm font-semibold',
+                              reminder.is_completed && 'text-muted-foreground line-through',
+                            )}
+                          >
+                            {reminder.title}
+                          </span>
+                          <span
+                            className={cn(
+                              'mt-0.5 block text-xs',
+                              section.key === 'overdue' && !reminder.is_completed
+                                ? 'text-destructive'
+                                : 'text-muted-foreground',
+                            )}
+                          >
+                            {reminderWhen(reminder.reminder_time)}
+                          </span>
+                          {reminder.schedule_event_id && (
+                            <ReminderEvent
+                              eventId={reminder.schedule_event_id}
+                              known={knownEvents.get(reminder.schedule_event_id)}
+                            />
                           )}
-                        >
-                          {reminder.title}
-                        </p>
-                        <p
-                          className={cn(
-                            'mt-0.5 text-xs',
-                            section.key === 'overdue' && !reminder.is_completed
-                              ? 'text-destructive'
-                              : 'text-muted-foreground',
-                          )}
-                        >
-                          {reminderWhen(reminder.reminder_time)}
-                        </p>
-                      </div>
+                        </span>
+                      </button>
                       <Button
                         size="icon"
                         variant="ghost"
@@ -361,6 +406,17 @@ function RemindersTab({ onNew }: { onNew: () => void }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {editing && (
+        <NewReminderDialog
+          open
+          onOpenChange={(next) => !next && setEditing(null)}
+          reminder={editing}
+          event={
+            editing.schedule_event_id ? knownEvents.get(editing.schedule_event_id) : undefined
+          }
+        />
+      )}
     </>
   );
 }
@@ -390,6 +446,8 @@ function ScheduleContent() {
     null,
   );
   const [creatingReminder, setCreatingReminder] = useState(false);
+  /** The event a new reminder is being made for: its card's Remind me. */
+  const [remindingFor, setRemindingFor] = useState<ScheduleEvent | null>(null);
   /** The event whose guest list is open, if any. */
   const [managing, setManaging] = useState<{ id: string; title: string } | null>(
     null,
@@ -509,6 +567,28 @@ function ScheduleContent() {
     }
     return map;
   }, [events]);
+
+  // Every event the page already holds, so a reminder can name the one it is
+  // for without reading it again.
+  const knownEvents = useMemo(() => {
+    const map = new Map<string, ScheduleEvent>();
+    for (const event of [...soonEvents, ...events]) map.set(event.id, event);
+    return map;
+  }, [events, soonEvents]);
+
+  // The open reminders for each event, soonest first as they are listed, so
+  // an event's card can say one is set rather than invite a second by
+  // accident.
+  const remindersByEvent = useMemo(() => {
+    const map = new Map<string, Reminder[]>();
+    for (const reminder of reminders) {
+      if (!reminder.schedule_event_id) continue;
+      const list = map.get(reminder.schedule_event_id);
+      if (list) list.push(reminder);
+      else map.set(reminder.schedule_event_id, [reminder]);
+    }
+    return map;
+  }, [reminders]);
 
   const now = new Date();
   const listedForDay = eventsByDate[selected] ?? [];
@@ -678,6 +758,7 @@ function ScheduleContent() {
                   {dayEvents.map((event) => {
                     // Undefined on a just-created event, which is always yours.
                     const mine = event.is_owner !== false;
+                    const eventReminders = remindersByEvent.get(event.id) ?? [];
                     return (
                       <li key={event.id} id={`schedule-event-${event.id}`}>
                         <Card
@@ -710,6 +791,30 @@ function ScheduleContent() {
                               <span className="mt-1 block">
                                 <AttendeeSummary eventId={event.id} />
                               </span>
+                              {eventReminders.length > 0 && (
+                                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Bell className="size-3 shrink-0 text-primary" aria-hidden />
+                                  <span className="truncate">
+                                    {eventReminders.length === 1
+                                      ? `Reminder · ${reminderWhen(eventReminders[0].reminder_time)}`
+                                      : `${eventReminders.length} reminders · first ${reminderWhen(eventReminders[0].reminder_time)}`}
+                                  </span>
+                                </p>
+                              )}
+                              {/* A reminder is only ever yours, so a guest
+                                  sets one as freely as the organiser — the
+                                  phone's event screen offers it to both. A
+                                  word rather than one more icon: the row of
+                                  them already leaves the title little room. */}
+                              <Button
+                                size="xs"
+                                variant="link"
+                                className="mt-1 h-auto px-0"
+                                onClick={() => setRemindingFor(event)}
+                              >
+                                <BellPlus />
+                                Remind me
+                              </Button>
                             </div>
                             <div className="flex shrink-0 flex-col items-end gap-1">
                               <Badge variant="secondary">
@@ -838,7 +943,10 @@ function ScheduleContent() {
             </TabsContent>
 
             <TabsContent value="reminders" className="mt-4">
-              <RemindersTab onNew={() => setCreatingReminder(true)} />
+              <RemindersTab
+                onNew={() => setCreatingReminder(true)}
+                knownEvents={knownEvents}
+              />
             </TabsContent>
           </Tabs>
         </div>
@@ -862,6 +970,13 @@ function ScheduleContent() {
         />
       )}
       <NewReminderDialog open={creatingReminder} onOpenChange={setCreatingReminder} />
+      {remindingFor && (
+        <NewReminderDialog
+          open
+          onOpenChange={(next) => !next && setRemindingFor(null)}
+          event={remindingFor}
+        />
+      )}
       {/* Deleting an event was immediate and irreversible, with no undo and
           no trace — one mis-aimed click on a phone-sized target destroyed a
           booking and everyone's invitations to it. */}

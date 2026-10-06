@@ -49,6 +49,7 @@ import {
 import { useOpenDirectChat } from '@/hooks/useChat';
 import { useHireEnquiries } from '@/hooks/useHire';
 import { EnquiryCard } from '@/components/enquiries';
+import { PersonSafetyMenu, usePersonSafety } from '@/components/people/person-safety';
 import { lastSeenLabel, usePresence } from '@/lib/presence-store';
 import { ApiError, type Friend } from '@/api';
 
@@ -218,6 +219,8 @@ export function PeopleTab() {
   const respond = useRespondToFriendRequest();
   const removeFriend = useDeleteFriend();
   const hire = useHireEnquiries();
+  // One for the requests and the enquiries both; each says which it came from.
+  const safety = usePersonSafety('requests');
 
   // Requests addressed to me. `requested_by: 'them'` is the recipient's side
   // of the pair the server writes.
@@ -428,7 +431,7 @@ export function PeopleTab() {
                 />
                 <div className="flex flex-col gap-3">
                   {pendingEnquiries.map((enquiry) => (
-                    <EnquiryCard key={enquiry.id} enquiry={enquiry} />
+                    <EnquiryCard key={enquiry.id} enquiry={enquiry} safety={safety} />
                   ))}
                 </div>
               </section>
@@ -490,6 +493,19 @@ export function PeopleTab() {
                               {busy && <Loader2 className="size-3.5 animate-spin" />}
                               Accept
                             </Button>
+                            {/* Often the only trace of a stranger. A row with
+                                no account id gets no menu. A block deletes the
+                                request on both sides. */}
+                            {request.friend_user_id && (
+                              <PersonSafetyMenu
+                                safety={safety}
+                                className="-mr-2"
+                                subject={{
+                                  name: request.friend_name,
+                                  target: { userId: request.friend_user_id },
+                                }}
+                              />
+                            )}
                           </li>
                         );
                       })}
@@ -624,6 +640,8 @@ export function PeopleTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {safety.dialogs}
     </>
   );
 }

@@ -10,6 +10,7 @@ import {
   Eye,
   Loader2,
   MessageCircle,
+  Pencil,
   Search,
   Star,
   Trash2,
@@ -67,6 +68,7 @@ import {
   useWithdrawApplication,
 } from '@/hooks/useJobs';
 import { useRoles } from '@/hooks/useRoles';
+import { PersonSafetyMenu, usePersonSafety } from '@/components/people/person-safety';
 
 const STATUS_LABEL: Record<JobPost['status'], string> = {
   open: 'Open',
@@ -259,6 +261,18 @@ This cannot be undone.`;
             View post
           </Link>
 
+          {/* Editing keeps the applications; deleting to fix a typo did not.
+              Only while the post is open, as on the phone. */}
+          {job.status === 'open' && (
+            <Link
+              href={`/jobs/new?edit=${job.slug}`}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+            >
+              <Pencil className="size-3.5" />
+              Edit post
+            </Link>
+          )}
+
           {job.status === 'open' ? (
             <>
               <Button
@@ -334,6 +348,9 @@ function Applicants({ job }: { job: JobPost }) {
    */
   const { mutateAsync: answerAsync } = respond;
   const [acting, setActing] = useState<string | null>(null);
+  // A block declines the application if it was still waiting, and the
+  // refreshed list drops it.
+  const safety = usePersonSafety('applicants');
 
   /*
    * Accepting asks first, and says what it is agreeing to. Accept made a
@@ -499,6 +516,12 @@ function Applicants({ job }: { job: JobPost }) {
                   {app.status}
                 </Badge>
               )}
+              {/* By application: the row carries no account id. */}
+              <PersonSafetyMenu
+                safety={safety}
+                className="-mr-1 -mt-1"
+                subject={{ name: app.personName, target: { applicationId: app.id } }}
+              />
             </div>
 
             {/*
@@ -634,6 +657,7 @@ function Applicants({ job }: { job: JobPost }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {safety.dialogs}
     </div>
   );
 }

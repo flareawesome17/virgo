@@ -3,7 +3,16 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ComponentType, ReactNode } from 'react';
-import { Bell, HardDrive, ShieldCheck, SlidersHorizontal, UserRound } from 'lucide-react';
+import {
+  Bell,
+  CircleHelp,
+  HardDrive,
+  Info,
+  ShieldCheck,
+  SlidersHorizontal,
+  UserRound,
+  UserX,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface SettingsItem {
@@ -30,6 +39,7 @@ const GROUPS: { title: string; items: SettingsItem[] }[] = [
         icon: ShieldCheck,
         also: ['/settings/two-factor'],
       },
+      { href: '/settings/blocked', label: 'Blocked people', icon: UserX },
       {
         href: '/settings/storage',
         label: 'Storage & plan',
@@ -43,6 +53,8 @@ const GROUPS: { title: string; items: SettingsItem[] }[] = [
     items: [
       { href: '/settings', label: 'General', icon: SlidersHorizontal },
       { href: '/settings/notifications', label: 'Notifications', icon: Bell },
+      { href: '/settings/help', label: 'Help', icon: CircleHelp },
+      { href: '/settings/about', label: 'About', icon: Info },
     ],
   },
 ];
