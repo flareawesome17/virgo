@@ -29,12 +29,14 @@ function layout(options: {
   intro: string;
   /** Large, copyable verification code shown between the intro and CTA. */
   code?: string;
+  /** Somebody's own words, quoted under the intro with their line breaks kept. */
+  quote?: string;
   cta?: { label: string; url: string };
   /** Sits under the button, usually the raw URL and how long it lasts. */
   fineprint?: string[];
   outro?: string;
 }): string {
-  const { heading, intro, code, cta, fineprint = [], outro } = options;
+  const { heading, intro, code, quote, cta, fineprint = [], outro } = options;
 
   return `<!doctype html>
 <html lang="en">
@@ -60,6 +62,12 @@ function layout(options: {
       <div style="background:${CARD};border:1px solid ${BORDER};border-radius:16px;padding:32px;">
         <h1 style="margin:0 0 12px;font-size:21px;line-height:1.3;font-weight:700;color:${INK};">${escapeHtml(heading)}</h1>
         <p style="margin:0;font-size:15px;line-height:1.6;color:${MUTED};">${escapeHtml(intro)}</p>
+
+        ${
+          quote
+            ? `<div style="margin:18px 0 0;padding:14px 16px;border-left:3px solid ${BORDER};background:${PAPER};border-radius:0 10px 10px 0;font-size:15px;line-height:1.6;color:${INK};white-space:pre-wrap;">${escapeHtml(quote)}</div>`
+            : ''
+        }
 
         ${
           code
@@ -619,6 +627,36 @@ export function eventInvite(options: {
  * The point is the same as passwordChanged: if this was not you, this email is
  * how you find out, and it names the date so nobody has to guess.
  */
+/**
+ * Support answered a ticket.
+ *
+ * The reply itself is in the email, so it can be read without opening the
+ * app; the link opens the thread to answer back. Plain text in both parts —
+ * a staff member's words are never treated as HTML.
+ */
+export function supportReply(options: {
+  name: string;
+  subject: string;
+  agent: string;
+  reply: string;
+  url: string;
+}): RenderedEmail {
+  const excerpt =
+    options.reply.length > 1200 ? `${options.reply.slice(0, 1200).trimEnd()}…` : options.reply;
+  const intro = `Hi ${options.name}, ${options.agent} from Virgo support replied to "${options.subject}":`;
+  return {
+    subject: `Re: ${options.subject}`,
+    html: layout({
+      heading: 'Support replied',
+      intro,
+      quote: excerpt,
+      cta: { label: 'Open the conversation', url: options.url },
+      outro: 'Reply in the app or on the web so the whole conversation stays in one place.',
+    }),
+    text: [intro, '', excerpt, '', `Open the conversation: ${options.url}`].join('\n'),
+  };
+}
+
 /**
  * Staff suspended the account.
  *
