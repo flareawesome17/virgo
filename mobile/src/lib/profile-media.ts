@@ -280,7 +280,7 @@ export function profileActionMessage(err: unknown, action: ProfileAction): strin
     status === 403 && code === undefined && err instanceof ApiError &&
     typeof err.body === 'object' && err.body !== null;
   if ((action === 'photo' || action === 'cover') && (code === 'STORAGE_FULL' || uncoded403)) {
-    return 'Your storage is full. Free up space, or upgrade your plan, to add photos.';
+    return 'Your storage is full. Free up space to add photos.';
   }
   if (status === 429) return "You're doing that a lot. Wait a moment and try again.";
   if (action === 'connect' && status === 404) return "This profile isn't available any more.";

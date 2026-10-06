@@ -7,6 +7,7 @@ import { useCreateWorkspace,
   useTheme,
 } from '@/src/hooks';
 import { router } from 'expo-router';
+import { ApiError } from '@/src/api';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { FormHeader } from '@/components/FormHeader';
 import { useState } from 'react';
@@ -56,8 +57,15 @@ export default function CreateWorkspaceScreen() {
           allowLeave();
           router.replace(`/workspaces/${workspace.id}`);
         },
+        // The server's own words when it refused (the workspace limit, when
+        // the count here was stale); a generic line only when it failed.
         onError: (err) => {
-          Alert.alert('Error', 'Could not create workspace. Please try again.');
+          Alert.alert(
+            'Could not create workspace',
+            err instanceof ApiError && err.status > 0 && err.status < 500
+              ? err.message
+              : 'Please try again.',
+          );
           console.error(err);
         },
       },
@@ -92,15 +100,18 @@ export default function CreateWorkspaceScreen() {
             <Text className="text-warning text-sm font-bold">Workspace limit reached</Text>
             <Text className="text-warning text-xs mt-1">
               The {plan} plan includes {workspaceLimit} workspace
-              {workspaceLimit === 1 ? '' : 's'}.{' '}
-              {SELLS_PLANS_HERE ? 'Delete one, or upgrade to add another.' : 'Delete one to add another.'}
+              {workspaceLimit === 1 ? '' : 's'}. Archived ones count too, so delete one you
+              have finished with to add another.
             </Text>
-            <Pressable
-              onPress={() => router.push('/settings/storage/plans')}
-              className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
-            >
-              <Text className="text-white text-xs font-bold">See plans</Text>
-            </Pressable>
+            {/* Only where a plan can be bought: see SELLS_PLANS_HERE. */}
+            {SELLS_PLANS_HERE && (
+              <Pressable
+                onPress={() => router.push('/settings/storage/plans')}
+                className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
+              >
+                <Text className="text-white text-xs font-bold">See plans</Text>
+              </Pressable>
+            )}
           </View>
         )}
 

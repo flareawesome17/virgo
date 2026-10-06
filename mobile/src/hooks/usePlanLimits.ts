@@ -17,11 +17,19 @@ export function usePlanLimits() {
   const workspaceLimit = usage?.workspaces.limit ?? null;
   const plan = usage?.plan ?? 'free';
 
+  // Plans only where one can be bought (SELLS_PLANS_HERE). On a phone the
+  // alert explains the limit and stops there, with the platform's plain OK.
   const warn = (title: string, message: string) =>
-    Alert.alert(title, message, [
-      { text: 'Not now', style: 'cancel' },
-      { text: 'See plans', onPress: () => router.push('/settings/storage/plans') },
-    ]);
+    Alert.alert(
+      title,
+      message,
+      SELLS_PLANS_HERE
+        ? [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'See plans', onPress: () => router.push('/settings/storage/plans') },
+          ]
+        : undefined,
+    );
 
   /**
    * Wraps a create action. Returns a handler that either runs it or explains
@@ -31,9 +39,10 @@ export function usePlanLimits() {
     if (!atWorkspaceLimit) return proceed();
     warn(
       'Workspace limit reached',
+      // Archived ones are counted by the API, so archiving frees nothing.
       `Your ${plan} plan includes ${workspaceLimit} workspace${
         workspaceLimit === 1 ? '' : 's'
-      }. ${SELLS_PLANS_HERE ? 'Delete one or upgrade to add another.' : 'Delete one to add another.'}`,
+      }. Archived ones count too, so delete one you have finished with to add another.`,
     );
   };
 
@@ -50,7 +59,7 @@ export function usePlanLimits() {
       if (!workspace || !isAlbumLimitReached(workspace.album_total)) return proceed();
       warn(
         'This workspace is full',
-        `${workspace.name} has ${albumLimit} album${albumLimit === 1 ? '' : 's'}, the most your ${plan} plan allows in one workspace. ${SELLS_PLANS_HERE ? 'Delete one, use another workspace, or upgrade.' : 'Delete one or use another workspace.'}`,
+        `${workspace.name} has ${albumLimit} album${albumLimit === 1 ? '' : 's'}, the most your ${plan} plan allows in one workspace. Delete one you have finished with, or use another workspace.`,
       );
     };
 
