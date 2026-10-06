@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { ArrowLeft, ArrowRight, Download, Info, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { displaySrcSet, formatBytes, kindOf, largestDisplaySource, type StoredFile } from '@/api';
 import { VideoPlayer } from '@/components/media/video-player';
+import { downloadHref } from '@/lib/desktop';
 
 const motion = 'transition-[transform,opacity,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]';
 
@@ -126,7 +127,8 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold tracking-[-0.015em]">{file.originalName}</p><p className="mt-0.5 font-mono text-[10px] tabular-nums text-white/40">{index + 1} / {files.length} · {formatBytes(file.sizeBytes)}</p></div>
         {kind === 'image' && <div className="hidden items-center gap-1 sm:flex"><ViewerButton label="Zoom out" onClick={() => setZoom((value) => Math.max(1, value - 0.25))}><ZoomOut size={18} strokeWidth={1.5} /></ViewerButton><button onClick={resetTransform} className="min-w-14 rounded-full px-3 py-2 font-mono text-[10px] tabular-nums text-white/60 hover:bg-white/[0.08]">{Math.round(zoom * 100)}%</button><ViewerButton label="Zoom in" onClick={() => setZoom((value) => Math.min(4, value + 0.25))}><ZoomIn size={18} strokeWidth={1.5} /></ViewerButton></div>}
         <ViewerButton label="File information" onClick={() => setShowInfo((value) => !value)}><Info size={18} strokeWidth={1.5} /></ViewerButton>
-        {file.capabilities.download && file.downloadUrl && <a href={file.downloadUrl} aria-label="Download original" className="grid size-10 place-items-center rounded-full text-white/65 hover:bg-white/[0.08] hover:text-white"><Download size={18} strokeWidth={1.5} /></a>}
+        {/* Marked as a download, or the desktop app sends it to the browser. */}
+        {file.capabilities.download && file.downloadUrl && <a href={downloadHref(file.downloadUrl)} aria-label="Download original" className="grid size-10 place-items-center rounded-full text-white/65 hover:bg-white/[0.08] hover:text-white"><Download size={18} strokeWidth={1.5} /></a>}
         {file.capabilities.delete && onDelete && <ViewerButton label="Delete file" onClick={() => onDelete(file)} danger><Trash2 size={18} strokeWidth={1.5} /></ViewerButton>}
       </header>
 

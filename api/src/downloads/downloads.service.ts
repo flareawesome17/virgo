@@ -374,6 +374,7 @@ export class DownloadsService {
     target: string,
     arch: string,
     currentVersion: string,
+    bundle?: string,
   ): Promise<UpdateManifest | null> {
     // `target` is the plugin's own word for the platform: `windows` or
     // `darwin`. Anything else has never been built here.
@@ -385,16 +386,35 @@ export class DownloadsService {
     const version = release.tag_name.replace(/^v/, '');
     if (!isNewer(version, currentVersion)) return null;
 
+    // Windows has two installers for the same app, and an update has to come
+    // from the one that put it there. The MSI installs for the whole machine
+    // and the NSIS installer for the current user, into different folders, so
+    // running the NSIS installer over an MSI install does not update it: it
+    // installs a second copy beside the first.
+    //
+    // The plugin says which one it is through `{{bundle_type}}` in the query
+    // string. Only the exact word `msi` changes anything. Every copy installed
+    // before the query string existed sends nothing, and a binary the bundler
+    // never patched sends `unknown`; both keep getting the NSIS installer,
+    // which is what they were offered before. The value is from the caller, so
+    // it picks between two of the release's own files and does nothing else.
+    const wantsMsi = target === 'windows' && bundle === 'msi';
+
     // What the updater actually applies. On Windows that is the NSIS
-    // installer; on macOS it is the .app tarball, never the .dmg, which is a
-    // disk image the updater has no way to unpack over a running app.
+    // installer, or the MSI for an MSI install; on macOS it is the .app
+    // tarball, never the .dmg, which is a disk image the updater has no way to
+    // unpack over a running app.
     //
     // macOS also has to match the architecture, because a release carries both
     // and handing an Intel Mac the Apple Silicon build would install something
     // that cannot run. The plugin sends `aarch64` or `x86_64`; the release
     // names them `aarch64` and `x64`, following the .dmg names.
     let installer: GitHubAsset | undefined;
-    if (target === 'windows') {
+    if (wantsMsi) {
+      installer = release.assets.find((asset) =>
+        asset.name.toLowerCase().endsWith('.msi'),
+      );
+    } else if (target === 'windows') {
       installer = release.assets.find((asset) =>
         asset.name.toLowerCase().endsWith('-setup.exe'),
       );
@@ -412,13 +432,23 @@ export class DownloadsService {
     // the same build; a release carrying one without the other is not offered
     // at all, because the plugin would download the installer and then refuse
     // it.
+    //
+    // An MSI install with no signed MSI to go to is offered nothing, not the
+    // NSIS installer instead. That substitute is the second-copy problem
+    // above; staying on the current version until a release carries its MSI
+    // is the better of the two.
     const signatureAsset = installer
       ? release.assets.find((asset) => asset.name === `${installer.name}.sig`)
       : undefined;
 
     if (!installer || !signatureAsset) {
+      const what = wantsMsi
+        ? 'MSI'
+        : target === 'windows'
+          ? 'Windows installer'
+          : `macOS ${arch} build`;
       this.logger.warn(
-        `${release.tag_name} has no signed ${target === 'windows' ? 'Windows installer' : `macOS ${arch} build`} — not offering an update.`,
+        `${release.tag_name} has no signed ${what} — not offering an update.`,
       );
       return null;
     }
@@ -440,8 +470,9 @@ export class DownloadsService {
     target: string,
     arch: string,
     currentVersion: string,
+    bundle?: string,
   ): Promise<UpdateManifest | null> {
-    return this.updateFor(target, arch, currentVersion);
+    return this.updateFor(target, arch, currentVersion, bundle);
   }
 
   /**

@@ -15,5 +15,13 @@
   <true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
   <true/>
+
+  <!--
+    For Nearby. Under the hardened runtime, location is one of the resources
+    an app has to declare before macOS will even ask the user; without it the
+    webview's geolocation fails at once. The prompt's wording is in Info.plist.
+  -->
+  <key>com.apple.security.personal-information.location</key>
+  <true/>
 </dict>
 </plist>

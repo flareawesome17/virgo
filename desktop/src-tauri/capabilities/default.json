@@ -1,7 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The splash page listens for a startup failure and nothing else. Once the webview moves to the local server it is running the ordinary web app, which uses no Tauri APIs at all.",
+  "description": "The splash page listens for a startup failure, and can be dragged, minimised and closed: on Windows the window has no title bar of its own, and a start that fails or hangs used to leave a window that could not be moved or shut. Once the webview moves to the local server it runs the ordinary web app, whose grants are the remote capabilities.",
   "windows": ["main"],
-  "permissions": ["core:event:default", "core:window:default", "core:app:default"]
+  "permissions": [
+    "core:event:default",
+    "core:window:default",
+    "core:app:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-close"
+  ]
 }

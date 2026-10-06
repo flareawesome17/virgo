@@ -40,12 +40,22 @@ unknown version is left out rather than assumed to match.
 
 | update | platforms | version bounds |
 | --- | --- | --- |
-| Web change (also reaches desktop, which runs the same client) | `web,windows,macos` | none |
+| Web change (reaches desktop with that release's installers, see below) | `web,windows,macos` | none |
 | Desktop-only change, e.g. the installer or updater | `windows,macos` — or just one | none |
 | Mac-only fix | `macos` | none |
 | Phone OTA | `ios,android` | `min` = `max` = the one native version it reaches, e.g. `1.3.4` |
 | New phone build, e.g. 1.3.5 | `ios,android` | `max_version` = `1.3.4` — only the builds below it |
 | Server change people notice everywhere | all five | none |
+
+A web change does **not** reach the desktop app when the web is deployed. The
+desktop installer carries its own frozen copy of the web client
+(`desktop/scripts/stage-web.mjs` stages `web/`'s build into it), so a desktop
+user keeps the web app from the release they installed. The change reaches
+them only once a `vX.Y.Z` release has built new installers (every `v*` release
+does) and they accept the update their installed copy then offers in the app.
+So a desktop user can read the announcement before they have the change. If it should wait until they do, post two announcements instead: `web`
+with no bounds, and `windows,macos` with `min_version` set to that release,
+since a desktop copy reports the version its installer carries.
 
 ## Posting one
 

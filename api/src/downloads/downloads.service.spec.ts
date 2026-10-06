@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { DownloadsService } from './downloads.service';
 
@@ -17,6 +18,9 @@ function service(): DownloadsService {
  * over a running app, so nothing signs one, and a selector that reached for a
  * `.dmg` would find no signature and silently offer no update at all — the
  * failure this release shape exists to catch.
+ *
+ * The MSI is named the way Tauri's WiX bundler names it, with the installer
+ * language on the end, which is how it appears on real releases.
  */
 const RELEASE = {
   tag_name: 'v1.13.0',
@@ -32,6 +36,8 @@ const RELEASE = {
     { id: 6, name: 'Virgo_aarch64.app.tar.gz.sig', size: 1 },
     { id: 7, name: 'Virgo_x64.app.tar.gz', size: 1 },
     { id: 8, name: 'Virgo_x64.app.tar.gz.sig', size: 1 },
+    { id: 9, name: 'Virgo_1.13.0_x64_en-US.msi', size: 1 },
+    { id: 10, name: 'Virgo_1.13.0_x64_en-US.msi.sig', size: 1 },
   ],
 };
 
@@ -128,6 +134,101 @@ describe('DownloadsService.getUpdate', () => {
     stub(subject);
 
     expect(await subject.getUpdate('linux', 'x86_64', '1.12.0')).toBeNull();
+  });
+});
+
+/**
+ * An MSI install and an NSIS install live in different folders, so updating
+ * one with the other's installer leaves two copies of the app on the machine.
+ * The shell names its installer with `?bundle={{bundle_type}}`.
+ */
+describe('DownloadsService.getUpdate for an MSI install', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('gives an MSI install the MSI and its signature', async () => {
+    const subject = service();
+    stub(subject);
+
+    const update = await subject.getUpdate('windows', 'x86_64', '1.12.0', 'msi');
+
+    expect(update?.url).toBe(
+      'https://api.virgo.ph/downloads/v1.13.0/Virgo_1.13.0_x64_en-US.msi',
+    );
+    expect(update?.signature).toBe('sig-10');
+  });
+
+  /**
+   * Every copy installed before the query string existed sends no `bundle`
+   * at all, and an unpatched binary sends `unknown`. They must go on getting
+   * what they were getting. The value is the caller's, so nothing short of
+   * the exact word changes the answer.
+   */
+  it.each([
+    undefined,
+    'nsis',
+    'unknown',
+    '',
+    'MSI',
+    ' msi',
+    'msi ',
+    'msi,nsis',
+    '../msi',
+  ])('gives the NSIS installer when bundle is %p', async (bundle) => {
+    const subject = service();
+    stub(subject);
+
+    const update = await subject.getUpdate('windows', 'x86_64', '1.12.0', bundle);
+
+    expect(update?.url).toContain('x64-setup.exe');
+    expect(update?.signature).toBe('sig-2');
+  });
+
+  it('offers an MSI install nothing, not the NSIS installer, when the release has no MSI', async () => {
+    const subject = service();
+    stub(subject, {
+      ...RELEASE,
+      assets: RELEASE.assets.filter((a) => !a.name.includes('.msi')),
+    });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    expect(await subject.getUpdate('windows', 'x86_64', '1.12.0', 'msi')).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no signed MSI'));
+    // An NSIS install is unaffected by the missing MSI.
+    expect(
+      (await subject.getUpdate('windows', 'x86_64', '1.12.0', 'nsis'))?.signature,
+    ).toBe('sig-2');
+  });
+
+  it('offers an MSI install nothing when the MSI has no signature beside it', async () => {
+    const subject = service();
+    stub(subject, {
+      ...RELEASE,
+      assets: RELEASE.assets.filter((a) => a.name !== 'Virgo_1.13.0_x64_en-US.msi.sig'),
+    });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    expect(await subject.getUpdate('windows', 'x86_64', '1.12.0', 'msi')).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no signed MSI'));
+    expect(
+      (await subject.getUpdate('windows', 'x86_64', '1.12.0'))?.signature,
+    ).toBe('sig-2');
+  });
+
+  it('offers an MSI install nothing when it is already current', async () => {
+    const subject = service();
+    stub(subject);
+
+    expect(await subject.getUpdate('windows', 'x86_64', '1.13.0', 'msi')).toBeNull();
+  });
+
+  it('changes nothing on a Mac', async () => {
+    const subject = service();
+    stub(subject);
+
+    const update = await subject.getUpdate('darwin', 'aarch64', '1.12.0', 'msi');
+
+    expect(update?.url).toContain('Virgo_aarch64.app.tar.gz');
+    expect(update?.signature).toBe('sig-6');
   });
 });
 

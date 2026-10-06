@@ -108,6 +108,20 @@ function JobRow({ job, focused }: { job: JobPost; focused: boolean }) {
   const pending = usePendingApplicants();
   const budget = budgetLabel(job.budgetMin, job.budgetMax);
 
+  /*
+   * Both questions below are asked in the app rather than through confirm():
+   * the desktop app's webview is not guaranteed to draw a native one, and one
+   * that answers no without asking leaves a button that does nothing. Each
+   * keeps what it asked about after it closes, so its text does not empty out
+   * while it fades.
+   */
+  const [ending, setEnding] = useState<{ status: 'filled' | 'closed'; waiting: number } | null>(
+    null,
+  );
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const [losses, setLosses] = useState<string[]>([]);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
   /**
    * Ending a post ends other people's applications.
    *
@@ -122,25 +136,25 @@ function JobRow({ job, focused }: { job: JobPost; focused: boolean }) {
     } catch {
       // If the count cannot be fetched, still ask — just without the number.
     }
+    setEnding({ status, waiting });
+    setConfirmingEnd(true);
+  };
 
-    const verb = status === 'filled' ? 'Mark this filled' : 'Close this post';
-    const consequence = waiting
-      ? `
-
-${waiting} ${waiting === 1 ? 'person is' : 'people are'} still waiting to hear back. They will be told the role is taken.`
-      : '';
-    if (!confirm(`${verb}?${consequence}`)) return;
-
+  const confirmEnd = () => {
+    if (!ending) return;
+    const { status, waiting } = ending;
     setStatus.mutate(
       { id: job.id, status },
       {
-        onSuccess: () =>
+        onSuccess: () => {
+          setConfirmingEnd(false);
           toast.success(
             status === 'filled' ? 'Marked as filled' : 'Post closed',
             waiting
               ? { description: `${waiting} pending ${waiting === 1 ? 'applicant was' : 'applicants were'} told.` }
               : undefined,
-          ),
+          );
+        },
         onError: (e: Error) => toast.error(e.message),
       },
     );
@@ -167,28 +181,25 @@ ${waiting} ${waiting === 1 ? 'person is' : 'people are'} still waiting to hear b
       // If the counts cannot be fetched, still ask — just without them.
     }
 
-    const losses = [
-      cost.applications &&
-        `${cost.applications} application${cost.applications === 1 ? '' : 's'}`,
-      cost.bookings &&
-        `${cost.bookings} booking${cost.bookings === 1 ? '' : 's'}`,
-    ].filter(Boolean) as string[];
+    setLosses(
+      [
+        cost.applications &&
+          `${cost.applications} application${cost.applications === 1 ? '' : 's'}`,
+        cost.bookings &&
+          `${cost.bookings} booking${cost.bookings === 1 ? '' : 's'}`,
+      ].filter(Boolean) as string[],
+    );
+    setConfirmingDelete(true);
+  };
 
-    const consequence = losses.length
-      ? `
-
-This also deletes ${losses.join(' and ')}, for good. The people involved lose their copy as well.`
-      : `
-
-This cannot be undone.`;
-
-    if (!confirm(`Delete “${job.title}”?${consequence}`)) return;
-
+  const confirmDelete = () =>
     remove.mutate(job.id, {
-      onSuccess: () => toast.success('Post deleted'),
+      onSuccess: () => {
+        setConfirmingDelete(false);
+        toast.success('Post deleted');
+      },
       onError: (e: Error) => toast.error(e.message),
     });
-  };
 
   return (
     // scroll-mt clears the sticky page header when ?post= scrolls here.
@@ -330,6 +341,66 @@ This cannot be undone.`;
 
         {open && <Applicants job={job} />}
       </CardContent>
+
+      <AlertDialog open={confirmingEnd} onOpenChange={setConfirmingEnd}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {ending?.status === 'closed' ? 'Close this post?' : 'Mark this filled?'}
+            </AlertDialogTitle>
+            {/* Nothing to add when nobody is waiting, or the count could not
+                be fetched: the question is the whole of it. */}
+            {!!ending?.waiting && (
+              <AlertDialogDescription>
+                {ending.waiting} {ending.waiting === 1 ? 'person is' : 'people are'} still waiting
+                to hear back. They will be told the role is taken.
+              </AlertDialogDescription>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={setStatus.isPending}>Keep it open</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={setStatus.isPending}
+              onClick={(event) => {
+                // Open until it settles, so a failure is reported.
+                event.preventDefault();
+                confirmEnd();
+              }}
+            >
+              {setStatus.isPending && <Loader2 className="size-4 animate-spin" />}
+              {ending?.status === 'closed' ? 'Close post' : 'Mark filled'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{job.title}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {losses.length
+                ? `This also deletes ${losses.join(' and ')}, for good. The people involved lose their copy as well.`
+                : 'This cannot be undone.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={(event) => {
+                // Open until it settles, so a failure is reported.
+                event.preventDefault();
+                confirmDelete();
+              }}
+            >
+              {remove.isPending && <Loader2 className="size-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
@@ -943,11 +1014,23 @@ function MyApplications({ onBrowse }: { onBrowse: () => void }) {
   const router = useRouter();
   const { applications, isLoading, loadFailed, refetch } = useMyApplications();
   const withdraw = useWithdrawApplication();
+  // Asked in the app, as on the posts above; the application is kept after
+  // the dialog closes so its title does not empty out while it fades.
+  const [withdrawing, setWithdrawing] = useState<JobApplication | null>(null);
+  const [confirmingWithdraw, setConfirmingWithdraw] = useState(false);
 
   const onWithdraw = (app: JobApplication) => {
-    if (!confirm(`Withdraw your application to “${app.postTitle}”? You can apply again while it is open.`)) return;
-    withdraw.mutate(app.id, {
-      onSuccess: () => toast.success('Application withdrawn'),
+    setWithdrawing(app);
+    setConfirmingWithdraw(true);
+  };
+
+  const confirmWithdraw = () => {
+    if (!withdrawing) return;
+    withdraw.mutate(withdrawing.id, {
+      onSuccess: () => {
+        setConfirmingWithdraw(false);
+        toast.success('Application withdrawn');
+      },
       onError: (e: Error) => toast.error(e.message),
     });
   };
@@ -1040,6 +1123,32 @@ function MyApplications({ onBrowse }: { onBrowse: () => void }) {
           </CardContent>
         </Card>
       ))}
+
+      <AlertDialog open={confirmingWithdraw} onOpenChange={setConfirmingWithdraw}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Withdraw your application to “{withdrawing?.postTitle}”?
+            </AlertDialogTitle>
+            <AlertDialogDescription>You can apply again while it is open.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={withdraw.isPending}>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={withdraw.isPending}
+              onClick={(event) => {
+                // Open until it settles, so a failure is reported.
+                event.preventDefault();
+                confirmWithdraw();
+              }}
+            >
+              {withdraw.isPending && <Loader2 className="size-4 animate-spin" />}
+              Withdraw
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

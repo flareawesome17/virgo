@@ -11,6 +11,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { type StoredFile } from '@/api';
+import { downloadHref } from '@/lib/desktop';
 
 const motion =
   'transition-[transform,opacity,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]';
@@ -179,7 +180,7 @@ export function VideoPlayer({
 
   const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 
-  if (failed) return <div className="grid h-full place-items-center px-6 text-center"><div><p className="text-lg font-semibold">This video cannot play in this browser</p><p className="mt-2 max-w-md text-sm text-white/45">The original codec may only be supported on the device that recorded it.</p>{file.capabilities.download && file.downloadUrl && <a href={file.downloadUrl} className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#c17745] px-5 text-sm font-semibold"><Download size={17} strokeWidth={1.5} />Download original</a>}</div></div>;
+  if (failed) return <div className="grid h-full place-items-center px-6 text-center"><div><p className="text-lg font-semibold">This video cannot play in this browser</p><p className="mt-2 max-w-md text-sm text-white/45">The original codec may only be supported on the device that recorded it.</p>{file.capabilities.download && file.downloadUrl && <a href={downloadHref(file.downloadUrl)} className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#c17745] px-5 text-sm font-semibold"><Download size={17} strokeWidth={1.5} />Download original</a>}</div></div>;
 
   return <div ref={frameRef} className="relative grid h-full place-items-center bg-[#141210]" onMouseMove={showControls} onClick={showControls}>
     {/* The proxy when there is one, the original when there is not. The proxy is
@@ -197,7 +198,8 @@ export function VideoPlayer({
                  * not once it worked.
                  *
                  * Same guard as everywhere else: a collaborator with view-only
-                 * access is given no `downloadUrl` to offer. */}
-                {file.capabilities.download && file.downloadUrl && <a href={file.downloadUrl} aria-label="Download original" className="grid size-9 place-items-center text-white/65 hover:text-white"><Download size={18} strokeWidth={1.5} /></a>}<button onClick={() => frameRef.current?.requestFullscreen()} aria-label="Fullscreen" className="grid size-9 place-items-center text-white/65"><Maximize2 size={18} strokeWidth={1.5} /></button></div></div></div>}
+                 * access is given no `downloadUrl` to offer. Marked as a
+                 * download, or the desktop app sends it to the browser. */}
+                {file.capabilities.download && file.downloadUrl && <a href={downloadHref(file.downloadUrl)} aria-label="Download original" className="grid size-9 place-items-center text-white/65 hover:text-white"><Download size={18} strokeWidth={1.5} /></a>}<button onClick={() => frameRef.current?.requestFullscreen()} aria-label="Fullscreen" className="grid size-9 place-items-center text-white/65"><Maximize2 size={18} strokeWidth={1.5} /></button></div></div></div>}
   </div>;
 }

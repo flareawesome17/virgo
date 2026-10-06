@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "window-controls",
   "//": "Adding this file is not enough to enable it. `app.security.capabilities` in tauri.conf.json is an allow-list, and a capability missing from it is parsed, validated, written into gen/schemas/capabilities.json — and never activated. That failure is silent: every command falls through to whatever `default` grants and is rejected with 'not allowed by ACL', which reads like a permission is missing rather than like the whole capability is switched off.",
-  "description": "Lets the app draw its own title bar and hand the installer to the browser. The window is loaded from http://127.0.0.1:41730 — a remote origin as far as the webview is concerned — so Tauri injects nothing into it by default and the page can neither move its own window nor open a link outside itself. This grants those two things and nothing else: five window commands, and opening a URL restricted to api.virgo.ph so a page cannot send somebody to an address of its choosing. No filesystem, no shell, no HTTP.",
+  "description": "Lets the app draw its own title bar, hand the installer to the browser, and act like an app: name its window and badge after what is unread, ask for attention, hold a close while uploads run, zoom, and show a finished download in its folder. The window is loaded from http://127.0.0.1:41730 — a remote origin as far as the webview is concerned — so Tauri injects nothing into it by default. This grants window commands, listening for the close request (whose listener the API removes again), the zoom the zoom keys set, revealing a file in its folder, and opening a URL restricted to api.virgo.ph, so a page cannot send somebody to an address of its choosing. Ordinary links out of the app are handled by the shell itself, not by this page. No filesystem reads, no shell, no HTTP.",
   "windows": ["main"],
   "remote": {
     "urls": ["http://127.0.0.1:41730/*"]
@@ -13,6 +13,17 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-is-maximized",
     "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-is-focused",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-title",
+    "core:window:allow-set-badge-count",
+    "core:window:allow-request-user-attention",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:webview:allow-set-webview-zoom",
+    "opener:allow-reveal-item-in-dir",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "https://api.virgo.ph/*" }]

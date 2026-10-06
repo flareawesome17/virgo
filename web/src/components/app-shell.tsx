@@ -71,6 +71,8 @@ import { DesktopUpdateBanner } from '@/components/desktop-update-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { UploadDock } from '@/components/upload/upload-dock';
 import { DesktopTitleBar } from '@/components/desktop-title-bar';
+import { DesktopAttention } from '@/components/desktop-attention';
+import { DesktopDownloads } from '@/components/desktop-downloads';
 import { CreateMenu } from '@/components/shell/create';
 import { useHydrated } from '@/lib/hydration';
 
@@ -533,6 +535,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div data-app-shell className="flex h-dvh flex-col">
       {/* Renders nothing on the web. In the desktop app it is the title bar. */}
       <DesktopTitleBar />
+      {/* Render nothing anywhere. In the desktop app they keep the window's
+          title, dock badge and taskbar in step with what is unread, and say
+          where a download went. */}
+      <DesktopAttention />
+      <DesktopDownloads />
 
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-60 shrink-0 border-r lg:block">
