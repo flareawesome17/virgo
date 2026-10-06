@@ -126,8 +126,13 @@ export class TwoFactorService {
       new Date(Date.now() + OTP_TTL_MS),
     );
     if (!updated) {
+      // An object, not a string: a string becomes the whole response body,
+      // with no `message` for a client to read.
       throw new HttpException(
-        'Wait one minute before requesting another code.',
+        {
+          statusCode: HttpStatus.TOO_MANY_REQUESTS,
+          message: 'Wait one minute before requesting another code.',
+        },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
