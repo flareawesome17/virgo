@@ -77,6 +77,8 @@ export interface AdminIdentity {
    */
   mustChangePassword: boolean;
   twoFactorEnabled: boolean;
+  /** Their role requires two-factor. */
+  twoFactorRequired: boolean;
   /** Their role requires two-factor and they have not set it up yet. */
   mustSetUpTwoFactor: boolean;
   /** This request's session. Absent on a token from before sessions existed. */
@@ -177,6 +179,7 @@ export class AdminAuthService {
       permissions: permissionsFor(row.role, row.role_permissions, row.role_system),
       mustChangePassword: row.must_change_password,
       twoFactorEnabled,
+      twoFactorRequired: row.role_requires_two_factor,
       mustSetUpTwoFactor: row.role_requires_two_factor && !twoFactorEnabled,
       sessionId,
     };
@@ -300,8 +303,13 @@ export class AdminAuthService {
 
   private lockedMessage(until: Date): HttpException {
     const minutes = Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60_000));
+    // An object, not a string: DatabaseExceptionFilter sends getResponse() as
+    // it is, and a bare string body has no `message` for the console to show.
     return new HttpException(
-      `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or ask an owner to unlock the account.`,
+      {
+        statusCode: HttpStatus.TOO_MANY_REQUESTS,
+        message: `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or ask an owner to unlock the account.`,
+      },
       HttpStatus.TOO_MANY_REQUESTS,
     );
   }

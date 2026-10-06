@@ -6,10 +6,12 @@ import { useState } from 'react';
 import { ArrowLeft, Lock } from 'lucide-react';
 import {
   useMe,
+  usePresence,
   useReplyTicket,
   useTicket,
   useUpdateTicket,
 } from '@/hooks/useConsole';
+import { PresenceBar } from '@/components/console/presence';
 import { DataState, PageHeader, when } from '@/components/console/primitives';
 import { useRecordTab } from '@/components/console/record-tabs';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +39,9 @@ export default function TicketPage() {
 
   const [body, setBody] = useState('');
   const [internal, setInternal] = useState(false);
+  // Typing a reply says so, so a colleague opening the same ticket sees it
+  // before writing a second answer.
+  const others = usePresence('ticket', id, body.trim() ? 'replying' : 'viewing');
 
   const ticket = data?.ticket as Record<string, string | null> | undefined;
 
@@ -121,6 +126,8 @@ export default function TicketPage() {
                 )
               }
             />
+
+            <PresenceBar others={others} className="mb-4" />
 
             <div className="space-y-3">
               {data.messages.map((m) => (

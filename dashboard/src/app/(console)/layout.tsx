@@ -12,6 +12,7 @@ import {
   useCommandPaletteShortcut,
 } from '@/components/console/command-palette';
 import { ForcePasswordChange } from '@/components/console/force-password-change';
+import { ForceTwoFactorSetup } from '@/components/console/force-two-factor-setup';
 import { RecordTabBar, RecordTabsProvider } from '@/components/console/record-tabs';
 import { useMe, useOverview } from '@/hooks/useConsole';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -42,9 +43,11 @@ export default function ConsoleLayout({
   // The rail's counts come from the overview, which the Overview page is
   // fetching anyway — same query key, so this is a cache read rather than a
   // second request. Skipped entirely for a role that cannot see it, and while
-  // the password still has to be changed — the API refuses it until then.
+  // setup is unfinished — the API refuses it until then.
   const canSeeOverview =
-    (me?.permissions.includes('overview.read') ?? false) && !me?.mustChangePassword;
+    (me?.permissions.includes('overview.read') ?? false) &&
+    !me?.mustChangePassword &&
+    !me?.mustSetUpTwoFactor;
   const { data: overview } = useOverview(30, canSeeOverview);
 
   // Bounce before rendering anything if there is no token at all — otherwise
@@ -76,6 +79,11 @@ export default function ConsoleLayout({
   // use by design, and a banner someone can scroll past would not enforce it.
   if (me.mustChangePassword) {
     return <ForcePasswordChange email={me.email} />;
+  }
+  // Then two-factor, if the role requires it. After the password, because
+  // changing the password signs out and this would have to be done twice.
+  if (me.mustSetUpTwoFactor) {
+    return <ForceTwoFactorSetup email={me.email} roleLabel={me.roleLabel} />;
   }
 
   const counts: NavCounts | undefined = overview
@@ -172,7 +180,7 @@ function Shell({
         <SheetContent side="left" className="w-64 gap-0 bg-sidebar p-0" showCloseButton={false}>
           <SheetTitle className="sr-only">Menu</SheetTitle>
           <NavList me={me} counts={counts} expanded onNavigate={() => setMenuOpen(false)} />
-          <RailFooter me={me} expanded />
+          <RailFooter me={me} expanded onNavigate={() => setMenuOpen(false)} />
         </SheetContent>
       </Sheet>
 

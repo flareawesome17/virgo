@@ -71,6 +71,7 @@ describe('AdminGuard and a password someone else chose', () => {
       permissions: permissionsFor('owner'),
       mustChangePassword: false,
       twoFactorEnabled: true,
+      twoFactorRequired: true,
       mustSetUpTwoFactor: false,
       ...identity,
     };
@@ -124,6 +125,7 @@ describe('AdminGuard and two-factor a role requires', () => {
       permissions: permissionsFor('admin'),
       mustChangePassword: false,
       twoFactorEnabled: false,
+      twoFactorRequired: true,
       mustSetUpTwoFactor: true,
       ...identity,
     };

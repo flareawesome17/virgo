@@ -55,7 +55,7 @@ export const NAV: NavGroup[] = [
         label: 'Users',
         icon: ShieldCheck,
         permission: 'admins.read',
-        keywords: 'console users admins roles team',
+        keywords: 'console users admins staff roles sign-ins sessions team',
       },
       {
         href: '/virgo-users',

@@ -8,10 +8,13 @@ import {
   type QueryKey,
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useEffect } from 'react';
 import {
   console_,
   type AdminRole,
+  type AuditQuery,
   type PromoInput,
+  type RoleInput,
   type UsersQuery,
 } from '@/api/console';
 
@@ -33,6 +36,11 @@ export const keys = {
   audit: (p: unknown) => ['audit', p] as QueryKey,
   promos: ['promos'] as QueryKey,
   promoGrants: (id: string) => ['promoGrants', id] as QueryKey,
+  auditFacets: ['auditFacets'] as QueryKey,
+  mySecurity: ['mySecurity'] as QueryKey,
+  logins: (p: unknown) => ['logins', p] as QueryKey,
+  sessions: ['sessions'] as QueryKey,
+  roles: ['roles'] as QueryKey,
 };
 
 export function useMe() {
@@ -144,7 +152,7 @@ export function useAccounts() {
   return useQuery({ queryKey: keys.accounts, queryFn: console_.accounts });
 }
 
-export function useAudit(p: { limit?: number; offset?: number; targetId?: string }) {
+export function useAudit(p: AuditQuery) {
   return useQuery({
     queryKey: keys.audit(p),
     queryFn: () => console_.audit(p),
@@ -326,4 +334,174 @@ export function useGrantPromo() {
       toast.error(err instanceof Error ? err.message : 'That did not work');
     },
   });
+}
+
+// ─── staff security ────────────────────────────────────────────────────────
+
+export function useAuditFacets(enabled = true) {
+  return useQuery({ queryKey: keys.auditFacets, queryFn: console_.auditFacets, enabled });
+}
+
+export function useMySecurity() {
+  return useQuery({ queryKey: keys.mySecurity, queryFn: console_.mySecurity });
+}
+
+export function useLogins(
+  p: { adminId?: string; outcome?: string; limit?: number; offset?: number },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: keys.logins(p),
+    queryFn: () => console_.logins(p),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useSessions(enabled = true) {
+  return useQuery({ queryKey: keys.sessions, queryFn: console_.sessions, enabled });
+}
+
+export function useRoles(enabled = true) {
+  return useQuery({ queryKey: keys.roles, queryFn: console_.roles, enabled });
+}
+
+/** What changes when somebody's security does: their row, their sessions, you. */
+const SECURITY_KEYS: QueryKey[] = [keys.me, keys.mySecurity, keys.accounts, keys.sessions, ['logins']];
+
+/**
+ * Two-factor setup returns secrets (the QR code, then recovery codes), so these
+ * do not toast — the screen that called them shows the result instead.
+ */
+export function useStartTwoFactor() {
+  return useMutation({ mutationFn: console_.startTwoFactor });
+}
+
+export function useEnableTwoFactor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => console_.enableTwoFactor(code),
+    onSuccess: () => {
+      // Not `me` yet: refetching it now would lift a forced setup screen
+      // before the recovery codes on it have been read. The screen does it.
+      void qc.invalidateQueries({ queryKey: keys.mySecurity });
+      void qc.invalidateQueries({ queryKey: ['audit'] });
+    },
+  });
+}
+
+export function useRegenerateRecoveryCodes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => console_.regenerateRecoveryCodes(code),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.mySecurity });
+      void qc.invalidateQueries({ queryKey: ['audit'] });
+    },
+  });
+}
+
+export function useDisableTwoFactor() {
+  return useConsoleMutation((password: string) => console_.disableTwoFactor(password), {
+    success: 'Two-factor turned off',
+    invalidate: SECURITY_KEYS,
+  });
+}
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: ({ current, next }: { current: string; next: string }) =>
+      console_.changePassword(current, next),
+  });
+}
+
+export function useEndMySession() {
+  return useConsoleMutation((id: string) => console_.endMySession(id), {
+    success: 'Signed out of that session',
+    invalidate: SECURITY_KEYS,
+  });
+}
+
+export function useEndMyOtherSessions() {
+  return useConsoleMutation(() => console_.endMyOtherSessions(), {
+    success: 'Signed out everywhere else',
+    invalidate: SECURITY_KEYS,
+  });
+}
+
+export function useEndSession() {
+  return useConsoleMutation((id: string) => console_.endSession(id), {
+    success: 'Session ended',
+    invalidate: SECURITY_KEYS,
+  });
+}
+
+export function useUnlockAccount() {
+  return useConsoleMutation((id: string) => console_.unlockAccount(id), {
+    success: 'Account unlocked',
+    invalidate: SECURITY_KEYS,
+  });
+}
+
+export function useResetTwoFactor() {
+  return useConsoleMutation((id: string) => console_.resetTwoFactor(id), {
+    success: 'Two-factor reset. They are signed out and enrol again at next sign-in.',
+    invalidate: SECURITY_KEYS,
+  });
+}
+
+/** Roles feed the role pickers (on `me`) and every account's permissions. */
+const ROLE_KEYS: QueryKey[] = [keys.roles, keys.me, keys.accounts];
+
+export function useCreateRole() {
+  return useConsoleMutation((input: RoleInput) => console_.createRole(input), {
+    success: 'Role created',
+    invalidate: ROLE_KEYS,
+  });
+}
+
+export function useUpdateRole() {
+  return useConsoleMutation(
+    ({ name, input }: { name: string; input: RoleInput }) => console_.updateRole(name, input),
+    { success: 'Role saved', invalidate: ROLE_KEYS },
+  );
+}
+
+export function useRemoveRole() {
+  return useConsoleMutation((name: string) => console_.removeRole(name), {
+    success: 'Role deleted',
+    invalidate: ROLE_KEYS,
+  });
+}
+
+/**
+ * Who else has this record open, refreshed every 20 seconds.
+ *
+ * The heartbeat is the query: React Query already knows how to poll, pause in
+ * a hidden tab and stop when the page goes. Leaving says so at once rather
+ * than letting the entry age out over 45 seconds.
+ */
+export function usePresence(
+  targetType: 'user' | 'ticket',
+  targetId: string,
+  state: 'viewing' | 'replying' = 'viewing',
+) {
+  const query = useQuery({
+    queryKey: ['presence', targetType, targetId, state],
+    queryFn: () => console_.presence(targetType, targetId, state),
+    enabled: !!targetId,
+    refetchInterval: 20_000,
+    staleTime: 0,
+    // Somebody else's presence is a nicety; a failed beat is not worth a retry.
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!targetId) return;
+    return () => {
+      void console_.leavePresence(targetType, targetId).catch(() => {});
+    };
+  }, [targetType, targetId]);
+
+  return query.data?.others ?? [];
 }

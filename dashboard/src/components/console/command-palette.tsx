@@ -9,6 +9,7 @@ import {
   LifeBuoy,
   LogOut,
   Monitor,
+  CircleUser,
   Moon,
   PanelLeft,
   Search,
@@ -180,6 +181,15 @@ function PaletteBody({
         keywords: 'appearance colour mode',
         run: () => setTheme(value),
       })),
+      {
+        id: 'account',
+        group: 'Actions',
+        label: 'My account',
+        hint: me.twoFactorEnabled ? undefined : 'two-factor is off',
+        icon: CircleUser,
+        keywords: 'profile password two-factor 2fa sessions security',
+        run: go('/account'),
+      },
       {
         id: 'rail',
         group: 'Actions',
