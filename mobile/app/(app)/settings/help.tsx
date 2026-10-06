@@ -135,9 +135,9 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
       },
       {
         q: 'I hit my album or workspace limit',
-        a: 'Album limits are counted per workspace, not in total. Free includes 3 workspaces with up to 10 albums in each.',
-        route: '/settings/storage/plans',
-        routeLabel: 'See plans',
+        a: 'Album limits are counted per workspace, not in total. Free includes 3 workspaces with up to 10 albums in each. Archived workspaces count towards the limit, so delete one you have finished with to make room.',
+        route: '/workspaces/archived',
+        routeLabel: 'Archived workspaces',
       },
       {
         q: 'How do I delete everything I have uploaded?',

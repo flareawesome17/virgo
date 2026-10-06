@@ -169,16 +169,18 @@ export default function CreateAlbumScreen() {
             <Text className="text-warning text-sm font-bold">{selectedWs?.name} is full</Text>
             <Text className="text-warning text-xs mt-1">
               The {plan} plan allows {albumLimit} album{albumLimit === 1 ? '' : 's'} in each
-              workspace. Choose another workspace or delete an album
-              {SELLS_PLANS_HERE ? ', or upgrade.' : '.'}
+              workspace. Choose another workspace, or delete an album you have finished with.
             </Text>
-            <Pressable
-              onPress={() => router.push('/settings/storage/plans')}
-              accessibilityRole="button"
-              className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
-            >
-              <Text className="text-white text-xs font-bold">See plans</Text>
-            </Pressable>
+            {/* Only where a plan can be bought: see SELLS_PLANS_HERE. */}
+            {SELLS_PLANS_HERE && (
+              <Pressable
+                onPress={() => router.push('/settings/storage/plans')}
+                accessibilityRole="button"
+                className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
+              >
+                <Text className="text-white text-xs font-bold">See plans</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
