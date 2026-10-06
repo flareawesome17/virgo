@@ -233,12 +233,14 @@ export function useReplyTicket(id: string) {
       internal,
       setStatus,
       macroId,
+      attachments,
     }: {
       body: string;
       internal: boolean;
       setStatus?: string;
       macroId?: string;
-    }) => console_.replyTicket(id, body, internal, { setStatus, macroId }),
+      attachments?: string[];
+    }) => console_.replyTicket(id, body, internal, { setStatus, macroId, attachments }),
     { success: 'Sent', invalidate: [...ticketKeys(id), ['macros']] },
   );
 }

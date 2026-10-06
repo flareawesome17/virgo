@@ -17,6 +17,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { Screen } from '@/components/app-shell';
+import { RateTicket } from '@/components/support/rate-ticket';
+import {
+  AttachFiles,
+  MessageFiles,
+  useSupportUploads,
+} from '@/components/support/support-files';
 
 // `pending` is what a support reply sets: the customer's move, not ours.
 const STATUS_LABEL: Record<string, string> = {
@@ -156,14 +162,25 @@ function Compose({ onDone }: { onDone: () => void }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const open = useOpenTicket();
+  const uploads = useSupportUploads();
 
   const tooShort = body.trim().length < 10 || subject.trim().length < 3;
+  const blocked = open.isPending || tooShort || uploads.busy || uploads.failed;
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        open.mutate({ subject, body }, { onSuccess: onDone });
+        if (blocked) return;
+        open.mutate(
+          { subject, body, attachments: uploads.ids },
+          {
+            onSuccess: () => {
+              uploads.clear();
+              onDone();
+            },
+          },
+        );
       }}
       className="space-y-3"
     >
@@ -188,14 +205,15 @@ function Compose({ onDone }: { onDone: () => void }) {
           maxLength={5000}
         />
       </div>
+      <AttachFiles uploads={uploads} disabled={open.isPending} />
       {open.isError && (
         <p role="alert" className="text-sm text-destructive">
           {open.error instanceof Error ? open.error.message : 'Could not send'}
         </p>
       )}
       <div className="flex items-center gap-2">
-        <Button type="submit" disabled={open.isPending || tooShort}>
-          {open.isPending ? 'Sending…' : 'Send request'}
+        <Button type="submit" disabled={blocked}>
+          {open.isPending ? 'Sending…' : uploads.busy ? 'Uploading…' : 'Send request'}
         </Button>
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
@@ -209,6 +227,8 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const { ticket, messages, isLoading, loadFailed } = useSupportThread(id);
   const reply = useReplyToTicket(id);
   const [body, setBody] = useState('');
+  const uploads = useSupportUploads();
+  const blocked = reply.isPending || !body.trim() || uploads.busy || uploads.failed;
 
   return (
     <Screen title="Support">
@@ -257,9 +277,12 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                 <p className="whitespace-pre-wrap text-sm leading-relaxed">
                   {m.body}
                 </p>
+                <MessageFiles files={m.attachments} />
               </div>
             ))}
           </div>
+
+          {ticket && <RateTicket ticket={ticket} />}
 
           <Card className="mt-5">
             <CardContent className="p-4">
@@ -270,15 +293,33 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                 placeholder="Add to this request…"
                 maxLength={5000}
               />
+              <div className="mt-3">
+                <AttachFiles uploads={uploads} disabled={reply.isPending} />
+              </div>
+              {reply.isError && (
+                <p role="alert" className="mt-3 text-sm text-destructive">
+                  {reply.error instanceof Error
+                    ? reply.error.message
+                    : 'That did not send. Check your connection and try again.'}
+                </p>
+              )}
               <Button
                 className="mt-3"
-                disabled={reply.isPending || !body.trim()}
+                disabled={blocked}
                 onClick={() =>
-                  reply.mutate(body, { onSuccess: () => setBody('') })
+                  reply.mutate(
+                    { body, attachments: uploads.ids },
+                    {
+                      onSuccess: () => {
+                        setBody('');
+                        uploads.clear();
+                      },
+                    },
+                  )
                 }
               >
                 <MessageSquare className="size-4" />
-                {reply.isPending ? 'Sending…' : 'Send'}
+                {reply.isPending ? 'Sending…' : uploads.busy ? 'Uploading…' : 'Send'}
               </Button>
             </CardContent>
           </Card>

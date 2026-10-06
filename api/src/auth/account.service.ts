@@ -11,6 +11,7 @@ import { MailConfig } from '../mail/mail.config';
 import { MailService } from '../mail/mail.service';
 import { accountDisabled, accountDeleted } from '../mail/mail.templates';
 import { StorageService } from '../storage/storage.service';
+import { SupportFilesService } from '../storage/support-files.service';
 import { UsersRepository, type PublicUser, type UserRow } from './users.repository';
 import { toPublicUser } from './users.repository';
 
@@ -35,6 +36,7 @@ export class AccountService {
     private readonly mail: MailService,
     private readonly mailConfig: MailConfig,
     private readonly billing: BillingService,
+    private readonly supportFiles: SupportFilesService,
   ) {}
 
   private async assertPassword(userId: string, password: string) {
@@ -165,6 +167,10 @@ export class AccountService {
       if (wiped.failed > 0) {
         throw new Error(`${wiped.failed} object(s) could not be deleted`);
       }
+      // What they attached to support requests too. The tickets stay, for
+      // the record, the way a deleted account's posts leave replies behind;
+      // the files are theirs and go with them.
+      filesDeleted += await this.supportFiles.eraseFor(userId);
     } catch (err) {
       this.logger.error(`Delete aborted for ${userId}: ${String(err)}`);
       throw new BadRequestException(

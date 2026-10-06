@@ -226,6 +226,7 @@ export {
   useSupportTickets,
   useSupportThread,
   useOpenTicket,
+  useRateTicket,
   useReplyToTicket,
 } from './useSupport';
 

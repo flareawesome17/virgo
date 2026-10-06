@@ -282,7 +282,24 @@ export interface Ticket {
   assigned_to?: string | null;
   assigned_name: string | null;
   messages: number;
+  /** The customer's 1–5, once resolved and rated. */
+  rating?: number | null;
 }
+
+/** A file on a support message, signed for an hour. */
+export interface TicketAttachment {
+  id: string;
+  name: string;
+  content_type: string;
+  size_bytes: number;
+  url: string | null;
+  download_url: string | null;
+}
+
+/** What the console may attach. Mirrors SUPPORT_FILE_TYPES in the API. */
+export const SUPPORT_FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'];
+export const MAX_SUPPORT_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_SUPPORT_FILES = 5;
 
 export type TicketQuery = {
   queue?: 'mine' | 'unassigned' | 'overdue';
@@ -324,12 +341,17 @@ export interface SupportInsights {
     resolved: number;
     replies: number;
     first_reply_hours: number | null;
+    /** Ratings given on their tickets in the window, and the share at 4 or 5. */
+    ratings?: number;
+    satisfied?: number | null;
   }[];
+  /** By when they were rated. Absent from an API older than ratings. */
+  ratings?: { count: number; average: number | null; satisfied: number | null };
 }
 
 export interface StaffNotification {
   id: string;
-  kind: 'ticket.new' | 'ticket.assigned' | 'ticket.reply';
+  kind: 'ticket.new' | 'ticket.assigned' | 'ticket.reply' | 'ticket.rated';
   ticket_id: string | null;
   title: string;
   body: string | null;
@@ -747,14 +769,21 @@ export const console_ = {
         body: string;
         internal: boolean;
         created_at: string;
+        attachments?: TicketAttachment[];
       }[];
     }>(`/admin/support/tickets/${id}`),
   replyTicket: (
     id: string,
     body: string,
     internal = false,
-    options: { setStatus?: string; macroId?: string } = {},
+    options: { setStatus?: string; macroId?: string; attachments?: string[] } = {},
   ) => api.post(`/admin/support/tickets/${id}/reply`, { body, internal, ...options }),
+  /** Signs one file for a reply or note; send the id back with it. */
+  signSupportFile: (input: { contentType: string; contentLength: number; name: string }) =>
+    api.post<{ id: string; uploadUrl: string; requiredHeaders: Record<string, string>; expiresAt: string }>(
+      '/admin/support/attachments',
+      input,
+    ),
   updateTicket: (
     id: string,
     patch: { status?: string; priority?: string; assignedTo?: string | null; category?: string | null },

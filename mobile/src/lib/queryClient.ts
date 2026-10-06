@@ -162,7 +162,8 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // v7: the job board is paged, and a saved board has no pages.
 // v8: the chat list and threads are paged, and a saved thread has no pages;
 // so are a post's comments and a profile's work.
-const CACHE_VERSION = 'v8-chat-paged'
+// v9: a support thread's messages carry their files, and its ticket a rating.
+const CACHE_VERSION = 'v9-support-files'
 
 /**
  * Never written to disk, whatever their staleTime says.

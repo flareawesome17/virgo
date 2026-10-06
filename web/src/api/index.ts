@@ -57,8 +57,15 @@ export {
 } from './endpoints/notifications';
 export {
   supportApi,
+  fileSizeLabel,
+  supportFileProblem,
+  MAX_SUPPORT_FILE_BYTES,
+  MAX_SUPPORT_FILES,
+  SUPPORT_FILE_TYPES,
+  type SupportAttachment,
   type SupportTicket,
   type SupportMessage,
+  type SupportUploadTicket,
   type TicketStatus,
 } from './endpoints/support';
 export {

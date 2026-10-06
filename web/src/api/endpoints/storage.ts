@@ -479,10 +479,13 @@ export const storageApi = {
  *
  * The signed headers must go out exactly as issued: B2 signs Content-Type and
  * Content-Length, and rejects the PUT if either differs.
+ *
+ * Exported for support attachments, whose tickets come from their own route
+ * but go to the bucket the same way.
  */
-function putToBucket(
+export function putToBucket(
   file: File,
-  ticket: UploadTicket,
+  ticket: Pick<UploadTicket, 'uploadUrl' | 'requiredHeaders'>,
   onProgress?: (fraction: number) => void,
   signal?: AbortSignal,
 ): Promise<void> {

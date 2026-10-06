@@ -13,6 +13,14 @@ export { RolePicker } from '@/components/RolePicker'
 export { RolesRequiredSheet } from '@/components/RolesRequired'
 export { VerifyEmailBanner } from '@/components/VerifyEmailBanner'
 export { RemoteImage, stableCacheKey } from '@/components/RemoteImage'
+export { RateTicket } from '@/components/RateTicket'
+export {
+  AttachButton,
+  AttachFiles,
+  MessageFiles,
+  PendingFiles,
+  useSupportUploads,
+} from '@/components/SupportFiles'
 export {
   PresenceDot,
   PresenceLine,

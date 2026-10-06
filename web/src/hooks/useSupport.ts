@@ -36,11 +36,19 @@ export function useSupportThread(id: string) {
   };
 }
 
+/** `attachments` are ids from supportApi.signAttachment, uploaded already. */
 export function useOpenTicket() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ subject, body }: { subject: string; body: string }) =>
-      supportApi.open(subject, body),
+    mutationFn: ({
+      subject,
+      body,
+      attachments,
+    }: {
+      subject: string;
+      body: string;
+      attachments?: string[];
+    }) => supportApi.open(subject, body, attachments),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.support.all });
     },
@@ -50,9 +58,22 @@ export function useOpenTicket() {
 export function useReplyToTicket(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: string) => supportApi.reply(id, body),
+    mutationFn: ({ body, attachments }: { body: string; attachments?: string[] }) =>
+      supportApi.reply(id, body, attachments),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.support.all });
+    },
+  });
+}
+
+/** How it went, once the ticket is resolved or closed. Rating again replaces it. */
+export function useRateTicket(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rating, comment }: { rating: number; comment?: string }) =>
+      supportApi.rate(id, rating, comment),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.support.thread(id) });
     },
   });
 }

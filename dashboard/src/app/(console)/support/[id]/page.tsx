@@ -20,6 +20,13 @@ import { PresenceBar } from '@/components/console/presence';
 import { DataState, Field, Panel, bytes, day, when } from '@/components/console/primitives';
 import { useRecordTab } from '@/components/console/record-tabs';
 import { PRIORITY_VARIANT, dueLabel, fillMacro } from '@/components/console/support';
+import {
+  AttachButton,
+  MessageFiles,
+  PendingFiles,
+  Stars,
+  useStaffUploads,
+} from '@/components/console/support-files';
 import { TagChip } from '@/components/console/tags';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,6 +67,9 @@ interface TicketRow {
   resolved_at: string | null;
   due_at: string | null;
   overdue: boolean;
+  rating: number | null;
+  rating_comment: string | null;
+  rated_at: string | null;
 }
 
 /**
@@ -132,6 +142,7 @@ export default function TicketPage() {
                       </span>
                     </div>
                     <p className="whitespace-pre-wrap wrap-anywhere text-sm leading-relaxed">{m.body}</p>
+                    <MessageFiles files={m.attachments} />
                   </li>
                 ))}
               </ol>
@@ -175,6 +186,8 @@ function Composer({
   const [chosen, setThen] = useState<string | null>(null);
   const done = ticket.status === 'resolved' || ticket.status === 'closed';
   const then = chosen ?? (done ? 'auto' : 'pending');
+  const uploads = useStaffUploads();
+  const blocked = reply.isPending || !body.trim() || uploads.busy || uploads.failed;
 
   if (!can('support.reply')) return null;
 
@@ -190,19 +203,21 @@ function Composer({
   }
 
   function send() {
-    if (!body.trim()) return;
+    if (blocked) return;
     reply.mutate(
       {
         body,
         internal,
         setStatus: internal || then === 'auto' ? undefined : then,
         macroId: macro?.id,
+        attachments: uploads.ids,
       },
       {
         onSuccess: () => {
           setBody('');
           setMacro(null);
           setThen(null);
+          uploads.clear();
         },
       },
     );
@@ -223,6 +238,7 @@ function Composer({
             : 'Your reply. It reaches them in the app, by push and by email.'
         }
       />
+      <PendingFiles uploads={uploads} />
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -243,6 +259,8 @@ function Composer({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <AttachButton uploads={uploads} disabled={reply.isPending} />
 
         {/* A checkbox, not a toggle in a menu: the difference between a reply
             and a private note has to be visible at the moment of sending. */}
@@ -273,11 +291,11 @@ function Composer({
           <Button
             size="sm"
             onClick={send}
-            disabled={reply.isPending || !body.trim()}
+            disabled={blocked}
             variant={internal ? 'secondary' : 'default'}
             title="Ctrl/⌘ Enter"
           >
-            {internal ? 'Save note' : 'Send reply'}
+            {uploads.busy ? 'Uploading…' : internal ? 'Save note' : 'Send reply'}
           </Button>
         </div>
       </div>
@@ -396,6 +414,20 @@ function Properties({ ticket }: { ticket: TicketRow }) {
         <Field label="Opened" value={day(ticket.created_at)} />
         {ticket.resolved_at && <Field label="Resolved" value={day(ticket.resolved_at)} />}
       </div>
+      {ticket.rating && (
+        <div className="space-y-1 border-t pt-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-muted-foreground">Customer rated</span>
+            <span className="flex items-center gap-1.5" title={ticket.rated_at ? new Date(ticket.rated_at).toLocaleString() : undefined}>
+              <Stars value={ticket.rating} />
+              <span className="text-sm tabular-nums">{ticket.rating}/5</span>
+            </span>
+          </div>
+          {ticket.rating_comment && (
+            <p className="whitespace-pre-wrap wrap-anywhere text-sm text-muted-foreground">“{ticket.rating_comment}”</p>
+          )}
+        </div>
+      )}
     </Panel>
   );
 }
