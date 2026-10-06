@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Archive, ArrowLeft, FolderOpen, Loader2, Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell, PageHeader } from '@/components/app-shell';
@@ -211,22 +211,37 @@ function WorkspacesContent() {
   });
   // For covers, and for what a member can do in the albums shared with them.
   const { albums } = useAlbums({ limit: 100 });
-  const { atWorkspaceLimit, usage } = useUsage();
+  const { atWorkspaceLimit, usage, loadFailed: usageFailed } = useUsage();
+
+  const limitReached = useCallback(() => {
+    // Nothing can be bought yet, so there is no upgrade to point at.
+    toast.error('Workspace limit reached', {
+      description: `Your ${usage?.plan ?? 'free'} plan includes ${usage?.workspaces.limit} workspace${usage?.workspaces.limit === 1 ? '' : 's'}. Delete or archive one to add another.`,
+    });
+  }, [usage]);
 
   // ?new=1 opens the dialog, so "New workspace" links from anywhere land here
   // already open rather than needing a second click. Applied during render
   // when the link arrives, rather than in an effect; the effect only takes it
   // back out of the URL, so a refresh does not reopen the dialog.
+  //
+  // It waits for the plan to be known and is held to the same limit as the
+  // button. The link used to open the form regardless, so somebody at the
+  // limit filled it in and was then refused by the server.
   const linkedNew = searchParams.get('new') === '1';
+  const usageKnown = usage !== undefined || usageFailed;
   const [appliedNew, setAppliedNew] = useState(false);
-  if (linkedNew !== appliedNew) {
-    setAppliedNew(linkedNew);
-    if (linkedNew) setCreating(true);
+  if (linkedNew && usageKnown && !appliedNew) {
+    setAppliedNew(true);
+    if (!atWorkspaceLimit) setCreating(true);
   }
+  if (!linkedNew && appliedNew) setAppliedNew(false);
 
   useEffect(() => {
-    if (linkedNew) router.replace('/workspaces');
-  }, [linkedNew, router]);
+    if (!linkedNew || !appliedNew) return;
+    if (atWorkspaceLimit) limitReached();
+    router.replace('/workspaces');
+  }, [linkedNew, appliedNew, atWorkspaceLimit, limitReached, router]);
 
   const yours = workspaces.filter((w) => w.is_owner);
   const shared = workspaces.filter((w) => !w.is_owner);
@@ -244,10 +259,7 @@ function WorkspacesContent() {
 
   const startCreate = () => {
     if (atWorkspaceLimit) {
-      toast.error('Workspace limit reached', {
-        description: `Your ${usage?.plan ?? 'free'} plan includes ${usage?.workspaces.limit} workspace${usage?.workspaces.limit === 1 ? '' : 's'}. Delete or archive one, or upgrade to add another.`,
-        action: { label: 'See plans', onClick: () => router.push('/settings/plans') },
-      });
+      limitReached();
       return;
     }
     setCreating(true);

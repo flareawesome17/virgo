@@ -13,7 +13,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useCreateJob } from '@/hooks/useJobs';
-import { JOB_TITLE_MIN, jobPostBlockers, joinBlockers } from '@/lib/job-form';
+import {
+  JOB_TITLE_MIN,
+  MAX_ROLE_BUDGET_MINOR,
+  jobPostBlockers,
+  joinBlockers,
+} from '@/lib/job-form';
 import { DatePickerField } from '@/components/date-picker-field';
 import { LocationField } from '@/components/location-field';
 import { copyJobLink } from '@/components/jobs/copy-job-link';
@@ -38,7 +43,12 @@ function toCentavos(value: string): number | undefined {
 export default function NewJobPage() {
   const router = useRouter();
   const create = useCreateJob();
-  const { roles: allRoles } = useRoles();
+  const {
+    roles: allRoles,
+    isLoading: rolesLoading,
+    loadFailed: rolesFailed,
+    refetch: refetchRoles,
+  } = useRoles();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -83,12 +93,19 @@ export default function NewJobPage() {
     const { min, max } = pair(role);
     return min != null && max != null && min > max;
   });
+  // Said while typing, as on the phone. It used to be found out on submit,
+  // with the whole form filled in.
+  const budgetTooHigh = rolesWanted.some((role) => {
+    const { min, max } = pair(role);
+    return (min ?? 0) > MAX_ROLE_BUDGET_MINOR || (max ?? 0) > MAX_ROLE_BUDGET_MINOR;
+  });
 
   const blockers = jobPostBlockers({
     title,
     description,
     rolesWanted,
     budgetBackwards,
+    budgetTooHigh,
   });
   const ready = blockers.length === 0;
 
@@ -187,6 +204,22 @@ export default function NewJobPage() {
 
             <div className="space-y-2">
               <Label>Which roles are you hiring for?</Label>
+              {/* With no roles to pick, the form asked for one and offered
+                  nothing to click. */}
+              {rolesLoading && (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading roles…
+                </p>
+              )}
+              {!rolesLoading && rolesFailed && allRoles.length === 0 && (
+                <div className="flex items-center gap-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <span className="flex-1">Couldn&rsquo;t load the roles.</span>
+                  <Button size="sm" variant="secondary" onClick={() => void refetchRoles()}>
+                    Try again
+                  </Button>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 {allRoles.map((role) => {
                   const on = rolesWanted.includes(role);
@@ -284,6 +317,10 @@ export default function NewJobPage() {
                 {budgetBackwards ? (
                   <p className="text-xs text-destructive">
                     The lower figure needs to be the smaller one.
+                  </p>
+                ) : budgetTooHigh ? (
+                  <p className="text-xs text-destructive">
+                    Each role can be up to ₱500,000.
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">

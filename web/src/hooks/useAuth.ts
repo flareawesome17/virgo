@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { track } from '@/lib/analytics';
+import { persister } from '@/lib/queryClient';
 import {
   useMutation,
   useQuery,
@@ -93,6 +94,12 @@ function forgetSession(queryClient: QueryClient) {
     predicate: (q) =>
       !(q.queryKey[0] === 'auth' && ['session', 'user', 'roles'].includes(String(q.queryKey[1]))),
   });
+  // And off the disk, now. The desktop app keeps the cache in localStorage
+  // and writes it on a one-second throttle, but signing out ends in a full
+  // page load to the sign-in page, which usually came first: the last
+  // account's albums and chats stayed on disk for the next person to sign in
+  // on that machine. Null outside the desktop app, which keeps nothing.
+  void persister?.removeClient();
 }
 
 /**
@@ -201,7 +208,8 @@ export function useAuth() {
     : null;
 
   const signIn = useMutation({
-    mutationFn: async (input: { email: string; password: string }) => {
+    // `unpause` lifts a pause of your own as it signs in, as on the phone.
+    mutationFn: async (input: { email: string; password: string; unpause?: boolean }) => {
       try {
         return await authApi.login(input);
       } catch (err) {

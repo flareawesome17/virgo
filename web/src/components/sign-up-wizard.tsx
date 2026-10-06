@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LegalDialog, type LegalTab } from '@/components/legal-dialog';
 import { cn } from '@/lib/utils';
 
 /**
@@ -75,7 +76,10 @@ export function SignUpWizard() {
     staleTime: Infinity,
   });
 
-  const next = searchParams.get('next') || '/';
+  // A path in this app only, as on sign-in.
+  const requested = searchParams.get('next');
+  const next = requested && /^\/(?![/\\])/.test(requested) ? requested : '/';
+  const [reading, setReading] = useState<LegalTab | null>(null);
   useEffect(() => {
     if (isAuthenticated) router.replace(next);
   }, [isAuthenticated, next, router]);
@@ -404,16 +408,28 @@ export function SignUpWizard() {
               />
               <span className="text-sm leading-relaxed text-muted-foreground">
                 I have read and agree to the{' '}
-                <Link href="/terms" className="font-medium text-primary hover:underline">
+                {/* Opened over the form. These went to the marketing pages in
+                    the same tab, a full page load that threw away all three
+                    steps of what had been typed. */}
+                <button
+                  type="button"
+                  onClick={() => setReading('terms')}
+                  className="font-medium text-primary hover:underline"
+                >
                   Terms of Service
-                </Link>{' '}
+                </button>{' '}
                 and{' '}
-                <Link href="/privacy" className="font-medium text-primary hover:underline">
+                <button
+                  type="button"
+                  onClick={() => setReading('privacy')}
+                  className="font-medium text-primary hover:underline"
+                >
                   Privacy Policy
-                </Link>
+                </button>
                 .
               </span>
             </label>
+            <LegalDialog tab={reading} onClose={() => setReading(null)} />
 
             <p className="text-xs leading-relaxed text-muted-foreground">
               Your address is private. It is never shown on your profile or to

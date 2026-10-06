@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  LogOut,
   Mail,
   MapPin,
   Pencil,
@@ -62,7 +63,7 @@ import {
   useInviteToEvent,
   useRespondToEventInvitation,
   useScheduleEvent,
-  useScheduleEvents,
+  useScheduleEventRange,
   useUpdateScheduleEvent,
 } from '@/hooks/useScheduleEvents';
 import type { Reminder, ScheduleEvent } from '@/api';
@@ -84,6 +85,7 @@ import {
   MONTHS,
   dayDots,
   eventTypeLabel,
+  dateToKey,
   formatTime,
   getMonthWeeks,
   isEventUpcoming,
@@ -499,6 +501,11 @@ function NewReminderForm({ open, onOpenChange }: NewReminderDialogProps) {
   const { dirty } = useDiscardGuard({ title, when }, open);
   const guard = useGuardedClose(dirty, onOpenChange);
   const close = guard.close;
+  // Refused here, as on the phone: a reminder for a time already gone was
+  // saved and then never went off. Judged when the time is picked and again
+  // on save, since a form left open can pass the time it holds.
+  const [inPast, setInPast] = useState(false);
+  const isPast = (value: string) => !!value && new Date(value).getTime() <= Date.now();
 
   return (
     <Dialog open={open} onOpenChange={close}>
@@ -506,7 +513,8 @@ function NewReminderForm({ open, onOpenChange }: NewReminderDialogProps) {
         <DialogHeader>
           <DialogTitle>New reminder</DialogTitle>
           <DialogDescription>
-            The mobile app alarms at this time, and the server pushes it too.
+            At this time you get an alert here, and a push on your phone if you
+            use the Virgo app.
           </DialogDescription>
         </DialogHeader>
 
@@ -527,8 +535,17 @@ function NewReminderForm({ open, onOpenChange }: NewReminderDialogProps) {
               id="reminder-when"
               type="datetime-local"
               value={when}
-              onChange={(e) => setWhen(e.target.value)}
+              onChange={(e) => {
+                setWhen(e.target.value);
+                setInPast(isPast(e.target.value));
+              }}
+              aria-invalid={inPast || undefined}
             />
+            {inPast && (
+              <p className="text-xs text-destructive">
+                That time has passed. Pick a later one.
+              </p>
+            )}
           </div>
         </div>
 
@@ -537,8 +554,12 @@ function NewReminderForm({ open, onOpenChange }: NewReminderDialogProps) {
             Cancel
           </Button>
           <Button
-            disabled={!title.trim() || !when || create.isPending}
-            onClick={() =>
+            disabled={!title.trim() || !when || inPast || create.isPending}
+            onClick={() => {
+              if (isPast(when)) {
+                setInPast(true);
+                return;
+              }
               create.mutate(
                 {
                   title: title.trim(),
@@ -552,8 +573,8 @@ function NewReminderForm({ open, onOpenChange }: NewReminderDialogProps) {
                   onError: (err: Error) =>
                     toast.error('Could not create reminder', { description: err.message }),
                 },
-              )
-            }
+              );
+            }}
           >
             {create.isPending && <Loader2 className="size-4 animate-spin" />}
             Create reminder
@@ -756,7 +777,7 @@ function RemindersTab({ onNew }: { onNew: () => void }) {
         <EmptyState
           icon={Bell}
           title="No reminders"
-          description="Reminders alarm on your phone even with no connection."
+          description="A nudge at a set time: an alert here, and a push on your phone if you use the app."
           action={
             <Button size="sm" onClick={onNew}>
               Add a reminder
@@ -936,14 +957,43 @@ function ScheduleContent() {
     }
   }, [searchParams, router]);
 
-  const { events, isLoading } = useScheduleEvents({ limit: 100 });
+  const weeks = useMemo(
+    () => getMonthWeeks(cursor.getFullYear(), cursor.getMonth()),
+    [cursor],
+  );
+
+  /*
+   * The days the grid draws, and the weeks ahead — not the account's 100
+   * oldest events.
+   *
+   * Both used to come from one list of the 100 earliest, ordered by date, so
+   * an account with a past behind it saw nothing this month or later and
+   * Upcoming sat empty. The phone made the same change: the grid asks for
+   * exactly the days it shows, and Upcoming for the next 60 days.
+   */
+  const { events, isLoading } = useScheduleEventRange(
+    weeks[0]?.[0]?.key,
+    weeks[weeks.length - 1]?.[6]?.key,
+  );
+  const [soonWindow] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 60);
+    return { from: todayKey(), to: dateToKey(end) };
+  });
+  const { events: soonEvents, isLoading: soonLoading } = useScheduleEventRange(
+    soonWindow.from,
+    soonWindow.to,
+  );
   const { invitations } = useEventInvitations();
   // The same query as the Reminders tab's, so this costs no second request.
   const { reminders } = useReminders(OPEN_REMINDERS);
   const removeEvent = useDeleteScheduleEvent();
+  const respond = useRespondToEventInvitation();
+  /** An accepted event a guest is backing out of. */
+  const [leaving, setLeaving] = useState<{ id: string; title: string } | null>(null);
 
-  // The linked event, read on its own: it may be past the hundred the list
-  // holds, or the list may not have arrived yet.
+  // The linked event, read on its own: it may be outside the month on screen,
+  // or the list may not have arrived yet.
   const linkedQuery = useScheduleEvent(linkedEventId ?? undefined);
   // Not once a read of it fails: deleted from here, it would otherwise stay
   // on its day from the copy held before.
@@ -972,11 +1022,6 @@ function ScheduleContent() {
       ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [highlighted]);
 
-  const weeks = useMemo(
-    () => getMonthWeeks(cursor.getFullYear(), cursor.getMonth()),
-    [cursor],
-  );
-
   const eventsByDate = useMemo(() => {
     const map: Record<string, typeof events> = {};
     for (const event of events) {
@@ -995,7 +1040,7 @@ function ScheduleContent() {
     !listedForDay.some((e) => e.id === linkedEvent.id)
       ? [...listedForDay, linkedEvent]
       : listedForDay;
-  const upcoming = events
+  const upcoming = soonEvents
     .filter((e) => isEventUpcoming(e.event_date, e.event_time, now))
     .sort((a, b) =>
       `${a.event_date}${a.event_time ?? ''}`.localeCompare(
@@ -1010,7 +1055,9 @@ function ScheduleContent() {
     <AppShell title="Schedule">
       <PageHeader
         title="Schedule"
-        description={`${events.length} event${events.length === 1 ? '' : 's'} · ${reminders.length} reminder${reminders.length === 1 ? '' : 's'}`}
+        // Coming up rather than a total: the page no longer holds every event,
+        // and the count that matters is what is ahead.
+        description={`${upcoming.length} coming up · ${reminders.length} reminder${reminders.length === 1 ? '' : 's'}`}
         actions={
           <>
             <Button variant="outline" onClick={() => setCreatingReminder(true)}>
@@ -1140,7 +1187,11 @@ function ScheduleContent() {
             </TabsList>
 
             <TabsContent value="day" className="mt-4">
-              {dayEvents.length === 0 ? (
+              {/* Each month is its own fetch now, so a month still on its way
+                  is not "Nothing on this day". */}
+              {isLoading && dayEvents.length === 0 ? (
+                <ListSkeleton rows={2} />
+              ) : dayEvents.length === 0 ? (
                 <Card>
                   <EmptyState
                     icon={CalendarDays}
@@ -1238,7 +1289,22 @@ function ScheduleContent() {
                                   <Trash2 className="size-3.5" />
                                 </Button>
                               </>
-                            ) : null}
+                            ) : (
+                              // A guest who accepted could not back out short of
+                              // asking the organiser. The API takes a decline
+                              // after an accept; this is the button for it.
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label="Can't make it"
+                                title="Can't make it"
+                                onClick={() =>
+                                  setLeaving({ id: event.id, title: event.title })
+                                }
+                              >
+                                <LogOut className="size-3.5" />
+                              </Button>
+                            )}
                           </CardContent>
                         </Card>
                       </li>
@@ -1249,11 +1315,15 @@ function ScheduleContent() {
             </TabsContent>
 
             <TabsContent value="upcoming" className="mt-4">
-              {isLoading && events.length === 0 ? (
+              {soonLoading && soonEvents.length === 0 ? (
                 <ListSkeleton rows={3} />
               ) : upcoming.length === 0 ? (
                 <Card>
-                  <EmptyState icon={CalendarDays} title="Nothing upcoming" />
+                  <EmptyState
+                    icon={CalendarDays}
+                    title="Nothing upcoming"
+                    description="Nothing in the next 60 days. Later events are on the calendar."
+                  />
                 </Card>
               ) : (
                 <ul className="flex flex-col gap-2">
@@ -1349,6 +1419,43 @@ function ScheduleContent() {
               }}
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!leaving} onOpenChange={(o) => !o && setLeaving(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Can&rsquo;t make it?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The organiser is told, and {leaving?.title ?? 'the event'} leaves your
+              schedule.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={respond.isPending}>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={respond.isPending}
+              onClick={(event) => {
+                // Open until it settles, so a failure is reported.
+                event.preventDefault();
+                if (!leaving) return;
+                respond.mutate(
+                  { eventId: leaving.id, accept: false },
+                  {
+                    onSuccess: () => {
+                      setLeaving(null);
+                      toast.success('Taken off your schedule');
+                    },
+                    onError: (err: Error) =>
+                      toast.error('Could not change that', { description: err.message }),
+                  },
+                );
+              }}
+            >
+              {respond.isPending && <Loader2 className="size-4 animate-spin" />}
+              Can&rsquo;t make it
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

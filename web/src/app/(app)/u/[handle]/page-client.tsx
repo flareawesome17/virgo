@@ -116,7 +116,12 @@ export default function AppProfilePage() {
           variant="ghost"
           size="sm"
           className="-ml-2 mb-4 text-muted-foreground"
-          onClick={() => router.back()}
+          // Opened from a shared /@handle link there is no page to go back
+          // to, and back did nothing or left the app. As the post page does.
+          onClick={() => {
+            if (window.history.length > 1) router.back();
+            else router.push('/feed');
+          }}
         >
           <ArrowLeft className="size-4" />
           Back

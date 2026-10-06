@@ -88,7 +88,7 @@ export class AccountService {
         name: user.display_name ?? user.email.split('@')[0],
         until: until.toISOString().slice(0, 10),
         days,
-        url: `${this.mailConfig.appUrl}/login`,
+        url: `${this.mailConfig.appUrl}/sign-in`,
       }),
     );
 

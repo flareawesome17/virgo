@@ -127,7 +127,8 @@ function NewAlbumForm({ workspaceId, open, onOpenChange }: NewAlbumDialogProps) 
         {noWorkspace ? (
           <div className="py-2 text-sm text-muted-foreground">
             An album lives inside a workspace, and you do not have one yet.{' '}
-            <Link href="/workspaces" className="font-medium text-primary underline-offset-4 hover:underline">
+            {/* Straight into the new-workspace form, not the list. */}
+            <Link href="/workspaces?new=1" className="font-medium text-primary underline-offset-4 hover:underline">
               Create a workspace
             </Link>{' '}
             first.

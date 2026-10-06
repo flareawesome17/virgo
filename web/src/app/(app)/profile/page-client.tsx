@@ -27,7 +27,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/useAuth';
+import { useUpdateProfileFlags } from '@/hooks/useProfile';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAlbums } from '@/hooks/useAlbums';
 import { useScheduleEvents } from '@/hooks/useScheduleEvents';
@@ -52,10 +54,12 @@ export default function ProfilePage() {
   const { user, profile, updateProfile, signOut } = useAuth();
   const online = useOnline();
 
-  const { workspaces } = useWorkspaces({ limit: 100 });
-  const { albums } = useAlbums({ limit: 100 });
-  const { events } = useScheduleEvents({ limit: 100 });
-  const { collaborators } = useCollaborators({ limit: 100 });
+  // Counts only, so one row each: the totals are the server's, and the
+  // lengths of lists capped at 100 stopped at 100.
+  const { total: workspaceTotal } = useWorkspaces({ limit: 1 });
+  const { total: albumTotal } = useAlbums({ limit: 1 });
+  const { total: eventTotal } = useScheduleEvents({ limit: 1 });
+  const { total: collaboratorTotal } = useCollaborators({ limit: 1 });
   const { storageUsedBytes, usage } = useUsage();
 
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -286,13 +290,32 @@ export default function ProfilePage() {
   };
 
   const stats = [
-    { label: 'Workspaces', value: workspaces.length, icon: FolderOpen, href: '/workspaces' },
-    { label: 'Albums', value: albums.length, icon: Images, href: '/workspaces' },
-    { label: 'Collaborators', value: collaborators.length, icon: Users, href: '/network' },
-    { label: 'Events', value: events.length, icon: CalendarDays, href: '/schedule' },
+    { label: 'Workspaces', value: workspaceTotal, icon: FolderOpen, href: '/workspaces' },
+    { label: 'Albums', value: albumTotal, icon: Images, href: '/albums' },
+    { label: 'Collaborators', value: collaboratorTotal, icon: Users, href: '/network' },
+    { label: 'Events', value: eventTotal, icon: CalendarDays, href: '/schedule' },
   ];
 
   const initials = (profile?.displayName || user?.email || '?').slice(0, 2).toUpperCase();
+
+  /*
+   * Shown moved while the save is out, then whatever the session holds: on a
+   * failure that is the value the server actually has, so nothing needs
+   * putting back by hand.
+   */
+  const flags = useUpdateProfileFlags();
+  const pending = flags.isPending ? flags.variables : undefined;
+  const availableForBookings =
+    pending?.availableForBookings ?? profile?.availableForBookings ?? false;
+  const showStudio = pending?.showStudio ?? profile?.showStudio ?? false;
+  const savedStudio = profile?.studioName?.trim() || null;
+  const saveFlag = (input: { availableForBookings?: boolean; showStudio?: boolean }) => {
+    if (flags.isPending) return;
+    flags.mutate(input, {
+      onError: (err: Error) =>
+        toast.error("Couldn't save that setting", { description: err.message }),
+    });
+  };
 
   return (
     <AppShell title="Profile">
@@ -492,6 +515,38 @@ export default function ProfilePage() {
                   )}
                 </div>
 
+                {/* Each switch saves the moment it moves, never with the form:
+                    an older API refuses a key it does not know with a 400, and
+                    inside Save that would lose every other field with it. The
+                    web had neither, so someone who only used it could never
+                    show a Hire button. */}
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label>On your profile</Label>
+                  <FlagRow
+                    id="availableForBookings"
+                    title="Available for bookings"
+                    detail="Shows a badge and a Hire button on your public profile."
+                    checked={availableForBookings}
+                    onChange={(next) => saveFlag({ availableForBookings: next })}
+                  />
+                  {/* Off can always be reached, even with the name cleared: a
+                      switch stuck on would publish whatever name is typed next. */}
+                  <FlagRow
+                    id="showStudio"
+                    title="Show studio on profile"
+                    detail={
+                      savedStudio
+                        ? `Shows "${savedStudio}" on your public profile.`
+                        : showStudio
+                          ? 'Add a studio name above to show it.'
+                          : 'Add a studio name above and save, then turn this on.'
+                    }
+                    checked={showStudio}
+                    disabled={!savedStudio && !showStudio}
+                    onChange={(next) => saveFlag({ showStudio: next })}
+                  />
+                </div>
+
                 {/* Everything above this line is how you appear to other
                     people. Everything below it is not, and the separator is
                     doing real work — this page is titled "how you appear to
@@ -675,5 +730,40 @@ export default function ProfilePage() {
         </aside>
       </div>
     </AppShell>
+  );
+}
+
+/** One profile switch: what it does, and the switch itself. */
+function FlagRow({
+  id,
+  title,
+  detail,
+  checked,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  title: string;
+  detail: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border p-3">
+      <div className="min-w-0 flex-1">
+        <Label htmlFor={id} className="text-sm font-semibold">
+          {title}
+        </Label>
+        <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>
+      </div>
+      <Switch
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onChange}
+        className="mt-0.5"
+      />
+    </div>
   );
 }
