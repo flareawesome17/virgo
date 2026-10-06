@@ -90,9 +90,11 @@ export default function ConsoleLayout({
   const counts: NavCounts | undefined = overview
     ? {
         openTickets: overview.totals.openTickets,
-        // Both kinds land on the Content page's Reports tab, so the badge
-        // counts both. `reports` stays job posts only in the API.
-        reports: overview.totals.reports + (overview.totals.userReports ?? 0),
+        // What waits in the moderation queue, all three kinds. An API from
+        // before moderation leaves openReports out; its two counts stand in.
+        reports:
+          overview.totals.openReports ??
+          overview.totals.reports + (overview.totals.userReports ?? 0),
       }
     : undefined;
 

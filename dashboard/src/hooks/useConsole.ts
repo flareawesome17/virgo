@@ -17,6 +17,9 @@ import {
   type PromoInput,
   type RoleInput,
   type TagColor,
+  type CaseAction,
+  type CaseKind,
+  type CaseQuery,
   type TicketQuery,
   type UsersQuery,
 } from '@/api/console';
@@ -28,9 +31,9 @@ export const keys = {
   user: (id: string) => ['user', id] as QueryKey,
   albums: (p: unknown) => ['albums', p] as QueryKey,
   shareLinks: (p: unknown) => ['shareLinks', p] as QueryKey,
-  jobReports: (p: unknown) => ['jobReports', p] as QueryKey,
-  userReports: (p: unknown) => ['userReports', p] as QueryKey,
-  showcaseReports: (p: unknown) => ['showcaseReports', p] as QueryKey,
+  moderationCases: (p: unknown) => ['moderation', 'cases', p] as QueryKey,
+  moderationCase: (kind: string, id: string) => ['moderation', 'case', kind, id] as QueryKey,
+  moderationComments: (p: unknown) => ['moderation', 'comments', p] as QueryKey,
   subscriptions: (p: unknown) => ['subscriptions', p] as QueryKey,
   health: ['health'] as QueryKey,
   tickets: (p: unknown) => ['tickets', p] as QueryKey,
@@ -97,26 +100,79 @@ export function useShareLinks(p: { limit?: number; offset?: number }) {
   });
 }
 
-export function useJobReports(p: { limit?: number; offset?: number }) {
-  return useQuery({ queryKey: keys.jobReports(p), queryFn: () => console_.jobReports(p) });
-}
+// ─── Moderation ─────────────────────────────────────────────────────────────
 
-export function useUserReports(p: { limit?: number; offset?: number }) {
-  return useQuery({ queryKey: keys.userReports(p), queryFn: () => console_.userReports(p) });
-}
-
-export function useShowcaseReports(p: { limit?: number; offset?: number }) {
+export function useModerationCases(p: CaseQuery) {
   return useQuery({
-    queryKey: keys.showcaseReports(p),
-    queryFn: () => console_.showcaseReports(p),
+    queryKey: keys.moderationCases(p),
+    queryFn: () => console_.moderationCases(p),
+    placeholderData: keepPreviousData,
   });
+}
+
+export function useModerationCase(kind: CaseKind, id: string) {
+  return useQuery({
+    queryKey: keys.moderationCase(kind, id),
+    queryFn: () => console_.moderationCase(kind, id),
+  });
+}
+
+/**
+ * A chat report's messages. Fetched only when asked for, never on page load:
+ * each fetch is a look at private messages, and the audit log records it.
+ */
+export function useReportEvidence(reportId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['moderation', 'evidence', reportId],
+    queryFn: () => console_.reportEvidence(reportId),
+    enabled,
+    staleTime: Infinity,
+  });
+}
+
+const DECIDED: Record<CaseAction, string> = {
+  dismiss: 'Dismissed',
+  hide: 'Hidden',
+  warn: 'Warning sent',
+  suspend: 'Account suspended',
+};
+
+export function useResolveCase(kind: CaseKind, id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { action: CaseAction; message?: string; note?: string; notify?: boolean }) =>
+      console_.resolveCase(kind, id, input),
+    onSuccess: (result) => {
+      toast.success(DECIDED[result.action]);
+      for (const key of [['moderation'], ['overview'], ['user'], ['users'], ['customerSafety'], ['tickets'], ['audit']]) {
+        void qc.invalidateQueries({ queryKey: key });
+      }
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'That did not work'),
+  });
+}
+
+export function useModerationComments(p: { q?: string; userId?: string; showcaseId?: string; limit?: number; offset?: number }) {
+  return useQuery({
+    queryKey: keys.moderationComments(p),
+    queryFn: () => console_.moderationComments(p),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useRemoveComment() {
+  return useConsoleMutation(
+    ({ id, message, note }: { id: string; message?: string; note?: string }) =>
+      console_.removeComment(id, { message, note }),
+    { success: 'Comment removed', invalidate: [['moderation'], ['customerSafety'], ['tickets']] },
+  );
 }
 
 export function useSetShowcaseHidden() {
   return useConsoleMutation(
     ({ id, hidden }: { id: string; hidden: boolean }) =>
       console_.setShowcaseHidden(id, hidden),
-    { success: 'Post updated', invalidate: [['showcaseReports']] },
+    { success: 'Post updated', invalidate: [['moderation']] },
   );
 }
 
@@ -196,7 +252,7 @@ export function useSetUserDisabled(userId: string) {
       success: 'Account updated',
       // The people reports carry the target's suspension, and a moderator
       // who suspends from a report goes straight back to that list.
-      invalidate: [keys.user(userId), ['users'], ['userReports'], ['timeline', userId]],
+      invalidate: [keys.user(userId), ['users'], ['moderation'], ['timeline', userId]],
     },
   );
 }
@@ -219,7 +275,7 @@ export function useSetJobHidden() {
   return useConsoleMutation(
     ({ id, hidden }: { id: string; hidden: boolean }) =>
       console_.setJobHidden(id, hidden),
-    { success: 'Post updated', invalidate: [['jobReports']] },
+    { success: 'Post updated', invalidate: [['moderation']] },
   );
 }
 
@@ -558,7 +614,7 @@ export function useRemoveRole() {
  * than letting the entry age out over 45 seconds.
  */
 export function usePresence(
-  targetType: 'user' | 'ticket',
+  targetType: 'user' | 'ticket' | 'case',
   targetId: string,
   state: 'viewing' | 'replying' = 'viewing',
 ) {

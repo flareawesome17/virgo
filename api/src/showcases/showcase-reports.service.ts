@@ -50,7 +50,7 @@ export class ShowcaseReportsService {
     await this.db.query(
       `insert into showcase_reports (reporter_id, showcase_id, reason, note)
        values ($1, $2, $3, $4)
-       on conflict (reporter_id, showcase_id)
+       on conflict (reporter_id, showcase_id) where status = 'open'
        do update set reason = excluded.reason, note = excluded.note`,
       [userId, showcaseId, reason, note?.trim() || null],
     );

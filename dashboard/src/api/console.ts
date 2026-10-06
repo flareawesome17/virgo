@@ -146,6 +146,10 @@ export interface Overview {
      * could be reported leaves it out, and the badge must still add up.
      */
     userReports?: number;
+    /** Open showcase reports. Absent from an API older than moderation. */
+    showcaseReports?: number;
+    /** Everything waiting in the moderation queue, all three kinds. */
+    openReports?: number;
   };
   signups: { day: string; count: number }[];
   uploads: { day: string; count: number; bytes: string | number }[];
@@ -202,53 +206,143 @@ export interface AdminUserRow {
   tags?: Tag[];
 }
 
-/** Somebody in the app reported an account. Mirrors AdminService.userReports. */
-export interface UserReportRow {
-  id: string;
-  /** spam, scam, harassment, impersonation, inappropriate or other. */
-  reason: string;
-  note: string | null;
-  /** Where in the app it was made: profile, chat, nearby, applicants, enquiries or job. */
-  source: string | null;
-  created_at: string;
+/** What a report can be about. */
+export type CaseKind = 'user' | 'job' | 'showcase';
+export type CaseAction = 'dismiss' | 'hide' | 'warn' | 'suspend';
+
+/** One row of the moderation queue: everything reported about one thing. */
+export interface ModerationCase {
+  kind: CaseKind;
   target_id: string;
-  target_name: string;
-  target_handle: string | null;
-  target_email: string;
-  target_suspended_at: string | null;
-  /** Null once the reporter deletes their account; the report is kept. */
-  reporter_id: string | null;
-  reporter_email: string | null;
-  /** Every report against this account, from anyone, not just this one. */
-  target_report_count: number;
+  /** The person: who was reported, or who posted it. Null once deleted. */
+  subject_id: string | null;
+  open: number;
+  total: number;
+  reporters: number;
+  /** Absent from an API older than this field. */
+  open_reporters?: number;
+  open_reasons: string[] | null;
+  reasons: string[];
+  sources: string[] | null;
+  waiting_since: string | null;
+  last_reported_at: string;
+  resolved_at: string | null;
+  last_resolution: string | null;
+  subject_name: string | null;
+  subject_email: string | null;
+  subject_handle: string | null;
+  subject_suspended_at: string | null;
+  /** A post's or job's title; null for a person. */
+  title: string | null;
+  hidden_at: string | null;
+  thumb_url: string | null;
+  blocked_by: number;
+  strikes: number;
+  /** A chat report about this person brought messages with it. */
+  has_evidence: boolean;
 }
 
-/** Somebody reported a post. Mirrors AdminService.showcaseReports. */
-export interface ShowcaseReportRow {
+/** A decision, against the person it concerned. */
+export interface ModerationAction {
   id: string;
-  /** spam, scam, harassment, inappropriate, stolen_work, wrong_credit or other. */
+  action: CaseAction | 'remove_comment';
+  target_type: CaseKind | 'comment';
+  target_id: string;
+  target_label: string | null;
+  reports: number;
+  /** What the person was told. */
+  message: string | null;
+  note: string | null;
+  snapshot?: { body?: string; showcaseId?: string; writtenAt?: string } | null;
+  ticket_id: string | null;
+  admin_name: string | null;
+  created_at: string;
+}
+
+export interface CaseReport {
+  id: string;
   reason: string;
   note: string | null;
+  source: string | null;
+  created_at: string;
+  status: 'open' | 'actioned' | 'dismissed';
+  resolution: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+  reporter_id: string | null;
+  reporter_name: string | null;
+  reporter_email: string | null;
+  resolved_by_name: string | null;
+  /** How many messages a chat report brought. */
+  evidence: number;
+}
+
+export interface ModerationCaseDetail {
+  kind: CaseKind;
+  targetId: string;
+  subject: {
+    id: string | null;
+    name: string;
+    email: string | null;
+    handle?: string | null;
+    plan?: string;
+    created_at?: string;
+    last_seen_at?: string | null;
+    suspended_at?: string | null;
+    avatar_url?: string | null;
+  };
+  /** The job or showcase; null for a person. */
+  target: {
+    id: string;
+    title: string | null;
+    slug?: string;
+    description?: string;
+    status?: string;
+    caption?: string | null;
+    hidden_at: string | null;
+    published_at?: string | null;
+    created_at: string;
+    comment_count?: number;
+    pieces?: string[];
+    comments?: { id: string; body: string; created_at: string; author_id: string; author_name: string }[];
+  } | null;
+  reports: CaseReport[];
+  history: ModerationAction[];
+  signals: { blocked_by: number; strikes: number; other_open_cases: number; reports_ever: number } | null;
+}
+
+/** A message a chat report brought, copied when it was filed. */
+export interface EvidenceMessage {
+  message_id: string;
+  sender_role: 'reporter' | 'reported';
+  sender_name: string;
+  body: string;
+  kind: string;
+  sent_at: string;
+  captured_at: string;
+}
+
+export interface ModerationComment {
+  id: string;
+  body: string;
   created_at: string;
   showcase_id: string;
-  title: string | null;
-  caption: string | null;
-  /** Set once the console has taken it down. */
-  hidden_at: string | null;
-  published_at: string | null;
+  showcase_title: string | null;
+  showcase_hidden_at: string | null;
   author_id: string;
   author_name: string;
-  author_handle: string | null;
   author_email: string;
   author_suspended_at: string | null;
-  /** Null once the reporter deletes their account; the report is kept. */
-  reporter_id: string | null;
-  reporter_email: string | null;
-  /** Every report against this post, from anyone, not just this one. */
-  showcase_report_count: number;
-  /** The first piece's thumbnail key — a moderator needs to see the photograph. */
-  thumb_key: string | null;
+  author_strikes: number;
 }
+
+export type CaseQuery = {
+  state?: 'open' | 'closed';
+  kind?: CaseKind;
+  q?: string;
+  limit?: number;
+  offset?: number;
+};
 
 export const SUPPORT_CATEGORIES = [
   'account',
@@ -258,6 +352,7 @@ export const SUPPORT_CATEGORIES = [
   'bookings',
   'bug',
   'feedback',
+  'safety',
   'other',
 ] as const;
 export type SupportCategory = (typeof SUPPORT_CATEGORIES)[number];
@@ -604,6 +699,9 @@ export interface CustomerSafety {
     created_at: string;
     reporter_id: string | null;
     reporter_name: string | null;
+    /** Absent from an API older than moderation. */
+    status?: 'open' | 'actioned' | 'dismissed';
+    resolution?: string | null;
   }[];
   made: {
     id: string;
@@ -621,7 +719,11 @@ export interface CustomerSafety {
     job_reports: number;
     hidden_posts: number;
     hidden_jobs: number;
+    /** Decisions against them, dismissals aside. */
+    strikes?: number;
   };
+  /** What moderation decided about them. Absent from an API older than moderation. */
+  actions?: ModerationAction[];
 }
 
 export interface CustomerDevices {
@@ -725,18 +827,36 @@ export const console_ = {
     api.get<Paged<Record<string, unknown>>>(`/admin/share-links${qs(p)}`),
   revokeShareLink: (id: string) =>
     api.post(`/admin/share-links/${id}/revoke`),
-  jobReports: (p: { limit?: number; offset?: number }) =>
-    api.get<Paged<Record<string, unknown>>>(`/admin/job-reports${qs(p)}`),
-  userReports: (p: { limit?: number; offset?: number }) =>
-    api.get<Paged<UserReportRow>>(`/admin/user-reports${qs(p)}`),
   setJobHidden: (id: string, hidden: boolean) =>
     api.patch(`/admin/jobs/${id}/hidden`, { hidden }),
 
-  showcaseReports: (p: { limit?: number; offset?: number }) =>
-    api.get<Paged<ShowcaseReportRow>>(`/admin/showcase-reports${qs(p)}`),
-
   setShowcaseHidden: (id: string, hidden: boolean) =>
     api.patch(`/admin/showcases/${id}/hidden`, { hidden }),
+
+  moderationCases: (p: CaseQuery) =>
+    api.get<Paged<ModerationCase> & { counts: Partial<Record<CaseKind, number>> }>(
+      `/admin/moderation/cases${qs(p)}`,
+    ),
+  moderationCase: (kind: CaseKind, id: string) =>
+    api.get<ModerationCaseDetail>(`/admin/moderation/cases/${kind}/${id}`),
+  /** Private messages: every call is written to the audit log. */
+  reportEvidence: (reportId: string) =>
+    api.get<{ reportId: string; targetId: string; messages: EvidenceMessage[] }>(
+      `/admin/moderation/reports/${reportId}/evidence`,
+    ),
+  resolveCase: (
+    kind: CaseKind,
+    id: string,
+    input: { action: CaseAction; message?: string; note?: string; notify?: boolean },
+  ) =>
+    api.post<{ action: CaseAction; closed: number; ticketId: string | null; emailed: boolean }>(
+      `/admin/moderation/cases/${kind}/${id}/resolve`,
+      input,
+    ),
+  moderationComments: (p: { q?: string; userId?: string; showcaseId?: string; limit?: number; offset?: number }) =>
+    api.get<Paged<ModerationComment>>(`/admin/moderation/comments${qs(p)}`),
+  removeComment: (id: string, input: { message?: string; note?: string }) =>
+    api.post<{ removed: true; ticketId: string | null }>(`/admin/moderation/comments/${id}/remove`, input),
 
   subscriptions: (p: { status?: string; limit?: number; offset?: number }) =>
     api.get<
@@ -862,9 +982,9 @@ export const console_ = {
   updateRole: (name: string, input: RoleInput) => api.patch(`/admin/roles/${name}`, input),
   removeRole: (name: string) => api.delete(`/admin/roles/${name}`),
 
-  presence: (targetType: 'user' | 'ticket', targetId: string, state: 'viewing' | 'replying') =>
+  presence: (targetType: 'user' | 'ticket' | 'case', targetId: string, state: 'viewing' | 'replying') =>
     api.post<{ others: PresenceOther[] }>('/admin/presence', { targetType, targetId, state }),
-  leavePresence: (targetType: 'user' | 'ticket', targetId: string) =>
+  leavePresence: (targetType: 'user' | 'ticket' | 'case', targetId: string) =>
     api.post('/admin/presence/leave', { targetType, targetId }),
 
   // ─── Customer 360 ───────────────────────────────────────────────────────

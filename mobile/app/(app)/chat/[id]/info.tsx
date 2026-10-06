@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { goToTab } from '@/src/lib/navigation';
 import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftIcon,
   UsersIcon,
@@ -44,6 +45,7 @@ import {
 } from '@/src/hooks';
 import type { Participant } from '@/src/api';
 import { useAllConnections } from '@/src/hooks/useFriends';
+import { reportableMessageIds } from '@/src/hooks/useChat';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PersonSafetySheet, firstName, usePersonSafety } from '@/components/PersonSafetySheet';
 import { PALETTES } from '@/theme';
@@ -87,6 +89,7 @@ export default function ConversationInfoScreen() {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const {
     participants,
@@ -132,6 +135,11 @@ export default function ConversationInfoScreen() {
     target: direct ? { userId: direct.id } : null,
     source: 'chat',
     blockId: direct?.block_id ?? null,
+    // The latest messages between the two of you, as this phone has them.
+    messages: () =>
+      direct && user && id
+        ? { conversationId: id, messageIds: reportableMessageIds(queryClient, id, [user.id, direct.id]) }
+        : null,
   });
   const directFirst = firstName(direct?.name ?? '');
 

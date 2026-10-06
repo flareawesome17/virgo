@@ -272,9 +272,9 @@ export class AdminCustomersService {
 
   async safety(userId: string) {
     await this.assertUser(userId);
-    const [against, made, counts] = await Promise.all([
+    const [against, made, counts, actions] = await Promise.all([
       this.db.query(
-        `select r.id, r.reason, r.note, r.source, r.created_at, r.reporter_id,
+        `select r.id, r.reason, r.note, r.source, r.created_at, r.reporter_id, r.status, r.resolution,
                 coalesce(nullif(trim(u.display_name), ''), u.email) as reporter_name
            from user_reports r left join users u on u.id = r.reporter_id
           where r.target_id = $1 order by r.created_at desc limit 100`,
@@ -296,11 +296,22 @@ export class AdminCustomersService {
            (select count(*) from hiring_post_reports hr join hiring_posts p on p.id = hr.post_id
              where p.user_id = $1)::int as job_reports,
            (select count(*) from showcases where user_id = $1 and hidden_at is not null)::int as hidden_posts,
-           (select count(*) from hiring_posts where user_id = $1 and hidden_at is not null)::int as hidden_jobs`,
+           (select count(*) from hiring_posts where user_id = $1 and hidden_at is not null)::int as hidden_jobs,
+           (select count(*) from moderation_actions
+             where subject_user_id = $1 and action <> 'dismiss')::int as strikes`,
+        [userId],
+      ),
+      // What moderation decided about them, newest first: the record a
+      // repeat offender has, and what they were told.
+      this.db.query(
+        `select id, action, target_type, target_id, target_label, reports, message, note,
+                ticket_id, admin_name, created_at
+           from moderation_actions where subject_user_id = $1
+          order by created_at desc limit 50`,
         [userId],
       ),
     ]);
-    return { against, made, counts };
+    return { against, made, counts, actions };
   }
 
   // ---------------------------------------------------------------- devices

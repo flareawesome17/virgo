@@ -123,8 +123,9 @@ export class AdminService {
          (select count(*) from hiring_posts where status = 'open')::text      as jobs_open,
          (select count(*) from hiring_applications)::text                     as applications,
          (select count(*) from support_tickets where status in ('open','pending'))::text as tickets_open,
-         (select count(*) from hiring_post_reports)::text                     as reports,
-         (select count(*) from user_reports)::text                            as user_reports`,
+         (select count(*) from hiring_post_reports where status = 'open')::text as reports,
+         (select count(*) from user_reports where status = 'open')::text      as user_reports,
+         (select count(*) from showcase_reports where status = 'open')::text  as showcase_reports`,
       [String(days)],
     );
 
@@ -165,10 +166,15 @@ export class AdminService {
         openJobs: Number(counts?.jobs_open ?? 0),
         applications: Number(counts?.applications ?? 0),
         openTickets: Number(counts?.tickets_open ?? 0),
-        // Job reports only, still: the console before this release reads it
-        // as that. People reports are their own number.
+        // Open reports, waiting in the moderation queue. `reports` is job
+        // posts only, as the console before this release reads it.
         reports: Number(counts?.reports ?? 0),
         userReports: Number(counts?.user_reports ?? 0),
+        showcaseReports: Number(counts?.showcase_reports ?? 0),
+        openReports:
+          Number(counts?.reports ?? 0) +
+          Number(counts?.user_reports ?? 0) +
+          Number(counts?.showcase_reports ?? 0),
       },
       signups,
       uploads,
@@ -547,104 +553,6 @@ export class AdminService {
     );
     if (!row) throw new NotFoundException('No such link, or it is already revoked');
     return row;
-  }
-
-  async jobReports(params: { limit?: number; offset?: number }) {
-    const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
-    const offset = Math.max(params.offset ?? 0, 0);
-    const rows = await this.db.query(
-      `select r.*, p.title, p.slug, p.status as post_status, p.hidden_at,
-              u.email as reporter_email
-         from hiring_post_reports r
-         join hiring_posts p on p.id = r.post_id
-         left join users u on u.id = r.reporter_user_id
-        order by r.created_at desc limit $1 offset $2`,
-      [limit, offset],
-    );
-    const total = await this.db.queryOne<{ count: string }>(
-      'select count(*)::text as count from hiring_post_reports',
-    );
-    return { data: rows, total: Number(total?.count ?? 0) };
-  }
-
-  /**
-   * Reports about people, newest first.
-   *
-   * Each row carries the target's running count and whether they are already
-   * suspended, which is what decides whether anyone needs to act. Target and
-   * reporter addresses are shown, as they are for job reports, to the same
-   * permission.
-   */
-  async userReports(params: { limit?: number; offset?: number }) {
-    const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
-    const offset = Math.max(params.offset ?? 0, 0);
-    const rows = await this.db.query(
-      `select r.id, r.reason, r.note, r.source, r.created_at, r.target_id,
-              coalesce(nullif(btrim(t.display_name), ''), split_part(t.email, '@', 1))
-                as target_name,
-              t.handle as target_handle,
-              t.email as target_email,
-              t.suspended_at as target_suspended_at,
-              r.reporter_id,
-              u.email as reporter_email,
-              (select count(*) from user_reports x where x.target_id = r.target_id)::int
-                as target_report_count
-         from user_reports r
-         join users t on t.id = r.target_id
-         left join users u on u.id = r.reporter_id
-        order by r.created_at desc limit $1 offset $2`,
-      [limit, offset],
-    );
-    const total = await this.db.queryOne<{ count: string }>(
-      'select count(*)::text as count from user_reports',
-    );
-    return { data: rows, total: Number(total?.count ?? 0) };
-  }
-
-  /**
-   * Reported showcases, newest first, with the post and whoever made it.
-   *
-   * The cover comes from the showcase's first piece, because a moderator
-   * deciding whether a photograph should stay up needs to see the photograph.
-   */
-  async showcaseReports({ limit = 50, offset = 0 }: { limit?: number; offset?: number }) {
-    const rows = await this.db.query(
-      `select r.id, r.reason, r.note, r.created_at, r.showcase_id,
-              s.title, s.caption, s.hidden_at, s.published_at,
-              s.user_id as author_id,
-              coalesce(nullif(btrim(a.display_name), ''), split_part(a.email, '@', 1))
-                as author_name,
-              a.handle as author_handle,
-              a.email as author_email,
-              a.suspended_at as author_suspended_at,
-              r.reporter_id,
-              u.email as reporter_email,
-              (select count(*) from showcase_reports x where x.showcase_id = r.showcase_id)::int
-                as showcase_report_count,
-              (
-                -- A photograph's thumbnail, or a film's poster frame. A
-                -- moderator judging a reported film sees only that frame here;
-                -- the whole showcase is one tap away in the app, which is where
-                -- a decision that needs the footage has to be made.
-                select coalesce(f.thumb_key, f.poster_key)
-                  from showcase_items si
-                  join user_files f on f.key = si.file_key and f.user_id = si.user_id
-                 where si.showcase_id = s.id
-                   and coalesce(f.thumb_key, f.poster_key) is not null
-                 order by si.position, si.created_at
-                 limit 1
-              ) as thumb_key
-         from showcase_reports r
-         join showcases s on s.id = r.showcase_id
-         join users a on a.id = s.user_id
-         left join users u on u.id = r.reporter_id
-        order by r.created_at desc limit $1 offset $2`,
-      [limit, offset],
-    );
-    const total = await this.db.queryOne<{ count: string }>(
-      'select count(*)::text as count from showcase_reports',
-    );
-    return { data: rows, total: Number(total?.count ?? 0) };
   }
 
   /**

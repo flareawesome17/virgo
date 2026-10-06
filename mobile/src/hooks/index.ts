@@ -148,6 +148,7 @@ export {
   setOpenConversation,
   getOpenConversation,
   chatKeys,
+  reportableMessageIds,
 } from '@/src/hooks/useChat'
 
 export { useNotificationRouting } from '@/src/hooks/useNotificationRouting'

@@ -72,6 +72,11 @@ export interface SafetySubject {
   blockId?: string | null;
   /** Which screen a report came from, where it is not the hook's own. */
   from?: ReportSource;
+  /**
+   * From a chat: its latest messages between the two of you, offered with a
+   * report and on unless switched off. Only the safety team reads them.
+   */
+  messages?: { conversationId: string; messageIds: string[] } | null;
 }
 
 type Asking = 'block' | 'unblock' | 'report';
@@ -205,11 +210,18 @@ export function usePersonSafety(
             key={`${subject?.name}|${asking === 'report'}`}
             first={first}
             pending={report.isPending}
-            onSubmit={(reason, note, setError) => {
+            messageCount={subject?.messages?.messageIds.length ?? 0}
+            onSubmit={(reason, note, included, setError) => {
               const person = subject;
               if (!person?.target) return;
               report.mutate(
-                { ref: person.target, reason, note, from: person.from ?? source },
+                {
+                  ref: person.target,
+                  reason,
+                  note,
+                  from: person.from ?? source,
+                  messages: included && person.messages?.messageIds.length ? person.messages : undefined,
+                },
                 {
                   onSuccess: () => {
                     setAsking(null);
@@ -249,14 +261,23 @@ export function usePersonSafety(
 function ReportForm({
   first,
   pending,
+  messageCount,
   onSubmit,
 }: {
   first: string;
   pending: boolean;
-  onSubmit: (reason: UserReportReason, note: string, setError: (error: string) => void) => void;
+  /** A chat's latest messages on offer; none outside a chat. */
+  messageCount: number;
+  onSubmit: (
+    reason: UserReportReason,
+    note: string,
+    included: boolean,
+    setError: (error: string) => void,
+  ) => void;
 }) {
   const [reason, setReason] = useState<UserReportReason | null>(null);
   const [note, setNote] = useState('');
+  const [included, setIncluded] = useState(true);
   const [error, setError] = useState('');
 
   return (
@@ -266,7 +287,7 @@ function ReportForm({
         event.preventDefault();
         if (!reason || pending) return;
         setError('');
-        onSubmit(reason, note, setError);
+        onSubmit(reason, note, messageCount > 0 && included, setError);
       }}
     >
       <DialogHeader>
@@ -314,6 +335,26 @@ function ReportForm({
           {note.length}/{NOTE_LIMIT}
         </p>
       </div>
+
+      {messageCount > 0 && (
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
+          <input
+            type="checkbox"
+            checked={included}
+            onChange={(e) => setIncluded(e.target.checked)}
+            disabled={pending}
+            className="mt-0.5 size-4 accent-primary"
+          />
+          <span>
+            <span className="block font-medium">
+              Include the last {messageCount} message{messageCount === 1 ? '' : 's'}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              From this chat, so we can see what happened. Only Virgo&apos;s safety team reads them.
+            </span>
+          </span>
+        </label>
+      )}
 
       {error && (
         <p role="alert" className="text-sm text-destructive">
