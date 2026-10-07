@@ -252,6 +252,7 @@ export {
   useShowcaseActions,
   useShelves,
   useShelfEntries,
+  useAllKept,
   useShelfActions,
   useProfileWork,
   useProfileTaste,

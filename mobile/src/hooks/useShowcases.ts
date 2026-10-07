@@ -212,6 +212,26 @@ export function useShelves(opts: { enabled?: boolean; holding?: string } = {}) {
   };
 }
 
+/**
+ * Everything you have kept, on any shelf: the "All kept" collection that
+ * leads the Taste tab on your own profile. Under shelves.all, so keeping and
+ * unkeeping refresh it with every other shelf query.
+ */
+export function useAllKept(opts: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.shelves.allKept,
+    queryFn: () => shelvesApi.allKept(),
+    enabled: opts.enabled ?? true,
+  });
+
+  return {
+    ...query,
+    entries: query.data?.data ?? [],
+    total: query.data?.total ?? 0,
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
 export function useShelfEntries(id: string | undefined, opts: { own?: boolean } = {}) {
   const query = useQuery({
     queryKey: queryKeys.shelves.entries(id ?? ''),
