@@ -358,7 +358,7 @@ export default function MoneyEntryScreen() {
                 inputAccessoryViewID={KEYBOARD_DONE}
                 autoFocus={!isEdit}
                 accessibilityLabel="Amount in pesos"
-                className="flex-1 text-foreground text-[30px] font-bold py-2"
+                className="flex-1 min-w-0 text-foreground text-[30px] font-bold py-2"
               />
             </View>
           </View>
@@ -486,7 +486,7 @@ export default function MoneyEntryScreen() {
                   keyboardType="decimal-pad"
                   inputAccessoryViewID={KEYBOARD_DONE}
                   accessibilityLabel="Tax withheld in pesos"
-                  className="flex-1 text-foreground text-base py-3.5"
+                  className="flex-1 min-w-0 text-foreground text-base py-3.5"
                 />
               </View>
               <Text className="text-muted-foreground text-xs mt-2 ml-1 leading-[17px]">

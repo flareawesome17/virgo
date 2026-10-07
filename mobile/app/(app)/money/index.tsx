@@ -53,15 +53,25 @@ interface Section {
   data: Item[];
 }
 
-/** One figure in the month's strip. */
-function Figure({ label, minor, tone }: { label: string; minor: number; tone?: 'in' | 'out' }) {
+/**
+ * One of the month's figures, a row each: three peso amounts with centavos
+ * do not fit side by side on a phone, and shrinking them to fit drew the
+ * three at different sizes.
+ */
+function Figure({ label, minor, tone }: { label: string; minor: number; tone?: 'in' | 'total' }) {
+  const total = tone === 'total';
   return (
-    <View className="flex-1 min-w-0">
-      <Text className="text-muted-foreground text-[12px] font-semibold">{label}</Text>
+    <View
+      className={`flex-row items-baseline justify-between gap-3 ${total ? 'border-t border-border pt-2.5 mt-1' : ''}`}
+    >
+      <Text
+        className={`text-[14px] ${total ? 'text-foreground font-bold' : 'text-muted-foreground font-semibold'}`}
+      >
+        {label}
+      </Text>
       <Text
         numberOfLines={1}
-        adjustsFontSizeToFit
-        className={`text-[20px] font-bold tracking-tight mt-0.5 ${
+        className={`font-bold tracking-tight ${total ? 'text-[22px]' : 'text-[18px]'} ${
           tone === 'in' ? 'text-success' : minor < 0 ? 'text-destructive' : 'text-foreground'
         }`}
         style={{ fontVariant: ['tabular-nums'] }}
@@ -226,10 +236,10 @@ export default function MoneyScreen() {
 
       {/* What moved this month, by when it was paid. */}
       <View className="mx-5 mt-4 bg-card rounded-3xl border border-border/40 p-5">
-        <View className="flex-row gap-3">
+        <View className="gap-2">
           <Figure label="In" minor={inMinor} tone="in" />
           <Figure label="Out" minor={outMinor} />
-          <Figure label="Kept" minor={inMinor - outMinor} />
+          <Figure label="Kept" minor={inMinor - outMinor} tone="total" />
         </View>
         {s && s.withheldMinor > 0 ? (
           <Text className="text-muted-foreground text-xs mt-3 leading-[17px]">
@@ -252,7 +262,8 @@ export default function MoneyScreen() {
           onPress={() => add('income')}
           accessibilityRole="button"
           scaleTo={0.97}
-          className="flex-1 min-h-12 flex-row items-center justify-center gap-2 rounded-2xl bg-success/15"
+          style={{ flex: 1 }}
+          className="min-h-12 flex-row items-center justify-center gap-2 rounded-2xl bg-success/15"
         >
           <PlusIcon size={17} className="text-success" />
           <Text className="text-success text-[15px] font-bold">Income</Text>
@@ -261,7 +272,8 @@ export default function MoneyScreen() {
           onPress={() => add('expense')}
           accessibilityRole="button"
           scaleTo={0.97}
-          className="flex-1 min-h-12 flex-row items-center justify-center gap-2 rounded-2xl bg-primary/10"
+          style={{ flex: 1 }}
+          className="min-h-12 flex-row items-center justify-center gap-2 rounded-2xl bg-primary/10"
         >
           <MinusIcon size={17} className="text-primary" />
           <Text className="text-primary text-[15px] font-bold">Expense</Text>

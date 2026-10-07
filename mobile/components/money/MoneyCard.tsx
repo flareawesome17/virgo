@@ -51,18 +51,18 @@ export function MoneyCard({ month, summary }: { month: string; summary: MoneySum
         <Text className="text-muted-foreground text-[13px] font-semibold">Money · {monthLabel(month)}</Text>
         <ChevronRightIcon size={17} className="text-muted-foreground" />
       </View>
-      <View className="flex-row gap-3 mt-2">
+      {/* A row each: three amounts with centavos don't fit side by side. */}
+      <View className="mt-2 gap-1">
         {[
           { label: 'In', minor: summary.incomeMinor, className: 'text-success' },
           { label: 'Out', minor: summary.expenseMinor, className: 'text-foreground' },
           { label: 'Kept', minor: kept, className: kept < 0 ? 'text-destructive' : 'text-foreground' },
         ].map((f) => (
-          <View key={f.label} className="flex-1 min-w-0">
-            <Text className="text-muted-foreground text-xs">{f.label}</Text>
+          <View key={f.label} className="flex-row items-baseline justify-between gap-3">
+            <Text className="text-muted-foreground text-[13px]">{f.label}</Text>
             <Text
               numberOfLines={1}
-              adjustsFontSizeToFit
-              className={`text-[18px] font-bold tracking-tight ${f.className}`}
+              className={`text-[16px] font-bold tracking-tight ${f.className}`}
               style={{ fontVariant: ['tabular-nums'] }}
             >
               {formatMoney(f.minor)}
