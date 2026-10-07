@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as DocumentPicker from 'expo-document-picker';
@@ -76,8 +76,11 @@ export function ReceiptField({
   // Which pick is current: a second pick, or a removal, while one is still
   // uploading must not be overwritten when the first one finishes.
   const attempt = useRef(0);
+  // The value as last rendered, for an upload that finishes later.
   const latest = useRef(value);
-  latest.current = value;
+  useEffect(() => {
+    latest.current = value;
+  }, [value]);
 
   async function upload(file: { uri: string; name: string; type: string; size: number }) {
     attempt.current += 1;
