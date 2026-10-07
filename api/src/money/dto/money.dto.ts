@@ -105,7 +105,7 @@ export class CreateMoneyEntryDto {
   @IsUUID('all')
   bookingId?: string | null;
 
-  /** The package it is a payment toward — an income entry, and yours. */
+  /** Your package it is a payment toward (income) or a cost of (expense). */
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsUUID('all')
@@ -183,7 +183,7 @@ export class UpdateMoneyEntryDto {
   @IsUUID('all')
   bookingId?: string | null;
 
-  /** The package it is a payment toward — an income entry, and yours. */
+  /** Your package it is a payment toward (income) or a cost of (expense). */
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsUUID('all')
@@ -232,6 +232,57 @@ export class MoneyRangeDto {
 
   @IsCalendarDate()
   to!: string;
+}
+
+/** One year of Insights. */
+export class MoneyInsightsDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
+  year!: number;
+}
+
+/** Repeat this entry every month. */
+export class CreateMoneyRecurringDto {
+  @IsUUID('all')
+  entryId!: string;
+}
+
+/** Changing what a repeating entry makes from now on. Kind and day stay. */
+export class UpdateMoneyRecurringDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(MAX_AMOUNT_MINOR)
+  amountMinor?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_AMOUNT_MINOR)
+  withheldMinor?: number;
+
+  @IsOptional()
+  @IsIn(ALL_MONEY_CATEGORIES as string[])
+  category?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsIn(MONEY_METHODS as unknown as string[])
+  method?: MoneyMethod | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(120)
+  counterparty?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(1000)
+  note?: string | null;
 }
 
 export class ReceiptUploadDto {

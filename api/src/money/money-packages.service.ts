@@ -33,6 +33,10 @@ export interface MoneyPackage {
   balanceMinor: number;
   /** The part of the balance no payment is due for yet. */
   unscheduledMinor: number;
+  /** Expenses recorded as costs toward the job: crew, transport, the venue. */
+  costsMinor: number;
+  /** What the job earned so far: received less its costs. */
+  profitMinor: number;
   /** The soonest a scheduled payment is due. */
   nextDueOn: string | null;
   /** A scheduled payment's day has gone by. */
@@ -76,6 +80,7 @@ interface PackageRow {
   created_at: Date;
   updated_at: Date;
   received: string;
+  costs: string;
   scheduled: string;
   next_due: string | null;
   payments: number;
@@ -127,14 +132,15 @@ export class MoneyPackagesService {
   private select(where: string): string {
     return `
       select p.*,
-             coalesce(sum(e.amount_minor) filter (where e.paid_on is not null), 0)::text as received,
-             coalesce(sum(e.amount_minor) filter (where e.paid_on is null), 0)::text as scheduled,
-             min(e.occurred_on) filter (where e.paid_on is null) as next_due,
-             count(e.id)::int as payments,
+             coalesce(sum(e.amount_minor) filter (where e.kind = 'income' and e.paid_on is not null), 0)::text as received,
+             coalesce(sum(e.amount_minor) filter (where e.kind = 'income' and e.paid_on is null), 0)::text as scheduled,
+             coalesce(sum(e.amount_minor) filter (where e.kind = 'expense'), 0)::text as costs,
+             min(e.occurred_on) filter (where e.kind = 'income' and e.paid_on is null) as next_due,
+             count(e.id) filter (where e.kind = 'income')::int as payments,
              (now() at time zone '${MEDIA_LOCAL_ZONE}')::date::text as today
         from money_packages p
         left join money_entries e
-          on e.package_id = p.id and e.user_id = p.user_id and e.kind = 'income'
+          on e.package_id = p.id and e.user_id = p.user_id
        where ${where}
        group by p.id`;
   }
@@ -154,6 +160,8 @@ export class MoneyPackagesService {
       scheduledMinor: scheduled,
       balanceMinor: balance,
       unscheduledMinor: Math.max(0, balance - scheduled),
+      costsMinor: Number(row.costs),
+      profitMinor: received - Number(row.costs),
       nextDueOn: row.next_due,
       overdue: row.next_due !== null && row.next_due < row.today,
       paidInFull: received >= row.total_minor,
@@ -181,9 +189,9 @@ export class MoneyPackagesService {
   async list(userId: string, status: 'open' | 'all' = 'all'): Promise<MoneyPackage[]> {
     const rows = await this.db.query<PackageRow>(
       `${this.select('p.user_id = $1')}
-       ${status === 'open' ? 'having coalesce(sum(e.amount_minor) filter (where e.paid_on is not null), 0) < p.total_minor' : ''}
-       order by (coalesce(sum(e.amount_minor) filter (where e.paid_on is not null), 0) >= p.total_minor),
-                min(e.occurred_on) filter (where e.paid_on is null) nulls last,
+       ${status === 'open' ? "having coalesce(sum(e.amount_minor) filter (where e.kind = 'income' and e.paid_on is not null), 0) < p.total_minor" : ''}
+       order by (coalesce(sum(e.amount_minor) filter (where e.kind = 'income' and e.paid_on is not null), 0) >= p.total_minor),
+                min(e.occurred_on) filter (where e.kind = 'income' and e.paid_on is null) nulls last,
                 p.created_at desc
        limit 200`,
       [userId],
@@ -306,7 +314,9 @@ export class MoneyPackagesService {
       const owned = await tx.query('select 1 from money_packages where id = $1 and user_id = $2', [id, userId]);
       if (owned.rowCount === 0) throw new NotFoundException('Package not found');
       await tx.query(
-        'delete from money_entries where package_id = $1 and user_id = $2 and paid_on is null',
+        // The plan's unpaid payments go with it; a cost not paid yet is still a
+        // bill the creative owes, so it stays, unlinked.
+        "delete from money_entries where package_id = $1 and user_id = $2 and kind = 'income' and paid_on is null",
         [id, userId],
       );
       await tx.query('delete from money_packages where id = $1 and user_id = $2', [id, userId]);
