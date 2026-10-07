@@ -45,8 +45,13 @@ export interface MoneyEntry {
    * read it with `?? null`.
    */
   booking?: MoneyBookingLink | null;
-  /** The package it is a payment toward. Optional like `booking`: read with `?? null`. */
+  /**
+   * The package it is a payment toward (income) or a cost of (expense).
+   * Optional like `booking`: read with `?? null`.
+   */
   package?: { id: string; title: string } | null;
+  /** The repeating entry it was made from, or started. Optional: read with `?? null`. */
+  recurringId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -74,6 +79,13 @@ export interface MoneyPackage {
   overdue: boolean;
   paidInFull: boolean;
   payments: number;
+  /**
+   * Expenses recorded as costs of the job, and what it earned so far
+   * (received less costs). Optional — a package cached before costs existed
+   * has neither: read with `?? 0`.
+   */
+  costsMinor?: number;
+  profitMinor?: number;
   /** The statement link while shared; null when not. */
   shareUrl: string | null;
   sharedAt: string | null;
@@ -136,6 +148,63 @@ export function payMethodName(m: Pick<MoneyPayMethod, 'kind' | 'label'>): string
 
 /** The most ways to pay one account can list. Mirrors MAX_PAY_METHODS on the server. */
 export const MAX_PAY_METHODS = 4;
+
+/** A year of the ledger at a glance, counted when the money moved. */
+export interface MoneyInsights {
+  year: number;
+  /** Years with anything filed in them, newest first, and always the one asked for. */
+  years: number[];
+  /** January to December. */
+  months: { month: string; incomeMinor: number; expenseMinor: number }[];
+  incomeMinor: number;
+  withheldMinor: number;
+  expenseMinor: number;
+  /** The year before up to the same date (`through`), or all of it for a past year. */
+  lastYear: { incomeMinor: number; expenseMinor: number; through: string };
+  byCategory: { kind: MoneyKind; category: string; totalMinor: number; count: number }[];
+  /** Up to eight, by the name on the entries. */
+  topClients: { name: string; totalMinor: number; count: number }[];
+  /** Income with no client named. */
+  unnamedIncomeMinor: number;
+  /** Jobs with money moving in the year, best earners first. Up to ten. */
+  packages: {
+    id: string;
+    title: string;
+    clientName: string | null;
+    receivedMinor: number;
+    costsMinor: number;
+    profitMinor: number;
+  }[];
+}
+
+/** An entry made again every month on its day. */
+export interface MoneyRecurring {
+  id: string;
+  kind: MoneyKind;
+  amountMinor: number;
+  withheldMinor: number;
+  category: string;
+  method: MoneyMethod | null;
+  counterparty: string | null;
+  note: string | null;
+  /** 1 to 28. */
+  dayOfMonth: number;
+  /** When the next entry is made. */
+  nextOn: string;
+  stopped: boolean;
+  createdAt: string;
+}
+
+export type MoneyRecurringPatch = Partial<
+  Pick<MoneyRecurring, 'amountMinor' | 'withheldMinor' | 'category' | 'method' | 'counterparty' | 'note'>
+>;
+
+/** "the 5th". */
+export function dayOfMonthLabel(day: number): string {
+  const suffix =
+    day >= 11 && day <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th';
+  return `the ${day}${suffix}`;
+}
 
 /** The booking an entry was recorded from, as much as the ledger needs. */
 export interface MoneyBookingLink {
@@ -495,6 +564,34 @@ export const moneyApi = {
 
   deletePayMethod(id: string): Promise<void> {
     return api.delete(`/money/pay-methods/${id}`);
+  },
+
+  /** A year at a glance: months, categories, clients, and what each job earned. */
+  insights(year: number): Promise<MoneyInsights> {
+    return api.get('/money/insights', { query: { year } });
+  },
+
+  /** What repeats every month: running ones first. */
+  recurring(): Promise<MoneyRecurring[]> {
+    return api.get('/money/recurring');
+  },
+
+  /**
+   * Repeats a saved entry every month on its day. An entry dated months back
+   * is caught up at once; `note` says so.
+   */
+  repeatEntry(entryId: string): Promise<{ recurring: MoneyRecurring; added: number; note: string }> {
+    return api.post('/money/recurring', { body: { entryId } });
+  },
+
+  /** Changes what later entries will be; ones already made stay. */
+  updateRecurring(id: string, patch: MoneyRecurringPatch): Promise<MoneyRecurring> {
+    return api.patch(`/money/recurring/${id}`, { body: patch });
+  },
+
+  /** Stops it for good. What it made stays in the ledger. */
+  stopRecurring(id: string): Promise<void> {
+    return api.post(`/money/recurring/${id}/stop`);
   },
 
   /** One booking from your side: what Money offers for it, and what was recorded from it. */

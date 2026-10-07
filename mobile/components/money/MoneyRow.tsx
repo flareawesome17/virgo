@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { CloudOffIcon, PaperclipIcon } from 'lucide-react-native';
+import { CloudOffIcon, PaperclipIcon, RepeatIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   categoryLabel,
@@ -13,7 +13,7 @@ import {
 } from '@/src/api';
 import { categoryIcon } from '@/components/money/icons';
 
-for (const Icon of [CloudOffIcon, PaperclipIcon]) {
+for (const Icon of [CloudOffIcon, PaperclipIcon, RepeatIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -29,10 +29,17 @@ type Row = Pick<
   hasReceipt?: boolean;
   /** Recorded from a booking that has been cancelled since. */
   bookingCancelled?: boolean;
+  /** Made by, or started, an entry that repeats every month. */
+  repeats?: boolean;
 };
 
 export function rowOf(entry: MoneyEntry): Row {
-  return { ...entry, hasReceipt: !!entry.receipt, bookingCancelled: !!entry.booking?.cancelled };
+  return {
+    ...entry,
+    hasReceipt: !!entry.receipt,
+    bookingCancelled: !!entry.booking?.cancelled,
+    repeats: (entry.recurringId ?? null) !== null,
+  };
 }
 
 export function rowOfQueued(input: MoneyEntryInput & { id: string }): Row {
@@ -117,6 +124,7 @@ export const MoneyRow = memo(function MoneyRow({
             <Text className="text-foreground text-[15px] font-semibold flex-shrink" numberOfLines={1}>
               {title}
             </Text>
+            {row.repeats ? <RepeatIcon size={12} className="text-muted-foreground" /> : null}
             {row.hasReceipt ? <PaperclipIcon size={12} className="text-muted-foreground" /> : null}
           </View>
           {detail ? (

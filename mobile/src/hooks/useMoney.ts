@@ -11,6 +11,8 @@ import {
   type MoneyPackagePatch,
   type MoneyPayMethod,
   type MoneyPayMethodInput,
+  type MoneyRecurring,
+  type MoneyRecurringPatch,
   type MoneySuggestion,
 } from '@/src/api';
 
@@ -275,6 +277,49 @@ export function useUpdateMoneyPayMethod() {
 
 export function useDeleteMoneyPayMethod() {
   return useMoneyWrite((id: string) => moneyApi.deletePayMethod(id));
+}
+
+/** A year at a glance. */
+export function useMoneyInsights(year: number, options: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.money.insights(year),
+    queryFn: () => moneyApi.insights(year),
+    enabled: options.enabled ?? true,
+  });
+  return {
+    ...query,
+    insights: query.data,
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+/** The entries that repeat every month. */
+export function useMoneyRecurring(options: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.money.recurring,
+    queryFn: () => moneyApi.recurring(),
+    enabled: options.enabled ?? true,
+  });
+  return {
+    ...query,
+    recurring: query.data ?? ([] as MoneyRecurring[]),
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+/** Repeat a saved entry every month. It may add past months at once, so all of `money` moves. */
+export function useRepeatMoneyEntry() {
+  return useMoneyWrite((entryId: string) => moneyApi.repeatEntry(entryId));
+}
+
+export function useUpdateMoneyRecurring() {
+  return useMoneyWrite(({ id, ...patch }: MoneyRecurringPatch & { id: string }) =>
+    moneyApi.updateRecurring(id, patch),
+  );
+}
+
+export function useStopMoneyRecurring() {
+  return useMoneyWrite((id: string) => moneyApi.stopRecurring(id));
 }
 
 /** A five-minute link to a range as a CSV, for the browser to save. */

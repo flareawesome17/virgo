@@ -12,7 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { onlineManager } from '@tanstack/react-query';
-import { ToggleLeftIcon, ToggleRightIcon, Trash2Icon } from 'lucide-react-native';
+import { ChevronRightIcon, RepeatIcon, ToggleLeftIcon, ToggleRightIcon, Trash2Icon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   ApiError,
@@ -27,6 +27,7 @@ import {
   type MoneyKind,
   type MoneyMethod,
   bookingLabel,
+  dayOfMonthLabel,
 } from '@/src/api';
 import {
   useCreateMoneyEntry,
@@ -34,6 +35,7 @@ import {
   useMoneyEntry,
   useMoneyForBooking,
   useMoneyPackage,
+  useRepeatMoneyEntry,
   useUpdateMoneyEntry,
 } from '@/src/hooks';
 import { DateTimeField } from '@/components';
@@ -49,13 +51,15 @@ import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { queueMoneyEntry } from '@/src/lib/money-outbox';
 import { newClientId } from '@/src/lib/outbox';
 
-for (const Icon of [ToggleLeftIcon, ToggleRightIcon, Trash2Icon]) {
+for (const Icon of [ChevronRightIcon, RepeatIcon, ToggleLeftIcon, ToggleRightIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
 /**
  * A money entry: new (?kind=income|expense), new from an agreed booking
- * (?booking=<id>, filled in from it), or an edit (?edit=<id>).
+ * (?booking=<id>, filled in from it), a payment toward a package
+ * (?package=<id>) or a cost of one (?package=<id>&kind=expense), or an edit
+ * (?edit=<id>).
  *
  * Built for the venue: amount, a category, Save — the rest is there when it
  * matters and can be skipped when it doesn't. A new entry with no signal is
@@ -97,6 +101,8 @@ export default function MoneyEntryScreen() {
   const [note, setNote] = useState('');
   const [receipt, setReceipt] = useState<ReceiptDraft | null>(null);
   const savedReceiptId = useRef<string | null>(null);
+  // Repeat every month: made into a repeating entry once this one is saved.
+  const [repeat, setRepeat] = useState(false);
 
   // Editing: filled once from the entry, then the form is theirs.
   const filled = useRef(false);
@@ -136,13 +142,21 @@ export default function MoneyEntryScreen() {
   useEffect(() => {
     if (!toward || filled.current) return;
     filled.current = true;
+    if (kindParam === 'expense') {
+      // A cost of the job — the second shooter, the venue, the transport — so
+      // the package can say what the job really earned.
+      setKind('expense');
+      setCategory(null);
+      setNote(`${toward.title} · Cost`);
+      return;
+    }
     setKind('income');
     const amountLeft = toward.unscheduledMinor > 0 ? toward.unscheduledMinor : toward.balanceMinor;
     setAmount(amountLeft > 0 ? minorToPesos(amountLeft) : '');
     setCategory('job');
     setCounterparty(toward.clientName ?? '');
     setNote(`${toward.title} · Payment`);
-  }, [toward]);
+  }, [toward, kindParam]);
 
   // What the form held once it was filled — or, from a booking with nothing
   // left to offer, once that was known — is what "changed" is measured from.
@@ -154,7 +168,7 @@ export default function MoneyEntryScreen() {
   const { allowLeave } = useDiscardGuard(
     {
       kind, amount, category, date: date.getTime(), paid, paidOn: paidOn?.getTime() ?? null,
-      method, counterparty, reference, withheld, note, receipt: receipt?.name ?? null,
+      method, counterparty, reference, withheld, note, receipt: receipt?.name ?? null, repeat,
     },
     ready,
   );
@@ -162,7 +176,8 @@ export default function MoneyEntryScreen() {
   const create = useCreateMoneyEntry();
   const update = useUpdateMoneyEntry();
   const remove = useDeleteMoneyEntry();
-  const saving = create.isPending || update.isPending;
+  const repeatEntry = useRepeatMoneyEntry();
+  const saving = create.isPending || update.isPending || repeatEntry.isPending;
 
   const switchKind = (next: MoneyKind) => {
     if (next === kind) return;
@@ -238,6 +253,36 @@ export default function MoneyEntryScreen() {
         "Couldn't save it",
         error instanceof ApiError && error.status !== 0 ? error.message : 'Something went wrong. Please try again.',
       );
+    if (repeat && !onlineManager.isOnline()) {
+      Alert.alert(
+        "You're offline",
+        'Repeating every month needs a connection. Turn off Repeat to keep it on this phone for now.',
+      );
+      return;
+    }
+    // Saved; then, when asked, made to repeat. The entry stays saved whatever
+    // that second step does.
+    const saved = () => {
+      if (!repeat) {
+        leave();
+        return;
+      }
+      repeatEntry.mutate(id, {
+        onSuccess: (result) => {
+          leave();
+          Alert.alert('Repeats every month', result.note);
+        },
+        onError: (error) => {
+          leave();
+          Alert.alert(
+            "Saved, but it won't repeat yet",
+            error instanceof ApiError && error.status !== 0
+              ? error.message
+              : 'Open the entry again and turn on Repeat when you have a connection.',
+          );
+        },
+      });
+    };
 
     if (isEdit) {
       const receiptId = receipt?.id ?? null;
@@ -247,7 +292,7 @@ export default function MoneyEntryScreen() {
       }
       update.mutate(
         { id, ...fields, ...(receiptId !== savedReceiptId.current ? { receiptId } : {}) },
-        { onSuccess: leave, onError: failed },
+        { onSuccess: saved, onError: failed },
       );
       return;
     }
@@ -266,9 +311,9 @@ export default function MoneyEntryScreen() {
       return;
     }
     create.mutate(input, {
-      onSuccess: leave,
+      onSuccess: saved,
       onError: (error) => {
-        if (error instanceof ApiError && error.status === 0) {
+        if (error instanceof ApiError && error.status === 0 && !repeat) {
           queueMoneyEntry(input);
           leave();
           return;
@@ -313,8 +358,13 @@ export default function MoneyEntryScreen() {
   const title = isEdit ? 'Edit entry' : income ? 'New income' : 'New expense';
   // The booking it is for, or came from.
   const fromBooking = isEdit ? (existing?.booking ?? null) : offer;
-  // The package it is a payment toward.
+  // The package it is a payment toward, or a cost of.
   const inPackage = isEdit ? (existing?.package ?? null) : (toward ?? null);
+  // A one-off by nature — a booking, a package payment — never repeats; one
+  // that already does says so instead.
+  const repeats = isEdit && (existing?.recurringId ?? null) !== null;
+  const canRepeat = !repeats && !inPackage && !fromBooking;
+  const repeatDay = dayOfMonthLabel(Math.min(date.getDate(), 28));
   const paidLabel = income ? 'Received' : 'Paid';
   const paidHint = paid
     ? income
@@ -329,7 +379,11 @@ export default function MoneyEntryScreen() {
       <FormHeader
         title={title}
         subtitle={
-          inPackage ? `Payment for ${inPackage.title}` : fromBooking ? bookingLabel(fromBooking) : undefined
+          inPackage
+            ? `${income ? 'Payment for' : 'Cost of'} ${inPackage.title}`
+            : fromBooking
+              ? bookingLabel(fromBooking)
+              : undefined
         }
         action={{ label: 'Save', onPress: save, busy: saving }}
       />
@@ -526,6 +580,49 @@ export default function MoneyEntryScreen() {
               style={{ ...CARD_SHADOW, minHeight: 72 }}
             />
           </View>
+
+          {canRepeat ? (
+            <View className="px-5 mt-5">
+              <Pressable
+                onPress={() => setRepeat((v) => !v)}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: repeat }}
+                className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:scale-[0.98]"
+                style={CARD_SHADOW}
+              >
+                <RepeatIcon size={18} className={repeat ? 'text-primary' : 'text-muted-foreground'} />
+                <View className="flex-1">
+                  <Text className="text-foreground text-sm font-semibold">Repeat every month</Text>
+                  <Text className="text-muted-foreground text-xs mt-0.5">
+                    {repeat
+                      ? `Added for you on ${repeatDay} of each month, ${income ? 'as due' : 'as paid'}`
+                      : 'A subscription, your rent, a retainer'}
+                  </Text>
+                </View>
+                {repeat ? (
+                  <ToggleRightIcon size={26} className="text-primary" />
+                ) : (
+                  <ToggleLeftIcon size={26} className="text-muted-foreground" />
+                )}
+              </Pressable>
+            </View>
+          ) : repeats ? (
+            <View className="px-5 mt-5">
+              <Pressable
+                onPress={() => router.push('/money/recurring')}
+                accessibilityRole="button"
+                className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:opacity-70"
+                style={CARD_SHADOW}
+              >
+                <RepeatIcon size={18} className="text-primary" />
+                <View className="flex-1">
+                  <Text className="text-foreground text-sm font-semibold">Repeats every month</Text>
+                  <Text className="text-muted-foreground text-xs mt-0.5">Change the amount or stop it</Text>
+                </View>
+                <ChevronRightIcon size={16} className="text-muted-foreground" />
+              </Pressable>
+            </View>
+          ) : null}
 
           {isEdit && existing?.booking?.cancelled ? (
             <View className="px-5 mt-6">
