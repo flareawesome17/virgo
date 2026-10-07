@@ -314,11 +314,12 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         publish: !isPrivate,
       },
       {
-        // Onto the post itself, in place of this form, so Back from it goes
-        // where you came from rather than into a form for a post that exists.
-        onSuccess: (created) => {
+        // To where it now lives, in place of this form: the feed, where a new
+        // post of yours comes first, or your profile for a private one, which
+        // is in no feed. There is no post page to land on any more.
+        onSuccess: () => {
           allowLeave();
-          router.replace(`/showcase/${created.id}`);
+          router.replace(isPrivate ? '/profile' : '/feed');
           toast.success(isPrivate ? 'Saved privately' : 'Posted', {
             description: isPrivate
               ? 'Only you can see it. Make it public from its menu when it is ready.'
@@ -375,7 +376,9 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
             }
           }
           allowLeave();
-          router.replace(`/showcase/${existing.id}`);
+          // Back to wherever the edit was opened from: the feed, a profile.
+          if (window.history.length > 1) router.back();
+          else router.replace('/feed');
           toast.success('Saved');
         },
         onError: (error) => failed(error, 'edit'),
@@ -387,7 +390,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     leaveIfDiscarded(dirty, () => {
       allowLeave();
       if (window.history.length > 1) router.back();
-      else router.push(existing ? `/showcase/${existing.id}` : '/feed');
+      else router.push('/feed');
     });
 
   const full = picked.length >= MAX_SHOWCASE_ITEMS;

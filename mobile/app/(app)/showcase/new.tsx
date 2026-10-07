@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
+import { goToTab } from '@/src/lib/navigation';
 import { InsetFrame } from '@/components/InsetFrame';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import {
@@ -355,12 +356,13 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         publish: visibility !== 'private',
       },
       {
-        // To the post itself, in place of this form: after Post you were put
-        // back on the Feed to look for it. replace() keeps the stack as it
-        // was under the form, so Back from the post goes where you came from.
-        onSuccess: (created) => {
+        // Back to where it now lives: the Feed, at the top, where a new post
+        // of yours comes first — there is no post screen to land on any more.
+        // A private one is in no feed, so it goes to your profile instead.
+        onSuccess: () => {
           allowLeave();
-          router.replace(`/showcase/${created.id}`);
+          if (visibility === 'private') router.replace('/profile');
+          else goToTab('/(app)/(tabs)/feed');
         },
         onError: (error) => failed(error, 'showcase'),
       },
