@@ -6,6 +6,14 @@ import { ApiError } from '../errors';
 const CONFIRM_TIMEOUT_MS = 120_000;
 
 /**
+ * How long a delete may take to answer. Deleting goes object by object on the
+ * server when the store refuses bulk deletes, and the default wait gave up
+ * while the server was still working, so the files stayed on screen behind a
+ * "timed out". Under the 100 s Cloudflare allows a request.
+ */
+const DELETE_TIMEOUT_MS = 90_000;
+
+/**
  * Where an upload goes. 'avatars' and 'covers' land in the public bucket and
  * are re-encoded on confirm. Only the phone uploads a cover — it crops it to
  * shape first — so 'covers' is here for parity with the mobile client.
@@ -353,7 +361,10 @@ export const storageApi = {
    * triggered by an empty or accidental request body.
    */
   wipeAll(): Promise<WipeResult> {
-    return api.post('/storage/wipe', { body: { confirm: 'DELETE' } });
+    return api.post('/storage/wipe', {
+      body: { confirm: 'DELETE' },
+      timeoutMs: DELETE_TIMEOUT_MS,
+    });
   },
 
   /** Time-limited read URL, for buckets that are not publicly served. */
@@ -365,7 +376,7 @@ export const storageApi = {
   },
 
   remove(key: string): Promise<void> {
-    return api.post<void>('/storage/delete', { body: { key } });
+    return api.post<void>('/storage/delete', { body: { key }, timeoutMs: DELETE_TIMEOUT_MS });
   },
 
   /**
@@ -373,7 +384,7 @@ export const storageApi = {
    * file may not be deleted by this account, nothing is.
    */
   removeMany(keys: string[]): Promise<{ deleted: number; failed: number }> {
-    return api.post('/storage/delete-many', { body: { keys } });
+    return api.post('/storage/delete-many', { body: { keys }, timeoutMs: DELETE_TIMEOUT_MS });
   },
 
   /**
