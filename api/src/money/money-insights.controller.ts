@@ -12,23 +12,39 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
   CreateMoneyRecurringDto,
+  Mark2307Dto,
   MoneyInsightsDto,
+  MoneyTaxDto,
   UpdateMoneyRecurringDto,
 } from './dto/money.dto';
 import { MoneyInsightsService } from './money-insights.service';
 import { MoneyRecurringService } from './money-recurring.service';
+import { MoneyTaxService } from './money-tax.service';
 
-/** Money: the year at a glance, and the entries that repeat. The caller's own, always. */
+/** Money: the year at a glance, tax help, and the entries that repeat. The caller's own, always. */
 @Controller('money')
 export class MoneyInsightsController {
   constructor(
     private readonly insights: MoneyInsightsService,
     private readonly recurring: MoneyRecurringService,
+    private readonly tax: MoneyTaxService,
   ) {}
 
   @Get('insights')
   year(@CurrentUser('id') userId: string, @Query() query: MoneyInsightsDto) {
     return this.insights.year(userId, query.year);
+  }
+
+  /** Estimates for planning, the 2307s to collect, and the filing calendar. */
+  @Get('tax')
+  taxYear(@CurrentUser('id') userId: string, @Query() query: MoneyTaxDto) {
+    return this.tax.year(userId, query.year);
+  }
+
+  @HttpCode(200)
+  @Post('tax/2307')
+  mark2307(@CurrentUser('id') userId: string, @Body() dto: Mark2307Dto) {
+    return this.tax.mark2307(userId, dto.entryIds, dto.received);
   }
 
   @Get('recurring')
