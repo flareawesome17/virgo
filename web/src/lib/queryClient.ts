@@ -85,7 +85,10 @@ export const queryClient = new QueryClient({
 // `earlier` flag and profile work with a cursor. A saved thread is one array,
 // which the paged thread reads as no pages at all.
 // v7: a support thread's messages carry their files, and its ticket a rating.
-const CACHE_VERSION = 'v7-support-files';
+// v8: Nearby places people by their address's city. A saved list said
+// "turn on sharing" to almost everyone, and a saved status had no idea what
+// placed them; both would show for a moment on the first launch after.
+const CACHE_VERSION = 'v8-nearby-from-address';
 
 /**
  * Queries never written to disk, whatever their staleTime says.

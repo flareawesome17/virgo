@@ -17,7 +17,7 @@ export interface Clause {
 }
 
 export const CONTACT_EMAIL = 'support@virgo.ph';
-export const LAST_UPDATED = '6 October 2026';
+export const LAST_UPDATED = '7 October 2026';
 
 export const TERMS: Clause[] = [
   {
@@ -114,14 +114,14 @@ export const PRIVACY: Clause[] = [
     heading: 'What we collect',
     body: [
       'Account: your email address, your password (stored hashed), your name, and what you do — your roles.',
-      'Address: the postal address you give when you sign up. It is private: never shown on your profile or to another user.',
+      'Address: the postal address you give when you sign up. Your street address is private: never shown on your profile or to another user. The city and province from it are shown as your location on your profile, and are used to place you in Nearby and to put jobs near you first — never the street.',
       'Profile, if you add it: a photo, a cover photo, a bio, your title, studio, website, social handle, phone, and the area you work in.',
       'Content: the photos, videos and audio you upload; the albums, workspaces, events, reminders and messages you create; and the showcases, comments, likes, shelves, job posts, applications, enquiries and bookings you make.',
       'Safety: reports you make or that are made about you, and the people you have blocked.',
       'Device: a push notification token and the app version, so notifications reach the right phone.',
       'Sign-ins: the kind of device and browser each session signed in from, such as "iPhone app" or "Chrome on Windows" — never your IP address — so our support team can help you sign out a device you no longer have.',
       'Support: what you write to us when you ask for help, the screenshots and files you attach, and how you rated our answer. Our support team reads these to help you; the files you attach are deleted with your account.',
-      'Location: only if you turn on location sharing. See below.',
+      'Location: the city in your address, and your device’s position only if you turn on your exact location. See below.',
     ],
   },
   {
@@ -137,16 +137,18 @@ export const PRIVACY: Clause[] = [
       'Other Virgo users can find you by name and see your photo and roles, unless you turn name search off. Once you publish your profile, they can see it and what you post: showcases, comments, likes and shelves.',
       'Job posts are seen by signed-in users. Applications and hire enquiries are seen by the person they are sent to.',
       'A client you send a share link to sees only the files that link exposes.',
+      'People using Nearby see the city you are placed in, or about how far away you are if you share your exact location — never your street or a coordinate.',
       'Blocking someone hides you from each other across Virgo.',
     ],
   },
   {
     heading: 'Location',
     body: [
-      'Location sharing is off until you turn it on, and granting the operating system permission does not by itself turn it on. You can name a city instead of sharing your position.',
-      'While it is on we store your latest position so we can calculate distances. Other users are shown a distance in kilometres and never a coordinate or a place.',
-      'Turning sharing off erases what was stored immediately and removes you from other people’s results.',
-      'You can only see other people if you are sharing too.',
+      'Nearby places you at the centre of the city in your address, or of your province when we cannot place the city. We work that out from our own list of places; your address is not sent to a mapping service. Other users see the name of that city and roughly how far it is — never your street.',
+      'You appear in Nearby unless you hide yourself in Settings, Privacy. Hiding takes you out of everyone else’s results straight away, and you can still look around.',
+      'Sharing your exact location is optional and off until you turn it on, and granting the operating system permission does not by itself turn it on. While it is on we store your position, rounded to about a kilometre, so we can calculate distances; other users are shown a distance in whole kilometres and never a coordinate. A position over 30 days old stops counting, and your city is used instead.',
+      'Turning your exact location off erases the stored position immediately; you are placed by your city again.',
+      'The same city, or your exact location while it counts, is used to put jobs near you first on the jobs board.',
     ],
   },
   {
@@ -190,7 +192,8 @@ export const PRIVACY: Clause[] = [
     heading: 'Your choices',
     body: [
       'Turn name search off in Settings, Privacy, so only someone with your exact email can find you.',
-      'Turn location sharing off at any time, which also erases what was stored.',
+      'Hide yourself from Nearby in Settings, Privacy.',
+      'Turn your exact location off at any time, which also erases the stored position.',
       'Turn push off for a device in Settings, Privacy.',
       'Wipe every file you have uploaded in Settings, Storage & plan, Sync & Storage.',
       'Delete your account in Settings, Account & security.',

@@ -252,7 +252,14 @@ export {
   type SendMessageInput,
 } from './endpoints/chat';
 export { versionApi, type ServerVersion } from './endpoints/version';
-export { discoverApi, type NearbyPerson, type LocationStatus } from './endpoints/discover';
+export {
+  discoverApi,
+  type NearbyPerson,
+  type LocationStatus,
+  type NearbySource,
+  type NearbyOrigin,
+  type NearbyResult,
+} from './endpoints/discover';
 export {
   feedApi,
   showcasesApi,

@@ -157,7 +157,7 @@ export { useRoles } from '@/src/hooks/useRoles'
 
 export {
   useLocationSharing,
-  useSetLocationPlace,
+  useSetNearbyHidden,
   useShareLocation,
   useStopSharingLocation,
   useNearbyPeople,

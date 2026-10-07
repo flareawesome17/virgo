@@ -9,11 +9,12 @@ import { usePreventRemove } from '@react-navigation/native';
 import { useState } from 'react';
 import {
   ArrowLeftIcon, UserIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
-  CheckIcon, MapPinIcon, Building2Icon, AtSignIcon, HomeIcon, GlobeIcon, GiftIcon,
+  CheckIcon, MapPinIcon, Building2Icon, AtSignIcon, GlobeIcon, GiftIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PALETTES } from '@/theme';
 import { LoadFailed } from '@/components/LoadFailed';
+import { CitySuggestions } from '@/components/LocationField';
 import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -27,7 +28,6 @@ cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(Building2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(AtSignIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(GlobeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(GiftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -90,8 +90,8 @@ export default function SignUpScreen() {
 
   // Step 3
   const [line1, setLine1] = useState('');
-  const [line2, setLine2] = useState('');
   const [city, setCity] = useState('');
+  const [cityFocused, setCityFocused] = useState(false);
   const [province, setProvince] = useState('');
   const [postal, setPostal] = useState('');
   const [country, setCountry] = useState('PH');
@@ -171,7 +171,6 @@ export default function SignUpScreen() {
         displayName: name.trim(),
         roles,
         addressLine1: line1.trim(),
-        addressLine2: line2.trim() || undefined,
         addressCity: city.trim(),
         addressProvince: province.trim(),
         addressPostal: postal.trim() || undefined,
@@ -358,25 +357,32 @@ export default function SignUpScreen() {
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
                 </Field>
 
-                <Field label="Apartment, unit, floor" hint="Optional." icon={<HomeIcon size={16} className="text-muted-foreground" />}>
-                  <TextInput value={line2} onChangeText={setLine2} placeholder="Unit 4B"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
-                </Field>
-
-                <View className="flex-row gap-3">
-                  <View className="flex-1">
-                    <Field label="City" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
-                      <TextInput value={city} onChangeText={setCity} placeholder="Cebu City"
-                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
-                    </Field>
-                  </View>
-                  <View className="flex-1">
-                    <Field label="Province">
-                      <TextInput value={province} onChangeText={setProvince} placeholder="Cebu"
-                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
-                    </Field>
-                  </View>
+                {/* Full width, with the suggestions under it: the city is
+                    what places somebody in Nearby, so the spelling the app
+                    knows is worth offering. Still free text — a town the list
+                    lacks is placed by its province. */}
+                <View>
+                  <Field label="City or municipality" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
+                    <TextInput value={city} onChangeText={setCity} placeholder="Cebu City"
+                      placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120}
+                      onFocus={() => setCityFocused(true)}
+                      // A beat late, so a tap on a suggestion lands first.
+                      onBlur={() => setTimeout(() => setCityFocused(false), 200)} />
+                  </Field>
+                  <CitySuggestions
+                    query={city}
+                    visible={cityFocused}
+                    onPick={(picked) => {
+                      setCity(picked);
+                      setCityFocused(false);
+                    }}
+                  />
                 </View>
+
+                <Field label="Province">
+                  <TextInput value={province} onChangeText={setProvince} placeholder="Cebu"
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
+                </Field>
 
                 <View className="flex-row gap-3">
                   {/* Optional on purpose. Plenty of Philippine addresses have
@@ -444,8 +450,9 @@ export default function SignUpScreen() {
                 </Pressable>
 
                 <Text className="text-muted-foreground text-xs leading-5 px-1">
-                  Your address is private. It is never shown on your profile or
-                  to anyone you work with.
+                  Your street address is private. Your city and province show
+                  on your profile and place you in Nearby — never your street,
+                  and you can hide from Nearby in Privacy.
                 </Text>
               </>
             )}

@@ -6,6 +6,7 @@ import { useTheme } from 'next-themes';
 import {
   Bell,
   BellOff,
+  Eye,
   Volume2,
   VolumeX,
   Loader2,
@@ -25,7 +26,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { playAlert, setSoundEnabled, soundEnabled, subscribeToSoundEnabled } from '@/lib/sounds';
 import { useAuth } from '@/hooks/useAuth';
-import { useLocationSharing, useShareLocation, useStopSharingLocation } from '@/hooks/useNearby';
+import {
+  useLocationSharing,
+  useSetNearbyHidden,
+  useShareLocation,
+  useStopSharingLocation,
+} from '@/hooks/useNearby';
 import {
   notificationPermission,
   requestNotificationPermission,
@@ -54,6 +60,11 @@ export default function SettingsPage() {
 
   const {
     sharing,
+    place: shownIn,
+    source,
+    hidden,
+    exactLocation,
+    exactLocationStale,
     data: locationStatus,
     isLoading: loadingLocation,
     loadFailed: locationFailed,
@@ -62,8 +73,35 @@ export default function SettingsPage() {
   // Never read, rather than read as off. A failed check showed the switch
   // off, telling someone who may well be visible in Nearby that they were not.
   const locationUnknown = locationFailed && !locationStatus;
+  // What places them. An older API sends no source, and there sharing was the
+  // only way to be placed.
+  const placedBy =
+    source !== undefined ? source : sharing ? (shownIn ? 'place' : 'gps') : null;
   const startSharing = useShareLocation();
   const stopSharing = useStopSharingLocation();
+  const setHidden = useSetNearbyHidden();
+
+  /*
+   * What each switch says, from the server's own answer — which applies the
+   * 30-day expiry. "You appear in Nearby" used to be said to anyone with the
+   * switch on, including people whose position had expired weeks before.
+   */
+  const shownDetail = locationUnknown
+    ? "Couldn't check whether you're shown in Nearby."
+    : hidden
+      ? 'Nobody sees you in Nearby. You can still look around.'
+      : placedBy === 'gps'
+        ? 'Shown near your exact location. Others see a distance, never a place.'
+        : placedBy && shownIn
+          ? `Shown in ${shownIn}. Never your street.`
+          : 'Add your city to your profile to appear in Nearby.';
+  const exactDetail = locationUnknown
+    ? "Couldn't check whether you're sharing it."
+    : exactLocationStale
+      ? 'Over 30 days old, so the city in your address is used instead. Turn it off and on to update it.'
+      : exactLocation
+        ? 'From this browser, kept to about a kilometre. Turning it off erases it.'
+        : 'Off. Nearby uses the city in your address.';
 
   const hydrated = useHydrated();
   const permission = useSyncExternalStore(
@@ -159,17 +197,26 @@ export default function SettingsPage() {
               )}
             </SettingRow>
 
-            <SettingRow
-              icon={MapPin}
-              title="Share my location"
-              detail={
-                locationUnknown
-                  ? "Couldn't check whether you're sharing your location."
-                  : sharing
-                    ? 'You appear in Nearby. Others see a distance, never a place.'
-                    : 'Turn on to see who is nearby. Discovery works both ways.'
-              }
-            >
+            <SettingRow icon={Eye} title="Show me in Nearby" detail={shownDetail}>
+              {loadingLocation || setHidden.isPending ? (
+                <Loader2 className="size-4 animate-spin text-primary" />
+              ) : locationUnknown ? (
+                <Button size="sm" variant="outline" onClick={() => void refetchLocation()}>
+                  Try again
+                </Button>
+              ) : (
+                <Switch
+                  checked={!hidden}
+                  onCheckedChange={(next) =>
+                    setHidden.mutate(!next, { onError: fail("Couldn't change that") })
+                  }
+                  aria-label="Show me in Nearby"
+                />
+              )}
+            </SettingRow>
+
+            {/* Optional, and only ever closer than the city in the address. */}
+            <SettingRow icon={MapPin} title="Use my exact location" detail={exactDetail}>
               {loadingLocation || startSharing.isPending || stopSharing.isPending ? (
                 <Loader2 className="size-4 animate-spin text-primary" />
               ) : locationUnknown ? (
@@ -178,12 +225,13 @@ export default function SettingsPage() {
                 </Button>
               ) : (
                 <Switch
-                  checked={sharing}
+                  checked={exactLocation}
                   onCheckedChange={(next) =>
                     (next ? startSharing : stopSharing).mutate(undefined as never, {
-                      onError: fail('Could not change sharing'),
+                      onError: fail("Couldn't change your exact location"),
                     })
                   }
+                  aria-label="Use my exact location"
                 />
               )}
             </SettingRow>

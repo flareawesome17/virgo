@@ -299,6 +299,8 @@ export function useAuth() {
       // public profile show, and those are separate queries.
       queryClient.invalidateQueries({ queryKey: queryKeys.profile.page });
       queryClient.invalidateQueries({ queryKey: queryKeys.publicProfiles.all });
+      // A saved address moves you in Nearby, and is where it searches from.
+      queryClient.invalidateQueries({ queryKey: ['discover'] });
     },
   });
 

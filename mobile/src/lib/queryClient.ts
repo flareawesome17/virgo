@@ -163,7 +163,10 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // v8: the chat list and threads are paged, and a saved thread has no pages;
 // so are a post's comments and a profile's work.
 // v9: a support thread's messages carry their files, and its ticket a rating.
-const CACHE_VERSION = 'v9-support-files'
+// v10: Nearby places people by their address's city. A saved list said
+// "turn on sharing" to almost everyone, and a saved status had no idea what
+// placed them; both would show for a moment on the first launch after.
+const CACHE_VERSION = 'v10-nearby-from-address'
 
 /**
  * Never written to disk, whatever their staleTime says.
