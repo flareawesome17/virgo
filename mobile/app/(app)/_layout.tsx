@@ -17,6 +17,7 @@ import {
   VideoSurface,
 } from '@/components';
 import { useOutboxSender } from '@/src/hooks/useChat';
+import { useMoneyOutboxSender } from '@/src/lib/money-outbox';
 import { CrashScreen } from '@/components/CrashScreen';
 import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
 import { VideoPlayerProvider } from '@/src/providers/VideoPlayerProvider';
@@ -44,6 +45,7 @@ const CREATE_FORMS = [
   'albums/create',
   'schedule/create',
   'schedule/reminders/create',
+  'money/new',
 ] as const;
 
 const CREATE_FORM_OPTIONS = {
@@ -231,6 +233,8 @@ function NotificationServices() {
   // Messages written offline, or left unsent when the app closed, go out
   // whenever there is a connection again.
   useOutboxSender(user?.id);
+  // Money entries logged with no signal, the same way.
+  useMoneyOutboxSender(user?.id);
 
   return null;
 }

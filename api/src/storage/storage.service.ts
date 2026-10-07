@@ -91,7 +91,7 @@ const SINGLE_DELETE_CONCURRENCY = 16;
 const DELETE_CHUNK_FILES = 100;
 
 /** Keys the server mints for itself, outside any user's prefix. */
-const SERVER_KEY = /^support\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
+const SERVER_KEY = /^(support|receipts)\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
 
 @Injectable()
 export class StorageService {
@@ -450,9 +450,10 @@ export class StorageService {
    * Refuses any key outside the prefixes the server mints for itself.
    *
    * The three methods below skip the `users/<id>/` ownership check, because
-   * what they handle belongs to no one's library: support attachments, whose
-   * owner is a row in `support_attachments`. Holding them to their own prefix
-   * is what stops them being a way round that check.
+   * what they handle belongs to no one's library: support attachments and
+   * receipts, whose owners are rows in `support_attachments` and
+   * `money_receipts`. Holding them to their own prefixes is what stops them
+   * being a way round that check.
    */
   private assertServerKey(key: string): void {
     this.assertSafeKey(key);

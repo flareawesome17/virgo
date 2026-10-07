@@ -37,6 +37,7 @@ import {
   Sun,
   UserRound,
   Users,
+  Wallet,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { APP_COMMIT, RELEASE_LABEL } from '@/lib/version';
@@ -89,7 +90,7 @@ interface NavItem {
 }
 
 /*
- * Eight places, grouped as the phone groups them: its tabs first, then the
+ * Nine places, grouped as the phone groups them: its tabs first, then the
  * work, then the people. Notifications live behind the bell, and Rewards,
  * Support and Settings behind your picture, as they do on the phone; they
  * were thirteen rows here, competing with the places you actually go.
@@ -120,6 +121,8 @@ const NAV: { heading?: string; items: NavItem[] }[] = [
       // Every album across every workspace.
       { href: '/albums', label: 'Albums', icon: Images },
       { href: '/schedule', label: 'Schedule', icon: CalendarDays, badge: 'eventInvites' },
+      // What the work earned and cost. Only the account's own.
+      { href: '/money', label: 'Money', icon: Wallet },
     ],
   },
   {

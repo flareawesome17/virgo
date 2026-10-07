@@ -1,13 +1,15 @@
 import { useRef } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { router, type Href } from 'expo-router';
 import {
   AlarmClockIcon,
   BriefcaseIcon,
   CalendarPlusIcon,
   FolderPlusIcon,
+  HandCoinsIcon,
   ImagePlusIcon,
   ImagesIcon,
+  ReceiptIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -15,13 +17,22 @@ import { BottomSheet } from '@/components/BottomSheet';
 import { usePlanLimits } from '@/src/hooks';
 
 for (const Icon of [
-  AlarmClockIcon, BriefcaseIcon, CalendarPlusIcon, FolderPlusIcon, ImagePlusIcon, ImagesIcon,
+  AlarmClockIcon, BriefcaseIcon, CalendarPlusIcon, FolderPlusIcon, HandCoinsIcon, ImagePlusIcon,
+  ImagesIcon, ReceiptIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
 /** Everything the + in the top bar can start. */
-export type CreateKind = 'showcase' | 'job' | 'workspace' | 'album' | 'event' | 'reminder';
+export type CreateKind =
+  | 'showcase'
+  | 'job'
+  | 'workspace'
+  | 'album'
+  | 'event'
+  | 'reminder'
+  | 'income'
+  | 'expense';
 
 interface CreateItem {
   kind: CreateKind;
@@ -32,8 +43,9 @@ interface CreateItem {
 }
 
 /**
- * In three groups, by what the thing is for: putting work and needs in front
- * of other people, keeping a client's work together, and the calendar.
+ * In four groups, by what the thing is for: putting work and needs in front
+ * of other people, keeping a client's work together, the calendar, and what
+ * the work earned and cost.
  *
  * The order never changes with the screen — the same thing is always in the
  * same place for the thumb. The screen you are on marks its own item instead.
@@ -60,6 +72,13 @@ const GROUPS: { title: string; items: CreateItem[] }[] = [
       { kind: 'reminder', label: 'Reminder', detail: 'A nudge at a set time', icon: AlarmClockIcon },
     ],
   },
+  {
+    title: 'Money',
+    items: [
+      { kind: 'income', label: 'Income', detail: 'A fee, a deposit, a balance paid', icon: HandCoinsIcon },
+      { kind: 'expense', label: 'Expense', detail: 'Transport, meals, crew, gear', icon: ReceiptIcon },
+    ],
+  },
 ];
 
 const ROUTES: Record<CreateKind, Href> = {
@@ -69,6 +88,8 @@ const ROUTES: Record<CreateKind, Href> = {
   album: '/albums/create',
   event: '/schedule/create',
   reminder: '/schedule/reminders/create',
+  income: '/money/new?kind=income',
+  expense: '/money/new?kind=expense',
 };
 
 /**
@@ -119,6 +140,9 @@ export function CreateSheet({
           Create
         </Text>
       </View>
+      {/* Four groups are taller than a small phone's sheet can be, so the
+          list scrolls rather than losing its last rows under the edge. */}
+      <ScrollView style={{ flexShrink: 1 }} bounces={false} showsVerticalScrollIndicator={false}>
       {GROUPS.map((group) => (
         <View key={group.title} className="pt-2">
           <Text className="px-5 pb-1 text-muted-foreground text-[11px] font-bold uppercase tracking-[1.5px]">
@@ -157,6 +181,7 @@ export function CreateSheet({
         </View>
       ))}
       <View className="h-3" />
+      </ScrollView>
     </BottomSheet>
   );
 }

@@ -36,10 +36,12 @@ import { AdminModule } from './admin/admin.module';
 import { VisitsModule } from './visits/visits.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { PromosModule } from './promos/promos.module';
+import { MoneyModule } from './money/money.module';
 
 @Module({
   imports: [
     BookingsModule,
+    MoneyModule,
     AdminModule,
     VisitsModule,
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
