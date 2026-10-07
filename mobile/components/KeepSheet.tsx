@@ -27,6 +27,10 @@ for (const Icon of [BookmarkIcon, CheckIcon, GlobeIcon, LockIcon, PlusIcon]) {
  * It also takes things off again. The shelves come back saying which already
  * hold this showcase; tapping one of those asks, then removes it. Before, a
  * kept post offered "Change where" and could only be kept somewhere else.
+ *
+ * And it moves them. Choosing another shelf for something already kept offers
+ * Move here — kept there, taken off where it was — beside keeping it on both,
+ * which was the only thing a second shelf could do before.
  */
 export function KeepSheet({
   item,
@@ -51,6 +55,9 @@ export function KeepSheet({
   const [note, setNote] = useState('');
   const [naming, setNaming] = useState(false);
   const [newName, setNewName] = useState('');
+  // Keeping to the new shelf and taking it off the old ones are separate
+  // requests, with a moment between them when neither is pending.
+  const [moving, setMoving] = useState(false);
 
   // Each showcase starts fresh: last time's shelf and last time's reason are
   // about the last photograph, not this one.
@@ -60,6 +67,7 @@ export function KeepSheet({
       setNote('');
       setNaming(false);
       setNewName('');
+      setMoving(false);
     }
   }, [item?.id]);
 
@@ -76,7 +84,9 @@ export function KeepSheet({
     },
   };
 
-  const busy = keep.isPending || createShelf.isPending || unkeep.isPending;
+  const busy = keep.isPending || createShelf.isPending || unkeep.isPending || moving;
+  /** Somewhere new chosen for something already kept: it can move there. */
+  const canMove = keptOn.length > 0 && chosen !== null && !keptOn.some((s) => s.id === chosen);
 
   const takeOff = (shelfId: string, name: string) => {
     if (!item) return;
@@ -139,6 +149,31 @@ export function KeepSheet({
     );
   };
 
+  const move = async () => {
+    if (!item || !chosen) return;
+    const shelf = shelves.find((s) => s.id === chosen);
+    setMoving(true);
+    try {
+      // Onto the new shelf first: a failure part-way leaves it kept twice,
+      // which is fixable from here, rather than kept nowhere.
+      await keep.mutateAsync({
+        shelfId: chosen,
+        showcaseId: item.id,
+        note: note.trim() || undefined,
+        alreadyKept: true,
+      });
+      for (const old of keptOn) {
+        await unkeep.mutateAsync({ shelfId: old.id, showcaseId: item.id, stillKept: true });
+      }
+      if (shelf) onKept?.({ id: shelf.id, name: shelf.name });
+      onClose();
+    } catch (error) {
+      Alert.alert("Couldn't move it", profileActionMessage(error, 'keep'));
+    } finally {
+      setMoving(false);
+    }
+  };
+
   return (
     <BottomSheet
       visible={item !== null}
@@ -156,7 +191,7 @@ export function KeepSheet({
         {keptOn.length > 0 && (
           <Text className="text-foreground text-[12px] leading-[17px] mt-2">
             Kept on {keptOn.map((shelf) => shelf.name).join(', ')}. Tap a shelf with a
-            tick to take it off.
+            tick to take it off, or choose another to move it there.
           </Text>
         )}
       </View>
@@ -193,9 +228,9 @@ export function KeepSheet({
                   accessibilityHint={holds ? 'Kept here. Double tap to take it off.' : undefined}
                   className={`min-h-16 flex-row items-center gap-3 rounded-2xl px-2.5 ${on ? 'bg-secondary' : ''}`}
                 >
-                  {shelf.coverUrl ? (
+                  {(shelf.coverUrls?.[0] ?? shelf.coverUrl) ? (
                     <RemoteImage
-                      source={{ uri: shelf.coverUrl }}
+                      source={{ uri: shelf.coverUrls?.[0] ?? shelf.coverUrl }}
                       style={{ width: 46, height: 46, borderRadius: 10 }}
                     />
                   ) : (
@@ -308,25 +343,53 @@ export function KeepSheet({
       </ScrollView>
 
       <View className="px-4 pt-3 pb-3 flex-row gap-2.5">
-        <Pressable
-          onPress={() => !busy && onClose()}
-          accessibilityRole="button"
-          className="min-h-12 px-5 rounded-xl border border-border items-center justify-center"
-        >
-          <Text className="text-foreground text-[13px] font-bold">Cancel</Text>
-        </Pressable>
-        <Pressable
-          onPress={confirm}
-          disabled={!chosen || busy}
-          accessibilityRole="button"
-          accessibilityState={{ busy: keep.isPending, disabled: !chosen }}
-          className="flex-1 min-h-12 rounded-xl bg-action items-center justify-center active:opacity-90"
-          style={{ opacity: !chosen || busy ? 0.5 : 1 }}
-        >
-          <Text className="text-action-foreground text-[13px] font-bold">
-            {keep.isPending ? 'Keeping…' : 'Keep it'}
-          </Text>
-        </Pressable>
+        {canMove ? (
+          <Pressable
+            onPress={confirm}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityHint="Keeps it on this shelf as well as where it is now"
+            className="min-h-12 px-4 rounded-xl border border-border items-center justify-center"
+            style={{ opacity: busy ? 0.5 : 1 }}
+          >
+            <Text className="text-foreground text-[13px] font-bold">Keep on both</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => !busy && onClose()}
+            accessibilityRole="button"
+            className="min-h-12 px-5 rounded-xl border border-border items-center justify-center"
+          >
+            <Text className="text-foreground text-[13px] font-bold">Cancel</Text>
+          </Pressable>
+        )}
+        {canMove ? (
+          <Pressable
+            onPress={() => void move()}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityState={{ busy: moving }}
+            className="flex-1 min-h-12 rounded-xl bg-action items-center justify-center active:opacity-90"
+            style={{ opacity: busy ? 0.5 : 1 }}
+          >
+            <Text className="text-action-foreground text-[13px] font-bold">
+              {moving ? 'Moving…' : 'Move here'}
+            </Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={confirm}
+            disabled={!chosen || busy}
+            accessibilityRole="button"
+            accessibilityState={{ busy: keep.isPending, disabled: !chosen }}
+            className="flex-1 min-h-12 rounded-xl bg-action items-center justify-center active:opacity-90"
+            style={{ opacity: !chosen || busy ? 0.5 : 1 }}
+          >
+            <Text className="text-action-foreground text-[13px] font-bold">
+              {keep.isPending ? 'Keeping…' : 'Keep it'}
+            </Text>
+          </Pressable>
+        )}
       </View>
     </BottomSheet>
   );

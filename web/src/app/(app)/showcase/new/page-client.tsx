@@ -11,12 +11,15 @@ import {
   ArrowRight,
   Check,
   CloudOff,
+  Globe,
   ImagePlus,
   Loader2,
+  Lock,
   Play,
   Plus,
   Star,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader, Screen } from '@/components/app-shell';
@@ -43,7 +46,9 @@ import { cn } from '@/lib/utils';
 import {
   MAX_CRAFT_TAGS,
   MAX_SHOWCASE_ITEMS,
+  canPostTogether,
   kindOf,
+  showcaseStatus,
   storageApi,
   type Showcase,
   type StoredFile,
@@ -122,9 +127,9 @@ export default function NewShowcasePage() {
 
 function ShowcaseForm({ existing }: { existing?: Showcase }) {
   const router = useRouter();
-  const { create, update } = useShowcaseActions();
+  const { create, update, setPublished } = useShowcaseActions();
   const editing = Boolean(existing);
-  const busy = create.isPending || update.isPending;
+  const busy = create.isPending || update.isPending || setPublished.isPending;
 
   const [picked, setPicked] = useState<string[]>(
     () => existing?.pieces.map((piece) => piece.fileKey) ?? [],
@@ -143,7 +148,28 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   const [stills, setStills] = useState<Record<string, string>>(() =>
     Object.fromEntries(existing?.pieces.map((piece) => [piece.fileKey, piece.url]) ?? []),
   );
+  // What each chosen piece is, whichever album it came from: a film goes out
+  // on its own, so the form has to know which of the chosen are films.
+  const [kinds, setKinds] = useState<Record<string, 'image' | 'video'>>(() =>
+    Object.fromEntries(existing?.pieces.map((piece) => [piece.fileKey, piece.kind]) ?? []),
+  );
   const [albumId, setAlbumId] = useState<string | undefined>(undefined);
+
+  /*
+   * Who sees it. Private is a post saved and not put out, or taken back in;
+   * a post shown only to connections keeps that unless its author picks
+   * something else here — the form never changes it on their behalf.
+   */
+  const status = existing ? showcaseStatus(existing) : null;
+  const [audience, setAudience] = useState<Audience>(() =>
+    !existing
+      ? 'public'
+      : status !== 'live'
+        ? 'private'
+        : existing.visibility === 'connections'
+          ? 'connections'
+          : 'public',
+  );
 
   // A chosen set of work and a written caption are worth asking about.
   const { dirty, allowLeave } = useDiscardGuard({
@@ -154,6 +180,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     tags,
     allowComments,
     showHire,
+    audience,
   });
 
   const { albums } = useAlbums({ orderBy: 'created_at', direction: 'desc', limit: 100 });
@@ -181,16 +208,38 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     [files.data],
   );
 
-  const toggle = (key: string, still?: string | null) => {
+  const kindAt = (key: string) => kinds[key] ?? 'image';
+
+  /*
+   * Choosing, or taking out. A film is posted on its own, so choosing a film
+   * takes out whatever was chosen, and choosing a photograph takes out a
+   * film — said, with Undo, because a set of twenty arranged by hand is not
+   * something to lose to one click. Greying out the other kind instead hid
+   * the rule until somebody wondered why half the grid had stopped working.
+   */
+  const toggle = (key: string, still?: string | null, kind?: 'image' | 'video') => {
     if (still) setStills((current) => ({ ...current, [key]: still }));
+    if (kind) setKinds((current) => ({ ...current, [key]: kind }));
     if (faulty?.key === key) setFaulty(null);
-    setPicked((current) =>
-      current.includes(key)
-        ? current.filter((k) => k !== key)
-        : current.length >= MAX_SHOWCASE_ITEMS
-          ? current
-          : [...current, key],
-    );
+    if (picked.includes(key)) {
+      setPicked(picked.filter((k) => k !== key));
+      return;
+    }
+    const film = (kind ?? kindAt(key)) === 'video';
+    const clashes = film ? picked.length > 0 : picked.some((k) => kindAt(k) === 'video');
+    if (clashes) {
+      const before = picked;
+      setPicked([key]);
+      toast('A film is posted on its own.', {
+        description: `${describePieces(before.map(kindAt))} you had chosen ${
+          before.length === 1 ? 'was' : 'were'
+        } taken out.`,
+        action: { label: 'Undo', onClick: () => setPicked(before) },
+      });
+      return;
+    }
+    if (picked.length >= MAX_SHOWCASE_ITEMS) return;
+    setPicked([...picked, key]);
   };
 
   /** Moves the chosen piece at `from` to `to`. Position 0 is the cover. */
@@ -240,8 +289,15 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     });
   };
 
+  // Photographs up to the limit, or one film alone: the server's own rule
+  // (SHOWCASE_FILM_ALONE), checked here so Post is never a button that fails.
+  const pickedKinds = picked.map(kindAt);
+  const postable = canPostTogether(pickedKinds);
+  const filmWithOthers = picked.length > 1 && pickedKinds.includes('video');
+  const isPrivate = audience === 'private';
+
   const post = () => {
-    if (picked.length === 0 || busy) return;
+    if (!postable || busy) return;
     setFaulty(null);
     create.mutate(
       {
@@ -252,15 +308,23 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         craftTags: tags.length > 0 ? tags : undefined,
         allowComments,
         showHire,
-        publish: true,
+        visibility: 'public',
+        // Private is saved and not put out: it stays on your profile, where
+        // only you see it, until you make it public.
+        publish: !isPrivate,
       },
       {
-        // Onto the post itself, in place of this form, so Back from it goes
-        // where you came from rather than into a form for a post that exists.
-        onSuccess: (created) => {
+        // To where it now lives, in place of this form: the feed, where a new
+        // post of yours comes first, or your profile for a private one, which
+        // is in no feed. There is no post page to land on any more.
+        onSuccess: () => {
           allowLeave();
-          router.replace(`/showcase/${created.id}`);
-          toast.success('Posted', { description: 'It is on your profile and in the feed.' });
+          router.replace(isPrivate ? '/profile' : '/feed');
+          toast.success(isPrivate ? 'Saved privately' : 'Posted', {
+            description: isPrivate
+              ? 'Only you can see it. Make it public from its menu when it is ready.'
+              : 'It is on your profile and in the feed.',
+          });
         },
         onError: (error) => failed(error, 'post'),
       },
@@ -268,11 +332,15 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   };
 
   const save = () => {
-    if (!existing || picked.length === 0 || busy) return;
+    if (!existing || !postable || busy) return;
     setFaulty(null);
     const before = existing.pieces.map((piece) => piece.fileKey);
     const piecesChanged =
       picked.length !== before.length || picked.some((key, i) => key !== before[i]);
+    // Put out or taken in only when the choice differs from how it is now,
+    // and never for a post Virgo took down, which only Virgo can put back.
+    const wantLive = !isPrivate;
+    const changeLive = status !== 'removed' && wantLive !== (status === 'live');
     update.mutate(
       {
         id: existing.id,
@@ -280,6 +348,10 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           // Only when they changed: sending them rewrites every piece and
           // queues its renditions again.
           ...(piecesChanged ? { fileKeys: picked } : {}),
+          // Only when somebody chose Public for a post shown to connections.
+          ...(audience === 'public' && existing.visibility !== 'public'
+            ? { visibility: 'public' as const }
+            : {}),
           // Empty strings rather than undefined: that is how the API is told
           // to clear a field.
           title: title.trim(),
@@ -291,9 +363,22 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: async () => {
+          if (changeLive) {
+            try {
+              await setPublished.mutateAsync({ id: existing.id, published: wantLive });
+            } catch (error) {
+              // The words are saved either way; say which half did not happen.
+              toast.error(
+                wantLive ? "Saved, but couldn't make it public" : "Saved, but couldn't make it private",
+                { description: showcaseActionMessage(error, 'takedown') },
+              );
+            }
+          }
           allowLeave();
-          router.replace(`/showcase/${existing.id}`);
+          // Back to wherever the edit was opened from: the feed, a profile.
+          if (window.history.length > 1) router.back();
+          else router.replace('/feed');
           toast.success('Saved');
         },
         onError: (error) => failed(error, 'edit'),
@@ -305,7 +390,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     leaveIfDiscarded(dirty, () => {
       allowLeave();
       if (window.history.length > 1) router.back();
-      else router.push(existing ? `/showcase/${existing.id}` : '/feed');
+      else router.push('/feed');
     });
 
   const full = picked.length >= MAX_SHOWCASE_ITEMS;
@@ -324,9 +409,15 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
             <Button variant="ghost" onClick={cancel} disabled={busy}>
               Cancel
             </Button>
-            <Button onClick={editing ? save : post} disabled={picked.length === 0 || busy}>
+            <Button onClick={editing ? save : post} disabled={!postable || busy}>
               {busy && <Loader2 className="size-4 animate-spin" />}
-              {editing ? (update.isPending ? 'Saving…' : 'Save') : create.isPending ? 'Posting…' : 'Post'}
+              {editing || isPrivate
+                ? busy
+                  ? 'Saving…'
+                  : 'Save'
+                : create.isPending
+                  ? 'Posting…'
+                  : 'Post'}
             </Button>
           </>
         }
@@ -336,9 +427,19 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         <section aria-label="The work" className="min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary">The work</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {picked.length}/{MAX_SHOWCASE_ITEMS} chosen
+            {picked.length === 1 && pickedKinds[0] === 'video'
+              ? 'A film · a film is posted on its own'
+              : `${picked.length}/${MAX_SHOWCASE_ITEMS} photos chosen`}
             {picked.length > 1 ? ' · the first is the cover. Click one to move it.' : ''}
           </p>
+          {filmWithOthers && (
+            // Only an older post can arrive like this: the grid below never
+            // lets the two be chosen together.
+            <p role="alert" className="mt-2 flex items-start gap-2 text-xs text-destructive">
+              <AlertCircle className="mt-px size-3.5 shrink-0" />A film is posted on its own. Take
+              out the photos, or the film, to save this.
+            </p>
+          )}
 
           {/* What is chosen, in order, including anything picked in another
               album, which the grid below no longer shows. Click one to make it
@@ -442,7 +543,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
 
           {full && (
             <p className="mt-2 text-xs text-warning">
-              That is all {MAX_SHOWCASE_ITEMS}. Take one out to swap it.
+              That is all {MAX_SHOWCASE_ITEMS} photos. Take one out to swap it.
             </p>
           )}
 
@@ -490,16 +591,17 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                     <button
                       key={file.key}
                       type="button"
-                      onClick={() => toggle(file.key, still)}
+                      onClick={() => toggle(file.key, still, film ? 'video' : 'image')}
                       aria-pressed={on}
                       aria-label={
                         on
                           ? `Chosen, number ${at + 1}. Remove.`
                           : film
-                            ? 'Choose this film'
+                            ? 'Choose this film. A film is posted on its own.'
                             : 'Choose this photograph'
                       }
-                      disabled={!on && full}
+                      // A film is never "one too many": it replaces the set.
+                      disabled={!on && full && !film}
                       className={cn(
                         'group relative aspect-square overflow-hidden rounded-lg bg-muted outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
                         on && 'ring-3 ring-primary ring-offset-2 ring-offset-background',
@@ -665,6 +767,15 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
             </CardContent>
           </Card>
 
+          <AudiencePicker
+            value={audience}
+            onChange={setAudience}
+            // Offered only to a post that already is shown to connections,
+            // so choosing it is never how a new post ends up narrower.
+            offerConnections={existing?.visibility === 'connections'}
+            removed={status === 'removed'}
+          />
+
           <Card className="gap-0 py-0">
             <CardContent className="p-0">
               <label className="flex items-start gap-3 border-b px-4 py-3">
@@ -701,11 +812,111 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
 
           {picked.length === 0 && (
             <p className="text-xs text-muted-foreground">
-              Choose at least one photograph or film to {editing ? 'save' : 'post'}.
+              Choose up to {MAX_SHOWCASE_ITEMS} photos, or one film, to{' '}
+              {editing || isPrivate ? 'save' : 'post'}.
             </p>
           )}
         </aside>
       </div>
     </Screen>
+  );
+}
+
+type Audience = 'public' | 'connections' | 'private';
+
+/** "The film", "The photo", "The 3 photos", "The 4 pieces": for the film-alone toast. */
+function describePieces(kinds: ('image' | 'video')[]): string {
+  const films = kinds.filter((k) => k === 'video').length;
+  if (kinds.length === 1) return films ? 'The film' : 'The photo';
+  if (films === 0) return `The ${kinds.length} photos`;
+  if (films === kinds.length) return `The ${kinds.length} films`;
+  return `The ${kinds.length} pieces`;
+}
+
+const AUDIENCES: { value: Audience; label: string; detail: string; icon: typeof Globe }[] = [
+  {
+    value: 'public',
+    label: 'Public',
+    detail: 'In the feed and on your profile, with a link you can share.',
+    icon: Globe,
+  },
+  {
+    value: 'connections',
+    label: 'Connections',
+    detail: 'Only people you are connected to. It has no link to share.',
+    icon: Users,
+  },
+  {
+    value: 'private',
+    label: 'Private',
+    detail: 'Only you. Saved on your profile, out of the feed, until you make it public.',
+    icon: Lock,
+  },
+];
+
+/**
+ * Who sees it: Public or Private, and Connections for a post that already
+ * is. Radios rather than a switch, because the three are not on and off.
+ */
+function AudiencePicker({
+  value,
+  onChange,
+  offerConnections,
+  removed,
+}: {
+  value: Audience;
+  onChange: (value: Audience) => void;
+  offerConnections: boolean;
+  /** Taken down by Virgo: only Virgo can put it back, so there is no choice. */
+  removed: boolean;
+}) {
+  const options = AUDIENCES.filter((a) => a.value !== 'connections' || offerConnections);
+  return (
+    <Card className="gap-0 py-0">
+      <CardContent className="p-0">
+        <p id="audience-label" className="px-4 pb-1 pt-3 text-sm font-semibold">
+          Who sees it
+        </p>
+        {removed ? (
+          <p className="px-4 pb-3 text-xs leading-relaxed text-muted-foreground">
+            Virgo took this post down, so only you see it. Your changes are still saved.
+          </p>
+        ) : (
+          <div role="radiogroup" aria-labelledby="audience-label" className="grid pb-1.5">
+            {options.map((option) => {
+              const checked = value === option.value;
+              const Icon = option.icon;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={checked}
+                  onClick={() => onChange(option.value)}
+                  className="flex items-start gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{option.label}</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                      {option.detail}
+                    </span>
+                  </span>
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border-2',
+                      checked ? 'border-primary' : 'border-muted-foreground/40',
+                    )}
+                  >
+                    {checked && <span className="size-2 rounded-full bg-primary" />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

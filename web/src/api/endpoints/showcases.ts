@@ -9,8 +9,29 @@ import { api } from '../client';
  * still serves every profile.
  */
 
-/** Matches MAX_SHOWCASE_ITEMS on the server. */
-export const MAX_SHOWCASE_ITEMS = 10;
+/**
+ * Matches MAX_SHOWCASE_ITEMS on the server: photographs per post. A film is a
+ * post of its own — one film and nothing else (SHOWCASE_FILM_ALONE).
+ */
+export const MAX_SHOWCASE_ITEMS = 20;
+
+/**
+ * Whether a set of pieces may be posted together: any number of photographs
+ * up to the limit, or exactly one film on its own.
+ */
+export function canPostTogether(kinds: ('image' | 'video')[]): boolean {
+  if (kinds.length === 0 || kinds.length > MAX_SHOWCASE_ITEMS) return false;
+  return !kinds.includes('video') || kinds.length === 1;
+}
+
+/**
+ * The address a post is shared at: a public page with the work and a preview
+ * other apps can draw. Public, posted showcases only — anything else answers
+ * "not found" there.
+ */
+export function showcaseShareUrl(id: string, site: string): string {
+  return `${site.replace(/\/+$/, '')}/p/${id}`;
+}
 /** Matches MAX_CRAFT_TAGS. */
 export const MAX_CRAFT_TAGS = 6;
 
@@ -178,8 +199,28 @@ export interface ShelfSummary {
   isPublic: boolean;
   count: number;
   coverUrl: string | null;
+  /**
+   * Up to four stills, newest kept first, for a mosaic cover. Absent from an
+   * API that predates it; draw coverUrl alone then.
+   */
+  coverUrls?: string[];
   /** Only when asked about a showcase (mine(holding)): whether this shelf holds it. */
   holds?: boolean;
+}
+
+/**
+ * A showcase as anyone may see it, signed in or not: the public page a shared
+ * link opens. Only what the post itself shows.
+ */
+export interface PublicShowcase {
+  id: string;
+  title: string | null;
+  caption: string | null;
+  location: string | null;
+  publishedAt: string;
+  likeCount: number;
+  maker: { displayName: string; handle: string | null; avatarUrl: string | null; title: string | null };
+  pieces: ShowcasePiece[];
 }
 
 export interface ShelfEntry {
@@ -293,6 +334,18 @@ export const shelvesApi = {
 
   unkeep(shelfId: string, showcaseId: string): Promise<{ data: ShelfEntry[] }> {
     return api.delete(`/me/shelves/${shelfId}/items/${showcaseId}`);
+  },
+
+  /** Everything you have kept, on any shelf, newest first, once each. */
+  allKept(): Promise<{ data: ShelfEntry[]; total: number }> {
+    return api.get('/me/kept');
+  },
+};
+
+/** The public page behind a shared link. Needs no session. */
+export const publicShowcaseApi = {
+  one(id: string): Promise<PublicShowcase> {
+    return api.get(`/public/showcases/${id}`);
   },
 };
 

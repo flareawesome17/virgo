@@ -145,6 +145,8 @@ export const queryKeys = {
     holding: (showcaseId: string) => ['shelves', 'mine', 'holding', showcaseId] as const,
     ofHandle: (handle: string) => ['shelves', 'of', handle] as const,
     entries: (id: string) => ['shelves', 'entries', id] as const,
+    /** Everything you have kept, across your shelves. */
+    allKept: ['shelves', 'all-kept'] as const,
   },
   profile: {
     /** Settings and the page together: a handle or a publish changes both. */

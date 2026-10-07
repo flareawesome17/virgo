@@ -249,6 +249,11 @@ export function profileActionMessage(err: unknown, action: ProfileAction): strin
   if (code === 'SHOWCASE_NO_WEB_COPY') {
     return "That photo can't be posted. Take it out, or try a JPEG or PNG copy of it.";
   }
+  // The composer stops this before it is sent; this is for a server whose
+  // rule is stricter than the phone that asked.
+  if (code === 'SHOWCASE_FILM_ALONE') {
+    return "Photos and a film can't share a post. A film is posted on its own.";
+  }
   if (code === 'SHOWCASE_LIMIT') {
     return 'You have 100 showcases, which is the most there can be. Delete one to post another.';
   }

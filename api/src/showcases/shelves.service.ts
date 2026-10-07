@@ -56,6 +56,12 @@ export interface ShelfSummary {
   /** The most recently kept piece, for the shelf's face. Null on an empty one. */
   coverUrl: string | null;
   /**
+   * Up to four stills, newest kept first, for a mosaic face: the cover piece
+   * of each of the newest kept showcases this viewer can see. Empty on an
+   * empty shelf. The first is the same piece as coverUrl.
+   */
+  coverUrls: string[];
+  /**
    * Whether this shelf holds the showcase asked about, when one was. It is how
    * the Keep sheet knows where something is already kept, so it can be taken
    * off again — without it, keeping was a one-way door.
@@ -72,6 +78,56 @@ export interface ShelfEntry {
   title: string | null;
   craftTags: string[];
   url: string;
+}
+
+/** How many stills a shelf's mosaic face draws. */
+export const SHELF_COVER_TILES = 4;
+
+/**
+ * "All kept" answers this many at most. Forty shelves of somebody's taste is
+ * rarely past a few hundred pieces; a page cursor can come when one is.
+ */
+export const MAX_ALL_KEPT = 500;
+
+/**
+ * A kept showcase's still, as one row with one column, `still`: its first
+ * piece that has one. A photograph shows its thumbnail and a film its poster
+ * frame; on a shelf tile they are the same thing. Its own copy first, its
+ * album file's while that exists. Written against `sc`, the showcase.
+ */
+const coverStillOf = (sc: string): string => `(
+  select coalesce(si.thumb_key, f.thumb_key, f.poster_key) as still
+    from showcase_items si
+    left join user_files f on f.key = si.file_key and f.user_id = si.user_id
+   where si.showcase_id = ${sc}.id
+     and coalesce(si.thumb_key, f.thumb_key, f.poster_key) is not null
+   order by si.position, si.created_at
+   limit 1
+)`;
+
+/**
+ * One entry's columns, the same for a shelf and for All kept: the keep `i`,
+ * the showcase `s`, its maker `u`.
+ */
+const ENTRY_COLUMNS = `i.showcase_id, i.note, i.created_at,
+              u.id as maker_id, u.display_name,
+              -- A handle is only a link once the profile is published: /profiles/:handle
+              -- and hire both refuse an unpublished one, so handing it out made the
+              -- avatar and Hire lead to "Profile not found".
+              case when u.public_profile then u.handle end as handle,
+              s.title, s.craft_tags,
+              ${coverStillOf('s')} as thumb_key`;
+
+interface EntryRow {
+  showcase_id: string;
+  note: string | null;
+  created_at: Date | string;
+  maker_id: string;
+  display_name: string | null;
+  handle: string | null;
+  title: string | null;
+  craft_tags: string[] | null;
+  thumb_key: string | null;
 }
 
 const asIso = (v: Date | string): string => (v instanceof Date ? v.toISOString() : v);
@@ -97,7 +153,7 @@ export class ShelvesService {
       name: string;
       is_public: boolean;
       count: string;
-      cover_thumb_key: string | null;
+      cover_keys: string[] | null;
       holds: boolean | null;
     }>(
       `select sh.id, sh.name, sh.is_public,
@@ -111,23 +167,22 @@ export class ShelvesService {
                  where li.shelf_id = sh.id
                    and ${keptVisibleTo('$3', 'sc', 'mu')}
               )::text as count,
-              (
-                -- The newest kept piece this viewer can see: its author may
-                -- have taken others down since, or shown them to connections
-                -- only. A photograph shows its thumbnail and a film its poster
-                -- frame; on a shelf tile they are the same thing, a still.
-                select coalesce(si.thumb_key, f.thumb_key, f.poster_key)
+              -- The face: the stills of the newest kept showcases this viewer
+              -- can see, newest first — its author may have taken others down
+              -- since, or shown them to connections only. The first is the
+              -- single cover older apps draw; the first four are the mosaic.
+              -- A showcase with nothing to draw is passed over, not a gap.
+              array(
+                select st.still
                   from shelf_items li
                   join showcases sc on sc.id = li.showcase_id
                   join users mu on mu.id = sc.user_id
-                  join showcase_items si on si.showcase_id = sc.id
-                  left join user_files f on f.key = si.file_key and f.user_id = si.user_id
+                  cross join lateral ${coverStillOf('sc')} st
                  where li.shelf_id = sh.id
                    and ${keptVisibleTo('$3', 'sc', 'mu')}
-                   and coalesce(si.thumb_key, f.thumb_key, f.poster_key) is not null
-                 order by li.created_at desc, si.position
-                 limit 1
-              ) as cover_thumb_key,
+                 order by li.created_at desc, li.id desc
+                 limit ${SHELF_COVER_TILES}
+              ) as cover_keys,
               case when $4::uuid is null then null
                    else exists (
                      select 1 from shelf_items hi
@@ -141,14 +196,23 @@ export class ShelvesService {
     );
 
     return Promise.all(
-      rows.map(async (r) => ({
-        id: r.id,
-        name: r.name,
-        isPublic: r.is_public,
-        count: Number(r.count),
-        coverUrl: await this.storage.mediaUrl(r.cover_thumb_key, PUBLISHED_URL_TTL_SECONDS),
-        ...(r.holds === null ? {} : { holds: r.holds }),
-      })),
+      rows.map(async (r) => {
+        const urls = await Promise.all(
+          (r.cover_keys ?? []).map((key) =>
+            this.storage.mediaUrl(key, PUBLISHED_URL_TTL_SECONDS),
+          ),
+        );
+        const coverUrls = urls.filter((url): url is string => !!url);
+        return {
+          id: r.id,
+          name: r.name,
+          isPublic: r.is_public,
+          count: Number(r.count),
+          coverUrl: coverUrls[0] ?? null,
+          coverUrls,
+          ...(r.holds === null ? {} : { holds: r.holds }),
+        };
+      }),
     );
   }
 
@@ -194,33 +258,8 @@ export class ShelvesService {
     );
     if (!shelf) throw new NotFoundException('Shelf not found');
 
-    const rows = await this.db.query<{
-      showcase_id: string;
-      note: string | null;
-      created_at: Date | string;
-      maker_id: string;
-      display_name: string | null;
-      handle: string | null;
-      title: string | null;
-      craft_tags: string[] | null;
-      thumb_key: string | null;
-    }>(
-      `select i.showcase_id, i.note, i.created_at,
-              u.id as maker_id, u.display_name,
-              -- A handle is only a link once the profile is published: /profiles/:handle
-              -- and hire both refuse an unpublished one, so handing it out made the
-              -- avatar and Hire lead to "Profile not found".
-              case when u.public_profile then u.handle end as handle,
-              s.title, s.craft_tags,
-              (
-                select coalesce(si.thumb_key, f.thumb_key, f.poster_key)
-                  from showcase_items si
-                  left join user_files f on f.key = si.file_key and f.user_id = si.user_id
-                 where si.showcase_id = s.id
-                   and coalesce(si.thumb_key, f.thumb_key, f.poster_key) is not null
-                 order by si.position, si.created_at
-                 limit 1
-              ) as thumb_key
+    const rows = await this.db.query<EntryRow>(
+      `select ${ENTRY_COLUMNS}
          from shelf_items i
          join showcases s on s.id = i.showcase_id
          join users u on u.id = s.user_id
@@ -229,7 +268,42 @@ export class ShelvesService {
         order by i.created_at desc`,
       [shelfId, viewerId],
     );
+    return this.present(rows);
+  }
 
+  /**
+   * Everything somebody has kept, on any of their shelves: the "All kept"
+   * collection. Their own, so private shelves are in it.
+   *
+   * Once each: a showcase on three shelves is one entry, the newest keep's —
+   * its note and when — and the list is newest first, as a shelf is. The
+   * same gates as a shelf's, asked on every read, so something its author has
+   * since taken down or narrowed to connections is not here either.
+   */
+  async allKept(userId: string): Promise<ShelfEntry[]> {
+    const rows = await this.db.query<EntryRow>(
+      `with latest as (
+         select distinct on (k.showcase_id) k.id
+           from shelf_items k
+           join shelves sh on sh.id = k.shelf_id
+          where k.user_id = $1 and sh.user_id = $1
+          order by k.showcase_id, k.created_at desc, k.id desc
+       )
+       select ${ENTRY_COLUMNS}
+         from latest
+         join shelf_items i on i.id = latest.id
+         join showcases s on s.id = i.showcase_id
+         join users u on u.id = s.user_id
+        where ${keptVisibleTo('$1', 's', 'u')}
+        order by i.created_at desc, i.showcase_id desc
+        limit ${MAX_ALL_KEPT}`,
+      [userId],
+    );
+    return this.present(rows);
+  }
+
+  /** Entries as the apps read them. One with no web copy is dropped, not drawn as a gap. */
+  private async present(rows: EntryRow[]): Promise<ShelfEntry[]> {
     const out: ShelfEntry[] = [];
     for (const r of rows) {
       const url = await this.storage.mediaUrl(r.thumb_key, PUBLISHED_URL_TTL_SECONDS);

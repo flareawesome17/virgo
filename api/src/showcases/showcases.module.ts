@@ -10,9 +10,11 @@ import {
   CommentsController,
   LikesController,
   ShowcaseReportsController,
+  MyKeptController,
   MyShelvesController,
   MyShowcasesController,
   ProfileWorkController,
+  PublicShowcasesController,
   ShelvesController,
   ShowcasesController,
 } from './showcases.controller';
@@ -33,7 +35,9 @@ import { ShowcaseMediaService } from './showcase-media.service';
   controllers: [
     MyShowcasesController,
     ShowcasesController,
+    PublicShowcasesController,
     MyShelvesController,
+    MyKeptController,
     ShelvesController,
     FeedController,
     ProfileWorkController,

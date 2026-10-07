@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,34 +18,22 @@ import {
   ArrowLeftIcon,
   BookmarkIcon,
   EllipsisIcon,
-  EyeIcon,
-  EyeOffIcon,
-  FlagIcon,
   HeartIcon,
   MapPinIcon,
-  PencilIcon,
-  Trash2Icon,
-  UserIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
 import { CommentThread } from '@/components/CommentThread';
-import { BottomSheet } from '@/components/BottomSheet';
-import { useKeepFlow } from '@/components/KeepFlow';
+import { useShowcaseCardHost } from '@/components/ShowcaseCardHost';
 import { PressablePiece, naturalAspect } from '@/components/ShowcaseMedia';
 import { ShowcaseViewer } from '@/components/ShowcaseViewer';
 import { DetailFallback } from '@/components/DetailFallback';
-import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
-import { useAuth, useLike, useShowcase, useShowcaseActions, useTheme } from '@/src/hooks';
+import { useAuth, useLike, useShowcase, useTheme } from '@/src/hooks';
 import { makerOf, showcaseStatus } from '@/src/api';
-import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [
-  ArrowLeftIcon, BookmarkIcon, EllipsisIcon, EyeIcon, EyeOffIcon, FlagIcon, HeartIcon, MapPinIcon,
-  PencilIcon, Trash2Icon, UserIcon,
-]) {
+for (const Icon of [ArrowLeftIcon, BookmarkIcon, EllipsisIcon, HeartIcon, MapPinIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -112,11 +99,13 @@ const TALLEST = 1.6;
 const FILM_VISIBLE = 0.3;
 
 /**
- * One showcase, whole.
+ * One showcase, whole, on a screen of its own.
  *
- * The feed shows the set and as much of the note as fits; this is where every
- * piece is shown at its own shape — nothing cropped — and opens full screen to
- * look closely.
+ * Nothing in the app opens this any more — the feed, shelves and profiles show
+ * a post as a card and in a sheet — but links still do: a notification, a
+ * deep link, the composer once something is posted. So it stays, with every
+ * piece stacked at its own shape and a tap to look closely, and its ⋯ is the
+ * same sheet the cards use, so a post offers the same things wherever it is.
  */
 export default function ShowcaseScreen() {
   // The one film allowed to be playing; a set can hold several.
@@ -130,11 +119,8 @@ export default function ShowcaseScreen() {
   const { showcase, error, loadFailed, refetch } = useShowcase(id);
   const { user } = useAuth();
   const like = useLike(id);
-  const keepFlow = useKeepFlow();
-  // Only reachable from the feed card before: somebody who opened the post
-  // to look properly had nowhere to report it from.
-  const [reporting, setReporting] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  // Share, edit, private or public, delete, report, keep: the cards' own.
+  const host = useShowcaseCardHost({ onRemoved: () => router.back() });
   const [viewing, setViewing] = useState<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -168,66 +154,11 @@ export default function ShowcaseScreen() {
     },
     [measureFilms],
   );
-  const { setPublished, remove } = useShowcaseActions();
   const mine = Boolean(showcase && user && showcase.userId === user.id);
   // Never read straight off the payload: see makerOf.
   const maker = makerOf(showcase);
   // Only ever not 'live' for the owner: nobody else is sent anything else.
   const status = showcase ? showcaseStatus(showcase) : 'live';
-
-  const confirmDelete = () => {
-    if (!showcase) return;
-    Alert.alert(
-      'Delete this showcase?',
-      'It goes from the feed, from your profile, and from every shelf anybody kept it on. Your photographs stay in your albums.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () =>
-            remove.mutate(showcase.id, {
-              onSuccess: () => router.back(),
-              onError: (error) =>
-                Alert.alert("Couldn't delete it", profileActionMessage(error, 'unshowcase')),
-            }),
-        },
-      ],
-    );
-  };
-
-  const setLive = (published: boolean) => {
-    if (!showcase) return;
-    setPublished.mutate(
-      { id: showcase.id, published },
-      {
-        onError: (error) =>
-          Alert.alert("Couldn't change that", profileActionMessage(error, 'setting')),
-      },
-    );
-  };
-
-  /*
-   * Down, or back up.
-   *
-   * This asked publishedAt, which a take-down keeps — so it always read "up",
-   * always sent "take down", and a post taken down could never be put back.
-   * Taking down is asked first; putting back up is not, since it undoes itself.
-   */
-  const togglePublished = () => {
-    if (status === 'live') {
-      Alert.alert(
-        'Take this down?',
-        'It leaves the feed, your profile and the shelves it was kept on. Only you will see it, and you can put it back up any time — its likes, comments and date stay.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Take down', style: 'destructive', onPress: () => setLive(false) },
-        ],
-      );
-    } else if (status === 'down' || status === 'draft') {
-      setLive(true);
-    }
-  };
 
   const openMaker = () => {
     // Your own avatar goes to your own profile, which needs no published
@@ -267,70 +198,14 @@ export default function ShowcaseScreen() {
         <Text className="flex-1 text-foreground text-[15px] font-bold" numberOfLines={1}>
           {showcase.title ?? 'Showcase'}
         </Text>
-        {!mine && (
-          <Pressable
-            onPress={() => setMenuOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel="More options for this post"
-            className="w-11 h-11 items-center justify-center active:opacity-70"
-          >
-            <EllipsisIcon size={19} className="text-muted-foreground" />
-          </Pressable>
-        )}
-        {/* Only on your own. Taking it down and deleting it are different
-            things and both are offered: unpublishing is reversible and keeps
-            the date it first went out, deleting is not. */}
-        {mine && (
-          <>
-            {status !== 'removed' && (
-              <Pressable
-                onPress={() =>
-                  router.push({ pathname: '/showcase/new', params: { edit: showcase.id } })
-                }
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Edit this showcase"
-                className="w-11 h-11 items-center justify-center active:opacity-70"
-              >
-                <PencilIcon size={18} className="text-muted-foreground" />
-              </Pressable>
-            )}
-            {/* Not offered on one Virgo took down: publishing it again would
-                change nothing, because the moderation flag still hides it. */}
-            {status !== 'removed' && (
-              <Pressable
-                onPress={togglePublished}
-                disabled={setPublished.isPending}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  status === 'live'
-                    ? 'Take this down'
-                    : status === 'draft'
-                      ? 'Post this'
-                      : 'Put this back up'
-                }
-                className="w-11 h-11 items-center justify-center active:opacity-70"
-              >
-                {status === 'live' ? (
-                  <EyeOffIcon size={19} className="text-muted-foreground" />
-                ) : (
-                  <EyeIcon size={19} className="text-primary" />
-                )}
-              </Pressable>
-            )}
-            <Pressable
-              onPress={confirmDelete}
-              disabled={remove.isPending}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Delete this showcase"
-              className="w-11 h-11 items-center justify-center active:opacity-70"
-            >
-              <Trash2Icon size={19} className="text-destructive" />
-            </Pressable>
-          </>
-        )}
+        <Pressable
+          onPress={() => host.actions.options(showcase, mine)}
+          accessibilityRole="button"
+          accessibilityLabel="More options for this post"
+          className="w-11 h-11 items-center justify-center active:opacity-70"
+        >
+          <EllipsisIcon size={19} className="text-muted-foreground" />
+        </Pressable>
       </View>
 
       {/* Padding on iOS, where nothing else moves the comment box out from
@@ -354,8 +229,8 @@ export default function ShowcaseScreen() {
           {mine && status !== 'live' && (
             <StatusBanner
               status={status}
-              pending={setPublished.isPending}
-              onRestore={() => setLive(true)}
+              pending={host.publishing}
+              onRestore={() => void host.makePublic(showcase)}
             />
           )}
           {showcase.pieces.map((piece, i) => {
@@ -471,7 +346,8 @@ export default function ShowcaseScreen() {
                 offered here either. */}
             {!mine && (
               <Pressable
-                onPress={() => keepFlow.onKeep(showcase)}
+                onPress={() => host.actions.keep(showcase)}
+                onLongPress={() => host.actions.chooseShelf(showcase)}
                 accessibilityRole="button"
                 accessibilityLabel={showcase.keptByMe ? 'Kept. Change where.' : 'Keep this'}
                 accessibilityState={{ selected: showcase.keptByMe }}
@@ -558,50 +434,13 @@ export default function ShowcaseScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {keepFlow.element}
       <ShowcaseViewer
         pieces={showcase.pieces}
         startIndex={viewing ?? 0}
         visible={viewing !== null}
         onClose={() => setViewing(null)}
       />
-      {/* Report under … rather than as a flag in the header. */}
-      <BottomSheet visible={menuOpen} onClose={() => setMenuOpen(false)}>
-        <View className="px-5 pt-2 pb-5">
-          {maker.handle ? (
-            <Pressable
-              onPress={() => {
-                setMenuOpen(false);
-                router.push(`/u/${maker.handle}`);
-              }}
-              accessibilityRole="button"
-              className="min-h-[52px] flex-row items-center gap-3 border-b border-border active:opacity-60"
-            >
-              <UserIcon size={18} className="text-foreground" />
-              <Text className="text-foreground text-base">View {maker.displayName}’s profile</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            onPress={() => {
-              setMenuOpen(false);
-              setReporting(showcase.id);
-            }}
-            accessibilityRole="button"
-            className="min-h-[52px] flex-row items-center gap-3 border-b border-border active:opacity-60"
-          >
-            <FlagIcon size={18} className="text-destructive" />
-            <Text className="text-destructive text-base">Report this post</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setMenuOpen(false)}
-            accessibilityRole="button"
-            className="mt-3 bg-muted rounded-2xl min-h-[48px] items-center justify-center active:scale-[0.98]"
-          >
-            <Text className="text-foreground text-base font-semibold">Cancel</Text>
-          </Pressable>
-        </View>
-      </BottomSheet>
-      <ShowcaseReportSheet showcaseId={reporting} onClose={() => setReporting(null)} />
+      {host.element}
     </SafeAreaView>
   );
 }
@@ -641,9 +480,7 @@ function StatusBanner({
   return (
     <View className="mx-4 my-3 rounded-xl bg-secondary p-4 flex-row items-center gap-3">
       <View className="flex-1">
-        <Text className="text-foreground text-[13px] font-bold">
-          {status === 'draft' ? 'Not posted yet' : 'Taken down'}
-        </Text>
+        <Text className="text-foreground text-[13px] font-bold">Private</Text>
         <Text className="text-muted-foreground text-[12px] leading-[18px] mt-0.5">
           Only you can see it.
         </Text>
@@ -655,9 +492,7 @@ function StatusBanner({
         className="min-h-10 px-4 rounded-full bg-action items-center justify-center active:opacity-90"
         style={{ opacity: pending ? 0.6 : 1 }}
       >
-        <Text className="text-action-foreground text-[12px] font-bold">
-          {status === 'draft' ? 'Post it' : 'Put back up'}
-        </Text>
+        <Text className="text-action-foreground text-[12px] font-bold">Make public</Text>
       </Pressable>
     </View>
   );

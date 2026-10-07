@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
 import { Bookmark, Check, Globe, Loader2, Lock, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -30,6 +29,7 @@ import { useShelfActions, useShelves } from '@/hooks/useShowcases';
 import { makerOf, type FeedItem } from '@/api';
 import { cn } from '@/lib/utils';
 import { showcaseActionMessage } from './action-message';
+import { shelfCoverUrls } from './kept-grid';
 
 /** Matches the server's limits. */
 const SHELF_NAME_LIMIT = 60;
@@ -45,8 +45,9 @@ const NOTE_LIMIT = 200;
  * What is kept is a pointer, never a copy. The dialog says so, because people
  * are right to wonder what happens to their work when a stranger keeps it.
  *
- * It also takes things off again. The shelves come back saying which already
- * hold this showcase; choosing one of those asks, then removes it.
+ * It also takes things off again, and moves them. The shelves come back
+ * saying which already hold this showcase; choosing one of those asks, then
+ * removes it, and choosing another offers to move it there or keep it on both.
  */
 export function KeepDialog({
   item,
@@ -163,6 +164,46 @@ function KeepBody({
     );
   };
 
+  /*
+   * Moving is keeping on the chosen shelf and then taking it off every shelf
+   * that held it, in that order: a failure part way leaves it kept twice,
+   * which is fixable from here, rather than kept nowhere, which loses it.
+   */
+  const [moving, setMoving] = useState(false);
+  const move = async () => {
+    if (!chosen || busy || moving) return;
+    const shelf = shelves.find((s) => s.id === chosen);
+    setMoving(true);
+    try {
+      await keep.mutateAsync({
+        shelfId: chosen,
+        showcaseId: item.id,
+        note: note.trim() || undefined,
+        alreadyKept: true,
+      });
+    } catch (error) {
+      setMoving(false);
+      toast.error(showcaseActionMessage(error, 'keep'));
+      return;
+    }
+    try {
+      for (const from of keptOn) {
+        await unkeep.mutateAsync({ shelfId: from.id, showcaseId: item.id, stillKept: true });
+      }
+      if (shelf) {
+        onKept?.({ id: shelf.id, name: shelf.name });
+        toast.success(`Moved to ${shelf.name}`);
+      }
+      onClose();
+    } catch (error) {
+      toast.error(`Kept to ${shelf?.name ?? 'that shelf'}, but still on the old one too`, {
+        description: showcaseActionMessage(error, 'unkeep'),
+      });
+    } finally {
+      setMoving(false);
+    }
+  };
+
   const confirm = () => {
     if (!chosen || busy) return;
     const shelf = shelves.find((s) => s.id === chosen);
@@ -189,17 +230,19 @@ function KeepBody({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Keep it on a shelf</DialogTitle>
+        {/* Opened on something already kept, it starts by saying where. */}
+        <DialogTitle>
+          {keptOn.length > 0
+            ? `Kept on ${keptOn.map((shelf) => shelf.name).join(', ')}`
+            : 'Keep it on a shelf'}
+        </DialogTitle>
         <DialogDescription>
-          What you keep is public and always credits {maker.displayName}. They can take the work
-          down; it is never copied out of their hands.
+          {keptOn.length > 0
+            ? 'Choose another shelf to move it there, or take it off a shelf it is on. '
+            : ''}
+          What you keep always credits {maker.displayName}. They can take the work down; it is
+          never copied out of their hands.
         </DialogDescription>
-        {keptOn.length > 0 && (
-          <p className="text-sm">
-            Kept on {keptOn.map((shelf) => shelf.name).join(', ')}. Choose a shelf with a tick to
-            take it off.
-          </p>
-        )}
       </DialogHeader>
 
       <div className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
@@ -223,7 +266,7 @@ function KeepBody({
                   onClick={() =>
                     holds ? setTakingOff({ id: shelf.id, name: shelf.name }) : setChosen(shelf.id)
                   }
-                  disabled={busy}
+                  disabled={busy || moving}
                   aria-pressed={on || holds}
                   className={cn(
                     'flex min-h-14 items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60',
@@ -231,8 +274,14 @@ function KeepBody({
                   )}
                 >
                   <span className="relative grid size-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
-                    {shelf.coverUrl ? (
-                      <Image src={shelf.coverUrl} alt="" fill sizes="44px" className="object-cover" />
+                    {shelfCoverUrls(shelf)[0] ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- a still from the media host; see PieceImage
+                      <img
+                        src={shelfCoverUrls(shelf)[0]}
+                        alt=""
+                        loading="lazy"
+                        className="size-full object-cover"
+                      />
                     ) : (
                       <Bookmark className="size-4 text-muted-foreground" />
                     )}
@@ -246,9 +295,14 @@ function KeepBody({
                     </span>
                     {holds && <span className="sr-only">Choose to take it off this shelf.</span>}
                   </span>
-                  {holds && !on && (
-                    <span className="grid size-6 place-items-center rounded-full border border-primary text-primary">
-                      <Check className="size-3.5" />
+                  {/* Said in words: a tick read as "chosen", and choosing a
+                      ticked shelf taking the work off it surprised people. */}
+                  {holds && (
+                    <span
+                      aria-hidden
+                      className="shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold text-muted-foreground"
+                    >
+                      Take off
                     </span>
                   )}
                   {on && (
@@ -333,13 +387,27 @@ function KeepBody({
       </div>
 
       <DialogFooter>
-        <Button variant="outline" onClick={() => !busy && onClose()} disabled={busy}>
+        <Button variant="outline" onClick={() => !busy && !moving && onClose()} disabled={busy || moving}>
           Cancel
         </Button>
-        <Button onClick={confirm} disabled={!chosen || busy}>
-          {keep.isPending && <Loader2 className="animate-spin" />}
-          {keep.isPending ? 'Keeping…' : 'Keep it'}
-        </Button>
+        {keptOn.length > 0 ? (
+          // Already kept somewhere: the choice is whether this shelf is
+          // instead of that one, or as well as it.
+          <>
+            <Button variant="secondary" onClick={confirm} disabled={!chosen || busy || moving}>
+              Also keep here
+            </Button>
+            <Button onClick={() => void move()} disabled={!chosen || busy || moving}>
+              {moving && <Loader2 className="animate-spin" />}
+              {moving ? 'Moving…' : 'Move here'}
+            </Button>
+          </>
+        ) : (
+          <Button onClick={confirm} disabled={!chosen || busy}>
+            {keep.isPending && <Loader2 className="animate-spin" />}
+            {keep.isPending ? 'Keeping…' : 'Keep it'}
+          </Button>
+        )}
       </DialogFooter>
 
       <AlertDialog open={takingOff !== null} onOpenChange={(o) => !o && setTakingOff(null)}>

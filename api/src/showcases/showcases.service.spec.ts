@@ -1,9 +1,12 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import type { DatabaseService } from '../database/database.service';
 import type { HlsService } from '../storage/hls.service';
 import type { MediaLinkService } from '../storage/media-link.service';
 import type { StorageService } from '../storage/storage.service';
 import { MAX_SOURCE_BYTES, type ThumbnailsService } from '../storage/thumbnails.service';
+import { CreateShowcaseDto, MAX_SHOWCASE_ITEMS, UpdateShowcaseDto } from './dto/showcase.dto';
 import { ShelvesService } from './shelves.service';
 import type { ShowcaseMediaService } from './showcase-media.service';
 import {
@@ -41,7 +44,20 @@ interface FileRow {
   blur_data_url: string | null;
 }
 
-function make(files: FileRow[], opts: { showcaseCount?: number } = {}) {
+/** A piece already in the showcase being edited, as the edit reads it. */
+interface StoredRow {
+  id: string;
+  user_id: string;
+  file_key: string | null;
+  thumb_key: string | null;
+  poster_key: string | null;
+  video_key: string | null;
+  display_widths: number[] | null;
+  kind: string | null;
+  content_type: string | null;
+}
+
+function make(files: FileRow[], opts: { showcaseCount?: number; stored?: StoredRow[] } = {}) {
   const inserts: { sql: string; params: unknown[] }[] = [];
   const generate = jest.fn(async () => ({ key: 'k', size: 1, contentType: 'image/webp' }));
   const enqueueKeys = jest.fn(async () => 0);
@@ -57,6 +73,8 @@ function make(files: FileRow[], opts: { showcaseCount?: number } = {}) {
   const db = {
     query: jest.fn(async (sql: string) => {
       if (sql.includes('from user_files')) return files;
+      // The edit's read of the pieces it starts from, not hydrate's.
+      if (sql.includes('where i.showcase_id = $1')) return opts.stored ?? [];
       if (sql.includes('from showcase_items')) return [];
       return [];
     }),
@@ -173,16 +191,21 @@ describe('posting a showcase', () => {
   });
 
   it('takes a film that has one, and asks for a ladder without waiting for it', async () => {
-    const { service, inserts, generate, enqueueKeys } = make([film('clip.mp4'), photo('a.jpg')]);
+    const { service, inserts, generate, enqueueKeys } = make([film('clip.mp4')]);
 
-    await service.create(ME, { fileKeys: ['clip.mp4', 'a.jpg'] });
+    await service.create(ME, { fileKeys: ['clip.mp4'] });
 
     const pieces = inserts.find((i) => i.sql.includes('insert into showcase_items'));
-    expect(pieces?.params[2]).toEqual(['clip.mp4', 'a.jpg']);
+    expect(pieces?.params[2]).toEqual(['clip.mp4']);
     // A film is never put through the thumbnailer: its still already exists.
     expect(generate).not.toHaveBeenCalled();
-    // Both keys go to the queue; it decides for itself which are films.
-    expect(enqueueKeys).toHaveBeenCalledWith(['clip.mp4', 'a.jpg']);
+    expect(enqueueKeys).toHaveBeenCalledWith(['clip.mp4']);
+  });
+
+  it('sends every key to the ladder queue, which decides for itself which are films', async () => {
+    const { service, enqueueKeys } = make([photo('a.jpg'), photo('b.jpg')]);
+    await service.create(ME, { fileKeys: ['a.jpg', 'b.jpg'] });
+    expect(enqueueKeys).toHaveBeenCalledWith(['a.jpg', 'b.jpg']);
   });
 
   it('refuses a file that is neither', async () => {
@@ -324,5 +347,122 @@ describe('step 4: what the apps are told', () => {
     expect(decodeShowcaseCursor('not-a-cursor')).toBeNull();
     expect(decodeShowcaseCursor(Buffer.from(`yesterday|${id}`).toString('base64url'))).toBeNull();
     expect(decodeShowcaseCursor(Buffer.from(`${at}|1; drop table`).toString('base64url'))).toBeNull();
+  });
+});
+
+describe('cards: twenty photographs, or one film on its own', () => {
+  const FILM_ALONE = {
+    code: 'SHOWCASE_FILM_ALONE',
+    message: 'A film is posted on its own. Post your photos separately.',
+  };
+  const PIECE_ID = '22222222-2222-4222-8222-222222222222';
+
+  const storedFilm = (over: Partial<StoredRow> = {}): StoredRow => ({
+    id: PIECE_ID,
+    user_id: ME,
+    // Its album file is gone; it lives on its own copies, and says what it is.
+    file_key: null,
+    thumb_key: 'own-thumb.webp',
+    poster_key: 'own-poster.webp',
+    video_key: 'own-film.mp4',
+    display_widths: null,
+    kind: 'video',
+    content_type: null,
+    ...over,
+  });
+  const storedPhoto = (key: string, over: Partial<StoredRow> = {}): StoredRow => ({
+    id: `33333333-3333-4333-8333-33333333333${key.length % 10}`,
+    user_id: ME,
+    file_key: key,
+    thumb_key: null,
+    poster_key: null,
+    video_key: null,
+    display_widths: null,
+    // Not copied yet: only its album file says what it is.
+    kind: null,
+    content_type: 'image/jpeg',
+    ...over,
+  });
+
+  it('allows twenty photographs, and the routes refuse a twenty-first', async () => {
+    expect(MAX_SHOWCASE_ITEMS).toBe(20);
+    const keys = Array.from({ length: 20 }, (_, i) => `p${i}.jpg`);
+    const { service, inserts } = make(keys.map((key) => photo(key)));
+
+    await service.create(ME, { fileKeys: keys });
+    const pieces = inserts.find((i) => i.sql.includes('insert into showcase_items'));
+    expect(pieces?.params[2]).toEqual(keys);
+
+    const tooMany = plainToInstance(CreateShowcaseDto, { fileKeys: [...keys, 'p20.jpg'] });
+    expect((await validate(tooMany)).map((e) => e.property)).toContain('fileKeys');
+    const enough = plainToInstance(CreateShowcaseDto, { fileKeys: keys });
+    expect(await validate(enough)).toEqual([]);
+    const edit = plainToInstance(UpdateShowcaseDto, { fileKeys: [...keys, 'p20.jpg'] });
+    expect((await validate(edit)).map((e) => e.property)).toContain('fileKeys');
+  });
+
+  it('refuses a film with photographs, before making any copy or writing anything', async () => {
+    const { service, generate, inserts } = make([
+      photo('raw.jpg', { thumb_key: null }),
+      film('clip.mp4'),
+    ]);
+
+    await expect(service.create(ME, { fileKeys: ['raw.jpg', 'clip.mp4'] })).rejects.toMatchObject({
+      response: { ...FILM_ALONE, fileKey: 'clip.mp4' },
+    });
+    // Asked before the thumbnailer: a set that cannot be posted costs no encode.
+    expect(generate).not.toHaveBeenCalled();
+    expect(inserts.some((i) => i.sql.includes('insert into showcases'))).toBe(false);
+  });
+
+  it('refuses two films, naming the first', async () => {
+    const { service } = make([film('a.mp4'), film('b.mp4')]);
+    await expect(service.create(ME, { fileKeys: ['a.mp4', 'b.mp4'] })).rejects.toMatchObject({
+      response: { ...FILM_ALONE, fileKey: 'a.mp4' },
+    });
+  });
+
+  it('still says a lone film is not ready when it is not', async () => {
+    const { service } = make([film('clip.mp4', { poster_key: null })]);
+    await expect(service.create(ME, { fileKeys: ['clip.mp4'] })).rejects.toMatchObject({
+      response: { code: 'SHOWCASE_FILM_NOT_READY' },
+    });
+  });
+
+  it('counts the pieces an edit keeps: a kept film and an added photograph', async () => {
+    const { service, inserts } = make([photo('a.jpg')], { stored: [storedFilm()] });
+
+    await expect(
+      service.update(ME, 'sc-1', { fileKeys: [`item:${PIECE_ID}`, 'a.jpg'] }),
+    ).rejects.toMatchObject({ response: { ...FILM_ALONE, fileKey: `item:${PIECE_ID}` } });
+    // Refused before the transaction: nothing was changed.
+    expect(inserts).toEqual([]);
+  });
+
+  it('reads a kept piece’s kind from its album file until it has a copy', async () => {
+    const { service } = make([film('clip.mp4')], { stored: [storedPhoto('a.jpg')] });
+    await expect(
+      service.update(ME, 'sc-1', { fileKeys: ['a.jpg', 'clip.mp4'] }),
+    ).rejects.toMatchObject({ response: { ...FILM_ALONE, fileKey: 'clip.mp4' } });
+  });
+
+  it('lets an older mixed post be edited without its pieces, and cut down to its film', async () => {
+    const mixed = [storedFilm(), storedPhoto('a.jpg')];
+
+    const words = make([], { stored: mixed });
+    await expect(words.service.update(ME, 'sc-1', { caption: 'New words' })).resolves.toBeDefined();
+
+    const cut = make([], { stored: mixed });
+    await cut.service.update(ME, 'sc-1', { fileKeys: [`item:${PIECE_ID}`] });
+    const deleted = cut.inserts.find((i) => i.sql.includes('delete from showcase_items'));
+    expect(deleted?.params[0]).toEqual([mixed[1].id]);
+  });
+
+  it('lets a set of photographs be replaced by one film', async () => {
+    const { service, inserts } = make([film('clip.mp4')], {
+      stored: [storedPhoto('a.jpg'), storedPhoto('bb.jpg')],
+    });
+    await service.update(ME, 'sc-1', { fileKeys: ['clip.mp4'] });
+    expect(inserts.some((i) => i.sql.includes('insert into showcase_items'))).toBe(true);
   });
 });

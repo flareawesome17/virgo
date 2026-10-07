@@ -1,15 +1,15 @@
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ArrowLeftIcon, BookmarkIcon, EllipsisIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { KeptGrid } from '@/components/KeptGrid';
 import { LoadFailed } from '@/components/LoadFailed';
-import { RemoteImage } from '@/components/RemoteImage';
 import { NameSheet } from '@/components/NameSheet';
 import { ActionSheet } from '@/components/WorkspaceBits';
 import { useShelfActions, useShelfEntries, useShelves, useTheme } from '@/src/hooks';
-import { ApiError, makerOf } from '@/src/api';
+import { ApiError } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
@@ -22,15 +22,15 @@ for (const Icon of [ArrowLeftIcon, BookmarkIcon, EllipsisIcon]) {
 }
 
 /**
- * One shelf.
+ * One shelf, as a grid of what is on it (see KeptGrid).
  *
- * Every kept thing names whoever made it and links to their showcase — that
+ * Every kept thing opens to its post with whoever made it at the top — that
  * credit is the reason keeping somebody's work is something they benefit from
- * rather than something done to them. The note underneath is the keeper's own.
+ * rather than something done to them. The keeper's note sits above it.
  *
  * Your own shelf can be renamed, made private or public, and deleted from here,
- * and anything on it removed. The API had all of that from the start; the phone
- * could only ever add.
+ * and anything on it removed from its post. The API had all of that from the
+ * start; the phone could only ever add.
  */
 export default function ShelfScreen() {
   const { id, own, name } = useLocalSearchParams<{ id?: string; own?: string; name?: string }>();
@@ -91,20 +91,10 @@ export default function ShelfScreen() {
     );
   };
 
-  const remove = (showcaseId: string, what: string) => {
-    if (!id) return;
-    Alert.alert(`Remove ${what} from this shelf?`, undefined, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () => {
-          unkeep.mutateAsync({ shelfId: id, showcaseId }).catch((e: unknown) =>
-            Alert.alert("Couldn't take it off", profileActionMessage(e, 'keep')),
-          );
-        },
-      },
-    ]);
+  // Asked about, and its failure said, by the post sheet it is offered from.
+  const remove = (showcaseId: string) => {
+    if (!id) return Promise.resolve();
+    return unkeep.mutateAsync({ shelfId: id, showcaseId });
   };
 
   return (
@@ -123,8 +113,15 @@ export default function ShelfScreen() {
           <Text className="text-foreground text-[15px] font-bold" numberOfLines={1}>
             {title}
           </Text>
-          {shelf && !shelf.isPublic ? (
-            <Text className="text-muted-foreground text-[11px]">Private · only you see it</Text>
+          {entries.length > 0 || (shelf && !shelf.isPublic) ? (
+            <Text className="text-muted-foreground text-[11px]">
+              {[
+                entries.length > 0 ? `${entries.length} kept` : null,
+                shelf && !shelf.isPublic ? 'Private · only you see it' : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
           ) : null}
         </View>
         {shelf ? (
@@ -168,65 +165,11 @@ export default function ShelfScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 60, gap: 22 }}>
-          {entries.map((entry) => (
-            <View key={entry.showcaseId}>
-              <Pressable
-                onPress={() => router.push(`/showcase/${entry.showcaseId}`)}
-                accessibilityRole="button"
-                accessibilityLabel={entry.title ?? 'Open this showcase'}
-              >
-                <RemoteImage
-                  source={{ uri: entry.url }}
-                  style={{ width: '100%', height: 200, borderRadius: 13 }}
-                  contentFit="cover"
-                />
-              </Pressable>
-
-              <View className="flex-row items-center gap-2 mt-2">
-                <View className="w-6 h-6 rounded-full bg-primary/15 items-center justify-center">
-                  <Text className="text-primary text-[10px] font-bold">
-                    {makerOf(entry).displayName.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={() =>
-                    makerOf(entry).handle ? router.push(`/u/${makerOf(entry).handle}`) : undefined
-                  }
-                  accessibilityRole="button"
-                  className="flex-1 min-w-0"
-                >
-                  <Text className="text-foreground text-[12px] font-bold" numberOfLines={1}>
-                    {makerOf(entry).displayName}
-                  </Text>
-                </Pressable>
-                {entry.craftTags.length > 0 && (
-                  <Text className="text-muted-foreground text-[11px]" numberOfLines={1}>
-                    {entry.craftTags.slice(0, 2).join(' · ')}
-                  </Text>
-                )}
-                {shelf ? (
-                  <Pressable
-                    onPress={() => remove(entry.showcaseId, entry.title ? `“${entry.title}”` : 'this')}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${entry.title ?? 'this'} from the shelf`}
-                    className="min-h-[44px] min-w-[44px] -my-2 px-1 items-start justify-center active:opacity-60"
-                  >
-                    <Text className="text-primary text-[13px] font-semibold">Remove</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-
-              {entry.note ? (
-                <View className="mt-1.5 pl-2.5 border-l-2 border-border">
-                  <Text className="text-secondary-foreground text-[12px] leading-[17px] italic">
-                    {entry.note}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          ))}
-        </ScrollView>
+        <KeptGrid
+          entries={entries}
+          onRemove={shelf ? remove : undefined}
+          onRefresh={() => refetch()}
+        />
       )}
 
       <ActionSheet

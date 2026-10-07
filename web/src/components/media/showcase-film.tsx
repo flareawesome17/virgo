@@ -39,9 +39,10 @@ function clock(seconds: number): string {
  * decoders and fetches no bytes beyond the posters.
  *
  * The frame is whatever shape it is given. It was always 4:5, which cropped a
- * 16:9 film to less than half of itself; the feed now passes the clamped
- * shape of the card, and the post passes the film's own shape with `fit`
- * "contain", so nothing of it is cut.
+ * 16:9 film to less than half of itself. A card now passes its frame (the
+ * film's own shape, held between 9:16 and 3:1; see cardFrame) and "cover"
+ * only when that is exactly the film's shape, "contain" otherwise, so
+ * nothing of it is cut.
  */
 export function ShowcaseFilm({
   piece,
