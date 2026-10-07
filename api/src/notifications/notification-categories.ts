@@ -35,6 +35,7 @@ export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 export const CATEGORY_OF_TOPIC: Record<NotificationTopic, NotificationCategory> = {
   booking: 'bookings',
+  money: 'bookings',
   'client-picks': 'albums',
   retention: 'albums',
   'job-application': 'jobs',

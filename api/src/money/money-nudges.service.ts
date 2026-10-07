@@ -8,6 +8,10 @@ import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
 const ASK_WITHIN_DAYS = 7;
 /** At most this many a run; the rest are asked the next morning. */
 const BATCH = 500;
+/** A payment counts as late, for the one reminder, from this many days on… */
+const LATE_AFTER_DAYS = 3;
+/** …and is not reminded about at all past this many. */
+const LATE_WITHIN_DAYS = 7;
 
 interface DueRow {
   booking_id: string;
@@ -115,4 +119,106 @@ export class MoneyNudgesService {
       this.running = false;
     }
   }
+
+  /**
+   * Payments a client owes: told the day before they are due, and once when
+   * they are three days late — so the creative can send the statement, or
+   * mark it received if it already came. Each said once per entry; a late
+   * payment from more than a week back is left alone, so the first run after
+   * this ships does not reach back over months.
+   */
+  @Cron('5 9 * * *', { name: 'money-payment-reminders', timeZone: MEDIA_LOCAL_ZONE })
+  async remindPayments(): Promise<number> {
+    if (this.reminding) return 0;
+    this.reminding = true;
+    try {
+      const due = await this.db.transaction(async (tx) => {
+        const lock = await tx.query<{ ok: boolean }>(
+          "select pg_try_advisory_xact_lock(hashtext('virgo.money-payment-reminders')) as ok",
+        );
+        if (!lock.rows[0]?.ok) return [] as PaymentRow[];
+        const result = await tx.query<PaymentRow>(
+          `with today as (select (now() at time zone $1::text)::date as d),
+           soon as (
+             update money_entries e set due_reminded_at = now()
+               from today
+              where e.kind = 'income' and e.paid_on is null and e.due_reminded_at is null
+                and e.occurred_on = today.d + 1
+             returning e.id, e.user_id, e.amount_minor, e.withheld_minor, e.counterparty,
+                       e.package_id, e.occurred_on, 'soon'::text as stage
+           ),
+           late as (
+             update money_entries e set overdue_reminded_at = now()
+               from today
+              where e.kind = 'income' and e.paid_on is null and e.overdue_reminded_at is null
+                and e.occurred_on between today.d - ${LATE_WITHIN_DAYS} and today.d - ${LATE_AFTER_DAYS}
+             returning e.id, e.user_id, e.amount_minor, e.withheld_minor, e.counterparty,
+                       e.package_id, e.occurred_on, 'late'::text as stage
+           ),
+           told as (select * from soon union all select * from late)
+           select told.*, p.title as package_title, p.share_token is not null as shared
+             from told left join money_packages p on p.id = told.package_id`,
+          [MEDIA_LOCAL_ZONE],
+        );
+        return result.rows;
+      });
+      if (due.length === 0) return 0;
+
+      const deliveries: Delivery[] = due.map((d) => {
+        const amount = pesoText(d.amount_minor - d.withheld_minor);
+        const who = d.counterparty ?? 'Your client';
+        const what = d.package_title ? ` for “${d.package_title}”` : '';
+        const next = d.shared
+          ? 'Send them the statement again if they need a reminder.'
+          : 'Share the statement from Money if they need a reminder.';
+        return {
+          userId: d.user_id,
+          topic: 'money',
+          title: d.stage === 'soon' ? `${amount} is due tomorrow` : `${amount} is overdue`,
+          body:
+            d.stage === 'soon'
+              ? `${who}'s payment${what}. ${next}`
+              : `${who}'s payment${what} was due ${shortDay(d.occurred_on)}. ${next} Or mark it received, if it came.`,
+          data: {
+            type: 'money',
+            entryId: d.id,
+            ...(d.package_id ? { packageId: d.package_id } : {}),
+          },
+        };
+      });
+      const { sent } = await this.notifier.deliver(deliveries);
+      this.logger.log(`Reminded about ${due.length} payment(s) (${sent} pushed)`);
+      return due.length;
+    } catch (err) {
+      this.logger.error(`Payment reminders failed: ${String(err)}`);
+      return 0;
+    } finally {
+      this.reminding = false;
+    }
+  }
+
+  private reminding = false;
+}
+
+interface PaymentRow {
+  id: string;
+  user_id: string;
+  amount_minor: number;
+  withheld_minor: number;
+  counterparty: string | null;
+  package_id: string | null;
+  occurred_on: string;
+  stage: 'soon' | 'late';
+  package_title: string | null;
+  shared: boolean | null;
+}
+
+/** "Oct 6" for a YYYY-MM-DD day. */
+function shortDay(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
 }

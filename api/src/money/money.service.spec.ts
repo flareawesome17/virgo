@@ -115,8 +115,8 @@ describe('MoneyService.create', () => {
   it('checks a receipt landed before saving, and puts it on the entry in the same transaction', async () => {
     const { service, receipts, tx } = harness();
     await service.create(ME, { ...INCOME, id: ENTRY, receiptId: RECEIPT });
-    expect(receipts.verify).toHaveBeenCalledWith(ME, RECEIPT, ENTRY);
-    expect(receipts.attach).toHaveBeenCalledWith(tx, ME, ENTRY, RECEIPT);
+    expect(receipts.verify).toHaveBeenCalledWith(ME, RECEIPT, { entryId: ENTRY });
+    expect(receipts.attach).toHaveBeenCalledWith(tx, ME, { entryId: ENTRY }, RECEIPT);
   });
 
   it('trims what was typed, and keeps nothing for blank text', async () => {
@@ -187,7 +187,7 @@ describe('MoneyService.update', () => {
     const { service, receipts, tx } = harness({ existing: row() });
     await service.update(ME, ENTRY, { receiptId: null });
     expect(receipts.verify).not.toHaveBeenCalled();
-    expect(receipts.attach).toHaveBeenCalledWith(tx, ME, ENTRY, null);
+    expect(receipts.attach).toHaveBeenCalledWith(tx, ME, { entryId: ENTRY }, null);
   });
 
   it('leaves the receipt alone when the patch does not mention it', async () => {
