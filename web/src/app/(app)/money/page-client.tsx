@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import {
   Briefcase,
@@ -7,7 +9,9 @@ import {
   ChevronRight,
   Download,
   Loader2,
+  Link2,
   Minus,
+  NotebookPen,
   Paperclip,
   Plus,
   Users,
@@ -29,6 +33,7 @@ import {
   todayIso,
   type MoneyEntry,
   type MoneyKind,
+  type MoneyPackage,
   type MoneySuggestion,
 } from '@/api';
 import { PageHeader, Screen } from '@/components/app-shell';
@@ -43,11 +48,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { MoneyEntryDialog } from '@/components/money/money-entry-dialog';
+import { PackageDialog } from '@/components/money/package-dialog';
+import { Progress } from '@/components/ui/progress';
 import { CategoryIcon } from '@/components/money/icons';
 import {
   useDismissMoneySuggestion,
   useMoneyEntries,
   useMoneyExport,
+  useMoneyPackages,
   useMoneySuggestions,
   useMoneySummary,
   useUpdateMoneyEntry,
@@ -217,6 +225,29 @@ function SuggestionItem({
   );
 }
 
+/** A package still owed on: the job, a bar for how much is in, and what is left and when. */
+function PackageItem({ pkg, today }: { pkg: MoneyPackage; today: string }) {
+  const progress = pkg.totalMinor > 0 ? Math.min(100, (pkg.receivedMinor / pkg.totalMinor) * 100) : 0;
+  const status = pkg.nextDueOn
+    ? `${formatMoney(pkg.balanceMinor)} left · ${pkg.overdue ? 'overdue since' : 'due'} ${dayLabel(pkg.nextDueOn, today)}`
+    : `${formatMoney(pkg.balanceMinor)} left · no date set`;
+  return (
+    <li className="border-b last:border-b-0">
+      <Link href={`/money/packages/${pkg.id}`} className="block px-4 py-3 hover:bg-muted/40">
+        <span className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{pkg.title}</span>
+          {pkg.shareUrl && <Link2 className="size-3.5 text-muted-foreground" aria-label="Statement shared" />}
+        </span>
+        {pkg.clientName && <span className="block truncate text-xs text-muted-foreground">{pkg.clientName}</span>}
+        <Progress value={progress} className="mt-2 h-1.5" />
+        <span className={cn('mt-1.5 block text-xs', pkg.overdue ? 'font-semibold text-destructive' : 'text-muted-foreground')}>
+          {status}
+        </span>
+      </Link>
+    </li>
+  );
+}
+
 type DialogState = { kind?: MoneyKind; entry?: MoneyEntry; suggestion?: MoneySuggestion };
 
 /**
@@ -242,6 +273,10 @@ export default function MoneyPage() {
   const list = useMoneyEntries({ from: range.from, to: range.to, kind, limit: 200 });
   const unpaid = useMoneyEntries({ unpaid: true, kind, limit: 100 });
   const offers = useMoneySuggestions();
+  const owing = useMoneyPackages('open');
+  const router = useRouter();
+  const [packageOpen, setPackageOpen] = useState(false);
+  const owedPackages = kind === 'expense' ? [] : owing.packages;
   const dismiss = useDismissMoneySuggestion();
   const update = useUpdateMoneyEntry();
   const exporter = useMoneyExport();
@@ -296,7 +331,12 @@ export default function MoneyPage() {
   const loading = list.isLoading && unpaid.isLoading;
   const failed = list.loadFailed && list.entries.length === 0 && unpaid.entries.length === 0;
   const empty =
-    !loading && !failed && days.length === 0 && owed.length === 0 && offered.length === 0;
+    !loading &&
+    !failed &&
+    days.length === 0 &&
+    owed.length === 0 &&
+    offered.length === 0 &&
+    owedPackages.length === 0;
 
   return (
     <Screen title="Money">
@@ -324,6 +364,10 @@ export default function MoneyPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <Button size="sm" variant="outline" onClick={() => setPackageOpen(true)}>
+              <NotebookPen className="size-4" />
+              Package
+            </Button>
             <Button size="sm" variant="secondary" onClick={() => openDialog({ kind: 'expense' })}>
               <Minus className="size-4" />
               Expense
@@ -386,7 +430,13 @@ export default function MoneyPage() {
           </CardContent>
         </Card>
 
-        <div className="mt-5 flex gap-1.5" role="group" aria-label="Show">
+        <div className="mt-3 flex justify-end">
+          <Button asChild variant="link" size="sm" className="h-auto px-0 text-xs text-muted-foreground">
+            <Link href="/money/pay-methods">How clients pay you</Link>
+          </Button>
+        </div>
+
+        <div className="mt-3 flex gap-1.5" role="group" aria-label="Show">
           {(
             [
               ['all', 'All'],
@@ -441,6 +491,21 @@ export default function MoneyPage() {
           </Card>
         ) : (
           <>
+            {/* Packages still owed on: what each client has left to pay. */}
+            {owedPackages.length > 0 && (
+              <section className="mt-6">
+                <h3 className="mb-2 px-1 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Who owes you
+                </h3>
+                <Card className="py-0">
+                  <ul>
+                    {owedPackages.map((pkg) => (
+                      <PackageItem key={pkg.id} pkg={pkg} today={today} />
+                    ))}
+                  </ul>
+                </Card>
+              </section>
+            )}
             {/* Agreed bookings not recorded yet: each is a click from right. */}
             {offered.length > 0 && (
               <section className="mt-6">
@@ -511,6 +576,11 @@ export default function MoneyPage() {
         kind={dialog.kind}
         entry={dialog.entry}
         suggestion={dialog.suggestion}
+      />
+      <PackageDialog
+        open={packageOpen}
+        onOpenChange={setPackageOpen}
+        onCreated={(pkg) => router.push(`/money/packages/${pkg.id}`)}
       />
     </Screen>
   );

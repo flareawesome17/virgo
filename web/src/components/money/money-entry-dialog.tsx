@@ -12,6 +12,7 @@ import {
   todayIso,
   bookingLabel,
   type MoneySuggestion,
+  type MoneyPackage,
   type MoneyEntry,
   type MoneyKind,
   type MoneyMethod,
@@ -60,6 +61,8 @@ export type MoneyEntryDialogProps = {
   entry?: MoneyEntry;
   /** A new entry filled in from an agreed booking's offer, and linked to it. */
   suggestion?: MoneySuggestion;
+  /** A new payment toward this package: filled in with what is left, and linked to it. */
+  pkg?: MoneyPackage;
   /** Told once a new entry is saved, after the dialog has closed. */
   onCreated?: (entry: MoneyEntry) => void;
 };
@@ -110,6 +113,7 @@ function MoneyEntryForm({
   kind: startKind,
   entry,
   suggestion: offer,
+  pkg: toward,
   onCreated,
 }: MoneyEntryDialogProps) {
   const create = useCreateMoneyEntry();
@@ -119,7 +123,13 @@ function MoneyEntryForm({
   const pending = create.isPending || update.isPending;
   // An offer only fills a new entry; an edit is always its own entry's.
   const from = entry ? undefined : offer;
-  const startingKind = entry?.kind ?? from?.kind ?? startKind ?? 'expense';
+  const forPackage = entry ? undefined : toward;
+  const packageLeft = forPackage
+    ? forPackage.unscheduledMinor > 0
+      ? forPackage.unscheduledMinor
+      : forPackage.balanceMinor
+    : 0;
+  const startingKind = entry?.kind ?? (forPackage ? 'income' : undefined) ?? from?.kind ?? startKind ?? 'expense';
 
   // Made once per opening, so a retried save finds the entry it already wrote.
   const [id] = useState(() => entry?.id ?? newId());
@@ -129,7 +139,9 @@ function MoneyEntryForm({
       ? minorToPesos(entry.amountMinor)
       : from?.amountMinor != null
         ? minorToPesos(from.amountMinor)
-        : '',
+        : packageLeft > 0
+          ? minorToPesos(packageLeft)
+          : '',
   );
   const [category, setCategory] = useState<string | null>(
     entry?.category ?? from?.category ?? (startingKind === 'income' ? 'job' : null),
@@ -141,14 +153,20 @@ function MoneyEntryForm({
     entry?.paidOn && entry.paidOn !== entry.occurredOn ? entry.paidOn : '',
   );
   const [method, setMethod] = useState<MoneyMethod | null>(entry?.method ?? null);
-  const [counterparty, setCounterparty] = useState(entry?.counterparty ?? from?.counterparty ?? '');
+  const [counterparty, setCounterparty] = useState(
+    entry?.counterparty ?? from?.counterparty ?? forPackage?.clientName ?? '',
+  );
   const [reference, setReference] = useState(entry?.reference ?? '');
   const [withheld, setWithheld] = useState(
     entry && entry.withheldMinor > 0 ? minorToPesos(entry.withheldMinor) : '',
   );
-  const [note, setNote] = useState(entry?.note ?? from?.note ?? '');
+  const [note, setNote] = useState(
+    entry?.note ?? from?.note ?? (forPackage ? `${forPackage.title} · Payment` : ''),
+  );
   // The booking it is for, or came from.
   const booking = entry ? (entry.booking ?? null) : (from ?? null);
+  // The package it pays toward.
+  const inPackage = entry ? (entry.package ?? null) : (forPackage ?? null);
   const [receipt, setReceipt] = useState<ReceiptDraft | null>(() => draftOf(entry?.receipt));
   const [problem, setProblem] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -230,6 +248,7 @@ function MoneyEntryForm({
         ...fields,
         ...(receipt?.id ? { receiptId: receipt.id } : {}),
         ...(from ? { bookingId: from.bookingId } : {}),
+        ...(forPackage ? { packageId: forPackage.id } : {}),
       },
       {
         onSuccess: (saved) => {
@@ -261,7 +280,12 @@ function MoneyEntryForm({
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit entry' : income ? 'New income' : 'New expense'}</DialogTitle>
           <DialogDescription>
-            {booking ? `For ${bookingLabel(booking)}. ` : ''}Only you can see your money entries.
+            {inPackage
+              ? `Payment for ${inPackage.title}. `
+              : booking
+                ? `For ${bookingLabel(booking)}. `
+                : ''}
+            Only you can see your money entries.
           </DialogDescription>
         </DialogHeader>
 
