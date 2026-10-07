@@ -25,6 +25,7 @@ import {
   UpdateMoneyEntryDto,
 } from './dto/money.dto';
 import { MoneyService } from './money.service';
+import { MoneyBookingsService } from './money-bookings.service';
 
 /**
  * Money — each person's own ledger.
@@ -39,7 +40,33 @@ export class MoneyController {
   constructor(
     private readonly money: MoneyService,
     private readonly receipts: ReceiptFilesService,
+    private readonly bookings: MoneyBookingsService,
   ) {}
+
+  /** Agreed bookings not recorded yet: the entries Money offers to fill in. */
+  @Get('suggestions')
+  suggestions(@CurrentUser('id') userId: string) {
+    return this.bookings.suggestions(userId);
+  }
+
+  /** "Not this": the booking is not offered again. */
+  @HttpCode(204)
+  @Post('suggestions/:bookingId/dismiss')
+  async dismiss(
+    @CurrentUser('id') userId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+  ): Promise<void> {
+    await this.bookings.dismiss(userId, bookingId);
+  }
+
+  /** One booking from the caller's side: its offer, and what was recorded from it. */
+  @Get('bookings/:bookingId')
+  forBooking(
+    @CurrentUser('id') userId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+  ) {
+    return this.money.forBooking(userId, bookingId);
+  }
 
   @Get('entries')
   list(@CurrentUser('id') userId: string, @Query() query: ListMoneyEntriesDto) {

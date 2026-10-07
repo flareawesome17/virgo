@@ -3,6 +3,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { DatabaseService } from '../database/database.service';
 import type { ReceiptFilesService } from '../storage/receipt-files.service';
 import { MoneyService, type MoneyEntryInput } from './money.service';
+import type { MoneyBookingsService } from './money-bookings.service';
 
 /**
  * The ledger's rules. The SQL itself is run against real Postgres where it is
@@ -65,12 +66,18 @@ function harness(options: { existing?: ReturnType<typeof row> | null; inserted?:
     forEntries: jest.fn(async () => new Map()),
   };
   const config = { getOrThrow: () => 'a-test-access-secret-that-is-long-enough' };
+  const bookings = {
+    assertParty: jest.fn(async () => undefined),
+    linksFor: jest.fn(async () => new Map()),
+    suggestions: jest.fn(async () => [] as unknown[]),
+  };
   const service = new MoneyService(
     db as unknown as DatabaseService,
     receipts as unknown as ReceiptFilesService,
     config as unknown as ConfigService,
+    bookings as unknown as MoneyBookingsService,
   );
-  return { service, db, tx, txQueries, receipts };
+  return { service, db, tx, txQueries, receipts, bookings };
 }
 
 const INCOME: MoneyEntryInput = {
@@ -187,6 +194,53 @@ describe('MoneyService.update', () => {
     const { service, receipts } = harness({ existing: row() });
     await service.update(ME, ENTRY, { note: 'Balance' });
     expect(receipts.attach).not.toHaveBeenCalled();
+  });
+});
+
+describe('MoneyService and bookings', () => {
+  const BOOKING = '44444444-4444-4444-8444-444444444444';
+
+  it('records an entry from a booking only after checking the caller is on it', async () => {
+    const { service, bookings, txQueries } = harness();
+    await service.create(ME, { ...INCOME, bookingId: BOOKING });
+    expect(bookings.assertParty).toHaveBeenCalledWith(ME, BOOKING);
+    const insert = txQueries.find((q) => q.sql.includes('insert into money_entries'))!;
+    expect(insert.args[12]).toBe(BOOKING);
+  });
+
+  it("refuses a booking that isn't the caller's before writing anything", async () => {
+    const { service, bookings, db } = harness();
+    bookings.assertParty.mockRejectedValueOnce(new BadRequestException("That booking isn't one of yours."));
+    await expect(service.create(ME, { ...INCOME, bookingId: BOOKING })).rejects.toThrow("isn't one of yours");
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('keeps the booking an edit does not mention, without asking again', async () => {
+    const { service, bookings, txQueries } = harness({ existing: row({ booking_id: BOOKING }) });
+    await service.update(ME, ENTRY, { paidOn: '2026-10-04' });
+    expect(bookings.assertParty).not.toHaveBeenCalled();
+    const update = txQueries.find((q) => q.sql.includes('update money_entries'))!;
+    expect(update.args[12]).toBe(BOOKING);
+  });
+
+  it('shows the booking an entry came from, read for the entry\'s owner', async () => {
+    const { service, db, bookings } = harness();
+    db.queryOne.mockResolvedValueOnce(row({ booking_id: BOOKING }) as never);
+    bookings.linksFor.mockResolvedValueOnce(
+      new Map([[BOOKING, { id: BOOKING, postTitle: 'Reyes wedding', role: 'Second shooter', eventDate: '2026-10-03', cancelled: true }]]) as never,
+    );
+    const entry = await service.get(ME, ENTRY);
+    expect(bookings.linksFor).toHaveBeenCalledWith(ME, [BOOKING]);
+    expect(entry.booking).toMatchObject({ postTitle: 'Reyes wedding', cancelled: true });
+  });
+
+  it("lists one booking's offer and its entries, scoped to the caller", async () => {
+    const { service, db, bookings } = harness();
+    await service.forBooking(ME, BOOKING);
+    expect(bookings.suggestions).toHaveBeenCalledWith(ME, BOOKING);
+    const [sql, args] = db.query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain('where user_id = $1 and booking_id = $2');
+    expect(args).toEqual([ME, BOOKING]);
   });
 });
 
