@@ -13,6 +13,7 @@ import {
   Trash2Icon,
   UserPlusIcon,
   UsersIcon,
+  WalletIcon,
 } from 'lucide-react-native';
 import type {
   AppNotification,
@@ -79,6 +80,11 @@ const TOPICS: Record<
     icon: FileTextIcon,
     href: (d) =>
       typeof d.bookingId === 'string' ? `/bookings/${d.bookingId}` : '/bookings',
+  },
+  money: {
+    icon: WalletIcon,
+    href: (d) =>
+      typeof d.packageId === 'string' ? `/money/packages/${d.packageId}` : '/money',
   },
   reminder: {
     icon: CalendarIcon,

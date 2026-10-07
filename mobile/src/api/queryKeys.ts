@@ -130,6 +130,9 @@ export const queryKeys = {
     summary: (from: string, to: string) => ['money', 'summary', from, to] as const,
     suggestions: ['money', 'suggestions'] as const,
     booking: (bookingId: string) => ['money', 'booking', bookingId] as const,
+    packages: (status: string) => ['money', 'packages', status] as const,
+    package: (id: string) => ['money', 'package', id] as const,
+    payMethods: ['money', 'pay-methods'] as const,
   },
   portfolio: {
     all: ['portfolio'] as const,

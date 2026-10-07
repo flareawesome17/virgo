@@ -23,6 +23,7 @@ import {
   Trash2,
   UserPlus,
   Users,
+  Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -62,6 +63,7 @@ const ICONS: Record<NotificationTopic, LucideIcon> = {
   'job-application': BriefcaseBusiness,
   'job-response': BriefcaseBusiness,
   booking: FileText,
+  money: Wallet,
   reminder: Calendar,
   billing: CreditCard,
   retention: Trash2,

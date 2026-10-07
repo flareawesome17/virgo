@@ -166,7 +166,7 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // v10: Nearby places people by their address's city. A saved list said
 // "turn on sharing" to almost everyone, and a saved status had no idea what
 // placed them; both would show for a moment on the first launch after.
-const CACHE_VERSION = 'v11-money-bookings'
+const CACHE_VERSION = 'v12-money-packages'
 
 /**
  * Never written to disk, whatever their staleTime says.

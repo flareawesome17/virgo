@@ -100,6 +100,9 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   support: [queryKeys.support.all],
   // Confirming or cancelling one moves the jobs-done count on your own page.
   booking: [queryKeys.bookings.all, queryKeys.profile.page],
+  // A reminder about a payment changes nothing on screen; the ledger may
+  // have moved elsewhere, so it is read again.
+  money: [queryKeys.money.all],
   // Accepting also connects the two and opens a chat.
   'job-response': [
     queryKeys.jobs.all,

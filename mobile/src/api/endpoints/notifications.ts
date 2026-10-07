@@ -27,6 +27,8 @@ export type NotificationTopic =
   | 'client-picks'
   | 'support'
   | 'booking'
+  /** A payment a client owes is due tomorrow, or overdue. */
+  | 'money'
   | 'promo'
   /**
    * A new version of the app this client is running. Targeted at a platform
@@ -74,6 +76,7 @@ export type NotificationChannel = 'push' | 'email' | 'desktop';
 /** Which kind each topic is. Mirrors CATEGORY_OF_TOPIC in the API. */
 export const CATEGORY_OF_TOPIC: Record<NotificationTopic, NotificationCategory> = {
   booking: 'bookings',
+  money: 'bookings',
   'client-picks': 'albums',
   retention: 'albums',
   'job-application': 'jobs',

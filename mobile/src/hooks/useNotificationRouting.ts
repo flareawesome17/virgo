@@ -126,6 +126,10 @@ export function useNotificationRouting(enabled: boolean): void {
         case 'booking':
           router.push(payload.bookingId ? `/bookings/${payload.bookingId}` : '/bookings');
           return;
+        // A payment due or late: its package, where the statement is shared from.
+        case 'money':
+          router.push(payload.packageId ? `/money/packages/${payload.packageId}` : '/money');
+          return;
         case 'support_reply':
           router.push(payload.ticketId ? `/support?ticket=${payload.ticketId}` : '/support');
           return;
