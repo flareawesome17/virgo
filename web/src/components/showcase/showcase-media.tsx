@@ -6,28 +6,44 @@ import { pieceAspect, pieceSource, type ShowcasePiece } from '@/api';
 import { cn } from '@/lib/utils';
 
 /**
- * The shapes a feed card may be: from a portrait 4:5 to a landscape 1.91:1,
- * the range the big feeds settled on. Inside it a piece is drawn at its own
- * proportions; outside it, cropped to the nearest end, so one panorama or one
- * tall phone frame does not turn the feed into a strip or a wall.
+ * The tallest and the widest a card's frame may be: a phone's 9:16 frame, and
+ * a 3:1 panorama.
  *
- * The same numbers as the phone's. Every card here used to be a 4:5 box,
- * which cut close to half off a 3:2 photograph and more off a 16:9 film.
+ * Inside that range the frame is the cover's own shape, so nothing is cut and
+ * the card is as tall as the work is. Outside it, the frame stops at the end
+ * of the range and the piece is drawn whole inside it: one panorama does not
+ * turn the feed into a strip, nor one tall frame into a wall. Cards used to be
+ * cropped to 4:5–1.91:1, which cut the edges off anything outside that; the
+ * owner asked for nothing to be cropped at all. The same numbers as the phone.
  */
-export const FEED_MIN_ASPECT = 4 / 5;
-export const FEED_MAX_ASPECT = 1.91;
-/** For a piece whose size is not known: the feed's default portrait shape. */
+export const FRAME_MIN_ASPECT = 9 / 16;
+export const FRAME_MAX_ASPECT = 3;
+/** For a piece whose size is not known: a portrait frame, drawn whole inside. */
 const DEFAULT_ASPECT = 4 / 5;
 
-/** Width over height for a feed card, clamped to the range above. */
-export function feedAspect(piece: ShowcasePiece | undefined): number {
-  const aspect = (piece && pieceAspect(piece)) ?? DEFAULT_ASPECT;
-  return Math.min(FEED_MAX_ASPECT, Math.max(FEED_MIN_ASPECT, aspect));
+export interface CardFrame {
+  /** Width over height of the frame. */
+  aspect: number;
+  /** Whether the cover is exactly this shape, so filling the frame cuts nothing. */
+  exact: boolean;
 }
 
-/** The piece's own shape, for the post, where nothing is cropped. */
-export function naturalAspect(piece: ShowcasePiece | undefined): number {
-  return (piece && pieceAspect(piece)) ?? DEFAULT_ASPECT;
+/** The frame a post is drawn in, from its cover. */
+export function cardFrame(cover: ShowcasePiece | undefined): CardFrame {
+  const own = cover ? pieceAspect(cover) : null;
+  if (own === null) return { aspect: DEFAULT_ASPECT, exact: false };
+  const aspect = Math.min(FRAME_MAX_ASPECT, Math.max(FRAME_MIN_ASPECT, own));
+  return { aspect, exact: aspect === own };
+}
+
+/**
+ * How a piece sits in its post's frame. The cover fills a frame cut to its own
+ * shape; every other piece of a set, and a cover outside the range, is drawn
+ * whole inside it on the frame's neutral ground. One frame for the whole set,
+ * so the card does not change height as somebody steps through it.
+ */
+export function pieceFit(frame: CardFrame, index: number): 'cover' | 'contain' {
+  return index === 0 && frame.exact ? 'cover' : 'contain';
 }
 
 /**
@@ -93,15 +109,18 @@ export function PieceImage({
 /**
  * Every piece of a set, side by side, swiped or stepped through.
  *
- * A set of ten showed its cover and a "10", and the other nine nowhere on the
- * web at all. One frame for the whole set, shaped by the cover, the way the
- * phone does it: the card does not change height as somebody steps through.
+ * One frame for the whole set, shaped by the cover (see cardFrame), the way
+ * the phone does it: the card does not change height as somebody steps
+ * through, and no piece is cut to fit it.
  *
  * Scroll-snap rather than a transform, so a touch screen swipes it and a
  * trackpad scrolls it sideways with nothing written to make either work. The
  * arrows are for a mouse, which has no other way across; they appear on hover
  * and on keyboard focus, and are not there at all on a touch screen, where an
  * invisible button would swallow the tap meant for the picture.
+ *
+ * `touch-manipulation` turns off the browser's double-tap zoom on the frame,
+ * which would otherwise eat the double tap that likes a photograph.
  */
 export function PieceCarousel({
   pieces,
@@ -141,20 +160,25 @@ export function PieceCarousel({
 
   // The frame itself takes the arrow keys once it has focus. A browser
   // scrolls it a few pixels per press, which snap then drags back — a key
-  // that seems to do nothing.
+  // that seems to do nothing. Home and End go to either end of the set.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      go(index + 1);
-    } else if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      go(index - 1);
-    }
+    const keys: Record<string, number> = {
+      ArrowRight: index + 1,
+      ArrowLeft: index - 1,
+      Home: 0,
+      End: total - 1,
+    };
+    if (!(event.key in keys)) return;
+    event.preventDefault();
+    go(keys[event.key]);
   };
 
   if (total <= 1) {
     return (
-      <div className="relative w-full overflow-hidden bg-muted" style={{ aspectRatio: aspect }}>
+      <div
+        className="relative w-full touch-manipulation overflow-hidden bg-muted"
+        style={{ aspectRatio: aspect }}
+      >
         {pieces[0] ? renderPage(pieces[0], 0) : null}
       </div>
     );
@@ -169,8 +193,8 @@ export function PieceCarousel({
         tabIndex={0}
         role="region"
         aria-roledescription="carousel"
-        aria-label={`${label}. ${total} pieces.`}
-        className="no-scrollbar flex w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        aria-label={`${label}. ${total} pieces; the arrow keys move between them.`}
+        className="no-scrollbar flex w-full touch-manipulation snap-x snap-mandatory overflow-x-auto overscroll-x-contain bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         style={{ aspectRatio: aspect }}
       >
         {pieces.map((piece, i) => (
@@ -196,7 +220,7 @@ export function PieceCarousel({
       {index > 0 && <CarouselArrow side="left" onClick={() => go(index - 1)} />}
       {index < total - 1 && <CarouselArrow side="right" onClick={() => go(index + 1)} />}
 
-      <div aria-hidden className="flex justify-center gap-1.5 pt-3">
+      <div aria-hidden className="flex justify-center gap-1 pt-2.5">
         {pieces.map((piece, i) => (
           <span
             key={piece.fileKey}
@@ -219,9 +243,9 @@ function CarouselArrow({ side, onClick }: { side: 'left' | 'right'; onClick: () 
       onClick={onClick}
       aria-label={side === 'left' ? 'Previous piece' : 'Next piece'}
       className={cn(
-        // Centred on the frame, not on the frame plus the 18 px of dots
+        // Centred on the frame, not on the frame plus the 16 px of dots
         // under it.
-        'absolute top-[calc(50%-9px)] grid size-9 -translate-y-1/2 place-items-center rounded-full bg-background/85 text-foreground shadow-sm backdrop-blur transition-opacity',
+        'absolute top-[calc(50%-8px)] grid size-8 -translate-y-1/2 place-items-center rounded-full bg-background/85 text-foreground shadow-sm backdrop-blur transition-opacity',
         'opacity-0 group-hover/carousel:opacity-100 focus-visible:opacity-100 pointer-coarse:hidden',
         side === 'left' ? 'left-3' : 'right-3',
       )}

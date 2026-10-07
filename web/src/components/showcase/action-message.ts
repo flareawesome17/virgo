@@ -67,6 +67,11 @@ export function showcaseActionMessage(err: unknown, action: ShowcaseAction): str
   if (code === 'SHOWCASE_NO_WEB_COPY') {
     return "That photo can't be posted. Take it out, or try a JPEG or PNG copy of it.";
   }
+  // A film and photographs together, which an older form (or another tab)
+  // could still send: the rule, and what to do about it.
+  if (code === 'SHOWCASE_FILM_ALONE') {
+    return 'A film is posted on its own. Take out the photos, or the film, and post again.';
+  }
   if (code === 'SHOWCASE_LIMIT') {
     return 'You have 100 showcases, which is the most there can be. Delete one to post another.';
   }
