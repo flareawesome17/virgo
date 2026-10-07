@@ -3,16 +3,18 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  PixelRatio,
   Platform,
   Pressable,
   Share,
+  StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { RemoteImage } from '@/components/RemoteImage';
+import { RemoteImage, stableCacheKey } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
@@ -21,6 +23,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   interpolate,
   runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -37,8 +40,9 @@ import { cssInterop } from 'nativewind';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAlbumFiles, usageQueryKey } from '@/src/hooks';
 import {
+  displaySourceAtLeast,
   formatBytes,
-  largestDisplaySource,
+  originalForDetail,
   queryKeys,
   storageApi,
   type StoredFile,
@@ -50,6 +54,28 @@ for (const Icon of [DownloadIcon, InfoIcon, Share2Icon, Trash2Icon, XIcon]) {
 
 const SPRING = { damping: 22, stiffness: 220 };
 const MAX_SCALE = 4;
+
+/**
+ * Magnified past this, the original is loaded over the display copy.
+ *
+ * The copy covers the screen at 1x and a little past it; by one and a half
+ * times a pinch is magnifying pixels the copy does not have, which is where a
+ * photographer checking focus sees mush instead of eyelashes.
+ */
+const DETAIL_AT = 1.5;
+
+/**
+ * The largest original loaded for that, in pixels.
+ *
+ * Drawn at full size, a photograph costs four bytes a pixel in memory: 24 MP
+ * is about 96 MB, held while it is magnified. Past that — a 48 MP still — the
+ * 3072 px copy is as far as a pinch goes.
+ */
+const MAX_DETAIL_PIXELS = 24_000_000;
+
+/** Originals iOS draws that Android does not. */
+const IOS_ALSO_DRAWS = ['image/heic', 'image/heif'];
+
 /** Vertical travel that commits to closing. Below it, the photo springs back. */
 const DISMISS_AT = 130;
 const THUMB = 46;
@@ -88,6 +114,29 @@ function ZoomablePhoto({
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const dismissY = useSharedValue(0);
+
+  // The copy that covers the screen's long edge at its real pixels, so the
+  // photograph is sharp upright or turned and a first pinch has room. The
+  // widest one was used whatever the screen: 2048 px, stretched on most
+  // phones of the last few years.
+  const screenPixels = Math.max(width, height) * PixelRatio.get();
+  const copy = displaySourceAtLeast(photo, screenPixels);
+  const base = copy ?? photo.url ?? photo.thumbnailUrl ?? undefined;
+  const original =
+    (photo.width ?? 0) * (photo.height ?? 0) <= MAX_DETAIL_PIXELS
+      ? originalForDetail(photo, { alsoDraws: Platform.OS === 'ios' ? IOS_ALSO_DRAWS : [] })
+      : null;
+  // Loaded once a pinch passes DETAIL_AT, and let go when the photograph is
+  // back at rest, so only the one being magnified holds a camera file.
+  const [detail, setDetail] = useState(false);
+  useAnimatedReaction(
+    () => (scale.value > DETAIL_AT ? 'detail' : scale.value <= 1.01 ? 'rest' : 'between'),
+    (now, before) => {
+      if (now === before) return;
+      if (now === 'detail') runOnJS(setDetail)(true);
+      else if (now === 'rest') runOnJS(setDetail)(false);
+    },
+  );
 
   const reset = () => {
     'worklet';
@@ -219,24 +268,20 @@ function ZoomablePhoto({
         className="items-center justify-center"
       >
         <Animated.View style={[{ width, height }, style]}>
-          {/* The widest display copy, not the original. `url` is the camera
-              file — a 6 MB JPEG or a 40 MB TIFF from a bucket in California —
-              and this screen draws it a few hundred points wide. */}
+          {/* A display copy, not the original. `url` is the camera file — a
+              6 MB JPEG or a 40 MB TIFF from a bucket in California — and this
+              screen draws it a few hundred points wide until somebody
+              pinches. */}
           <RemoteImage
-            source={{
-              uri:
-                largestDisplaySource(photo) ??
-                photo.url ??
-                photo.thumbnailUrl ??
-                undefined,
-            }}
+            source={{ uri: base }}
             // The thumbnail first — it is sharper and, coming from the grid
-            // this screen was opened from, almost always already cached. The
+            // this screen was opened from, almost always already cached. Keyed
+            // the way the grid stored it, or the cache never matched it. The
             // inline preview is the fallback: less sharp, but it needs no
             // fetch at all, so there is never nothing to show.
             placeholder={
               photo.thumbnailUrl
-                ? { uri: photo.thumbnailUrl }
+                ? { uri: photo.thumbnailUrl, cacheKey: stableCacheKey(photo.thumbnailUrl) }
                 : photo.blurDataUrl
                   ? { uri: photo.blurDataUrl }
                   : undefined
@@ -246,7 +291,23 @@ function ZoomablePhoto({
             contentFit="contain"
             transition={160}
             recyclingKey={photo.key}
+            // Kept at the copy's own size. Scaled down to the screen, a pinch
+            // magnified the smaller bitmap and the copy's extra pixels were
+            // decoded only to be thrown away.
+            allowDownscaling={false}
           />
+          {/* The original, over the copy, once a pinch is past what the copy
+              holds. Until it arrives — or if it never does — the copy shows
+              through, so a slow or failed load costs nothing on screen. */}
+          {detail && original && original !== base ? (
+            <RemoteImage
+              source={{ uri: original }}
+              style={StyleSheet.absoluteFill}
+              contentFit="contain"
+              transition={200}
+              allowDownscaling={false}
+            />
+          ) : null}
         </Animated.View>
       </Animated.View>
     </GestureDetector>

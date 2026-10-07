@@ -5,6 +5,7 @@ import type { MediaLinkService } from '../storage/media-link.service';
 import type { StorageService } from '../storage/storage.service';
 import { MAX_SOURCE_BYTES, type ThumbnailsService } from '../storage/thumbnails.service';
 import { ShelvesService } from './shelves.service';
+import type { ShowcaseMediaService } from './showcase-media.service';
 import {
   decodeShowcaseCursor,
   encodeShowcaseCursor,
@@ -87,15 +88,19 @@ function make(files: FileRow[], opts: { showcaseCount?: number } = {}) {
     transaction: jest.fn(async (fn: (c: unknown) => Promise<unknown>) => fn(client)),
   } as unknown as DatabaseService;
 
+  const copyShowcase = jest.fn(async () => undefined);
+  const eraseShowcase = jest.fn(async () => undefined);
+  const erasePieces = jest.fn(async () => undefined);
   const service = new ShowcasesService(
     db,
     { mediaUrl: jest.fn(async () => 'https://cdn/x') } as unknown as StorageService,
     { displaySources: jest.fn(() => []) } as unknown as MediaLinkService,
     { generate } as unknown as ThumbnailsService,
     { enqueueKeys } as unknown as HlsService,
+    { copyShowcase, eraseShowcase, erasePieces } as unknown as ShowcaseMediaService,
   );
 
-  return { service, db, inserts, generate, enqueueKeys };
+  return { service, db, inserts, generate, enqueueKeys, copyShowcase, eraseShowcase };
 }
 
 const film = (key: string, over: Partial<FileRow> = {}): FileRow => ({

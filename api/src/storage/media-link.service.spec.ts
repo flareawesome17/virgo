@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ConfigService } from '@nestjs/config';
 import { MediaLinkService, proxyKeyFor } from './media-link.service';
 import { PUBLISHED_URL_TTL_SECONDS, signingWindowFor } from './storage.config';
@@ -197,5 +200,70 @@ describe('proxyKeyFor', () => {
     expect(proxyKeyFor('users/u/albums/2026/08/clip.mov')).toBe(
       'users/u/albums/2026/08/clip-web.mp4',
     );
+  });
+});
+
+/**
+ * Deletion, against a real folder.
+ *
+ * A photograph between two fixed sizes has a copy at its own long edge, and
+ * that number is not in its name — so removeFor has to find it on the volume.
+ */
+describe('MediaLinkService.removeFor', () => {
+  let root: string;
+  const folder = 'users/u/albums/2026/10';
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'virgo-media-'));
+    await mkdir(join(root, folder), { recursive: true });
+  });
+  afterEach(() => rm(root, { recursive: true, force: true }));
+
+  async function files(names: string[]): Promise<void> {
+    for (const name of names) await writeFile(join(root, folder, name), 'x');
+  }
+
+  it('takes every display copy of the original, whatever its size, and nothing else', async () => {
+    await files([
+      'abc-1024.webp',
+      'abc-1800.webp',
+      'abc-3072.webp',
+      'abc-900.webp.part',
+      'abc-web.mp4',
+      // Another photograph's, whose name starts the same way.
+      'abc-def-1800.webp',
+      'abcd-1800.webp',
+      'other-1800.webp',
+    ]);
+    const link = service({ ...CONFIGURED, MEDIA_ROOT: root });
+
+    await link.removeFor([`${folder}/abc.jpg`]);
+
+    expect((await readdir(join(root, folder))).sort()).toEqual([
+      'abc-def-1800.webp',
+      'abcd-1800.webp',
+      'other-1800.webp',
+    ]);
+  });
+
+  it('does not mind a folder that is not there', async () => {
+    const link = service({ ...CONFIGURED, MEDIA_ROOT: root });
+    await expect(link.removeFor(['users/u/albums/1999/01/gone.jpg'])).resolves.toBeUndefined();
+  });
+});
+
+describe('MediaLinkService.removeDisplayCopies', () => {
+  it('removes the widths it is given and leaves the rest', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'virgo-media-'));
+    try {
+      await mkdir(join(root, 'users/u/a'), { recursive: true });
+      for (const name of ['p-1024.webp', 'p-2048.webp', 'p-1800.webp']) {
+        await writeFile(join(root, 'users/u/a', name), 'x');
+      }
+      await service({ ...CONFIGURED, MEDIA_ROOT: root }).removeDisplayCopies('users/u/a/p.jpg', [2048]);
+      expect((await readdir(join(root, 'users/u/a'))).sort()).toEqual(['p-1024.webp', 'p-1800.webp']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

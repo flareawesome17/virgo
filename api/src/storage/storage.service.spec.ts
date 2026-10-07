@@ -1,6 +1,6 @@
 import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import { DeleteObjectsCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
 import * as bcrypt from 'bcryptjs';
 import { AccountService } from '../auth/account.service';
 import type { UsersRepository } from '../auth/users.repository';
@@ -79,6 +79,8 @@ function wipeOf(world: {
   coverUrl?: string | null;
   /** A cover another request saves while the bucket is still deleting. */
   savedDuringWipe?: string;
+  /** Showcase copies in the public bucket: objects with no user_files row. */
+  showcaseCopies?: string[];
 }) {
   const rows = new Map(world.files.map((row) => [row.key, row]));
   const billedTo = (userId: string) =>
@@ -120,12 +122,22 @@ function wipeOf(world: {
   const batches: string[][] = [];
   /** Which bucket each key's delete was sent to. */
   const bucketOf = new Map<string, string>();
+  const copies = new Set(world.showcaseCopies ?? []);
   jest.spyOn(S3Client.prototype, 'send').mockImplementation(async (command: unknown) => {
+    // Deleting an account lists its showcases' copies, which no row records.
+    if (command instanceof ListObjectsV2Command) {
+      const prefix = command.input.Prefix ?? '';
+      return {
+        Contents: [...copies].filter((key) => key.startsWith(prefix)).map((Key) => ({ Key })),
+        IsTruncated: false,
+      };
+    }
     if (!(command instanceof DeleteObjectsCommand)) {
       throw new Error('A wipe should never ask the bucket for anything but a delete');
     }
     const keys = (command.input.Delete?.Objects ?? []).map((object) => object.Key ?? '');
     batches.push(keys);
+    for (const key of keys) copies.delete(key);
     for (const key of keys) bucketOf.set(key, command.input.Bucket ?? '');
     if (world.savedDuringWipe) coverUrl = world.savedDuringWipe;
     return {
@@ -439,6 +451,16 @@ describe('AccountService.remove and the profile cover', () => {
     await account.remove(PHOTOGRAPHER, PASSWORD);
     expect(billing.cancelBeforeDeletion).toHaveBeenCalledWith(PHOTOGRAPHER);
     expect(wipe.askedToDelete().length).toBeGreaterThan(0);
+  });
+
+  it("deletes their showcases' own copies, which have no file rows", async () => {
+    const copy = `users/${PHOTOGRAPHER}/showcases/22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333-thumb.webp`;
+    const { account, wipe } = accountOver({
+      files: [upload(PHOTOGRAPHER, 'ceremony')],
+      showcaseCopies: [copy],
+    });
+    await account.remove(PHOTOGRAPHER, PASSWORD);
+    expect(wipe.askedToDelete()).toContain(copy);
   });
 
   it('erases what they attached to support along with their library', async () => {

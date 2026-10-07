@@ -862,6 +862,34 @@ Storage: roughly 150–400 KB per photograph for both copies, against originals
 measured in megabytes. Bounded by *the sweep*, which evicts display copies as
 a set — half a `srcset` on disk would hand a client a URL that 404s.
 
+### Second generation — migration 091
+
+Two copies at quality 80 were too few and too soft for the people looking at
+them. Every phone drew the 2048 copy stretched to its full height, a 1800 px
+photograph opened at 1024, and a 900 px one opened as its original.
+
+- **Sizes** are 1024, 2048 and 3072 on the long edge, plus one at the
+  photograph's own long edge when that falls between them or below 1024
+  (`displaySizesFor`). Copies are still named `-<long edge>.webp`, so the
+  name can now be any number up to 3072; `removeFor` reads the folder to
+  find the odd ones, since a deleted row cannot say what they were.
+- **Quality** is 86.
+- **A HEIC or a TIFF keeps its copies** even when they come out larger than
+  the original: nothing can draw those as they are.
+- **The clients choose by need**: the copy that covers the screen's long edge
+  in the phone viewer, the original laid over it once a pinch passes 1.5x,
+  and a display copy in place of the thumbnail wherever a tile or a card
+  needs more than 640 px.
+
+`display_version` records the generation; null is everything before 091.
+DisplayBackfillService remakes those from their originals, one at a time and
+at most `DISPLAY_BACKFILL_PER_MINUTE` (default 10) a minute, oldest first,
+pausing while an upload is being processed. A file that fails is retried after
+30 minutes and 2 hours, then left at `display_version = -1`. The second
+generation is roughly four times the first on disk — about 0.6–1.6 MB a 12 MP
+photograph instead of 150–400 KB — which is worth a look at
+`MEDIA_CACHE_MAX_BYTES` before the backfill is far along.
+
 ---
 
 ## Phase 4 runbook — the adaptive ladder

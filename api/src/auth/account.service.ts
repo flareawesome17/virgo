@@ -171,6 +171,12 @@ export class AccountService {
       // the record, the way a deleted account's posts leave replies behind;
       // the files are theirs and go with them.
       filesDeleted += await this.supportFiles.eraseFor(userId);
+      // Their showcases' own copies, which have no file rows for the wipe
+      // above to find. The posts themselves go with the account's row.
+      const copies = await this.storage.deletePrefix(`users/${userId}/showcases/`);
+      if (copies.failed > 0) {
+        throw new Error(`${copies.failed} showcase copy object(s) could not be deleted`);
+      }
     } catch (err) {
       this.logger.error(`Delete aborted for ${userId}: ${String(err)}`);
       throw new BadRequestException(

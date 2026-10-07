@@ -7,6 +7,7 @@ import { HlsService } from './hls.service';
 import { MediaLinkService } from './media-link.service';
 import { MediaProcessingService } from './media-processing.service';
 import { MediaSweepService } from './media-sweep.service';
+import { DisplayBackfillService } from './display-backfill.service';
 import { SupportFilesService } from './support-files.service';
 
 @Module({
@@ -19,6 +20,7 @@ import { SupportFilesService } from './support-files.service';
     MediaProcessingService,
     HlsService,
     MediaSweepService,
+    DisplayBackfillService,
     SupportFilesService,
   ],
   // StorageConfig is exported so other modules can turn an object key into a

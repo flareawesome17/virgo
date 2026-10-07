@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, sep } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -46,17 +46,30 @@ export function proxyKeyFor(key: string): string {
 }
 
 /**
- * Long-edge widths generated for photographs, narrowest first.
+ * Long-edge sizes generated for photographs, narrowest first.
  *
- * Two, not a ladder. 1024 covers a phone lightbox and a grid tile at any
- * density; 2048 covers a laptop at 1x and a phone at 3x. Anything larger is
- * within a factor of two of the originals we are trying to stop sending, and
- * anything between them is a rounding error the browser picks by itself.
+ * 1024 is a tablet's grid tile and a small phone's lightbox; 2048 is a laptop
+ * at 1x; 3072 is a modern phone's screen at 3x — 932 pt tall on a Pro Max is
+ * 2796 px — with room left to zoom. It stopped at 2048 at first, on the theory
+ * that anything larger was within a factor of two of the originals, and that
+ * is exactly the gap photographers noticed: every phone drew the 2048 copy
+ * stretched to its full height, and a pinch magnified that.
  *
- * A source smaller than a width does not get that width — there is nothing to
- * gain by re-encoding a 900 px scan at 1024.
+ * Not the only sizes a photograph can have. A source between two of these, or
+ * below the first, also gets a copy at its own long edge — see
+ * `displaySizesFor` in thumbnails.service.ts — so the names on the volume are
+ * `-<long edge>.webp` for any number up to the last of these.
  */
-export const DISPLAY_WIDTHS = [1024, 2048] as const;
+export const DISPLAY_WIDTHS = [1024, 2048, 3072] as const;
+
+/**
+ * A display copy's file name, for the original whose name (extension dropped)
+ * is `base`: `abc-1800.webp`, or its staging file while it is written.
+ */
+function isDisplayCopyName(name: string, base: string): boolean {
+  if (!name.startsWith(`${base}-`)) return false;
+  return /^\d+\.webp(\.part)?$/.test(name.slice(base.length + 1));
+}
 
 /** `.../frame.jpg` → `.../frame-1024.webp`. */
 export function displayKeyFor(key: string, width: number): string {
@@ -349,6 +362,75 @@ export class MediaLinkService {
             `Could not remove rendition ${key}: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
+      }
+    }
+    await this.removeOddDisplayCopies(originalKeys);
+  }
+
+  /**
+   * Display copies `renditionKeysFor` cannot name.
+   *
+   * A photograph between two DISPLAY_WIDTHS also has a copy at its own long
+   * edge — `-1800.webp` — and that number is in its row, not in its name, and
+   * the row is gone by the time this runs. So the folder is read instead: once
+   * per folder, not once per photograph, since deleting an album sends a few
+   * hundred originals from the same month's folder at a time.
+   */
+  private async removeOddDisplayCopies(originalKeys: readonly string[]): Promise<void> {
+    const byFolder = new Map<string, Set<string>>();
+    for (const original of originalKeys) {
+      if (!this.isSafeKey(original)) continue;
+      const at = original.lastIndexOf('/');
+      const folder = at === -1 ? '' : original.slice(0, at);
+      const base = original.slice(at + 1).replace(/\.[^./]+$/, '');
+      if (!base) continue;
+      const bases = byFolder.get(folder) ?? new Set<string>();
+      bases.add(base);
+      byFolder.set(folder, bases);
+    }
+
+    for (const [folder, bases] of byFolder) {
+      let names: string[];
+      try {
+        names = await readdir(folder ? this.pathFor(folder) : this.root);
+      } catch {
+        // No folder is no copies, which is the usual case for anything that
+        // is not a photograph.
+        continue;
+      }
+      for (const name of names) {
+        const dash = name.lastIndexOf('-');
+        if (dash <= 0 || !bases.has(name.slice(0, dash))) continue;
+        if (!isDisplayCopyName(name, name.slice(0, dash))) continue;
+        const key = folder ? `${folder}/${name}` : name;
+        try {
+          await rm(this.pathFor(key), { force: true });
+        } catch (error) {
+          this.logger.warn(
+            `Could not remove rendition ${key}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Removes the named display copies of one original, and only those.
+   *
+   * For a photograph whose copies were made again and came out as a different
+   * set — a width the old set had and the new one does not would otherwise sit
+   * on the volume with nothing pointing at it. Never throws, like `removeFor`.
+   */
+  async removeDisplayCopies(original: string, widths: readonly number[]): Promise<void> {
+    for (const width of widths) {
+      const key = displayKeyFor(original, width);
+      if (!this.isSafeKey(key)) continue;
+      try {
+        await rm(this.pathFor(key), { force: true });
+      } catch (error) {
+        this.logger.warn(
+          `Could not remove rendition ${key}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
   }

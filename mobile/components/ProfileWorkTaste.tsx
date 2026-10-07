@@ -1,11 +1,18 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  PixelRatio,
+  Pressable,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { router } from 'expo-router';
 import { BookmarkIcon, ImageIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
-import { RemoteImage } from '@/components/RemoteImage';
+import { RemoteImage, stableCacheKey } from '@/components/RemoteImage';
 import {
   useMyShowcases,
   useProfileTaste,
@@ -13,11 +20,36 @@ import {
   useShelves,
   useTheme,
 } from '@/src/hooks';
-import { showcaseStatus, type ShowcaseStatus } from '@/src/api';
+import {
+  longEdgeToCover,
+  pieceSource,
+  showcaseStatus,
+  THUMBNAIL_EDGE,
+  type ShowcasePiece,
+  type ShowcaseStatus,
+} from '@/src/api';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [BookmarkIcon, ImageIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
+
+/** A work card's height, in points. */
+const CARD_HEIGHT = 132;
+
+/**
+ * The still for a work card: the piece's 640 px thumbnail, or a display copy
+ * once the card needs more pixels than that.
+ *
+ * A card is half the screen across and cropped to its height, so a portrait
+ * photograph has to cover the card's width with its short edge. On a phone at
+ * 3x that is already more than the thumbnail has, and it was drawn stretched.
+ */
+function cardStill(piece: ShowcasePiece | undefined, cardWidth: number): string | undefined {
+  if (!piece) return undefined;
+  const ratio = PixelRatio.get();
+  const need = longEdgeToCover(piece, cardWidth * ratio, CARD_HEIGHT * ratio);
+  return need > THUMBNAIL_EDGE ? pieceSource(piece, need) : piece.url;
 }
 
 /**
@@ -46,6 +78,9 @@ export function ProfileWorkTaste({
   firstName: string;
 }) {
   const [tab, setTab] = useState<'work' | 'taste'>('work');
+  const { width: screenWidth } = useWindowDimensions();
+  // Two across, inside the 20 pt margins and the 8 pt gap.
+  const cardWidth = (screenWidth - 40) * 0.48;
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
@@ -99,12 +134,8 @@ export function ProfileWorkTaste({
                 accessibilityLabel={showcase.title ?? 'Open this showcase'}
                 style={{ width: '48%' }}
               >
-                <View className="rounded-xl overflow-hidden bg-muted" style={{ height: 132 }}>
-                  <RemoteImage
-                    source={{ uri: showcase.pieces[0]?.url }}
-                    style={{ width: '100%', height: 132 }}
-                    contentFit="cover"
-                  />
+                <View className="rounded-xl overflow-hidden bg-muted" style={{ height: CARD_HEIGHT }}>
+                  <WorkCardStill piece={showcase.pieces[0]} width={cardWidth} />
                   {isSelf && <StatusBadge status={showcaseStatus(showcase)} />}
                   {showcase.pieces.length > 1 && (
                     <View
@@ -266,5 +297,24 @@ function StatusBadge({ status }: { status: ShowcaseStatus }) {
         {label}
       </Text>
     </View>
+  );
+}
+
+/** A work card's picture, with its thumbnail under a display copy while that loads. */
+function WorkCardStill({ piece, width }: { piece: ShowcasePiece | undefined; width: number }) {
+  const uri = cardStill(piece, width);
+  const thumbnail = piece?.url;
+  return (
+    <RemoteImage
+      source={{ uri }}
+      placeholder={
+        thumbnail && uri !== thumbnail
+          ? { uri: thumbnail, cacheKey: stableCacheKey(thumbnail) }
+          : undefined
+      }
+      placeholderContentFit="cover"
+      style={{ width: '100%', height: CARD_HEIGHT }}
+      contentFit="cover"
+    />
   );
 }

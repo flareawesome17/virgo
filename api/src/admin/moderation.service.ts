@@ -52,10 +52,10 @@ const ALL_REPORTS = `
 
 /** A showcase's first picture or poster frame, for a moderator to look at. */
 const SHOWCASE_THUMB = `
-  (select coalesce(f.thumb_key, f.poster_key)
+  (select coalesce(si.thumb_key, f.thumb_key, f.poster_key)
      from showcase_items si
-     join user_files f on f.key = si.file_key and f.user_id = si.user_id
-    where si.showcase_id = s.id and coalesce(f.thumb_key, f.poster_key) is not null
+     left join user_files f on f.key = si.file_key and f.user_id = si.user_id
+    where si.showcase_id = s.id and coalesce(si.thumb_key, f.thumb_key, f.poster_key) is not null
     order by si.position, si.created_at
     limit 1)`;
 
@@ -503,9 +503,9 @@ export class ModerationService {
     if (!showcase) return null;
     const [pieces, comments] = await Promise.all([
       this.db.query<{ key: string | null }>(
-        `select coalesce(f.thumb_key, f.poster_key) as key
+        `select coalesce(si.thumb_key, f.thumb_key, f.poster_key) as key
            from showcase_items si
-           join user_files f on f.key = si.file_key and f.user_id = si.user_id
+           left join user_files f on f.key = si.file_key and f.user_id = si.user_id
           where si.showcase_id = $1
           order by si.position, si.created_at
           limit 8`,

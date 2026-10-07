@@ -116,15 +116,15 @@ export class ShelvesService {
                 -- have taken others down since, or shown them to connections
                 -- only. A photograph shows its thumbnail and a film its poster
                 -- frame; on a shelf tile they are the same thing, a still.
-                select coalesce(f.thumb_key, f.poster_key)
+                select coalesce(si.thumb_key, f.thumb_key, f.poster_key)
                   from shelf_items li
                   join showcases sc on sc.id = li.showcase_id
                   join users mu on mu.id = sc.user_id
                   join showcase_items si on si.showcase_id = sc.id
-                  join user_files f on f.key = si.file_key and f.user_id = si.user_id
+                  left join user_files f on f.key = si.file_key and f.user_id = si.user_id
                  where li.shelf_id = sh.id
                    and ${keptVisibleTo('$3', 'sc', 'mu')}
-                   and coalesce(f.thumb_key, f.poster_key) is not null
+                   and coalesce(si.thumb_key, f.thumb_key, f.poster_key) is not null
                  order by li.created_at desc, si.position
                  limit 1
               ) as cover_thumb_key,
@@ -213,11 +213,11 @@ export class ShelvesService {
               case when u.public_profile then u.handle end as handle,
               s.title, s.craft_tags,
               (
-                select coalesce(f.thumb_key, f.poster_key)
+                select coalesce(si.thumb_key, f.thumb_key, f.poster_key)
                   from showcase_items si
-                  join user_files f on f.key = si.file_key and f.user_id = si.user_id
+                  left join user_files f on f.key = si.file_key and f.user_id = si.user_id
                  where si.showcase_id = s.id
-                   and coalesce(f.thumb_key, f.poster_key) is not null
+                   and coalesce(si.thumb_key, f.thumb_key, f.poster_key) is not null
                  order by si.position, si.created_at
                  limit 1
               ) as thumb_key

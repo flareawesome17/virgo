@@ -3,7 +3,7 @@
 
 import { useMemo, type DragEvent, type MouseEvent } from 'react';
 import { Check, FileText, Heart, Music, Play, Video } from 'lucide-react';
-import { kindOf, type StoredFile } from '@/api';
+import { kindOf, THUMBNAIL_EDGE, type StoredFile } from '@/api';
 import { daySpan, groupByDay } from '@/lib/media-days';
 import { cn } from '@/lib/utils';
 import type { useSelection } from '@/hooks/useMediaSelection';
@@ -17,6 +17,43 @@ const TILE: Record<Density, string> = {
   comfortable: 'grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-2',
   compact: 'grid-cols-[repeat(auto-fill,minmax(6.75rem,1fr))] gap-1',
 };
+
+/**
+ * How wide a tile is drawn, for choosing among its pictures.
+ *
+ * `auto` is the tile's real width, where the browser knows it — Chromium,
+ * for a lazy image. Elsewhere the length after it stands in: the column's
+ * minimum with room for the stretch an auto-fill grid gives it.
+ */
+const TILE_SIZES: Record<Density, string> = {
+  comfortable: 'auto, 14rem',
+  compact: 'auto, 9rem',
+};
+
+/**
+ * A `srcset` for a square, cropped tile: the thumbnail and every display copy,
+ * each described by its SHORT edge.
+ *
+ * Cropped square, the short edge is what has to cover the tile, so that is
+ * the width the browser should weigh — it then takes the thumbnail while that
+ * covers the tile at the screen's density and a display copy once it does
+ * not. On a large or high-density screen the thumbnail was drawn stretched.
+ * Undefined when the photograph's size is unknown, and the thumbnail alone
+ * is drawn as before.
+ */
+function tileSrcSet(file: StoredFile): string | undefined {
+  const { width, height } = file;
+  if (!width || !height) return undefined;
+  const long = Math.max(width, height);
+  const shortOf = (edge: number) => Math.max(1, Math.round((edge * Math.min(width, height)) / long));
+  const candidates = [
+    ...(file.thumbnailUrl
+      ? [`${file.thumbnailUrl} ${shortOf(Math.min(THUMBNAIL_EDGE, long))}w`]
+      : []),
+    ...file.displaySources.map((source) => `${source.url} ${shortOf(source.width)}w`),
+  ];
+  return candidates.length > 1 ? candidates.join(', ') : undefined;
+}
 
 function clock(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -121,6 +158,7 @@ export function AlbumGrid({
                 <Tile
                   key={file.key}
                   file={file}
+                  sizes={TILE_SIZES[density]}
                   index={day.start + offset}
                   chosen={selection.has(file.key)}
                   selecting={selecting}
@@ -141,6 +179,7 @@ export function AlbumGrid({
 
 function Tile({
   file,
+  sizes,
   index,
   chosen,
   selecting,
@@ -151,6 +190,8 @@ function Tile({
   onDragStart,
 }: {
   file: StoredFile;
+  /** The tile's drawn width, as an `<img sizes>` value. */
+  sizes: string;
   index: number;
   chosen: boolean;
   selecting: boolean;
@@ -162,6 +203,7 @@ function Tile({
 }) {
   const kind = kindOf(file.contentType);
   const still = kind === 'video' ? file.posterUrl : kind === 'image' ? (file.thumbnailUrl ?? file.url) : null;
+  const srcSet = kind === 'image' ? tileSrcSet(file) : undefined;
   const what = kind === 'image' ? 'Photograph' : kind === 'video' ? 'Film' : kind === 'audio' ? 'Recording' : 'File';
   const name = file.mediaTitle || file.originalName;
 
@@ -182,6 +224,8 @@ function Tile({
         {still ? (
           <img
             src={still}
+            srcSet={srcSet}
+            sizes={srcSet ? sizes : undefined}
             alt=""
             loading="lazy"
             decoding="async"
