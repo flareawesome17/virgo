@@ -6,6 +6,11 @@ import {
   type MoneyEntryInput,
   type MoneyEntryPatch,
   type MoneyListParams,
+  type MoneyPackage,
+  type MoneyPackageInput,
+  type MoneyPackagePatch,
+  type MoneyPayMethod,
+  type MoneyPayMethodInput,
   type MoneySuggestion,
 } from '@/src/api';
 
@@ -176,6 +181,100 @@ export function useDismissMoneySuggestion() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.money.all });
     },
   });
+}
+
+/** Your packages: `open` for the ones still owed on. */
+export function useMoneyPackages(status: 'open' | 'all' = 'all', options: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.money.packages(status),
+    queryFn: () => moneyApi.packages(status),
+    enabled: options.enabled ?? true,
+  });
+  return {
+    ...query,
+    packages: query.data ?? ([] as MoneyPackage[]),
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+/** One package and its payments. */
+export function useMoneyPackage(id: string | undefined) {
+  const query = useQuery({
+    queryKey: queryKeys.money.package(id ?? ''),
+    queryFn: () => moneyApi.getPackage(id as string),
+    enabled: !!id,
+  });
+  return {
+    ...query,
+    pkg: query.data?.package,
+    entries: query.data?.entries ?? ([] as MoneyEntry[]),
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+/**
+ * Package writes. Each moves the ledger as well — a plan writes payments,
+ * deleting takes the ones still due — so all of `money` is refetched.
+ */
+function useMoneyWrite<TArgs, TResult>(fn: (args: TArgs) => Promise<TResult>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.money.all });
+    },
+  });
+}
+
+export function useCreateMoneyPackage() {
+  return useMoneyWrite((input: MoneyPackageInput) => moneyApi.createPackage(input));
+}
+
+export function useUpdateMoneyPackage() {
+  return useMoneyWrite(({ id, ...patch }: MoneyPackagePatch & { id: string }) =>
+    moneyApi.updatePackage(id, patch),
+  );
+}
+
+export function useDeleteMoneyPackage() {
+  return useMoneyWrite((id: string) => moneyApi.deletePackage(id));
+}
+
+/** Turns the statement link on and gives it back, to share. */
+export function useShareMoneyPackage() {
+  return useMoneyWrite((id: string) => moneyApi.sharePackage(id));
+}
+
+export function useUnshareMoneyPackage() {
+  return useMoneyWrite((id: string) => moneyApi.unsharePackage(id));
+}
+
+/** How clients pay you. */
+export function useMoneyPayMethods(options: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.money.payMethods,
+    queryFn: () => moneyApi.payMethods(),
+    enabled: options.enabled ?? true,
+  });
+  return {
+    ...query,
+    payMethods: query.data ?? ([] as MoneyPayMethod[]),
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+export function useCreateMoneyPayMethod() {
+  return useMoneyWrite((input: MoneyPayMethodInput) => moneyApi.createPayMethod(input));
+}
+
+export function useUpdateMoneyPayMethod() {
+  return useMoneyWrite(({ id, ...patch }: Partial<MoneyPayMethodInput> & { id: string }) =>
+    moneyApi.updatePayMethod(id, patch),
+  );
+}
+
+export function useDeleteMoneyPayMethod() {
+  return useMoneyWrite((id: string) => moneyApi.deletePayMethod(id));
 }
 
 /** A five-minute link to a range as a CSV, for the browser to save. */

@@ -22,11 +22,13 @@ import {
   todayIso,
   type MoneyEntry,
   type MoneyKind,
+  type MoneyPackage,
   type MoneySuggestion,
 } from '@/src/api';
 import {
   useDismissMoneySuggestion,
   useMoneyEntries,
+  useMoneyPackages,
   useMoneyExport,
   useMoneySuggestions,
   useMoneySummary,
@@ -37,6 +39,7 @@ import { CardListSkeleton, EmptyState, FilterChip, PressableScale, ScreenHeader 
 import { LoadFailed } from '@/components/LoadFailed';
 import { MoneyRow, rowOf, rowOfQueued } from '@/components/money/MoneyRow';
 import { SuggestionRow } from '@/components/money/SuggestionRow';
+import { PackageRow } from '@/components/money/PackageRow';
 import { discardQueuedMoneyEntry, useMoneyOutbox, type QueuedMoneyEntry } from '@/src/lib/money-outbox';
 import { PALETTES } from '@/theme';
 
@@ -49,7 +52,8 @@ type Filter = 'all' | MoneyKind;
 type Item =
   | { type: 'entry'; entry: MoneyEntry }
   | { type: 'queued'; queued: QueuedMoneyEntry }
-  | { type: 'suggestion'; suggestion: MoneySuggestion };
+  | { type: 'suggestion'; suggestion: MoneySuggestion }
+  | { type: 'package'; pkg: MoneyPackage };
 
 interface Section {
   key: string;
@@ -111,6 +115,7 @@ export default function MoneyScreen() {
   const unpaid = useMoneyEntries({ unpaid: true, kind, limit: 100 });
   const queued = useMoneyOutbox();
   const offers = useMoneySuggestions();
+  const owed = useMoneyPackages('open');
   const dismiss = useDismissMoneySuggestion();
   const update = useUpdateMoneyEntry();
   const exporter = useMoneyExport();
@@ -133,6 +138,15 @@ export default function MoneyScreen() {
         key: 'queued',
         title: 'Saved on this phone',
         data: waiting.map((q) => ({ type: 'queued' as const, queued: q })),
+      });
+    }
+    // Packages with something still owed: what each client has left to pay.
+    // Income only, so not under Expenses.
+    if (kind !== 'expense' && owed.packages.length > 0) {
+      out.push({
+        key: 'packages',
+        title: 'Who owes you',
+        data: owed.packages.map((pkg) => ({ type: 'package' as const, pkg })),
       });
     }
     if (unpaid.entries.length > 0) {
@@ -162,7 +176,7 @@ export default function MoneyScreen() {
       });
     }
     return out;
-  }, [offers.suggestions, queued, unpaid.entries, unpaid.total, list.entries, kind, today]);
+  }, [offers.suggestions, owed.packages, queued, unpaid.entries, unpaid.total, list.entries, kind, today]);
 
   const markPaid = useCallback(
     (entry: MoneyEntry) =>
@@ -207,7 +221,7 @@ export default function MoneyScreen() {
 
   const refresh = async () => {
     setRefreshing(true);
-    await Promise.all([summary.refetch(), list.refetch(), unpaid.refetch(), offers.refetch()]);
+    await Promise.all([summary.refetch(), list.refetch(), unpaid.refetch(), offers.refetch(), owed.refetch()]);
     setRefreshing(false);
   };
 
@@ -297,7 +311,24 @@ export default function MoneyScreen() {
         </PressableScale>
       </View>
 
-      <View className="px-5 mt-4 flex-row gap-2">
+      <View className="px-5 mt-2 flex-row items-center justify-between">
+        <Pressable
+          onPress={() => router.push('/money/packages/new')}
+          accessibilityRole="button"
+          className="min-h-10 justify-center active:opacity-60"
+        >
+          <Text className="text-primary text-[13px] font-bold">New package — total, deposit, balance</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push('/money/pay-methods')}
+          accessibilityRole="button"
+          className="min-h-10 justify-center active:opacity-60"
+        >
+          <Text className="text-muted-foreground text-[13px] font-semibold">How clients pay</Text>
+        </Pressable>
+      </View>
+
+      <View className="px-5 mt-2 flex-row gap-2">
         <FilterChip label="All" on={filter === 'all'} onPress={() => setFilter('all')} />
         <FilterChip label="Income" on={filter === 'income'} onPress={() => setFilter('income')} />
         <FilterChip label="Expenses" on={filter === 'expense'} onPress={() => setFilter('expense')} />
@@ -334,7 +365,9 @@ export default function MoneyScreen() {
             ? item.entry.id
             : item.type === 'queued'
               ? `q-${item.queued.input.id}`
-              : `s-${item.suggestion.bookingId}`
+              : item.type === 'suggestion'
+                ? `s-${item.suggestion.bookingId}`
+                : `p-${item.pkg.id}`
         }
         stickySectionHeadersEnabled={false}
         ListHeaderComponent={header}
@@ -353,6 +386,19 @@ export default function MoneyScreen() {
         renderItem={({ item, index, section }) => {
           const first = index === 0;
           const last = index === section.data.length - 1;
+          if (item.type === 'package') {
+            const pkg = item.pkg;
+            return (
+              <View className="px-5">
+                <PackageRow
+                  pkg={pkg}
+                  first={first}
+                  last={last}
+                  onPress={() => router.push(`/money/packages/${pkg.id}`)}
+                />
+              </View>
+            );
+          }
           if (item.type === 'suggestion') {
             const offer = item.suggestion;
             return (

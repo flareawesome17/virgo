@@ -19,6 +19,7 @@ import {
   HandCoins,
   ImagePlus,
   Images,
+  NotebookPen,
   Plus,
   Receipt,
 } from 'lucide-react';
@@ -39,6 +40,7 @@ import { NewAlbumDialog } from '@/components/new-album-dialog';
 import { EventDialog } from '@/components/schedule/event-dialog';
 import { NewReminderDialog } from '@/components/schedule/reminder-dialog';
 import { MoneyEntryDialog } from '@/components/money/money-entry-dialog';
+import { PackageDialog } from '@/components/money/package-dialog';
 import { useUsage } from '@/hooks/useUsage';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { DiscardScope, isPageDirty, leaveIfDiscarded } from '@/lib/discard-guard';
@@ -54,7 +56,8 @@ export type CreateKind =
   | 'event'
   | 'reminder'
   | 'income'
-  | 'expense';
+  | 'expense'
+  | 'package';
 
 interface CreateItem {
   kind: CreateKind;
@@ -97,6 +100,7 @@ const GROUPS: { title: string; items: CreateItem[] }[] = [
     items: [
       { kind: 'income', label: 'Income', detail: 'A fee, a deposit, a balance paid', icon: HandCoins },
       { kind: 'expense', label: 'Expense', detail: 'Transport, meals, crew, gear', icon: Receipt },
+      { kind: 'package', label: 'Package', detail: "A client's total, deposit and balance", icon: NotebookPen },
     ],
   },
 ];
@@ -240,6 +244,11 @@ export function CreateProvider({ children }: { children: ReactNode }) {
           open={openKind === 'income' || openKind === 'expense'}
           onOpenChange={close}
           kind={openKind === 'income' ? 'income' : 'expense'}
+        />
+        <PackageDialog
+          open={openKind === 'package'}
+          onOpenChange={close}
+          onCreated={(pkg) => created('Package', `/money/packages/${pkg.id}`)}
         />
       </DiscardScope>
     </CreateContext.Provider>

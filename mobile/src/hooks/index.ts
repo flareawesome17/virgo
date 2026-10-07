@@ -250,6 +250,17 @@ export {
   useMoneySuggestions,
   useMoneyForBooking,
   useDismissMoneySuggestion,
+  useMoneyPackages,
+  useMoneyPackage,
+  useCreateMoneyPackage,
+  useUpdateMoneyPackage,
+  useDeleteMoneyPackage,
+  useShareMoneyPackage,
+  useUnshareMoneyPackage,
+  useMoneyPayMethods,
+  useCreateMoneyPayMethod,
+  useUpdateMoneyPayMethod,
+  useDeleteMoneyPayMethod,
 } from './useMoney';
 
 export {

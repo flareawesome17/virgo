@@ -114,6 +114,7 @@ const TOPICS: Record<NotificationTopic, { keys: readonly (readonly unknown[])[] 
   support: { keys: [queryKeys.support.all] },
   // Confirming or cancelling one moves the jobs-done count on your own page.
   booking: { keys: [queryKeys.bookings.all, queryKeys.profile.page] },
+  money: { keys: [queryKeys.money.all] },
   // Accepting also connects the two and opens a chat.
   'job-response': {
     keys: [

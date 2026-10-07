@@ -33,6 +33,7 @@ import {
   useDeleteMoneyEntry,
   useMoneyEntry,
   useMoneyForBooking,
+  useMoneyPackage,
   useUpdateMoneyEntry,
 } from '@/src/hooks';
 import { DateTimeField } from '@/components';
@@ -40,9 +41,9 @@ import { DetailFallback } from '@/components/DetailFallback';
 import { FormHeader } from '@/components/FormHeader';
 import { InsetFrame } from '@/components/InsetFrame';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
-import { PressableScale } from '@/components/PressableScale';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { categoryIcon } from '@/components/money/icons';
+import { CARD_SHADOW, Choice, Label } from '@/components/money/FormBits';
 import { ReceiptField, draftOf, receiptBusy, type ReceiptDraft } from '@/components/money/ReceiptField';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { queueMoneyEntry } from '@/src/lib/money-outbox';
@@ -50,56 +51,6 @@ import { newClientId } from '@/src/lib/outbox';
 
 for (const Icon of [ToggleLeftIcon, ToggleRightIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-}
-
-const CARD_SHADOW = {
-  shadowColor: '#000',
-  shadowOpacity: 0.03,
-  shadowRadius: 6,
-  shadowOffset: { width: 0, height: 2 },
-  elevation: 2,
-} as const;
-
-function Label({ children, optional }: { children: string; optional?: boolean }) {
-  return (
-    <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-      {children}
-      {optional ? (
-        <Text className="font-medium normal-case tracking-normal"> (optional)</Text>
-      ) : null}
-    </Text>
-  );
-}
-
-/** A small choice in a wrapping row: a category, a way of paying. */
-function Choice({
-  label,
-  on,
-  onPress,
-  icon: Icon,
-}: {
-  label: string;
-  on: boolean;
-  onPress: () => void;
-  icon?: ReturnType<typeof categoryIcon>;
-}) {
-  return (
-    <PressableScale
-      onPress={onPress}
-      scaleTo={0.95}
-      hitSlop={{ top: 4, bottom: 4 }}
-      accessibilityRole="button"
-      accessibilityState={{ selected: on }}
-      className={`h-10 flex-row items-center gap-1.5 rounded-full px-3.5 ${
-        on ? 'bg-foreground' : 'bg-card border border-border'
-      }`}
-    >
-      {Icon ? <Icon size={15} className={on ? 'text-background' : 'text-muted-foreground'} /> : null}
-      <Text className={`text-[13px] ${on ? 'text-background font-bold' : 'text-foreground font-medium'}`}>
-        {label}
-      </Text>
-    </PressableScale>
-  );
 }
 
 /**
@@ -117,13 +68,18 @@ export default function MoneyEntryScreen() {
     kind: kindParam,
     edit: editId,
     booking: bookingParam,
-  } = useLocalSearchParams<{ kind?: string; edit?: string; booking?: string }>();
+    package: packageParam,
+  } = useLocalSearchParams<{ kind?: string; edit?: string; booking?: string; package?: string }>();
   const isEdit = Boolean(editId);
   const { entry: existing, error: existingError, loadFailed, refetch } = useMoneyEntry(editId);
   // The booking's offer, when opened from one. Once recorded or turned down
   // there is none, and this is an ordinary new entry.
   const offerQuery = useMoneyForBooking(isEdit ? undefined : bookingParam);
   const offer = offerQuery.suggestion;
+  // A payment toward a package, when opened from one: filled in with what is
+  // left, and linked to it.
+  const packageQuery = useMoneyPackage(isEdit ? undefined : packageParam);
+  const toward = packageQuery.pkg;
 
   // Made once, before the first attempt, and kept across every retry.
   const [id] = useState(() => editId ?? newClientId());
@@ -177,11 +133,24 @@ export default function MoneyEntryScreen() {
     setNote(offer.note);
   }, [offer]);
 
+  useEffect(() => {
+    if (!toward || filled.current) return;
+    filled.current = true;
+    setKind('income');
+    const amountLeft = toward.unscheduledMinor > 0 ? toward.unscheduledMinor : toward.balanceMinor;
+    setAmount(amountLeft > 0 ? minorToPesos(amountLeft) : '');
+    setCategory('job');
+    setCounterparty(toward.clientName ?? '');
+    setNote(`${toward.title} · Payment`);
+  }, [toward]);
+
   // What the form held once it was filled — or, from a booking with nothing
   // left to offer, once that was known — is what "changed" is measured from.
   const ready = isEdit
     ? filled.current
-    : !bookingParam || filled.current || (offerQuery.isFetched && !offer);
+    : packageParam
+      ? filled.current || (packageQuery.isFetched && !toward)
+      : !bookingParam || filled.current || (offerQuery.isFetched && !offer);
   const { allowLeave } = useDiscardGuard(
     {
       kind, amount, category, date: date.getTime(), paid, paidOn: paidOn?.getTime() ?? null,
@@ -288,6 +257,7 @@ export default function MoneyEntryScreen() {
       ...fields,
       ...(receipt?.id ? { receiptId: receipt.id } : {}),
       ...(offer ? { bookingId: offer.bookingId } : {}),
+      ...(toward ? { packageId: toward.id } : {}),
     };
     // No signal: kept on the phone, and sent when there is one.
     if (!onlineManager.isOnline()) {
@@ -343,6 +313,8 @@ export default function MoneyEntryScreen() {
   const title = isEdit ? 'Edit entry' : income ? 'New income' : 'New expense';
   // The booking it is for, or came from.
   const fromBooking = isEdit ? (existing?.booking ?? null) : offer;
+  // The package it is a payment toward.
+  const inPackage = isEdit ? (existing?.package ?? null) : (toward ?? null);
   const paidLabel = income ? 'Received' : 'Paid';
   const paidHint = paid
     ? income
@@ -356,7 +328,9 @@ export default function MoneyEntryScreen() {
     <InsetFrame>
       <FormHeader
         title={title}
-        subtitle={fromBooking ? bookingLabel(fromBooking) : undefined}
+        subtitle={
+          inPackage ? `Payment for ${inPackage.title}` : fromBooking ? bookingLabel(fromBooking) : undefined
+        }
         action={{ label: 'Save', onPress: save, busy: saving }}
       />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">

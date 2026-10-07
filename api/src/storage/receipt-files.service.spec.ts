@@ -11,7 +11,7 @@ function harness(options: {
   configured?: boolean;
   loose?: number;
   kept?: number;
-  found?: { key: string; entry_id: string | null } | null;
+  found?: { key: string; held: boolean } | null;
   head?: { size: number } | null;
 } = {}) {
   const queries: { sql: string; args?: unknown[] }[] = [];
@@ -20,8 +20,8 @@ function harness(options: {
       queries.push({ sql, args });
       if (sql.includes('count(*)')) return { loose: options.loose ?? 0, kept: options.kept ?? 0 };
       if (sql.includes('insert into money_receipts')) return { id: 'receipt-1' };
-      if (sql.startsWith('select key, entry_id')) {
-        return options.found === undefined ? { key: 'receipts/2026/10/x.jpg', entry_id: null } : options.found;
+      if (sql.startsWith('select key,')) {
+        return options.found === undefined ? { key: 'receipts/2026/10/x.jpg', held: false } : options.found;
       }
       return null;
     }),
@@ -85,25 +85,25 @@ describe('ReceiptFilesService.createUpload', () => {
 describe('ReceiptFilesService.verify', () => {
   it("looks only at the caller's own receipt", async () => {
     const { files, queries } = harness();
-    await files.verify('u1', 'receipt-1', 'entry-1');
-    const select = queries.find((q) => q.sql.startsWith('select key, entry_id'))!;
+    await files.verify('u1', 'receipt-1', { entryId: 'entry-1' });
+    const select = queries.find((q) => q.sql.startsWith('select key,'))!;
     expect(select.sql).toContain('user_id = $2');
     expect(select.args).toEqual(['receipt-1', 'u1', 'entry-1']);
   });
 
   it('refuses one that expired or was never theirs', async () => {
     const { files } = harness({ found: null });
-    await expect(files.verify('u1', 'receipt-1', 'entry-1')).rejects.toThrow('expired');
+    await expect(files.verify('u1', 'receipt-1', { entryId: 'entry-1' })).rejects.toThrow('expired');
   });
 
   it('refuses one whose bytes never arrived', async () => {
     const { files } = harness({ head: null });
-    await expect(files.verify('u1', 'receipt-1', 'entry-1')).rejects.toThrow("didn't finish uploading");
+    await expect(files.verify('u1', 'receipt-1', { entryId: 'entry-1' })).rejects.toThrow("didn't finish uploading");
   });
 
   it('does not ask the bucket again about a receipt already on this entry', async () => {
-    const { files, storage } = harness({ found: { key: 'receipts/2026/10/x.jpg', entry_id: 'entry-1' } });
-    await files.verify('u1', 'receipt-1', 'entry-1');
+    const { files, storage } = harness({ found: { key: 'receipts/2026/10/x.jpg', held: true } });
+    await files.verify('u1', 'receipt-1', { entryId: 'entry-1' });
     expect(storage.headServerObject).not.toHaveBeenCalled();
   });
 });
@@ -123,7 +123,7 @@ describe('ReceiptFilesService.attach', () => {
   it("lets go of the entry's old receipt and takes the new one", async () => {
     const { files } = harness();
     const { client, calls } = tx(1);
-    await files.attach(client, 'u1', 'entry-1', 'receipt-2');
+    await files.attach(client, 'u1', { entryId: 'entry-1' }, 'receipt-2');
     expect(calls[0].sql).toContain('set entry_id = null');
     expect(calls[0].args).toEqual(['entry-1', 'u1', 'receipt-2']);
     expect(calls[1].args).toEqual(['entry-1', 'u1', 'receipt-2']);
@@ -132,15 +132,32 @@ describe('ReceiptFilesService.attach', () => {
   it('only lets go when the receipt is removed', async () => {
     const { files } = harness();
     const { client, calls } = tx(0);
-    await files.attach(client, 'u1', 'entry-1', null);
+    await files.attach(client, 'u1', { entryId: 'entry-1' }, null);
     expect(calls).toHaveLength(1);
   });
 
-  it('refuses a receipt that is already on another entry', async () => {
+  it('refuses a file that is already held elsewhere', async () => {
     const { files } = harness();
     const { client } = tx(0);
-    await expect(files.attach(client, 'u1', 'entry-1', 'receipt-2')).rejects.toThrow(
-      'already on another entry',
+    await expect(files.attach(client, 'u1', { entryId: 'entry-1' }, 'receipt-2')).rejects.toThrow(
+      'already in use elsewhere',
     );
+  });
+});
+
+describe('ReceiptFilesService and payment-method QR codes', () => {
+  it('checks and attaches a QR code against the method, not an entry', async () => {
+    const { files, queries } = harness();
+    await files.verify('u1', 'receipt-1', { payMethodId: 'method-1' });
+    const select = queries.find((q) => q.sql.startsWith('select key,'))!;
+    expect(select.sql).toContain('pay_method_id = $3::uuid');
+    expect(select.args).toEqual(['receipt-1', 'u1', 'method-1']);
+  });
+
+  it('never sweeps a file a payment method holds', async () => {
+    const { files, db } = harness();
+    await files.sweep();
+    const [sql] = db.query.mock.calls[0] as unknown as [string];
+    expect(sql).toContain('entry_id is null and pay_method_id is null');
   });
 });

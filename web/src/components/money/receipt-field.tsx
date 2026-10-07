@@ -54,10 +54,18 @@ export function ReceiptField({
   value,
   onChange,
   disabled,
+  label = 'Add receipt',
+  hint = 'A photo or a PDF, up to 10 MB',
+  imagesOnly = false,
 }: {
   value: ReceiptDraft | null;
   onChange: (next: ReceiptDraft | null) => void;
   disabled?: boolean;
+  /** What the empty field says: a receipt, or a payment method's QR code. */
+  label?: string;
+  hint?: string;
+  /** A QR code is a picture; offer no PDF. */
+  imagesOnly?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const attempt = useRef(0);
@@ -129,7 +137,7 @@ export function ReceiptField({
     <input
       ref={input}
       type="file"
-      accept="image/jpeg,image/png,image/webp,application/pdf"
+      accept={imagesOnly ? 'image/jpeg,image/png,image/webp' : 'image/jpeg,image/png,image/webp,application/pdf'}
       className="hidden"
       onChange={picked}
     />
@@ -147,8 +155,8 @@ export function ReceiptField({
         >
           <Receipt className="size-4 text-muted-foreground" aria-hidden />
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold">Add receipt</span>
-            <span className="block text-xs text-muted-foreground">A photo or a PDF, up to 10 MB</span>
+            <span className="block text-sm font-semibold">{label}</span>
+            <span className="block text-xs text-muted-foreground">{hint}</span>
           </span>
         </button>
       </>

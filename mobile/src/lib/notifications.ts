@@ -695,6 +695,8 @@ export interface NotificationPayload {
   workspaceId?: string;
   fromUserId?: string;
   bookingId?: string;
+  /** For 'money': the package a payment due or late is toward. */
+  packageId?: string;
   /** For 'job_application': the post it is on, opened with its applicants. */
   postId?: string;
   /** The stored notification this push is, to mark read when it is opened. */

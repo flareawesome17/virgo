@@ -45,9 +45,97 @@ export interface MoneyEntry {
    * read it with `?? null`.
    */
   booking?: MoneyBookingLink | null;
+  /** The package it is a payment toward. Optional like `booking`: read with `?? null`. */
+  package?: { id: string; title: string } | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * What a client agreed to pay for a job, and where that stands — worked out
+ * on the server from the payments linked to it.
+ */
+export interface MoneyPackage {
+  id: string;
+  title: string;
+  clientName: string | null;
+  totalMinor: number;
+  eventDate: string | null;
+  note: string | null;
+  /** Paid so far, gross. */
+  receivedMinor: number;
+  /** Payments due but not made yet. */
+  scheduledMinor: number;
+  /** What is left, never below zero. */
+  balanceMinor: number;
+  /** The part of the balance no payment is due for yet. */
+  unscheduledMinor: number;
+  nextDueOn: string | null;
+  overdue: boolean;
+  paidInFull: boolean;
+  payments: number;
+  /** The statement link while shared; null when not. */
+  shareUrl: string | null;
+  sharedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MoneyPackageInput {
+  /** Made on the device, so a retried save finds the package it already made. */
+  id?: string;
+  title: string;
+  clientName?: string | null;
+  totalMinor: number;
+  eventDate?: string | null;
+  note?: string | null;
+  /** The down payment or reservation fee: paid already, or due on a day. */
+  deposit?: { amountMinor: number; paidOn?: string | null; dueOn?: string | null } | null;
+  /** When the rest is due. Left out, it is not scheduled yet. */
+  balanceDueOn?: string | null;
+}
+
+export type MoneyPackagePatch = Partial<
+  Pick<MoneyPackageInput, 'title' | 'clientName' | 'totalMinor' | 'eventDate' | 'note'>
+>;
+
+export type PayMethodKind = 'gcash' | 'maya' | 'bank' | 'other';
+
+/** How clients pay you: shown on the statements you share. */
+export interface MoneyPayMethod {
+  id: string;
+  kind: PayMethodKind;
+  /** The bank's name, or what "other" is. */
+  label: string | null;
+  accountName: string | null;
+  accountNumber: string | null;
+  qr: MoneyReceipt | null;
+}
+
+export interface MoneyPayMethodInput {
+  kind: PayMethodKind;
+  label?: string | null;
+  accountName?: string | null;
+  accountNumber?: string | null;
+  /** From signReceipt, once uploaded; null removes the QR code. */
+  qrReceiptId?: string | null;
+}
+
+export const PAY_METHOD_KINDS: readonly { slug: PayMethodKind; label: string }[] = [
+  { slug: 'gcash', label: 'GCash' },
+  { slug: 'maya', label: 'Maya' },
+  { slug: 'bank', label: 'Bank' },
+  { slug: 'other', label: 'Other' },
+];
+
+/** What a payment method is called on a card: the bank's name, or the wallet's. */
+export function payMethodName(m: Pick<MoneyPayMethod, 'kind' | 'label'>): string {
+  if ((m.kind === 'bank' || m.kind === 'other') && m.label) return m.label;
+  return PAY_METHOD_KINDS.find((k) => k.slug === m.kind)?.label ?? m.kind;
+}
+
+/** The most ways to pay one account can list. Mirrors MAX_PAY_METHODS on the server. */
+export const MAX_PAY_METHODS = 4;
 
 /** The booking an entry was recorded from, as much as the ledger needs. */
 export interface MoneyBookingLink {
@@ -123,6 +211,8 @@ export interface MoneyEntryInput {
   receiptId?: string | null;
   /** The booking it records — one you are on. */
   bookingId?: string | null;
+  /** The package it is a payment toward — income only, and your own. */
+  packageId?: string | null;
 }
 
 /** Undefined leaves a field alone; null clears it. */
@@ -355,6 +445,56 @@ export const moneyApi = {
   /** "Not this": the booking is not offered again. */
   dismissSuggestion(bookingId: string): Promise<void> {
     return api.post(`/money/suggestions/${bookingId}/dismiss`);
+  },
+
+  /** Your packages: open ones (something still owed) first, soonest due first. */
+  packages(status: 'open' | 'all' = 'all'): Promise<MoneyPackage[]> {
+    return api.get('/money/packages', { query: { status } });
+  },
+
+  /** One package, with every payment toward it. */
+  getPackage(id: string): Promise<{ package: MoneyPackage; entries: MoneyEntry[] }> {
+    return api.get(`/money/packages/${id}`);
+  },
+
+  /** A package and the payments its plan implies, made together. Once per `id`. */
+  createPackage(input: MoneyPackageInput): Promise<{ package: MoneyPackage; entries: MoneyEntry[] }> {
+    return api.post('/money/packages', { body: input });
+  },
+
+  updatePackage(id: string, patch: MoneyPackagePatch): Promise<MoneyPackage> {
+    return api.patch(`/money/packages/${id}`, { body: patch });
+  },
+
+  /** The package and the payments still due under it. Payments made stay. */
+  deletePackage(id: string): Promise<void> {
+    return api.delete(`/money/packages/${id}`);
+  },
+
+  /** Turns the statement link on — the same link while it stays on. */
+  sharePackage(id: string): Promise<{ url: string }> {
+    return api.post(`/money/packages/${id}/share`);
+  },
+
+  /** Turns it off for good. Sharing again makes a new link. */
+  unsharePackage(id: string): Promise<void> {
+    return api.delete(`/money/packages/${id}/share`);
+  },
+
+  payMethods(): Promise<MoneyPayMethod[]> {
+    return api.get('/money/pay-methods');
+  },
+
+  createPayMethod(input: MoneyPayMethodInput): Promise<MoneyPayMethod> {
+    return api.post('/money/pay-methods', { body: input });
+  },
+
+  updatePayMethod(id: string, patch: Partial<MoneyPayMethodInput>): Promise<MoneyPayMethod> {
+    return api.patch(`/money/pay-methods/${id}`, { body: patch });
+  },
+
+  deletePayMethod(id: string): Promise<void> {
+    return api.delete(`/money/pay-methods/${id}`);
   },
 
   /** One booking from your side: what Money offers for it, and what was recorded from it. */

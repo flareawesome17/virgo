@@ -42,6 +42,8 @@ export interface MoneyEntry {
   receipt: MoneyReceipt | null;
   /** The booking it was recorded from, while that booking exists. */
   booking: MoneyBookingLink | null;
+  /** The package it is a payment toward, while that package exists. */
+  package: { id: string; title: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -83,6 +85,8 @@ export interface MoneyEntryInput {
   receiptId?: string | null;
   /** The booking it records, which must be one the caller is on. */
   bookingId?: string | null;
+  /** The package it is a payment toward — an income entry, and the caller's package. */
+  packageId?: string | null;
 }
 
 export type MoneyEntryPatch = Partial<Omit<MoneyEntryInput, 'id'>>;
@@ -102,6 +106,7 @@ interface MoneyEntryRow {
   counterparty: string | null;
   note: string | null;
   booking_id: string | null;
+  package_id: string | null;
   filed_on: string;
   created_at: Date;
   updated_at: Date;
@@ -120,6 +125,7 @@ interface EntryFields {
   counterparty: string | null;
   note: string | null;
   bookingId: string | null;
+  packageId: string | null;
 }
 
 /** How long an export link works. Long enough to open; short enough to leak harmlessly. */
@@ -184,13 +190,47 @@ export class MoneyService {
     private readonly bookings: MoneyBookingsService,
   ) {}
 
+  /** The titles of the caller's packages these entries are payments toward. */
+  private async packageTitles(
+    userId: string,
+    packageIds: readonly string[],
+  ): Promise<Map<string, { id: string; title: string }>> {
+    const unique = [...new Set(packageIds)];
+    if (unique.length === 0) return new Map();
+    const rows = await this.db.query<{ id: string; title: string }>(
+      'select id, title from money_packages where id = any($1::uuid[]) and user_id = $2',
+      [unique, userId],
+    );
+    return new Map(rows.map((r) => [r.id, { id: r.id, title: r.title }]));
+  }
+
+  /**
+   * A package the caller owns, for an income entry: a package is what a
+   * client pays, so an expense is never a payment toward one.
+   */
+  private async assertPackage(userId: string, packageId: string, kind: MoneyKind): Promise<void> {
+    if (kind !== 'income') {
+      throw new BadRequestException('Only income can be a payment toward a package.');
+    }
+    const row = await this.db.queryOne<{ one: number }>(
+      'select 1 as one from money_packages where id = $1 and user_id = $2',
+      [packageId, userId],
+    );
+    if (!row) throw new BadRequestException("That package isn't one of yours.");
+  }
+
   private async present(rows: MoneyEntryRow[]): Promise<MoneyEntry[]> {
     if (rows.length === 0) return [];
-    const [receipts, bookings] = await Promise.all([
+    const userId = rows[0].user_id;
+    const [receipts, bookings, packages] = await Promise.all([
       this.receipts.forEntries(rows.map((r) => r.id)),
       this.bookings.linksFor(
-        rows[0].user_id,
+        userId,
         rows.flatMap((r) => (r.booking_id ? [r.booking_id] : [])),
+      ),
+      this.packageTitles(
+        userId,
+        rows.flatMap((r) => (r.package_id ? [r.package_id] : [])),
       ),
     ]);
     return rows.map((r) => ({
@@ -208,6 +248,7 @@ export class MoneyService {
       note: r.note,
       receipt: receipts.get(r.id) ?? null,
       booking: (r.booking_id && bookings.get(r.booking_id)) || null,
+      package: (r.package_id && packages.get(r.package_id)) || null,
       createdAt: r.created_at.toISOString(),
       updatedAt: r.updated_at.toISOString(),
     }));
@@ -328,18 +369,20 @@ export class MoneyService {
       counterparty: text(input.counterparty),
       note: text(input.note),
       bookingId: input.bookingId ?? null,
+      packageId: input.packageId ?? null,
     };
     this.check(entry);
     if (entry.bookingId) await this.bookings.assertParty(userId, entry.bookingId);
+    if (entry.packageId) await this.assertPackage(userId, entry.packageId, entry.kind);
     const receiptId = input.receiptId ?? null;
-    if (receiptId) await this.receipts.verify(userId, receiptId, id);
+    if (receiptId) await this.receipts.verify(userId, receiptId, { entryId: id });
 
     const row = await this.db.transaction(async (tx) => {
       const inserted = await tx.query<MoneyEntryRow>(
         `insert into money_entries
            (id, user_id, kind, amount_minor, withheld_minor, category,
-            occurred_on, paid_on, method, reference, counterparty, note, booking_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            occurred_on, paid_on, method, reference, counterparty, note, booking_id, package_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          on conflict (id) do nothing
          returning *`,
         [
@@ -356,10 +399,11 @@ export class MoneyService {
           entry.counterparty,
           entry.note,
           entry.bookingId,
+          entry.packageId,
         ],
       );
       if (inserted.rows[0]) {
-        if (receiptId) await this.receipts.attach(tx, userId, id, receiptId);
+        if (receiptId) await this.receipts.attach(tx, userId, { entryId: id }, receiptId);
         return inserted.rows[0];
       }
       const existing = await tx.query<MoneyEntryRow>(
@@ -391,19 +435,23 @@ export class MoneyService {
         patch.counterparty !== undefined ? text(patch.counterparty) : current.counterparty,
       note: patch.note !== undefined ? text(patch.note) : current.note,
       bookingId: patch.bookingId !== undefined ? patch.bookingId : current.booking_id,
+      packageId: patch.packageId !== undefined ? patch.packageId : current.package_id,
     };
     this.check(entry);
+    if (entry.packageId && (entry.packageId !== current.package_id || entry.kind !== current.kind)) {
+      await this.assertPackage(userId, entry.packageId, entry.kind);
+    }
     if (entry.bookingId && entry.bookingId !== current.booking_id) {
       await this.bookings.assertParty(userId, entry.bookingId);
     }
-    if (patch.receiptId) await this.receipts.verify(userId, patch.receiptId, id);
+    if (patch.receiptId) await this.receipts.verify(userId, patch.receiptId, { entryId: id });
 
     const row = await this.db.transaction(async (tx) => {
       const updated = await tx.query<MoneyEntryRow>(
         `update money_entries
             set kind = $3, amount_minor = $4, withheld_minor = $5, category = $6,
                 occurred_on = $7, paid_on = $8, method = $9, reference = $10,
-                counterparty = $11, note = $12, booking_id = $13
+                counterparty = $11, note = $12, booking_id = $13, package_id = $14
           where id = $1 and user_id = $2
           returning *`,
         [
@@ -420,15 +468,27 @@ export class MoneyService {
           entry.counterparty,
           entry.note,
           entry.bookingId,
+          entry.packageId,
         ],
       );
       if (!updated.rows[0]) throw new NotFoundException('Entry not found');
       if (patch.receiptId !== undefined) {
-        await this.receipts.attach(tx, userId, id, patch.receiptId);
+        await this.receipts.attach(tx, userId, { entryId: id }, patch.receiptId);
       }
       return updated.rows[0];
     });
     return this.presentOne(row);
+  }
+
+  /** The payments toward one of the caller's packages, in the order they fall. */
+  async forPackage(userId: string, packageId: string): Promise<MoneyEntry[]> {
+    const rows = await this.db.query<MoneyEntryRow>(
+      `select * from money_entries
+        where user_id = $1 and package_id = $2 and kind = 'income'
+        order by occurred_on, created_at`,
+      [userId, packageId],
+    );
+    return this.present(rows);
   }
 
   /**

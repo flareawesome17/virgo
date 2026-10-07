@@ -43,6 +43,11 @@ export type NotificationTopic =
   | 'support'
   /** A booking was created, changed, agreed or cancelled. */
   | 'booking'
+  /**
+   * A payment a client owes is due tomorrow, or overdue. Under the
+   * bookings switch in settings, beside the "Got paid?" question.
+   */
+  | 'money'
   /** A reward is being offered to this account, and is waiting to be claimed. */
   | 'promo'
   /**

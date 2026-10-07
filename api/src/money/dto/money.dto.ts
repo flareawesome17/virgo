@@ -104,6 +104,12 @@ export class CreateMoneyEntryDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID('all')
   bookingId?: string | null;
+
+  /** The package it is a payment toward — an income entry, and yours. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID('all')
+  packageId?: string | null;
 }
 
 /**
@@ -176,6 +182,12 @@ export class UpdateMoneyEntryDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID('all')
   bookingId?: string | null;
+
+  /** The package it is a payment toward — an income entry, and yours. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID('all')
+  packageId?: string | null;
 }
 
 export class ListMoneyEntriesDto {

@@ -88,7 +88,7 @@ export const queryClient = new QueryClient({
 // v8: Nearby places people by their address's city. A saved list said
 // "turn on sharing" to almost everyone, and a saved status had no idea what
 // placed them; both would show for a moment on the first launch after.
-const CACHE_VERSION = 'v9-money-bookings';
+const CACHE_VERSION = 'v10-money-packages';
 
 /**
  * Queries never written to disk, whatever their staleTime says.
