@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState, type ReactNode } from 'react';
-import { ArrowLeft, ChartColumn, ChevronLeft, ChevronRight, Repeat } from 'lucide-react';
+import { ArrowLeft, ChartColumn, ChevronLeft, ChevronRight, Landmark, Repeat } from 'lucide-react';
 import { categoryLabel, formatMoney, todayIso, type MoneyInsights, type MoneyKind } from '@/api';
 import { PageHeader, Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
@@ -431,7 +431,22 @@ function Insights() {
           </>
         )}
 
-        <Link href="/money/recurring" className="mt-6 block">
+        <Link href={`/money/tax?year=${year}`} className="mt-6 block">
+          <Card className="transition-colors hover:border-primary/40">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Landmark className="size-4 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Tax help</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Estimates, the ₱3M line, your 2307s and when returns are due
+                </p>
+              </div>
+              <ChevronRight className="size-4 text-muted-foreground" />
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/money/recurring" className="mt-3 block">
           <Card className="transition-colors hover:border-primary/40">
             <CardContent className="flex items-center gap-3 py-4">
               <Repeat className="size-4 text-muted-foreground" />
