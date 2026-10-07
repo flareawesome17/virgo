@@ -12,6 +12,7 @@ import { MailService } from '../mail/mail.service';
 import { accountDisabled, accountDeleted } from '../mail/mail.templates';
 import { StorageService } from '../storage/storage.service';
 import { SupportFilesService } from '../storage/support-files.service';
+import { ReceiptFilesService } from '../storage/receipt-files.service';
 import { UsersRepository, type PublicUser, type UserRow } from './users.repository';
 import { toPublicUser } from './users.repository';
 
@@ -37,6 +38,7 @@ export class AccountService {
     private readonly mailConfig: MailConfig,
     private readonly billing: BillingService,
     private readonly supportFiles: SupportFilesService,
+    private readonly receipts: ReceiptFilesService,
   ) {}
 
   private async assertPassword(userId: string, password: string) {
@@ -171,6 +173,9 @@ export class AccountService {
       // the record, the way a deleted account's posts leave replies behind;
       // the files are theirs and go with them.
       filesDeleted += await this.supportFiles.eraseFor(userId);
+      // Receipts on their money entries. The entries go with the account's
+      // row; the photos are objects with nothing else to find them by.
+      filesDeleted += await this.receipts.eraseFor(userId);
       // Their showcases' own copies, which have no file rows for the wipe
       // above to find. The posts themselves go with the account's row.
       const copies = await this.storage.deletePrefix(`users/${userId}/showcases/`);

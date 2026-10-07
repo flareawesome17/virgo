@@ -7,6 +7,7 @@ import type { UsersRepository } from '../auth/users.repository';
 import type { BillingService } from '../billing/billing.service';
 import type { MailConfig } from '../mail/mail.config';
 import type { SupportFilesService } from './support-files.service';
+import type { ReceiptFilesService } from './receipt-files.service';
 import type { MailService } from '../mail/mail.service';
 import type { QuotaService } from '../quota/quota.service';
 import type { MediaLinkService } from './media-link.service';
@@ -419,7 +420,11 @@ describe('AccountService.remove and the profile cover', () => {
 
   function accountOver(
     world: Parameters<typeof wipeOf>[0],
-    options: { planCancel?: () => Promise<number>; supportErase?: () => Promise<number> } = {},
+    options: {
+      planCancel?: () => Promise<number>;
+      supportErase?: () => Promise<number>;
+      receiptErase?: () => Promise<number>;
+    } = {},
   ) {
     const wipe = wipeOf(world);
     const users = {
@@ -435,6 +440,7 @@ describe('AccountService.remove and the profile cover', () => {
       cancelBeforeDeletion: jest.fn(options.planCancel ?? (async () => 0)),
     };
     const supportFiles = { eraseFor: jest.fn(options.supportErase ?? (async () => 0)) };
+    const receipts = { eraseFor: jest.fn(options.receiptErase ?? (async () => 0)) };
     const account = new AccountService(
       users as unknown as UsersRepository,
       wipe.storage,
@@ -442,9 +448,28 @@ describe('AccountService.remove and the profile cover', () => {
       { appUrl: 'https://app.virgo.test' } as unknown as MailConfig,
       billing as unknown as BillingService,
       supportFiles as unknown as SupportFilesService,
+      receipts as unknown as ReceiptFilesService,
     );
-    return { account, users, wipe, billing, supportFiles };
+    return { account, users, wipe, billing, supportFiles, receipts };
   }
+
+  it('erases the receipts on their money entries along with their library', async () => {
+    const { account, receipts, users } = accountOver({ files: [upload(PHOTOGRAPHER, 'ceremony')] });
+    await account.remove(PHOTOGRAPHER, PASSWORD);
+    expect(receipts.eraseFor).toHaveBeenCalledWith(PHOTOGRAPHER);
+    expect(users.remove).toHaveBeenCalled();
+  });
+
+  it('keeps the account when a receipt will not delete, so it can be tried again', async () => {
+    const { account, users } = accountOver(
+      { files: [] },
+      { receiptErase: async () => Promise.reject(new Error('1 receipt(s) could not be deleted')) },
+    );
+    await expect(account.remove(PHOTOGRAPHER, PASSWORD)).rejects.toThrow(
+      'Your files could not be deleted, so the account was left untouched.',
+    );
+    expect(users.remove).not.toHaveBeenCalled();
+  });
 
   it('cancels any paid plan before a single file is touched', async () => {
     const { account, billing, wipe } = accountOver({ files: [upload(PHOTOGRAPHER, 'ceremony')] });
