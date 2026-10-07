@@ -128,6 +128,8 @@ export const queryKeys = {
     list: (params?: unknown) => ['money', 'list', params ?? {}] as const,
     detail: (id: string) => ['money', 'detail', id] as const,
     summary: (from: string, to: string) => ['money', 'summary', from, to] as const,
+    suggestions: ['money', 'suggestions'] as const,
+    booking: (bookingId: string) => ['money', 'booking', bookingId] as const,
   },
   portfolio: {
     all: ['portfolio'] as const,

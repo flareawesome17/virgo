@@ -32,6 +32,7 @@ export {
 } from './endpoints/bookings';
 export {
   moneyApi,
+  bookingLabel,
   categoryLabel,
   dateOfIso,
   dayLabel,
@@ -51,6 +52,7 @@ export {
   MONEY_CATEGORIES,
   MONEY_METHODS,
   RECEIPT_FILE_TYPES,
+  type MoneyBookingLink,
   type MoneyCategory,
   type MoneyEntry,
   type MoneyEntryInput,
@@ -59,6 +61,7 @@ export {
   type MoneyListParams,
   type MoneyMethod,
   type MoneyReceipt,
+  type MoneySuggestion,
   type MoneySummary,
   type ReceiptUploadTicket,
 } from './endpoints/money';

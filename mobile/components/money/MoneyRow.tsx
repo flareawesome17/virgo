@@ -25,10 +25,14 @@ export function signedAmount(kind: MoneyEntry['kind'], minor: number): string {
 type Row = Pick<
   MoneyEntry,
   'id' | 'kind' | 'amountMinor' | 'withheldMinor' | 'category' | 'occurredOn' | 'paidOn' | 'method' | 'counterparty'
-> & { hasReceipt?: boolean };
+> & {
+  hasReceipt?: boolean;
+  /** Recorded from a booking that has been cancelled since. */
+  bookingCancelled?: boolean;
+};
 
 export function rowOf(entry: MoneyEntry): Row {
-  return { ...entry, hasReceipt: !!entry.receipt };
+  return { ...entry, hasReceipt: !!entry.receipt, bookingCancelled: !!entry.booking?.cancelled };
 }
 
 export function rowOfQueued(input: MoneyEntryInput & { id: string }): Row {
@@ -80,9 +84,11 @@ export const MoneyRow = memo(function MoneyRow({
     ? refused
     : waiting
       ? 'Waiting for a connection'
-      : unpaid
-        ? `${overdue ? 'Overdue · was due' : 'Due'} ${dayLabel(row.occurredOn)}`
-        : [row.counterparty ? label : null, methodLabel(row.method)].filter(Boolean).join(' · ');
+      : row.bookingCancelled
+        ? 'Booking cancelled'
+        : unpaid
+          ? `${overdue ? 'Overdue · was due' : 'Due'} ${dayLabel(row.occurredOn)}`
+          : [row.counterparty ? label : null, methodLabel(row.method)].filter(Boolean).join(' · ');
 
   return (
     <View
@@ -116,7 +122,7 @@ export const MoneyRow = memo(function MoneyRow({
           {detail ? (
             <Text
               numberOfLines={1}
-              className={`text-[13px] mt-0.5 ${refused || overdue ? 'text-destructive' : 'text-muted-foreground'}`}
+              className={`text-[13px] mt-0.5 ${refused || overdue || row.bookingCancelled ? 'text-destructive' : 'text-muted-foreground'}`}
             >
               {detail}
             </Text>

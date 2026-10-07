@@ -22,10 +22,13 @@ import {
   todayIso,
   type MoneyEntry,
   type MoneyKind,
+  type MoneySuggestion,
 } from '@/src/api';
 import {
+  useDismissMoneySuggestion,
   useMoneyEntries,
   useMoneyExport,
+  useMoneySuggestions,
   useMoneySummary,
   useTheme,
   useUpdateMoneyEntry,
@@ -33,6 +36,7 @@ import {
 import { CardListSkeleton, EmptyState, FilterChip, PressableScale, ScreenHeader } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { MoneyRow, rowOf, rowOfQueued } from '@/components/money/MoneyRow';
+import { SuggestionRow } from '@/components/money/SuggestionRow';
 import { discardQueuedMoneyEntry, useMoneyOutbox, type QueuedMoneyEntry } from '@/src/lib/money-outbox';
 import { PALETTES } from '@/theme';
 
@@ -44,7 +48,8 @@ type Filter = 'all' | MoneyKind;
 
 type Item =
   | { type: 'entry'; entry: MoneyEntry }
-  | { type: 'queued'; queued: QueuedMoneyEntry };
+  | { type: 'queued'; queued: QueuedMoneyEntry }
+  | { type: 'suggestion'; suggestion: MoneySuggestion };
 
 interface Section {
   key: string;
@@ -105,11 +110,23 @@ export default function MoneyScreen() {
   const list = useMoneyEntries({ from: range.from, to: range.to, kind, limit: 200 });
   const unpaid = useMoneyEntries({ unpaid: true, kind, limit: 100 });
   const queued = useMoneyOutbox();
+  const offers = useMoneySuggestions();
+  const dismiss = useDismissMoneySuggestion();
   const update = useUpdateMoneyEntry();
   const exporter = useMoneyExport();
 
   const sections = useMemo<Section[]>(() => {
     const out: Section[] = [];
+    // Agreed bookings not recorded yet: first, because each is a tap away
+    // from being right, and the longest-lived thing on the screen otherwise.
+    const offered = offers.suggestions.filter((s) => !kind || s.kind === kind);
+    if (offered.length > 0) {
+      out.push({
+        key: 'suggestions',
+        title: 'From your bookings',
+        data: offered.map((suggestion) => ({ type: 'suggestion' as const, suggestion })),
+      });
+    }
     const waiting = queued.filter((q) => !kind || q.input.kind === kind);
     if (waiting.length > 0) {
       out.push({
@@ -145,7 +162,7 @@ export default function MoneyScreen() {
       });
     }
     return out;
-  }, [queued, unpaid.entries, unpaid.total, list.entries, kind, today]);
+  }, [offers.suggestions, queued, unpaid.entries, unpaid.total, list.entries, kind, today]);
 
   const markPaid = useCallback(
     (entry: MoneyEntry) =>
@@ -190,7 +207,7 @@ export default function MoneyScreen() {
 
   const refresh = async () => {
     setRefreshing(true);
-    await Promise.all([summary.refetch(), list.refetch(), unpaid.refetch()]);
+    await Promise.all([summary.refetch(), list.refetch(), unpaid.refetch(), offers.refetch()]);
     setRefreshing(false);
   };
 
@@ -312,7 +329,13 @@ export default function MoneyScreen() {
       />
       <SectionList
         sections={sections}
-        keyExtractor={(item) => (item.type === 'entry' ? item.entry.id : `q-${item.queued.input.id}`)}
+        keyExtractor={(item) =>
+          item.type === 'entry'
+            ? item.entry.id
+            : item.type === 'queued'
+              ? `q-${item.queued.input.id}`
+              : `s-${item.suggestion.bookingId}`
+        }
         stickySectionHeadersEnabled={false}
         ListHeaderComponent={header}
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
@@ -330,6 +353,20 @@ export default function MoneyScreen() {
         renderItem={({ item, index, section }) => {
           const first = index === 0;
           const last = index === section.data.length - 1;
+          if (item.type === 'suggestion') {
+            const offer = item.suggestion;
+            return (
+              <View className="px-5">
+                <SuggestionRow
+                  suggestion={offer}
+                  first={first}
+                  last={last}
+                  onRecord={() => router.push(`/money/new?booking=${offer.bookingId}`)}
+                  onDismiss={() => dismiss.mutate(offer.bookingId)}
+                />
+              </View>
+            );
+          }
           if (item.type === 'queued') {
             const q = item.queued;
             return (

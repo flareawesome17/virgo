@@ -247,6 +247,9 @@ export {
   useUpdateMoneyEntry,
   useDeleteMoneyEntry,
   useMoneyExport,
+  useMoneySuggestions,
+  useMoneyForBooking,
+  useDismissMoneySuggestion,
 } from './useMoney';
 
 export {

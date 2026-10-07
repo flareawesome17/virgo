@@ -11,6 +11,7 @@ import { MAX_ROLE_BUDGET_MINOR } from '@/lib/job-form';
 import { Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { bookingState } from '@/components/jobs/booking-card';
+import { BookingMoney } from '@/components/money/booking-money';
 import {
   useBooking,
   useCancelBooking,
@@ -183,6 +184,10 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
             ? 'Changing anything here clears their confirmation, so you cannot alter agreed terms on your own.'
             : `Only ${booking.otherParty.displayName} can change these terms — they posted the job. If something is not right, say so in the chat.`)}
       </p>
+
+      {/* What it earned or cost, in Money. The "Got paid?" notification opens
+          this page, so this is where it is answered. */}
+      <BookingMoney bookingId={booking.id} cancelled={done} />
 
       {!done && (
         <div className="mt-5 flex flex-wrap gap-2">

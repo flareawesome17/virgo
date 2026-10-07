@@ -6,6 +6,7 @@ import {
   type MoneyEntryInput,
   type MoneyEntryPatch,
   type MoneyListParams,
+  type MoneySuggestion,
 } from '@/api';
 
 /**
@@ -117,6 +118,61 @@ export function useDeleteMoneyEntry() {
     mutationFn: (id: string) => moneyApi.remove(id),
     onSuccess: (_result, id) => {
       queryClient.removeQueries({ queryKey: queryKeys.money.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.money.all });
+    },
+  });
+}
+
+/**
+ * Agreed bookings you have not recorded yet: the entries Money offers to
+ * fill in. Recording one, or saying "not this", takes it off — both are
+ * writes under the `money` key, so the list refetches with everything else.
+ */
+export function useMoneySuggestions(options: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.money.suggestions,
+    queryFn: () => moneyApi.suggestions(),
+    enabled: options.enabled ?? true,
+  });
+  return {
+    ...query,
+    suggestions: query.data ?? [],
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+/** One booking from your side, for its own screen. */
+export function useMoneyForBooking(bookingId: string | undefined, options: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.money.booking(bookingId ?? ''),
+    queryFn: () => moneyApi.forBooking(bookingId as string),
+    enabled: !!bookingId && (options.enabled ?? true),
+  });
+  return {
+    ...query,
+    suggestion: query.data?.suggestion ?? null,
+    entries: query.data?.entries ?? ([] as MoneyEntry[]),
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+/** "Not this": the booking leaves the offers at once, and for good. */
+export function useDismissMoneySuggestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (bookingId: string) => moneyApi.dismissSuggestion(bookingId),
+    onMutate: async (bookingId) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.money.suggestions });
+      const before = queryClient.getQueryData<MoneySuggestion[]>(queryKeys.money.suggestions);
+      queryClient.setQueryData<MoneySuggestion[]>(queryKeys.money.suggestions, (list) =>
+        list?.filter((s) => s.bookingId !== bookingId),
+      );
+      return { before };
+    },
+    onError: (_error, _bookingId, context) => {
+      if (context?.before) queryClient.setQueryData(queryKeys.money.suggestions, context.before);
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.money.all });
     },
   });
