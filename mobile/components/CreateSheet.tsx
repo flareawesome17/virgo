@@ -9,6 +9,7 @@ import {
   HandCoinsIcon,
   ImagePlusIcon,
   ImagesIcon,
+  NotebookPenIcon,
   ReceiptIcon,
   type LucideIcon,
 } from 'lucide-react-native';
@@ -18,7 +19,7 @@ import { usePlanLimits } from '@/src/hooks';
 
 for (const Icon of [
   AlarmClockIcon, BriefcaseIcon, CalendarPlusIcon, FolderPlusIcon, HandCoinsIcon, ImagePlusIcon,
-  ImagesIcon, ReceiptIcon,
+  ImagesIcon, NotebookPenIcon, ReceiptIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -32,7 +33,8 @@ export type CreateKind =
   | 'event'
   | 'reminder'
   | 'income'
-  | 'expense';
+  | 'expense'
+  | 'package';
 
 interface CreateItem {
   kind: CreateKind;
@@ -77,6 +79,7 @@ const GROUPS: { title: string; items: CreateItem[] }[] = [
     items: [
       { kind: 'income', label: 'Income', detail: 'A fee, a deposit, a balance paid', icon: HandCoinsIcon },
       { kind: 'expense', label: 'Expense', detail: 'Transport, meals, crew, gear', icon: ReceiptIcon },
+      { kind: 'package', label: 'Package', detail: "A client's total, deposit and balance", icon: NotebookPenIcon },
     ],
   },
 ];
@@ -90,6 +93,7 @@ const ROUTES: Record<CreateKind, Href> = {
   reminder: '/schedule/reminders/create',
   income: '/money/new?kind=income',
   expense: '/money/new?kind=expense',
+  package: '/money/packages/new',
 };
 
 /**

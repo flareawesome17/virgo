@@ -68,10 +68,18 @@ export function ReceiptField({
   value,
   onChange,
   disabled,
+  label = 'Add receipt',
+  hint = 'A photo or a PDF, up to 10 MB',
+  imagesOnly = false,
 }: {
   value: ReceiptDraft | null;
   onChange: (next: ReceiptDraft | null) => void;
   disabled?: boolean;
+  /** What the empty field says: a receipt, or a payment method's QR code. */
+  label?: string;
+  hint?: string;
+  /** A QR code is a picture; offer no PDF. */
+  imagesOnly?: boolean;
 }) {
   // Which pick is current: a second pick, or a removal, while one is still
   // uploading must not be overwritten when the first one finishes.
@@ -166,11 +174,13 @@ export function ReceiptField({
   }
 
   const choose = () =>
-    Alert.alert('Add a receipt', undefined, [
-      { text: 'Photo', onPress: () => void pickPhoto() },
-      { text: 'PDF', onPress: () => void pickPdf() },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    imagesOnly
+      ? void pickPhoto()
+      : Alert.alert('Add a receipt', undefined, [
+          { text: 'Photo', onPress: () => void pickPhoto() },
+          { text: 'PDF', onPress: () => void pickPdf() },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
 
   const remove = () => {
     attempt.current += 1;
@@ -183,14 +193,14 @@ export function ReceiptField({
         onPress={choose}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel="Add a receipt photo or PDF"
+        accessibilityLabel={`${label}. ${hint}`}
         style={{ opacity: disabled ? 0.5 : 1 }}
         className="min-h-14 flex-row items-center gap-3 rounded-2xl border border-dashed border-border px-4 py-3 active:opacity-70"
       >
         <ReceiptIcon size={18} className="text-muted-foreground" />
         <View className="flex-1">
-          <Text className="text-foreground text-sm font-semibold">Add receipt</Text>
-          <Text className="text-muted-foreground text-xs mt-0.5">A photo or a PDF, up to 10 MB</Text>
+          <Text className="text-foreground text-sm font-semibold">{label}</Text>
+          <Text className="text-muted-foreground text-xs mt-0.5">{hint}</Text>
         </View>
       </Pressable>
     );
