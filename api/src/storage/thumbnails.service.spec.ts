@@ -12,6 +12,8 @@ import type { StorageService } from './storage.service';
 import { MAX_COVER_BYTES } from './storage.config';
 import {
   animatesThumbnail,
+  DISPLAY_VERSION,
+  displaySizesFor,
   MAX_SOURCE_BYTES,
   ThumbnailsService,
   thumbKeyFor,
@@ -150,9 +152,15 @@ function withCameraMetadata(): Promise<Buffer> {
  * The service over one stored object, with the bucket, the database and the
  * media volume faked. `stored` is the row a normalise reads first.
  */
-function harness(source: Buffer, stored: Record<string, unknown> | null = null) {
+function harness(
+  source: Buffer,
+  stored: Record<string, unknown> | null = null,
+  { mediaHost = true }: { mediaHost?: boolean } = {},
+) {
   const putDerived = jest.fn().mockResolvedValue(undefined);
   const write = jest.fn().mockResolvedValue(undefined);
+  const removeFor = jest.fn().mockResolvedValue(undefined);
+  const removeDisplayCopies = jest.fn().mockResolvedValue(undefined);
   const readStream = jest.fn(async () => Readable.from([source]));
   const readHead = jest.fn(async () => Buffer.alloc(0));
   const query = jest.fn().mockResolvedValue([]);
@@ -160,7 +168,12 @@ function harness(source: Buffer, stored: Record<string, unknown> | null = null) 
   const service = new ThumbnailsService(
     { readStream, readHead, putDerived } as unknown as StorageService,
     { query, queryOne } as unknown as DatabaseService,
-    { isConfigured: true, write } as unknown as MediaLinkService,
+    {
+      isConfigured: mediaHost,
+      write,
+      removeFor,
+      removeDisplayCopies,
+    } as unknown as MediaLinkService,
   );
   /** The statement that records the outcome, and its parameters. */
   const recorded = () => {
@@ -170,8 +183,236 @@ function harness(source: Buffer, stored: Record<string, unknown> | null = null) 
   };
   /** The bytes of the one object written back. */
   const written = (): Buffer => putDerived.mock.calls.at(-1)?.[1] as Buffer;
-  return { service, putDerived, write, readStream, query, queryOne, recorded, written };
+  return {
+    service,
+    putDerived,
+    write,
+    removeFor,
+    removeDisplayCopies,
+    readStream,
+    query,
+    queryOne,
+    recorded,
+    written,
+  };
 }
+
+/** A flat JPEG of the given size, optionally with the EXIF turn a phone writes. */
+function jpeg(width: number, height: number, orientation?: number): Promise<Buffer> {
+  const image = sharp({
+    create: { width, height, channels: 3, background: { r: 120, g: 140, b: 160 } },
+  }).jpeg();
+  return (orientation ? image.withMetadata({ orientation }) : image).toBuffer();
+}
+
+/** The key and pixel size of every display copy written, in order. */
+function copiesWritten(
+  write: jest.Mock,
+): Promise<{ key: string; width: number; height: number }[]> {
+  return Promise.all(
+    write.mock.calls.map(async ([key, body]) => {
+      const meta = await sharp(body as Buffer).metadata();
+      return { key: key as string, width: meta.width ?? 0, height: meta.height ?? 0 };
+    }),
+  );
+}
+
+/**
+ * Which sizes a photograph's display copies are made at.
+ *
+ * The fixed ones it is larger than, and one at its own long edge up to the
+ * largest of them — so every photograph has a copy as sharp as it is.
+ */
+describe('displaySizesFor', () => {
+  it('gives a source between two sizes the smaller one and its own', () => {
+    expect(displaySizesFor(1800)).toEqual([1024, 1800]);
+    expect(displaySizesFor(2400)).toEqual([1024, 2048, 2400]);
+  });
+
+  it('gives a source below the first size a copy at its own size alone', () => {
+    // It had none before, and opened as its original.
+    expect(displaySizesFor(900)).toEqual([900]);
+  });
+
+  it('stops at the largest size for anything larger', () => {
+    expect(displaySizesFor(5000)).toEqual([...DISPLAY_WIDTHS]);
+    expect(DISPLAY_WIDTHS.at(-1)).toBe(3072);
+  });
+
+  it('does not repeat a size the source is exactly', () => {
+    expect(displaySizesFor(1024)).toEqual([1024]);
+    expect(displaySizesFor(2048)).toEqual([1024, 2048]);
+    expect(displaySizesFor(3072)).toEqual([1024, 2048, 3072]);
+  });
+
+  it('makes nothing of a size that is not one', () => {
+    expect(displaySizesFor(0)).toEqual([]);
+    expect(displaySizesFor(Number.NaN)).toEqual([]);
+  });
+});
+
+describe('ThumbnailsService display copies, by source size', () => {
+  const SIZE = 8 * 1024 * 1024;
+
+  it.each([
+    [1800, 1200, [1024, 1800]],
+    [900, 600, [900]],
+    [5000, 3333, [1024, 2048, 3072]],
+  ])('a %ipx by %ipx source gets copies at %j', async (width, height, sizes) => {
+    const key = `users/u/albums/2026/10/w${width}.jpg`;
+    const { service, write, recorded } = harness(await jpeg(width, height));
+
+    await service.generate(key, 'image/jpeg', SIZE);
+
+    expect(recorded().displayWidths).toEqual(sizes);
+    const copies = await copiesWritten(write);
+    expect(copies.map((copy) => copy.key)).toEqual(sizes.map((size) => displayKeyFor(key, size)));
+    // Each is named by its long edge, and is that long.
+    expect(copies.map((copy) => Math.max(copy.width, copy.height))).toEqual(sizes);
+  });
+
+  it('names a portrait photograph by its upright long edge', async () => {
+    // Stored 1800 x 1200 with the EXIF turn a phone writes: upright it is
+    // 1200 x 1800, and so are its copies.
+    const key = 'users/u/albums/2026/10/portrait.jpg';
+    const { service, write, recorded } = harness(await jpeg(1800, 1200, 6));
+
+    await service.generate(key, 'image/jpeg', SIZE);
+
+    expect([recorded().width, recorded().height]).toEqual([1200, 1800]);
+    expect(recorded().displayWidths).toEqual([1024, 1800]);
+    const copies = await copiesWritten(write);
+    expect(copies.map(({ width, height }) => [width, height])).toEqual([
+      [683, 1024],
+      [1200, 1800],
+    ]);
+  });
+
+  it('keeps the copies of a format nothing can draw, even when they are larger', async () => {
+    // The guard that skips a copy no smaller than its original is right for a
+    // JPEG, which can be shown as it is. A TIFF cannot: without a copy it is
+    // not seen at all.
+    const tiff = await sharp({
+      create: { width: 1500, height: 1000, channels: 3, background: '#7a6a5a' },
+    })
+      .tiff()
+      .toBuffer();
+    const key = 'users/u/albums/2026/10/scan.tif';
+    const { service, write, recorded } = harness(tiff);
+
+    await service.generate(key, 'image/tiff', 10);
+
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(recorded().displayWidths).toEqual([1024, 1500]);
+  });
+
+  it('records no version when the media host is not configured', async () => {
+    // Nothing was tried, so the backfill is still owed this photograph.
+    const { service, write, recorded } = harness(await jpeg(1800, 1200), null, {
+      mediaHost: false,
+    });
+
+    await service.generate('users/u/albums/2026/10/x.jpg', 'image/jpeg', SIZE);
+
+    expect(write).not.toHaveBeenCalled();
+    expect(recorded().displayWidths).toBeNull();
+    expect(recorded().params[7]).toBeNull();
+  });
+
+  it('records the version for a GIF, which is owed no copies', async () => {
+    const { service, recorded } = harness(await animation());
+
+    await service.generate('users/u/albums/2026/10/loop.gif', 'image/gif', SIZE);
+
+    expect(recorded().displayWidths).toEqual([]);
+    expect(recorded().params[7]).toBe(DISPLAY_VERSION);
+  });
+});
+
+describe('ThumbnailsService.refreshDisplayCopies', () => {
+  const KEY = 'users/u/albums/2024/02/old.jpg';
+  const SIZE = 8 * 1024 * 1024;
+  const OLD = {
+    key: KEY,
+    contentType: 'image/jpeg',
+    thumbKey: thumbKeyFor(KEY),
+    displayWidths: [1024],
+    blurDataUrl: 'data:image/webp;base64,AAAA',
+  };
+
+  it("makes the copies again at today's sizes, and records the version", async () => {
+    const { service, write, putDerived, queryOne } = harness(await jpeg(1800, 1200), { key: KEY });
+
+    await expect(service.refreshDisplayCopies(OLD, SIZE)).resolves.toEqual([1024, 1800]);
+
+    // The 1024 copy is replaced, not kept: it is what is being upgraded.
+    expect(write.mock.calls.map(([key]) => key)).toEqual([
+      displayKeyFor(KEY, 1024),
+      displayKeyFor(KEY, 1800),
+    ]);
+    // The thumbnail did not change, so it is not made again.
+    expect(putDerived).not.toHaveBeenCalled();
+    const [sql, params] = queryOne.mock.calls.at(-1) as [string, unknown[]];
+    expect(sql).toContain('display_version = $3');
+    expect(sql).toContain('returning key');
+    expect(params.slice(0, 3)).toEqual([KEY, [1024, 1800], DISPLAY_VERSION]);
+    // Neither the thumbnail nor the preview is written over.
+    expect(params.slice(3, 5)).toEqual([null, null]);
+    expect(params.slice(5, 7)).toEqual([1800, 1200]);
+  });
+
+  it('removes a width the old set had and the new one does not', async () => {
+    const { service, removeDisplayCopies } = harness(await jpeg(1800, 1200), { key: KEY });
+
+    await service.refreshDisplayCopies({ ...OLD, displayWidths: [1024, 2048] }, SIZE);
+
+    expect(removeDisplayCopies).toHaveBeenCalledWith(KEY, [2048]);
+  });
+
+  it('makes a thumbnail the row is missing', async () => {
+    const { service, putDerived, queryOne } = harness(await jpeg(1800, 1200), { key: KEY });
+
+    await service.refreshDisplayCopies({ ...OLD, thumbKey: null }, SIZE);
+
+    expect(putDerived).toHaveBeenCalledWith(thumbKeyFor(KEY), expect.any(Buffer), 'image/webp');
+    expect((queryOne.mock.calls.at(-1) as [string, unknown[]])[1][3]).toBe(thumbKeyFor(KEY));
+  });
+
+  it('cleans up after a photograph deleted while it worked, without throwing', async () => {
+    // The update matched no row: the delete has been through the volume
+    // already, and these copies were written after it looked.
+    const { service, write, removeFor, removeDisplayCopies } = harness(
+      await jpeg(1800, 1200),
+      null,
+    );
+
+    await expect(service.refreshDisplayCopies(OLD, SIZE)).resolves.toBeNull();
+
+    expect(write).toHaveBeenCalled();
+    expect(removeFor).toHaveBeenCalledWith([KEY]);
+    expect(removeDisplayCopies).not.toHaveBeenCalled();
+  });
+
+  it('throws on a file it cannot decode, and leaves its status alone', async () => {
+    const { service, query, queryOne } = harness(Buffer.from('not an image at all'), {
+      key: KEY,
+    });
+
+    await expect(service.refreshDisplayCopies(OLD, SIZE)).rejects.toThrow();
+
+    expect(query).not.toHaveBeenCalled();
+    expect(queryOne).not.toHaveBeenCalled();
+  });
+
+  it('refuses to run without the media host', async () => {
+    const { service, readStream } = harness(await jpeg(1800, 1200), { key: KEY }, {
+      mediaHost: false,
+    });
+
+    await expect(service.refreshDisplayCopies(OLD, SIZE)).rejects.toThrow(/media host/);
+    expect(readStream).not.toHaveBeenCalled();
+  });
+});
 
 describe('ThumbnailsService.generate', () => {
   const KEY = 'users/u/albums/2026/08/frame.jpg';
@@ -186,13 +427,15 @@ describe('ThumbnailsService.generate', () => {
     await expect(service.generate(KEY, 'image/jpeg', SIZE)).resolves.toBe(thumbKeyFor(KEY));
 
     expect(putDerived).toHaveBeenCalledWith(thumbKeyFor(KEY), expect.any(Buffer), 'image/webp');
+    // 1024 and 2048, which it is larger than, and one at its own 2400.
     expect(write.mock.calls.map(([key]) => key)).toEqual(
-      DISPLAY_WIDTHS.map((width) => displayKeyFor(KEY, width)),
+      [1024, 2048, 2400].map((width) => displayKeyFor(KEY, width)),
     );
     const row = recorded();
     expect(row.thumbKey).toBe(thumbKeyFor(KEY));
     expect([row.width, row.height]).toEqual([2400, 1600]);
-    expect(row.displayWidths).toEqual([...DISPLAY_WIDTHS]);
+    expect(row.displayWidths).toEqual([1024, 2048, 2400]);
+    expect(row.params[7]).toBe(DISPLAY_VERSION);
     expect(row.blur).toMatch(/^data:image\/webp;base64,/);
   });
 
@@ -205,7 +448,7 @@ describe('ThumbnailsService.generate', () => {
     expect(recorded().thumbKey).toBeNull();
     expect(recorded().sql).toContain('thumb_key = coalesce($2, thumb_key)');
     // Everything else is still made from the read that had to happen anyway.
-    expect(write).toHaveBeenCalledTimes(DISPLAY_WIDTHS.length);
+    expect(write).toHaveBeenCalledTimes(displaySizesFor(2400).length);
     expect(recorded().blur).toMatch(/^data:image\/webp;base64,/);
   });
 
@@ -219,6 +462,10 @@ describe('ThumbnailsService.generate', () => {
     expect(write).not.toHaveBeenCalled();
     expect(recorded().displayWidths).toBeNull();
     expect(recorded().sql).toContain('display_widths = coalesce($5, display_widths)');
+    // Nor does it claim they are the current kind: the backfill makes them
+    // again, and a version written here would tell it not to.
+    expect(recorded().params[7]).toBeNull();
+    expect(recorded().sql).toContain('display_version = coalesce($8::smallint, display_version)');
   });
 
   it('tries display copies again when the recorded list is empty', async () => {
@@ -228,8 +475,8 @@ describe('ThumbnailsService.generate', () => {
 
     await service.generate(KEY, 'image/jpeg', SIZE, { displayWidths: [] });
 
-    expect(write).toHaveBeenCalledTimes(DISPLAY_WIDTHS.length);
-    expect(recorded().displayWidths).toEqual([...DISPLAY_WIDTHS]);
+    expect(write).toHaveBeenCalledTimes(displaySizesFor(2400).length);
+    expect(recorded().displayWidths).toEqual(displaySizesFor(2400));
   });
 
   it('keeps a preview the row already has', async () => {
@@ -578,7 +825,7 @@ describe('What a public copy keeps of the camera file', () => {
     // photograph itself in the gallery a portfolio album card opens.
     const { service, write } = harness(await withCameraMetadata());
     await service.generate('users/u/albums/2026/09/shot.jpg', 'image/jpeg', 8 * 1024 * 1024);
-    expect(write).toHaveBeenCalledTimes(DISPLAY_WIDTHS.length);
+    expect(write).toHaveBeenCalledTimes(displaySizesFor(3000).length);
     for (const [, body] of write.mock.calls) await expectClean(body as Buffer);
   });
 

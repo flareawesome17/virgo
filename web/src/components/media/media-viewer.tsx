@@ -3,11 +3,41 @@
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent } from 'react';
 import { ArrowLeft, ArrowRight, Download, Info, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { displaySrcSet, formatBytes, kindOf, largestDisplaySource, type StoredFile } from '@/api';
+import { displaySrcSet, formatBytes, kindOf, largestDisplaySource, originalForDetail, type StoredFile } from '@/api';
 import { VideoPlayer } from '@/components/media/video-player';
 import { downloadHref } from '@/lib/desktop';
 
 const motion = 'transition-[transform,opacity,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]';
+
+/**
+ * Zoomed past this, the original joins the choices.
+ *
+ * The display copies cover the screen at 1x; by one and a half times the zoom
+ * is magnifying pixels the copy does not have, which is where checking focus
+ * turns into looking at mush.
+ */
+const DETAIL_AT = 1.5;
+
+/**
+ * The image's `srcset` and `sizes` at a zoom.
+ *
+ * `sizes` grows with the zoom, so the browser chooses for the size the
+ * photograph is magnified to rather than the size of its frame — and past
+ * DETAIL_AT the original is one of the choices, described by its own width.
+ * The browser keeps drawing what it has until the larger one has loaded, so
+ * a zoom never blanks the picture. The frame itself stays put: `sizes` also
+ * sets the image's natural size, but max-width and max-height hold it to the
+ * stage at every zoom.
+ */
+function zoomedSources(file: StoredFile, zoom: number): { srcSet?: string; sizes?: string } {
+  const copies = displaySrcSet(file);
+  if (!copies) return {};
+  const original = zoom >= DETAIL_AT ? originalForDetail(file) : null;
+  return {
+    srcSet: original && file.width ? `${copies}, ${original} ${file.width}w` : copies,
+    sizes: `${Math.round(Math.max(1, zoom) * 100)}vw`,
+  };
+}
 
 /**
  * "14 March 2026, 4:12 pm", as the camera wrote it.
@@ -95,15 +125,23 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
       if (!near || kindOf(near.contentType) !== 'image') continue;
       // A display copy if there is one. Preloading `url` here meant fetching
       // both neighbouring ORIGINALS on every step through an album — two
-      // camera files nobody had asked to see yet.
+      // camera files nobody had asked to see yet. Chosen the way the viewer
+      // will choose it, from the same `srcset` and `sizes`, so the copy
+      // fetched is the one drawn and not merely the widest.
       const source = largestDisplaySource(near) ?? near.url;
       if (!source) continue;
       const image = new Image();
+      const { srcSet, sizes } = zoomedSources(near, 1);
+      if (srcSet && sizes) {
+        image.sizes = sizes;
+        image.srcset = srcSet;
+      }
       image.src = source;
     }
   }, [files, index]);
 
   if (!file) return null;
+  const sources = zoomedSources(file, zoom);
   const onWheel = (event: WheelEvent) => {
     if (kind !== 'image') return;
     event.preventDefault();
@@ -137,14 +175,13 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
           <div className={`grid h-full select-none place-items-center overflow-hidden ${zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; setDragging(false); }} onPointerCancel={() => { drag.current = null; setDragging(false); }} onDoubleClick={() => zoom > 1 ? resetTransform() : setZoom(2)} onClick={() => zoom === 1 && setChrome((value) => !value)}>
             { }
             {/* Display copies when there are any, the original when there are
-                not. `sizes` is 100vw because this is a full-screen viewer —
-                but only up to zoom 1; past that the browser is scaling what it
-                already has, which is the trade for not refetching on a pinch. */}
+                not, and the original as well once zoomed far enough to need
+                it — see zoomedSources. */}
             {/* The preview sits behind the image rather than in front of it:
                 it is 20px upscaled, so it only has to fill the frame until
                 the real one paints over it. No extra request — the string
                 arrived with the listing. */}
-            <img src={largestDisplaySource(file) ?? file.url} srcSet={displaySrcSet(file) ?? undefined} sizes={displaySrcSet(file) ? '100vw' : undefined} alt={file.originalName} draggable={false} className="max-h-full max-w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)', backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+            <img src={largestDisplaySource(file) ?? file.url} srcSet={sources.srcSet} sizes={sources.sizes} alt={file.originalName} draggable={false} className="max-h-full max-w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)', backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined, backgroundSize: 'cover', backgroundPosition: 'center' }} />
           </div>
         ) : kind === 'video' ? <VideoPlayer file={file} /> : <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">Open audio from the album track list to use the listening queue.</div>}
 

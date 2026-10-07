@@ -150,10 +150,94 @@ export function largestDisplaySource(file: StoredFile): string | null {
   return file.displaySources.at(-1)?.url ?? null;
 }
 
+/**
+ * The long edge the API makes thumbnails at, in pixels. THUMB_EDGE in
+ * api/src/storage/thumbnails.service.ts.
+ */
+export const THUMBNAIL_EDGE = 640;
+
+/**
+ * How long a picture's long edge must be, in pixels, to fill a box of that
+ * many pixels cropped the way `cover` crops.
+ *
+ * Display copies are named by their long edge, and a cropped box is filled by
+ * the short one: a square tile 600 px across needs a 4:3 copy whose short
+ * edge is 600, which is a long edge of 800. A picture of unknown shape is
+ * taken to be square. That only happens without copies to choose from — the
+ * API records a photograph's size in the statement that records its copies.
+ */
+export function longEdgeToCover(
+  size: { width?: number | null; height?: number | null },
+  boxWidth: number,
+  boxHeight: number,
+): number {
+  const { width, height } = size;
+  if (!width || !height) return Math.max(boxWidth, boxHeight);
+  return Math.max(width, height) * Math.max(boxWidth / width, boxHeight / height);
+}
+
+/**
+ * The smallest display copy whose long edge is at least `longEdge` pixels, the
+ * widest when none is that long, or null when there are none.
+ */
+export function displaySourceAtLeast(
+  file: Pick<StoredFile, 'displaySources'>,
+  longEdge: number,
+): string | null {
+  const sources = file.displaySources;
+  return (sources.find((source) => source.width >= longEdge) ?? sources.at(-1))?.url ?? null;
+}
+
+/**
+ * A display copy's width in pixels.
+ *
+ * Copies are named by their long edge, which on a portrait photograph is its
+ * height. A `srcset` descriptor is a width, and handing the browser the long
+ * edge there made it think every portrait copy a third wider than it is — so
+ * it settled for one a size too small.
+ */
+function displayWidthOf(file: Pick<StoredFile, 'width' | 'height'>, longEdge: number): number {
+  if (!file.width || !file.height || file.width >= file.height) return longEdge;
+  return Math.round((longEdge * file.width) / file.height);
+}
+
 /** A `srcset` value, or null when there is nothing to build one from. */
 export function displaySrcSet(file: StoredFile): string | null {
   if (!file.displaySources.length) return null;
-  return file.displaySources.map((source) => `${source.url} ${source.width}w`).join(', ');
+  return file.displaySources
+    .map((source) => `${source.url} ${displayWidthOf(file, source.width)}w`)
+    .join(', ');
+}
+
+/**
+ * Types every client draws straight from the file, whatever the platform.
+ * HEIC is not one — only Apple's decoders read it — and a TIFF is not drawn
+ * by a browser at all.
+ */
+const DRAWABLE_ORIGINALS = ['image/jpeg', 'image/png', 'image/webp'];
+
+/**
+ * The original, when magnifying a photograph would show more of it than its
+ * widest display copy can — or null when it would not.
+ *
+ * Only for a type the client can draw (`alsoDraws` adds any this platform
+ * reads beyond the common ones), and only when the original is meaningfully
+ * larger than that copy: the copies go up to 3072 px, and to a photograph's
+ * own size below that, so for most photographs the copy already is all of it.
+ */
+export function originalForDetail(
+  file: StoredFile,
+  { alsoDraws = [] }: { alsoDraws?: readonly string[] } = {},
+): string | null {
+  if (!file.url || !file.contentType) return null;
+  if (!DRAWABLE_ORIGINALS.includes(file.contentType) && !alsoDraws.includes(file.contentType)) {
+    return null;
+  }
+  const widest = file.displaySources.at(-1)?.width ?? 0;
+  const longest = Math.max(file.width ?? 0, file.height ?? 0);
+  // A tenth larger at least, so a copy a few pixels short of its original
+  // does not cost a camera file for a difference nobody could see.
+  return longest > widest * 1.1 ? file.url : null;
 }
 
 function storedFileFromUnknown(value: unknown): StoredFile | null {

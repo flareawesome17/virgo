@@ -20,7 +20,25 @@ import { dayKey, dayTitle } from '@/src/lib/media-days';
  */
 export const DENSITIES = [2, 3, 5] as const;
 
-/** Index into DENSITIES. */
+/**
+ * The same three steps on a screen twice a phone's width.
+ *
+ * A phone's 2/3/5 on an upright tablet drew tiles twice the size they are on
+ * the phone — a dozen frames on screen where the phone shows forty, each one
+ * a thumbnail stretched to fill it. One column more at each step keeps a tile
+ * near the size it is on a phone.
+ */
+export const TABLET_DENSITIES = [3, 4, 6] as const;
+
+/** Where a screen counts as a tablet: Android's own line, 600 dp across. */
+const TABLET_WIDTH = 600;
+
+/** The densities for a screen this many points wide. */
+export function densitiesFor(width: number): readonly number[] {
+  return width >= TABLET_WIDTH ? TABLET_DENSITIES : DENSITIES;
+}
+
+/** Index into DENSITIES, or into what `densitiesFor` returned. */
 export const DEFAULT_DENSITY = 1;
 
 /** Hairline, not a gutter. Frames are separated, not spaced out. */

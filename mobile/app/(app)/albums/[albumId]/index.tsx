@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  PixelRatio,
   Platform,
   Pressable,
   RefreshControl,
@@ -16,7 +17,7 @@ import {
 } from 'react-native';
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
-import { RemoteImage } from '@/components/RemoteImage';
+import { RemoteImage, stableCacheKey } from '@/components/RemoteImage';
 import { BottomSheet, useShade } from '@/components/BottomSheet';
 import { NameSheet } from '@/components/NameSheet';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
@@ -73,8 +74,11 @@ import {
 import {
   albumShareApi,
   ApiError,
+  displaySourceAtLeast,
+  longEdgeToCover,
   retentionBadge,
   retentionOf,
+  THUMBNAIL_EDGE,
   type ShareMediaKind,
   type StoredFile,
   type StoredMediaKind,
@@ -84,8 +88,8 @@ import { DetailFallback } from '@/components/DetailFallback';
 import { ActionSheet, ChoiceSheet } from '@/components/WorkspaceBits';
 import {
   DEFAULT_DENSITY,
-  DENSITIES,
   HAIRLINE,
+  densitiesFor,
   clock,
   toSections,
   type MediaRow,
@@ -264,7 +268,8 @@ export default function AlbumScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files]);
 
-  const columns = DENSITIES[density];
+  const densities = densitiesFor(width);
+  const columns = densities[density];
   const tile = (width - HAIRLINE * (columns - 1)) / columns;
   const sections = useMemo(() => toSections(files, columns), [files, columns]);
 
@@ -276,13 +281,16 @@ export default function AlbumScreen() {
 
   const changeDensity = useCallback((step: number) => {
     setDensity((current) => {
-      const next = Math.min(Math.max(current + step, 0), DENSITIES.length - 1);
+      const next = Math.min(Math.max(current + step, 0), densities.length - 1);
       if (next !== current) void Haptics.selectionAsync();
       return next;
     });
-  }, []);
+  }, [densities.length]);
 
-  /** Pinch between 2, 3 and 5 across — one step per gesture, decided on release. */
+  /**
+   * Pinch between 2, 3 and 5 across, or 3, 4 and 6 on a tablet — one step per
+   * gesture, decided on release.
+   */
   const pinch = useMemo(
     () =>
       Gesture.Pinch().onEnd((event) => {
@@ -1317,7 +1325,23 @@ function MediaTile({
   onLongPress: (file: StoredFile) => void;
 }) {
   const kind = kindOf(file.contentType);
-  const still = kind === 'video' ? file.posterUrl : kind === 'image' ? file.thumbnailUrl ?? file.url : null;
+  // A display copy once the tile needs more pixels than the 640 px thumbnail
+  // has — two across on a phone, the larger tiles on a tablet — where the
+  // thumbnail was drawn up to twice its size. Square and cropped, so it is
+  // the copy's short edge that has to cover the tile.
+  const pixels = size * PixelRatio.get();
+  const need = kind === 'image' ? longEdgeToCover(file, pixels, pixels) : 0;
+  const copy = need > THUMBNAIL_EDGE ? displaySourceAtLeast(file, need) : null;
+  const still =
+    kind === 'video' ? file.posterUrl : kind === 'image' ? copy ?? file.thumbnailUrl ?? file.url : null;
+  // Under a copy, the thumbnail: usually already on the device from the
+  // density before, and sharper than the inline preview.
+  const placeholder =
+    copy && file.thumbnailUrl
+      ? { uri: file.thumbnailUrl, cacheKey: stableCacheKey(file.thumbnailUrl) }
+      : file.blurDataUrl
+        ? { uri: file.blurDataUrl }
+        : undefined;
   const what =
     kind === 'image' ? 'Photograph' : kind === 'video' ? 'Film' : kind === 'audio' ? 'Recording' : 'File';
 
@@ -1336,7 +1360,7 @@ function MediaTile({
       {still ? (
         <RemoteImage
           source={{ uri: still }}
-          placeholder={file.blurDataUrl ? { uri: file.blurDataUrl } : undefined}
+          placeholder={placeholder}
           placeholderContentFit="cover"
           style={{ width: '100%', height: '100%', opacity: selected ? 0.72 : 1 }}
           contentFit="cover"
