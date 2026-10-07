@@ -30,6 +30,18 @@ export interface UserRow {
   address_province: string | null;
   address_postal: string | null;
   address_country: string | null;
+  /**
+   * Where Nearby places them from the address: a city centre or a province
+   * capital, never the street. Worked out by the API when the address is
+   * written (discover/places.ts); all three null when it could not be placed.
+   */
+  address_latitude: number | null;
+  address_longitude: number | null;
+  address_place: string | null;
+  /** When the three above were last worked out, placed or not. */
+  address_geocoded_at: Date | null;
+  /** Left out of everyone else's Nearby by their own choice. */
+  nearby_hidden: boolean;
   /** What they trade as, if that is not their own name. */
   studio_name: string | null;
   /** A handle, a page or a URL — whatever they actually use. */
@@ -96,6 +108,11 @@ export interface PublicUser {
   addressProvince: string | null;
   addressPostal: string | null;
   addressCountry: string | null;
+  /**
+   * The place Nearby shows them in, from the address: null when the city
+   * could not be placed, which the profile screens say so it can be fixed.
+   */
+  addressPlace: string | null;
   studioName: string | null;
   socialHandle: string | null;
   twoFactorEnabled: boolean;
@@ -130,6 +147,8 @@ export function toPublicUser(row: UserRow): PublicUser {
     addressProvince: row.address_province ?? null,
     addressPostal: row.address_postal ?? null,
     addressCountry: row.address_country ?? null,
+    // Defaulted for a row read before migration 089.
+    addressPlace: row.address_place ?? null,
     studioName: row.studio_name ?? null,
     socialHandle: row.social_handle ?? null,
     twoFactorEnabled: !!row.two_factor_enabled_at,
@@ -167,6 +186,10 @@ export type ProfileFields = Partial<
     | 'address_province'
     | 'address_postal'
     | 'address_country'
+    | 'address_latitude'
+    | 'address_longitude'
+    | 'address_place'
+    | 'address_geocoded_at'
     | 'studio_name'
     | 'social_handle'
     | 'available_for_bookings'
@@ -189,6 +212,13 @@ export interface SignupDetails {
   addressProvince?: string;
   addressPostal?: string;
   addressCountry?: string;
+  /**
+   * Where the address puts them, worked out by the service before the insert
+   * (discover/places.ts). Absent, or null, when the city could not be placed.
+   */
+  addressPlace?: { place: string; latitude: number; longitude: number } | null;
+  /** The "City, Province" the profile shows, from the same address. */
+  location?: string | null;
   studioName?: string;
   socialHandle?: string;
   /**
@@ -229,9 +259,14 @@ export class UsersRepository {
          email, password_hash, display_name, roles,
          address_line1, address_line2, address_city, address_province,
          address_postal, address_country, studio_name, social_handle,
-         referred_by_user_id
+         referred_by_user_id, location,
+         address_latitude, address_longitude, address_place, address_geocoded_at
        )
-       values ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       values ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10, $11, $12, $13,
+               $14, $15, $16, $17,
+               -- Looked at whenever there is a city, placed or not, so the
+               -- backfill does not try it again.
+               case when $7::text is not null then now() end)
        returning *`,
       [
         email,
@@ -247,6 +282,10 @@ export class UsersRepository {
         details.studioName ?? null,
         details.socialHandle ?? null,
         details.referredByUserId ?? null,
+        details.location ?? null,
+        details.addressPlace?.latitude ?? null,
+        details.addressPlace?.longitude ?? null,
+        details.addressPlace?.place ?? null,
       ],
     );
     return row as UserRow;

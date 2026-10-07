@@ -119,8 +119,11 @@ const CITIES: readonly (readonly [name: string, lat: number, lon: number])[] = [
   ['Mati', 6.955, 126.2167],
 ];
 
-/** Just the names, for the canonicalisation loop below. */
-const CITY_NAMES: readonly string[] = CITIES.map(([name]) => name);
+/**
+ * Just the names, for the canonicalisation loop below — and for Nearby's
+ * address places, which hold every one of them to having a province.
+ */
+export const CITY_NAMES: readonly string[] = CITIES.map(([name]) => name);
 
 /**
  * Roughly where a place is, or null if it is not one we know.

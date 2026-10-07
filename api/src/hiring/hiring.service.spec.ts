@@ -186,7 +186,7 @@ describe('HiringService board', () => {
   it('filters the page and its total alike, each with the viewer at its own position', async () => {
     const h = harness({
       pool: (sql) => {
-        if (/case when shares_location/.test(sql)) return [{ lat: null, lon: null }];
+        if (/select pos\.lat, pos\.lon/.test(sql)) return [{ lat: null, lon: null }];
         if (/count\(\*\)::text as total/.test(sql)) return [{ total: '0' }];
         return undefined;
       },

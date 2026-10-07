@@ -4,6 +4,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsLatitude,
   IsLongitude,
@@ -24,7 +25,8 @@ import { DiscoverService } from './discover.service';
  *
  * One endpoint rather than two, because it is one decision to the person
  * making it — "here is where I am" — and the client picks the form it has.
- * `location` wins when both arrive.
+ * `location` wins when both arrive. The current apps only send coordinates;
+ * the city form stays for the installed ones that still offer it.
  */
 export class UpdateLocationDto {
   @IsOptional()
@@ -76,8 +78,8 @@ export class NearbyQueryDto {
   /**
    * Look from this city instead of from where the caller is.
    *
-   * Changes the centre of the search, not who can see the caller — being
-   * findable still requires sharing a position of your own.
+   * Changes the centre of the search, not who can see the caller: where they
+   * are shown is their own position, or their address's city.
    */
   @IsOptional()
   @IsString()
@@ -85,11 +87,20 @@ export class NearbyQueryDto {
   location?: string;
 }
 
+/** Shown in, or hidden from, everyone else's Nearby. */
+export class NearbyVisibilityDto {
+  @IsBoolean()
+  hidden!: boolean;
+}
+
 @Controller('discover')
 export class DiscoverController {
   constructor(private readonly discover: DiscoverService) {}
 
-  /** Whether the caller is discoverable, and when they last updated. */
+  /**
+   * How the caller is placed in Nearby: whether they appear, what places
+   * them, and whether they have hidden.
+   */
   @Get('location')
   status(@CurrentUser('id') userId: string) {
     return this.discover.sharingStatus(userId);
@@ -110,11 +121,30 @@ export class DiscoverController {
     return this.discover.updateLocation(userId, dto.latitude, dto.longitude);
   }
 
-  /** Stops sharing and erases the stored position. */
+  /**
+   * Stops sharing and erases the stored position. The caller is placed by
+   * their address's city again; this does not hide them.
+   */
   @HttpCode(200)
   @Delete('location')
   stop(@CurrentUser('id') userId: string) {
     return this.discover.stopSharing(userId);
+  }
+
+  /**
+   * Shows or hides the caller in everyone else's Nearby.
+   *
+   * Its own endpoint rather than a profile field: older APIs refuse a profile
+   * key they do not know, and this is a Nearby setting, read and written
+   * with the rest of Nearby's.
+   */
+  @HttpCode(200)
+  @Post('visibility')
+  visibility(
+    @CurrentUser('id') userId: string,
+    @Body() dto: NearbyVisibilityDto,
+  ) {
+    return this.discover.setHidden(userId, dto.hidden);
   }
 
   /**
