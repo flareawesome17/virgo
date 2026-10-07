@@ -133,6 +133,8 @@ export const queryKeys = {
     packages: (status: string) => ['money', 'packages', status] as const,
     package: (id: string) => ['money', 'package', id] as const,
     payMethods: ['money', 'pay-methods'] as const,
+    insights: (year: number) => ['money', 'insights', year] as const,
+    recurring: ['money', 'recurring'] as const,
   },
   portfolio: {
     all: ['portfolio'] as const,
