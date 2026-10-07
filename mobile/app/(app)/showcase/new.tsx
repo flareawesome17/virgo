@@ -22,6 +22,8 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CheckIcon,
+  GlobeIcon,
+  LockIcon,
   PlayIcon,
   PlusIcon,
   StarIcon,
@@ -45,7 +47,10 @@ import {
 import { clock } from '@/src/lib/media-grid';
 import {
   MAX_CRAFT_TAGS,
+  ApiError,
   MAX_SHOWCASE_ITEMS,
+  canPostTogether,
+  showcaseStatus,
   storageApi,
   type Showcase,
   type StoredFile,
@@ -54,7 +59,8 @@ import { faultyPiece, profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [
-  AlertCircleIcon, ArrowLeftIcon, ArrowRightIcon, CheckIcon, PlayIcon, PlusIcon, StarIcon, Trash2Icon, XIcon,
+  AlertCircleIcon, ArrowLeftIcon, ArrowRightIcon, CheckIcon, GlobeIcon, LockIcon, PlayIcon, PlusIcon,
+  StarIcon, Trash2Icon, XIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -75,6 +81,21 @@ const FILM_TAG_SUGGESTIONS = ['Gimbal', 'Handheld', 'Drone', 'Slow motion', '24f
 /** The server's own limit on one tag. */
 const MAX_TAG_LENGTH = 32;
 const GRID_GAP = 6;
+
+/** Said when a film and photographs meet, by the grid and by a refused post. */
+const FILM_ALONE = 'A film is posted on its own.';
+const NO_MIXING = "Photos and a film can't share a post.";
+
+type Kind = 'image' | 'video';
+
+/**
+ * Who sees a post. Public is the feed, the profile and the link; Private is
+ * the author alone — a post saved and not published, or one taken down.
+ * Connections-only was a third choice on the API that the phone never
+ * offered; an older post that has it is left with it until its author
+ * chooses one of these.
+ */
+type Visibility = 'public' | 'private';
 
 /**
  * Posting a showcase, or — with `?edit=<id>` — changing one.
@@ -116,9 +137,10 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { width } = useWindowDimensions();
-  const { create, update } = useShowcaseActions();
+  const { create, update, setPublished } = useShowcaseActions();
   const editing = Boolean(existing);
-  const busy = create.isPending || update.isPending;
+  const busy = create.isPending || update.isPending || setPublished.isPending;
+  const status = existing ? showcaseStatus(existing) : null;
 
   const [picked, setPicked] = useState<string[]>(
     () => existing?.pieces.map((piece) => piece.fileKey) ?? [],
@@ -135,6 +157,35 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   const [arranging, setArranging] = useState<number | null>(null);
   /** The piece the server turned down, and why, until it is dealt with. */
   const [faulty, setFaulty] = useState<{ key: string; message: string } | null>(null);
+  /**
+   * Whether each chosen piece is a photograph or a film, for the rule that a
+   * film goes alone. Kept per key, like the stills, because the grid only
+   * holds the album on screen.
+   */
+  const [kinds, setKinds] = useState<Record<string, Kind>>(() =>
+    Object.fromEntries(existing?.pieces.map((piece) => [piece.fileKey, piece.kind]) ?? []),
+  );
+  /**
+   * Why the last tap did not add what it was on, and the one tap that would
+   * — the film instead of the photographs, or the other way round. Said in
+   * place rather than in an alert, next to the choice it is about.
+   */
+  const [notice, setNotice] = useState<{
+    message: string;
+    swap?: { label: string; key: string };
+  } | null>(null);
+  /*
+   * Public for a new post. An existing one starts where it is: private if it
+   * is not out, public if it is out to everyone — and unchosen if it is out
+   * to connections only, so saving an edit never quietly widens or narrows
+   * who sees it. One Virgo took down has no choice to make.
+   */
+  const [visibility, setVisibility] = useState<Visibility | null>(() => {
+    if (!existing) return 'public';
+    if (status === 'removed') return null;
+    if (status === 'live') return existing.visibility === 'public' ? 'public' : null;
+    return 'private';
+  });
   // A still for everything chosen, whichever album it was picked from — the
   // grid only holds the album on screen.
   const [stills, setStills] = useState<Record<string, string>>(() =>
@@ -157,6 +208,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     tags,
     allowComments,
     showHire,
+    visibility,
   });
   const { albums } = useAlbums({ orderBy: 'created_at', direction: 'desc', limit: 100 });
   const files = useInfiniteQuery({
@@ -189,16 +241,47 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     (kindOf(file.contentType) === 'video' ? file.posterUrl : (file.thumbnailUrl ?? file.url)) ??
     undefined;
 
-  const toggle = (key: string, still?: string) => {
+  const pickedKinds = picked.map((key) => kinds[key] ?? 'image');
+  const hasFilm = pickedKinds.includes('video');
+
+  /*
+   * Choosing, and the rule that comes with it: up to twenty photographs, or
+   * one film on its own. A tap that would break it is turned down where it
+   * happened, with the swap offered — what is already chosen is never thrown
+   * away by a tap meant to add to it.
+   */
+  const toggle = (key: string, still?: string, kind?: Kind) => {
     if (still) setStills((current) => ({ ...current, [key]: still }));
+    if (kind) setKinds((current) => (current[key] === kind ? current : { ...current, [key]: kind }));
     if (faulty?.key === key) setFaulty(null);
+    if (picked.includes(key)) {
+      setNotice(null);
+      setPicked((current) => current.filter((k) => k !== key));
+      return;
+    }
+    const adding = kind ?? kinds[key] ?? 'image';
+    if (adding === 'video' && picked.length > 0) {
+      setNotice({
+        message: hasFilm ? FILM_ALONE : `${NO_MIXING} ${FILM_ALONE}`,
+        swap: { label: hasFilm ? 'Use this film instead' : 'Post the film instead', key },
+      });
+      return;
+    }
+    if (adding === 'image' && hasFilm) {
+      setNotice({ message: `${FILM_ALONE} ${NO_MIXING}`, swap: { label: 'Use photos instead', key } });
+      return;
+    }
+    setNotice(null);
     setPicked((current) =>
-      current.includes(key)
-        ? current.filter((k) => k !== key)
-        : current.length >= MAX_SHOWCASE_ITEMS
-          ? current
-          : [...current, key],
+      current.includes(key) || current.length >= MAX_SHOWCASE_ITEMS ? current : [...current, key],
     );
+  };
+
+  /** The one the notice is about, in place of everything chosen. */
+  const swapTo = (key: string) => {
+    setNotice(null);
+    setFaulty(null);
+    setPicked([key]);
   };
 
   /** Moves the chosen piece at `from` to `to`. Position 0 is the cover. */
@@ -238,6 +321,14 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
    */
   const failed = (error: unknown, action: 'showcase' | 'editShowcase') => {
     const message = profileActionMessage(error, action);
+    // Said beside the work, where it can be fixed, rather than in an alert.
+    if (
+      error instanceof ApiError &&
+      (error.body as { code?: unknown } | undefined)?.code === 'SHOWCASE_FILM_ALONE'
+    ) {
+      setNotice({ message: `${NO_MIXING} ${FILM_ALONE}` });
+      return;
+    }
     const key = faultyPiece(error);
     if (key && picked.includes(key)) {
       setFaulty({ key, message });
@@ -247,8 +338,9 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   };
 
   const post = () => {
-    if (picked.length === 0) return;
+    if (!canPostTogether(pickedKinds)) return;
     setFaulty(null);
+    setNotice(null);
     create.mutate(
       {
         fileKeys: picked,
@@ -258,7 +350,9 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         craftTags: tags.length > 0 ? tags : undefined,
         allowComments,
         showHire,
-        publish: true,
+        // Private is saved and not posted: only its author sees it, and it
+        // goes out when they make it public.
+        publish: visibility !== 'private',
       },
       {
         // To the post itself, in place of this form: after Post you were put
@@ -274,11 +368,10 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   };
 
   const save = () => {
-    if (!existing || picked.length === 0) return;
+    if (!existing || !canSave) return;
     setFaulty(null);
-    const before = existing.pieces.map((piece) => piece.fileKey);
-    const piecesChanged =
-      picked.length !== before.length || picked.some((key, i) => key !== before[i]);
+    setNotice(null);
+    const wasLive = status === 'live';
     update
       .mutateAsync({
         id: existing.id,
@@ -294,17 +387,45 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           craftTags: tags,
           allowComments,
           showHire,
+          // Only when Public was chosen for a post that was not out to
+          // everyone: an untouched choice sends nothing.
+          ...(visibility === 'public' && existing.visibility !== 'public'
+            ? { visibility: 'public' as const }
+            : {}),
         },
       })
       .then(
-        () => {
+        async () => {
           allowLeave();
+          // Who sees it is its own request, after the words are safe.
+          try {
+            if (visibility === 'private' && wasLive) {
+              await setPublished.mutateAsync({ id: existing.id, published: false });
+            } else if (visibility === 'public' && (status === 'draft' || status === 'down')) {
+              await setPublished.mutateAsync({ id: existing.id, published: true });
+            }
+          } catch (error) {
+            Alert.alert(
+              "Saved, but who sees it didn't change",
+              profileActionMessage(error, 'setting'),
+            );
+          }
           router.back();
         },
         (error) => failed(error, 'editShowcase'),
       );
   };
 
+  const before = existing?.pieces.map((piece) => piece.fileKey) ?? [];
+  const piecesChanged =
+    picked.length !== before.length || picked.some((key, i) => key !== before[i]);
+  /*
+   * A post from before the rule may mix a film with photographs. Its words
+   * can still be edited — its pieces are not sent unless they change — but
+   * changed pieces have to follow the rule.
+   */
+  const legacyMix = editing && !piecesChanged && picked.length > 0 && !canPostTogether(pickedKinds);
+  const canSave = canPostTogether(pickedKinds) || legacyMix;
   const full = picked.length >= MAX_SHOWCASE_ITEMS;
   // Tags typed elsewhere are not among the suggestions; they are shown too, so
   // they can be taken off.
@@ -317,9 +438,16 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
       <View className="px-5 pt-4">
         <Text className="text-primary text-[11px] font-bold tracking-[1.5px]">THE WORK</Text>
         <Text className="text-muted-foreground text-[12px] mt-1">
-          {picked.length}/{MAX_SHOWCASE_ITEMS} chosen
+          {hasFilm && picked.length === 1
+            ? 'A film, posted on its own.'
+            : `${picked.length}/${MAX_SHOWCASE_ITEMS} chosen`}
           {picked.length > 1 ? ' · the first is the cover. Tap one to move it.' : ''}
         </Text>
+        {picked.length === 0 ? (
+          <Text className="text-muted-foreground text-[12px]">
+            Up to {MAX_SHOWCASE_ITEMS} photographs, or one film on its own.
+          </Text>
+        ) : null}
       </View>
 
       {/* What is chosen, in order — including anything picked in another
@@ -363,6 +491,40 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
             );
           })}
         </ScrollView>
+      )}
+
+      {notice && (
+        <View className="mx-5 mt-3 rounded-xl bg-warning/10 p-3 flex-row items-start gap-2.5">
+          <AlertCircleIcon size={16} className="text-warning" />
+          <View className="flex-1">
+            <Text className="text-foreground text-[13px] leading-5">{notice.message}</Text>
+            {notice.swap ? (
+              <Pressable
+                onPress={() => notice.swap && swapTo(notice.swap.key)}
+                accessibilityRole="button"
+                hitSlop={{ top: 8, bottom: 8 }}
+                className="self-start mt-1.5 active:opacity-60"
+              >
+                <Text className="text-primary text-[13px] font-bold">{notice.swap.label}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable
+            onPress={() => setNotice(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+            className="w-8 h-8 -mr-1 -mt-1 items-center justify-center active:opacity-60"
+          >
+            <XIcon size={15} className="text-muted-foreground" />
+          </Pressable>
+        </View>
+      )}
+
+      {legacyMix && (
+        <Text className="text-muted-foreground text-[12px] leading-[17px] px-5 pt-3">
+          This post mixes photographs and a film, which a post can no longer do. You can
+          still change the words; to change the pieces, keep the photographs or one film.
+        </Text>
       )}
 
       {faulty && (
@@ -538,6 +700,42 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         </Text>
       </View>
 
+      <View className="mx-5 mt-6">
+        <Text className="text-primary text-[11px] font-bold tracking-[1.5px]">WHO SEES IT</Text>
+        {status === 'removed' ? (
+          <Text className="text-muted-foreground text-[12px] leading-[17px] mt-2">
+            Virgo took this post down, so only you can see it. Contact support if you think
+            that was a mistake.
+          </Text>
+        ) : (
+          <View
+            accessibilityRole="radiogroup"
+            className="mt-2 rounded-2xl border border-border overflow-hidden"
+          >
+            <VisibilityRow
+              icon={GlobeIcon}
+              label="Public"
+              detail="In the feed and on your profile, and anyone you send the link to can see it."
+              on={visibility === 'public'}
+              onPress={() => setVisibility('public')}
+            />
+            <VisibilityRow
+              icon={LockIcon}
+              label="Private"
+              detail="Only you. It waits on your profile until you make it public."
+              on={visibility === 'private'}
+              onPress={() => setVisibility('private')}
+              divided
+            />
+          </View>
+        )}
+        {visibility === null && existing?.visibility === 'connections' && status === 'live' ? (
+          <Text className="text-muted-foreground text-[12px] leading-[17px] mt-2">
+            Right now only your connections see it. That stays as it is unless you choose.
+          </Text>
+        ) : null}
+      </View>
+
       <View className="mx-5 mt-5 mb-2 rounded-2xl border border-border overflow-hidden">
         {/* allow_comments has been a column since showcases shipped with
             nothing able to set it. This is the switch it was describing. */}
@@ -580,11 +778,12 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
       <FormHeader
         title={editing ? 'Edit showcase' : 'New showcase'}
         action={{
-          label: editing
-            ? update.isPending ? 'Saving…' : 'Save'
-            : create.isPending ? 'Posting…' : 'Post',
+          // Private is saved, not posted, and the button says so.
+          label: editing || visibility === 'private'
+            ? busy ? 'Saving…' : 'Save'
+            : busy ? 'Posting…' : 'Post',
           onPress: editing ? save : post,
-          disabled: picked.length === 0,
+          disabled: editing ? !canSave : !canPostTogether(pickedKinds),
           busy,
         }}
       />
@@ -641,17 +840,20 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
             const on = at >= 0;
             const film = kindOf(file.contentType) === 'video';
             const still = stillOf(file);
+            // Dimmed rather than hidden: still tappable, to say why and offer
+            // the swap.
+            const blocked = !on && (film ? picked.length > 0 : hasFilm);
             return (
               <Pressable
-                onPress={() => toggle(file.key, still)}
+                onPress={() => toggle(file.key, still, film ? 'video' : 'image')}
                 accessibilityRole="button"
                 accessibilityState={{ selected: on }}
                 accessibilityLabel={
                   on
                     ? `Chosen, number ${at + 1}. Remove.`
                     : film
-                      ? 'Choose this film'
-                      : 'Choose this photograph'
+                      ? `Choose this film${blocked ? `. ${FILM_ALONE}` : ''}`
+                      : `Choose this photograph${blocked ? `. ${NO_MIXING}` : ''}`
                 }
                 style={{
                   width: tile,
@@ -660,6 +862,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                   overflow: 'hidden',
                   borderWidth: 2,
                   borderColor: on ? palette.primary : 'transparent',
+                  opacity: blocked ? 0.45 : 1,
                 }}
                 className="bg-muted active:opacity-80"
               >
@@ -760,6 +963,43 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         </View>
       </BottomSheet>
     </InsetFrame>
+  );
+}
+
+function VisibilityRow({
+  icon: Icon,
+  label,
+  detail,
+  on,
+  onPress,
+  divided,
+}: {
+  icon: typeof GlobeIcon;
+  label: string;
+  detail: string;
+  on: boolean;
+  onPress: () => void;
+  divided?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: on }}
+      accessibilityLabel={`${label}. ${detail}`}
+      className={`min-h-[56px] flex-row items-center gap-3 px-4 py-2.5 active:opacity-70 ${divided ? 'border-t border-border' : ''} ${on ? 'bg-secondary' : ''}`}
+    >
+      <Icon size={18} className={on ? 'text-primary' : 'text-muted-foreground'} />
+      <View className="flex-1">
+        <Text className="text-foreground text-[14px] font-semibold">{label}</Text>
+        <Text className="text-muted-foreground text-[12px] leading-4 mt-0.5">{detail}</Text>
+      </View>
+      <View
+        className={`w-5 h-5 rounded-full items-center justify-center ${on ? 'bg-action' : 'border border-border'}`}
+      >
+        {on ? <CheckIcon size={12} className="text-action-foreground" /> : null}
+      </View>
+    </Pressable>
   );
 }
 

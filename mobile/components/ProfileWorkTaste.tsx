@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   PixelRatio,
@@ -13,7 +13,9 @@ import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { RemoteImage, stableCacheKey } from '@/components/RemoteImage';
+import { ShowcasePostSheet } from '@/components/ShowcasePostSheet';
 import {
+  useAllKept,
   useMyShowcases,
   useProfileTaste,
   useProfileWork,
@@ -36,6 +38,8 @@ for (const Icon of [BookmarkIcon, ImageIcon]) {
 
 /** A work card's height, in points. */
 const CARD_HEIGHT = 132;
+/** Between the tiles of a shelf's mosaic cover. */
+const MOSAIC_GAP = 2;
 
 /**
  * The still for a work card: the piece's 640 px thumbnail, or a display copy
@@ -66,7 +70,11 @@ function cardStill(piece: ShowcasePiece | undefined, cardWidth: number): string 
  * Your own profile reads your own lists rather than the by-handle ones. Those
  * need a handle, and posting does not — so anybody without one saw "You have
  * not posted anything yet" over posts they had made. Your own list also keeps
- * what you took down, marked, which is the only place left to find it again.
+ * what you made private, marked, which is the only place left to find it again.
+ *
+ * A piece of work opens in a sheet as the feed's own card, over the profile,
+ * rather than on a screen of its own. Your own Taste leads with All kept —
+ * everything you kept, whatever shelf it is on — before the shelves.
  */
 export function ProfileWorkTaste({
   handle,
@@ -78,9 +86,11 @@ export function ProfileWorkTaste({
   firstName: string;
 }) {
   const [tab, setTab] = useState<'work' | 'taste'>('work');
+  const [openWork, setOpenWork] = useState<string | null>(null);
   const { width: screenWidth } = useWindowDimensions();
   // Two across, inside the 20 pt margins and the 8 pt gap.
   const cardWidth = (screenWidth - 40) * 0.48;
+  const shelfSize = Math.floor((screenWidth - 40 - 8) / 2);
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
@@ -92,6 +102,10 @@ export function ProfileWorkTaste({
   const ownTaste = useShelves({ enabled: isSelf });
   const work = isSelf ? ownWork : visitorWork;
   const taste = isSelf ? ownTaste : visitorTaste;
+  // Left out, rather than shown as a failure, by an API that predates it: the
+  // shelves under it are still everything there is to see.
+  const allKept = useAllKept({ enabled: isSelf });
+  const showAllKept = isSelf && allKept.total > 0;
 
   return (
     <View className="mt-6">
@@ -129,7 +143,7 @@ export function ProfileWorkTaste({
             {work.showcases.map((showcase) => (
               <Pressable
                 key={showcase.id}
-                onPress={() => router.push(`/showcase/${showcase.id}`)}
+                onPress={() => setOpenWork(showcase.id)}
                 accessibilityRole="button"
                 accessibilityLabel={showcase.title ?? 'Open this showcase'}
                 style={{ width: '48%' }}
@@ -183,7 +197,7 @@ export function ProfileWorkTaste({
         <View className="px-5 pt-4">
           <LoadFailed what="these shelves" onRetry={() => taste.refetch()} compact />
         </View>
-      ) : taste.shelves.length === 0 ? (
+      ) : taste.shelves.length === 0 && !showAllKept ? (
         <Empty
           icon="taste"
           title={isSelf ? 'Nothing kept yet' : `${firstName} has not kept anything yet`}
@@ -196,9 +210,27 @@ export function ProfileWorkTaste({
         />
       ) : (
         <View className="flex-row flex-wrap gap-2 px-5 pt-4">
+          {showAllKept ? (
+            <CollectionCard
+              name="All kept"
+              count={allKept.total}
+              isPrivate
+              urls={allKept.entries.slice(0, 4).map((entry) => entry.url)}
+              size={shelfSize}
+              onPress={() => router.push('/shelf/all')}
+            />
+          ) : null}
           {taste.shelves.map((shelf) => (
-            <Pressable
+            <CollectionCard
               key={shelf.id}
+              name={shelf.name}
+              count={shelf.count}
+              isPrivate={!shelf.isPublic}
+              // An API that predates the mosaic sends the one cover.
+              urls={
+                shelf.coverUrls?.length ? shelf.coverUrls : shelf.coverUrl ? [shelf.coverUrl] : []
+              }
+              size={shelfSize}
               onPress={() =>
                 // Somebody else's shelf has to be read through the public
                 // route: the default is your own, and asking /me/shelves for a
@@ -211,33 +243,106 @@ export function ProfileWorkTaste({
                     : { id: shelf.id, name: shelf.name, own: '0' },
                 })
               }
-              accessibilityRole="button"
-              accessibilityLabel={`${shelf.name}, ${shelf.count} kept`}
-              style={{ width: '48%' }}
-            >
-              <View className="rounded-xl overflow-hidden bg-muted" style={{ height: 112 }}>
-                {shelf.coverUrl ? (
-                  <RemoteImage
-                    source={{ uri: shelf.coverUrl }}
-                    style={{ width: '100%', height: 112 }}
-                    contentFit="cover"
-                  />
-                ) : (
-                  <View className="flex-1 items-center justify-center">
-                    <BookmarkIcon size={20} className="text-muted-foreground" />
-                  </View>
-                )}
-              </View>
-              <Text className="text-foreground text-[12px] font-bold mt-1.5" numberOfLines={1}>
-                {shelf.name}
-              </Text>
-              <Text className="text-muted-foreground text-[10.5px]">
-                {shelf.count} kept{shelf.isPublic ? '' : ' · Private'}
-              </Text>
-            </Pressable>
+            />
           ))}
         </View>
       )}
+
+      <ShowcasePostSheet showcaseId={openWork} onClose={() => setOpenWork(null)} />
+    </View>
+  );
+}
+
+/** A shelf, or All kept: its mosaic, its name, how much is on it. */
+function CollectionCard({
+  name,
+  count,
+  isPrivate,
+  urls,
+  size,
+  onPress,
+}: {
+  name: string;
+  count: number;
+  isPrivate: boolean;
+  urls: string[];
+  size: number;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, ${count} kept${isPrivate ? ', private' : ''}`}
+      className="active:opacity-80"
+      style={{ width: size }}
+    >
+      <ShelfMosaic urls={urls} size={size} />
+      <Text className="text-foreground text-[12px] font-bold mt-1.5" numberOfLines={1}>
+        {name}
+      </Text>
+      <Text className="text-muted-foreground text-[10.5px]">
+        {count} kept{isPrivate ? ' · Private' : ''}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
+ * A shelf's cover: the newest four things kept on it, two by two. Fewer fill
+ * the square differently — one whole, two side by side, three as one large
+ * beside two small — so a shelf with three on it does not show a hole.
+ */
+function ShelfMosaic({ urls, size }: { urls: string[]; size: number }) {
+  const half = (size - MOSAIC_GAP) / 2;
+  const tile = (uri: string, width: number, height: number) => (
+    <View key={uri} className="bg-muted" style={{ width, height }}>
+      <RemoteImage source={{ uri }} style={{ width, height }} contentFit="cover" />
+    </View>
+  );
+
+  let body: ReactNode;
+  if (urls.length === 0) {
+    body = (
+      <View className="flex-1 items-center justify-center bg-muted">
+        <BookmarkIcon size={20} className="text-muted-foreground" />
+      </View>
+    );
+  } else if (urls.length === 1) {
+    body = tile(urls[0], size, size);
+  } else if (urls.length === 2) {
+    body = (
+      <View className="flex-row" style={{ gap: MOSAIC_GAP }}>
+        {tile(urls[0], half, size)}
+        {tile(urls[1], half, size)}
+      </View>
+    );
+  } else if (urls.length === 3) {
+    body = (
+      <View className="flex-row" style={{ gap: MOSAIC_GAP }}>
+        {tile(urls[0], half, size)}
+        <View style={{ gap: MOSAIC_GAP }}>
+          {tile(urls[1], half, half)}
+          {tile(urls[2], half, half)}
+        </View>
+      </View>
+    );
+  } else {
+    body = (
+      <View className="flex-row flex-wrap" style={{ gap: MOSAIC_GAP }}>
+        {urls.slice(0, 4).map((uri) => tile(uri, half, half))}
+      </View>
+    );
+  }
+
+  return (
+    <View
+      className="rounded-xl overflow-hidden bg-background"
+      style={{ width: size, height: size }}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {body}
     </View>
   );
 }
@@ -285,8 +390,9 @@ function Empty({
 /** Only drawn on your own work, and only when it is not out for everyone. */
 function StatusBadge({ status }: { status: ShowcaseStatus }) {
   if (status === 'live') return null;
-  const label =
-    status === 'draft' ? 'Draft' : status === 'down' ? 'Taken down' : 'Removed by Virgo';
+  // Never posted and taken down are the same thing to the person looking:
+  // only they can see it, until they make it public.
+  const label = status === 'removed' ? 'Removed by Virgo' : 'Private';
   return (
     <View
       className={`absolute left-1.5 bottom-1.5 rounded-full px-2 py-0.5 ${status === 'removed' ? 'bg-destructive' : 'bg-foreground/70'}`}

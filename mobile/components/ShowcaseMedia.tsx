@@ -12,27 +12,46 @@ import { RemoteImage } from '@/components/RemoteImage';
 import { pieceAspect, pieceSource, type ShowcasePiece } from '@/src/api';
 
 /**
- * The shapes a feed card may be: from a portrait 4:5 to a landscape 1.91:1,
- * the range the big feeds settled on. Inside it a piece is drawn at its own
- * proportions; outside it, cropped to the nearest end, so one panorama or one
- * tall phone frame does not turn the feed into a strip or a wall.
+ * How far a feed card bends to a piece's shape before it stops: no taller than
+ * a phone's 9:16 frame, no wider than 3:1. Between the two a card is exactly
+ * the cover's shape, so nothing is cut off; past either end the piece is shown
+ * whole inside a frame of that limit, letterboxed, so one panorama does not
+ * become a strip and one tall screenshot does not become a wall.
  *
- * Every card used to be the same 1:1.15 box, which cut close to half off a
- * 3:2 photograph and half off a 16:9 film.
+ * The feed used to clamp to 4:5–1.91:1 and crop to fit — a portrait taken on a
+ * phone lost a third of itself, which is the part photographers notice first.
  */
-export const FEED_MIN_ASPECT = 4 / 5;
-export const FEED_MAX_ASPECT = 1.91;
+export const FEED_TALLEST = 9 / 16;
+export const FEED_WIDEST = 3;
 /** For a piece whose size is not known: the feed's default portrait shape. */
 const DEFAULT_ASPECT = 4 / 5;
-
-export function feedAspect(piece: ShowcasePiece | undefined): number {
-  const aspect = (piece && pieceAspect(piece)) ?? DEFAULT_ASPECT;
-  return Math.min(FEED_MAX_ASPECT, Math.max(FEED_MIN_ASPECT, aspect));
-}
 
 /** The piece's own shape, for the post, where nothing is cropped. */
 export function naturalAspect(piece: ShowcasePiece | undefined): number {
   return (piece && pieceAspect(piece)) ?? DEFAULT_ASPECT;
+}
+
+/**
+ * The shape of a card's frame: the cover's own, within FEED_TALLEST and
+ * FEED_WIDEST. A set keeps this one frame for every piece in it, so the card
+ * does not change height under the thumb as it is swiped.
+ */
+export function feedFrameAspect(cover: ShowcasePiece | undefined): number {
+  return Math.min(FEED_WIDEST, Math.max(FEED_TALLEST, naturalAspect(cover)));
+}
+
+/**
+ * How a piece sits in a frame: filling it when it is the frame's shape, and
+ * whole inside it otherwise — never cropped. A piece whose size is not known
+ * is drawn whole too, since there is no telling what filling would cut off.
+ *
+ * Within a hair of the frame counts as its shape: the frame's height is
+ * rounded to a point, and drawing such a piece "whole" left a one-pixel line
+ * along an edge.
+ */
+export function fitIn(piece: ShowcasePiece, frameAspect: number): 'cover' | 'contain' {
+  const own = pieceAspect(piece);
+  return own && Math.abs(own - frameAspect) / frameAspect < 0.01 ? 'cover' : 'contain';
 }
 
 /**
@@ -101,9 +120,13 @@ function Dots({ index, total }: { index: number; total: number }) {
 /**
  * Every piece of a set, side by side, swiped through.
  *
- * A set of ten showed its cover and a "10" badge, and the other nine only on
- * the post. One frame for the whole set, shaped by the cover, the way the big
- * feeds do it: the card does not change height under the thumb as it swipes.
+ * One frame for the whole set, shaped by the cover, the way the big feeds do
+ * it: the card does not change height under the thumb as it swipes. The
+ * pieces that are not the cover's shape are drawn whole inside it (see fitIn)
+ * — the caller decides that per page, since it is the caller that draws them.
+ *
+ * `overlay` is drawn over the frame, above every page and the count: the
+ * heart a double tap leaves, or a badge saying a post is private.
  */
 export function PieceCarousel({
   pieces,
@@ -111,6 +134,7 @@ export function PieceCarousel({
   height,
   renderPage,
   onIndexChange,
+  overlay,
 }: {
   pieces: ShowcasePiece[];
   width: number;
@@ -118,6 +142,7 @@ export function PieceCarousel({
   /** Draws one page; `current` is whether it is the page showing. */
   renderPage: (piece: ShowcasePiece, index: number, current: boolean) => ReactNode;
   onIndexChange?: (index: number) => void;
+  overlay?: ReactNode;
 }) {
   const [index, setIndex] = useState(0);
   const indexRef = useRef(0);
@@ -136,7 +161,12 @@ export function PieceCarousel({
   );
 
   if (pieces.length === 1) {
-    return <View style={{ width, height }}>{renderPage(pieces[0], 0, true)}</View>;
+    return (
+      <View style={{ width, height }}>
+        {renderPage(pieces[0], 0, true)}
+        {overlay}
+      </View>
+    );
   }
 
   return (
@@ -148,8 +178,8 @@ export function PieceCarousel({
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
-          // A set is at most ten, and its pages are a screen wide: two either
-          // side is enough to swipe without a blank.
+          // A set is at most twenty, and its pages are a screen wide: two
+          // either side is enough to swipe without a blank.
           initialNumToRender={2}
           windowSize={3}
           onScroll={onScroll}
@@ -161,6 +191,7 @@ export function PieceCarousel({
           accessibilityLabel={`${pieces.length} pieces. Swipe to see the next.`}
         />
         <PieceCount index={index} total={pieces.length} />
+        {overlay}
       </View>
       <Dots index={index} total={pieces.length} />
     </View>

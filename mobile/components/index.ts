@@ -74,3 +74,8 @@ export { ProfileWorkTaste } from './ProfileWorkTaste';
 export { ShowcaseReportSheet } from './ShowcaseReportSheet';
 export { CommentThread } from './CommentThread';
 export { ShowcaseFilm } from './ShowcaseFilm';
+export { ShowcaseCard, type ShowcaseCardActions } from './ShowcaseCard';
+export { useShowcaseCardHost } from './ShowcaseCardHost';
+export { ShowcasePostSheet } from './ShowcasePostSheet';
+export { CommentsSheet } from './CommentsSheet';
+export { KeptGrid } from './KeptGrid';

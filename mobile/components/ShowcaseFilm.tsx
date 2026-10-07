@@ -66,6 +66,12 @@ export function ShowcaseFilm({
    * its bottom 32 points, and both controls sat underneath it.
    */
   controlsInset = 0,
+  /**
+   * 'contain' for a film that is not its frame's shape — a feed card stops at
+   * 9:16 and 3:1 and letterboxes anything past them, on black, rather than
+   * cut the film to fit.
+   */
+  contentFit = 'cover',
 }: {
   piece: ShowcasePiece;
   width: number;
@@ -74,6 +80,7 @@ export function ShowcaseFilm({
   active?: boolean;
   onPlay?: () => void;
   controlsInset?: number;
+  contentFit?: 'cover' | 'contain';
 }) {
   const [started, setStarted] = useState(false);
   const source = piece.playbackUrl ?? null;
@@ -89,6 +96,7 @@ export function ShowcaseFilm({
         height={height}
         playable={Boolean(source)}
         controlsInset={controlsInset}
+        contentFit={contentFit}
         onPress={() => {
           quietOthers();
           setStarted(true);
@@ -107,6 +115,7 @@ export function ShowcaseFilm({
       loop={loop}
       active={active}
       controlsInset={controlsInset}
+      contentFit={contentFit}
       onPlay={onPlay}
       // Back to the still, which is the honest answer to a proxy that is
       // missing or a ladder that is half-written — not a black rectangle.
@@ -122,6 +131,7 @@ function Poster({
   height,
   playable,
   controlsInset,
+  contentFit,
   onPress,
 }: {
   piece: ShowcasePiece;
@@ -129,11 +139,12 @@ function Poster({
   height: number;
   playable: boolean;
   controlsInset: number;
+  contentFit: 'cover' | 'contain';
   onPress: () => void;
 }) {
   return (
-    <View style={{ width, height }} className="bg-muted">
-      <RemoteImage source={{ uri: piece.url }} style={{ width, height }} contentFit="cover" />
+    <View style={{ width, height }} className={contentFit === 'contain' ? 'bg-black' : 'bg-muted'}>
+      <RemoteImage source={{ uri: piece.url }} style={{ width, height }} contentFit={contentFit} />
       <Pressable
         onPress={playable ? onPress : undefined}
         disabled={!playable}
@@ -182,6 +193,7 @@ function Film({
   loop,
   active,
   controlsInset,
+  contentFit,
   onPlay,
   onFailed,
 }: {
@@ -192,6 +204,7 @@ function Film({
   loop: boolean;
   active: boolean;
   controlsInset: number;
+  contentFit: 'cover' | 'contain';
   onPlay?: () => void;
   onFailed: () => void;
 }) {
@@ -250,11 +263,11 @@ function Film({
   }, [active, player]);
 
   return (
-    <View style={{ width, height }} className="bg-muted">
+    <View style={{ width, height }} className={contentFit === 'contain' ? 'bg-black' : 'bg-muted'}>
       <VideoView
         player={player}
         style={{ width, height }}
-        contentFit="cover"
+        contentFit={contentFit}
         nativeControls={false}
         onFirstFrameRender={() => setDrawn(true)}
       />
@@ -306,7 +319,7 @@ function Film({
 
       {!drawn && (
         <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
-          <RemoteImage source={{ uri: poster }} style={{ width, height }} contentFit="cover" />
+          <RemoteImage source={{ uri: poster }} style={{ width, height }} contentFit={contentFit} />
           <View className="absolute inset-0 items-center justify-center">
             <ActivityIndicator color="#fff" />
           </View>

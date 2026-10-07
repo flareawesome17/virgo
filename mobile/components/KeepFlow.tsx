@@ -24,10 +24,12 @@ const TOAST_MS = 4000;
  * shelf who keeps everything on it. Now Keep goes to the shelf used last, at
  * once, and says where — "Kept to Light · Change" — with Change opening the
  * sheet for another shelf, a note, or to take it off. The first Keep, and a
- * Keep on something already kept, still open the sheet.
+ * Keep on something already kept, still open the sheet — that is where it is
+ * moved to another shelf or taken off.
  *
- * Returns the handler and what the screen renders for it: the sheet and the
- * message.
+ * Returns the handlers and what the screen renders for them: the sheet and
+ * the message. `choose` skips the one-tap keep and opens the sheet, for a
+ * long press on the bookmark.
  */
 export function useKeepFlow() {
   const { user } = useAuth();
@@ -78,6 +80,8 @@ export function useKeepFlow() {
     [user, keep, showToast],
   );
 
+  const choose = useCallback((item: FeedItem) => setSheetItem(item), []);
+
   const element = (
     <>
       <KeepSheet
@@ -100,7 +104,7 @@ export function useKeepFlow() {
     </>
   );
 
-  return { onKeep, element };
+  return { onKeep, choose, element };
 }
 
 function KeptToast({ name, onChange }: { name: string; onChange: () => void }) {
