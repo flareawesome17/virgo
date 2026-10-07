@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ChartColumnIcon, ChevronLeftIcon, ChevronRightIcon, RepeatIcon } from 'lucide-react-native';
+import { ChartColumnIcon, ChevronLeftIcon, ChevronRightIcon, LandmarkIcon, RepeatIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   categoryLabel,
@@ -17,7 +17,7 @@ import { LoadFailed } from '@/components/LoadFailed';
 import { categoryIcon } from '@/components/money/icons';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ChartColumnIcon, ChevronLeftIcon, ChevronRightIcon, RepeatIcon]) {
+for (const Icon of [ChartColumnIcon, ChevronLeftIcon, ChevronRightIcon, LandmarkIcon, RepeatIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -443,11 +443,26 @@ export default function MoneyInsightsScreen() {
           </>
         )}
 
-        {/* What repeats: reachable from here whatever the year shows. */}
+        {/* Tax help and what repeats: reachable from here whatever the year shows. */}
+        <Pressable
+          onPress={() => router.push(`/money/tax?year=${year}`)}
+          accessibilityRole="button"
+          className="mt-6 bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:opacity-70"
+        >
+          <LandmarkIcon size={18} className="text-muted-foreground" />
+          <View className="flex-1">
+            <Text className="text-foreground text-[15px] font-semibold">Tax help</Text>
+            <Text className="text-muted-foreground text-[13px] mt-0.5">
+              Estimates, the ₱3M line, your 2307s and when returns are due
+            </Text>
+          </View>
+          <ChevronRightIcon size={16} className="text-muted-foreground" />
+        </Pressable>
+
         <Pressable
           onPress={() => router.push('/money/recurring')}
           accessibilityRole="button"
-          className="mt-6 bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:opacity-70"
+          className="mt-3 bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:opacity-70"
         >
           <RepeatIcon size={18} className="text-muted-foreground" />
           <View className="flex-1">

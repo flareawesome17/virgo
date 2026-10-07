@@ -293,6 +293,27 @@ export function useMoneyInsights(year: number, options: { enabled?: boolean } = 
   };
 }
 
+/** Tax help for a year. */
+export function useMoneyTax(year: number, options: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.money.tax(year),
+    queryFn: () => moneyApi.tax(year),
+    enabled: options.enabled ?? true,
+  });
+  return {
+    ...query,
+    tax: query.data,
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+/** Ticks a 2307 as in hand, or not. */
+export function useMark2307() {
+  return useMoneyWrite(({ entryIds, received }: { entryIds: string[]; received: boolean }) =>
+    moneyApi.mark2307(entryIds, received),
+  );
+}
+
 /** The entries that repeat every month. */
 export function useMoneyRecurring(options: { enabled?: boolean } = {}) {
   const query = useQuery({

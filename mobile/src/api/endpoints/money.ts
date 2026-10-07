@@ -177,6 +177,58 @@ export interface MoneyInsights {
   }[];
 }
 
+/** One way of working out the year's tax, as an estimate. */
+export interface MoneyTaxOption {
+  taxableMinor: number;
+  incomeTaxMinor: number;
+  /** 3% of gross on the graduated options; none under 8%. */
+  percentageTaxMinor: number;
+  totalMinor: number;
+  /** Income tax less withholding, plus the percentage tax. Never below zero. */
+  stillToPayMinor: number;
+  /** Withheld beyond the income tax: a credit, not a refund of the 3%. */
+  excessCreditMinor: number;
+}
+
+export type MoneyTaxForm = '1701Q' | '1701A' | '2551Q';
+
+/** Tax help for one year: estimates for planning, never advice. */
+export interface MoneyTax {
+  year: number;
+  /** Counted up to this day. */
+  through: string;
+  /** Income paid in the year, before withholding. */
+  grossMinor: number;
+  expenseMinor: number;
+  withheldMinor: number;
+  quarters: { quarter: 1 | 2 | 3 | 4; grossMinor: number; expenseMinor: number; withheldMinor: number }[];
+  threshold: { limitMinor: number; warnMinor: number; status: 'under' | 'near' | 'over' };
+  /** Null above the ₱3M line, where none of the three applies. */
+  estimates: {
+    eightPercent: MoneyTaxOption;
+    osd: MoneyTaxOption;
+    itemized: MoneyTaxOption;
+    lowest: 'eightPercent' | 'osd' | 'itemized';
+  } | null;
+  /** One client's withholding in one quarter: what a single 2307 covers. */
+  form2307: {
+    client: string | null;
+    quarter: 1 | 2 | 3 | 4;
+    withheldMinor: number;
+    grossMinor: number;
+    entries: { id: string; paidOn: string; amountMinor: number; withheldMinor: number; received: boolean }[];
+    received: boolean;
+  }[];
+  deadlines: { form: MoneyTaxForm; period: string; dueOn: string; who: 'everyone' | 'graduated' }[];
+}
+
+/** What each return is called, plainly. */
+export const TAX_FORM_LABELS: Record<MoneyTaxForm, string> = {
+  '1701Q': 'Quarterly income tax',
+  '1701A': 'Annual income tax',
+  '2551Q': 'Percentage tax',
+};
+
 /** An entry made again every month on its day. */
 export interface MoneyRecurring {
   id: string;
@@ -569,6 +621,16 @@ export const moneyApi = {
   /** A year at a glance: months, categories, clients, and what each job earned. */
   insights(year: number): Promise<MoneyInsights> {
     return api.get('/money/insights', { query: { year } });
+  },
+
+  /** Tax help for a year: estimates, the ₱3M line, 2307s and deadlines. */
+  tax(year: number): Promise<MoneyTax> {
+    return api.get('/money/tax', { query: { year } });
+  },
+
+  /** Ticks entries' 2307s as in hand, or not — usually a client's whole quarter. */
+  mark2307(entryIds: string[], received: boolean): Promise<{ updated: number }> {
+    return api.post('/money/tax/2307', { body: { entryIds, received } });
   },
 
   /** What repeats every month: running ones first. */

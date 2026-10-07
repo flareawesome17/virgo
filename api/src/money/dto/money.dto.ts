@@ -1,5 +1,8 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -241,6 +244,27 @@ export class MoneyInsightsDto {
   @Min(2000)
   @Max(2100)
   year!: number;
+}
+
+/** One year of tax help. */
+export class MoneyTaxDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
+  year!: number;
+}
+
+/** Ticks entries' 2307s as in hand, or not: usually a client's whole quarter. */
+export class Mark2307Dto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsUUID('all', { each: true })
+  entryIds!: string[];
+
+  @IsBoolean()
+  received!: boolean;
 }
 
 /** Repeat this entry every month. */

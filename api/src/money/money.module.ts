@@ -10,6 +10,7 @@ import { MoneyPackagesController, PublicStatementController } from './money-pack
 import { MoneyInsightsController } from './money-insights.controller';
 import { MoneyInsightsService } from './money-insights.service';
 import { MoneyRecurringService } from './money-recurring.service';
+import { MoneyTaxService } from './money-tax.service';
 
 @Module({
   imports: [StorageModule],
@@ -27,6 +28,7 @@ import { MoneyRecurringService } from './money-recurring.service';
     MoneyPayMethodsService,
     MoneyInsightsService,
     MoneyRecurringService,
+    MoneyTaxService,
   ],
 })
 export class MoneyModule {}
