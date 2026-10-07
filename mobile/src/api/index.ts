@@ -56,6 +56,7 @@ export {
   MONEY_CATEGORIES,
   MONEY_METHODS,
   RECEIPT_FILE_TYPES,
+  TAX_FORM_LABELS,
   type MoneyBookingLink,
   type MoneyCategory,
   type MoneyEntry,
@@ -76,6 +77,9 @@ export {
   type PayMethodKind,
   type MoneySuggestion,
   type MoneySummary,
+  type MoneyTax,
+  type MoneyTaxForm,
+  type MoneyTaxOption,
   type ReceiptUploadTicket,
 } from './endpoints/money';
 export {
