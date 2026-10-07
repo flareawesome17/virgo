@@ -34,11 +34,66 @@ import { useCollaborators } from '@/hooks/useCollaborators';
 import { useUsage } from '@/hooks/useUsage';
 import { useOnline } from '@/hooks/useOnline';
 import { RolePicker } from '@/components/role-picker';
+import { LocationField } from '@/components/location-field';
 import { PublicProfileCard } from '@/components/public-profile-card';
-import { formatBytes, storageApi, titleFromRoles } from '@/api';
+import { formatBytes, storageApi, titleFromRoles, type AuthUser } from '@/api';
 import { cn } from '@/lib/utils';
 import { useDiscardGuard } from '@/lib/discard-guard';
 import { AVATAR_MAX_EDGE, resizeImage } from '@/lib/image';
+
+const EMPTY = {
+  displayName: '',
+  title: '',
+  phone: '',
+  website: '',
+  bio: '',
+  studioName: '',
+  socialHandle: '',
+  addressLine1: '',
+  addressCity: '',
+  addressProvince: '',
+  addressPostal: '',
+  addressCountry: '',
+};
+
+/** The API's limit on the street line. */
+const STREET_MAX = 200;
+
+/**
+ * The form as a saved profile fills it.
+ *
+ * Nothing asks for a second address line any more, so one the account
+ * already has is folded into the street address — visible and editable,
+ * rather than kept in the row where nobody can see it. Only when the two
+ * would not fit on one line do they stay apart, and `keptLine2` says so.
+ *
+ * Also the baseline the form is compared with, so a folded address does not
+ * read as an unsaved change.
+ */
+function formFrom(profile: AuthUser): { form: typeof EMPTY; keptLine2: boolean } {
+  const folded = [profile.addressLine1, profile.addressLine2]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(', ');
+  const fits = folded.length <= STREET_MAX;
+  return {
+    form: {
+      displayName: profile.displayName ?? '',
+      title: profile.title ?? '',
+      phone: profile.phone ?? '',
+      website: profile.website ?? '',
+      bio: profile.bio ?? '',
+      studioName: profile.studioName ?? '',
+      socialHandle: profile.socialHandle ?? '',
+      addressLine1: fits ? folded : profile.addressLine1 ?? '',
+      addressCity: profile.addressCity ?? '',
+      addressProvince: profile.addressProvince ?? '',
+      addressPostal: profile.addressPostal ?? '',
+      addressCountry: profile.addressCountry ?? '',
+    },
+    keptLine2: !fits,
+  };
+}
 
 /**
  * Profile — who you are and what you have.
@@ -119,22 +174,6 @@ export default function ProfilePage() {
     }
   };
 
-  const EMPTY = {
-    displayName: '',
-    title: '',
-    phone: '',
-    website: '',
-    location: '',
-    bio: '',
-    studioName: '',
-    socialHandle: '',
-    addressLine1: '',
-    addressLine2: '',
-    addressCity: '',
-    addressProvince: '',
-    addressPostal: '',
-    addressCountry: '',
-  };
   const [form, setForm] = useState(EMPTY);
   const [roles, setRoles] = useState<string[]>([]);
   const [seeded, setSeeded] = useState(false);
@@ -153,22 +192,7 @@ export default function ProfilePage() {
   // arrived is never painted as a row of empty fields first.
   if (!seeded && profile) {
     setSeeded(true);
-    setForm({
-      displayName: profile.displayName ?? '',
-      title: profile.title ?? '',
-      phone: profile.phone ?? '',
-      website: profile.website ?? '',
-      location: profile.location ?? '',
-      bio: profile.bio ?? '',
-      studioName: profile.studioName ?? '',
-      socialHandle: profile.socialHandle ?? '',
-      addressLine1: profile.addressLine1 ?? '',
-      addressLine2: profile.addressLine2 ?? '',
-      addressCity: profile.addressCity ?? '',
-      addressProvince: profile.addressProvince ?? '',
-      addressPostal: profile.addressPostal ?? '',
-      addressCountry: profile.addressCountry ?? '',
-    });
+    setForm(formFrom(profile).form);
     setRoles(profile.roles ?? []);
 
     /*
@@ -210,10 +234,11 @@ export default function ProfilePage() {
    */
   const values = titleFollowsRoles ? { ...form, title: derivedTitle } : form;
 
+  const savedForm = profile ? formFrom(profile) : null;
   const dirty =
     seeded &&
     ((Object.keys(EMPTY) as (keyof typeof EMPTY)[]).some(
-      (k) => values[k] !== (profile?.[k] ?? ''),
+      (k) => values[k] !== (savedForm?.form[k] ?? ''),
     ) ||
       roles.join(',') !== (profile?.roles ?? []).join(','));
 
@@ -240,10 +265,7 @@ export default function ProfilePage() {
   // stayed on the account while the page said "Profile saved".
   const hadAddress = Boolean(profile?.addressLine1);
   const addressStarted =
-    hadAddress ||
-    Object.values(address).some(Boolean) ||
-    !!form.addressLine2.trim() ||
-    !!form.addressPostal.trim();
+    hadAddress || Object.values(address).some(Boolean) || !!form.addressPostal.trim();
   const addressMissing = !addressStarted
     ? []
     : [
@@ -261,7 +283,7 @@ export default function ProfilePage() {
         title: values.title.trim() || null,
         phone: form.phone.trim() || null,
         website: form.website.trim() || null,
-        location: form.location.trim() || null,
+        // No location: the API sets it from the address — "Cebu City, Cebu".
         bio: form.bio.trim() || null,
         studioName: form.studioName.trim() || null,
         socialHandle: form.socialHandle.trim() || null,
@@ -271,8 +293,9 @@ export default function ProfilePage() {
         ...(addressStarted
           ? {
               ...address,
-              addressLine2: form.addressLine2.trim() || null,
               addressPostal: form.addressPostal.trim() || null,
+              // Folded into the street above, so emptied here.
+              ...(savedForm?.keptLine2 ? {} : { addressLine2: null }),
             }
           : {}),
       },
@@ -285,6 +308,24 @@ export default function ProfilePage() {
       },
     );
   };
+
+  /*
+   * Where the saved address put them in Nearby, said under the city — but
+   * only while the city and province on screen are the saved ones, or it
+   * would describe an address that is not there any more. Nothing from an
+   * API too old to say.
+   */
+  const addressSaved =
+    !!profile?.addressCity &&
+    form.addressCity.trim() === profile.addressCity.trim() &&
+    form.addressProvince.trim() === (profile.addressProvince ?? '').trim();
+  const nearbyHint: { text: string; warn: boolean } | null = !addressSaved
+    ? null
+    : profile?.addressPlace
+      ? { text: `Shown in Nearby as ${profile.addressPlace}.`, warn: false }
+      : profile?.addressPlace === null
+        ? { text: "We couldn't place this city — check the spelling.", warn: true }
+        : null;
 
   const stats = [
     { label: 'Workspaces', value: workspaceTotal, icon: FolderOpen, href: '/workspaces' },
@@ -469,15 +510,6 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div className="grid gap-2 sm:col-span-2">
-                  <Label htmlFor="location">Location</Label>
-                  <Input
-                    id="location"
-                    value={form.location}
-                    onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
-                    placeholder="Manila, Philippines"
-                  />
-                </div>
-                <div className="grid gap-2 sm:col-span-2">
                   <Label htmlFor="bio">Bio</Label>
                   <Textarea
                     id="bio"
@@ -539,21 +571,22 @@ export default function ProfilePage() {
                 </div>
 
                 {/* Everything above this line is how you appear to other
-                    people. Everything below it is not, and the separator is
+                    people. Below it is the address, and the separator is
                     doing real work — this page is titled "how you appear to
-                    collaborators and clients", and a postal address sitting
-                    unmarked underneath that reads like a promise to publish
-                    it. */}
+                    collaborators and clients", so it has to say exactly what
+                    leaves the address: never the street; the city and
+                    province, as your location and your place in Nearby. */}
                 <div className="sm:col-span-2">
                   <Separator className="my-2" />
                   <div className="mt-4 flex items-center gap-2">
                     <Lock className="size-3.5 text-muted-foreground" />
                     <Label className="text-sm">Address</Label>
-                    <Badge variant="secondary" className="text-[10px]">Private</Badge>
+                    <Badge variant="secondary" className="text-[10px]">Street kept private</Badge>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Only you can see this. It is never shown on your profile,
-                    on a job post, or to anyone you work with.
+                    Your street is never shown to anyone. Your city and
+                    province show as your location, and place you in Nearby —
+                    you can hide from Nearby in Settings.
                   </p>
 
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -568,31 +601,27 @@ export default function ProfilePage() {
                         maxLength={200}
                       />
                     </div>
-                    <div className="grid gap-2 sm:col-span-2">
-                      <Label htmlFor="addressLine2">
-                        Apartment, unit, floor
-                        <span className="ml-1 font-normal text-muted-foreground">
-                          · optional
-                        </span>
-                      </Label>
-                      <Input
-                        id="addressLine2"
-                        value={form.addressLine2}
-                        onChange={(e) => set('addressLine2')(e.target.value)}
-                        autoComplete="address-line2"
-                        maxLength={200}
-                      />
-                    </div>
-                    <div className="grid gap-2">
+                    {/* Suggestions so the city is spelt the way Nearby knows
+                        it, but still free text: a municipality the list lacks
+                        is placed by its province instead. */}
+                    <div className="grid content-start gap-2">
                       <Label htmlFor="addressCity">City or municipality</Label>
-                      <Input
+                      <LocationField
                         id="addressCity"
                         value={form.addressCity}
-                        onChange={(e) => set('addressCity')(e.target.value)}
+                        onChange={set('addressCity')}
                         placeholder="Cebu City"
-                        autoComplete="address-level2"
-                        maxLength={120}
                       />
+                      {nearbyHint && (
+                        <p
+                          className={cn(
+                            'text-xs',
+                            nearbyHint.warn ? 'text-warning' : 'text-muted-foreground',
+                          )}
+                        >
+                          {nearbyHint.text}
+                        </p>
+                      )}
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor="addressProvince">Province or region</Label>

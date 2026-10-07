@@ -12,11 +12,13 @@ import * as bcrypt from 'bcryptjs';
 import {
   PublicUser,
   toPublicUser,
+  type ProfileFields,
   UsersRepository,
   UserRow,
   type SignupDetails,
 } from './users.repository';
 import { StorageService } from '../storage/storage.service';
+import { addressLocation, addressPlace } from '../discover/places';
 import { PromosService } from '../promos/promos.service';
 import { accountRefusal } from './account-state';
 import { normalizeRoles } from './roles';
@@ -224,12 +226,22 @@ export class AuthService {
     // Normalized rather than trusted: the DTO rejects unknown values, this
     // de-duplicates and fixes the order so two people with the same roles
     // always render identically.
+    /*
+     * The city on the address places them in Nearby and becomes the location
+     * their profile shows — never the street. Worked out here rather than in
+     * the insert because it is a decision about the address, not storage.
+     */
     const user = await this.users.create(
       normalized,
       passwordHash,
       displayName,
       normalizeRoles(roles),
-      { ...details, referredByUserId },
+      {
+        ...details,
+        referredByUserId,
+        addressPlace: addressPlace(details.addressCity, details.addressProvince),
+        location: addressLocation(details.addressCity, details.addressProvince),
+      },
     );
 
     /*
@@ -483,10 +495,17 @@ export class AuthService {
     // removed afterwards. Every replaced picture used to stay in the bucket
     // forever: paid for, unreachable, and impossible to tell apart from a real
     // one — a third of the objects in there had no database row at all.
-    const previousAvatar =
-      input.avatarUrl !== undefined
-        ? (await this.users.findById(userId))?.avatar_url ?? null
+    //
+    // The old address too, when part of one is sent: a city saved alone is
+    // placed with the province already on the account.
+    const addressSent =
+      input.addressCity !== undefined || input.addressProvince !== undefined;
+    const before =
+      input.avatarUrl !== undefined || addressSent
+        ? await this.users.findById(userId)
         : null;
+    const previousAvatar =
+      input.avatarUrl !== undefined ? (before?.avatar_url ?? null) : null;
 
     const user = await this.users.updateProfile(userId, {
       display_name: input.displayName,
@@ -508,6 +527,8 @@ export class AuthService {
       social_handle: input.socialHandle,
       available_for_bookings: input.availableForBookings,
       show_studio: input.showStudio,
+      // Last, because it may replace the location above. See placeAddress.
+      ...(addressSent ? this.placeAddress(input, before) : {}),
     });
     if (!user) throw new UnauthorizedException();
 
@@ -516,6 +537,47 @@ export class AuthService {
     }
 
     return toPublicUser(user);
+  }
+
+  /**
+   * What saving an address changes besides the address: where Nearby places
+   * the account, and the location its profile shows.
+   *
+   * The location follows the address — "Cebu City, Cebu", never the street —
+   * whenever the new apps save one, since they no longer have a location
+   * field of their own. The installed apps still send that field with every
+   * save, the address included and usually unchanged; their location is
+   * kept unless the city or province actually moved, so somebody who typed
+   * their own does not lose it to a save of their bio.
+   */
+  private placeAddress(
+    input: {
+      location?: string | null;
+      addressCity?: string;
+      addressProvince?: string;
+    },
+    before: UserRow | null,
+  ): ProfileFields {
+    const city = input.addressCity ?? before?.address_city ?? null;
+    const province = input.addressProvince ?? before?.address_province ?? null;
+    if (!city?.trim()) return {};
+
+    const placed = addressPlace(city, province);
+    const fields: ProfileFields = {
+      address_latitude: placed?.latitude ?? null,
+      address_longitude: placed?.longitude ?? null,
+      address_place: placed?.place ?? null,
+      address_geocoded_at: new Date(),
+    };
+
+    const same = (a: string | null | undefined, b: string | null | undefined) =>
+      (a ?? '').trim() === (b ?? '').trim();
+    const moved =
+      !same(city, before?.address_city) || !same(province, before?.address_province);
+    if (input.location === undefined || moved) {
+      fields.location = addressLocation(city, province);
+    }
+    return fields;
   }
 
   /**

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Platform,
   TextInput,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomSheet } from '@/components/BottomSheet';
@@ -32,6 +33,7 @@ import { cssInterop } from 'nativewind';
 import {
   useAuth,
   useLocationSharing,
+  useSetNearbyHidden,
   useShareLocation,
   useStopSharingLocation,
   useTheme,
@@ -118,6 +120,11 @@ export default function PrivacyScreen() {
 
   const {
     sharing,
+    place: shownIn,
+    source,
+    hidden,
+    exactLocation,
+    exactLocationStale,
     isLoading: loadingLocation,
     loadFailed: locationFailed,
     data: locationStatus,
@@ -126,8 +133,13 @@ export default function PrivacyScreen() {
   // Not known, rather than off. A failed load read as "not sharing", and a
   // tap on that switch could do the opposite of what was meant.
   const locationUnknown = locationFailed && !locationStatus;
+  // What places them. An older API sends no source, and there sharing was the
+  // only way to be placed.
+  const placedBy =
+    source !== undefined ? source : sharing ? (shownIn ? 'place' : 'gps') : null;
   const startSharing = useShareLocation();
   const stopSharing = useStopSharingLocation();
+  const setHidden = useSetNearbyHidden();
 
   const discoverable = profile?.discoverable ?? true;
 
@@ -167,13 +179,52 @@ export default function PrivacyScreen() {
     );
   };
 
-  const toggleLocation = (next: boolean) => {
+  /** "Show me in Nearby" is the inverse of the hidden flag. */
+  const toggleShown = (next: boolean) => {
+    setHidden.mutate(!next, {
+      onError: (err: any) =>
+        Alert.alert("Couldn't change that", err?.message || 'Please try again.'),
+    });
+  };
+
+  const toggleExactLocation = (next: boolean) => {
     const mutation = next ? startSharing : stopSharing;
     mutation.mutate(undefined as never, {
       onError: (err: any) =>
-        Alert.alert('Could not change sharing', err?.message || 'Please try again.'),
+        Alert.alert(
+          "Couldn't change your exact location",
+          err?.message || 'Please try again.',
+          err?.code === 'LOCATION_BLOCKED'
+            ? [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+              ]
+            : undefined,
+        ),
     });
   };
+
+  /*
+   * What each switch says, from the server's own answer — which applies the
+   * 30-day expiry. "You appear in Nearby" used to be said to anyone with the
+   * switch on, including people whose position had expired weeks before.
+   */
+  const shownDetail = locationUnknown
+    ? "Couldn't check whether you're shown in Nearby"
+    : hidden
+      ? 'Nobody sees you in Nearby. You can still look around'
+      : placedBy === 'gps'
+        ? 'Shown near your exact location. Others see a distance, never a place'
+        : placedBy && shownIn
+          ? `Shown in ${shownIn}. Never your street`
+          : 'Add your city to your profile to appear in Nearby';
+  const exactDetail = locationUnknown
+    ? "Couldn't check whether you're sharing it"
+    : exactLocationStale
+      ? 'Over 30 days old, so the city in your address is used instead. Turn it off and on to update it'
+      : exactLocation
+        ? 'From this device, kept to about a kilometre. Turning it off erases it'
+        : 'Off. Nearby uses the city in your address';
 
   const togglePush = async (next: boolean) => {
     if (!userId) return;
@@ -338,19 +389,23 @@ export default function PrivacyScreen() {
               onChange={toggleDiscoverable}
             />
             <Toggle
-              icon={MapPinIcon}
+              icon={EyeIcon}
               tint="#6B8E4E"
-              title="Share my location"
-              detail={
-                locationUnknown
-                  ? "Couldn't check whether you're sharing"
-                  : sharing
-                    ? 'You appear in Nearby. Others see a distance, never a place'
-                    : 'You do not appear in Nearby and no location is stored'
-              }
-              value={sharing}
+              title="Show me in Nearby"
+              detail={shownDetail}
+              value={!hidden}
+              busy={loadingLocation || setHidden.isPending}
+              onChange={toggleShown}
+              onRetry={locationUnknown ? () => void refetchLocation() : undefined}
+            />
+            <Toggle
+              icon={MapPinIcon}
+              tint="#C17745"
+              title="Use my exact location"
+              detail={exactDetail}
+              value={exactLocation}
               busy={loadingLocation || startSharing.isPending || stopSharing.isPending}
-              onChange={toggleLocation}
+              onChange={toggleExactLocation}
               onRetry={locationUnknown ? () => void refetchLocation() : undefined}
               last
             />
@@ -358,7 +413,8 @@ export default function PrivacyScreen() {
           <Text className="text-muted-foreground text-[11px] mt-2 ml-1 leading-4">
             Turning off name search does not hide you from people you already
             share a workspace with, and an exact email address still reaches
-            you — otherwise nobody could invite you.
+            you — otherwise nobody could invite you. Nearby places you by the
+            city in your address, never the street.
           </Text>
         </View>
 

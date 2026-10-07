@@ -20,6 +20,7 @@ import { BlocksService } from '../safety/blocks.service';
 import { normalizeRoles } from '../auth/roles';
 import { slugify } from './slug';
 import { canonicalLocation, coordsFor, locationKey } from './locations';
+import { positionOf } from '../discover/position-sql';
 
 /**
  * An application that holds its role: accepted, with a booking that has not
@@ -388,20 +389,17 @@ export class HiringService {
     const locationKeyQuery = typed ? locationKey(canonicalLocation(typed)) : null;
 
     /*
-     * Where the reader is, on exactly the terms Nearby already uses.
-     *
-     * Only when they share their location and it is recent — somebody who
-     * shared a position months ago is not "near" anything in a useful sense,
-     * and ranking on it would be worse than not ranking at all.
+     * Where the reader is, on exactly the terms Nearby uses: a position they
+     * share while it counts — somebody who shared one months ago is not
+     * "near" anything in a useful sense — and otherwise the city on their
+     * address. Hiding from Nearby does not change it; this is their own
+     * board, ranked for them.
      */
     const me = await this.db.queryOne<{ lat: number | null; lon: number | null }>(
-      `select case when shares_location
-                    and location_updated_at > now() - interval '30 days'
-                   then latitude end as lat,
-              case when shares_location
-                    and location_updated_at > now() - interval '30 days'
-                   then longitude end as lon
-         from users where id = $1`,
+      `select pos.lat, pos.lon
+         from users u
+         cross join lateral (${positionOf('u')}) pos
+        where u.id = $1`,
       [viewerId],
     );
     const lat = me?.lat ?? null;
