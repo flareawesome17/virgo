@@ -485,6 +485,9 @@ export default function NearbyScreen() {
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 60 }}
+        // A tap on a city suggestion picks it. Without this the first tap only
+        // closed the keyboard, and the suggestion needed a second.
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
