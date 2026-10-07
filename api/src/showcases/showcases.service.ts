@@ -10,6 +10,7 @@ import { MediaLinkService } from '../storage/media-link.service';
 import { PUBLISHED_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
 import { MAX_SOURCE_BYTES, ThumbnailsService } from '../storage/thumbnails.service';
+import { pieceBase, ShowcaseMediaService } from './showcase-media.service';
 import type {
   CreateShowcaseDto,
   ShowcaseVisibility,
@@ -60,6 +61,16 @@ export const connectedTo = (viewer: string, author: string): string => `exists (
   where mine.user_id = ${viewer} and mine.friend_user_id = ${author}
     and mine.status = 'accepted'
 )`;
+
+/**
+ * The key a piece is known by in the API: its album file's, or, once that
+ * file is gone and the piece lives on its own copies, its own id. The editors
+ * send these back on save, so a piece whose file was deleted can still be
+ * kept, moved or taken out.
+ */
+const ITEM_KEY = /^item:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const pieceKeyOf = (row: { id: string; file_key: string | null }): string =>
+  row.file_key ?? `item:${row.id}`;
 
 /** The shape both existing callers use: viewer at $2, author on `s`. */
 export const CONNECTED_TO_AUTHOR = connectedTo('$2', 's.user_id');
@@ -160,8 +171,21 @@ export interface ShowcaseRow {
 }
 
 interface PieceRow {
+  item_id: string;
   showcase_id: string;
-  file_key: string;
+  user_id: string;
+  file_key: string | null;
+  // The piece's own copies (090), once the worker has made them.
+  copied_at: Date | string | null;
+  own_kind: 'image' | 'video' | null;
+  own_thumb_key: string | null;
+  own_poster_key: string | null;
+  own_video_key: string | null;
+  own_widths: number[] | null;
+  own_width_px: number | null;
+  own_height_px: number | null;
+  own_duration_ms: string | number | null;
+  // The album file, while it still exists.
   content_type: string | null;
   thumb_key: string | null;
   poster_key: string | null;
@@ -171,6 +195,17 @@ interface PieceRow {
   display_widths: number[] | null;
   width_px: number | null;
   height_px: number | null;
+}
+
+/** One stored piece, for working out what an edit keeps and what it drops. */
+interface StoredPiece {
+  id: string;
+  user_id: string;
+  file_key: string | null;
+  thumb_key: string | null;
+  poster_key: string | null;
+  video_key: string | null;
+  display_widths: number[] | null;
 }
 
 const asIso = (v: Date | string | null): string | null =>
@@ -184,6 +219,7 @@ export class ShowcasesService {
     private readonly mediaLink: MediaLinkService,
     private readonly thumbs: ThumbnailsService,
     private readonly hls: HlsService,
+    private readonly media: ShowcaseMediaService,
   ) {}
 
   // ── reads ──────────────────────────────────────────────────────────────────
@@ -356,12 +392,30 @@ export class ShowcasesService {
     });
 
     this.queueLadders(keys);
+    this.queueCopies(id);
     return this.byIdForOwner(userId, id);
   }
 
   async update(userId: string, id: string, dto: UpdateShowcaseDto): Promise<Showcase> {
     await this.assertOwned(userId, id);
-    const keys = dto.fileKeys ? await this.usableKeys(userId, dto.fileKeys) : null;
+    let keys: string[] | null = null;
+    let stored: StoredPiece[] = [];
+    if (dto.fileKeys) {
+      keys = [...new Set(dto.fileKeys)];
+      stored = await this.db.query<StoredPiece>(
+        `select id, user_id, file_key, thumb_key, poster_key, video_key, display_widths
+           from showcase_items where showcase_id = $1`,
+        [id],
+      );
+      const known = new Set(stored.map(pieceKeyOf));
+      const added = keys.filter((key) => !known.has(key));
+      // A piece's own id is only ever one already in this showcase.
+      if (added.some((key) => ITEM_KEY.test(key))) {
+        throw new NotFoundException('File not found');
+      }
+      await this.usableKeys(userId, added);
+    }
+    let dropped: StoredPiece[] = [];
 
     await this.db.transaction(async (client) => {
       /*
@@ -401,14 +455,41 @@ export class ShowcasesService {
       );
 
       if (keys) {
-        // Replaced whole, in one transaction: the order carries the cover, so a
-        // set that is half old and half new has no correct reading.
-        await client.query('delete from showcase_items where showcase_id = $1', [id]);
-        await this.writePieces(client, id, userId, keys);
+        // In one transaction: the order carries the cover, so a set that is
+        // half old and half new has no correct reading. Pieces that stay are
+        // kept rather than deleted and written again — their copies come with
+        // them, and so does a piece whose album file is already gone.
+        const wanted = new Set(keys);
+        dropped = stored.filter((piece) => !wanted.has(pieceKeyOf(piece)));
+        if (dropped.length > 0) {
+          await client.query('delete from showcase_items where id = any($1::uuid[])', [
+            dropped.map((piece) => piece.id),
+          ]);
+        }
+        const byKey = new Map(stored.map((piece) => [pieceKeyOf(piece), piece]));
+        for (const [position, key] of keys.entries()) {
+          const piece = byKey.get(key);
+          if (piece) {
+            await client.query('update showcase_items set position = $2 where id = $1', [
+              piece.id,
+              position,
+            ]);
+          } else {
+            await client.query(
+              `insert into showcase_items (showcase_id, user_id, file_key, position)
+               values ($1, $2, $3, $4)`,
+              [id, userId, key, position],
+            );
+          }
+        }
       }
     });
 
-    if (keys) this.queueLadders(keys);
+    if (keys) {
+      this.queueLadders(keys.filter((key) => !ITEM_KEY.test(key)));
+      this.queueCopies(id);
+      if (dropped.length > 0) void this.media.erasePieces(dropped.flatMap(copiesOf));
+    }
     return this.byIdForOwner(userId, id);
   }
 
@@ -441,7 +522,8 @@ export class ShowcasesService {
    *
    * The pieces go with it, and so does every shelf_items row anybody kept — that
    * cascade is the promise the taste model makes, that nobody's work outlives
-   * their control of it. The files themselves are untouched.
+   * their control of it. The album files are untouched; the post's own copies
+   * go with it.
    */
   async remove(userId: string, id: string): Promise<void> {
     const gone = await this.db.query(
@@ -449,6 +531,8 @@ export class ShowcasesService {
       [id, userId],
     );
     if (gone.length === 0) throw new NotFoundException('Showcase not found');
+    // Its own copies too: they exist only for this post.
+    await this.media.eraseShowcase(userId, id);
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -498,6 +582,16 @@ export class ShowcasesService {
    */
   private queueLadders(keys: string[]): void {
     void this.hls.enqueueKeys(keys).catch(() => undefined);
+  }
+
+  /**
+   * Make this showcase's own copies now rather than when the minute's queue
+   * reaches them. Not awaited, for the same reason as the ladders: posting
+   * must not wait on an encode. Until they exist the post shows from the
+   * album files, as it always did.
+   */
+  private queueCopies(showcaseId: string): void {
+    void this.media.copyShowcase(showcaseId);
   }
 
   /**
@@ -618,13 +712,22 @@ export class ShowcasesService {
   async hydrate(rows: ShowcaseRow[], forOwner: boolean): Promise<Showcase[]> {
     if (rows.length === 0) return [];
 
+    // A left join: a piece with its own copies is served from them, and needs
+    // no album file at all. One without them is still served from its file,
+    // and drops out as before if that file is gone.
     const pieces = await this.db.query<PieceRow>(
-      `select i.showcase_id, i.file_key, f.content_type, f.thumb_key, f.poster_key,
+      `select i.id as item_id, i.showcase_id, i.user_id, i.file_key,
+              i.copied_at, i.kind as own_kind, i.thumb_key as own_thumb_key,
+              i.poster_key as own_poster_key, i.video_key as own_video_key,
+              i.display_widths as own_widths, i.width_px as own_width_px,
+              i.height_px as own_height_px, i.duration_ms as own_duration_ms,
+              f.content_type, f.thumb_key, f.poster_key,
               f.proxy_key, f.hls_prefix, f.duration_ms, f.display_widths,
               f.width_px, f.height_px
          from showcase_items i
-         join user_files f on f.key = i.file_key and f.user_id = i.user_id
+         left join user_files f on f.key = i.file_key and f.user_id = i.user_id
         where i.showcase_id = any($1::uuid[])
+          and (i.copied_at is not null or f.key is not null)
         order by i.showcase_id, i.position, i.created_at`,
       [rows.map((r) => r.id)],
     );
@@ -671,6 +774,10 @@ export class ShowcasesService {
    * recognise is a tile they cannot remove.
    */
   private async presentPiece(row: PieceRow, forOwner: boolean): Promise<ShowcasePiece | null> {
+    if (row.copied_at !== null) return this.presentCopied(row, forOwner);
+
+    const fileKey = row.file_key;
+    if (!fileKey) return null;
     // Both or neither: a half-known size is no size.
     const size =
       row.width_px && row.height_px ? { width: row.width_px, height: row.height_px } : {};
@@ -682,7 +789,7 @@ export class ShowcasesService {
       const url = await this.storage.mediaUrl(row.poster_key, PUBLISHED_URL_TTL_SECONDS);
       if (!url) return null;
       return {
-        fileKey: row.file_key,
+        fileKey,
         kind: 'video',
         url,
         playbackUrl:
@@ -694,19 +801,26 @@ export class ShowcasesService {
       };
     }
 
-    const displaySources = this.mediaLink.displaySources(
-      row.file_key,
-      row.display_widths,
-      PUBLISHED_URL_TTL_SECONDS,
-    );
+    // The album's copies are named by their LONG edge. Said as widths, as the
+    // apps read them: a portrait's "2048" is narrower than 2048, and taking
+    // the label at its word picked copies too small for the screen.
+    const portrait =
+      row.width_px && row.height_px && row.height_px > row.width_px
+        ? row.width_px / row.height_px
+        : null;
+    const displaySources = this.mediaLink
+      .displaySources(fileKey, row.display_widths, PUBLISHED_URL_TTL_SECONDS)
+      .map((source) =>
+        portrait ? { ...source, width: Math.round(source.width * portrait) } : source,
+      );
 
     if (forOwner) {
       const url = await this.storage.mediaUrl(
-        row.thumb_key ?? row.file_key,
+        row.thumb_key ?? fileKey,
         PUBLISHED_URL_TTL_SECONDS,
       );
       return {
-        fileKey: row.file_key,
+        fileKey,
         kind: 'image',
         url: url ?? '',
         displaySources,
@@ -717,7 +831,52 @@ export class ShowcasesService {
 
     const url = await this.storage.mediaUrl(row.thumb_key, PUBLISHED_URL_TTL_SECONDS);
     if (!url) return null;
-    return { fileKey: row.file_key, kind: 'image', url, displaySources, ...size };
+    return { fileKey, kind: 'image', url, displaySources, ...size };
+  }
+
+  /**
+   * A piece served from its own copies in the public bucket: permanent CDN
+   * addresses, no album file needed, sized by real width.
+   */
+  private async presentCopied(row: PieceRow, forOwner: boolean): Promise<ShowcasePiece | null> {
+    const key = pieceKeyOf({ id: row.item_id, file_key: row.file_key });
+    const url = await this.storage.mediaUrl(row.own_thumb_key, PUBLISHED_URL_TTL_SECONDS);
+    if (!url) return null;
+    const size =
+      row.own_width_px && row.own_height_px
+        ? { width: row.own_width_px, height: row.own_height_px }
+        : {};
+    const owner = forOwner ? { publiclyShown: true } : {};
+
+    if (row.own_kind === 'video') {
+      const [poster, playback] = await Promise.all([
+        this.storage.mediaUrl(row.own_poster_key, PUBLISHED_URL_TTL_SECONDS),
+        this.storage.mediaUrl(row.own_video_key, PUBLISHED_URL_TTL_SECONDS),
+      ]);
+      return {
+        fileKey: key,
+        kind: 'video',
+        url: poster ?? url,
+        playbackUrl: playback,
+        durationMs: row.own_duration_ms === null ? null : Number(row.own_duration_ms),
+        displaySources: [],
+        ...size,
+        ...owner,
+      };
+    }
+
+    const base = pieceBase(row.user_id, row.showcase_id, row.item_id);
+    const widths = row.own_widths ?? [];
+    const urls = await Promise.all(
+      widths.map((width) =>
+        this.storage.mediaUrl(`${base}-${width}.webp`, PUBLISHED_URL_TTL_SECONDS),
+      ),
+    );
+    const displaySources = widths.flatMap((width, i) => {
+      const at = urls[i];
+      return at ? [{ width, url: at }] : [];
+    });
+    return { fileKey: key, kind: 'image', url, displaySources, ...size, ...owner };
   }
 }
 
@@ -747,6 +906,22 @@ export function decodeShowcaseCursor(
   } catch {
     return null;
   }
+}
+
+/** Every object a stored piece's copies were written as, for deleting them. */
+function copiesOf(piece: StoredPiece): (string | null)[] {
+  const thumb = piece.thumb_key;
+  return [
+    thumb,
+    piece.poster_key,
+    piece.video_key,
+    // The web copies sit beside the thumbnail, named by width.
+    ...(thumb
+      ? (piece.display_widths ?? []).map((width) =>
+          thumb.replace(/-thumb\.webp$/, `-${width}.webp`),
+        )
+      : []),
+  ];
 }
 
 /** Trimmed, empties dropped, duplicates dropped, order kept. */

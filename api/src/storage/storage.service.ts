@@ -1,4 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { Agent as HttpsAgent } from 'node:https';
 import type { Readable } from 'node:stream';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
@@ -546,6 +548,13 @@ export class StorageService {
   ): Promise<string | null> {
     if (!key || !this.client) return null;
 
+    // The public bucket needs no signature, and a plain CDN address caches
+    // for good where a signed one changes every six hours.
+    if (!downloadAs && this.config.isPublicKey(key)) {
+      const url = this.config.publicUrl(key);
+      if (url) return url;
+    }
+
     // Pinned to a window sized for this URL's lifetime: five minutes for a
     // one-hour download, six hours for a display link. See signingWindowFor.
     const windowMs = signingWindowFor(ttlSeconds) * 1000;
@@ -630,6 +639,70 @@ export class StorageService {
         CacheControl: IMMUTABLE_CACHE_CONTROL,
       }),
     );
+  }
+
+  /**
+   * putDerived for something too big to hold in memory: a film, streamed from
+   * the file ffmpeg wrote. The length is sent up front, which a stream body
+   * needs for the upload to be signed at all.
+   */
+  async putDerivedFile(key: string, file: string, contentType: string): Promise<void> {
+    const client = this.requireClient();
+    this.assertSafeKey(key);
+    const { size } = await stat(file);
+    await client.send(
+      new PutObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        Body: createReadStream(file),
+        ContentLength: size,
+        ContentType: contentType,
+        CacheControl: IMMUTABLE_CACHE_CONTROL,
+      }),
+    );
+  }
+
+  /**
+   * Deletes server-made objects by key, and returns the keys confirmed gone.
+   * Never throws: for tidying up after something that has already happened.
+   */
+  async deleteKeys(keys: readonly string[], context: string): Promise<Set<string>> {
+    const safe = keys.filter((key) => this.isSafeKey(key));
+    if (safe.length === 0 || !this.client) return new Set();
+    return this.deleteFromBuckets(safe, context);
+  }
+
+  /**
+   * The permanent address of a public-bucket object, or null when no CDN is
+   * configured to serve one.
+   */
+  publicUrl(key: string | null | undefined): string | null {
+    return key ? this.config.publicUrl(key) : null;
+  }
+
+  /**
+   * Deletes every object under a prefix, in the bucket that prefix lives in.
+   *
+   * For server-made objects with no user_files row to find them by — a
+   * showcase's web copies. Returns how many went and how many did not.
+   */
+  async deletePrefix(prefix: string): Promise<{ deleted: number; failed: number }> {
+    const client = this.requireClient();
+    this.assertSafeKey(prefix);
+    if (!prefix.endsWith('/')) throw new BadRequestException('Invalid prefix');
+    const Bucket = this.config.bucketForKey(prefix);
+    const keys: string[] = [];
+    let token: string | undefined;
+    do {
+      const page = await client.send(
+        new ListObjectsV2Command({ Bucket, Prefix: prefix, ContinuationToken: token }),
+      );
+      for (const item of page.Contents ?? []) if (item.Key) keys.push(item.Key);
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    if (keys.length === 0) return { deleted: 0, failed: 0 };
+    const gone = await this.deleteFromBuckets(keys, 'deletePrefix');
+    return { deleted: gone.size, failed: keys.length - gone.size };
   }
 
   /** The object key a stored public URL points at, or null if it is not ours. */
