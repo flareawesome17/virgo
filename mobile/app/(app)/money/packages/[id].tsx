@@ -1,7 +1,7 @@
 import { Alert, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { CalendarPlusIcon, PencilIcon, PlusIcon, Share2Icon, Trash2Icon, WalletIcon } from 'lucide-react-native';
+import { CalendarPlusIcon, MinusIcon, PencilIcon, PlusIcon, Share2Icon, Trash2Icon, WalletIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   ApiError,
@@ -25,7 +25,7 @@ import { PressableScale } from '@/components/PressableScale';
 import { MoneyRow, rowOf } from '@/components/money/MoneyRow';
 import { packageProgress } from '@/components/money/PackageRow';
 
-for (const Icon of [CalendarPlusIcon, PencilIcon, PlusIcon, Share2Icon, Trash2Icon, WalletIcon]) {
+for (const Icon of [CalendarPlusIcon, MinusIcon, PencilIcon, PlusIcon, Share2Icon, Trash2Icon, WalletIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -35,8 +35,9 @@ function message(err: unknown, fallback: string): string {
 
 /**
  * One package: what is in, what is left and when it is due, every payment
- * toward it, and the statement — shared with the client by a link, showing
- * how to pay you.
+ * toward it, what the job cost and so what it earned, and the statement —
+ * shared with the client by a link, showing how to pay you. The statement
+ * never shows the costs.
  */
 export default function MoneyPackageScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -62,6 +63,10 @@ export default function MoneyPackageScreen() {
   }
 
   const progress = packageProgress(pkg);
+  const payments = entries.filter((e) => e.kind === 'income');
+  const costs = entries.filter((e) => e.kind === 'expense');
+  const costsMinor = pkg.costsMinor ?? 0;
+  const profitMinor = pkg.profitMinor ?? pkg.receivedMinor - costsMinor;
   const subtitle = [pkg.clientName, pkg.eventDate ? dayLabel(pkg.eventDate) : null].filter(Boolean).join(' · ');
 
   const sendStatement = () => {
@@ -110,7 +115,7 @@ export default function MoneyPackageScreen() {
   const confirmDelete = () =>
     Alert.alert(
       'Delete this package?',
-      'Payments still due are deleted with it. Payments you have received stay in your Money.',
+      'Payments still due are deleted with it. Payments you have received, and its costs, stay in your Money.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -174,6 +179,25 @@ export default function MoneyPackageScreen() {
               {pkg.overdue ? 'A payment is overdue — it was due' : 'Next payment due'} {dayLabel(pkg.nextDueOn)}
             </Text>
           ) : null}
+          {costsMinor > 0 ? (
+            <View className="mt-4 pt-3 border-t border-border gap-1.5">
+              <View className="flex-row justify-between">
+                <Text className="text-muted-foreground text-[14px] font-semibold">Costs</Text>
+                <Text className="text-foreground text-[15px] font-bold" style={{ fontVariant: ['tabular-nums'] }}>
+                  {formatMoney(costsMinor)}
+                </Text>
+              </View>
+              <View className="flex-row justify-between">
+                <Text className="text-foreground text-[14px] font-bold">Earned so far</Text>
+                <Text
+                  className={`text-[15px] font-bold ${profitMinor < 0 ? 'text-destructive' : 'text-success'}`}
+                  style={{ fontVariant: ['tabular-nums'] }}
+                >
+                  {formatMoney(profitMinor)}
+                </Text>
+              </View>
+            </View>
+          ) : null}
         </View>
 
         <View className="flex-row gap-3">
@@ -218,16 +242,16 @@ export default function MoneyPackageScreen() {
           <Text className="text-muted-foreground text-[12px] font-bold uppercase tracking-[1.5px] mb-2 ml-1">
             Payments
           </Text>
-          {entries.length === 0 ? (
+          {payments.length === 0 ? (
             <Text className="text-muted-foreground text-[13px] ml-1">No payments yet.</Text>
           ) : (
             <View>
-              {entries.map((entry, i) => (
+              {payments.map((entry, i) => (
                 <MoneyRow
                   key={entry.id}
                   row={rowOf(entry)}
                   first={i === 0}
-                  last={i === entries.length - 1 && pkg.unscheduledMinor === 0}
+                  last={i === payments.length - 1 && (pkg.unscheduledMinor === 0 || pkg.paidInFull)}
                   onPress={() => router.push(`/money/new?edit=${entry.id}`)}
                   onMarkPaid={entry.paidOn === null ? () => markPaid(entry.id) : undefined}
                 />
@@ -239,7 +263,7 @@ export default function MoneyPackageScreen() {
               onPress={() => router.push(`/money/new?package=${pkg.id}`)}
               accessibilityRole="button"
               className={`bg-card flex-row items-center gap-3 px-4 py-3 min-h-[56px] active:opacity-70 ${
-                entries.length === 0 ? 'rounded-2xl' : 'rounded-b-2xl border-t border-border'
+                payments.length === 0 ? 'rounded-2xl' : 'rounded-b-2xl border-t border-border'
               }`}
             >
               <View className="w-9 h-9 rounded-xl items-center justify-center bg-muted">
@@ -253,6 +277,44 @@ export default function MoneyPackageScreen() {
               </View>
             </Pressable>
           ) : null}
+        </View>
+
+        {/* What the job cost: kept here, never on the client's statement. */}
+        <View>
+          <Text className="text-muted-foreground text-[12px] font-bold uppercase tracking-[1.5px] mb-2 ml-1">
+            Costs
+          </Text>
+          {costs.length > 0 ? (
+            <View>
+              {costs.map((entry, i) => (
+                <MoneyRow
+                  key={entry.id}
+                  row={rowOf(entry)}
+                  first={i === 0}
+                  last={false}
+                  onPress={() => router.push(`/money/new?edit=${entry.id}`)}
+                  onMarkPaid={entry.paidOn === null ? () => markPaid(entry.id) : undefined}
+                />
+              ))}
+            </View>
+          ) : null}
+          <Pressable
+            onPress={() => router.push(`/money/new?package=${pkg.id}&kind=expense`)}
+            accessibilityRole="button"
+            className={`bg-card flex-row items-center gap-3 px-4 py-3 min-h-[56px] active:opacity-70 ${
+              costs.length === 0 ? 'rounded-2xl' : 'rounded-b-2xl'
+            }`}
+          >
+            <View className="w-9 h-9 rounded-xl items-center justify-center bg-primary/10">
+              <MinusIcon size={16} className="text-primary" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-foreground text-[15px] font-semibold">Add a cost</Text>
+              <Text className="text-muted-foreground text-[13px] mt-0.5">
+                {costs.length > 0 ? 'Crew, transport, the venue' : 'Crew, transport, the venue — to see what the job earned'}
+              </Text>
+            </View>
+          </Pressable>
         </View>
 
         {/* What the statement offers the client to pay with. */}

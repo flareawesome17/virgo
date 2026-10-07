@@ -32,6 +32,7 @@ function packageRow(overrides: Record<string, unknown> = {}) {
     updated_at: new Date('2026-10-08T00:00:00Z'),
     received: '1500000',
     scheduled: '3500000',
+    costs: '0',
     next_due: '2026-11-14',
     payments: 2,
     today: '2026-10-08',
@@ -104,6 +105,16 @@ describe('MoneyPackagesService sums', () => {
 
     const { service: late } = packagesOver({ row: packageRow({ next_due: '2026-10-01' }) });
     expect((await late.get(ME, PKG)).package.overdue).toBe(true);
+  });
+
+  it('takes the costs of the job off what it brought in', async () => {
+    const { service, queries } = packagesOver({ row: packageRow({ costs: '420000' }) });
+    const { package: p } = await service.get(ME, PKG);
+    expect(p).toMatchObject({ receivedMinor: 1_500_000, costsMinor: 420_000, profitMinor: 1_080_000 });
+    // A cost is never a payment: the balance still comes from income alone.
+    expect(p.balanceMinor).toBe(3_500_000);
+    expect(queries[0].sql).toContain("e.kind = 'income' and e.paid_on is not null");
+    expect(queries[0].sql).toContain("filter (where e.kind = 'expense')");
   });
 
   it('counts what has no payment day yet', async () => {
@@ -181,11 +192,11 @@ describe('MoneyPackagesService sharing and removal', () => {
     });
   });
 
-  it('deletes only the payments still due with the package', async () => {
+  it('deletes only the payments still due with the package, never a cost still owed', async () => {
     const { service, queries } = packagesOver();
     await service.remove(ME, PKG);
     const deleteEntries = queries.find((q) => q.sql.startsWith('delete from money_entries'))!;
-    expect(deleteEntries.sql).toContain('paid_on is null');
+    expect(deleteEntries.sql).toContain("kind = 'income' and paid_on is null");
     expect(deleteEntries.args).toEqual([PKG, ME]);
   });
 

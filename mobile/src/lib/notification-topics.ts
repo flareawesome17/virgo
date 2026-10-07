@@ -84,7 +84,11 @@ const TOPICS: Record<
   money: {
     icon: WalletIcon,
     href: (d) =>
-      typeof d.packageId === 'string' ? `/money/packages/${d.packageId}` : '/money',
+      typeof d.recap === 'string'
+        ? `/money/insights?year=${d.recap.slice(0, 4)}&month=${d.recap}`
+        : typeof d.packageId === 'string'
+          ? `/money/packages/${d.packageId}`
+          : '/money',
   },
   reminder: {
     icon: CalendarIcon,

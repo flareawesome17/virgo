@@ -149,6 +149,27 @@ describe('MoneyService.create', () => {
   });
 });
 
+describe('MoneyService and packages', () => {
+  const PKG = '55555555-5555-4555-8555-555555555555';
+
+  it("takes an expense as a cost of the job, once the package is the caller's", async () => {
+    const { service, db } = harness();
+    (db.queryOne as jest.Mock).mockImplementation(async (sql: string) =>
+      sql.includes('from money_packages') ? { one: 1 } : null,
+    );
+    await service.create(ME, { ...INCOME, kind: 'expense', category: 'crew', paidOn: null, packageId: PKG });
+    const [sql, args] = db.queryOne.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain('from money_packages where id = $1 and user_id = $2');
+    expect(args).toEqual([PKG, ME]);
+  });
+
+  it("refuses a package that isn't the caller's", async () => {
+    const { service, tx } = harness();
+    await expect(service.create(ME, { ...INCOME, packageId: PKG })).rejects.toThrow("isn't one of yours");
+    expect(tx.query).not.toHaveBeenCalled();
+  });
+});
+
 describe('MoneyService.update', () => {
   it('reads the entry scoped to the caller, and 404s for anyone else', async () => {
     const { service, db } = harness({ existing: null });

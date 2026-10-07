@@ -697,6 +697,8 @@ export interface NotificationPayload {
   bookingId?: string;
   /** For 'money': the package a payment due or late is toward. */
   packageId?: string;
+  /** For 'money': the month a recap is for, YYYY-MM; it opens Insights there. */
+  recap?: string;
   /** For 'job_application': the post it is on, opened with its applicants. */
   postId?: string;
   /** The stored notification this push is, to mark read when it is opened. */

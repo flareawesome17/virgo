@@ -42,8 +42,10 @@ export interface MoneyEntry {
   receipt: MoneyReceipt | null;
   /** The booking it was recorded from, while that booking exists. */
   booking: MoneyBookingLink | null;
-  /** The package it is a payment toward, while that package exists. */
+  /** The package it is a payment toward (income) or a cost of (expense), while that package exists. */
   package: { id: string; title: string } | null;
+  /** The repeating entry it was made from, or started; null once that is gone. */
+  recurringId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -85,7 +87,7 @@ export interface MoneyEntryInput {
   receiptId?: string | null;
   /** The booking it records, which must be one the caller is on. */
   bookingId?: string | null;
-  /** The package it is a payment toward — an income entry, and the caller's package. */
+  /** The caller's package it is a payment toward (income) or a cost of (expense). */
   packageId?: string | null;
 }
 
@@ -107,6 +109,7 @@ interface MoneyEntryRow {
   note: string | null;
   booking_id: string | null;
   package_id: string | null;
+  recurring_id: string | null;
   filed_on: string;
   created_at: Date;
   updated_at: Date;
@@ -205,13 +208,11 @@ export class MoneyService {
   }
 
   /**
-   * A package the caller owns, for an income entry: a package is what a
-   * client pays, so an expense is never a payment toward one.
+   * A package the caller owns. Income linked to it is a payment toward it;
+   * an expense is a cost of the job — the crew, the venue — so the package
+   * can say what the job really earned.
    */
-  private async assertPackage(userId: string, packageId: string, kind: MoneyKind): Promise<void> {
-    if (kind !== 'income') {
-      throw new BadRequestException('Only income can be a payment toward a package.');
-    }
+  private async assertPackage(userId: string, packageId: string): Promise<void> {
     const row = await this.db.queryOne<{ one: number }>(
       'select 1 as one from money_packages where id = $1 and user_id = $2',
       [packageId, userId],
@@ -249,6 +250,7 @@ export class MoneyService {
       receipt: receipts.get(r.id) ?? null,
       booking: (r.booking_id && bookings.get(r.booking_id)) || null,
       package: (r.package_id && packages.get(r.package_id)) || null,
+      recurringId: r.recurring_id,
       createdAt: r.created_at.toISOString(),
       updatedAt: r.updated_at.toISOString(),
     }));
@@ -373,7 +375,7 @@ export class MoneyService {
     };
     this.check(entry);
     if (entry.bookingId) await this.bookings.assertParty(userId, entry.bookingId);
-    if (entry.packageId) await this.assertPackage(userId, entry.packageId, entry.kind);
+    if (entry.packageId) await this.assertPackage(userId, entry.packageId);
     const receiptId = input.receiptId ?? null;
     if (receiptId) await this.receipts.verify(userId, receiptId, { entryId: id });
 
@@ -438,8 +440,8 @@ export class MoneyService {
       packageId: patch.packageId !== undefined ? patch.packageId : current.package_id,
     };
     this.check(entry);
-    if (entry.packageId && (entry.packageId !== current.package_id || entry.kind !== current.kind)) {
-      await this.assertPackage(userId, entry.packageId, entry.kind);
+    if (entry.packageId && entry.packageId !== current.package_id) {
+      await this.assertPackage(userId, entry.packageId);
     }
     if (entry.bookingId && entry.bookingId !== current.booking_id) {
       await this.bookings.assertParty(userId, entry.bookingId);
@@ -480,11 +482,11 @@ export class MoneyService {
     return this.presentOne(row);
   }
 
-  /** The payments toward one of the caller's packages, in the order they fall. */
+  /** The payments toward one of the caller's packages, and its costs, in the order they fall. */
   async forPackage(userId: string, packageId: string): Promise<MoneyEntry[]> {
     const rows = await this.db.query<MoneyEntryRow>(
       `select * from money_entries
-        where user_id = $1 and package_id = $2 and kind = 'income'
+        where user_id = $1 and package_id = $2
         order by occurred_on, created_at`,
       [userId, packageId],
     );

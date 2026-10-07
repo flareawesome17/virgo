@@ -261,6 +261,11 @@ export {
   useCreateMoneyPayMethod,
   useUpdateMoneyPayMethod,
   useDeleteMoneyPayMethod,
+  useMoneyInsights,
+  useMoneyRecurring,
+  useRepeatMoneyEntry,
+  useUpdateMoneyRecurring,
+  useStopMoneyRecurring,
 } from './useMoney';
 
 export {

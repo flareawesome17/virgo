@@ -42,8 +42,13 @@ const ROUTES: Record<NotificationTopic, string | ((d: Data) => string)> = {
   booking: (d) =>
     typeof d?.bookingId === 'string' ? `/bookings/${d.bookingId}` : '/jobs?tab=bookings',
   // The Reminders tab, where it can be ticked off; the calendar is not.
+  // A recap opens Insights on its month; a payment due or late, its package.
   money: (d) =>
-    typeof d?.packageId === 'string' ? `/money/packages/${d.packageId}` : '/money',
+    typeof d?.recap === 'string'
+      ? `/money/insights?year=${d.recap.slice(0, 4)}&month=${d.recap}`
+      : typeof d?.packageId === 'string'
+        ? `/money/packages/${d.packageId}`
+        : '/money',
   reminder: '/schedule?tab=reminders',
   // There is no /settings/billing; plans and what you are paying live here.
   billing: '/settings/plans',

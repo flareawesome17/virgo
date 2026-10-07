@@ -3,6 +3,7 @@ import { Alert, Linking, Pressable, RefreshControl, SectionList, Text, View } fr
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
+  ChartColumnIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DownloadIcon,
@@ -43,7 +44,7 @@ import { PackageRow } from '@/components/money/PackageRow';
 import { discardQueuedMoneyEntry, useMoneyOutbox, type QueuedMoneyEntry } from '@/src/lib/money-outbox';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MinusIcon, PlusIcon, WalletIcon]) {
+for (const Icon of [ChartColumnIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MinusIcon, PlusIcon, WalletIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -346,16 +347,26 @@ export default function MoneyScreen() {
         title="Money"
         subtitle="Only you can see this"
         right={
-          <Pressable
-            onPress={askExport}
-            disabled={exporter.isPending}
-            accessibilityRole="button"
-            accessibilityLabel="Export as a spreadsheet"
-            className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:opacity-70"
-            style={{ opacity: exporter.isPending ? 0.5 : 1 }}
-          >
-            <DownloadIcon size={18} className="text-foreground" />
-          </Pressable>
+          <View className="flex-row gap-2">
+            <Pressable
+              onPress={() => router.push(`/money/insights?year=${month.slice(0, 4)}&month=${month}`)}
+              accessibilityRole="button"
+              accessibilityLabel="Insights"
+              className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:opacity-70"
+            >
+              <ChartColumnIcon size={18} className="text-foreground" />
+            </Pressable>
+            <Pressable
+              onPress={askExport}
+              disabled={exporter.isPending}
+              accessibilityRole="button"
+              accessibilityLabel="Export as a spreadsheet"
+              className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:opacity-70"
+              style={{ opacity: exporter.isPending ? 0.5 : 1 }}
+            >
+              <DownloadIcon size={18} className="text-foreground" />
+            </Pressable>
+          </View>
         }
       />
       <SectionList
@@ -474,7 +485,7 @@ export default function MoneyScreen() {
         }
         ListFooterComponent={
           <Text className="px-6 mt-8 text-muted-foreground text-[12px] leading-[17px] text-center">
-            Totals are what you've recorded, counted on the day each was paid. They are for planning
+            Totals are what you’ve recorded, counted on the day each was paid. They are for planning
             — not tax advice, and not a BIR book of accounts.
           </Text>
         }

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import {
   Briefcase,
+  ChartColumn,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -14,6 +15,7 @@ import {
   NotebookPen,
   Paperclip,
   Plus,
+  Repeat,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -131,6 +133,9 @@ function EntryRow({
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             <span className="truncate text-sm font-semibold">{title}</span>
+            {(entry.recurringId ?? null) !== null && (
+              <Repeat className="size-3 shrink-0 text-muted-foreground" aria-label="Repeats every month" />
+            )}
             {entry.receipt && (
               <Paperclip className="size-3 shrink-0 text-muted-foreground" aria-label="Has a receipt" />
             )}
@@ -345,6 +350,12 @@ export default function MoneyPage() {
         description="Only you can see this"
         actions={
           <>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/money/insights?year=${month.slice(0, 4)}&month=${month}`}>
+                <ChartColumn className="size-4" />
+                Insights
+              </Link>
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" disabled={exporter.isPending}>

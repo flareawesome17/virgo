@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { Loader2, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronRight, Loader2, Repeat, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ApiError,
@@ -11,6 +12,7 @@ import {
   pesosToMinor,
   todayIso,
   bookingLabel,
+  dayOfMonthLabel,
   type MoneySuggestion,
   type MoneyPackage,
   type MoneyEntry,
@@ -47,6 +49,7 @@ import { ReceiptField, draftOf, receiptBusy, type ReceiptDraft } from '@/compone
 import {
   useCreateMoneyEntry,
   useDeleteMoneyEntry,
+  useRepeatMoneyEntry,
   useUpdateMoneyEntry,
 } from '@/hooks/useMoney';
 import { useDiscardGuard, useGuardedClose, useOpeningKey } from '@/lib/discard-guard';
@@ -61,7 +64,10 @@ export type MoneyEntryDialogProps = {
   entry?: MoneyEntry;
   /** A new entry filled in from an agreed booking's offer, and linked to it. */
   suggestion?: MoneySuggestion;
-  /** A new payment toward this package: filled in with what is left, and linked to it. */
+  /**
+   * A new entry linked to this package: a payment toward it, filled in with
+   * what is left — or, with `kind: 'expense'`, a cost of the job.
+   */
   pkg?: MoneyPackage;
   /** Told once a new entry is saved, after the dialog has closed. */
   onCreated?: (entry: MoneyEntry) => void;
@@ -119,17 +125,21 @@ function MoneyEntryForm({
   const create = useCreateMoneyEntry();
   const update = useUpdateMoneyEntry();
   const remove = useDeleteMoneyEntry();
+  const repeatEntry = useRepeatMoneyEntry();
   const editing = Boolean(entry);
-  const pending = create.isPending || update.isPending;
+  const pending = create.isPending || update.isPending || repeatEntry.isPending;
   // An offer only fills a new entry; an edit is always its own entry's.
   const from = entry ? undefined : offer;
   const forPackage = entry ? undefined : toward;
-  const packageLeft = forPackage
+  // A cost of the job — the crew, the venue — rather than a payment toward it.
+  const asCost = !!forPackage && startKind === 'expense';
+  const packageLeft = forPackage && !asCost
     ? forPackage.unscheduledMinor > 0
       ? forPackage.unscheduledMinor
       : forPackage.balanceMinor
     : 0;
-  const startingKind = entry?.kind ?? (forPackage ? 'income' : undefined) ?? from?.kind ?? startKind ?? 'expense';
+  const startingKind =
+    entry?.kind ?? (forPackage ? (asCost ? 'expense' : 'income') : undefined) ?? from?.kind ?? startKind ?? 'expense';
 
   // Made once per opening, so a retried save finds the entry it already wrote.
   const [id] = useState(() => entry?.id ?? newId());
@@ -154,25 +164,30 @@ function MoneyEntryForm({
   );
   const [method, setMethod] = useState<MoneyMethod | null>(entry?.method ?? null);
   const [counterparty, setCounterparty] = useState(
-    entry?.counterparty ?? from?.counterparty ?? forPackage?.clientName ?? '',
+    entry?.counterparty ?? from?.counterparty ?? (asCost ? null : forPackage?.clientName) ?? '',
   );
   const [reference, setReference] = useState(entry?.reference ?? '');
   const [withheld, setWithheld] = useState(
     entry && entry.withheldMinor > 0 ? minorToPesos(entry.withheldMinor) : '',
   );
   const [note, setNote] = useState(
-    entry?.note ?? from?.note ?? (forPackage ? `${forPackage.title} · Payment` : ''),
+    entry?.note ?? from?.note ?? (forPackage ? `${forPackage.title} · ${asCost ? 'Cost' : 'Payment'}` : ''),
   );
   // The booking it is for, or came from.
   const booking = entry ? (entry.booking ?? null) : (from ?? null);
-  // The package it pays toward.
+  // The package it pays toward, or is a cost of.
   const inPackage = entry ? (entry.package ?? null) : (forPackage ?? null);
+  // Repeat every month: made into a repeating entry once this one is saved.
+  // A booking or package entry is a one-off; one that repeats already says so.
+  const [repeat, setRepeat] = useState(false);
+  const repeats = (entry?.recurringId ?? null) !== null;
+  const canRepeat = !repeats && !inPackage && !booking;
   const [receipt, setReceipt] = useState<ReceiptDraft | null>(() => draftOf(entry?.receipt));
   const [problem, setProblem] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { dirty } = useDiscardGuard(
-    { kind, amount, category, date, paid, paidOn, method, counterparty, reference, withheld, note, receipt: receipt?.name ?? null },
+    { kind, amount, category, date, paid, paidOn, method, counterparty, reference, withheld, note, receipt: receipt?.name ?? null, repeat },
     open,
   );
   const guard = useGuardedClose(dirty, onOpenChange);
@@ -215,6 +230,22 @@ function MoneyEntryForm({
       );
     }
 
+    // Saved; then, when asked, made to repeat. The entry stays saved
+    // whatever that second step does.
+    const thenRepeat = () => {
+      if (!repeat) return;
+      repeatEntry.mutate(id, {
+        onSuccess: (result) => toast.success('Repeats every month', { description: result.note }),
+        onError: (error) =>
+          toast.error("Saved, but it won't repeat yet", {
+            description:
+              error instanceof ApiError && error.status !== 0
+                ? error.message
+                : 'Open the entry again and turn on Repeat.',
+          }),
+      });
+    };
+
     const fields = {
       kind,
       amountMinor,
@@ -236,6 +267,7 @@ function MoneyEntryForm({
           onSuccess: () => {
             toast.success('Entry saved');
             onOpenChange(false);
+            thenRepeat();
           },
           onError: failed,
         },
@@ -255,6 +287,7 @@ function MoneyEntryForm({
           toast.success(income ? 'Income saved' : 'Expense saved');
           onOpenChange(false);
           onCreated?.(saved);
+          thenRepeat();
         },
         onError: failed,
       },
@@ -281,7 +314,7 @@ function MoneyEntryForm({
           <DialogTitle>{editing ? 'Edit entry' : income ? 'New income' : 'New expense'}</DialogTitle>
           <DialogDescription>
             {inPackage
-              ? `Payment for ${inPackage.title}. `
+              ? `${income ? 'Payment for' : 'Cost of'} ${inPackage.title}. `
               : booking
                 ? `For ${bookingLabel(booking)}. `
                 : ''}
@@ -498,6 +531,36 @@ function MoneyEntryForm({
               rows={2}
             />
           </div>
+
+          {canRepeat && (
+            <div className="flex items-start gap-3 rounded-lg border p-3">
+              <Repeat className={cn('mt-0.5 size-4 shrink-0', repeat ? 'text-primary' : 'text-muted-foreground')} />
+              <div className="min-w-0 flex-1">
+                <Label htmlFor="money-repeat" className="text-sm font-semibold">
+                  Repeat every month
+                </Label>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {repeat
+                    ? `Added for you on ${dayOfMonthLabel(Math.min(Number(date.slice(8, 10)), 28))} of each month, ${income ? 'as due' : 'as paid'}`
+                    : 'A subscription, your rent, a retainer'}
+                </p>
+              </div>
+              <Switch id="money-repeat" checked={repeat} onCheckedChange={setRepeat} className="mt-0.5" />
+            </div>
+          )}
+          {repeats && (
+            <Link
+              href="/money/recurring"
+              className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/40"
+            >
+              <Repeat className="size-4 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">Repeats every month</span>
+                <span className="block text-xs text-muted-foreground">Change the amount or stop it</span>
+              </span>
+              <ChevronRight className="size-4 text-muted-foreground" />
+            </Link>
+          )}
 
           {entry?.booking?.cancelled && (
             <p className="text-xs text-muted-foreground">

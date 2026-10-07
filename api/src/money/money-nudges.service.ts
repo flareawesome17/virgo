@@ -198,6 +198,92 @@ export class MoneyNudgesService {
   }
 
   private reminding = false;
+
+  /**
+   * The month in one line, on the 1st: what came in, what went out, what was
+   * kept. Only to people who had money move last month, once each per month
+   * (money_recaps), and it opens Insights.
+   */
+  @Cron('10 9 1 * *', { name: 'money-monthly-recap', timeZone: MEDIA_LOCAL_ZONE })
+  async sendRecaps(): Promise<number> {
+    if (this.recapping) return 0;
+    this.recapping = true;
+    try {
+      const due = await this.db.transaction(async (tx) => {
+        const lock = await tx.query<{ ok: boolean }>(
+          "select pg_try_advisory_xact_lock(hashtext('virgo.money-monthly-recap')) as ok",
+        );
+        if (!lock.rows[0]?.ok) return [] as RecapRow[];
+        const result = await tx.query<RecapRow>(
+          `with span as (
+             select (date_trunc('month', (now() at time zone $1::text)::date) - interval '1 month')::date as first,
+                    (date_trunc('month', (now() at time zone $1::text)::date) - interval '1 day')::date as last
+           ),
+           moved as (
+             select e.user_id, to_char(span.first, 'YYYY-MM') as month,
+                    coalesce(sum(e.amount_minor) filter (where e.kind = 'income'), 0)::text as income,
+                    coalesce(sum(e.amount_minor) filter (where e.kind = 'expense'), 0)::text as expense
+               from money_entries e, span
+              where e.paid_on between span.first and span.last
+              group by e.user_id, span.first
+           ),
+           claimed as (
+             insert into money_recaps (user_id, month)
+             select user_id, month from moved
+             on conflict (user_id, month) do nothing
+             returning user_id, month
+           )
+           select moved.* from moved join claimed using (user_id, month)`,
+          [MEDIA_LOCAL_ZONE],
+        );
+        return result.rows;
+      });
+      if (due.length === 0) return 0;
+
+      const deliveries: Delivery[] = due.map((d) => ({
+        userId: d.user_id,
+        topic: 'money',
+        title: `Your ${monthName(d.month)} in Money`,
+        body: recapLine(Number(d.income), Number(d.expense)),
+        data: { type: 'money', recap: d.month },
+      }));
+      const { sent } = await this.notifier.deliver(deliveries);
+      this.logger.log(`Sent ${due.length} monthly recap(s) (${sent} pushed)`);
+      return due.length;
+    } catch (err) {
+      this.logger.error(`Monthly recaps failed: ${String(err)}`);
+      return 0;
+    } finally {
+      this.recapping = false;
+    }
+  }
+
+  private recapping = false;
+}
+
+interface RecapRow {
+  user_id: string;
+  month: string;
+  income: string;
+  expense: string;
+}
+
+/** "September" for 2026-09. */
+function monthName(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
+}
+
+/** The month's one line: in, out, and what that left. */
+export function recapLine(income: number, expense: number): string {
+  if (income === 0) return `${pesoText(expense)} went out. See where it went in Insights.`;
+  if (expense === 0) return `${pesoText(income)} came in. See the year so far in Insights.`;
+  const net = income - expense;
+  const left =
+    net >= 0
+      ? `${pesoText(net)} kept`
+      : `${pesoText(-net)} more out than in`;
+  return `${pesoText(income)} in, ${pesoText(expense)} out — ${left}. See the year so far in Insights.`;
 }
 
 interface PaymentRow {

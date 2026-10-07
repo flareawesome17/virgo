@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ArrowLeft, Copy, Link2, Paperclip, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
+import { ArrowLeft, Copy, Link2, Minus, Paperclip, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ApiError,
+  categoryLabel,
   dayLabel,
   formatMoney,
   isOverdue,
@@ -14,6 +15,7 @@ import {
   payMethodName,
   todayIso,
   type MoneyEntry,
+  type MoneyKind,
 } from '@/api';
 import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner, ErrorState } from '@/components/states';
@@ -73,7 +75,40 @@ function PaymentRow({ entry, today, onOpen, onMarkPaid }: { entry: MoneyEntry; t
   );
 }
 
-/** One package — the phone's screen (mobile/app/(app)/money/packages/[id].tsx). */
+/** A cost of the job: what it was for, and whether it is paid yet. */
+function CostRow({ entry, today, onOpen, onMarkPaid }: { entry: MoneyEntry; today: string; onOpen: () => void; onMarkPaid?: () => void }) {
+  const overdue = isOverdue(entry, today);
+  const label = categoryLabel('expense', entry.category);
+  return (
+    <li className="flex items-center gap-3 border-b px-4 last:border-b-0">
+      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 py-3 text-left hover:opacity-80">
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5 text-sm font-semibold">
+            <span className="truncate">{entry.counterparty || label}</span>
+            {entry.receipt && <Paperclip className="size-3 shrink-0 text-muted-foreground" aria-label="Has a receipt" />}
+          </span>
+          <span className={cn('block truncate text-xs', overdue ? 'text-destructive' : 'text-muted-foreground')}>
+            {entry.paidOn
+              ? [entry.counterparty ? label : null, `Paid ${dayLabel(entry.paidOn, today)}`].filter(Boolean).join(' · ')
+              : `${overdue ? 'Overdue — was due' : 'Still to pay — due'} ${dayLabel(entry.occurredOn, today)}`}
+          </span>
+        </span>
+        <span className="text-sm font-bold tabular-nums">−{formatMoney(entry.amountMinor)}</span>
+      </button>
+      {onMarkPaid && (
+        <Button size="sm" variant="secondary" className="h-7 px-2.5 text-xs" onClick={onMarkPaid}>
+          Paid
+        </Button>
+      )}
+    </li>
+  );
+}
+
+/**
+ * One package — the phone's screen (mobile/app/(app)/money/packages/[id].tsx):
+ * its payments, its costs and what the job earned. The statement a client
+ * sees never shows the costs.
+ */
 export default function PackagePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -85,7 +120,7 @@ export default function PackagePage() {
   const remove = useDeleteMoneyPackage();
   const update = useUpdateMoneyEntry();
   const [editingPackage, setEditingPackage] = useState(false);
-  const [entryDialog, setEntryDialog] = useState<{ entry?: MoneyEntry }>({});
+  const [entryDialog, setEntryDialog] = useState<{ entry?: MoneyEntry; kind?: MoneyKind }>({});
   const [entryOpen, setEntryOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -107,6 +142,10 @@ export default function PackagePage() {
   }
 
   const progress = pkg.totalMinor > 0 ? Math.min(100, (pkg.receivedMinor / pkg.totalMinor) * 100) : 0;
+  const payments = entries.filter((e) => e.kind === 'income');
+  const costs = entries.filter((e) => e.kind === 'expense');
+  const costsMinor = pkg.costsMinor ?? 0;
+  const profitMinor = pkg.profitMinor ?? pkg.receivedMinor - costsMinor;
 
   const copy = async (url: string) => {
     try {
@@ -123,8 +162,8 @@ export default function PackagePage() {
       onError: (error) => toast.error("Couldn't share it", { description: message(error, 'Please try again.') }),
     });
 
-  const openEntry = (entry?: MoneyEntry) => {
-    setEntryDialog({ entry });
+  const openEntry = (entry?: MoneyEntry, kind?: MoneyKind) => {
+    setEntryDialog({ entry, kind });
     setEntryOpen(true);
   };
 
@@ -182,6 +221,20 @@ export default function PackagePage() {
                 {pkg.overdue ? 'A payment is overdue — it was due' : 'Next payment due'} {dayLabel(pkg.nextDueOn, today)}
               </p>
             )}
+            {costsMinor > 0 && (
+              <dl className="mt-4 grid gap-1.5 border-t pt-3 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="font-semibold text-muted-foreground">Costs</dt>
+                  <dd className="font-bold tabular-nums">{formatMoney(costsMinor)}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="font-bold">Earned so far</dt>
+                  <dd className={cn('font-bold tabular-nums', profitMinor < 0 ? 'text-destructive' : 'text-success')}>
+                    {formatMoney(profitMinor)}
+                  </dd>
+                </div>
+              </dl>
+            )}
           </CardContent>
         </Card>
 
@@ -212,7 +265,7 @@ export default function PackagePage() {
         <h3 className="mb-2 mt-6 px-1 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">Payments</h3>
         <Card className="py-0">
           <ul>
-            {entries.map((entry) => (
+            {payments.map((entry) => (
               <PaymentRow
                 key={entry.id}
                 entry={entry}
@@ -232,9 +285,40 @@ export default function PackagePage() {
                 </button>
               </li>
             )}
-            {entries.length === 0 && pkg.unscheduledMinor === 0 && (
+            {payments.length === 0 && pkg.unscheduledMinor === 0 && (
               <li className="px-4 py-3 text-sm text-muted-foreground">No payments yet.</li>
             )}
+          </ul>
+        </Card>
+
+        {/* What the job cost: kept here, never on the client's statement. */}
+        <h3 className="mb-2 mt-6 px-1 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">Costs</h3>
+        <Card className="py-0">
+          <ul>
+            {costs.map((entry) => (
+              <CostRow
+                key={entry.id}
+                entry={entry}
+                today={today}
+                onOpen={() => openEntry(entry)}
+                onMarkPaid={entry.paidOn === null ? () => markPaid(entry) : undefined}
+              />
+            ))}
+            <li className="px-4">
+              <button
+                type="button"
+                onClick={() => openEntry(undefined, 'expense')}
+                className="flex w-full items-center justify-between gap-3 py-3 text-left hover:opacity-80"
+              >
+                <span>
+                  <span className="block text-sm font-semibold">Add a cost</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {costs.length > 0 ? 'Crew, transport, the venue' : 'Crew, transport, the venue — to see what the job earned'}
+                  </span>
+                </span>
+                <Minus className="size-4 text-muted-foreground" />
+              </button>
+            </li>
           </ul>
         </Card>
 
@@ -261,13 +345,19 @@ export default function PackagePage() {
       </div>
 
       <PackageDialog open={editingPackage} onOpenChange={setEditingPackage} pkg={pkg} />
-      <MoneyEntryDialog open={entryOpen} onOpenChange={setEntryOpen} entry={entryDialog.entry} pkg={entryDialog.entry ? undefined : pkg} />
+      <MoneyEntryDialog
+        open={entryOpen}
+        onOpenChange={setEntryOpen}
+        entry={entryDialog.entry}
+        kind={entryDialog.kind}
+        pkg={entryDialog.entry ? undefined : pkg}
+      />
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this package?</AlertDialogTitle>
             <AlertDialogDescription>
-              Payments still due are deleted with it. Payments you have received stay in your Money.
+              Payments still due are deleted with it. Payments you have received, and its costs, stay in your Money.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
