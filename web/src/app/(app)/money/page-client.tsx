@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import {
+  Briefcase,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -9,11 +10,13 @@ import {
   Minus,
   Paperclip,
   Plus,
+  Users,
   Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ApiError,
+  bookingLabel,
   categoryLabel,
   dayLabel,
   formatMoney,
@@ -26,6 +29,7 @@ import {
   todayIso,
   type MoneyEntry,
   type MoneyKind,
+  type MoneySuggestion,
 } from '@/api';
 import { PageHeader, Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
@@ -41,8 +45,10 @@ import {
 import { MoneyEntryDialog } from '@/components/money/money-entry-dialog';
 import { CategoryIcon } from '@/components/money/icons';
 import {
+  useDismissMoneySuggestion,
   useMoneyEntries,
   useMoneyExport,
+  useMoneySuggestions,
   useMoneySummary,
   useUpdateMoneyEntry,
 } from '@/hooks/useMoney';
@@ -91,8 +97,10 @@ function EntryRow({
   const label = categoryLabel(entry.kind, entry.category);
   const title = entry.counterparty || label;
   const overdue = isOverdue(entry, today);
-  const detail =
-    entry.paidOn === null
+  const cancelled = !!entry.booking?.cancelled;
+  const detail = cancelled
+    ? 'Booking cancelled'
+    : entry.paidOn === null
       ? `${overdue ? 'Overdue · was due' : 'Due'} ${dayLabel(entry.occurredOn, today)}`
       : [entry.counterparty ? label : null, methodLabel(entry.method), entry.reference]
           .filter(Boolean)
@@ -123,7 +131,7 @@ function EntryRow({
             <span
               className={cn(
                 'block truncate text-xs',
-                overdue ? 'text-destructive' : 'text-muted-foreground',
+                overdue || cancelled ? 'text-destructive' : 'text-muted-foreground',
               )}
             >
               {detail}
@@ -148,6 +156,69 @@ function EntryRow({
   );
 }
 
+/** A booking Money offers to record, with its two answers. */
+function SuggestionItem({
+  suggestion,
+  today,
+  onRecord,
+  onDismiss,
+}: {
+  suggestion: MoneySuggestion;
+  today: string;
+  onRecord: () => void;
+  onDismiss: () => void;
+}) {
+  const income = suggestion.kind === 'income';
+  const Icon = income ? Briefcase : Users;
+  return (
+    <li className="flex flex-wrap items-center gap-3 border-b px-4 py-3 last:border-b-0">
+      <span
+        className={cn(
+          'grid size-9 shrink-0 place-items-center rounded-lg',
+          income ? 'bg-success/15 text-success' : 'bg-primary/10 text-primary',
+        )}
+      >
+        <Icon className="size-4" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">
+          {income ? `From ${suggestion.counterparty}` : `To ${suggestion.counterparty}`}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {bookingLabel(suggestion)} ·{' '}
+          {suggestion.eventDate ? dayLabel(suggestion.eventDate, today) : 'No date set'}
+        </span>
+      </span>
+      {suggestion.amountMinor !== null && (
+        <span
+          className={cn(
+            'shrink-0 text-sm font-bold tabular-nums',
+            income ? 'text-success' : 'text-foreground',
+          )}
+        >
+          {signed(suggestion.kind, suggestion.amountMinor)}
+        </span>
+      )}
+      <span className="flex shrink-0 gap-1">
+        <Button size="sm" variant="secondary" className="h-7 px-2.5 text-xs" onClick={onRecord}>
+          Record
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-xs text-muted-foreground"
+          aria-label={`Not this — don't offer ${suggestion.postTitle} again`}
+          onClick={onDismiss}
+        >
+          Not this
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+type DialogState = { kind?: MoneyKind; entry?: MoneyEntry; suggestion?: MoneySuggestion };
+
 /**
  * Money: one person's own ledger, a month at a time — the phone's Money
  * screen (mobile/app/(app)/money/index.tsx), laid out for a wider window.
@@ -158,9 +229,9 @@ export default function MoneyPage() {
   const [filter, setFilter] = useState<Filter>('all');
   // What the dialog holds outlives its closing, so it doesn't change under
   // the closing animation.
-  const [dialog, setDialog] = useState<{ kind?: MoneyKind; entry?: MoneyEntry }>({});
+  const [dialog, setDialog] = useState<DialogState>({});
   const [dialogOpen, setDialogOpen] = useState(false);
-  const openDialog = (next: { kind?: MoneyKind; entry?: MoneyEntry }) => {
+  const openDialog = (next: DialogState) => {
     setDialog(next);
     setDialogOpen(true);
   };
@@ -170,8 +241,11 @@ export default function MoneyPage() {
   const summary = useMoneySummary(range.from, range.to);
   const list = useMoneyEntries({ from: range.from, to: range.to, kind, limit: 200 });
   const unpaid = useMoneyEntries({ unpaid: true, kind, limit: 100 });
+  const offers = useMoneySuggestions();
+  const dismiss = useDismissMoneySuggestion();
   const update = useUpdateMoneyEntry();
   const exporter = useMoneyExport();
+  const offered = offers.suggestions.filter((s) => !kind || s.kind === kind);
 
   const days = useMemo(() => {
     const byDay = new Map<string, MoneyEntry[]>();
@@ -221,7 +295,8 @@ export default function MoneyPage() {
   const outMinor = s?.expenseMinor ?? 0;
   const loading = list.isLoading && unpaid.isLoading;
   const failed = list.loadFailed && list.entries.length === 0 && unpaid.entries.length === 0;
-  const empty = !loading && !failed && days.length === 0 && owed.length === 0;
+  const empty =
+    !loading && !failed && days.length === 0 && owed.length === 0 && offered.length === 0;
 
   return (
     <Screen title="Money">
@@ -366,6 +441,27 @@ export default function MoneyPage() {
           </Card>
         ) : (
           <>
+            {/* Agreed bookings not recorded yet: each is a click from right. */}
+            {offered.length > 0 && (
+              <section className="mt-6">
+                <h3 className="mb-2 px-1 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  From your bookings
+                </h3>
+                <Card className="py-0">
+                  <ul>
+                    {offered.map((suggestion) => (
+                      <SuggestionItem
+                        key={suggestion.bookingId}
+                        suggestion={suggestion}
+                        today={today}
+                        onRecord={() => openDialog({ suggestion })}
+                        onDismiss={() => dismiss.mutate(suggestion.bookingId)}
+                      />
+                    ))}
+                  </ul>
+                </Card>
+              </section>
+            )}
             {owed.length > 0 && (
               <section className="mt-6">
                 <h3 className="mb-2 px-1 text-xs font-bold uppercase tracking-[0.12em] text-warning">
@@ -414,6 +510,7 @@ export default function MoneyPage() {
         onOpenChange={setDialogOpen}
         kind={dialog.kind}
         entry={dialog.entry}
+        suggestion={dialog.suggestion}
       />
     </Screen>
   );

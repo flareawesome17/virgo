@@ -98,6 +98,12 @@ export class CreateMoneyEntryDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID('all')
   receiptId?: string | null;
+
+  /** The booking it records — one the caller is on. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID('all')
+  bookingId?: string | null;
 }
 
 /**
@@ -164,6 +170,12 @@ export class UpdateMoneyEntryDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID('all')
   receiptId?: string | null;
+
+  /** The booking it records — one the caller is on. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID('all')
+  bookingId?: string | null;
 }
 
 export class ListMoneyEntriesDto {

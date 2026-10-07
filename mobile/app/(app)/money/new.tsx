@@ -26,11 +26,13 @@ import {
   type MoneyEntryInput,
   type MoneyKind,
   type MoneyMethod,
+  bookingLabel,
 } from '@/src/api';
 import {
   useCreateMoneyEntry,
   useDeleteMoneyEntry,
   useMoneyEntry,
+  useMoneyForBooking,
   useUpdateMoneyEntry,
 } from '@/src/hooks';
 import { DateTimeField } from '@/components';
@@ -101,7 +103,8 @@ function Choice({
 }
 
 /**
- * A money entry: new (?kind=income|expense) or an edit (?edit=<id>).
+ * A money entry: new (?kind=income|expense), new from an agreed booking
+ * (?booking=<id>, filled in from it), or an edit (?edit=<id>).
  *
  * Built for the venue: amount, a category, Save — the rest is there when it
  * matters and can be skipped when it doesn't. A new entry with no signal is
@@ -110,9 +113,17 @@ function Choice({
  */
 export default function MoneyEntryScreen() {
   const insets = useSafeAreaInsets();
-  const { kind: kindParam, edit: editId } = useLocalSearchParams<{ kind?: string; edit?: string }>();
+  const {
+    kind: kindParam,
+    edit: editId,
+    booking: bookingParam,
+  } = useLocalSearchParams<{ kind?: string; edit?: string; booking?: string }>();
   const isEdit = Boolean(editId);
   const { entry: existing, error: existingError, loadFailed, refetch } = useMoneyEntry(editId);
+  // The booking's offer, when opened from one. Once recorded or turned down
+  // there is none, and this is an ordinary new entry.
+  const offerQuery = useMoneyForBooking(isEdit ? undefined : bookingParam);
+  const offer = offerQuery.suggestion;
 
   // Made once, before the first attempt, and kept across every retry.
   const [id] = useState(() => editId ?? newClientId());
@@ -153,12 +164,30 @@ export default function MoneyEntryScreen() {
     savedReceiptId.current = existing.receipt?.id ?? null;
   }, [existing]);
 
+  // From a booking: filled once from its offer, then the form is theirs.
+  useEffect(() => {
+    if (!offer || filled.current) return;
+    filled.current = true;
+    setKind(offer.kind);
+    setAmount(offer.amountMinor !== null ? minorToPesos(offer.amountMinor) : '');
+    setCategory(offer.category);
+    setDate(dateOfIso(offer.occurredOn));
+    setPaid(offer.paid);
+    setCounterparty(offer.counterparty);
+    setNote(offer.note);
+  }, [offer]);
+
+  // What the form held once it was filled — or, from a booking with nothing
+  // left to offer, once that was known — is what "changed" is measured from.
+  const ready = isEdit
+    ? filled.current
+    : !bookingParam || filled.current || (offerQuery.isFetched && !offer);
   const { allowLeave } = useDiscardGuard(
     {
       kind, amount, category, date: date.getTime(), paid, paidOn: paidOn?.getTime() ?? null,
       method, counterparty, reference, withheld, note, receipt: receipt?.name ?? null,
     },
-    !isEdit || filled.current,
+    ready,
   );
 
   const create = useCreateMoneyEntry();
@@ -258,6 +287,7 @@ export default function MoneyEntryScreen() {
       id,
       ...fields,
       ...(receipt?.id ? { receiptId: receipt.id } : {}),
+      ...(offer ? { bookingId: offer.bookingId } : {}),
     };
     // No signal: kept on the phone, and sent when there is one.
     if (!onlineManager.isOnline()) {
@@ -311,6 +341,8 @@ export default function MoneyEntryScreen() {
 
   const income = kind === 'income';
   const title = isEdit ? 'Edit entry' : income ? 'New income' : 'New expense';
+  // The booking it is for, or came from.
+  const fromBooking = isEdit ? (existing?.booking ?? null) : offer;
   const paidLabel = income ? 'Received' : 'Paid';
   const paidHint = paid
     ? income
@@ -322,7 +354,11 @@ export default function MoneyEntryScreen() {
 
   return (
     <InsetFrame>
-      <FormHeader title={title} action={{ label: 'Save', onPress: save, busy: saving }} />
+      <FormHeader
+        title={title}
+        subtitle={fromBooking ? bookingLabel(fromBooking) : undefined}
+        action={{ label: 'Save', onPress: save, busy: saving }}
+      />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
         <ScrollView
           keyboardDismissMode="on-drag"
@@ -516,6 +552,15 @@ export default function MoneyEntryScreen() {
               style={{ ...CARD_SHADOW, minHeight: 72 }}
             />
           </View>
+
+          {isEdit && existing?.booking?.cancelled ? (
+            <View className="px-5 mt-6">
+              <Text className="text-muted-foreground text-[13px] leading-[19px]">
+                The booking this came from was cancelled. Keep it only if money actually moved —
+                a reservation fee you kept, say. Otherwise delete it.
+              </Text>
+            </View>
+          ) : null}
 
           {isEdit ? (
             <View className="px-5 mt-8">

@@ -10,6 +10,11 @@ import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { ReceiptFilesService, type MoneyReceipt } from '../storage/receipt-files.service';
 import {
+  MoneyBookingsService,
+  type MoneyBookingLink,
+  type MoneySuggestion,
+} from './money-bookings.service';
+import {
   CATEGORY_LABELS,
   METHOD_LABELS,
   MONEY_CATEGORIES,
@@ -35,6 +40,8 @@ export interface MoneyEntry {
   counterparty: string | null;
   note: string | null;
   receipt: MoneyReceipt | null;
+  /** The booking it was recorded from, while that booking exists. */
+  booking: MoneyBookingLink | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -74,6 +81,8 @@ export interface MoneyEntryInput {
   counterparty?: string | null;
   note?: string | null;
   receiptId?: string | null;
+  /** The booking it records, which must be one the caller is on. */
+  bookingId?: string | null;
 }
 
 export type MoneyEntryPatch = Partial<Omit<MoneyEntryInput, 'id'>>;
@@ -92,6 +101,7 @@ interface MoneyEntryRow {
   reference: string | null;
   counterparty: string | null;
   note: string | null;
+  booking_id: string | null;
   filed_on: string;
   created_at: Date;
   updated_at: Date;
@@ -109,6 +119,7 @@ interface EntryFields {
   reference: string | null;
   counterparty: string | null;
   note: string | null;
+  bookingId: string | null;
 }
 
 /** How long an export link works. Long enough to open; short enough to leak harmlessly. */
@@ -170,10 +181,18 @@ export class MoneyService {
     private readonly db: DatabaseService,
     private readonly receipts: ReceiptFilesService,
     private readonly config: ConfigService,
+    private readonly bookings: MoneyBookingsService,
   ) {}
 
   private async present(rows: MoneyEntryRow[]): Promise<MoneyEntry[]> {
-    const receipts = await this.receipts.forEntries(rows.map((r) => r.id));
+    if (rows.length === 0) return [];
+    const [receipts, bookings] = await Promise.all([
+      this.receipts.forEntries(rows.map((r) => r.id)),
+      this.bookings.linksFor(
+        rows[0].user_id,
+        rows.flatMap((r) => (r.booking_id ? [r.booking_id] : [])),
+      ),
+    ]);
     return rows.map((r) => ({
       id: r.id,
       kind: r.kind,
@@ -188,6 +207,7 @@ export class MoneyService {
       counterparty: r.counterparty,
       note: r.note,
       receipt: receipts.get(r.id) ?? null,
+      booking: (r.booking_id && bookings.get(r.booking_id)) || null,
       createdAt: r.created_at.toISOString(),
       updatedAt: r.updated_at.toISOString(),
     }));
@@ -307,8 +327,10 @@ export class MoneyService {
       reference: text(input.reference),
       counterparty: text(input.counterparty),
       note: text(input.note),
+      bookingId: input.bookingId ?? null,
     };
     this.check(entry);
+    if (entry.bookingId) await this.bookings.assertParty(userId, entry.bookingId);
     const receiptId = input.receiptId ?? null;
     if (receiptId) await this.receipts.verify(userId, receiptId, id);
 
@@ -316,8 +338,8 @@ export class MoneyService {
       const inserted = await tx.query<MoneyEntryRow>(
         `insert into money_entries
            (id, user_id, kind, amount_minor, withheld_minor, category,
-            occurred_on, paid_on, method, reference, counterparty, note)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            occurred_on, paid_on, method, reference, counterparty, note, booking_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          on conflict (id) do nothing
          returning *`,
         [
@@ -333,6 +355,7 @@ export class MoneyService {
           entry.reference,
           entry.counterparty,
           entry.note,
+          entry.bookingId,
         ],
       );
       if (inserted.rows[0]) {
@@ -367,8 +390,12 @@ export class MoneyService {
       counterparty:
         patch.counterparty !== undefined ? text(patch.counterparty) : current.counterparty,
       note: patch.note !== undefined ? text(patch.note) : current.note,
+      bookingId: patch.bookingId !== undefined ? patch.bookingId : current.booking_id,
     };
     this.check(entry);
+    if (entry.bookingId && entry.bookingId !== current.booking_id) {
+      await this.bookings.assertParty(userId, entry.bookingId);
+    }
     if (patch.receiptId) await this.receipts.verify(userId, patch.receiptId, id);
 
     const row = await this.db.transaction(async (tx) => {
@@ -376,7 +403,7 @@ export class MoneyService {
         `update money_entries
             set kind = $3, amount_minor = $4, withheld_minor = $5, category = $6,
                 occurred_on = $7, paid_on = $8, method = $9, reference = $10,
-                counterparty = $11, note = $12
+                counterparty = $11, note = $12, booking_id = $13
           where id = $1 and user_id = $2
           returning *`,
         [
@@ -392,6 +419,7 @@ export class MoneyService {
           entry.reference,
           entry.counterparty,
           entry.note,
+          entry.bookingId,
         ],
       );
       if (!updated.rows[0]) throw new NotFoundException('Entry not found');
@@ -401,6 +429,26 @@ export class MoneyService {
       return updated.rows[0];
     });
     return this.presentOne(row);
+  }
+
+  /**
+   * One booking, from the caller's side, for the booking's own screen: what
+   * Money offers to record for it, and what has been recorded from it.
+   */
+  async forBooking(
+    userId: string,
+    bookingId: string,
+  ): Promise<{ suggestion: MoneySuggestion | null; entries: MoneyEntry[] }> {
+    const [suggestions, rows] = await Promise.all([
+      this.bookings.suggestions(userId, bookingId),
+      this.db.query<MoneyEntryRow>(
+        `select * from money_entries
+          where user_id = $1 and booking_id = $2
+          order by filed_on, created_at`,
+        [userId, bookingId],
+      ),
+    ]);
+    return { suggestion: suggestions[0] ?? null, entries: await this.present(rows) };
   }
 
   /** Its receipt is let go with it, and swept. */

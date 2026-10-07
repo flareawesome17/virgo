@@ -39,8 +39,52 @@ export interface MoneyEntry {
   counterparty: string | null;
   note: string | null;
   receipt: MoneyReceipt | null;
+  /**
+   * The booking it was recorded from, while that booking exists. Optional
+   * because entries saved on a phone before bookings were linked have none:
+   * read it with `?? null`.
+   */
+  booking?: MoneyBookingLink | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The booking an entry was recorded from, as much as the ledger needs. */
+export interface MoneyBookingLink {
+  id: string;
+  postTitle: string;
+  role: string | null;
+  eventDate: string | null;
+  /** Cancelled since the entry was recorded. */
+  cancelled: boolean;
+}
+
+/**
+ * An entry Money offers to record for an agreed booking, filled in from it.
+ * Nothing is saved until the person records it.
+ */
+export interface MoneySuggestion {
+  bookingId: string;
+  /** Income for the creative who was hired, an expense for whoever hired. */
+  kind: MoneyKind;
+  category: string;
+  /** The agreed rate in centavos, or null when none was set. */
+  amountMinor: number | null;
+  /** The shoot day, or today for a booking with no date. */
+  occurredOn: string;
+  /** Whether the form starts as paid: the shoot day has come. */
+  paid: boolean;
+  /** The other person on the booking. */
+  counterparty: string;
+  note: string;
+  postTitle: string;
+  role: string | null;
+  eventDate: string | null;
+}
+
+/** "Reyes wedding · Second shooter": a booking, the way a ledger row names it. */
+export function bookingLabel(b: { postTitle: string; role: string | null }): string {
+  return b.role ? `${b.postTitle} · ${b.role}` : b.postTitle;
 }
 
 export interface MoneySummary {
@@ -77,6 +121,8 @@ export interface MoneyEntryInput {
   counterparty?: string | null;
   note?: string | null;
   receiptId?: string | null;
+  /** The booking it records — one you are on. */
+  bookingId?: string | null;
 }
 
 /** Undefined leaves a field alone; null clears it. */
@@ -299,6 +345,21 @@ export const moneyApi = {
   /** Paid totals for a span of days, and what is outstanding overall. */
   summary(from: string, to: string): Promise<MoneySummary> {
     return api.get('/money/summary', { query: { from, to } });
+  },
+
+  /** Agreed bookings not recorded yet, soonest shoot first. */
+  suggestions(): Promise<MoneySuggestion[]> {
+    return api.get('/money/suggestions');
+  },
+
+  /** "Not this": the booking is not offered again. */
+  dismissSuggestion(bookingId: string): Promise<void> {
+    return api.post(`/money/suggestions/${bookingId}/dismiss`);
+  },
+
+  /** One booking from your side: what Money offers for it, and what was recorded from it. */
+  forBooking(bookingId: string): Promise<{ suggestion: MoneySuggestion | null; entries: MoneyEntry[] }> {
+    return api.get(`/money/bookings/${bookingId}`);
   },
 
   /**

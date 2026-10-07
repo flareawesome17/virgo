@@ -10,6 +10,8 @@ import {
   MONEY_METHODS,
   pesosToMinor,
   todayIso,
+  bookingLabel,
+  type MoneySuggestion,
   type MoneyEntry,
   type MoneyKind,
   type MoneyMethod,
@@ -56,6 +58,8 @@ export type MoneyEntryDialogProps = {
   kind?: MoneyKind;
   /** Present to edit that entry; absent to make a new one. */
   entry?: MoneyEntry;
+  /** A new entry filled in from an agreed booking's offer, and linked to it. */
+  suggestion?: MoneySuggestion;
   /** Told once a new entry is saved, after the dialog has closed. */
   onCreated?: (entry: MoneyEntry) => void;
 };
@@ -100,33 +104,51 @@ function Chip({
   );
 }
 
-function MoneyEntryForm({ open, onOpenChange, kind: startKind, entry, onCreated }: MoneyEntryDialogProps) {
+function MoneyEntryForm({
+  open,
+  onOpenChange,
+  kind: startKind,
+  entry,
+  suggestion: offer,
+  onCreated,
+}: MoneyEntryDialogProps) {
   const create = useCreateMoneyEntry();
   const update = useUpdateMoneyEntry();
   const remove = useDeleteMoneyEntry();
   const editing = Boolean(entry);
   const pending = create.isPending || update.isPending;
+  // An offer only fills a new entry; an edit is always its own entry's.
+  const from = entry ? undefined : offer;
+  const startingKind = entry?.kind ?? from?.kind ?? startKind ?? 'expense';
 
   // Made once per opening, so a retried save finds the entry it already wrote.
   const [id] = useState(() => entry?.id ?? newId());
-  const [kind, setKind] = useState<MoneyKind>(entry?.kind ?? startKind ?? 'expense');
-  const [amount, setAmount] = useState(entry ? minorToPesos(entry.amountMinor) : '');
-  const [category, setCategory] = useState<string | null>(
-    entry?.category ?? ((entry?.kind ?? startKind) === 'income' ? 'job' : null),
+  const [kind, setKind] = useState<MoneyKind>(startingKind);
+  const [amount, setAmount] = useState(
+    entry
+      ? minorToPesos(entry.amountMinor)
+      : from?.amountMinor != null
+        ? minorToPesos(from.amountMinor)
+        : '',
   );
-  const [date, setDate] = useState(entry?.occurredOn ?? todayIso());
-  const [paid, setPaid] = useState(entry ? entry.paidOn !== null : true);
+  const [category, setCategory] = useState<string | null>(
+    entry?.category ?? from?.category ?? (startingKind === 'income' ? 'job' : null),
+  );
+  const [date, setDate] = useState(entry?.occurredOn ?? from?.occurredOn ?? todayIso());
+  const [paid, setPaid] = useState(entry ? entry.paidOn !== null : (from?.paid ?? true));
   // Empty: paid on the entry's own date.
   const [paidOn, setPaidOn] = useState(
     entry?.paidOn && entry.paidOn !== entry.occurredOn ? entry.paidOn : '',
   );
   const [method, setMethod] = useState<MoneyMethod | null>(entry?.method ?? null);
-  const [counterparty, setCounterparty] = useState(entry?.counterparty ?? '');
+  const [counterparty, setCounterparty] = useState(entry?.counterparty ?? from?.counterparty ?? '');
   const [reference, setReference] = useState(entry?.reference ?? '');
   const [withheld, setWithheld] = useState(
     entry && entry.withheldMinor > 0 ? minorToPesos(entry.withheldMinor) : '',
   );
-  const [note, setNote] = useState(entry?.note ?? '');
+  const [note, setNote] = useState(entry?.note ?? from?.note ?? '');
+  // The booking it is for, or came from.
+  const booking = entry ? (entry.booking ?? null) : (from ?? null);
   const [receipt, setReceipt] = useState<ReceiptDraft | null>(() => draftOf(entry?.receipt));
   const [problem, setProblem] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -203,7 +225,12 @@ function MoneyEntryForm({ open, onOpenChange, kind: startKind, entry, onCreated 
       return;
     }
     create.mutate(
-      { id, ...fields, ...(receipt?.id ? { receiptId: receipt.id } : {}) },
+      {
+        id,
+        ...fields,
+        ...(receipt?.id ? { receiptId: receipt.id } : {}),
+        ...(from ? { bookingId: from.bookingId } : {}),
+      },
       {
         onSuccess: (saved) => {
           toast.success(income ? 'Income saved' : 'Expense saved');
@@ -233,7 +260,9 @@ function MoneyEntryForm({ open, onOpenChange, kind: startKind, entry, onCreated 
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit entry' : income ? 'New income' : 'New expense'}</DialogTitle>
-          <DialogDescription>Only you can see your money entries.</DialogDescription>
+          <DialogDescription>
+            {booking ? `For ${bookingLabel(booking)}. ` : ''}Only you can see your money entries.
+          </DialogDescription>
         </DialogHeader>
 
         <form
@@ -445,6 +474,13 @@ function MoneyEntryForm({ open, onOpenChange, kind: startKind, entry, onCreated 
               rows={2}
             />
           </div>
+
+          {entry?.booking?.cancelled && (
+            <p className="text-xs text-muted-foreground">
+              The booking this came from was cancelled. Keep it only if money actually moved — a
+              reservation fee you kept, say. Otherwise delete it.
+            </p>
+          )}
 
           {problem && (
             <p role="alert" className="text-sm text-destructive">
