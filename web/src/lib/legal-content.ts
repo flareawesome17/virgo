@@ -17,7 +17,7 @@ export interface Clause {
 }
 
 export const CONTACT_EMAIL = 'support@virgo.ph';
-export const LAST_UPDATED = '7 October 2026';
+export const LAST_UPDATED = '8 October 2026';
 
 export const TERMS: Clause[] = [
   {
@@ -59,6 +59,13 @@ export const TERMS: Clause[] = [
     body: [
       'Job posts are visible to signed-in Virgo users. Applying, or sending a hire enquiry, shares your profile and your message with the other person.',
       'Virgo puts clients and creatives in touch. It is not a party to the work you agree, and it does not take or hold payment for it. A booking records what you both agreed; the rate and the terms are between you.',
+    ],
+  },
+  {
+    heading: 'Money',
+    body: [
+      'Money is a record you keep for yourself of what you earn and spend. Its totals, summaries and exports show what you entered, counted the way the screen says. They are not tax, legal or accounting advice.',
+      'Virgo is not a BIR-registered book of accounts or invoicing system, and nothing in Money is an official receipt or an invoice. Issue your own registered invoices, and keep the records the law asks of you.',
     ],
   },
   {
@@ -160,6 +167,16 @@ export const PRIVACY: Clause[] = [
     ],
   },
   {
+    heading: 'Money',
+    body: [
+      'If you use Money, we store the income and expenses you record: amounts, the tax a client withheld, dates, categories, who paid or was paid, how, reference numbers, notes, and any receipt you attach.',
+      'Only you can see them. They are not shared with your collaborators, with the other side of a booking, or with anyone else on Virgo; our support team cannot open them, and they are not used for analytics.',
+      'Receipts are stored privately and do not count against your storage. A receipt you remove, or the receipt of an entry you delete, is deleted within a day.',
+      'An export is made when you ask for it and is not kept. Its download link works for five minutes.',
+      'Entries you log with no connection are kept on your phone until they reach us.',
+    ],
+  },
+  {
     heading: 'Product analytics',
     body: [
       'On the web app, we use PostHog to count how the product is used — which pages are opened, and whether things like posting a job or confirming a booking actually get finished. The mobile app sends nothing to PostHog.',
@@ -196,6 +213,7 @@ export const PRIVACY: Clause[] = [
       'Turn your exact location off at any time, which also erases the stored position.',
       'Turn push off for a device in Settings, Privacy.',
       'Wipe every file you have uploaded in Settings, Storage & plan, Sync & Storage.',
+      'Export your money entries as a spreadsheet from Money.',
       'Delete your account in Settings, Account & security.',
       'To request a copy of your data, email us.',
     ],

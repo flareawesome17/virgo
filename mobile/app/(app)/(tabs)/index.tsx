@@ -25,9 +25,11 @@ import {
   usePlanLimits,
   useUnseenJobs,
   useMarkJobsSeen,
+  useMoneySummary,
 } from '@/src/hooks';
 import { useChromeScroll } from '@/src/providers/ChromeProvider';
-import { formatBytes } from '@/src/api';
+import { formatBytes, monthOf, monthRange, todayIso } from '@/src/api';
+import { MoneyCard } from '@/components/money/MoneyCard';
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { goToTab } from '@/src/lib/navigation';
@@ -164,6 +166,13 @@ export default function DashboardScreen() {
     (b) => b.confirmed && !b.cancelledAt && b.eventDate != null && b.eventDate < today,
   ).length;
 
+  // This month's money, for the card under Next up.
+  const moneyMonth = monthOf(todayIso());
+  const moneyRange = monthRange(moneyMonth);
+  const { summary: money, refetch: refetchMoney } = useMoneySummary(moneyRange.from, moneyRange.to, {
+    enabled: !!user?.id,
+  });
+
   // Everything the screen shows. It left usage, connections, jobs and
   // bookings out, so a pull refreshed half the numbers.
   const onRefresh = async () => {
@@ -176,6 +185,7 @@ export default function DashboardScreen() {
       refetchConnections(),
       refetchMyJobs(),
       refetchBookings(),
+      refetchMoney(),
     ]);
     setRefreshing(false);
   };
@@ -296,6 +306,11 @@ export default function DashboardScreen() {
               <ChevronRightIcon size={18} className="text-muted-foreground" />
             </PressableScale>
           )}
+        </View>
+
+        {/* ── Money ── */}
+        <View className="px-5 pb-5">
+          <MoneyCard month={moneyMonth} summary={money} />
         </View>
 
         {unseenJobs > 0 && (

@@ -58,7 +58,12 @@ const CAPABILITIES: { label: string; works: boolean; detail: string }[] = [
     detail: 'Kept in the thread and marked unsent, so you can retry rather than retype',
   },
   {
-    label: 'Create or edit anything',
+    label: 'Log income and expenses',
+    works: true,
+    detail: 'Kept on this phone and saved to your account when you are back online. Receipts need a connection',
+  },
+  {
+    label: 'Create or edit anything else',
     works: false,
     detail: 'Albums, events and invitations are written on the server',
   },
