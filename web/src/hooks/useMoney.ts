@@ -79,11 +79,15 @@ export function useUpdateMoneyEntry() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...patch }: MoneyEntryPatch & { id: string }) => moneyApi.update(id, patch),
-    onMutate: async ({ id, receiptId: _receipt, ...patch }) => {
+    onMutate: async ({ id, ...patch }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.money.all });
       const before = queryClient.getQueriesData<unknown>({ queryKey: queryKeys.money.all });
-      const apply = (e: MoneyEntry): MoneyEntry =>
-        e.id === id ? { ...e, ...(patch as Partial<MoneyEntry>) } : e;
+      // A receipt id is a reference, not a field of the entry; the receipt
+      // itself shows once the save comes back.
+      const shown = Object.fromEntries(
+        Object.entries(patch).filter(([key]) => key !== 'receiptId'),
+      ) as Partial<MoneyEntry>;
+      const apply = (e: MoneyEntry): MoneyEntry => (e.id === id ? { ...e, ...shown } : e);
       queryClient.setQueriesData<unknown>({ queryKey: queryKeys.money.all }, (data: unknown) => {
         if (!data || typeof data !== 'object') return data;
         if ('data' in data && Array.isArray((data as { data: unknown }).data)) {

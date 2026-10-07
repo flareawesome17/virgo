@@ -16,9 +16,11 @@ import {
   BriefcaseBusiness,
   CalendarPlus,
   FolderPlus,
+  HandCoins,
   ImagePlus,
   Images,
   Plus,
+  Receipt,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -36,6 +38,7 @@ import { CreateWorkspaceDialog } from '@/components/workspaces/create-workspace-
 import { NewAlbumDialog } from '@/components/new-album-dialog';
 import { EventDialog } from '@/components/schedule/event-dialog';
 import { NewReminderDialog } from '@/components/schedule/reminder-dialog';
+import { MoneyEntryDialog } from '@/components/money/money-entry-dialog';
 import { useUsage } from '@/hooks/useUsage';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { DiscardScope, isPageDirty, leaveIfDiscarded } from '@/lib/discard-guard';
@@ -43,7 +46,15 @@ import { todayKey } from '@/lib/calendar';
 import { cn } from '@/lib/utils';
 
 /** Everything the + in the top bar can start. The phone's list, in its order. */
-export type CreateKind = 'showcase' | 'job' | 'workspace' | 'album' | 'event' | 'reminder';
+export type CreateKind =
+  | 'showcase'
+  | 'job'
+  | 'workspace'
+  | 'album'
+  | 'event'
+  | 'reminder'
+  | 'income'
+  | 'expense';
 
 interface CreateItem {
   kind: CreateKind;
@@ -56,7 +67,7 @@ interface CreateItem {
 /**
  * The phone's Create sheet, word for word (mobile/components/CreateSheet.tsx).
  *
- * In three groups, by what the thing is for, and in an order that never
+ * In four groups, by what the thing is for, and in an order that never
  * changes with the page: the page you are on marks its own row instead.
  */
 const GROUPS: { title: string; items: CreateItem[] }[] = [
@@ -79,6 +90,13 @@ const GROUPS: { title: string; items: CreateItem[] }[] = [
     items: [
       { kind: 'event', label: 'Event', detail: 'A shoot, review or deadline', icon: CalendarPlus },
       { kind: 'reminder', label: 'Reminder', detail: 'A nudge at a set time', icon: AlarmClock },
+    ],
+  },
+  {
+    title: 'Money',
+    items: [
+      { kind: 'income', label: 'Income', detail: 'A fee, a deposit, a balance paid', icon: HandCoins },
+      { kind: 'expense', label: 'Expense', detail: 'Transport, meals, crew, gear', icon: Receipt },
     ],
   },
 ];
@@ -216,6 +234,12 @@ export function CreateProvider({ children }: { children: ReactNode }) {
           open={openKind === 'reminder'}
           onOpenChange={close}
           onCreated={() => created('Reminder', '/schedule?tab=reminders')}
+        />
+        {/* Logged where you are, without leaving it: the dialog says it saved. */}
+        <MoneyEntryDialog
+          open={openKind === 'income' || openKind === 'expense'}
+          onOpenChange={close}
+          kind={openKind === 'income' ? 'income' : 'expense'}
         />
       </DiscardScope>
     </CreateContext.Provider>

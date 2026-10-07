@@ -24,6 +24,7 @@ import { useScheduleEventRange, useScheduleEvents } from '@/hooks/useScheduleEve
 import { useCollaborators } from '@/hooks/useCollaborators';
 import { useUsage } from '@/hooks/useUsage';
 import { formatBytes } from '@/api';
+import { MoneyCard } from '@/components/money/money-card';
 import {
   dateToKey,
   eventTypeLabel,
@@ -254,6 +255,8 @@ export default function HomePage() {
 
           {/* Side rail */}
           <aside className="flex flex-col gap-6">
+            <MoneyCard />
+
             <Card>
               <CardContent className="py-5">
                 <div className="flex items-center gap-2">
