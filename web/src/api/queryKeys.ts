@@ -122,6 +122,13 @@ export const queryKeys = {
     list: ['bookings', 'list'] as const,
     detail: (id: string) => ['bookings', 'detail', id] as const,
   },
+  /** One person's ledger. Every write invalidates `all`: lists and totals move together. */
+  money: {
+    all: ['money'] as const,
+    list: (params?: unknown) => ['money', 'list', params ?? {}] as const,
+    detail: (id: string) => ['money', 'detail', id] as const,
+    summary: (from: string, to: string) => ['money', 'summary', from, to] as const,
+  },
   portfolio: {
     all: ['portfolio'] as const,
   },

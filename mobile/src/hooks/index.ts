@@ -240,6 +240,16 @@ export {
 } from './useBookings';
 
 export {
+  useMoneyEntries,
+  useMoneyEntry,
+  useMoneySummary,
+  useCreateMoneyEntry,
+  useUpdateMoneyEntry,
+  useDeleteMoneyEntry,
+  useMoneyExport,
+} from './useMoney';
+
+export {
   usePromoOffers,
   useReferralCode,
   useClaimPromo,
