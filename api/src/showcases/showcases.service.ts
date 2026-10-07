@@ -21,9 +21,9 @@ import type {
  * Showcases: a piece of work somebody posted, and the note on how they made it.
  *
  * Distinct from the portfolio (031), which holds one image or one album per row
- * and only ever points at the owner's own files. A showcase is a set — up to ten
- * pieces, the first of them the cover — and it carries the craft note that is
- * the whole reason to read a feed of them.
+ * and only ever points at the owner's own files. A showcase is a set — up to
+ * twenty photographs, the first of them the cover, or one film on its own — and
+ * it carries the craft note that is the whole reason to read a feed of them.
  *
  * `portfolio_items` is untouched and still serves every profile. Nothing here
  * reads or writes it.
@@ -120,6 +120,22 @@ export interface ShowcaseDetail extends Showcase {
   likedByMe: boolean;
 }
 
+/**
+ * A showcase as anyone may see it, signed in or not: the page a shared link
+ * opens (virgo.ph/p/:id). Only what the post itself shows — no account ids,
+ * no counts beyond the likes on its face, and nothing about the reader.
+ */
+export interface PublicShowcase {
+  id: string;
+  title: string | null;
+  caption: string | null;
+  location: string | null;
+  publishedAt: string;
+  likeCount: number;
+  maker: Omit<ShowcaseMaker, 'id'>;
+  pieces: ShowcasePiece[];
+}
+
 export interface Showcase {
   id: string;
   userId: string;
@@ -206,6 +222,43 @@ interface StoredPiece {
   poster_key: string | null;
   video_key: string | null;
   display_widths: number[] | null;
+  // What it is, for the one-film rule: the piece's own copy says once it has
+  // been made, and its album file says while it still exists.
+  kind: string | null;
+  content_type: string | null;
+}
+
+type PieceKind = 'image' | 'video';
+
+/** A photograph, a film, or neither, by content type. */
+const kindOf = (contentType: string | null | undefined): PieceKind | null =>
+  contentType?.startsWith('video/') ? 'video' : contentType?.startsWith('image/') ? 'image' : null;
+
+const storedKind = (piece: StoredPiece): PieceKind | null =>
+  piece.kind === 'image' || piece.kind === 'video' ? piece.kind : kindOf(piece.content_type);
+
+/**
+ * A film is posted on its own.
+ *
+ * Any number of photographs up to the ceiling, or exactly one film and
+ * nothing else: a card plays a film full-bleed, so a photograph beside it, or
+ * a second film, has nowhere to be. Asked of the whole set a save leaves —
+ * the pieces it keeps as well as the ones it adds — and only when a save
+ * sends its pieces, so a post made before the rule still reads and edits.
+ * A piece of unknown kind (its file gone, no copy made) still counts as a
+ * piece.
+ */
+function assertFilmAlone(pieces: { key: string; kind: PieceKind | null }[]): void {
+  const film = pieces.find((piece) => piece.kind === 'video');
+  if (!film || pieces.length === 1) return;
+  throw new BadRequestException({
+    statusCode: 400,
+    error: 'Bad Request',
+    code: 'SHOWCASE_FILM_ALONE',
+    message: 'A film is posted on its own. Post your photos separately.',
+    // Which one, so the app can point at it.
+    fileKey: film.key,
+  });
 }
 
 const asIso = (v: Date | string | null): string | null =>
@@ -310,6 +363,70 @@ export class ShowcasesService {
   }
 
   /**
+   * One showcase as anybody may see it, with no account: the page a shared
+   * link opens.
+   *
+   * Narrower than one(), never wider. There is no reader to be connected to or
+   * blocked by, so only what is meant for everyone is answered: shown to
+   * everyone ('public', not connections-only), posted, not taken down by its
+   * author or the console, and by an account that is neither suspended nor
+   * paused. The author gets no exception either — their own private or
+   * unposted work is theirs to read in the app, not on the open web.
+   *
+   * Asked in one statement and refused with one answer, so a link to
+   * something private and a link to nothing cannot be told apart.
+   */
+  async publicOne(id: string): Promise<PublicShowcase> {
+    const row = await this.db.queryOne<
+      ShowcaseRow & {
+        display_name: string | null;
+        handle: string | null;
+        avatar_url: string | null;
+        user_title: string | null;
+      }
+    >(
+      `select s.*,
+              u.display_name, u.avatar_url, u.title as user_title,
+              -- A handle only once the profile is published, as everywhere
+              -- else: an unpublished one leads to "Profile not found".
+              case when u.public_profile then u.handle end as handle
+         from showcases s
+         join users u on u.id = s.user_id
+        where s.id = $1
+          and s.visibility = 'public'
+          and s.published_at is not null
+          and s.unpublished_at is null
+          and s.hidden_at is null
+          and u.suspended_at is null
+          and (u.disabled_until is null or u.disabled_until <= now())`,
+      [id],
+    );
+    if (!row) throw new NotFoundException('Showcase not found');
+
+    // As a stranger: thumbnails and web copies, never an original.
+    const [base] = await this.hydrate([row], false);
+    // One whose every piece lost its web copy has nothing to show.
+    if (!base || base.pieces.length === 0 || !base.publishedAt) {
+      throw new NotFoundException('Showcase not found');
+    }
+    return {
+      id: base.id,
+      title: base.title,
+      caption: base.caption,
+      location: base.location,
+      publishedAt: base.publishedAt,
+      likeCount: base.likeCount,
+      maker: {
+        displayName: row.display_name ?? 'Someone',
+        handle: row.handle,
+        avatarUrl: row.avatar_url,
+        title: row.user_title,
+      },
+      pieces: base.pieces,
+    };
+  }
+
+  /**
    * One person's published showcases, as a given viewer may see them.
    *
    * By handle, because that is what a profile is addressed by and it saves the
@@ -403,17 +520,25 @@ export class ShowcasesService {
     if (dto.fileKeys) {
       keys = [...new Set(dto.fileKeys)];
       stored = await this.db.query<StoredPiece>(
-        `select id, user_id, file_key, thumb_key, poster_key, video_key, display_widths
-           from showcase_items where showcase_id = $1`,
+        `select i.id, i.user_id, i.file_key, i.thumb_key, i.poster_key, i.video_key,
+                i.display_widths, i.kind, f.content_type
+           from showcase_items i
+           left join user_files f on f.key = i.file_key and f.user_id = i.user_id
+          where i.showcase_id = $1`,
         [id],
       );
-      const known = new Set(stored.map(pieceKeyOf));
-      const added = keys.filter((key) => !known.has(key));
+      const byStoredKey = new Map(stored.map((piece) => [pieceKeyOf(piece), piece]));
+      const added = keys.filter((key) => !byStoredKey.has(key));
       // A piece's own id is only ever one already in this showcase.
       if (added.some((key) => ITEM_KEY.test(key))) {
         throw new NotFoundException('File not found');
       }
-      await this.usableKeys(userId, added);
+      // The pieces that stay count towards the one-film rule as well.
+      const staying = keys.flatMap((key) => {
+        const piece = byStoredKey.get(key);
+        return piece ? [{ key, kind: storedKind(piece) }] : [];
+      });
+      await this.usableKeys(userId, added, { order: keys, staying });
     }
     let dropped: StoredPiece[] = [];
 
@@ -608,8 +733,18 @@ export class ShowcasesService {
    * film's poster frame is made by the media worker after the upload and
    * cannot be made here at all, so a film that has not got one yet is refused
    * rather than waited for.
+   *
+   * On an edit, `edit` carries the pieces it keeps, by kind, and the whole set
+   * in order: the one-film rule is about the set the save leaves, not only
+   * what it adds. It is asked after every key is known to be a photograph or a
+   * film and before any thumbnail is made, so a set that cannot be posted
+   * costs no encoding.
    */
-  private async usableKeys(userId: string, requested: string[]): Promise<string[]> {
+  private async usableKeys(
+    userId: string,
+    requested: string[],
+    edit?: { order: string[]; staying: { key: string; kind: PieceKind | null }[] },
+  ): Promise<string[]> {
     const keys = [...new Set(requested)];
 
     for (const key of keys) {
@@ -618,30 +753,49 @@ export class ShowcasesService {
       }
     }
 
-    const files = await this.db.query<{
-      key: string;
-      content_type: string | null;
-      size_bytes: string | number;
-      thumb_key: string | null;
-      poster_key: string | null;
-      display_widths: number[] | null;
-      blur_data_url: string | null;
-    }>(
-      `select key, content_type, size_bytes, thumb_key, poster_key,
-              display_widths, blur_data_url
-         from user_files where user_id = $1 and key = any($2::text[])`,
-      [userId, keys],
-    );
+    const files =
+      keys.length === 0
+        ? []
+        : await this.db.query<{
+            key: string;
+            content_type: string | null;
+            size_bytes: string | number;
+            thumb_key: string | null;
+            poster_key: string | null;
+            display_widths: number[] | null;
+            blur_data_url: string | null;
+          }>(
+            `select key, content_type, size_bytes, thumb_key, poster_key,
+                    display_widths, blur_data_url
+               from user_files where user_id = $1 and key = any($2::text[])`,
+            [userId, keys],
+          );
 
     const byKey = new Map(files.map((f) => [f.key, f]));
+    const adding: { key: string; kind: PieceKind | null }[] = [];
     for (const key of keys) {
       const file = byKey.get(key);
       // Same answer whether it is somebody else's or does not exist.
       if (!file) throw new NotFoundException('File not found');
-      const isVideo = file.content_type?.startsWith('video/') ?? false;
-      if (!file.content_type?.startsWith('image/') && !isVideo) {
+      const kind = kindOf(file.content_type);
+      if (!kind) {
         throw new BadRequestException('Only photographs and films can go in a showcase.');
       }
+      adding.push({ key, kind });
+    }
+
+    // In the order the post will show them, so the film named is the first
+    // one there.
+    const order = edit?.order ?? keys;
+    assertFilmAlone(
+      [...adding, ...(edit?.staying ?? [])].sort(
+        (a, b) => order.indexOf(a.key) - order.indexOf(b.key),
+      ),
+    );
+
+    for (const key of keys) {
+      const file = byKey.get(key)!;
+      const isVideo = kindOf(file.content_type) === 'video';
 
       if (isVideo) {
         // A film's poster is made by the media worker a minute or so after the

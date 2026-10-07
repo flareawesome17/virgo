@@ -42,6 +42,14 @@ const HANDLE_PATH = /^\/@([A-Za-z0-9_]{3,30})\/?$/;
 const JOB_SLUG_PATH = /^\/jobs\/([a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]{6})\/?$/;
 
 /**
+ * `/p/<showcase id>`, a shared post: the public page for a post its maker
+ * showed to everyone, readable without an account. Ids only — anything else
+ * under /p is not a post and goes the way of every other unknown address.
+ */
+const SHARED_POST_PATH =
+  /^\/p\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?$/i;
+
+/**
  * Addresses that moved, on the app host, and where they went.
  *
  * Emails, bookmarks and notifications already sent carry the old ones, so
@@ -113,6 +121,15 @@ export function proxy(request: NextRequest): NextResponse {
   const { pathname, search } = request.nextUrl;
 
   if (!MARKETING_HOSTS.has(host)) {
+    /**
+     * A shared post works on this host too: the same public page at the same
+     * address, signed in or not, rather than a bounce to the apex — a link
+     * copied from the app's address bar is still a link that opens. Its
+     * canonical tag names the apex, and this host's robots.txt keeps crawlers
+     * out either way. First, so no redirect added below can swallow it.
+     */
+    if (SHARED_POST_PATH.test(pathname)) return NextResponse.next();
+
     /**
      * A profile has one address, `/@handle`, and it works on both hosts.
      *
@@ -197,6 +214,12 @@ export function proxy(request: NextRequest): NextResponse {
     // page on this host. Without this line the catch-all below would send it
     // to web.virgo.ph/download, which does not exist.
     pathname === '/download' ||
+    // A shared post (virgo.ph/p/<id>): the one piece of somebody's work this
+    // host serves, to anybody, for a post its maker showed to everyone. Unlike
+    // a profile it is not handed to the app — the person it was sent to sees
+    // the work first, and the chat app drawing its preview gets a page, not
+    // a redirect to sign-in.
+    SHARED_POST_PATH.test(pathname) ||
     pathname.startsWith('/opengraph-image') ||
     pathname.startsWith('/twitter-image')
   ) {

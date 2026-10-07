@@ -10,6 +10,7 @@ import sharp from 'sharp';
 import { DatabaseService } from '../database/database.service';
 import { StorageService } from '../storage/storage.service';
 import { MAX_SOURCE_BYTES } from '../storage/thumbnails.service';
+import { MAX_SHOWCASE_ITEMS } from './dto/showcase.dto';
 
 const run = promisify(execFile);
 
@@ -179,7 +180,8 @@ export class ShowcaseMediaService {
           order by coalesce(i.next_copy_at, i.created_at), i.position
           for update of i skip locked
           limit $1`,
-        [showcaseId ? 10 : BATCH, MAX_ATTEMPTS, showcaseId],
+        // One post is copied whole: as many pieces as a showcase may hold.
+        [showcaseId ? MAX_SHOWCASE_ITEMS : BATCH, MAX_ATTEMPTS, showcaseId],
       );
       // A film is minutes of encoding: at most one per run, and it goes last
       // so the photographs ahead of it are not kept waiting.

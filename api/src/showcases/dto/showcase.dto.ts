@@ -19,8 +19,15 @@ import {
  * the portfolio editor swallowing taps at a cap it had hard-coded separately.
  */
 
-/** Ten pieces. Past that it is an album, and albums already exist. */
-export const MAX_SHOWCASE_ITEMS = 10;
+/**
+ * Twenty photographs. Past that it is an album, and albums already exist.
+ *
+ * A film is a post of its own: one film and nothing else. That is not a
+ * count, so it is not this number — ShowcasesService refuses a film with
+ * company (SHOWCASE_FILM_ALONE), because a card plays one film full-bleed and
+ * has nowhere to put the photographs beside it.
+ */
+export const MAX_SHOWCASE_ITEMS = 20;
 
 /** "85mm", "f/1.4", "Backlit". Enough to say how, not enough to be a form. */
 export const MAX_CRAFT_TAGS = 6;
