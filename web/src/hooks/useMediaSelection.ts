@@ -3,8 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys, storageApi } from '@/api';
 import { usageQueryKey } from '@/hooks/useUsage';
 
-/** The most keys one request may carry (ArrayMaxSize on the API's DTOs). */
-const BULK_LIMIT = 500;
+/**
+ * Files per delete request. The API takes up to 500 (ArrayMaxSize), but a
+ * request that size could run past the wait for its answer when the store
+ * was slow, and then nothing on screen changed although files had gone.
+ */
+const DELETE_BATCH = 100;
 
 /**
  * Which files are chosen, for acting on several at once.
@@ -102,18 +106,20 @@ export function useSelection() {
 export function useDeleteFiles(albumId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    // In batches of the API's 500. A bigger selection was refused whole, with
-    // the validator's own words for an error.
+    // In batches, one after another. A selection over the API's 500 was
+    // refused whole, with the validator's own words for an error.
     mutationFn: async (keys: string[]) => {
       const total = { deleted: 0, failed: 0 };
-      for (let i = 0; i < keys.length; i += BULK_LIMIT) {
-        const part = await storageApi.removeMany(keys.slice(i, i + BULK_LIMIT));
+      for (let i = 0; i < keys.length; i += DELETE_BATCH) {
+        const part = await storageApi.removeMany(keys.slice(i, i + DELETE_BATCH));
         total.deleted += part.deleted;
         total.failed += part.failed;
       }
       return total;
     },
-    onSuccess: () =>
+    // Settled, not only succeeded: when a later batch fails, the earlier ones
+    // have still gone, and the grid should stop showing them.
+    onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ['storage', 'files', albumId ?? 'all'] }),
         albumId

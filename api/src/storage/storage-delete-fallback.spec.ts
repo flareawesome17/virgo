@@ -24,8 +24,11 @@ function storageConfig(): StorageConfig {
 }
 
 /** A store that answers DeleteObjects the way `bulk` says, and single deletes always. */
-function world(bulk: 'refuse' | 'partly' | 'works') {
-  const keys = ['a', 'b', 'c'].map((n) => `users/${OWNER}/albums/2026/10/${n}.jpg`);
+function world(bulk: 'refuse' | 'partly' | 'works', files = 3) {
+  const keys = Array.from(
+    { length: files },
+    (_, n) => `users/${OWNER}/albums/2026/10/${String.fromCharCode(97 + (n % 26))}${n}.jpg`,
+  );
   const rows = new Map(keys.map((key) => [key, { key, user_id: OWNER, album_id: 'album-1' }]));
   const calls = { bulk: 0, single: [] as string[] };
 
@@ -76,7 +79,7 @@ function world(bulk: 'refuse' | 'partly' | 'works') {
     { removeFor: jest.fn(async () => undefined) } as unknown as MediaLinkService,
     {} as unknown as WorkspaceActivityService,
   );
-  return { storage, keys, rows, calls };
+  return { storage, keys, rows, calls, quota };
 }
 
 afterEach(() => jest.restoreAllMocks());
@@ -110,6 +113,15 @@ describe('deleting when DeleteObjects is refused', () => {
     const result = await storage.deleteMany(OWNER, keys);
     expect(result).toEqual({ deleted: 3, failed: 0 });
     expect(calls.single).toEqual([keys[0]]);
+  });
+
+  it('forgets a long selection a step at a time, so an early answer is not all or nothing', async () => {
+    const { storage, keys, rows, quota } = world('refuse', 250);
+    const result = await storage.deleteMany(OWNER, keys);
+    expect(result).toEqual({ deleted: 250, failed: 0 });
+    expect(rows.size).toBe(0);
+    // 100, 100 and 50: each step's rows go as soon as its objects have.
+    expect(quota.forgetKeys.mock.calls.map(([gone]) => gone.length)).toEqual([100, 100, 50]);
   });
 
   it('asks nothing more when DeleteObjects works', async () => {

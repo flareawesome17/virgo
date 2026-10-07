@@ -21,6 +21,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MediaLinkService } from './media-link.service';
+import { sendContentMd5OnBulkDelete } from './bulk-delete-md5';
 import { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import { contentDisposition, safeFileStem, uniqueNames } from './download-names';
 import {
@@ -72,8 +73,20 @@ export { contentDisposition } from './download-names';
  * video through the API's memory and bandwidth, which is the fastest way to
  * make a media app fall over.
  */
-/** How many single deletes go at once when DeleteObjects cannot be used. */
-const SINGLE_DELETE_CONCURRENCY = 8;
+/**
+ * How many single deletes are in flight at once when DeleteObjects cannot be
+ * used. A pool rather than rounds: in rounds of eight, each round waited on
+ * its slowest request, and one slow handshake held up seven finished ones.
+ */
+const SINGLE_DELETE_CONCURRENCY = 16;
+
+/**
+ * Files per step of a selection's delete. Each step's files are forgotten as
+ * soon as their objects are gone, so a long delete that outlives the app's
+ * wait has still removed what it got through, rather than nothing until the
+ * very end.
+ */
+const DELETE_CHUNK_FILES = 100;
 
 /** Keys the server mints for itself, outside any user's prefix. */
 const SERVER_KEY = /^support\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
@@ -125,6 +138,7 @@ export class StorageService {
           maxAttempts: 3,
         })
       : null;
+    if (this.client) sendContentMd5OnBulkDelete(this.client);
   }
 
   /**
@@ -137,14 +151,12 @@ export class StorageService {
   /**
    * Deletes objects, and returns the keys confirmed gone. Never throws.
    *
-   * DeleteObjects first: a thousand at a time, one request per bucket. The
-   * SDK sends it with a CRC32 checksum and no Content-MD5 — since its 2025
-   * integrity change, and whatever requestChecksumCalculation says — and a
-   * store that wants Content-MD5 there refuses the whole request. Every delete
-   * in the app went through it, so every delete failed: an owner's, a
-   * manager's, and the retention sweep's. Whatever it did not confirm gone,
-   * because the request was refused or the key came back in its Errors, is
-   * tried again on its own with DeleteObject, which carries no checksum.
+   * DeleteObjects first: a thousand at a time, one request per bucket, sent
+   * with the Content-MD5 B2 wants (see bulk-delete-md5). Whatever it did not
+   * confirm gone, because the request was refused or the key came back in its
+   * Errors, is tried again on its own with DeleteObject, which carries no
+   * checksum — the path every delete took while B2 refused the SDK's own
+   * checksum, and still the one taken if a store refuses DeleteObjects.
    *
    * Logs counts and codes, never keys: a log line naming a client's files
    * outlives the files.
@@ -201,23 +213,27 @@ export class StorageService {
       );
     }
 
-    // A few at a time: hundreds at once would trip the store's rate limits.
-    for (let i = 0; i < retry.length; i += SINGLE_DELETE_CONCURRENCY) {
-      let failed = 0;
-      let reason = '';
-      await Promise.all(
-        retry.slice(i, i + SINGLE_DELETE_CONCURRENCY).map(async (Key) => {
-          try {
-            await client.send(new DeleteObjectCommand({ Bucket: this.config.bucketForKey(Key), Key }));
-            gone.add(Key);
-          } catch (err) {
-            failed += 1;
-            reason ||= describe(err);
-          }
-        }),
-      );
-      if (failed > 0) this.logger.warn(`${context}: ${failed} object(s) could not be deleted (${reason})`);
-    }
+    // A pool of a few: hundreds at once would trip the store's rate limits.
+    let next = 0;
+    let failed = 0;
+    let reason = '';
+    const worker = async () => {
+      while (next < retry.length) {
+        const Key = retry[next];
+        next += 1;
+        try {
+          await client.send(new DeleteObjectCommand({ Bucket: this.config.bucketForKey(Key), Key }));
+          gone.add(Key);
+        } catch (err) {
+          failed += 1;
+          reason ||= describe(err);
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(SINGLE_DELETE_CONCURRENCY, retry.length) }, worker),
+    );
+    if (failed > 0) this.logger.warn(`${context}: ${failed} object(s) could not be deleted (${reason})`);
     return gone;
   }
 
@@ -784,14 +800,20 @@ export class StorageService {
     }
 
     const known = rows.map((row) => row.key);
-    const targets = await this.quota.objectAndDerivedKeys(known);
-    const gone = await this.deleteFromBuckets(targets, `deleteMany for ${userId}`);
+    let deletedCount = 0;
+    for (let i = 0; i < known.length; i += DELETE_CHUNK_FILES) {
+      const chunk = known.slice(i, i + DELETE_CHUNK_FILES);
+      const targets = await this.quota.objectAndDerivedKeys(chunk);
+      const gone = await this.deleteFromBuckets(targets, `deleteMany for ${userId}`);
 
-    const deleted = known.filter((key) => gone.has(key));
-    await this.quota.forgetKeys(deleted);
-    // Renditions are not bucket objects; see deleteObject.
-    await this.mediaLink.removeFor(known);
-    return { deleted: deleted.length, failed: keys.length - deleted.length };
+      const deleted = chunk.filter((key) => gone.has(key));
+      await this.quota.forgetKeys(deleted);
+      // Renditions are not bucket objects; see deleteObject. Only for what
+      // went: a file still in the bucket keeps its display copies.
+      await this.mediaLink.removeFor(deleted);
+      deletedCount += deleted.length;
+    }
+    return { deleted: deletedCount, failed: keys.length - deletedCount };
   }
 
   /**
