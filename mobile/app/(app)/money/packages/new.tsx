@@ -9,7 +9,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ToggleLeftIcon, ToggleRightIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -28,7 +27,7 @@ import { DetailFallback } from '@/components/DetailFallback';
 import { FormHeader } from '@/components/FormHeader';
 import { InsetFrame } from '@/components/InsetFrame';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
-import { CARD_SHADOW, Label } from '@/components/money/FormBits';
+import { CARD_SHADOW, Label, FormSaveBar } from '@/components/money/FormBits';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { newClientId } from '@/src/lib/outbox';
 
@@ -77,7 +76,6 @@ function MoneyInput({
  * changed one by one on its screen.
  */
 export default function MoneyPackageForm() {
-  const insets = useSafeAreaInsets();
   const { edit: editId } = useLocalSearchParams<{ edit?: string }>();
   const isEdit = Boolean(editId);
   const { pkg: existing, error, loadFailed, refetch } = useMoneyPackage(editId);
@@ -215,10 +213,11 @@ export default function MoneyPackageForm() {
       />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
         <ScrollView
+          className="flex-1"
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 140 }}
+          contentContainerStyle={{ paddingBottom: 32 }}
         >
           <View className="px-5 mt-5">
             <Label>Job</Label>
@@ -345,22 +344,11 @@ export default function MoneyPackageForm() {
           </View>
         </ScrollView>
 
-        <View
-          className="absolute bottom-0 left-0 right-0 px-5 pt-3 bg-background"
-          style={{ paddingBottom: insets.bottom + 16 }}
-        >
-          <Pressable
-            onPress={save}
-            disabled={saving}
-            accessibilityRole="button"
-            className="rounded-2xl py-3.5 items-center bg-action active:scale-[0.97]"
-            style={{ opacity: saving ? 0.6 : 1 }}
-          >
-            <Text className="text-white text-base font-bold">
-              {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create package'}
-            </Text>
-          </Pressable>
-        </View>
+        <FormSaveBar
+          label={saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create package'}
+          onPress={save}
+          busy={saving}
+        />
       </KeyboardAvoidingView>
     </InsetFrame>
   );

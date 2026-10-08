@@ -1,5 +1,5 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { PlusIcon, QrCodeIcon, WalletIcon } from 'lucide-react-native';
@@ -19,6 +19,7 @@ for (const Icon of [PlusIcon, QrCodeIcon, WalletIcon]) {
  */
 export default function PayMethodsScreen() {
   const { payMethods, isLoading, loadFailed, refetch } = useMoneyPayMethods();
+  const insets = useSafeAreaInsets();
   const add = () => router.push('/money/pay-methods/edit');
 
   return (
@@ -40,7 +41,10 @@ export default function PayMethodsScreen() {
           />
         </View>
       ) : (
-        <ScrollView contentContainerClassName="px-5 pb-16 gap-3">
+        <ScrollView
+          contentContainerClassName="px-5 gap-3"
+          contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+        >
           {payMethods.map((m) => (
             <Pressable
               key={m.id}

@@ -1,6 +1,9 @@
-import { Text } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LucideIcon } from 'lucide-react-native';
 import { PressableScale } from '@/components/PressableScale';
+import { useKeyboardUp } from '@/src/lib/keyboard';
+import { useWindowInsets } from '@/src/lib/window-insets';
 
 /** The soft lift every field card in the money forms has. */
 export const CARD_SHADOW = {
@@ -51,5 +54,46 @@ export function Choice({
         {label}
       </Text>
     </PressableScale>
+  );
+}
+
+/**
+ * A money form's Save, at the foot of the screen and in the layout's flow.
+ *
+ * It used to float over the scrolling fields, pinned to the bottom with a
+ * fixed gap left under them. With the keyboard up, a taller navigation bar,
+ * or larger text, the bar sat on top of the very field being typed in. In the
+ * flow, the fields end where the bar begins, so nothing can hide behind it.
+ *
+ * While the keyboard is up it steps aside: the header's Save is still there,
+ * and the whole height goes to the form. Its bottom inset is the window's on
+ * iOS, as in InsetFrame — these forms are full-screen modals there.
+ */
+export function FormSaveBar({
+  label,
+  onPress,
+  busy,
+}: {
+  label: string;
+  onPress: () => void;
+  busy: boolean;
+}) {
+  const keyboardUp = useKeyboardUp();
+  const local = useSafeAreaInsets();
+  const window = useWindowInsets();
+  const bottom = Platform.OS === 'ios' ? window.bottom : local.bottom;
+  if (keyboardUp) return null;
+  return (
+    <View className="px-5 pt-3 bg-background border-t border-border/40" style={{ paddingBottom: bottom + 16 }}>
+      <Pressable
+        onPress={onPress}
+        disabled={busy}
+        accessibilityRole="button"
+        className="rounded-2xl py-3.5 items-center bg-action active:scale-[0.97]"
+        style={{ opacity: busy ? 0.6 : 1 }}
+      >
+        <Text className="text-white text-base font-bold">{label}</Text>
+      </Pressable>
+    </View>
   );
 }
