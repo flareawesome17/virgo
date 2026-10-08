@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -47,6 +45,7 @@ import { categoryIcon } from '@/components/money/icons';
 import { CARD_SHADOW, Choice, Label, FormSaveBar } from '@/components/money/FormBits';
 import { ReceiptField, draftOf, receiptBusy, type ReceiptDraft } from '@/components/money/ReceiptField';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
+import { useKeyboardAwareScroll } from '@/src/lib/keyboard';
 import { queueMoneyEntry } from '@/src/lib/money-outbox';
 import { newClientId } from '@/src/lib/outbox';
 
@@ -73,6 +72,7 @@ export default function MoneyEntryScreen() {
     package: packageParam,
   } = useLocalSearchParams<{ kind?: string; edit?: string; booking?: string; package?: string }>();
   const isEdit = Boolean(editId);
+  const keyboard = useKeyboardAwareScroll();
   const { entry: existing, error: existingError, loadFailed, refetch } = useMoneyEntry(editId);
   // The booking's offer, when opened from one. Once recorded or turned down
   // there is none, and this is an ordinary new entry.
@@ -385,13 +385,16 @@ export default function MoneyEntryScreen() {
         }
         action={{ label: 'Save', onPress: save, busy: saving }}
       />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+      <View className="flex-1">
         <ScrollView
           className="flex-1"
+          ref={keyboard.scrollRef}
+          onScroll={keyboard.onScroll}
+          scrollEventThrottle={keyboard.scrollEventThrottle}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 32 }}
+          contentContainerStyle={{ paddingBottom: 32 + keyboard.room }}
         >
           <View className="px-5 mt-4">
             <SegmentedTabs<MoneyKind>
@@ -413,6 +416,7 @@ export default function MoneyEntryScreen() {
             >
               <Text className={`text-[28px] font-bold ${income ? 'text-success' : 'text-foreground'}`}>₱</Text>
               <TextInput
+                onFocus={keyboard.onFocus}
                 value={amount}
                 onChangeText={setAmount}
                 placeholder="0"
@@ -497,6 +501,7 @@ export default function MoneyEntryScreen() {
           <View className="px-5 mt-5">
             <Label optional>{income ? 'Client' : 'Paid to'}</Label>
             <TextInput
+              onFocus={keyboard.onFocus}
               value={counterparty}
               onChangeText={setCounterparty}
               placeholder={income ? 'e.g. Reyes–Santos wedding' : 'e.g. Grab, Lazada, your assistant'}
@@ -524,6 +529,7 @@ export default function MoneyEntryScreen() {
           <View className="px-5 mt-5">
             <Label optional>Reference no.</Label>
             <TextInput
+              onFocus={keyboard.onFocus}
               value={reference}
               onChangeText={setReference}
               placeholder="GCash, bank or invoice number"
@@ -542,6 +548,7 @@ export default function MoneyEntryScreen() {
               <View className="bg-card rounded-2xl px-4 flex-row items-center gap-2" style={CARD_SHADOW}>
                 <Text className="text-muted-foreground text-base font-semibold">₱</Text>
                 <TextInput
+                  onFocus={keyboard.onFocus}
                   value={withheld}
                   onChangeText={setWithheld}
                   placeholder="0"
@@ -567,6 +574,7 @@ export default function MoneyEntryScreen() {
           <View className="px-5 mt-5">
             <Label optional>Note</Label>
             <TextInput
+              onFocus={keyboard.onFocus}
               value={note}
               onChangeText={setNote}
               placeholder="Anything worth remembering…"
@@ -654,7 +662,7 @@ export default function MoneyEntryScreen() {
           onPress={save}
           busy={saving}
         />
-      </KeyboardAvoidingView>
+      </View>
     </InsetFrame>
   );
 }

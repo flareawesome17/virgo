@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -29,6 +27,7 @@ import { InsetFrame } from '@/components/InsetFrame';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { CARD_SHADOW, Label, FormSaveBar } from '@/components/money/FormBits';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
+import { useKeyboardAwareScroll } from '@/src/lib/keyboard';
 import { newClientId } from '@/src/lib/outbox';
 
 for (const Icon of [ToggleLeftIcon, ToggleRightIcon]) {
@@ -41,12 +40,14 @@ function MoneyInput({
   label,
   large,
   autoFocus,
+  onFocus,
 }: {
   value: string;
   onChangeText: (text: string) => void;
   label: string;
   large?: boolean;
   autoFocus?: boolean;
+  onFocus?: () => void;
 }) {
   return (
     <View className="bg-card rounded-2xl px-4 flex-row items-center gap-2" style={CARD_SHADOW}>
@@ -59,6 +60,7 @@ function MoneyInput({
         keyboardType="decimal-pad"
         inputAccessoryViewID={KEYBOARD_DONE}
         autoFocus={autoFocus}
+        onFocus={onFocus}
         accessibilityLabel={label}
         className={`flex-1 min-w-0 text-foreground ${large ? 'text-[26px] font-bold py-3' : 'text-base py-3.5'}`}
       />
@@ -78,6 +80,7 @@ function MoneyInput({
 export default function MoneyPackageForm() {
   const { edit: editId } = useLocalSearchParams<{ edit?: string }>();
   const isEdit = Boolean(editId);
+  const keyboard = useKeyboardAwareScroll();
   const { pkg: existing, error, loadFailed, refetch } = useMoneyPackage(editId);
 
   const [id] = useState(() => editId ?? newClientId());
@@ -211,17 +214,21 @@ export default function MoneyPackageForm() {
         title={isEdit ? 'Edit package' : 'New package'}
         action={{ label: 'Save', onPress: save, busy: saving }}
       />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+      <View className="flex-1">
         <ScrollView
           className="flex-1"
+          ref={keyboard.scrollRef}
+          onScroll={keyboard.onScroll}
+          scrollEventThrottle={keyboard.scrollEventThrottle}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 32 }}
+          contentContainerStyle={{ paddingBottom: 32 + keyboard.room }}
         >
           <View className="px-5 mt-5">
             <Label>Job</Label>
             <TextInput
+              onFocus={keyboard.onFocus}
               value={title}
               onChangeText={setTitle}
               placeholder="e.g. Garcia–Lim wedding"
@@ -236,6 +243,7 @@ export default function MoneyPackageForm() {
           <View className="px-5 mt-4">
             <Label optional>Client</Label>
             <TextInput
+              onFocus={keyboard.onFocus}
               value={client}
               onChangeText={setClient}
               placeholder="Who is paying"
@@ -248,7 +256,7 @@ export default function MoneyPackageForm() {
 
           <View className="px-5 mt-4">
             <Label>Total</Label>
-            <MoneyInput value={total} onChangeText={setTotal} label="Total in pesos" large />
+            <MoneyInput value={total} onChangeText={setTotal} label="Total in pesos" large onFocus={keyboard.onFocus} />
           </View>
 
           <View className="px-5 mt-4 flex-row gap-3">
@@ -274,7 +282,7 @@ export default function MoneyPackageForm() {
 
               <View className="px-5 mt-4">
                 <Label optional>Down payment</Label>
-                <MoneyInput value={deposit} onChangeText={setDeposit} label="Down payment in pesos" />
+                <MoneyInput value={deposit} onChangeText={setDeposit} label="Down payment in pesos" onFocus={keyboard.onFocus} />
               </View>
 
               {depositMinor ? (
@@ -330,6 +338,7 @@ export default function MoneyPackageForm() {
           <View className="px-5 mt-5">
             <Label optional>Note</Label>
             <TextInput
+              onFocus={keyboard.onFocus}
               value={note}
               onChangeText={setNote}
               placeholder="What the package covers…"
@@ -349,7 +358,7 @@ export default function MoneyPackageForm() {
           onPress={save}
           busy={saving}
         />
-      </KeyboardAvoidingView>
+      </View>
     </InsetFrame>
   );
 }

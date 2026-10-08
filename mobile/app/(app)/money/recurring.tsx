@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -27,6 +25,7 @@ import { CardListSkeleton, EmptyState, ScreenHeader } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { categoryIcon } from '@/components/money/icons';
+import { useKeyboardAwareScroll } from '@/src/lib/keyboard';
 import { signedAmount } from '@/components/money/MoneyRow';
 import { PALETTES } from '@/theme';
 
@@ -43,12 +42,14 @@ function RecurringRow({
   last,
   open,
   onToggle,
+  onFieldFocus,
 }: {
   item: MoneyRecurring;
   first: boolean;
   last: boolean;
   open: boolean;
   onToggle: () => void;
+  onFieldFocus?: () => void;
 }) {
   const update = useUpdateMoneyRecurring();
   const stop = useStopMoneyRecurring();
@@ -133,6 +134,7 @@ function RecurringRow({
               <TextInput
                 value={amount}
                 onChangeText={setAmount}
+                onFocus={onFieldFocus}
                 keyboardType="decimal-pad"
                 inputAccessoryViewID={KEYBOARD_DONE}
                 accessibilityLabel="Amount each month, in pesos"
@@ -180,6 +182,7 @@ export default function MoneyRecurringScreen() {
   const { recurring, isLoading, loadFailed, refetch } = useMoneyRecurring();
   const [open, setOpen] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const keyboard = useKeyboardAwareScroll();
 
   const refresh = async () => {
     setRefreshing(true);
@@ -195,10 +198,13 @@ export default function MoneyRecurringScreen() {
       <ScreenHeader title="Repeats every month" subtitle="Made on their day, once" />
       {/* The amount opens inline, often low on the list: without this the
           keyboard came up over the very field being changed. */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+      <View className="flex-1">
         <ScrollView
+          ref={keyboard.scrollRef}
+          onScroll={keyboard.onScroll}
+          scrollEventThrottle={keyboard.scrollEventThrottle}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 32 }}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 32 + keyboard.room }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}
         >
           {isLoading ? (
@@ -229,6 +235,7 @@ export default function MoneyRecurringScreen() {
                       last={i === running.length - 1}
                       open={open === item.id}
                       onToggle={() => setOpen((current) => (current === item.id ? null : item.id))}
+                      onFieldFocus={() => keyboard.onFocus()}
                     />
                   ))}
                 </View>
@@ -257,7 +264,7 @@ export default function MoneyRecurringScreen() {
             </>
           )}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
