@@ -9,7 +9,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { onlineManager } from '@tanstack/react-query';
 import { ChevronRightIcon, RepeatIcon, ToggleLeftIcon, ToggleRightIcon, Trash2Icon } from 'lucide-react-native';
@@ -45,7 +44,7 @@ import { InsetFrame } from '@/components/InsetFrame';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { categoryIcon } from '@/components/money/icons';
-import { CARD_SHADOW, Choice, Label } from '@/components/money/FormBits';
+import { CARD_SHADOW, Choice, Label, FormSaveBar } from '@/components/money/FormBits';
 import { ReceiptField, draftOf, receiptBusy, type ReceiptDraft } from '@/components/money/ReceiptField';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { queueMoneyEntry } from '@/src/lib/money-outbox';
@@ -67,7 +66,6 @@ for (const Icon of [ChevronRightIcon, RepeatIcon, ToggleLeftIcon, ToggleRightIco
  * made for it here, so it can never be saved twice.
  */
 export default function MoneyEntryScreen() {
-  const insets = useSafeAreaInsets();
   const {
     kind: kindParam,
     edit: editId,
@@ -389,10 +387,11 @@ export default function MoneyEntryScreen() {
       />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
         <ScrollView
+          className="flex-1"
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 140 }}
+          contentContainerStyle={{ paddingBottom: 32 }}
         >
           <View className="px-5 mt-4">
             <SegmentedTabs<MoneyKind>
@@ -650,22 +649,11 @@ export default function MoneyEntryScreen() {
           ) : null}
         </ScrollView>
 
-        <View
-          className="absolute bottom-0 left-0 right-0 px-5 pt-3 bg-background"
-          style={{ paddingBottom: insets.bottom + 16 }}
-        >
-          <Pressable
-            onPress={save}
-            disabled={saving}
-            accessibilityRole="button"
-            className="rounded-2xl py-3.5 items-center bg-action active:scale-[0.97]"
-            style={{ opacity: saving ? 0.6 : 1 }}
-          >
-            <Text className="text-white text-base font-bold">
-              {saving ? 'Saving…' : isEdit ? 'Save changes' : income ? 'Save income' : 'Save expense'}
-            </Text>
-          </Pressable>
-        </View>
+        <FormSaveBar
+          label={saving ? 'Saving…' : isEdit ? 'Save changes' : income ? 'Save income' : 'Save expense'}
+          onPress={save}
+          busy={saving}
+        />
       </KeyboardAvoidingView>
     </InsetFrame>
   );

@@ -1,11 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, TextInput, ScrollView, Keyboard, Platform } from 'react-native';
+import { View, Text, Pressable, TextInput, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AtSignIcon, ReplyIcon, SendIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import type { ConversationMessage, Participant } from '@/src/api';
 import { sendTyping } from '@/src/lib/presence-store';
 import { useTheme } from '@/src/hooks';
+import { useKeyboardUp } from '@/src/lib/keyboard';
 import { PALETTES } from '@/theme';
 
 for (const Icon of [AtSignIcon, ReplyIcon, SendIcon, XIcon]) {
@@ -17,27 +18,9 @@ const TYPING_HEARTBEAT_MS = 3000;
 /** How long a pause is before it counts as having stopped. */
 const TYPING_IDLE_MS = 3000;
 
-/**
- * Whether the keyboard is up, on both platforms.
- *
- * Only iOS was tracked, so on Android the composer kept the navigation bar's
- * padding under it while the keyboard covered that strip, and sat that much
- * above the keyboard.
- */
-export function useKeyboardUp(): boolean {
-  const [up, setUp] = useState(false);
-  useEffect(() => {
-    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const a = Keyboard.addListener(show, () => setUp(true));
-    const b = Keyboard.addListener(hide, () => setUp(false));
-    return () => {
-      a.remove();
-      b.remove();
-    };
-  }, []);
-  return up;
-}
+// Moved to src/lib/keyboard so forms outside chat can use it; kept here for
+// the chat screen, which imports it with the composer.
+export { useKeyboardUp };
 
 interface ComposerProps {
   conversationId: string;

@@ -1,5 +1,5 @@
 import { Alert, Pressable, ScrollView, Share, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { CalendarPlusIcon, MinusIcon, PencilIcon, PlusIcon, Share2Icon, Trash2Icon, WalletIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -41,6 +41,7 @@ function message(err: unknown, fallback: string): string {
  */
 export default function MoneyPackageScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
   const { pkg, entries, error, loadFailed, refetch } = useMoneyPackage(id);
   const { payMethods } = useMoneyPayMethods();
   const { profile } = useAuth();
@@ -152,7 +153,10 @@ export default function MoneyPackageScreen() {
           </Pressable>
         }
       />
-      <ScrollView contentContainerClassName="px-5 pb-16 gap-4">
+      <ScrollView
+        contentContainerClassName="px-5 gap-4"
+        contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+      >
         {/* Where it stands. */}
         <View className="bg-card rounded-3xl border border-border/40 p-5">
           {pkg.paidInFull ? (

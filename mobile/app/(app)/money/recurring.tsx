@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RepeatIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -183,67 +193,71 @@ export default function MoneyRecurringScreen() {
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <ScreenHeader title="Repeats every month" subtitle="Made on their day, once" />
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 32 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}
-      >
-        {isLoading ? (
-          <View className="-mx-5 mt-2">
-            <CardListSkeleton count={3} />
-          </View>
-        ) : loadFailed && recurring.length === 0 ? (
-          <View className="mt-10">
-            <LoadFailed what="what repeats" onRetry={() => void refetch()} compact />
-          </View>
-        ) : recurring.length === 0 ? (
-          <View className="mt-8">
-            <EmptyState
-              icon={RepeatIcon}
-              title="Nothing repeats yet"
-              body="Open an entry that comes every month — a subscription, your studio rent, a retainer — and turn on Repeat every month. Money adds it on its day."
-            />
-          </View>
-        ) : (
-          <>
-            {running.length > 0 ? (
-              <View className="mt-3">
-                {running.map((item, i) => (
-                  <RecurringRow
-                    key={item.id}
-                    item={item}
-                    first={i === 0}
-                    last={i === running.length - 1}
-                    open={open === item.id}
-                    onToggle={() => setOpen((current) => (current === item.id ? null : item.id))}
-                  />
-                ))}
-              </View>
-            ) : null}
-            {stopped.length > 0 ? (
-              <View className="mt-6">
-                <Text className="px-1 text-muted-foreground text-[12px] font-bold uppercase tracking-[1.5px] mb-2">
-                  Stopped
-                </Text>
-                {stopped.map((item, i) => (
-                  <RecurringRow
-                    key={item.id}
-                    item={item}
-                    first={i === 0}
-                    last={i === stopped.length - 1}
-                    open={false}
-                    onToggle={() => undefined}
-                  />
-                ))}
-              </View>
-            ) : null}
-            <Text className="mt-6 text-muted-foreground text-[12px] leading-[17px] px-1">
-              Expenses are added as paid on their day; income is added as due, for you to mark received when it
-              lands.
-            </Text>
-          </>
-        )}
-      </ScrollView>
+      {/* The amount opens inline, often low on the list: without this the
+          keyboard came up over the very field being changed. */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 32 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}
+        >
+          {isLoading ? (
+            <View className="-mx-5 mt-2">
+              <CardListSkeleton count={3} />
+            </View>
+          ) : loadFailed && recurring.length === 0 ? (
+            <View className="mt-10">
+              <LoadFailed what="what repeats" onRetry={() => void refetch()} compact />
+            </View>
+          ) : recurring.length === 0 ? (
+            <View className="mt-8">
+              <EmptyState
+                icon={RepeatIcon}
+                title="Nothing repeats yet"
+                body="Open an entry that comes every month — a subscription, your studio rent, a retainer — and turn on Repeat every month. Money adds it on its day."
+              />
+            </View>
+          ) : (
+            <>
+              {running.length > 0 ? (
+                <View className="mt-3">
+                  {running.map((item, i) => (
+                    <RecurringRow
+                      key={item.id}
+                      item={item}
+                      first={i === 0}
+                      last={i === running.length - 1}
+                      open={open === item.id}
+                      onToggle={() => setOpen((current) => (current === item.id ? null : item.id))}
+                    />
+                  ))}
+                </View>
+              ) : null}
+              {stopped.length > 0 ? (
+                <View className="mt-6">
+                  <Text className="px-1 text-muted-foreground text-[12px] font-bold uppercase tracking-[1.5px] mb-2">
+                    Stopped
+                  </Text>
+                  {stopped.map((item, i) => (
+                    <RecurringRow
+                      key={item.id}
+                      item={item}
+                      first={i === 0}
+                      last={i === stopped.length - 1}
+                      open={false}
+                      onToggle={() => undefined}
+                    />
+                  ))}
+                </View>
+              ) : null}
+              <Text className="mt-6 text-muted-foreground text-[12px] leading-[17px] px-1">
+                Expenses are added as paid on their day; income is added as due, for you to mark received when it
+                lands.
+              </Text>
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
