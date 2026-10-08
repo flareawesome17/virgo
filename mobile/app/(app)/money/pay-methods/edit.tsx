@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -24,6 +22,7 @@ import { InsetFrame } from '@/components/InsetFrame';
 import { CARD_SHADOW, Choice, Label, FormSaveBar } from '@/components/money/FormBits';
 import { ReceiptField, draftOf, receiptBusy, type ReceiptDraft } from '@/components/money/ReceiptField';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
+import { useKeyboardAwareScroll } from '@/src/lib/keyboard';
 
 cssInterop(Trash2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -41,6 +40,7 @@ const NUMBER_HINT: Record<PayMethodKind, string> = {
 export default function PayMethodForm() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const isEdit = Boolean(id);
+  const keyboard = useKeyboardAwareScroll();
   const { payMethods } = useMoneyPayMethods();
   const existing = isEdit ? payMethods.find((m) => m.id === id) : undefined;
 
@@ -132,13 +132,16 @@ export default function PayMethodForm() {
         title={isEdit ? 'Edit way to pay' : 'Add a way to pay'}
         action={{ label: 'Save', onPress: save, busy: saving }}
       />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+      <View className="flex-1">
         <ScrollView
           className="flex-1"
+          ref={keyboard.scrollRef}
+          onScroll={keyboard.onScroll}
+          scrollEventThrottle={keyboard.scrollEventThrottle}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 32 }}
+          contentContainerStyle={{ paddingBottom: 32 + keyboard.room }}
         >
           <View className="px-5 mt-5">
             <Label>Pay with</Label>
@@ -153,6 +156,7 @@ export default function PayMethodForm() {
             <View className="px-5 mt-5">
               <Label>{kind === 'bank' ? 'Bank' : 'What it is'}</Label>
               <TextInput
+                onFocus={keyboard.onFocus}
                 value={label}
                 onChangeText={setLabel}
                 placeholder={kind === 'bank' ? 'e.g. BPI, BDO, UnionBank' : 'e.g. PayPal'}
@@ -167,6 +171,7 @@ export default function PayMethodForm() {
           <View className="px-5 mt-5">
             <Label optional>Account name</Label>
             <TextInput
+              onFocus={keyboard.onFocus}
               value={accountName}
               onChangeText={setAccountName}
               placeholder="The name the client will see when they pay"
@@ -180,6 +185,7 @@ export default function PayMethodForm() {
           <View className="px-5 mt-5">
             <Label>{kind === 'bank' ? 'Account number' : 'Number'}</Label>
             <TextInput
+              onFocus={keyboard.onFocus}
               value={accountNumber}
               onChangeText={setAccountNumber}
               placeholder={NUMBER_HINT[kind]}
@@ -227,7 +233,7 @@ export default function PayMethodForm() {
           onPress={save}
           busy={saving}
         />
-      </KeyboardAvoidingView>
+      </View>
     </InsetFrame>
   );
 }
