@@ -7,7 +7,7 @@ import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
 /**
  * Where a film is drawn, whatever screen you are on.
  *
- * Wraps the navigator, like UploadBar, because that is the only place a player
+ * Wraps the navigator, like UploadRing, because that is the only place a player
  * can live and survive navigation. It used to be a Modal owned by the videos
  * screen, which tied a playing film to that screen staying mounted: going back
  * to the album stopped it, and there was no way to keep watching while doing
@@ -31,9 +31,9 @@ export function VideoSurface({ children }: { children: ReactNode }) {
   /*
    * Docked, the strip is the bottom of the screen: it takes the home
    * indicator's inset and the screens above stop padding for it — the tab bar
-   * would otherwise leave a second gap over the strip. The same mirror image
-   * of what UploadBar does with the notch. The provider is always rendered,
-   * only its value changes, so the navigator inside is never remounted.
+   * would otherwise leave a second gap over the strip. The provider is always
+   * rendered, only its value changes, so the navigator inside is never
+   * remounted.
    */
   const docked = Boolean(current) && mode === 'mini';
 
