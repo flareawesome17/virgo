@@ -446,7 +446,7 @@ export default function UploadScreen() {
   // An album is required. Uploading without one is what produced files that
   // consumed quota but showed up in no album.
   // The queue's numbers stand in when nothing is picked, so arriving from the
-  // upload bar shows what is running rather than an empty screen.
+  // upload ring shows what is running rather than an empty screen.
   const showingQueue = items.length === 0 && queueTasks.length > 0;
   const cardTotal = showingQueue ? queueTasks.length : items.length;
   const cardDone = showingQueue
@@ -488,7 +488,7 @@ export default function UploadScreen() {
 
         {/* Overall progress. Reports the running queue when nothing has been
             picked yet, which is the state you arrive in when you get here by
-            tapping the upload bar rather than by choosing to upload. */}
+            tapping the upload ring rather than by choosing to upload. */}
         {(items.length > 0 || showingQueue) && (
           <View
             className="mx-5 mt-4 bg-card rounded-2xl p-4"
@@ -508,7 +508,7 @@ export default function UploadScreen() {
           </View>
         )}
 
-        {/* The queue itself. The upload bar lands here, and all this screen
+        {/* The queue itself. The upload ring lands here, and all this screen
             used to show was a count: a failed file could not be retried or
             removed, its reason was never shown, and the red bar stayed —
             across restarts — with nothing that would make it go. */}

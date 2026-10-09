@@ -12,7 +12,7 @@ import {
 } from '@/src/hooks';
 import {
   RolesRequiredSheet,
-  UploadBar,
+  UploadRing,
   VerifyEmailBanner,
   VideoSurface,
 } from '@/components';
@@ -174,11 +174,12 @@ export default function AppLayout() {
           {/* Wraps the navigator, not AppTopBar, which renders on the six tab
               screens only — and nobody uploads from a tab. Every route into
               the upload screen is an album or a workspace, so this is the one
-              placement where the indicator is on screen while it runs. */}
-          <UploadBar>
-            {/* Inside UploadBar so the docked film sits below the upload
-                strip rather than fighting it for the same edge, and around
-                the navigator so a film survives going back to the album. */}
+              placement where the indicator is on screen while it runs. It
+              floats, so it takes no room from anything underneath. */}
+          <UploadRing>
+            {/* Inside UploadRing so the ring floats over a docked film too,
+                and around the navigator so a film survives going back to the
+                album. */}
             <VideoSurface>
               {/* Inside the film's surface, so a recording's strip sits above
                   a docked film rather than under it. */}
@@ -190,7 +191,7 @@ export default function AppLayout() {
               </Stack>
               </AudioDock>
             </VideoSurface>
-          </UploadBar>
+          </UploadRing>
         </VerifyEmailBanner>
       </WindowInsetsProvider>
       </AlbumAudioProvider>
