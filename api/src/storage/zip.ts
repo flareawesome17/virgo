@@ -64,11 +64,30 @@ export async function streamZip(
   const MAX_CONSECUTIVE_FAILURES = 3;
   let failures = 0;
 
-  for (const file of files) {
+  // Opening an object from storage costs a round trip to another continent
+  // before the first byte, and doing it strictly after the previous file ends
+  // left the link idle between every pair — most of the time for an album of
+  // small photographs. Ask for the next one while this one is still sending.
+  // One ahead only: an opened stream nobody is reading holds a connection.
+  const opening = new Map<number, Promise<Readable>>();
+  const start = (i: number) => {
+    if (i >= files.length || opening.has(i)) return;
+    const p = open(files[i].key);
+    // A rejection nobody has awaited yet must not become an unhandled one.
+    p.catch(() => undefined);
+    opening.set(i, p);
+  };
+  start(0);
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    start(i + 1);
     try {
-      archive.append(await open(file.key), { name: file.name });
+      archive.append(await opening.get(i)!, { name: file.name });
+      opening.delete(i);
       failures = 0;
     } catch (err) {
+      opening.delete(i);
       // One unreadable object should not cost them the other 199.
       logger.warn(`Skipped ${file.key} in zip: ${String(err)}`);
       if (++failures >= MAX_CONSECUTIVE_FAILURES) {
@@ -77,6 +96,10 @@ export async function streamZip(
         );
         archive.abort();
         res.destroy(new Error('Storage unavailable'));
+        // The file already opened ahead will never be read.
+        for (const p of opening.values()) {
+          p.then((s) => s.destroy()).catch(() => undefined);
+        }
         return;
       }
     }

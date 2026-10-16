@@ -39,6 +39,20 @@ const view: PublicAlbumView = {
 };
 
 describe('client gallery template', () => {
+  it('points downloads at the permanent route, not a pre-signed storage URL', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    expect(html).toContain("'/files/' + encodeURIComponent(file.id) + '/download'");
+    expect(html).not.toContain('href = file.downloadUrl');
+  });
+
+  it('warns clients in an in-app browser that downloads need the real one', () => {
+    expect(renderClientGallery(view, 'token-value', 'nonce-value', true)).toContain('Open in Safari');
+    expect(renderClientGallery(view, 'token-value', 'nonce-value')).not.toContain('Open in Safari');
+    expect(
+      renderClientGallery({ ...view, downloads: false }, 'token-value', 'nonce-value', true),
+    ).not.toContain('Open in Safari');
+  });
+
   it('uses only the supplied nonce and safely serializes user text', () => {
     const html = renderClientGallery(view, 'token-value', 'nonce-value');
     expect(html).toContain('<script nonce="nonce-value">');

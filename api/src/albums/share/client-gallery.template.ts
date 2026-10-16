@@ -63,7 +63,17 @@ function bytesLabel(bytes: number): string {
  * saved as they are made; "Send" tells the photographer they are done, and
  * the picks can be downloaded on their own rather than as the whole album.
  */
-export function renderClientGallery(view: PublicAlbumView, token: string, nonce: string): string {
+export function renderClientGallery(
+  view: PublicAlbumView,
+  token: string,
+  nonce: string,
+  /**
+   * The page was opened inside another app's built-in browser (Messenger,
+   * Facebook, Instagram…). Those cannot save files to the phone, so every
+   * download button on the page fails there however correct the link is.
+   */
+  inAppBrowser = false,
+): string {
   const hasSections = view.sections.length > 0;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(view.album.name)}</title><style>
@@ -138,7 +148,9 @@ ${PAGE_STYLE}
   @media(min-width:1000px){.grid{columns:4}.hero-in{padding:52px}}
   @media(min-width:1300px){.grid{columns:5}}
   @media(max-width:520px){.picks{gap:8px;padding-left:12px}.picks .dl-label{display:none}.picks .sent{display:none}}
+  .inapp{background:#fff4e5;color:#5c3b00;border-bottom:1px solid #f0c987;padding:10px 16px;font:14px/1.4 system-ui,sans-serif;text-align:center}
 </style></head><body>
+${inAppBrowser && view.downloads ? '<div class="inapp" role="note"><b>To download, open this page in your phone\'s browser.</b> Messenger and Facebook can\'t save files — tap the &#8943; menu and choose <b>Open in Safari</b> or <b>Open in Chrome</b>.</div>' : ''}
 <div class="shell">
   <header class="hero"><div class="hero-in">
     <p class="eyebrow">${view.downloads ? 'Private delivery' : 'Portfolio'}</p>
@@ -174,6 +186,9 @@ ${PAGE_STYLE}
   initial.files.forEach((file) => { if (file.picked) picks.keys.add(file.id); });
   let photoList = [], photoIndex = 0, scale = 1, offsetX = 0, offsetY = 0, drag = null, audioList = [], audioIndex = -1;
 
+  // A permanent address that signs at click time, so a tab left open overnight
+  // still downloads. downloadUrl only decides whether the button shows at all.
+  const fileDownload = (file) => (file.downloadUrl ? '/s/' + encodeURIComponent(token) + '/files/' + encodeURIComponent(file.id) + '/download' : (file.url || ''));
   const kindOf = (file) => (file.contentType || '').split('/')[0];
   const pad = (n) => String(n).padStart(2, '0');
   const clock = (seconds) => { seconds = Number.isFinite(seconds) ? Math.floor(seconds) : 0; const h = Math.floor(seconds / 3600), m = Math.floor(seconds / 60) % 60, s = pad(seconds % 60); return h ? h + ':' + pad(m) + ':' + s : m + ':' + s; };
@@ -418,7 +433,7 @@ ${PAGE_STYLE}
     el('viewerCount').textContent = (photoIndex + 1) + ' / ' + photoList.length;
     // No download on a link that offers none, rather than one that opens the rendition.
     el('viewerDownload').hidden = !file.downloadUrl;
-    el('viewerDownload').href = file.downloadUrl || file.url || '';
+    el('viewerDownload').href = fileDownload(file);
     syncViewerPick();
   }
   function openPhoto(list, file) { photoList = list; photoIndex = Math.max(0, list.indexOf(file)); showPhoto(); el('viewer').classList.add('open'); document.body.style.overflow = 'hidden'; el('viewerClose').focus(); }
@@ -445,7 +460,7 @@ ${PAGE_STYLE}
     el('videoName').textContent = file.originalName;
     el('videoMeta').textContent = duration(file.durationMs);
     el('videoDownload').hidden = !file.downloadUrl;
-    el('videoDownload').href = file.downloadUrl || file.url || '';
+    el('videoDownload').href = fileDownload(file);
     el('videoViewer').classList.add('open'); document.body.style.overflow = 'hidden';
     video.load(); video.play().catch(() => {});
   }
