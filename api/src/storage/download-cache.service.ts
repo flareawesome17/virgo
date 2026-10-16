@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, readdir, rename, rm, stat, utimes } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat, statfs, utimes } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { StorageService } from './storage.service';
@@ -36,6 +36,7 @@ export class DownloadCacheService {
   private readonly dir: string;
   private readonly maxBytes: number;
   private readonly maxObjectBytes: number;
+  private readonly minFreeBytes: number;
   private evicting = false;
   private lastEvict = 0;
 
@@ -44,7 +45,8 @@ export class DownloadCacheService {
     config: ConfigService,
   ) {
     this.dir = config.get<string>('DOWNLOAD_CACHE_DIR', '/srv/dlcache');
-    this.maxBytes = Number(config.get('DOWNLOAD_CACHE_MAX_GB', '40')) * 1024 ** 3;
+    this.maxBytes = Number(config.get('DOWNLOAD_CACHE_MAX_GB', '20')) * 1024 ** 3;
+    this.minFreeBytes = Number(config.get('DOWNLOAD_CACHE_MIN_FREE_GB', '15')) * 1024 ** 3;
     this.maxObjectBytes = Number(config.get('DOWNLOAD_CACHE_MAX_OBJECT_MB', '2048')) * 1024 ** 2;
   }
 
@@ -81,7 +83,23 @@ export class DownloadCacheService {
     if (!this.enabled || (size !== undefined && size > this.maxObjectBytes)) {
       return { stream: source, size, hit: false };
     }
+    // Never let the cache be what fills the disk: below the free-space floor,
+    // stop adding (and shed old objects) and just pass through.
+    if (!(await this.hasRoom(size ?? 0))) {
+      this.evictSoon(true);
+      return { stream: source, size, hit: false };
+    }
     return { stream: await this.tee(key, source), size, hit: false };
+  }
+
+  private async hasRoom(incoming: number): Promise<boolean> {
+    try {
+      await mkdir(this.dir, { recursive: true });
+      const fs = await statfs(this.dir);
+      return fs.bavail * fs.bsize - incoming >= this.minFreeBytes;
+    } catch {
+      return false;
+    }
   }
 
   /** Copies `source` to the cache while passing it on; discards on any failure. */
@@ -140,8 +158,8 @@ export class DownloadCacheService {
     return out;
   }
 
-  private evictSoon(): void {
-    if (this.evicting || Date.now() - this.lastEvict < 30_000) return;
+  private evictSoon(force = false): void {
+    if (this.evicting || (!force && Date.now() - this.lastEvict < 30_000)) return;
     this.evicting = true;
     this.evict()
       .catch((err) => this.logger.warn(`Cache eviction failed: ${String(err)}`))
@@ -169,9 +187,11 @@ export class DownloadCacheService {
         total += info.size;
       }
     }
-    if (total <= this.maxBytes) return { total, removed: 0 };
+    const lowDisk = !(await this.hasRoom(0));
+    if (total <= this.maxBytes && !lowDisk) return { total, removed: 0 };
     entries.sort((a, b) => a.at - b.at);
-    const target = this.maxBytes * 0.9;
+    // Low on disk: drop to half the cap so the host gets room back.
+    const target = lowDisk ? this.maxBytes * 0.5 : this.maxBytes * 0.9;
     let removed = 0;
     for (const e of entries) {
       if (total <= target) break;
