@@ -27,3 +27,13 @@
    is found by us before a client.
 6. **Contract test.** Keep the RFC 5987 grammar test; add a nightly real-B2 probe that signs a hostile
    filename and fetches it.
+
+## Host download cache (Oct 2026)
+
+Client downloads (single file and zips) now go through `DownloadCacheService`: a bounded disk cache on the
+production host (`virgo_dlcache` volume, `DOWNLOAD_CACHE_MAX_GB`, default 40; `DOWNLOAD_CACHE_MAX_OBJECT_MB`,
+default 2048; `0` disables). First download of an object tees B2 -> disk -> client; later ones are served from
+the host's own uplink with Range/resume support and no B2 egress. Partial copies are never served (`.part` then
+atomic rename), LRU eviction keeps it under the cap, and any cache failure falls back to the signed B2 link, so
+the cache can only help. Cost: $0 (disk and uplink already owned). Bytes still ride the existing Cloudflare
+tunnel, exactly as zips already did.

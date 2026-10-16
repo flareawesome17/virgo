@@ -1,3 +1,4 @@
+import { DownloadCacheService } from '../../storage/download-cache.service';
 import type { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { DatabaseService } from '../../database/database.service';
@@ -257,7 +258,11 @@ describe('The zip behind a share link', () => {
       files: [],
     });
 
-    const controller = new PublicAlbumController(service, {} as unknown as VisitsService);
+    const controller = new PublicAlbumController(
+      service,
+      {} as unknown as VisitsService,
+      {} as unknown as DownloadCacheService,
+    );
     const res = response();
     await controller.downloadAll('token', res as unknown as Response);
     expect(res.status).toHaveBeenCalledWith(404);

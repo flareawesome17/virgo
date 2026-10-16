@@ -54,7 +54,7 @@ COPY scripts ./scripts
 # creating this here is what makes the volume node-owned on first mount. A
 # root-owned volume and a process running as `node` is EACCES on every
 # rendition, reported only as a warning in the media worker.
-RUN mkdir -p /srv/media && chown node:node /srv/media
+RUN mkdir -p /srv/media /srv/dlcache && chown node:node /srv/media /srv/dlcache
 
 # Drop root. The node image ships this user; copied files stay world-readable.
 USER node
