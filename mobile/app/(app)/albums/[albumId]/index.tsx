@@ -80,6 +80,7 @@ import {
   retentionOf,
   THUMBNAIL_EDGE,
   type ShareMediaKind,
+  type ShareLink,
   type StoredFile,
   type StoredMediaKind,
 } from '@/src/api';
@@ -584,22 +585,41 @@ export default function AlbumScreen() {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkKinds, setLinkKinds] = useState<ShareMediaKind[]>(['image', 'video', 'audio']);
   const [linking, setLinking] = useState(false);
+  // The link already issued, if any: shown until it is turned off.
+  const [existingLink, setExistingLink] = useState<ShareLink | null>(null);
 
   const openLinkSheet = async () => {
+    setExistingLink(null);
     try {
       const existing = await albumShareApi.get(albumId);
-      if (existing?.kinds?.length) setLinkKinds(existing.kinds);
+      if (existing) {
+        setExistingLink(existing);
+        if (existing.kinds?.length) setLinkKinds(existing.kinds);
+      }
     } catch {
       // No link yet, or the lookup failed: everything ticked is the right start.
     }
     setLinkOpen(true);
   };
 
+  const copyLink = async (url: string) => {
+    await Clipboard.setStringAsync(url);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const shareLinkUrl = (url: string) =>
+    void Share.share(
+      Platform.OS === 'ios'
+        ? { url, message: album?.name ?? 'Album' }
+        : { message: `${album?.name ?? 'Album'} — ${url}` },
+    );
+
   const createLink = async () => {
     if (linking || linkKinds.length === 0) return;
     setLinking(true);
     try {
       const link = await albumShareApi.create(albumId, linkKinds);
+      setExistingLink(link);
       setLinkOpen(false);
       // The URL on screen, not straight into the share sheet: a dismissed
       // sheet gave no sign the link had been made at all.
@@ -642,6 +662,7 @@ export default function AlbumScreen() {
           onPress: async () => {
             try {
               const { revoked } = await albumShareApi.revoke(albumId);
+              setExistingLink(null);
               Alert.alert(revoked ? 'Link turned off' : 'No link to turn off');
             } catch (error) {
               Alert.alert('Could not turn it off', problem(error));
@@ -1286,6 +1307,30 @@ export default function AlbumScreen() {
             );
           })}
         </View>
+        {existingLink && (
+          <View className="mt-4 rounded-2xl border border-border px-4 py-3">
+            <Text className="text-muted-foreground text-xs mb-1">Current link</Text>
+            <Text selectable className="text-foreground text-sm" numberOfLines={2}>
+              {existingLink.url}
+            </Text>
+            <View className="flex-row gap-5 mt-3">
+              <Pressable onPress={() => void copyLink(existingLink.url)}>
+                <Text className="text-primary text-sm font-semibold">Copy link</Text>
+              </Pressable>
+              <Pressable onPress={() => shareLinkUrl(existingLink.url)}>
+                <Text className="text-primary text-sm font-semibold">Share…</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setLinkOpen(false);
+                  revokeLink();
+                }}
+              >
+                <Text className="text-destructive text-sm font-semibold">Turn off</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
         {linkKinds.length === 0 && (
           <Text className="text-destructive text-xs mt-3 ml-1">Pick at least one kind of media.</Text>
         )}
@@ -1298,7 +1343,7 @@ export default function AlbumScreen() {
         >
           {linking && <ActivityIndicator size="small" color={palette.actionForeground} />}
           <Text className={`text-base font-bold ${linkKinds.length === 0 ? 'text-muted-foreground' : 'text-action-foreground'}`}>
-            {linking ? 'Making the link…' : 'Make link'}
+            {linking ? 'Saving…' : existingLink ? 'Update what is shared' : 'Make link'}
           </Text>
         </Pressable>
       </Sheet>
