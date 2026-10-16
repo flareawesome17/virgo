@@ -43,7 +43,12 @@ import { DownloadCacheService } from '../../storage/download-cache.service';
 import { contentDisposition } from '../../storage/download-names';
 import { VisitsService } from '../../visits/visits.service';
 import {
+  DownloadAllowanceService,
+  isResumedRange,
+} from '../../quota/download-allowance.service';
+import {
   renderClientGallery,
+  renderDownloadsPaused,
   renderLinkUnavailable,
 } from './client-gallery.template';
 
@@ -139,6 +144,7 @@ export class PublicAlbumController {
     private readonly share: AlbumShareService,
     private readonly visits: VisitsService,
     private readonly cache: DownloadCacheService,
+    private readonly allowance: DownloadAllowanceService,
   ) {}
 
   @Public()
@@ -235,13 +241,18 @@ export class PublicAlbumController {
   @Throttle({ default: { limit: 6, ttl: 60_000 } })
   @Get(':token/download.zip')
   async downloadAll(@Param('token') token: string, @Res() res: Response) {
-    const { albumName, files } = await this.share.filesForDownload(token);
+    const { albumName, files, ownerId } = await this.share.filesForDownload(token);
 
     if (files.length === 0) {
       res.status(404).json({ message: 'Nothing to download' });
       return;
     }
+    if (!(await this.allowance.allows(ownerId))) {
+      this.downloadsPaused(res);
+      return;
+    }
 
+    this.allowance.meter(ownerId, res);
     await streamZip(
       res,
       `${safeFileStem(albumName)}.zip`,
@@ -264,14 +275,27 @@ export class PublicAlbumController {
   async downloadOne(
     @Param('token') token: string,
     @Param('fileId') fileId: string,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     let url: string;
     try {
       const target = await this.share.downloadTarget(token, fileId);
-      if (await this.serveFromHost(target.key, target.name, res)) return;
+      // A resume of a download already under way is never refused; see
+      // isResumedRange. It is still metered below.
+      if (
+        !isResumedRange(req.headers.range) &&
+        !(await this.allowance.allows(target.ownerId))
+      ) {
+        this.downloadsPaused(res);
+        return;
+      }
+      if (await this.serveFromHost(target.key, target.name, target.ownerId, res)) return;
       // Cache off or failed before any byte: B2's own signed link still works.
       url = await this.share.downloadLocation(token, fileId);
+      // Storage serves those bytes, so nothing passes through to be measured;
+      // the whole file is charged when the link is handed out.
+      void this.allowance.record(target.ownerId, target.sizeBytes);
     } catch (err) {
       this.logger.warn(`Single download refused: ${String(err)}`);
       res
@@ -284,6 +308,21 @@ export class PublicAlbumController {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     res.redirect(302, url);
+  }
+
+  /**
+   * The answer to a new download while the gallery's owner has used their
+   * month. A page rather than JSON: the client got here by following a link,
+   * so this is what their browser shows. 429 because it is a limit that lifts
+   * on its own, not a link that has stopped working.
+   */
+  private downloadsPaused(res: Response): void {
+    res
+      .status(429)
+      .setHeader('Cache-Control', 'no-store')
+      .setHeader('X-Robots-Tag', 'noindex, nofollow')
+      .type('html')
+      .send(renderDownloadsPaused());
   }
 
   /** Zip entries come through the host's disk cache, falling back to B2 itself. */
@@ -300,7 +339,12 @@ export class PublicAlbumController {
    * first request). Returns false, with nothing written, if it could not.
    * A cache hit is a plain file send, so Range and resume work for free.
    */
-  private async serveFromHost(key: string, name: string, res: Response): Promise<boolean> {
+  private async serveFromHost(
+    key: string,
+    name: string,
+    ownerId: string,
+    res: Response,
+  ): Promise<boolean> {
     if (!this.cache.enabled) return false;
     const headers = {
       'Content-Disposition': contentDisposition(name),
@@ -310,12 +354,14 @@ export class PublicAlbumController {
     try {
       const hit = await this.cache.lookup(key);
       if (hit) {
+        this.allowance.meter(ownerId, res);
         await new Promise<void>((resolve) =>
           res.sendFile(hit.path, { headers, dotfiles: 'allow' }, () => resolve()),
         );
         return true;
       }
       const { stream, size } = await this.cache.open(key);
+      this.allowance.meter(ownerId, res);
       res.set(headers);
       res.type('application/octet-stream');
       if (size !== undefined) res.setHeader('Content-Length', String(size));
@@ -338,13 +384,18 @@ export class PublicAlbumController {
   @Throttle({ default: { limit: 6, ttl: 60_000 } })
   @Get(':token/picks.zip')
   async downloadPicks(@Param('token') token: string, @Res() res: Response) {
-    const { albumName, files } = await this.share.picksForDownload(token);
+    const { albumName, files, ownerId } = await this.share.picksForDownload(token);
 
     if (files.length === 0) {
       res.status(404).json({ message: 'Nothing picked yet' });
       return;
     }
+    if (!(await this.allowance.allows(ownerId))) {
+      this.downloadsPaused(res);
+      return;
+    }
 
+    this.allowance.meter(ownerId, res);
     await streamZip(
       res,
       `${safeFileStem(albumName)}.zip`,

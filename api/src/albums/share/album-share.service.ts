@@ -818,6 +818,8 @@ export class AlbumShareService {
   async picksForDownload(token: string): Promise<{
     albumName: string;
     files: { key: string; name: string }[];
+    /** Whose download allowance this spends. Never sent to the client. */
+    ownerId: string;
   }> {
     const link = await this.linkFor(token);
     if (link.purpose !== 'client') {
@@ -840,6 +842,7 @@ export class AlbumShareService {
     );
     return {
       albumName: `${link.name} - picks`,
+      ownerId: link.user_id,
       files: files.map((f) => ({
         key: f.key,
         name: deliveryName(link.name, Number(f.position) - 1, f.key),
@@ -880,26 +883,41 @@ export class AlbumShareService {
     return url;
   }
 
-  /** Which object a download button means, and what it saves as. Same scope checks as the page. */
-  async downloadTarget(token: string, fileId: string): Promise<{ key: string; name: string }> {
+  /**
+   * Which object a download button means, and what it saves as. Same scope
+   * checks as the page.
+   *
+   * `ownerId` and `sizeBytes` are for metering the owner's download allowance
+   * and are never sent to the client.
+   */
+  async downloadTarget(
+    token: string,
+    fileId: string,
+  ): Promise<{ key: string; name: string; ownerId: string; sizeBytes: number }> {
     const link = await this.linkFor(token);
     if (link.purpose !== 'client') {
       throw new ForbiddenException('Downloads are only available on a client link');
     }
     // Numbered exactly as the page and the zip number them, so the file saves
     // under the same name everywhere.
-    const row = await this.db.queryOne<{ key: string; position: string }>(
+    const row = await this.db.queryOne<{ key: string; position: string; size_bytes: string | null }>(
       `with scoped as (
-         select id, key, row_number() over (order by ${SORT_AT_SQL}, key) as position
+         select id, key, size_bytes,
+                row_number() over (order by ${SORT_AT_SQL}, key) as position
            from user_files
           where user_id = $1 and album_id = $2
             and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
        )
-       select key, position from scoped where id::text = $4`,
+       select key, position, size_bytes::text as size_bytes from scoped where id::text = $4`,
       [link.user_id, link.album_id, link.media_kinds, fileId],
     );
     if (!row) throw new NotFoundException('That file is not in this delivery');
-    return { key: row.key, name: deliveryName(link.name, Number(row.position) - 1, row.key) };
+    return {
+      key: row.key,
+      name: deliveryName(link.name, Number(row.position) - 1, row.key),
+      ownerId: link.user_id,
+      sizeBytes: Number(row.size_bytes ?? 0) || 0,
+    };
   }
 
   /** Raw bytes of one object, for the zip to append. */
@@ -918,11 +936,15 @@ export class AlbumShareService {
   async filesForDownload(token: string): Promise<{
     albumName: string;
     files: { key: string; name: string }[];
+    /** Whose download allowance this spends. Never sent to the client. */
+    ownerId: string;
   }> {
     const link = await this.linkFor(token);
     // A portfolio link offers no download. Nothing to zip is the existing
     // "Nothing to download" 404, the same answer as an empty album.
-    if (link.purpose === 'portfolio') return { albumName: link.name, files: [] };
+    if (link.purpose === 'portfolio') {
+      return { albumName: link.name, files: [], ownerId: link.user_id };
+    }
     const files = await this.db.query<{ key: string }>(
       `select key
          from user_files
@@ -935,6 +957,7 @@ export class AlbumShareService {
 
     return {
       albumName: link.name,
+      ownerId: link.user_id,
       files: files.map((f, i) => ({
         key: f.key,
         name: deliveryName(link.name, i, f.key),
