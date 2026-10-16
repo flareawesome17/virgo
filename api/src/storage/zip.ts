@@ -54,12 +54,31 @@ export async function streamZip(
 
   archive.pipe(res);
 
+  // Send the headers now. Cloudflare answers 524 when the origin sends no
+  // byte within 100 s; if storage is unreachable every open() below waits out
+  // its own timeout first, and the client would see that as a dead page.
+  res.flushHeaders();
+
+  // A storage outage fails every file. Skipping each one silently would hand
+  // the client a near-empty zip that looks complete, so give up instead.
+  const MAX_CONSECUTIVE_FAILURES = 3;
+  let failures = 0;
+
   for (const file of files) {
     try {
       archive.append(await open(file.key), { name: file.name });
+      failures = 0;
     } catch (err) {
       // One unreadable object should not cost them the other 199.
       logger.warn(`Skipped ${file.key} in zip: ${String(err)}`);
+      if (++failures >= MAX_CONSECUTIVE_FAILURES) {
+        logger.error(
+          `Zip "${zipName}" aborted: storage failed ${failures} files in a row`,
+        );
+        archive.abort();
+        res.destroy(new Error('Storage unavailable'));
+        return;
+      }
     }
   }
 
