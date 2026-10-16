@@ -874,6 +874,14 @@ export class AlbumShareService {
    * scope checks as the page, and a failure becomes a page we can word.
    */
   async downloadLocation(token: string, fileId: string): Promise<string> {
+    const { key, name } = await this.downloadTarget(token, fileId);
+    const url = await this.storage.mediaUrl(key, DOWNLOAD_URL_TTL_SECONDS, name);
+    if (!url) throw new NotFoundException('That file is not available');
+    return url;
+  }
+
+  /** Which object a download button means, and what it saves as. Same scope checks as the page. */
+  async downloadTarget(token: string, fileId: string): Promise<{ key: string; name: string }> {
     const link = await this.linkFor(token);
     if (link.purpose !== 'client') {
       throw new ForbiddenException('Downloads are only available on a client link');
@@ -891,13 +899,7 @@ export class AlbumShareService {
       [link.user_id, link.album_id, link.media_kinds, fileId],
     );
     if (!row) throw new NotFoundException('That file is not in this delivery');
-    const url = await this.storage.mediaUrl(
-      row.key,
-      DOWNLOAD_URL_TTL_SECONDS,
-      deliveryName(link.name, Number(row.position) - 1, row.key),
-    );
-    if (!url) throw new NotFoundException('That file is not available');
-    return url;
+    return { key: row.key, name: deliveryName(link.name, Number(row.position) - 1, row.key) };
   }
 
   /** Raw bytes of one object, for the zip to append. */

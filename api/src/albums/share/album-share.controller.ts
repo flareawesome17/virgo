@@ -39,6 +39,8 @@ import {
   safeFileStem,
 } from './album-share.service';
 import { streamZip } from '../../storage/zip';
+import { DownloadCacheService } from '../../storage/download-cache.service';
+import { contentDisposition } from '../../storage/download-names';
 import { VisitsService } from '../../visits/visits.service';
 import {
   renderClientGallery,
@@ -136,6 +138,7 @@ export class PublicAlbumController {
   constructor(
     private readonly share: AlbumShareService,
     private readonly visits: VisitsService,
+    private readonly cache: DownloadCacheService,
   ) {}
 
   @Public()
@@ -243,7 +246,7 @@ export class PublicAlbumController {
       res,
       `${safeFileStem(albumName)}.zip`,
       files,
-      (key) => this.share.streamFor(key),
+      (key) => this.cacheStream(key),
       this.logger,
     );
   }
@@ -265,6 +268,9 @@ export class PublicAlbumController {
   ) {
     let url: string;
     try {
+      const target = await this.share.downloadTarget(token, fileId);
+      if (await this.serveFromHost(target.key, target.name, res)) return;
+      // Cache off or failed before any byte: B2's own signed link still works.
       url = await this.share.downloadLocation(token, fileId);
     } catch (err) {
       this.logger.warn(`Single download refused: ${String(err)}`);
@@ -278,6 +284,50 @@ export class PublicAlbumController {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     res.redirect(302, url);
+  }
+
+  /** Zip entries come through the host's disk cache, falling back to B2 itself. */
+  private async cacheStream(key: string) {
+    try {
+      return (await this.cache.open(key)).stream;
+    } catch {
+      return this.share.streamFor(key);
+    }
+  }
+
+  /**
+   * Sends one file from this host's disk (filling the cache from B2 on the
+   * first request). Returns false, with nothing written, if it could not.
+   * A cache hit is a plain file send, so Range and resume work for free.
+   */
+  private async serveFromHost(key: string, name: string, res: Response): Promise<boolean> {
+    if (!this.cache.enabled) return false;
+    const headers = {
+      'Content-Disposition': contentDisposition(name),
+      'Cache-Control': 'private, no-store',
+      'X-Robots-Tag': 'noindex, nofollow',
+    };
+    try {
+      const hit = await this.cache.lookup(key);
+      if (hit) {
+        await new Promise<void>((resolve) =>
+          res.sendFile(hit.path, { headers, dotfiles: 'allow' }, () => resolve()),
+        );
+        return true;
+      }
+      const { stream, size } = await this.cache.open(key);
+      res.set(headers);
+      res.type('application/octet-stream');
+      if (size !== undefined) res.setHeader('Content-Length', String(size));
+      stream.on('error', () => res.destroy());
+      stream.pipe(res);
+      await new Promise<void>((resolve) => res.on('close', () => resolve()));
+      return true;
+    } catch (err) {
+      if (res.headersSent) return true;
+      this.logger.warn(`Host download failed, falling back to storage link: ${String(err)}`);
+      return false;
+    }
   }
 
   /**
@@ -299,7 +349,7 @@ export class PublicAlbumController {
       res,
       `${safeFileStem(albumName)}.zip`,
       files,
-      (key) => this.share.streamFor(key),
+      (key) => this.cacheStream(key),
       this.logger,
     );
   }

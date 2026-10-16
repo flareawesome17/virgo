@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { StorageConfig } from './storage.config';
 import { StorageController } from './storage.controller';
 import { StorageService } from './storage.service';
+import { DownloadCacheService } from './download-cache.service';
 import { ThumbnailsService } from './thumbnails.service';
 import { HlsService } from './hls.service';
 import { MediaLinkService } from './media-link.service';
@@ -16,6 +17,7 @@ import { ReceiptFilesService } from './receipt-files.service';
   providers: [
     StorageConfig,
     StorageService,
+    DownloadCacheService,
     ThumbnailsService,
     MediaLinkService,
     MediaProcessingService,
@@ -35,6 +37,7 @@ import { ReceiptFilesService } from './receipt-files.service';
   // ReceiptFilesService the same way, by the money ledger and account deletion.
   exports: [
     StorageService,
+    DownloadCacheService,
     StorageConfig,
     ThumbnailsService,
     MediaLinkService,

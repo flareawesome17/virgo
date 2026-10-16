@@ -598,12 +598,17 @@ export class StorageService {
    * check here would mean inventing a user for an anonymous client.
    */
   async readStream(key: string): Promise<Readable> {
+    return (await this.readStreamWithSize(key)).stream;
+  }
+
+  /** As `readStream`, plus the object's size when storage reports it. */
+  async readStreamWithSize(key: string): Promise<{ stream: Readable; size?: number }> {
     const client = this.requireClient();
     this.assertSafeKey(key);
     const res = await client.send(
       new GetObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
     );
-    return res.Body as Readable;
+    return { stream: res.Body as Readable, size: res.ContentLength };
   }
 
   /**

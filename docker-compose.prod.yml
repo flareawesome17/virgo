@@ -104,6 +104,10 @@ services:
       # ownership — see the phase 2 notes in docs/MEDIA_DELIVERY.md for the
       # one-line chown.
       - virgo_media:/srv/media
+      # Download cache: first client download of a file is copied here from B2,
+      # later ones are served from this host's own uplink (no B2 egress).
+      # Capped by DOWNLOAD_CACHE_MAX_GB (default 40); safe to lose.
+      - virgo_dlcache:/srv/dlcache
     depends_on:
       postgres:
         condition: service_healthy
@@ -267,3 +271,5 @@ volumes:
   # costs CPU, not customer work — so it is deliberately not in the backup
   # set.
   virgo_media:
+
+  virgo_dlcache:
