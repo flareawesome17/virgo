@@ -201,7 +201,12 @@ export class PublicAlbumController {
         this.logger.warn(`Visit not recorded: ${String(err)}`),
       );
 
-    res.send(renderClientGallery(view, token, nonce));
+    // Messenger, Facebook, Instagram, Line and Viber open links in their own
+    // web view, which cannot save a download. Clients get this link from chat.
+    const inAppBrowser = /FBAN|FBAV|FB_IAB|Messenger|Instagram|Line\/|Viber|MicroMessenger|TikTok/i.test(
+      req.headers['user-agent'] ?? '',
+    );
+    res.send(renderClientGallery(view, token, nonce, inAppBrowser));
   }
 
   /**
@@ -241,6 +246,38 @@ export class PublicAlbumController {
       (key) => this.share.streamFor(key),
       this.logger,
     );
+  }
+
+  /**
+   * One file, saved under its delivery name.
+   *
+   * A permanent address that redirects to a storage link signed at click time,
+   * so the button never carries an expired or malformed signature. The 302 is
+   * never cached: the target changes every hour.
+   */
+  @Public()
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @Get(':token/files/:fileId/download')
+  async downloadOne(
+    @Param('token') token: string,
+    @Param('fileId') fileId: string,
+    @Res() res: Response,
+  ) {
+    let url: string;
+    try {
+      url = await this.share.downloadLocation(token, fileId);
+    } catch (err) {
+      this.logger.warn(`Single download refused: ${String(err)}`);
+      res
+        .status(404)
+        .setHeader('Cache-Control', 'no-store')
+        .type('html')
+        .send(renderLinkUnavailable());
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.redirect(302, url);
   }
 
   /**

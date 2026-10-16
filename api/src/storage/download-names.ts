@@ -13,10 +13,34 @@
  * raw produces a header a browser either mangles or rejects outright.
  */
 export function contentDisposition(name: string): string {
+  // Control characters (a newline would split the header) and lone surrogates
+  // (encodeURIComponent throws URIError on them — safeFileStem's slice can cut
+  // an emoji in half) are removed before either form is built.
+  const clean = name
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '_');
   // Printable ASCII only for the plain form, and neither of the two
   // characters that would end the quoted string early.
-  const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  const ascii = clean.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${rfc5987(clean)}`;
+}
+
+/**
+ * Percent-encodes everything outside the unreserved set.
+ *
+ * `encodeURIComponent` leaves `! ' ( ) *` bare, and `' ( ) *` are not legal in
+ * an RFC 5987 `value-chars` run. Backblaze B2 validates the signed
+ * `response-content-disposition` strictly and answers the whole download with
+ * "InvalidRequest … must use valid extended value syntax", so a client whose
+ * album was called "Ana's Wedding" or whose file was "IMG (2).jpg" got an XML
+ * error page instead of their photos. Encoding the full reserved set costs
+ * nothing: every client decodes it back to the same name.
+ */
+function rfc5987(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase(),
+  );
 }
 
 /**

@@ -7,7 +7,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service';
-import { PUBLISHED_URL_TTL_SECONDS } from '../../storage/storage.config';
+import {
+  DOWNLOAD_URL_TTL_SECONDS,
+  PUBLISHED_URL_TTL_SECONDS,
+} from '../../storage/storage.config';
 import { HlsService } from '../../storage/hls.service';
 import { MediaLinkService } from '../../storage/media-link.service';
 import { StorageService } from '../../storage/storage.service';
@@ -858,6 +861,43 @@ export class AlbumShareService {
       [link.user_id, link.album_id, link.media_kinds],
     );
     return Number(row?.count ?? 0);
+  }
+
+  /**
+   * A fresh, correctly named storage link for one file of a client delivery.
+   *
+   * The gallery page used to carry a pre-signed storage URL per file. Those
+   * expire (a tab left open overnight showed an XML "Request has expired"),
+   * and any defect in the signed header surfaces as a raw storage error page
+   * on the client's phone. Pointing the button at this permanent route instead
+   * means the signature is made at the moment of the click, from the same
+   * scope checks as the page, and a failure becomes a page we can word.
+   */
+  async downloadLocation(token: string, fileId: string): Promise<string> {
+    const link = await this.linkFor(token);
+    if (link.purpose !== 'client') {
+      throw new ForbiddenException('Downloads are only available on a client link');
+    }
+    // Numbered exactly as the page and the zip number them, so the file saves
+    // under the same name everywhere.
+    const row = await this.db.queryOne<{ key: string; position: string }>(
+      `with scoped as (
+         select id, key, row_number() over (order by ${SORT_AT_SQL}, key) as position
+           from user_files
+          where user_id = $1 and album_id = $2
+            and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
+       )
+       select key, position from scoped where id::text = $4`,
+      [link.user_id, link.album_id, link.media_kinds, fileId],
+    );
+    if (!row) throw new NotFoundException('That file is not in this delivery');
+    const url = await this.storage.mediaUrl(
+      row.key,
+      DOWNLOAD_URL_TTL_SECONDS,
+      deliveryName(link.name, Number(row.position) - 1, row.key),
+    );
+    if (!url) throw new NotFoundException('That file is not available');
+    return url;
   }
 
   /** Raw bytes of one object, for the zip to append. */
