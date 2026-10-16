@@ -19,6 +19,16 @@ export interface PlanLimits {
    * allowance and leave the second unusable.
    */
   albumsPerWorkspace: number;
+  /**
+   * Bytes clients may download through this account's share links per
+   * calendar month (UTC). See DownloadAllowanceService.
+   *
+   * A multiple of storage rather than its own number: 2x on Free, 3x on every
+   * paid tier. Downloads are what cost egress, and a gallery is normally
+   * fetched more than once (the client, the family, the retry); a ceiling tied
+   * to what the account can hold grows with it.
+   */
+  downloadBytesPerMonth: number;
 }
 
 export interface PlanInfo extends PlanLimits {
@@ -43,10 +53,15 @@ const GB = 1024 ** 3;
 
 const TB = 1024 ** 4;
 
+/** Monthly client downloads, as a multiple of the plan's storage. */
+const FREE_DOWNLOAD_MULTIPLE = 2;
+const PAID_DOWNLOAD_MULTIPLE = 3;
+
 const FREELANCE: PlanLimits = {
   storageBytes: 100 * GB,
   workspaces: 3,
   albumsPerWorkspace: 10,
+  downloadBytesPerMonth: PAID_DOWNLOAD_MULTIPLE * 100 * GB,
 };
 
 /**
@@ -66,6 +81,7 @@ export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
     storageBytes: 15 * GB,
     workspaces: 3,
     albumsPerWorkspace: 10,
+    downloadBytesPerMonth: FREE_DOWNLOAD_MULTIPLE * 15 * GB,
   },
   freelance: FREELANCE,
   // An alias, not a separate tier — same limits.
@@ -74,11 +90,13 @@ export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
     storageBytes: 500 * GB,
     workspaces: 10,
     albumsPerWorkspace: Infinity,
+    downloadBytesPerMonth: PAID_DOWNLOAD_MULTIPLE * 500 * GB,
   },
   business: {
     storageBytes: 2 * TB,
     workspaces: Infinity,
     albumsPerWorkspace: Infinity,
+    downloadBytesPerMonth: PAID_DOWNLOAD_MULTIPLE * 2 * TB,
   },
 };
 
@@ -106,7 +124,13 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
     currency: 'PHP',
     comingSoon: false,
     ...PLAN_LIMITS.free,
-    features: ['15 GB cloud storage', '3 workspaces', '10 albums per workspace', 'Client share links'],
+    features: [
+      '15 GB cloud storage',
+      '30 GB of client downloads a month',
+      '3 workspaces',
+      '10 albums per workspace',
+      'Client share links',
+    ],
   },
   {
     name: 'freelance',
@@ -118,6 +142,7 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
     ...FREELANCE,
     features: [
       '100 GB cloud storage',
+      '300 GB of client downloads a month',
       '3 workspaces',
       '10 albums per workspace',
       'Client share links',
@@ -134,6 +159,7 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
     ...PLAN_LIMITS.studio,
     features: [
       '500 GB cloud storage',
+      '1.5 TB of client downloads a month',
       '10 workspaces',
       // Not bare "unlimited": an album holds media, so storage stays the real
       // constraint and the copy should not promise otherwise.
@@ -151,6 +177,7 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
     ...PLAN_LIMITS.business,
     features: [
       '2 TB cloud storage',
+      '6 TB of client downloads a month',
       'Unlimited workspaces',
       'Unlimited albums within your storage',
       'Advanced permissions and activity history',

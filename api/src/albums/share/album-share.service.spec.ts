@@ -2,6 +2,7 @@ import { DownloadCacheService } from '../../storage/download-cache.service';
 import type { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { DatabaseService } from '../../database/database.service';
+import type { DownloadAllowanceService } from '../../quota/download-allowance.service';
 import type { NotifyService } from '../../notifications/notify.service';
 import type { HlsService } from '../../storage/hls.service';
 import { MediaLinkService } from '../../storage/media-link.service';
@@ -256,12 +257,14 @@ describe('The zip behind a share link', () => {
     await expect(service.filesForDownload('token')).resolves.toEqual({
       albumName: 'Wedding',
       files: [],
+      ownerId: OWNER,
     });
 
     const controller = new PublicAlbumController(
       service,
       {} as unknown as VisitsService,
       {} as unknown as DownloadCacheService,
+      {} as unknown as DownloadAllowanceService,
     );
     const res = response();
     await controller.downloadAll('token', res as unknown as Response);

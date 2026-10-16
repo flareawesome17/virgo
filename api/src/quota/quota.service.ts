@@ -228,6 +228,8 @@ export class QuotaService {
       storageBytes: Number(row?.storage_bytes ?? 0),
       workspaces: Number(row?.extra_workspaces ?? 0),
       albumsPerWorkspace: Number(row?.extra_albums ?? 0),
+      // No promo grants downloads; see DownloadAllowanceService.usage.
+      downloadBytesPerMonth: 0,
     };
   }
 
@@ -247,6 +249,7 @@ export class QuotaService {
       storageBytes: plan.storageBytes + bonus.storageBytes,
       workspaces: plan.workspaces + bonus.workspaces,
       albumsPerWorkspace: plan.albumsPerWorkspace + bonus.albumsPerWorkspace,
+      downloadBytesPerMonth: plan.downloadBytesPerMonth + bonus.downloadBytesPerMonth,
     };
   }
 

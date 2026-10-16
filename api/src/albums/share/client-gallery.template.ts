@@ -1,3 +1,4 @@
+import { DOWNLOADS_PAUSED_MESSAGE } from '../../quota/download-allowance.service';
 import type { PublicAlbumView } from './album-share.service';
 import { DELIVERY_PALETTE as P } from './client-palette';
 
@@ -41,10 +42,40 @@ const PAGE_STYLE = `
 
 const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>';
 
-export function renderLinkUnavailable(): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Link unavailable</title><style>${PAGE_STYLE}
+/**
+ * A full page with one message on it, for the routes a client reaches by
+ * following a link rather than through the gallery's own script. Arguments
+ * are trusted constants, not user input.
+ */
+function renderNotice(title: string, icon: string, heading: string, body: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${title}</title><style>${PAGE_STYLE}
   main{min-height:100dvh;display:grid;place-items:center;padding:32px}.empty{text-align:center;max-width:34rem}.mark{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 22px;border-radius:22px;background:color-mix(in srgb,var(--line) 72%,transparent)}.mark svg{width:27px;fill:none;stroke:var(--muted);stroke-width:1.5}h1{margin:0;font-size:25px;letter-spacing:-.035em}p{margin:12px auto 0;color:var(--muted);max-width:42ch}footer{margin-top:30px;color:var(--muted);font-size:12px}
-  </style></head><body><main><div class="empty"><div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2z"/></svg></div><h1>This link is no longer available</h1><p>It may have been turned off or replaced. Ask the person who shared it for an up-to-date link.</p><footer>Shared with Virgo</footer></div></main></body></html>`;
+  </style></head><body><main><div class="empty"><div class="mark">${icon}</div><h1>${heading}</h1><p>${body}</p><footer>Shared with Virgo</footer></div></main></body></html>`;
+}
+
+const LOCK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2z"/></svg>';
+
+export function renderLinkUnavailable(): string {
+  return renderNotice(
+    'Link unavailable',
+    LOCK_ICON,
+    'This link is no longer available',
+    'It may have been turned off or replaced. Ask the person who shared it for an up-to-date link.',
+  );
+}
+
+/**
+ * What a client sees on a download link while the gallery's owner is over
+ * their monthly download allowance. The gallery itself still opens; only new
+ * downloads are paused. Says nothing about the owner's plan or usage.
+ */
+export function renderDownloadsPaused(): string {
+  return renderNotice(
+    'Downloads paused',
+    DOWNLOAD_ICON,
+    'Downloads are paused',
+    DOWNLOADS_PAUSED_MESSAGE,
+  );
 }
 
 function bytesLabel(bytes: number): string {

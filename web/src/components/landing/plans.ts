@@ -27,7 +27,14 @@ export const LAUNCH_PLANS: PlanInfo[] = [
     storageBytes: 15 * 1024 ** 3,
     workspaces: 3,
     albumsPerWorkspace: 10,
-    features: ['15 GB cloud storage', '3 workspaces', '10 albums per workspace', 'Client share links'],
+    downloadBytesPerMonth: 30 * 1024 ** 3,
+    features: [
+      '15 GB cloud storage',
+      '30 GB of client downloads a month',
+      '3 workspaces',
+      '10 albums per workspace',
+      'Client share links',
+    ],
   },
   {
     name: 'freelance',
@@ -38,8 +45,10 @@ export const LAUNCH_PLANS: PlanInfo[] = [
     storageBytes: 100 * 1024 ** 3,
     workspaces: 3,
     albumsPerWorkspace: 10,
+    downloadBytesPerMonth: 300 * 1024 ** 3,
     features: [
       '100 GB cloud storage',
+      '300 GB of client downloads a month',
       '3 workspaces',
       '10 albums per workspace',
       'Client share links',
@@ -55,8 +64,10 @@ export const LAUNCH_PLANS: PlanInfo[] = [
     storageBytes: 500 * 1024 ** 3,
     workspaces: 10,
     albumsPerWorkspace: null,
+    downloadBytesPerMonth: 1500 * 1024 ** 3,
     features: [
       '500 GB cloud storage',
+      '1.5 TB of client downloads a month',
       '10 workspaces',
       'Unlimited albums within your storage',
       'Team roles and permissions',
@@ -71,8 +82,10 @@ export const LAUNCH_PLANS: PlanInfo[] = [
     storageBytes: 2 * 1024 ** 4,
     workspaces: null,
     albumsPerWorkspace: null,
+    downloadBytesPerMonth: 6 * 1024 ** 4,
     features: [
       '2 TB cloud storage',
+      '6 TB of client downloads a month',
       'Unlimited workspaces',
       'Unlimited albums within your storage',
       'Advanced permissions and activity history',

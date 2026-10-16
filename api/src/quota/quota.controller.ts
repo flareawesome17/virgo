@@ -1,17 +1,37 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Logger } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../auth/public.decorator';
-import { QuotaService } from './quota.service';
+import { QuotaService, type UsageSummary } from './quota.service';
 import { PLAN_CATALOGUE, toJsonLimit } from './quota.config';
+import { DownloadAllowanceService, type DownloadUsage } from './download-allowance.service';
 
 @Controller('me')
 export class QuotaController {
-  constructor(private readonly quota: QuotaService) {}
+  private readonly logger = new Logger(QuotaController.name);
 
-  /** Plan, storage consumption and how much of each limit is used. */
+  constructor(
+    private readonly quota: QuotaService,
+    private readonly downloads: DownloadAllowanceService,
+  ) {}
+
+  /**
+   * Plan, storage consumption and how much of each limit is used, plus this
+   * month's client downloads against the plan's allowance.
+   */
   @Get('usage')
-  usage(@CurrentUser('id') userId: string) {
-    return this.quota.summary(userId);
+  async usage(
+    @CurrentUser('id') userId: string,
+  ): Promise<UsageSummary & { downloads: DownloadUsage | null }> {
+    const [summary, downloads] = await Promise.all([
+      this.quota.summary(userId),
+      // null rather than a failed request: the storage screen is built on this
+      // response, and a counter it cannot read must not take that down too.
+      this.downloads.usage(userId).catch((err: unknown) => {
+        this.logger.warn(`Download usage unavailable: ${String(err)}`);
+        return null;
+      }),
+    ]);
+    return { ...summary, downloads };
   }
 }
 
@@ -51,6 +71,7 @@ export class PlansController {
         // Infinity is not representable in JSON; null means unlimited.
         workspaces: toJsonLimit(plan.workspaces),
         albumsPerWorkspace: toJsonLimit(plan.albumsPerWorkspace),
+        downloadBytesPerMonth: toJsonLimit(plan.downloadBytesPerMonth),
       })),
       total: PLAN_CATALOGUE.length,
     };

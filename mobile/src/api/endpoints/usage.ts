@@ -20,6 +20,23 @@ export interface UsageSummary {
    * All zeroes for an account that has claimed nothing, which is most of them.
    */
   bonus: { storageBytes: number; workspaces: number; albumsPerWorkspace: number };
+  /**
+   * Client downloads through share links this month, against the plan's
+   * monthly allowance. Over it, clients can still open the gallery but new
+   * downloads are paused until `resetsAt`.
+   *
+   * Optional: an older API does not send it, and null means the server could
+   * not read the count just now.
+   */
+  downloads?: DownloadUsage | null;
+}
+
+export interface DownloadUsage {
+  usedBytes: number;
+  /** null means unlimited. */
+  limitBytes: number | null;
+  /** ISO timestamp: the first instant of next month, UTC. */
+  resetsAt: string;
 }
 
 export interface PlanInfo {
@@ -47,6 +64,8 @@ export interface PlanInfo {
   workspaces: number | null;
   /** Per workspace, not in total. null means unlimited. */
   albumsPerWorkspace: number | null;
+  /** Client downloads included per month. null means unlimited. Absent from an older API. */
+  downloadBytesPerMonth?: number | null;
   features: string[];
 }
 

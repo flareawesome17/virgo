@@ -367,6 +367,30 @@ export default function StorageSettingsPage() {
                 </p>
                 <p className="text-xs text-muted-foreground">Albums</p>
               </div>
+              {/* What clients have downloaded through share links this month.
+                  Over the allowance the gallery still opens; new downloads
+                  wait for the reset, so say when that is. */}
+              {usage?.downloads ? (
+                <div className="col-span-2 rounded-lg bg-muted px-3 py-2.5">
+                  <p className="text-sm font-bold tabular-nums">
+                    {formatBytes(usage.downloads.usedBytes)}
+                    {usage.downloads.limitBytes != null
+                      ? ` / ${formatBytes(usage.downloads.limitBytes)}`
+                      : ''}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {usage.downloads.limitBytes != null &&
+                    usage.downloads.usedBytes >= usage.downloads.limitBytes
+                      ? 'Client downloads paused until '
+                      : 'Client downloads this month · resets '}
+                    {new Date(usage.downloads.resetsAt).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      timeZone: 'UTC',
+                    })}
+                  </p>
+                </div>
+              ) : null}
             </div>
           </CardContent>
         </Card>
