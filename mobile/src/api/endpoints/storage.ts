@@ -1,7 +1,26 @@
+import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system/legacy';
+import {
+  CopyCancelled,
+  copyRange,
+  FileRange,
+  SourceShrank,
+} from '@/src/lib/file-range';
+import {
+  type MultipartSession,
+  partRetryDelayMs,
+  resumable,
+} from '@/src/lib/multipart-resume';
 import { api } from '../client';
 import { API_BASE_URL } from '../config';
+import { withConfirmRetry } from '../confirm-retry';
 import { ApiError } from '../errors';
+import {
+  type MultipartDeps,
+  type PartTicket,
+  UploadCancelled,
+  uploadInParts,
+} from '../multipart-upload';
 
 /**
  * Where an upload goes. 'avatars' and 'covers' land in the public bucket and
@@ -261,6 +280,13 @@ export interface WipeResult {
   freedBytes: number;
 }
 
+/** What `confirm` says about an object that was meant to have landed. */
+export interface ConfirmResult {
+  exists: boolean;
+  size: number;
+  contentType?: string;
+}
+
 export interface UploadResult {
   key: string;
   /** CDN URL, when the bucket is publicly served. Store this on the row. */
@@ -305,6 +331,18 @@ function withoutContentLength(
  */
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
+/**
+ * From this size a file goes up in parts. Mirrors MULTIPART_MIN_BYTES in
+ * api/src/storage/storage.config.ts, and web's copy.
+ */
+export const MULTIPART_MIN_BYTES = 100 * 1024 * 1024;
+
+/** Parts of one file in flight at once. The same as web. */
+const MULTIPART_CONCURRENCY = 4;
+
+/** Tries per part, the first included. Each try gets a fresh URL. */
+const MULTIPART_PART_ATTEMPTS = 5;
+
 export const storageApi = {
   /** Step 1: ask the server for a signed PUT URL. Keys are server-generated. */
   createUploadUrl(input: {
@@ -321,11 +359,7 @@ export const storageApi = {
   },
 
   /** Step 3: confirm the object actually landed before saving its URL. */
-  confirm(key: string, albumId?: string, originalName?: string): Promise<{
-    exists: boolean;
-    size: number;
-    contentType?: string;
-  }> {
+  confirm(key: string, albumId?: string, originalName?: string): Promise<ConfirmResult> {
     return api.post('/storage/confirm', { body: { key, albumId, originalName } });
   },
 
@@ -409,7 +443,20 @@ export const storageApi = {
   },
 
   /**
-   * Full upload flow: ticket -> PUT -> confirm.
+   * Releases the parts of a multipart upload that will not be finished.
+   *
+   * B2 bills for them until something does. Used by the upload queue when a
+   * file whose upload was kept for a resume is removed instead.
+   */
+  async abortMultipart(ref: { key: string; uploadId: string }): Promise<void> {
+    await api.post('/storage/multipart/abort', {
+      body: { key: ref.key, uploadId: ref.uploadId },
+    });
+  },
+
+  /**
+   * Full upload flow: ticket -> PUT -> confirm, or, from MULTIPART_MIN_BYTES,
+   * start -> parts -> complete -> confirm (docs/LARGE_UPLOADS.md).
    *
    * Uses expo-file-system's uploadAsync rather than fetch(blob): it streams
    * from disk, so a large video does not have to be read into memory first.
@@ -435,18 +482,101 @@ export const storageApi = {
        * in the bucket under a key only the dead process knew.
        */
       onTicket?: (key: string) => void;
+      /** Stops the transfer. The upload then rejects with ApiError status 0. */
+      signal?: AbortSignal;
+      /**
+       * A multipart session saved by an earlier attempt at this same file.
+       * Parts it already has are not sent again.
+       */
+      resume?: MultipartSession;
+      /**
+       * Receives the multipart session as parts are acknowledged, and
+       * undefined once it is finished or released. Passing this is what opts
+       * in to keeping the parts after a connection failure, for `resume` to
+       * pick up; without it a failed multipart upload is always aborted.
+       */
+      onSession?: (session: MultipartSession | undefined) => void;
     },
   ): Promise<UploadResult> {
     // `size` is returned on FileInfo whenever the file exists; it is not an
     // option to request (InfoOptions only carries `md5`).
+    //
+    // Both refusals below are about the file, not the network, so they carry a
+    // 4xx rather than 0: the upload queue waits out a status 0 and asks again,
+    // and asking again will not put a file back on the phone.
     const info = await FileSystem.getInfoAsync(fileUri);
     if (!info.exists) {
-      throw new ApiError(0, 'That file no longer exists on this device.');
+      throw new ApiError(404, 'That file no longer exists on this device.');
     }
 
     const contentLength = info.size ?? 0;
     if (contentLength <= 0) {
-      throw new ApiError(0, 'That file appears to be empty.');
+      throw new ApiError(422, 'That file appears to be empty.');
+    }
+
+    if (options.signal?.aborted) {
+      throw new ApiError(0, 'Upload was cancelled.');
+    }
+
+    // A big file goes up as independent parts instead of one PUT: no part has
+    // to finish inside a single presigned window, a dropped connection costs
+    // one 16 MB part rather than the whole film, and a resume carries on from
+    // the part it reached. Small files keep the single PUT, where multipart's
+    // three extra round trips would only slow them down. Profile photos never:
+    // the API refuses them in parts.
+    if (
+      contentLength >= MULTIPART_MIN_BYTES &&
+      options.scope !== 'avatars' &&
+      options.scope !== 'covers'
+    ) {
+      const { signal } = options;
+      const session = resumable(nativeMultipartDeps(options.onTicket), {
+        resume: options.resume,
+        keepForResume: Boolean(options.onSession),
+        onSession: options.onSession,
+      });
+
+      let done: { key: string; size: number };
+      activeMultipartUploads++;
+      try {
+        if (activeMultipartUploads === 1) clearStalePartFiles();
+        done = await uploadInParts(
+          // The shared uploader only reads `size` and calls `slice`; the
+          // ranges it cuts come back to putPartFromDevice, which streams them.
+          // See FileRange in src/lib/file-range.ts.
+          new FileRange(fileUri, 0, contentLength) as unknown as Blob,
+          {
+            contentType: options.contentType,
+            scope: options.scope,
+            albumId: options.albumId,
+            onProgress: options.onProgress,
+            signal,
+            concurrency: MULTIPART_CONCURRENCY,
+            maxAttempts: MULTIPART_PART_ATTEMPTS,
+            backoff: (attempt) => sleep(partRetryDelayMs(attempt), signal),
+          },
+          session.deps,
+        );
+      } catch (error) {
+        const cancelled = error instanceof UploadCancelled || Boolean(signal?.aborted);
+        // Keeps the parts for a resume after a dropped connection, releases
+        // them otherwise. Never rejects, so the real error is the one thrown.
+        await session.settle(error, cancelled);
+        // Callers recognise a cancelled upload by ApiError status 0.
+        if (cancelled) throw new ApiError(0, 'Upload was cancelled.');
+        throw error;
+      } finally {
+        activeMultipartUploads--;
+      }
+
+      const stat = await withConfirmRetry<ConfirmResult>(
+        () => this.confirm(done.key, options.albumId, options.originalName),
+        { signal },
+      );
+      if (!stat.exists) {
+        throw new ApiError(0, 'Upload could not be verified. Please try again.');
+      }
+      return { key: done.key, publicUrl: null, size: stat.size };
     }
 
     /**
@@ -490,22 +620,44 @@ export const storageApi = {
         headers: withoutContentLength(ticket.requiredHeaders),
       };
 
-      // createUploadTask reports real bytes-sent; uploadAsync gives no progress.
-      const response = options.onProgress
-        ? await FileSystem.createUploadTask(
-            ticket.uploadUrl,
-            fileUri,
-            uploadOptions,
-            (data) => {
-              const total = data.totalBytesExpectedToSend || contentLength;
-              if (total > 0) {
-                options.onProgress?.(Math.min(data.totalBytesSent / total, 1));
-              }
-            },
-          ).uploadAsync()
-        : await FileSystem.uploadAsync(ticket.uploadUrl, fileUri, uploadOptions);
+      // createUploadTask reports real bytes-sent and can be cancelled;
+      // uploadAsync can do neither, so it is only used when nothing needs to.
+      if (!options.onProgress && !options.signal) {
+        const response = await FileSystem.uploadAsync(
+          ticket.uploadUrl,
+          fileUri,
+          uploadOptions,
+        ).catch(unreachableStorage);
+        return { ticket, response };
+      }
 
-      return { ticket, response };
+      const task = FileSystem.createUploadTask(
+        ticket.uploadUrl,
+        fileUri,
+        uploadOptions,
+        (data) => {
+          const total = data.totalBytesExpectedToSend || contentLength;
+          if (total > 0) {
+            options.onProgress?.(Math.min(data.totalBytesSent / total, 1));
+          }
+        },
+      );
+      const cancel = () => {
+        void task.cancelAsync().catch(() => undefined);
+      };
+      options.signal?.addEventListener('abort', cancel);
+      try {
+        // A cancelled task resolves with nothing, which is handled below.
+        const response = options.signal?.aborted
+          ? null
+          : await task.uploadAsync().catch((error: unknown) => {
+              if (options.signal?.aborted) return null;
+              return unreachableStorage(error);
+            });
+        return { ticket, response };
+      } finally {
+        options.signal?.removeEventListener('abort', cancel);
+      }
     };
 
     let { ticket, response } = await attempt();
@@ -514,11 +666,11 @@ export const storageApi = {
     // matched are indistinguishable from here — both are 403 — so this retries
     // once with a fresh ticket and lets a genuine rejection fail the second
     // time, which costs one request rather than a silent loop.
-    if (response && response.status === 403) {
+    if (response && response.status === 403 && !options.signal?.aborted) {
       ({ ticket, response } = await attempt());
     }
 
-    if (!response) {
+    if (!response || options.signal?.aborted) {
       throw new ApiError(0, 'Upload was cancelled.');
     }
 
@@ -527,8 +679,14 @@ export const storageApi = {
     }
 
     // A 2xx from B2 is good evidence, but confirming via the API is what
-    // guarantees a row never ends up pointing at a missing object.
-    const stat = await this.confirm(ticket.key, options.albumId, options.originalName);
+    // guarantees a row never ends up pointing at a missing object. The bytes
+    // are already stored, so a 5xx or a dropped connection here is asked
+    // again rather than failing a file that arrived (confirm-retry.ts).
+    const ticketKey = ticket.key;
+    const stat = await withConfirmRetry<ConfirmResult>(
+      () => this.confirm(ticketKey, options.albumId, options.originalName),
+      { signal: options.signal },
+    );
     if (!stat.exists) {
       throw new ApiError(0, 'Upload could not be verified. Please try again.');
     }
@@ -540,6 +698,226 @@ export const storageApi = {
     };
   },
 };
+
+/**
+ * The native uploader's rejection, as the status-0 ApiError everything else
+ * here uses for "nothing answered".
+ *
+ * Its own message is a platform string ("Unable to resolve host…", an
+ * NSURLErrorDomain code), which is not something to show anyone; and without a
+ * status the upload queue could not tell a dead zone from a real failure.
+ */
+function unreachableStorage(_error: unknown): never {
+  throw new ApiError(0, 'Could not reach storage. Check your connection.');
+}
+
+/** Waits, waking early when `signal` aborts. Never rejects. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done);
+  });
+}
+
+/** Where a part waits, as its own file, while the native uploader sends it. */
+const PART_DIR = 'multipart-parts';
+
+/** Bytes copied per read. Each read blocks the JS thread for its duration. */
+const PART_COPY_CHUNK_BYTES = 2 * 1024 * 1024;
+
+/** Multipart uploads running in this process; part files are swept at zero. */
+let activeMultipartUploads = 0;
+
+/**
+ * Removes part files a previous process left behind.
+ *
+ * Each one is deleted after its PUT, but a process killed mid-part leaves its
+ * copy in the cache, 16 MB at a time. Only run when no multipart upload is
+ * going, so a file another upload is sending is never pulled out from under it.
+ */
+function clearStalePartFiles(): void {
+  try {
+    const dir = new Directory(Paths.cache, PART_DIR);
+    if (dir.exists) dir.delete();
+  } catch {
+    // The cache is the system's to clear as well; nothing here depends on it.
+  }
+}
+
+/**
+ * Copies one range of the source file into a part file of its own.
+ *
+ * The native uploader sends a whole file from disk, so a part has to be one.
+ * The copy goes through a FileHandle in 2 MB reads, so at most one chunk per
+ * part in flight is ever in memory, never the part and never the file.
+ */
+async function writePartFile(range: FileRange, signal?: AbortSignal): Promise<File> {
+  const dir = new Directory(Paths.cache, PART_DIR);
+  dir.create({ idempotent: true, intermediates: true });
+  const out = new File(dir, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.part`);
+  out.create({ overwrite: true });
+
+  let source: ReturnType<File['open']> | undefined;
+  let sink: ReturnType<File['open']> | undefined;
+  try {
+    source = new File(range.uri).open();
+    sink = out.open();
+
+    await copyRange(source, sink, range.start, range.end, {
+      chunkBytes: PART_COPY_CHUNK_BYTES,
+      isCancelled: () => Boolean(signal?.aborted),
+      // Reads are synchronous. Between chunks, let a frame draw.
+      pause: () => sleep(0),
+    });
+    return out;
+  } catch (error) {
+    try {
+      out.delete();
+    } catch {
+      // Swept by clearStalePartFiles next time.
+    }
+    if (error instanceof CopyCancelled) throw new ApiError(0, 'Upload was cancelled.');
+    if (error instanceof SourceShrank) {
+      // Shorter than when it was measured: it changed under the upload.
+      throw new ApiError(409, 'That file changed while it was uploading.');
+    }
+    throw error;
+  } finally {
+    source?.close();
+    sink?.close();
+  }
+}
+
+/** A response header by name, whatever case the platform delivered it in. */
+function headerValue(headers: Record<string, string>, name: string): string | undefined {
+  const wanted = name.toLowerCase();
+  for (const [header, value] of Object.entries(headers ?? {})) {
+    if (header.toLowerCase() === wanted && value) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Sends one part of a multipart upload and resolves with its ETag, which the
+ * server needs to assemble the parts.
+ *
+ * The part is copied to its own file and sent by the same native uploader as
+ * the single PUT, so it streams from disk and reports real progress. Errors
+ * are ApiErrors with the status the shared uploader's retry rule reads: 0 for
+ * no response, the HTTP status for a refusal, a 4xx for a file that cannot be
+ * read (which no retry fixes).
+ */
+async function putPartFromDevice(
+  part: Blob,
+  ticket: PartTicket,
+  onLoaded: (loaded: number) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!(part instanceof FileRange)) {
+    throw new ApiError(400, 'Could not read that file on this device.');
+  }
+  if (signal?.aborted) throw new ApiError(0, 'Upload was cancelled.');
+
+  let partFile: File;
+  try {
+    partFile = await writePartFile(part, signal);
+  } catch (error) {
+    if (signal?.aborted) throw new ApiError(0, 'Upload was cancelled.');
+    if (error instanceof ApiError) throw error;
+    // Out of space for the part file, most likely. 507 rather than 0: it is
+    // not the network, so the queue marks the file failed instead of waiting
+    // for a connection, but the parts already sent are kept (5xx), so "try
+    // again" after freeing space carries on from where it stopped.
+    throw new ApiError(
+      507,
+      'Could not prepare that file for upload. Check that your phone has free space.',
+    );
+  }
+
+  try {
+    const task = FileSystem.createUploadTask(
+      ticket.uploadUrl,
+      partFile.uri,
+      {
+        httpMethod: 'PUT',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        // Content-Length is set by the native uploader from the part file,
+        // which is exactly the length the part URL was signed for. See the
+        // single PUT above for why passing it as well hangs on Android.
+        headers: withoutContentLength(ticket.requiredHeaders),
+      },
+      (data) => onLoaded(Math.min(data.totalBytesSent, part.size)),
+    );
+    const cancel = () => {
+      void task.cancelAsync().catch(() => undefined);
+    };
+    signal?.addEventListener('abort', cancel);
+
+    let response: Awaited<ReturnType<typeof task.uploadAsync>>;
+    try {
+      response = signal?.aborted ? null : await task.uploadAsync();
+    } catch {
+      if (signal?.aborted) throw new ApiError(0, 'Upload was cancelled.');
+      throw new ApiError(0, 'Could not reach storage. Check your connection.');
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+    }
+
+    if (!response || signal?.aborted) throw new ApiError(0, 'Upload was cancelled.');
+    if (response.status < 200 || response.status >= 300) {
+      throw new ApiError(response.status, 'Upload failed. Please try again.');
+    }
+
+    const etag = headerValue(response.headers, 'etag');
+    if (!etag) {
+      // There is no CORS between the phone and B2 to hide it, as there can be
+      // in a browser, so a missing receipt is the response gone wrong, and
+      // sending the part again is the way to get one.
+      throw new ApiError(502, 'Storage did not acknowledge part of the upload.');
+    }
+    return etag;
+  } finally {
+    try {
+      partFile.delete();
+    } catch {
+      // Swept by clearStalePartFiles next time.
+    }
+  }
+}
+
+/**
+ * The server half of a multipart upload (api/src/storage/storage.controller.ts)
+ * and the device half above.
+ *
+ * `onTicket` hears the key as soon as the upload is started, before any part
+ * is sent, for the same reason as the single PUT: it is the only handle a
+ * relaunch has on what this process was doing.
+ */
+function nativeMultipartDeps(onTicket?: (key: string) => void): MultipartDeps {
+  return {
+    start: async (body) => {
+      const started = await api.post<Awaited<ReturnType<MultipartDeps['start']>>>(
+        '/storage/multipart/start',
+        { body },
+      );
+      onTicket?.(started.key);
+      return started;
+    },
+    partUrl: (body) => api.post<PartTicket>('/storage/multipart/part-url', { body }),
+    putPart: putPartFromDevice,
+    complete: (body) =>
+      api.post<{ key: string; size: number }>('/storage/multipart/complete', { body }),
+    abort: async (body) => {
+      await api.post('/storage/multipart/abort', { body });
+    },
+  };
+}
 
 /** Maps an expo-image-picker asset to a content type the API accepts. */
 export function contentTypeForAsset(asset: {

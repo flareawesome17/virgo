@@ -9,10 +9,19 @@ import {
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useQueryClient } from '@tanstack/react-query';
 import { storageApi } from '@/src/api';
+import { withConfirmRetry } from '@/src/api/confirm-retry';
 import { usageQueryKey } from '@/src/hooks';
+import { MAX_RESUME_AGE_MS, type MultipartSession } from '@/src/lib/multipart-resume';
+import {
+  connectivityRetryDelayMs,
+  isConnectivityFailure,
+  isOnlineForUploads,
+  nextRunnable,
+} from '@/src/lib/upload-queue';
 import {
   clearUploadProgress,
   showUploadFinished,
@@ -41,6 +50,17 @@ export interface UploadTask {
    * lets the next launch ask the server whether it did.
    */
   key?: string;
+  /**
+   * A large file's upload in parts, as far as it got: the upload id and the
+   * ETag of every part B2 has acknowledged. Persisted with the queue, so a
+   * relaunch or a retry carries on from the part it reached instead of
+   * sending gigabytes again. Cleared once the file is assembled or released.
+   */
+  multipart?: MultipartSession;
+  /** Epoch ms. Queued again after a connectivity failure, not before this. */
+  retryAt?: number;
+  /** Connectivity failures in a row, for the growing wait between tries. */
+  networkFailures?: number;
 }
 
 /** What a caller hands over. Everything else is bookkeeping. */
@@ -109,6 +129,20 @@ async function loadPersisted(): Promise<UploadTask[]> {
   } catch {
     return [];
   }
+}
+
+/** Shown on a file that is waiting for the network to come back. */
+const WAITING_FOR_CONNECTION = 'Waiting for a connection';
+
+/**
+ * Releases the parts of an upload that will not be carried on.
+ *
+ * Best effort and never awaited by anything that matters: offline it fails,
+ * and the bucket's lifecycle rule releases them in a few days instead.
+ */
+function releaseMultipart(session: MultipartSession | undefined): void {
+  if (!session?.key || !session.uploadId) return;
+  void storageApi.abortMultipart(session).catch(() => undefined);
 }
 
 /**
@@ -185,6 +219,50 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, []);
 
+  /** The list as last rendered, for callbacks that must not re-subscribe. */
+  const tasksRef = useRef<UploadTask[]>([]);
+  tasksRef.current = tasks;
+
+  /** How to stop the upload in flight, by task id. */
+  const controllers = useRef(new Map<string, AbortController>());
+
+  /** Wakes the runner when a file's wait after a connectivity failure ends. */
+  const wakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (wakeTimer.current) clearTimeout(wakeTimer.current);
+    },
+    [],
+  );
+
+  /**
+   * Whether uploads may run. Offline, the queue holds rather than burning
+   * through every file with "could not reach storage".
+   *
+   * Starts true: NetInfo answers within a moment, and until it does an upload
+   * that cannot connect is simply queued again.
+   */
+  const [online, setOnline] = useState(true);
+  const wasOnline = useRef(true);
+  useEffect(
+    () =>
+      NetInfo.addEventListener((state) => {
+        const next = isOnlineForUploads(state);
+        if (next && !wasOnline.current) {
+          // Back. A file waiting out a delay goes now, not minutes from now:
+          // the delay was a guess at when the network would return.
+          setTasks((prev) =>
+            prev.some((task) => task.retryAt)
+              ? prev.map((task) => (task.retryAt ? { ...task, retryAt: undefined } : task))
+              : prev,
+          );
+        }
+        wasOnline.current = next;
+        setOnline(next);
+      }),
+    [],
+  );
+
   /**
    * Nothing runs until the previous launch's queue has been accounted for.
    *
@@ -206,13 +284,24 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       const settled: UploadTask[] = [];
       for (const task of saved) {
         if (task.status === 'done' || task.status === 'failed') {
+          // A failed large file keeps its parts so "try again" carries on. Not
+          // forever: past the age a resume is trusted for, they are released
+          // rather than billed until the bucket's lifecycle rule gets to them.
+          if (
+            task.multipart &&
+            !(Date.now() - task.multipart.startedAt < MAX_RESUME_AGE_MS)
+          ) {
+            releaseMultipart(task.multipart);
+            settled.push({ ...task, multipart: undefined });
+            continue;
+          }
           settled.push(task);
           continue;
         }
 
         // No key means no ticket was ever minted, so nothing was sent.
         if (!task.key) {
-          settled.push({ ...task, status: 'queued', progress: 0 });
+          settled.push({ ...task, status: 'queued', progress: 0, retryAt: undefined });
           continue;
         }
 
@@ -224,13 +313,23 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           const stat = await storageApi.confirm(task.key, task.albumId, task.name);
           settled.push(
             stat.exists
-              ? { ...task, status: 'done', progress: 1 }
-              : { ...task, status: 'queued', progress: 0, key: undefined },
+              ? { ...task, status: 'done', progress: 1, multipart: undefined }
+              : // Not there. An upload in parts keeps its key and session: the
+                // object only exists once assembled, and the parts sent so far
+                // are what the next attempt carries on from.
+                {
+                  ...task,
+                  status: 'queued',
+                  progress: 0,
+                  retryAt: undefined,
+                  key: task.multipart ? task.key : undefined,
+                },
           );
         } catch {
           // Offline, or the API having a bad moment. Queue it rather than
           // failing it: a retry costs an upload, and giving up costs the file.
-          settled.push({ ...task, status: 'queued', progress: 0, key: undefined });
+          // The key stays, so the runner asks once more before sending.
+          settled.push({ ...task, status: 'queued', progress: 0, retryAt: undefined });
         }
       }
 
@@ -241,13 +340,15 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         settled.map(async (task) => {
           if (task.status !== 'queued') return task;
           const info = await FileSystem.getInfoAsync(task.uri).catch(() => null);
-          return info?.exists
-            ? task
-            : {
-                ...task,
-                status: 'failed' as const,
-                error: 'That file is no longer on this device.',
-              };
+          if (info?.exists) return task;
+          // Nothing left to send the rest from, so its parts are let go.
+          releaseMultipart(task.multipart);
+          return {
+            ...task,
+            status: 'failed' as const,
+            error: 'That file is no longer on this device.',
+            multipart: undefined,
+          };
         }),
       );
 
@@ -294,15 +395,30 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     ]);
   }, []);
 
+  // Keeps `multipart`: a retry of a large file carries on from its last part.
   const retry = useCallback(
-    (id: string) => patch(id, { status: 'queued', progress: 0, error: undefined }),
+    (id: string) =>
+      patch(id, {
+        status: 'queued',
+        progress: 0,
+        error: undefined,
+        retryAt: undefined,
+        networkFailures: 0,
+      }),
     [patch],
   );
 
-  const remove = useCallback(
-    (id: string) => setTasks((prev) => prev.filter((task) => task.id !== id)),
-    [],
-  );
+  const remove = useCallback((id: string) => {
+    const running = controllers.current.get(id);
+    if (running) {
+      // The upload releases its own parts once it sees the cancellation.
+      running.abort();
+    } else {
+      // Kept for a resume that is now not coming.
+      releaseMultipart(tasksRef.current.find((task) => task.id === id)?.multipart);
+    }
+    setTasks((prev) => prev.filter((task) => task.id !== id));
+  }, []);
 
   const clearFinished = useCallback(
     () => setTasks((prev) => prev.filter((task) => task.status !== 'done')),
@@ -317,15 +433,59 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // the bucket gets sent again.
     if (!hydrated) return;
     if (running.current) return;
-    const next = tasks.find((task) => task.status === 'queued');
-    if (!next) return;
+
+    // Offline, nothing starts; the NetInfo listener re-runs this on return.
+    // A file still waiting out its delay is passed over, and the runner is
+    // woken when the earliest delay ends.
+    const now = Date.now();
+    const { task: next, wakeAt } = nextRunnable(tasks, now, online);
+    if (wakeTimer.current) {
+      clearTimeout(wakeTimer.current);
+      wakeTimer.current = null;
+    }
+    if (!next) {
+      if (wakeAt !== undefined) {
+        wakeTimer.current = setTimeout(() => {
+          wakeTimer.current = null;
+          if (mounted.current) setTasks((prev) => [...prev]);
+        }, Math.max(0, wakeAt - now));
+      }
+      return;
+    }
 
     running.current = true;
+    const controller = new AbortController();
+    controllers.current.set(next.id, controller);
 
     (async () => {
       lastPatchedPercent.current = -1;
       patch(next.id, { status: 'uploading', progress: 0, error: undefined });
       try {
+        // A key from an earlier attempt means bytes may already be in the
+        // bucket: the native transfer can finish after the attempt that
+        // started it gave up, and a large file may have been assembled with
+        // only the reply lost. Asked first, so a file that arrived is not sent
+        // twice. A failure to ask is handled like any other failure below.
+        if (next.key) {
+          const stat = await withConfirmRetry(
+            () => storageApi.confirm(next.key, next.albumId, next.name),
+            { signal: controller.signal },
+          );
+          if (stat.exists) {
+            if (mounted.current) {
+              patch(next.id, {
+                status: 'done',
+                progress: 1,
+                multipart: undefined,
+                retryAt: undefined,
+                networkFailures: 0,
+              });
+            }
+            queryClient.invalidateQueries({ queryKey: ['storage', 'files', next.albumId] });
+            return;
+          }
+        }
+
         await storageApi.uploadFile(next.uri, {
           contentType: next.mimeType,
           scope: 'albums',
@@ -345,8 +505,22 @@ export function UploadProvider({ children }: { children: ReactNode }) {
             lastPatchedPercent.current = percent;
             patch(next.id, { progress: fraction });
           },
+          signal: controller.signal,
+          // A large file carries on from the part an earlier attempt reached.
+          resume: next.multipart,
+          // Written on every acknowledged part, and like onTicket not guarded
+          // by `mounted`: it is what a relaunch resumes from.
+          onSession: (multipart) => patch(next.id, { multipart }),
         });
-        if (mounted.current) patch(next.id, { status: 'done', progress: 1 });
+        if (mounted.current) {
+          patch(next.id, {
+            status: 'done',
+            progress: 1,
+            multipart: undefined,
+            retryAt: undefined,
+            networkFailures: 0,
+          });
+        }
 
         // Per file, not per batch: twenty photographs should appear in the
         // album as they land, not all at the end.
@@ -359,6 +533,29 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           queryKey: ['storage', 'files', next.albumId],
         });
       } catch (error) {
+        const cancelled = controller.signal.aborted;
+        // Removed while running: the row is already gone.
+        if (!mounted.current || cancelled) return;
+
+        // Nothing answered. Queued again rather than failed: the file did
+        // nothing wrong, and on a phone the network comes back. It waits for
+        // NetInfo to say so, then a growing delay, in case it only says so.
+        // Not if the file itself has gone, which no amount of waiting fixes.
+        if (isConnectivityFailure(error, cancelled)) {
+          const info = await FileSystem.getInfoAsync(next.uri).catch(() => null);
+          if (info?.exists && mounted.current) {
+            const failures = (next.networkFailures ?? 0) + 1;
+            patch(next.id, {
+              status: 'queued',
+              progress: 0,
+              error: WAITING_FOR_CONNECTION,
+              networkFailures: failures,
+              retryAt: Date.now() + connectivityRetryDelayMs(failures),
+            });
+            return;
+          }
+        }
+
         if (mounted.current) {
           patch(next.id, {
             status: 'failed',
@@ -366,6 +563,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           });
         }
       } finally {
+        controllers.current.delete(next.id);
         running.current = false;
         // Nudges this effect to look for the next one. Without it the queue
         // stops after the first file, because nothing else changes `tasks`
@@ -383,8 +581,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // `hydrated` belongs in the deps as well as in the guard above: it flips false to
     // true once, and this effect has to re-run on that flip to pick up a queue
     // restored from the last launch. Without it a recovered upload would sit
-    // there until something else changed `tasks`.
-  }, [tasks, patch, queryClient, hydrated]);
+    // there until something else changed `tasks`. `online` likewise: coming
+    // back online is what starts a queue that was held.
+  }, [tasks, patch, queryClient, hydrated, online]);
 
   const pending = tasks.filter((task) => task.status !== 'done');
   const active = pending.some(
