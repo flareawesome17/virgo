@@ -117,35 +117,36 @@ async function main() {
   } finally {
     await pg.end();
   }
-  const totals = totalsOf(rows);
-
-  if (process.argv.includes('--json')) {
-    console.log(JSON.stringify({ totals, albums: rows }, null, 2));
-    return;
-  }
-
-  if (rows.length === 0) {
-    console.log('No duplicate uploads: no album holds two files of the same name and size.');
-    return;
-  }
-
   console.log(
+    process.argv.includes('--json')
+      ? JSON.stringify({ totals: totalsOf(rows), albums: rows }, null, 2)
+      : formatReport(rows),
+  );
+}
+
+/** The summary as text for a terminal. */
+export function formatReport(rows) {
+  if (rows.length === 0) {
+    return 'No duplicate uploads: no album holds two files of the same name and size.\nNothing was changed.';
+  }
+  const totals = totalsOf(rows);
+  const lines = [
     `${totals.groups} file(s) stored more than once, in ${totals.albums} album(s): ` +
       `${totals.extraCopies} extra cop${totals.extraCopies === 1 ? 'y' : 'ies'}, ${formatBytes(totals.extraBytes)}.`,
-  );
-  console.log(
     `Of those, ${totals.identicalGroups} confirmed identical by ETag (${formatBytes(totals.identicalExtraBytes)}); ` +
-      `the rest match on name and size only.\n`,
-  );
+      `the rest match on name and size only.`,
+    '',
+  ];
   for (const row of rows) {
     const album = row.album_id ? `${row.album_name ?? '(deleted album)'} [${row.album_id}]` : '(no album)';
-    console.log(
-      `${row.user_id}  ${album}\n` +
-        `    ${row.groups} file(s) duplicated, ${row.extra_copies} extra, ${formatBytes(row.extra_bytes)}` +
+    lines.push(
+      `${row.user_id}  ${album}`,
+      `    ${row.groups} file(s) duplicated, ${row.extra_copies} extra, ${formatBytes(row.extra_bytes)}` +
         ` · ${row.identical_groups} confirmed identical`,
     );
   }
-  console.log('\nNothing was changed.');
+  lines.push('', 'Nothing was changed.');
+  return lines.join('\n');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
