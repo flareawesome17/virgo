@@ -13,6 +13,9 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -20,6 +23,7 @@ import {
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MediaLinkService } from './media-link.service';
@@ -44,6 +48,9 @@ import {
   MAX_AVATAR_BYTES,
   MAX_COVER_BYTES,
   MAX_UPLOAD_BYTES,
+  MULTIPART_MAX_BYTES,
+  MULTIPART_MAX_PARTS,
+  MULTIPART_PART_BYTES,
   PROFILE_PHOTO_CONTENT_TYPES,
   signingWindowFor,
   StorageConfig,
@@ -58,6 +65,21 @@ export interface UploadTicket {
   key: string;
   uploadUrl: string;
   publicUrl: string | null;
+  /** The client MUST send exactly these headers or the signature will not match. */
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}
+
+export interface MultipartStart {
+  key: string;
+  uploadId: string;
+  /** Every part is this many bytes except the last. */
+  partSize: number;
+  partCount: number;
+}
+
+export interface PartTicket {
+  uploadUrl: string;
   /** The client MUST send exactly these headers or the signature will not match. */
   requiredHeaders: Record<string, string>;
   expiresAt: string;
@@ -326,18 +348,24 @@ export class StorageService {
     }
   }
 
-  async createUploadUrl(
+  /**
+   * Everything that has to be true before a client is handed any signed URL:
+   * a type we accept, a size within `maxBytes`, the profile-photo limits, access
+   * to the album and room in whoever it will be billed to.
+   *
+   * Shared by the single PUT and the multipart start, so a file cannot be
+   * refused one way and let through the other.
+   */
+  private async authoriseUpload(
     userId: string,
     input: {
       contentType: string;
       scope: UploadScope;
       contentLength: number;
-      /** The album it is for, whose owner's storage it will count toward. */
       albumId?: string;
     },
-  ): Promise<UploadTicket> {
-    const client = this.requireClient();
-
+    maxBytes: number,
+  ): Promise<void> {
     if (
       !(ALLOWED_CONTENT_TYPES as readonly string[]).includes(input.contentType)
     ) {
@@ -346,9 +374,9 @@ export class StorageService {
       );
     }
 
-    if (input.contentLength <= 0 || input.contentLength > MAX_UPLOAD_BYTES) {
+    if (input.contentLength <= 0 || input.contentLength > maxBytes) {
       throw new BadRequestException(
-        `File size must be between 1 byte and ${MAX_UPLOAD_BYTES} bytes`,
+        `File size must be between 1 byte and ${maxBytes} bytes`,
       );
     }
 
@@ -410,6 +438,20 @@ export class StorageService {
     } else {
       await this.quota.assertCanStore(userId, input.contentLength);
     }
+  }
+
+  async createUploadUrl(
+    userId: string,
+    input: {
+      contentType: string;
+      scope: UploadScope;
+      contentLength: number;
+      /** The album it is for, whose owner's storage it will count toward. */
+      albumId?: string;
+    },
+  ): Promise<UploadTicket> {
+    const client = this.requireClient();
+    await this.authoriseUpload(userId, input, MAX_UPLOAD_BYTES);
 
     const key = this.buildKey(userId, input.scope, input.contentType);
 
@@ -444,6 +486,228 @@ export class StorageService {
         Date.now() + UPLOAD_URL_TTL_SECONDS * 1000,
       ).toISOString(),
     };
+  }
+
+  /**
+   * Begins a multipart upload (docs/LARGE_UPLOADS.md).
+   *
+   * The same refusals as a single PUT, applied to the whole file before a part
+   * is signed, but against the multipart ceiling. The client then asks for one
+   * URL per part, so no transfer has to fit in a single presigned window and
+   * a failed part is retried on its own.
+   */
+  async startMultipart(
+    userId: string,
+    input: {
+      contentType: string;
+      scope: UploadScope;
+      contentLength: number;
+      albumId?: string;
+    },
+  ): Promise<MultipartStart> {
+    const client = this.requireClient();
+
+    // Profile photos are re-encoded in place on confirm and are held to a few
+    // megabytes; there is nothing to gain from sending one in parts.
+    if (input.scope === 'avatars' || input.scope === 'covers') {
+      throw new BadRequestException('A profile photo is not sent in parts.');
+    }
+    await this.authoriseUpload(userId, input, MULTIPART_MAX_BYTES);
+
+    const partCount = Math.ceil(input.contentLength / MULTIPART_PART_BYTES);
+    if (partCount > MULTIPART_MAX_PARTS) {
+      throw new BadRequestException('That file is too large to upload.');
+    }
+
+    const key = this.buildKey(userId, input.scope, input.contentType);
+    let uploadId: string | undefined;
+    try {
+      const created = await client.send(
+        new CreateMultipartUploadCommand({
+          Bucket: this.config.bucketForScope(input.scope),
+          Key: key,
+          ContentType: input.contentType,
+        }),
+      );
+      uploadId = created.UploadId;
+    } catch (err) {
+      this.logger.error(`CreateMultipartUpload failed for ${key}: ${String(err)}`);
+    }
+    if (!uploadId) {
+      throw new ServiceUnavailableException('Could not reach storage');
+    }
+
+    return { key, uploadId, partSize: MULTIPART_PART_BYTES, partCount };
+  }
+
+  /**
+   * A presigned URL for one part, minted when that part is about to be sent.
+   *
+   * The part's length is signed, so a part cannot be larger than the client
+   * said, and a single part can never be more than `MULTIPART_PART_BYTES`.
+   */
+  async createPartUrl(
+    userId: string,
+    input: { key: string; uploadId: string; partNumber: number; contentLength: number },
+  ): Promise<PartTicket> {
+    const client = this.requireClient();
+    this.assertOwned(userId, input.key);
+
+    if (
+      !Number.isInteger(input.partNumber) ||
+      input.partNumber < 1 ||
+      input.partNumber > MULTIPART_MAX_PARTS
+    ) {
+      throw new BadRequestException('Invalid part number');
+    }
+    if (
+      !Number.isInteger(input.contentLength) ||
+      input.contentLength < 1 ||
+      input.contentLength > MULTIPART_PART_BYTES
+    ) {
+      throw new BadRequestException('Invalid part size');
+    }
+
+    const uploadUrl = await getSignedUrl(
+      client,
+      new UploadPartCommand({
+        Bucket: this.config.bucketForKey(input.key),
+        Key: input.key,
+        UploadId: input.uploadId,
+        PartNumber: input.partNumber,
+        ContentLength: input.contentLength,
+      }),
+      { expiresIn: UPLOAD_URL_TTL_SECONDS },
+    );
+
+    return {
+      uploadUrl,
+      requiredHeaders: { 'Content-Length': String(input.contentLength) },
+      expiresAt: new Date(Date.now() + UPLOAD_URL_TTL_SECONDS * 1000).toISOString(),
+    };
+  }
+
+  /**
+   * Assembles the parts into the object, then checks what was actually stored.
+   *
+   * The size declared at the start is not pinned anywhere B2 can see, so a
+   * client could say 1 MB and send 10 GB. The real size is read back here and
+   * held to the same ceiling and the same quota; an object that fails either
+   * is deleted rather than left behind, unbilled.
+   *
+   * Does not record the file: the client calls `confirm` next, exactly as
+   * after a single PUT, which does the quota row, the feed and the thumbnail.
+   */
+  async completeMultipart(
+    userId: string,
+    input: {
+      key: string;
+      uploadId: string;
+      parts: { partNumber: number; etag: string }[];
+      albumId?: string;
+    },
+  ): Promise<{ key: string; size: number }> {
+    const client = this.requireClient();
+    this.assertOwned(userId, input.key);
+
+    const parts = [...input.parts].sort((a, b) => a.partNumber - b.partNumber);
+    const consecutive = parts.every((p, i) => p.partNumber === i + 1);
+    if (parts.length === 0 || parts.length > MULTIPART_MAX_PARTS || !consecutive) {
+      throw new BadRequestException('The parts are incomplete');
+    }
+
+    const bucket = this.config.bucketForKey(input.key);
+    try {
+      await client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: bucket,
+          Key: input.key,
+          UploadId: input.uploadId,
+          MultipartUpload: {
+            Parts: parts.map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })),
+          },
+        }),
+      );
+    } catch (err) {
+      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata
+        ?.httpStatusCode;
+      this.logger.error(`CompleteMultipartUpload failed for ${input.key}: ${String(err)}`);
+      if (status && status >= 400 && status < 500) {
+        throw new BadRequestException('The upload could not be assembled. Please try again.');
+      }
+      throw new ServiceUnavailableException('Could not reach storage');
+    }
+
+    let size: number;
+    try {
+      const head = await client.send(
+        new HeadObjectCommand({ Bucket: bucket, Key: input.key }),
+      );
+      size = head.ContentLength ?? 0;
+    } catch (err) {
+      this.logger.error(`HEAD failed after multipart for ${input.key}: ${String(err)}`);
+      throw new ServiceUnavailableException('Could not reach storage');
+    }
+
+    try {
+      if (size > MULTIPART_MAX_BYTES) {
+        throw new BadRequestException('That file is too large to upload.');
+      }
+      let billedTo = userId;
+      if (input.albumId) {
+        const access = await this.quota.accessForAlbum(userId, input.albumId);
+        if (!accessAllows(access, 'upload')) {
+          throw new ForbiddenException('You cannot add media to that album');
+        }
+        if (access !== 'owner') {
+          billedTo = (await this.quota.albumOwner(input.albumId)) ?? userId;
+        }
+      }
+      await this.quota.assertCanStore(
+        billedTo,
+        size,
+        billedTo === userId ? 'yours' : 'album-owner',
+      );
+    } catch (err) {
+      // Through deleteFromBuckets, so a store that refuses DeleteObjects
+      // still has the object removed one at a time. It never throws.
+      const gone = await this.deleteFromBuckets([input.key], 'completeMultipart refusal');
+      if (!gone.has(input.key)) {
+        this.logger.error('Could not remove a refused multipart upload');
+      }
+      throw err;
+    }
+
+    return { key: input.key, size };
+  }
+
+  /**
+   * Gives up on a multipart upload and releases its parts.
+   *
+   * B2 bills for the parts of an unfinished upload until something removes
+   * them. A upload that is already gone counts as aborted.
+   */
+  async abortMultipart(
+    userId: string,
+    input: { key: string; uploadId: string },
+  ): Promise<void> {
+    const client = this.requireClient();
+    this.assertOwned(userId, input.key);
+    try {
+      await client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: this.config.bucketForKey(input.key),
+          Key: input.key,
+          UploadId: input.uploadId,
+        }),
+      );
+    } catch (err) {
+      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata
+        ?.httpStatusCode;
+      if (status === 404) return;
+      this.logger.error(`AbortMultipartUpload failed for ${input.key}: ${String(err)}`);
+      throw new ServiceUnavailableException('Could not reach storage');
+    }
   }
 
   /**

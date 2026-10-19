@@ -126,6 +126,22 @@ export const PROFILE_PHOTO_CONTENT_TYPES = [
 /** thumbnails.service MAX_SOURCE_BYTES: above it sharp is not asked. */
 export const MAX_AVATAR_BYTES = 40 * 1024 * 1024;
 
+/**
+ * Multipart uploads (docs/LARGE_UPLOADS.md).
+ *
+ * The object is sent as independent parts and assembled by B2, so no part has
+ * to finish inside one presigned window and a failed part retries alone.
+ *
+ * 16 MB parts: S3 needs at least 5 MB (except the last) and at most 10,000
+ * parts, so 16 MB carries up to 160 GB. A retry costs seconds, not minutes.
+ */
+export const MULTIPART_PART_BYTES = 16 * 1024 * 1024;
+export const MULTIPART_MAX_PARTS = 10_000;
+/** Below this the single PUT is cheaper: multipart costs three extra round trips. */
+export const MULTIPART_MIN_BYTES = 100 * 1024 * 1024;
+/** 10 GB: a card full of footage. The plan's remaining storage is the other limit. */
+export const MULTIPART_MAX_BYTES = 10 * 1024 * 1024 * 1024;
+
 /** Presigned URLs are short-lived — long enough to start an upload, not to share. */
 export const UPLOAD_URL_TTL_SECONDS = 15 * 60;
 export const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
