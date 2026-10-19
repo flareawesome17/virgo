@@ -119,6 +119,13 @@ const SERVER_KEY = /^(support|receipts)\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.[a-z0-9]{2
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
   private readonly client: S3Client | null;
+  /**
+   * Used only for the HEAD that confirms an upload. On its own small pool of
+   * connections it never queues behind a burst of full-size reads (the
+   * thumbnail work), which starved confirms into "Could not reach storage"
+   * on large batches.
+   */
+  private readonly metaClient: S3Client | null;
 
   constructor(
     private readonly config: StorageConfig,
@@ -160,6 +167,23 @@ export class StorageService {
           // Three attempts with the SDK's own backoff, so one slow handshake
           // does not fail a confirm that would have worked on a retry.
           maxAttempts: 3,
+        })
+      : null;
+    this.metaClient = config.isConfigured
+      ? new S3Client({
+          endpoint: config.endpoint,
+          region: config.region,
+          credentials: {
+            accessKeyId: config.keyId,
+            secretAccessKey: config.applicationKey,
+          },
+          forcePathStyle: config.forcePathStyle,
+          requestHandler: new NodeHttpHandler({
+            connectionTimeout: 20_000,
+            requestTimeout: 30_000,
+            httpsAgent: new HttpsAgent({ keepAlive: true, maxSockets: 12 }),
+          }),
+          maxAttempts: 4,
         })
       : null;
     if (this.client) sendContentMd5OnBulkDelete(this.client);
@@ -1471,7 +1495,8 @@ export class StorageService {
     albumId?: string,
     originalName?: string,
   ): Promise<{ exists: boolean; size: number; contentType?: string }> {
-    const client = this.requireClient();
+    this.requireClient();
+    const client = this.metaClient ?? this.requireClient();
     // The key was minted for this caller, so the prefix is the right check for
     // the object itself. Whether they may put it in `albumId` is a separate
     // question, answered next.

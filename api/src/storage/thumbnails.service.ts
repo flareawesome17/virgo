@@ -142,6 +142,15 @@ const STILL_DECODE_TIMEOUT_MS = 15_000;
 const heavyDecodes = new Semaphore(2);
 
 /**
+ * How many confirm-time thumbnails may read their original out of B2 at once.
+ * Each one downloads the whole photograph; unbounded, a bulk upload saturated
+ * the server's link and starved the HEAD that confirms each file, which then
+ * failed as "Could not reach storage". The rest queue, and a retry of a
+ * queued key still joins the run already waiting (see generateOnce).
+ */
+const confirmThumbnails = new Semaphore(3);
+
+/**
  * Where a HEIC is unpacked, and how old a folder must be to be somebody's
  * leftovers.
  *
@@ -401,7 +410,7 @@ export class ThumbnailsService implements OnModuleInit {
     const running = this.inFlight.get(key);
     if (running) return running;
 
-    const made = this.generateUnlessDone(key, contentType, sizeBytes).finally(() => {
+    const made = confirmThumbnails.run(() => this.generateUnlessDone(key, contentType, sizeBytes)).finally(() => {
       this.inFlight.delete(key);
     });
     this.inFlight.set(key, made);
