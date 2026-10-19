@@ -303,3 +303,41 @@ describe('StorageController.remove and removeMany', () => {
     expect(storage.deleteObject).toHaveBeenCalledWith(ME, OTHER);
   });
 });
+
+/**
+ * The upload routes' rate limits, per account (CloudflareThrottlerGuard keys an
+ * authenticated request by user id).
+ *
+ * A 1,167-file album drew "Too many attempts" for 366 files at 60 tickets a
+ * minute: six uploads at once, each a ticket, a PUT and a confirm, runs a
+ * fast connection well past that. These are set so a real bulk upload clears
+ * them, and an account hammering the routes is still stopped.
+ */
+describe('StorageController rate limits', () => {
+  const limitOf = (name: keyof StorageController) => {
+    const handler = StorageController.prototype[name] as unknown as object;
+    return {
+      limit: Reflect.getMetadata('THROTTLER:LIMITdefault', handler),
+      ttl: Reflect.getMetadata('THROTTLER:TTLdefault', handler),
+      // None of these may swap the per-account tracker for another.
+      tracker: Reflect.getMetadata('THROTTLER:TRACKERdefault', handler),
+    };
+  };
+
+  it.each([
+    ['createUploadUrl', 600],
+    ['confirm', 600],
+    ['startMultipart', 300],
+    ['completeMultipart', 300],
+    ['abortMultipart', 300],
+    ['createPartUrl', 1200],
+  ] as const)('%s allows %i a minute per account', (name, limit) => {
+    expect(limitOf(name)).toEqual({ limit, ttl: 60_000, tracker: undefined });
+  });
+
+  it('leaves the destructive routes where they were', () => {
+    expect(limitOf('wipe')).toMatchObject({ limit: 3, ttl: 3_600_000 });
+    expect(limitOf('removeMany')).toMatchObject({ limit: 30, ttl: 60_000 });
+    expect(limitOf('zip')).toMatchObject({ limit: 6, ttl: 60_000 });
+  });
+});

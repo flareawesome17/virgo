@@ -8,12 +8,19 @@
 export class ApiError extends Error {
   readonly status: number;
   readonly body: unknown;
+  /**
+   * How long the server asked to be left before the next try, from the
+   * response's Retry-After, in milliseconds. Set on a 429 or a 503 that said;
+   * the upload retries wait this long rather than guessing (confirm-retry.ts).
+   */
+  readonly retryAfterMs?: number;
 
-  constructor(status: number, message: string, body?: unknown) {
+  constructor(status: number, message: string, body?: unknown, retryAfterMs?: number) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    if (retryAfterMs !== undefined) this.retryAfterMs = retryAfterMs;
   }
 
   /** True when the session is gone and the user needs to sign in again. */

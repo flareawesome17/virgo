@@ -1,4 +1,5 @@
 import { API_BASE_URL, REQUEST_TIMEOUT_MS } from './config';
+import { parseRetryAfter } from './confirm-retry';
 import { ApiError, extractMessage } from './errors';
 import {
   clearTokens,
@@ -259,6 +260,12 @@ export async function request<T>(
     throw new ApiError(0, 'Could not reach the server.', err);
   }
 
+  // When to ask again, if the server said: a 429 from the rate limiter always
+  // does. Read here because the response goes no further than this function.
+  const retryAfter = response.ok
+    ? undefined
+    : parseRetryAfter(response.headers.get('Retry-After'));
+
   if (body instanceof NotJson) {
     // A 200 that is not ours is a connection problem from where the person
     // sits — they are not reaching the server, whatever did answer.
@@ -269,6 +276,7 @@ export async function request<T>(
         ? 'The server had a problem. Please try again in a moment.'
         : `Request failed (${response.status})`,
       body.text,
+      retryAfter,
     );
   }
 
@@ -277,6 +285,7 @@ export async function request<T>(
       response.status,
       extractMessage(body, `Request failed (${response.status})`),
       body,
+      retryAfter,
     );
   }
 
