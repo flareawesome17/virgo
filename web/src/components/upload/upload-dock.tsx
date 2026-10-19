@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronUp, Loader2, RotateCcw, X, XCircle } from 'lucide-react';
 import { formatBytes } from '@/api';
+import { skippedSummary } from '@/api/upload-dedup';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { MINI_PLAYER_OFFSET_VAR } from '@/components/media/video-surface';
@@ -29,12 +30,24 @@ function duration(seconds: number): string {
  * per-file bars told you nothing at a glance.
  */
 export function UploadDock() {
-  const { items, active, bytesPerSecond, cancel, retryFailed, clearFinished } = useUploadQueue();
+  const {
+    items,
+    active,
+    bytesPerSecond,
+    cancel,
+    retryFailed,
+    clearFinished,
+    checking,
+    uploadSkipped,
+  } = useUploadQueue();
   const [open, setOpen] = useState(false);
 
   const summary = useMemo(() => {
-    const counted = items.filter((item) => item.status !== 'cancelled');
+    // Skipped files were never part of the transfer, so they are left out of
+    // its count and its bar, and reported on their own.
+    const counted = items.filter((item) => item.status !== 'cancelled' && item.status !== 'skipped');
     const by = (status: UploadItem['status']) => items.filter((item) => item.status === status);
+    const skipped = by('skipped');
     const totalBytes = counted.reduce((sum, item) => sum + item.sizeBytes, 0);
     const doneBytes = counted.reduce((sum, item) => sum + item.sizeBytes * item.progress, 0);
     const albums = new Set(counted.map((item) => item.albumName).filter(Boolean));
@@ -44,21 +57,33 @@ export function UploadDock() {
       failed: by('failed'),
       uploading: by('uploading'),
       queued: by('queued'),
+      duplicates: skipped.filter((item) => item.skipReason === 'duplicate'),
+      possible: skipped.filter((item) => item.skipReason === 'possible'),
       fraction: totalBytes > 0 ? doneBytes / totalBytes : 0,
       remainingBytes: totalBytes - doneBytes,
       album: albums.size === 1 ? [...albums][0] : null,
     };
   }, [items]);
 
-  if (items.length === 0) return null;
+  if (items.length === 0 && checking === 0) return null;
 
-  const { total, done, failed, uploading, queued } = summary;
+  const { total, done, failed, uploading, queued, duplicates, possible } = summary;
+  const skippedCount = duplicates.length + possible.length;
+  const busy = active || checking > 0;
   const headline = active
     ? `Uploading ${done.length.toLocaleString()} of ${total.toLocaleString()}`
-    : failed.length > 0
-      ? `${done.length.toLocaleString()} uploaded · ${failed.length.toLocaleString()} failed`
-      : `${done.length.toLocaleString()} uploaded`;
-  const detail = active
+    : checking > 0
+      ? `Checking ${checking.toLocaleString()} file${checking === 1 ? '' : 's'}`
+      : [
+          `${done.length.toLocaleString()} uploaded`,
+          failed.length > 0 ? `${failed.length.toLocaleString()} failed` : null,
+          skippedCount > 0 ? `${skippedCount.toLocaleString()} skipped` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+  const detail = !active && checking > 0
+    ? 'Looking for files already in the album'
+    : active
     ? [
         bytesPerSecond ? `${formatBytes(bytesPerSecond)}/s` : null,
         bytesPerSecond && bytesPerSecond > 0
@@ -75,7 +100,11 @@ export function UploadDock() {
   // everything else a screen reader has to say.
   const announcement = active
     ? `Uploading ${total} files`
-    : `${done.length} uploaded${failed.length ? `, ${failed.length} failed` : ''}`;
+    : checking > 0
+      ? 'Checking for files already uploaded'
+      : `${done.length} uploaded${failed.length ? `, ${failed.length} failed` : ''}${
+          skippedCount ? `, ${skippedCount} skipped` : ''
+        }`;
 
   return (
     <section
@@ -91,7 +120,7 @@ export function UploadDock() {
       </p>
       <div className="flex items-start gap-2.5 px-3.5 pt-3 pb-2.5">
         <span className="mt-0.5">
-          {active ? (
+          {busy ? (
             <Loader2 className="size-4 animate-spin text-primary" aria-hidden />
           ) : failed.length > 0 ? (
             <XCircle className="size-4 text-destructive" aria-hidden />
@@ -114,7 +143,7 @@ export function UploadDock() {
         >
           {open ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
         </Button>
-        {!active && (
+        {!busy && (
           <Button size="icon" variant="ghost" className="size-7" onClick={clearFinished} aria-label="Dismiss uploads">
             <X className="size-4" />
           </Button>
@@ -129,6 +158,40 @@ export function UploadDock() {
           <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={retryFailed}>
             <RotateCcw className="size-3.5" />
             Retry
+          </Button>
+        </div>
+      )}
+
+      {/* Skipped, and why, with the way to send them after all. Exact
+          duplicates are skipped without asking; possible ones were asked
+          about, and are here if the answer was "skip". */}
+      {duplicates.length > 0 && (
+        <div className="flex items-center justify-between gap-2 border-t bg-muted/40 px-3.5 py-2">
+          <p className="text-xs text-muted-foreground">{skippedSummary(duplicates.length)}.</p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 text-xs"
+            onClick={() => uploadSkipped('duplicate')}
+          >
+            Upload anyway
+          </Button>
+        </div>
+      )}
+      {possible.length > 0 && (
+        <div className="flex items-center justify-between gap-2 border-t bg-muted/40 px-3.5 py-2">
+          <p className="text-xs text-muted-foreground">
+            {possible.length === 1
+              ? '1 possible duplicate not uploaded.'
+              : `${possible.length.toLocaleString()} possible duplicates not uploaded.`}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 text-xs"
+            onClick={() => uploadSkipped('possible')}
+          >
+            Upload anyway
           </Button>
         </div>
       )}

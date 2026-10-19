@@ -13,6 +13,12 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryKeys, storageApi, type UploadScope } from '@/api';
+import {
+  planUploads,
+  possibleDuplicatesMessage,
+  possibleDuplicatesTitle,
+  type UploadCheckFile,
+} from '@/api/upload-dedup';
 import { usageQueryKey } from '@/hooks/useUsage';
 import {
   AlertDialog,
@@ -33,7 +39,16 @@ export interface UploadItem {
   sizeBytes: number;
   /** 0-1, from real bytes sent. */
   progress: number;
-  status: 'queued' | 'uploading' | 'done' | 'failed' | 'cancelled';
+  /**
+   * `skipped`: not sent, because the album already holds it or might
+   * (`skipReason`). Kept, with its File, so it can be uploaded anyway.
+   */
+  status: 'queued' | 'uploading' | 'done' | 'failed' | 'cancelled' | 'skipped';
+  /**
+   * `duplicate`: same name, size and modified time as a file in the album.
+   * `possible`: same name and size only, held back on the person's say-so.
+   */
+  skipReason?: 'duplicate' | 'possible';
   error?: string;
   /** Where it is going, so the dock can say so and a finish refreshes that album. */
   albumId?: string;
@@ -57,6 +72,10 @@ interface UploadQueue {
   cancel: (id: string) => void;
   retryFailed: () => void;
   clearFinished: () => void;
+  /** Files being checked against their album before they are queued. */
+  checking: number;
+  /** Sends the files skipped for that reason after all. */
+  uploadSkipped: (reason: 'duplicate' | 'possible') => void;
 }
 
 /** How many files go up at once, across the whole app. See upload-concurrency.ts. */
@@ -74,7 +93,20 @@ const UploadContext = createContext<UploadQueue>({
   cancel: noop,
   retryFailed: noop,
   clearFinished: noop,
+  checking: 0,
+  uploadSkipped: noop,
 });
+
+/** What the pre-upload check is told about a file (upload-dedup.ts). */
+function describeFile(file: File): UploadCheckFile {
+  return {
+    name: file.name,
+    size: file.size,
+    ...(Number.isInteger(file.lastModified) && file.lastModified > 0
+      ? { lastModified: file.lastModified }
+      : {}),
+  };
+}
 
 /**
  * The upload queue, held above every page.
@@ -107,6 +139,13 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const lastSample = useRef(0);
   // The desktop window's close, held while the app asks whether to stop.
   const [askingToClose, setAskingToClose] = useState(false);
+  // Files waiting on the duplicate check, and the question about the ones it
+  // could not be sure of.
+  const [checking, setChecking] = useState(0);
+  const [askingPossible, setAskingPossible] = useState<{
+    count: number;
+    albumName?: string;
+  } | null>(null);
   const stopHoldingClose = useRef<(() => Promise<void>) | null>(null);
 
   /** How often progress may re-render the app while bytes are moving. */
@@ -217,26 +256,84 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     start();
   }, [patch, refresh, sample]);
 
-  const enqueue = useCallback(
-    (list: File[], target: UploadTarget) => {
+  /** Adds files to the list: queued to send, or set aside as skipped. */
+  const add = useCallback(
+    (list: File[], target: UploadTarget, skipReason?: UploadItem['skipReason']) => {
       if (list.length === 0) return;
-      const added = list.map((file) => {
+      const added = list.map((file): UploadItem => {
         nextId.current += 1;
         const id = `upload-${nextId.current}`;
         files.current.set(id, { file, target });
-        waiting.current.push(id);
+        if (!skipReason) waiting.current.push(id);
         return {
           id,
           name: file.name,
           sizeBytes: file.size,
           progress: 0,
-          status: 'queued' as const,
+          status: skipReason ? 'skipped' : 'queued',
+          skipReason,
           albumId: target.albumId,
           albumName: target.albumName,
         };
       });
       setItems((prev) => [...prev, ...added]);
-      pump();
+    },
+    [],
+  );
+
+  /*
+   * Into an album, the batch is checked first against what the album already
+   * holds (upload-dedup.ts), so re-sending a drop that half-failed sends only
+   * what did not arrive. Files certainly there are skipped, and the dock can
+   * send them anyway; files that only might be are asked about. A check that
+   * fails or is slow sends everything, as before the check existed.
+   */
+  const enqueue = useCallback(
+    (list: File[], target: UploadTarget) => {
+      if (list.length === 0) return;
+      const albumId = target.albumId;
+      if (!albumId || target.scope !== 'albums') {
+        add(list, target);
+        pump();
+        return;
+      }
+      setChecking((n) => n + list.length);
+      void planUploads(list, describeFile, (described) =>
+        storageApi.checkUploads(albumId, described),
+      )
+        // planUploads does not reject; if anything ever does, send it all.
+        .catch(() => ({ upload: list, duplicates: [], possible: [], checked: false }))
+        .then((plan) => {
+          add(plan.upload, target);
+          add(plan.duplicates, target, 'duplicate');
+          add(plan.possible, target, 'possible');
+          if (plan.possible.length > 0) {
+            setAskingPossible((prev) => ({
+              count: (prev?.count ?? 0) + plan.possible.length,
+              albumName: !prev || prev.albumName === target.albumName ? target.albumName : undefined,
+            }));
+          }
+        })
+        .finally(() => {
+          setChecking((n) => Math.max(0, n - list.length));
+          pump();
+        });
+    },
+    [add, pump],
+  );
+
+  const uploadSkipped = useCallback(
+    (reason: 'duplicate' | 'possible') => {
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.status !== 'skipped' || item.skipReason !== reason) return item;
+          if (!files.current.has(item.id)) return item;
+          // Guarded as in retryFailed: the updater may run twice.
+          if (!waiting.current.includes(item.id)) waiting.current.push(item.id);
+          return { ...item, status: 'queued', skipReason: undefined };
+        }),
+      );
+      setTimeout(pump, 0);
     },
     [pump],
   );
@@ -389,13 +486,52 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ items, active, bytesPerSecond, enqueue, cancel, retryFailed, clearFinished }),
-    [items, active, bytesPerSecond, enqueue, cancel, retryFailed, clearFinished],
+    () => ({
+      items,
+      active,
+      bytesPerSecond,
+      enqueue,
+      cancel,
+      retryFailed,
+      clearFinished,
+      checking,
+      uploadSkipped,
+    }),
+    [items, active, bytesPerSecond, enqueue, cancel, retryFailed, clearFinished, checking, uploadSkipped],
   );
 
   return (
     <UploadContext.Provider value={value}>
       {children}
+      {/* Files that might already be in the album. Asked, never skipped
+          quietly: two different photographs can share a name and a size.
+          Dismissing it leaves them skipped, and the dock can still send them. */}
+      <AlertDialog
+        open={askingPossible !== null}
+        onOpenChange={(open) => {
+          if (!open) setAskingPossible(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{possibleDuplicatesTitle(askingPossible?.count ?? 0)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {possibleDuplicatesMessage(askingPossible?.count ?? 0, askingPossible?.albumName)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Skip</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setAskingPossible(null);
+                uploadSkipped('possible');
+              }}
+            >
+              Upload anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {IS_DESKTOP && (
         <AlertDialog open={askingToClose} onOpenChange={setAskingToClose}>
           <AlertDialogContent>
