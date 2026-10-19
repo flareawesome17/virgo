@@ -130,3 +130,10 @@ describe('client gallery template', () => {
     expect(html).toContain('--panel-muted:rgba(255,255,255,0.74)');
   });
 });
+
+describe('share page favicon', () => {
+  it('carries the Virgo icon as an inline data URI', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    expect(html).toContain('<link rel="icon" type="image/png" href="data:image/png;base64,');
+  });
+});
