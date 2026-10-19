@@ -137,3 +137,11 @@ describe('share page favicon', () => {
     expect(html).toContain('<link rel="icon" type="image/png" href="data:image/png;base64,');
   });
 });
+
+describe('video player layout', () => {
+  it('fits the video inside the stage so its controls are not clipped', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    expect(html).toContain('grid-template:minmax(0,1fr)/minmax(0,1fr)');
+    expect(html).toMatch(/\.video\{width:100%;height:100%;[^}]*object-fit:contain/);
+  });
+});
