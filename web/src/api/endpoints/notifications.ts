@@ -27,13 +27,17 @@ export type NotificationTopic =
   | 'client-picks'
   | 'support'
   | 'booking'
+  /** A payment a client owes is due tomorrow, or overdue. */
+  | 'money'
   | 'promo'
   /**
    * A new version of the app this client is running. Targeted at a platform
    * and version on the server, so a phone and a browser signed in to the same
    * account each see only the updates that concern them.
    */
-  | 'app-update';
+  | 'app-update'
+  /** News from Virgo, sent from the console to many accounts at once. */
+  | 'announcement';
 
 export interface AppNotification {
   id: string;
@@ -72,6 +76,7 @@ export type NotificationChannel = 'push' | 'email' | 'desktop';
 /** Which kind each topic is. Mirrors CATEGORY_OF_TOPIC in the API. */
 export const CATEGORY_OF_TOPIC: Record<NotificationTopic, NotificationCategory> = {
   booking: 'bookings',
+  money: 'bookings',
   'client-picks': 'albums',
   retention: 'albums',
   'job-application': 'jobs',
@@ -88,6 +93,7 @@ export const CATEGORY_OF_TOPIC: Record<NotificationTopic, NotificationCategory> 
   reminder: 'schedule',
   billing: 'billing',
   'app-update': 'updates',
+  announcement: 'updates',
   promo: 'offers',
   support: 'support',
 };
@@ -145,6 +151,8 @@ export const notificationsApi = {
   list(params: NotificationListParams = {}): Promise<{
     data: AppNotification[];
     unread: number;
+    /** With a category: how many of that kind are unread. Older APIs omit it. */
+    categoryUnread?: number;
   }> {
     const q = withClient();
     if (params.limit) q.set('limit', String(params.limit));
@@ -168,10 +176,10 @@ export const notificationsApi = {
     return api.get(`/notifications/unread-count?${withClient().toString()}`);
   },
 
-  /** Some of them, or — with no ids — all of them. */
-  markRead(ids?: string[]): Promise<{ updated: number }> {
+  /** Some of them, or — with no ids — all of them, or all of one kind. */
+  markRead(ids?: string[], category?: NotificationCategory | null): Promise<{ updated: number }> {
     return api.post(`/notifications/read?${withClient().toString()}`, {
-      body: ids ? { ids } : {},
+      body: ids ? { ids } : category ? { category } : {},
     });
   },
 

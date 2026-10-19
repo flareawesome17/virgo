@@ -11,8 +11,20 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { queryKeys, storageApi, type UploadScope } from '@/api';
 import { usageQueryKey } from '@/hooks/useUsage';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { ATTENTION_INFORMATIONAL, IS_DESKTOP, desktopWindow } from '@/lib/desktop';
 import { UPLOAD_CONCURRENCY } from './upload-concurrency';
 
 export interface UploadItem {
@@ -72,7 +84,8 @@ const UploadContext = createContext<UploadQueue>({
  * transfers still in flight lost their progress, and the ones waiting their
  * turn never started. In the desktop app, where a photographer drops a card's
  * worth of files and carries on working, that was the whole use case. Here,
- * uploads carry on wherever you go, and closing the tab asks first.
+ * uploads carry on wherever you go, and closing the tab or the desktop window
+ * asks first.
  */
 export function UploadProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
@@ -92,6 +105,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPatch = useRef(new Map<string, number>());
   const lastSample = useRef(0);
+  // The desktop window's close, held while the app asks whether to stop.
+  const [askingToClose, setAskingToClose] = useState(false);
+  const stopHoldingClose = useRef<(() => Promise<void>) | null>(null);
 
   /** How often progress may re-render the app while bytes are moving. */
   const PROGRESS_EVERY_MS = 200;
@@ -278,6 +294,93 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [active]);
 
+  const unfinished = items.filter(
+    (item) => item.status === 'queued' || item.status === 'uploading',
+  ).length;
+
+  // A question about uploads that have since finished is not worth answering:
+  // it goes, and the next close goes straight through. Adjusted during render
+  // rather than from an effect, so it never draws for a frame with nothing
+  // left to lose — and is not still set when the next upload starts.
+  if (askingToClose && !active) setAskingToClose(false);
+
+  /*
+   * Closing the desktop window, which beforeunload never hears about.
+   *
+   * The shell tears the webview down without unloading the page, so the guard
+   * above stayed silent and a card's worth of files stopped halfway without a
+   * word. While anything is still going up, the shell is asked to hold every
+   * close — the X, Alt+F4, the red button, the taskbar, and the title bar's
+   * own Close, which calls the same `close()` — and the question is put in
+   * the app instead.
+   *
+   * Only while: a held close waits on the page, and a page that never answers
+   * is a window that cannot be shut. So the listener goes the moment the queue
+   * drains, and the hold with it.
+   */
+  useEffect(() => {
+    if (!active) return;
+    const win = desktopWindow();
+    if (!win) return;
+
+    let unlisten: (() => void | Promise<void>) | undefined;
+    let gone = false;
+    // Safe to call twice, and from Close anyway as well as from cleanup.
+    const release = async () => {
+      const off = unlisten;
+      unlisten = undefined;
+      await off?.();
+    };
+
+    win
+      .onCloseRequested((event) => {
+        event.preventDefault();
+        setAskingToClose(true);
+        // A close from the taskbar can reach a minimised window, where the
+        // question would be asked out of sight, so the window comes forward
+        // first. The flash is for a shell without that grant; it is ignored
+        // when the window is already in front.
+        void win
+          .unminimize()
+          .then(() => win.setFocus())
+          .catch(() => undefined);
+        void win.requestUserAttention(ATTENTION_INFORMATIONAL).catch(() => undefined);
+      })
+      .then((off) => {
+        unlisten = off;
+        // Registering is a round trip; uploads that ended first undo it as
+        // soon as it lands.
+        if (gone) void release().catch(() => undefined);
+      })
+      // A shell without the grant: closing is simply not asked about.
+      .catch(() => undefined);
+    stopHoldingClose.current = release;
+
+    return () => {
+      gone = true;
+      if (stopHoldingClose.current === release) stopHoldingClose.current = null;
+      void release().catch(() => undefined);
+    };
+  }, [active]);
+
+  const closeAnyway = useCallback(() => {
+    const win = desktopWindow();
+    if (!win) return;
+    win
+      .destroy()
+      .catch(async () => {
+        // Refused: stop holding the close and make it the ordinary way. With
+        // nothing listening, the shell lets it through.
+        await stopHoldingClose.current?.();
+        await win.close();
+      })
+      .catch((error: unknown) => {
+        toast.error('Cannot close Virgo', {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }, []);
+
   useEffect(
     () => () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
@@ -290,7 +393,32 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     [items, active, bytesPerSecond, enqueue, cancel, retryFailed, clearFinished],
   );
 
-  return <UploadContext.Provider value={value}>{children}</UploadContext.Provider>;
+  return (
+    <UploadContext.Provider value={value}>
+      {children}
+      {IS_DESKTOP && (
+        <AlertDialog open={askingToClose} onOpenChange={setAskingToClose}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Uploads still running</AlertDialogTitle>
+              <AlertDialogDescription>
+                {unfinished === 1
+                  ? "1 file hasn't finished."
+                  : `${unfinished.toLocaleString()} files haven't finished.`}{' '}
+                Closing Virgo stops them.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep uploading</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={closeAnyway}>
+                Close anyway
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+    </UploadContext.Provider>
+  );
 }
 
 export function useUploadQueue(): UploadQueue {

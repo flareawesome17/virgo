@@ -41,11 +41,95 @@ const HANDLE_PATH = /^\/@([A-Za-z0-9_]{3,30})\/?$/;
  */
 const JOB_SLUG_PATH = /^\/jobs\/([a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]{6})\/?$/;
 
+/**
+ * `/p/<showcase id>`, a shared post: the public page for a post its maker
+ * showed to everyone, readable without an account. Ids only — anything else
+ * under /p is not a post and goes the way of every other unknown address.
+ */
+const SHARED_POST_PATH =
+  /^\/p\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?$/i;
+
+/**
+ * Addresses that moved, on the app host, and where they went.
+ *
+ * Emails, bookmarks and notifications already sent carry the old ones, so
+ * each keeps working. The phone's own addresses are here too: a link copied
+ * out of the app on a phone and opened on a computer lands on the same
+ * screen rather than a 404.
+ */
+const MOVED: Record<string, string> = {
+  // Never existed, but the account-paused email linked to it until 2026-10.
+  '/login': '/sign-in',
+  // Jobs is one screen with the board, your posts, your applications and
+  // your bookings as tabs; People takes in the enquiries and Nearby.
+  '/jobs/mine': '/jobs',
+  '/jobs/applications': '/jobs?tab=applied',
+  '/bookings': '/jobs?tab=bookings',
+  '/network': '/people',
+  '/nearby': '/people?tab=nearby',
+  // The phone's.
+  '/connect': '/people',
+  '/discover/nearby': '/people?tab=nearby',
+  '/friends': '/people',
+  '/friends/requests': '/people',
+  '/friends/accepted': '/people',
+  '/friends/enquiries': '/people?tab=enquiries',
+  '/workspaces/archived': '/workspaces?archived=1',
+  '/workspaces/create': '/workspaces?new=1',
+  '/schedule/create': '/schedule?new=1',
+  '/schedule/calendar': '/schedule',
+  '/schedule/agenda': '/schedule?tab=upcoming',
+  '/schedule/reminders': '/schedule?tab=reminders',
+  '/settings/public-profile': '/settings/profile',
+  '/settings/password': '/settings/account?change=password',
+  '/settings/email': '/settings/account?change=email',
+  '/settings/storage/plans': '/settings/plans',
+  '/settings/storage/unfiled': '/settings/storage',
+  '/settings/theme': '/settings',
+  '/settings/privacy': '/settings',
+};
+
+/**
+ * Where a moved address goes now, with its query kept.
+ *
+ * The new address's own query wins where both name the same key, so
+ * `/nearby?tab=x` is still Nearby; anything else the old link carried, such as
+ * `?tab=posted&post=…` on /jobs/mine, comes along.
+ */
+function movedTo(pathname: string, incoming: URLSearchParams): string | null {
+  const path = pathname.length > 1 ? pathname.replace(/\/$/, '') : pathname;
+  let target = MOVED[path];
+  // Connect has two views on the phone; Messages is Chat here.
+  if (path === '/connect' && incoming.get('view') === 'messages') target = '/chat';
+  // One notification, opened as the list's detail pane.
+  const notification = /^\/notifications\/([^/]+)$/.exec(path);
+  if (notification) target = `/notifications?id=${encodeURIComponent(notification[1])}`;
+  if (!target) return null;
+
+  const [targetPath, targetQuery = ''] = target.split('?');
+  const query = new URLSearchParams(targetQuery);
+  for (const [key, value] of incoming) {
+    if (key === 'view' && path === '/connect') continue;
+    if (!query.has(key)) query.append(key, value);
+  }
+  const qs = query.toString();
+  return qs ? `${targetPath}?${qs}` : targetPath;
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const host = request.headers.get('host')?.split(':')[0].toLowerCase() ?? '';
   const { pathname, search } = request.nextUrl;
 
   if (!MARKETING_HOSTS.has(host)) {
+    /**
+     * A shared post works on this host too: the same public page at the same
+     * address, signed in or not, rather than a bounce to the apex — a link
+     * copied from the app's address bar is still a link that opens. Its
+     * canonical tag names the apex, and this host's robots.txt keeps crawlers
+     * out either way. First, so no redirect added below can swallow it.
+     */
+    if (SHARED_POST_PATH.test(pathname)) return NextResponse.next();
+
     /**
      * A profile has one address, `/@handle`, and it works on both hosts.
      *
@@ -74,6 +158,9 @@ export function proxy(request: NextRequest): NextResponse {
         308,
       );
     }
+
+    const moved = movedTo(pathname, request.nextUrl.searchParams);
+    if (moved) return NextResponse.redirect(new URL(moved, request.url), 308);
 
     const onAppHost = HANDLE_PATH.exec(pathname);
     if (onAppHost) {
@@ -127,6 +214,12 @@ export function proxy(request: NextRequest): NextResponse {
     // page on this host. Without this line the catch-all below would send it
     // to web.virgo.ph/download, which does not exist.
     pathname === '/download' ||
+    // A shared post (virgo.ph/p/<id>): the one piece of somebody's work this
+    // host serves, to anybody, for a post its maker showed to everyone. Unlike
+    // a profile it is not handed to the app — the person it was sent to sees
+    // the work first, and the chat app drawing its preview gets a page, not
+    // a redirect to sign-in.
+    SHARED_POST_PATH.test(pathname) ||
     pathname.startsWith('/opengraph-image') ||
     pathname.startsWith('/twitter-image')
   ) {

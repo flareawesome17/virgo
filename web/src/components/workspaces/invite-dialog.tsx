@@ -185,7 +185,7 @@ export function InviteDialog({
               ) : friends.length === 0 ? (
                 <p className="px-3 py-6 text-center text-sm text-muted-foreground">
                   You can invite people you are friends with.{' '}
-                  <Link href="/network" className="font-medium text-primary hover:underline">
+                  <Link href="/people" className="font-medium text-primary hover:underline">
                     Find people on Network
                   </Link>
                   .

@@ -199,7 +199,8 @@ export default function NotificationsScreen() {
 
   const {
     notifications,
-    unread,
+    unread: allUnread,
+    categoryUnread,
     isLoading,
     loadFailed,
     refetch,
@@ -207,6 +208,9 @@ export default function NotificationsScreen() {
     fetchNextPage,
     isFetchingNextPage,
   } = useNotificationFeed({ unread: unreadOnly, category });
+  // Inside a kind, its own count and its own "mark all": the global ones
+  // cleared every other kind along with it.
+  const unread = category ? (categoryUnread ?? allUnread) : allUnread;
   const markRead = useMarkNotificationsRead();
   const markUnread = useMarkNotificationsUnread();
   const remove = useDeleteNotifications();
@@ -287,7 +291,7 @@ export default function NotificationsScreen() {
         </View>
         {unread > 0 && (
           <Pressable
-            onPress={() => markRead.mutate(undefined)}
+            onPress={() => markRead.mutate(category ? { category } : undefined)}
             disabled={markRead.isPending}
             className="h-9 flex-row items-center gap-1.5"
             style={{ opacity: markRead.isPending ? 0.5 : 1 }}

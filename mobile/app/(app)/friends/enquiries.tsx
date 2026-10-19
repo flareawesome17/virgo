@@ -15,6 +15,7 @@ import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PersonSafetySheet } from '@/components/PersonSafetySheet';
+import { profileActionMessage } from '@/src/lib/profile-media';
 
 for (const Icon of [
   ArrowLeftIcon, BriefcaseIcon, CalendarIcon, CheckIcon,
@@ -55,11 +56,18 @@ export default function EnquiriesScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
-      <View className="flex-row items-center gap-3 px-5 py-3">
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+      <View className="flex-row items-center gap-1 px-2 py-1">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          onPress={() => router.back()}
+          className="w-11 h-11 items-center justify-center active:opacity-60"
+        >
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
-        <Text className="text-foreground text-lg font-bold">Enquiries</Text>
+        <Text accessibilityRole="header" className="text-foreground text-lg font-bold">
+          Hire enquiries
+        </Text>
       </View>
 
       {isLoading && received.length === 0 && sent.length === 0 ? (
@@ -156,7 +164,13 @@ function EnquiryCard({
             router.push(`/chat/${result.conversationId}`);
           }
         },
-        onError: (error: Error) => Alert.alert('Could not respond', error.message),
+        // The server's own text is written for the API; this says what
+        // happened in words for the person holding the phone.
+        onError: (error) =>
+          Alert.alert(
+            accept ? "Couldn't accept the enquiry" : "Couldn't decline the enquiry",
+            profileActionMessage(error, 'enquiry'),
+          ),
         onSettled: () => setActing(null),
       },
     );
@@ -214,11 +228,10 @@ function EnquiryCard({
             your inbox, and this is the way to say so or shut it out. */}
         {isIncoming && onMore && (
           <Pressable
-            hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel={`More options for ${enquiry.personName}`}
             onPress={onMore}
-            className="py-1"
+            className="w-11 h-11 -mt-2 -mr-2 items-center justify-center active:opacity-60"
           >
             <EllipsisIcon size={16} className="text-muted-foreground" />
           </Pressable>
@@ -232,10 +245,12 @@ function EnquiryCard({
       {isIncoming && waiting && (
         <View className="flex-row items-center gap-2">
           <Pressable
-            className="rounded-xl px-4 py-2.5 flex-row items-center gap-1.5"
-            style={{ backgroundColor: '#B66A40', opacity: answer.isPending ? 0.6 : 1 }}
+            className="flex-1 rounded-xl min-h-[44px] flex-row items-center justify-center gap-1.5 bg-action"
+            style={{ opacity: answer.isPending ? 0.6 : 1 }}
             disabled={answer.isPending}
             onPress={() => respond(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Accept ${enquiry.personName}'s enquiry`}
           >
             {acting === 'accept'
               ? <ActivityIndicator size="small" color="#fff" />
@@ -243,27 +258,29 @@ function EnquiryCard({
             <Text className="text-white text-[13px] font-bold">Accept</Text>
           </Pressable>
           <Pressable
-            className="rounded-xl px-4 py-2.5 flex-row items-center gap-1.5"
+            className="flex-1 rounded-xl min-h-[44px] flex-row items-center justify-center gap-1.5 bg-muted"
             disabled={answer.isPending}
             onPress={() => respond(false)}
+            accessibilityRole="button"
+            accessibilityLabel={`Decline ${enquiry.personName}'s enquiry`}
           >
             {acting === 'decline'
               ? <ActivityIndicator size="small" color="#9ca3af" />
               : <XIcon size={14} className="text-muted-foreground" />}
-            <Text className="text-muted-foreground text-[13px] font-semibold">Decline</Text>
+            <Text className="text-foreground text-[13px] font-bold">Decline</Text>
           </Pressable>
         </View>
       )}
 
       {enquiry.status === 'accepted' && enquiry.conversationId && (
         <Pressable
-          className="flex-row items-center gap-1.5"
+          className="self-start min-h-[44px] -my-1.5 px-1 flex-row items-center gap-1.5 active:opacity-60"
           onPress={() => router.push(`/chat/${enquiry.conversationId}`)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open the chat with ${enquiry.personName}`}
         >
-          <MessageCircleIcon size={13} color="#B66A40" />
-          <Text className="text-[12px] font-semibold" style={{ color: '#B66A40' }}>
-            Open chat
-          </Text>
+          <MessageCircleIcon size={15} className="text-primary" />
+          <Text className="text-primary text-[13px] font-bold">Open chat</Text>
         </Pressable>
       )}
 

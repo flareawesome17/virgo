@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { LifeBuoy, MessageSquare, Plus } from 'lucide-react';
 import {
   useOpenTicket,
@@ -15,11 +16,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
+import { RateTicket } from '@/components/support/rate-ticket';
+import {
+  AttachFiles,
+  MessageFiles,
+  useSupportUploads,
+} from '@/components/support/support-files';
 
+// `pending` is what a support reply sets: the customer's move, not ours.
 const STATUS_LABEL: Record<string, string> = {
   open: 'Open',
-  pending: 'Waiting on us',
+  pending: 'Waiting on you',
   resolved: 'Resolved',
   closed: 'Closed',
 };
@@ -35,17 +43,45 @@ const STATUS_LABEL: Record<string, string> = {
  * worse for whoever answers.
  */
 export default function SupportPage() {
+  // `useSearchParams` needs a Suspense boundary, or the route opts out of the
+  // static rendering the desktop build depends on.
+  return (
+    <Suspense fallback={null}>
+      <SupportContent />
+    </Suspense>
+  );
+}
+
+function SupportContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const { tickets, isLoading, loadFailed, refetch } = useSupportTickets();
+
+  // ?ticket= is where a "Support replied" notification points, so it opens
+  // on the reply rather than on the list of every request. Applied during
+  // render, so the list never flashes first; re-armed once the link is
+  // cleared, so the same notification followed twice opens it twice.
+  const linkedTicket = searchParams.get('ticket');
+  const [appliedTicket, setAppliedTicket] = useState<string | null>(null);
+  if (linkedTicket !== appliedTicket) {
+    setAppliedTicket(linkedTicket);
+    if (linkedTicket) setOpenId(linkedTicket);
+  }
+
+  // Taken back out of the address, so "All requests" and a refresh agree.
+  useEffect(() => {
+    if (linkedTicket) router.replace('/support');
+  }, [linkedTicket, router]);
 
   if (openId) {
     return <Thread id={openId} onBack={() => setOpenId(null)} />;
   }
 
   return (
-    <AppShell title="Support">
-    <div className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
+    <Screen title="Support">
+    <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Support</h1>
@@ -89,8 +125,8 @@ export default function SupportPage() {
           <LifeBuoy className="mx-auto size-6 text-muted-foreground" />
           <p className="mt-3 text-sm font-medium">No requests yet</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            If something is broken or confusing, tell us — during the
-            pre-release that is the most useful thing you can do.
+            If something is broken or confusing, tell us — it is the most
+            useful thing you can do.
           </p>
         </div>
       ) : (
@@ -118,7 +154,7 @@ export default function SupportPage() {
         </div>
       )}
     </div>
-    </AppShell>
+    </Screen>
   );
 }
 
@@ -126,14 +162,25 @@ function Compose({ onDone }: { onDone: () => void }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const open = useOpenTicket();
+  const uploads = useSupportUploads();
 
   const tooShort = body.trim().length < 10 || subject.trim().length < 3;
+  const blocked = open.isPending || tooShort || uploads.busy || uploads.failed;
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        open.mutate({ subject, body }, { onSuccess: onDone });
+        if (blocked) return;
+        open.mutate(
+          { subject, body, attachments: uploads.ids },
+          {
+            onSuccess: () => {
+              uploads.clear();
+              onDone();
+            },
+          },
+        );
       }}
       className="space-y-3"
     >
@@ -158,14 +205,15 @@ function Compose({ onDone }: { onDone: () => void }) {
           maxLength={5000}
         />
       </div>
+      <AttachFiles uploads={uploads} disabled={open.isPending} />
       {open.isError && (
         <p role="alert" className="text-sm text-destructive">
           {open.error instanceof Error ? open.error.message : 'Could not send'}
         </p>
       )}
       <div className="flex items-center gap-2">
-        <Button type="submit" disabled={open.isPending || tooShort}>
-          {open.isPending ? 'Sending…' : 'Send request'}
+        <Button type="submit" disabled={blocked}>
+          {open.isPending ? 'Sending…' : uploads.busy ? 'Uploading…' : 'Send request'}
         </Button>
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
@@ -179,10 +227,12 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const { ticket, messages, isLoading, loadFailed } = useSupportThread(id);
   const reply = useReplyToTicket(id);
   const [body, setBody] = useState('');
+  const uploads = useSupportUploads();
+  const blocked = reply.isPending || !body.trim() || uploads.busy || uploads.failed;
 
   return (
-    <AppShell title="Support">
-    <div className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
+    <Screen title="Support">
+    <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
       <button
         onClick={onBack}
         className="mb-4 text-sm text-muted-foreground hover:text-foreground"
@@ -227,9 +277,12 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                 <p className="whitespace-pre-wrap text-sm leading-relaxed">
                   {m.body}
                 </p>
+                <MessageFiles files={m.attachments} />
               </div>
             ))}
           </div>
+
+          {ticket && <RateTicket ticket={ticket} />}
 
           <Card className="mt-5">
             <CardContent className="p-4">
@@ -240,21 +293,39 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                 placeholder="Add to this request…"
                 maxLength={5000}
               />
+              <div className="mt-3">
+                <AttachFiles uploads={uploads} disabled={reply.isPending} />
+              </div>
+              {reply.isError && (
+                <p role="alert" className="mt-3 text-sm text-destructive">
+                  {reply.error instanceof Error
+                    ? reply.error.message
+                    : 'That did not send. Check your connection and try again.'}
+                </p>
+              )}
               <Button
                 className="mt-3"
-                disabled={reply.isPending || !body.trim()}
+                disabled={blocked}
                 onClick={() =>
-                  reply.mutate(body, { onSuccess: () => setBody('') })
+                  reply.mutate(
+                    { body, attachments: uploads.ids },
+                    {
+                      onSuccess: () => {
+                        setBody('');
+                        uploads.clear();
+                      },
+                    },
+                  )
                 }
               >
                 <MessageSquare className="size-4" />
-                {reply.isPending ? 'Sending…' : 'Send'}
+                {reply.isPending ? 'Sending…' : uploads.busy ? 'Uploading…' : 'Send'}
               </Button>
             </CardContent>
           </Card>
         </>
       )}
     </div>
-    </AppShell>
+    </Screen>
   );
 }

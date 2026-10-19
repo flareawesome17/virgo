@@ -16,6 +16,7 @@ import { BlocksService } from '../safety/blocks.service';
 import { generateId } from '../common/id';
 import {
   cooling,
+  FRIEND_VISIBLE,
   MIRRORED_ACCEPTED_JOIN,
   relationshipCase,
 } from './friend-sql';
@@ -215,7 +216,15 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
     const q = query.trim();
     if (q.length < 2) return [];
 
-    const pattern = `${q.replace(/[!%_]/g, (c) => `!${c}`)}%`;
+    const escaped = q.replace(/[!%_]/g, (c) => `!${c}`);
+    // The start of the name, or the start of any later word in it: a surname
+    // or the second half of a studio name found nobody, because only the
+    // first word was ever matched.
+    const pattern = `${escaped}%`;
+    const laterWord = `% ${escaped}%`;
+    // A handle as typed, with or without its @. Results show "@handle", so
+    // that is what people type back.
+    const handle = `${q.replace(/^@+/, '').replace(/[!%_]/g, (c) => `!${c}`)}%`;
 
     const rows = await this.db.query<{
       id: string;
@@ -242,12 +251,26 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
                 -- Opting out of discovery hides you from name search only.
                 -- Someone who already knows your address can still reach you,
                 -- which is what makes an invitation possible at all.
-                (u.discoverable and u.display_name ilike $2 escape '!')
+                (u.discoverable
+                  and (u.display_name ilike $2 escape '!'
+                       or u.display_name ilike $4 escape '!'
+                       or (u.public_profile and u.handle ilike $5 escape '!')))
                 or lower(u.email) = lower($3)
+                -- Your own connections, whatever their discovery setting. It
+                -- hides you from strangers, not from people you already know,
+                -- and a connection who had turned it off could not be found
+                -- by name at all.
+                or (${relationshipCase('mine', 'theirs')} = 'accepted'
+                    and (u.display_name ilike $2 escape '!'
+                         or u.display_name ilike $4 escape '!'))
               )
-        order by u.display_name nulls last, u.id
+        -- People you know first, then names that start with what was typed,
+        -- then the rest by name.
+        order by (${relationshipCase('mine', 'theirs')} = 'accepted') desc,
+                 (u.display_name ilike $2 escape '!') desc,
+                 u.display_name nulls last, u.id
         limit 20`,
-      [userId, pattern, q],
+      [userId, pattern, q, laterWord, handle],
     );
 
     return rows.map((r) => ({
@@ -258,6 +281,59 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
       handle: r.handle ?? null,
       relationship: r.relationship,
     }));
+  }
+
+  /**
+   * Requests and hire enquiries waiting on the caller that arrived since they
+   * last opened People — what the Messages dot counts.
+   *
+   * The same visibility as the lists they appear in: a request from a
+   * suspended account, or one across a block, is not shown and not counted.
+   */
+  async unseen(
+    userId: string,
+  ): Promise<{ requests: number; enquiries: number; seenAt: string | null }> {
+    const row = await this.db.queryOne<{
+      requests: number;
+      enquiries: number;
+      seen_at: Date | null;
+    }>(
+      `select (select count(*)::int
+                 from friends f
+                 left join friends b
+                   on b.user_id = f.friend_user_id and b.friend_user_id = f.user_id
+                where f.user_id = $1
+                  and f.status = 'pending'
+                  and f.requested_by = 'them'
+                  and ${FRIEND_VISIBLE}
+                  and (me.people_seen_at is null or f.created_at > me.people_seen_at)) as requests,
+              (select count(*)::int
+                 from hire_enquiries e
+                 join users other on other.id = e.from_user_id
+                where e.to_user_id = $1
+                  and e.status = 'new'
+                  and other.suspended_at is null
+                  and not ${blockedBetween('e.from_user_id', 'e.to_user_id')}
+                  and (me.people_seen_at is null or e.created_at > me.people_seen_at)) as enquiries,
+              me.people_seen_at as seen_at
+         from users me
+        where me.id = $1`,
+      [userId],
+    );
+    return {
+      requests: row?.requests ?? 0,
+      enquiries: row?.enquiries ?? 0,
+      seenAt: row?.seen_at ? row.seen_at.toISOString() : null,
+    };
+  }
+
+  /** People has been looked at: what is waiting no longer lights the dot. */
+  async markSeen(userId: string): Promise<{ seenAt: string }> {
+    const row = await this.db.queryOne<{ people_seen_at: Date }>(
+      'update users set people_seen_at = now() where id = $1 returning people_seen_at',
+      [userId],
+    );
+    return { seenAt: (row?.people_seen_at ?? new Date()).toISOString() };
   }
 
   /**
@@ -445,7 +521,7 @@ export class FriendsService extends OwnedResourceService<FriendRow> {
         data: { type: 'friend_request', fromUserId: requesterId },
         email: friendRequest({
           requesterName: this.nameFor(me),
-          url: `${this.mailConfig.appUrl}/network`,
+          url: `${this.mailConfig.appUrl}/people`,
         }),
       });
     }

@@ -3,23 +3,27 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  PixelRatio,
   Platform,
   Pressable,
   Share,
+  StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { RemoteImage } from '@/components/RemoteImage';
+import { RemoteImage, stableCacheKey } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import { canSaveToPhotos } from '@/src/lib/photo-permission';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   interpolate,
   runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -34,10 +38,12 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAlbumFiles } from '@/src/hooks';
+import { useAlbumFiles, usageQueryKey } from '@/src/hooks';
 import {
+  displaySourceAtLeast,
   formatBytes,
-  largestDisplaySource,
+  originalForDetail,
+  queryKeys,
   storageApi,
   type StoredFile,
 } from '@/src/api';
@@ -48,6 +54,28 @@ for (const Icon of [DownloadIcon, InfoIcon, Share2Icon, Trash2Icon, XIcon]) {
 
 const SPRING = { damping: 22, stiffness: 220 };
 const MAX_SCALE = 4;
+
+/**
+ * Magnified past this, the original is loaded over the display copy.
+ *
+ * The copy covers the screen at 1x and a little past it; by one and a half
+ * times a pinch is magnifying pixels the copy does not have, which is where a
+ * photographer checking focus sees mush instead of eyelashes.
+ */
+const DETAIL_AT = 1.5;
+
+/**
+ * The largest original loaded for that, in pixels.
+ *
+ * Drawn at full size, a photograph costs four bytes a pixel in memory: 24 MP
+ * is about 96 MB, held while it is magnified. Past that — a 48 MP still — the
+ * 3072 px copy is as far as a pinch goes.
+ */
+const MAX_DETAIL_PIXELS = 24_000_000;
+
+/** Originals iOS draws that Android does not. */
+const IOS_ALSO_DRAWS = ['image/heic', 'image/heif'];
+
 /** Vertical travel that commits to closing. Below it, the photo springs back. */
 const DISMISS_AT = 130;
 const THUMB = 46;
@@ -86,6 +114,29 @@ function ZoomablePhoto({
   const startX = useSharedValue(0);
   const startY = useSharedValue(0);
   const dismissY = useSharedValue(0);
+
+  // The copy that covers the screen's long edge at its real pixels, so the
+  // photograph is sharp upright or turned and a first pinch has room. The
+  // widest one was used whatever the screen: 2048 px, stretched on most
+  // phones of the last few years.
+  const screenPixels = Math.max(width, height) * PixelRatio.get();
+  const copy = displaySourceAtLeast(photo, screenPixels);
+  const base = copy ?? photo.url ?? photo.thumbnailUrl ?? undefined;
+  const original =
+    (photo.width ?? 0) * (photo.height ?? 0) <= MAX_DETAIL_PIXELS
+      ? originalForDetail(photo, { alsoDraws: Platform.OS === 'ios' ? IOS_ALSO_DRAWS : [] })
+      : null;
+  // Loaded once a pinch passes DETAIL_AT, and let go when the photograph is
+  // back at rest, so only the one being magnified holds a camera file.
+  const [detail, setDetail] = useState(false);
+  useAnimatedReaction(
+    () => (scale.value > DETAIL_AT ? 'detail' : scale.value <= 1.01 ? 'rest' : 'between'),
+    (now, before) => {
+      if (now === before) return;
+      if (now === 'detail') runOnJS(setDetail)(true);
+      else if (now === 'rest') runOnJS(setDetail)(false);
+    },
+  );
 
   const reset = () => {
     'worklet';
@@ -150,7 +201,16 @@ function ZoomablePhoto({
     })
     .onEnd((event) => {
       if (scale.value > 1.01) return;
-      if (Math.abs(event.translationY) > DISMISS_AT || event.velocityY > 900) {
+      if (Math.abs(event.translationY) > DISMISS_AT || Math.abs(event.velocityY) > 900) {
+        // It carries on the way it was thrown, at the speed it was thrown,
+        // while the screen fades out under it. It used to stop where the
+        // finger let go and the whole screen then slid away sideways.
+        const direction = event.translationY < 0 ? -1 : 1;
+        const remaining = height - Math.abs(event.translationY);
+        const speed = Math.max(Math.abs(event.velocityY), 1200) / 1000;
+        dismissY.value = withTiming(direction * height, {
+          duration: Math.min(Math.max(remaining / speed, 120), 280),
+        });
         runOnJS(onDismiss)();
       } else {
         dismissY.value = withSpring(0, SPRING);
@@ -208,24 +268,20 @@ function ZoomablePhoto({
         className="items-center justify-center"
       >
         <Animated.View style={[{ width, height }, style]}>
-          {/* The widest display copy, not the original. `url` is the camera
-              file — a 6 MB JPEG or a 40 MB TIFF from a bucket in California —
-              and this screen draws it a few hundred points wide. */}
+          {/* A display copy, not the original. `url` is the camera file — a
+              6 MB JPEG or a 40 MB TIFF from a bucket in California — and this
+              screen draws it a few hundred points wide until somebody
+              pinches. */}
           <RemoteImage
-            source={{
-              uri:
-                largestDisplaySource(photo) ??
-                photo.url ??
-                photo.thumbnailUrl ??
-                undefined,
-            }}
+            source={{ uri: base }}
             // The thumbnail first — it is sharper and, coming from the grid
-            // this screen was opened from, almost always already cached. The
+            // this screen was opened from, almost always already cached. Keyed
+            // the way the grid stored it, or the cache never matched it. The
             // inline preview is the fallback: less sharp, but it needs no
             // fetch at all, so there is never nothing to show.
             placeholder={
               photo.thumbnailUrl
-                ? { uri: photo.thumbnailUrl }
+                ? { uri: photo.thumbnailUrl, cacheKey: stableCacheKey(photo.thumbnailUrl) }
                 : photo.blurDataUrl
                   ? { uri: photo.blurDataUrl }
                   : undefined
@@ -235,7 +291,23 @@ function ZoomablePhoto({
             contentFit="contain"
             transition={160}
             recyclingKey={photo.key}
+            // Kept at the copy's own size. Scaled down to the screen, a pinch
+            // magnified the smaller bitmap and the copy's extra pixels were
+            // decoded only to be thrown away.
+            allowDownscaling={false}
           />
+          {/* The original, over the copy, once a pinch is past what the copy
+              holds. Until it arrives — or if it never does — the copy shows
+              through, so a slow or failed load costs nothing on screen. */}
+          {detail && original && original !== base ? (
+            <RemoteImage
+              source={{ uri: original }}
+              style={StyleSheet.absoluteFill}
+              contentFit="contain"
+              transition={200}
+              allowDownscaling={false}
+            />
+          ) : null}
         </Animated.View>
       </Animated.View>
     </GestureDetector>
@@ -292,12 +364,19 @@ export default function PhotoViewerScreen() {
   const [zoomed, setZoomed] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const chrome = useSharedValue(1);
+  // Whether the controls are showing, for touches. Their opacity alone hid
+  // them without taking them away: a tap that hid them left the filmstrip,
+  // close, Save and Remove all still answering, unseen.
+  const [chromeShown, setChromeShown] = useState(true);
 
   const photo = photos[currentIndex] ?? photos[0];
 
   const toggleChrome = useCallback(() => {
-    chrome.value = withTiming(chrome.value > 0.5 ? 0 : 1, { duration: 180 });
+    const next = chrome.value > 0.5 ? 0 : 1;
+    chrome.value = withTiming(next, { duration: 180 });
+    setChromeShown(next === 1);
   }, [chrome]);
 
   const chromeStyle = useAnimatedStyle(() => ({ opacity: chrome.value }));
@@ -318,26 +397,72 @@ export default function PhotoViewerScreen() {
     }
   }, [currentIndex, photos.length]);
 
+  /**
+   * Where to land once a removal has been refetched.
+   *
+   * By key, because the list shifts under the pager. Removing the third of
+   * five left the pager on what had been the fourth while the index stepped
+   * back to the second — so the next Remove deleted a photograph nobody was
+   * looking at. Applied only once the removed one is gone from the list: the
+   * neighbour's index changes with it.
+   */
+  const landAfterRemove = useRef<{ removed: string; next: string; index: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    const pending = landAfterRemove.current;
+    if (!pending || photos.some((p) => p.key === pending.removed)) return;
+    landAfterRemove.current = null;
+    const found = photos.findIndex((p) => p.key === pending.next);
+    const at = found >= 0 ? found : Math.min(pending.index, photos.length - 1);
+    if (at < 0) return;
+    setCurrentIndex(at);
+    pager.current?.scrollToIndex({ index: at, animated: false });
+  }, [photos]);
+
   const goTo = useCallback((index: number) => {
     setCurrentIndex(index);
     setShowInfo(false);
     pager.current?.scrollToIndex({ index, animated: true });
   }, []);
 
+  /**
+   * Shares the photograph itself.
+   *
+   * It shared the link to the private original — a signed URL that stopped
+   * working minutes later, handed to whoever received it — and it did so for
+   * people the album does not let download. Sending the file is a download,
+   * so it needs the same permission, and it is the file that is sent.
+   *
+   * iOS only: React Native's share sheet can carry a file there and only text
+   * on Android, where Save does the job until a native share module ships.
+   */
+  const canShare = Platform.OS === 'ios' && Boolean(photo?.capabilities.download);
   const sharePhoto = async () => {
-    if (!photo?.url) return;
+    const source = photo?.downloadUrl ?? photo?.url;
+    if (!source || sharing || !canShare || !photo) return;
+    setSharing(true);
+    let local: string | null = null;
     try {
-      await Share.share(
-        Platform.OS === 'ios'
-          ? { url: photo.url, message: photo.originalName }
-          : { message: `${photo.originalName} - ${photo.url}` },
+      const safeName = photo.originalName.replace(/[^a-z0-9._-]/gi, '_');
+      const result = await FileSystem.downloadAsync(
+        source,
+        `${FileSystem.cacheDirectory}share-${Date.now()}-${safeName}`,
       );
+      local = result.uri;
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error('The photo could not be downloaded.');
+      }
+      await Share.share({ url: result.uri });
     } catch (error) {
       // Cancelling the sheet rejects on some platforms, which is not a failure
       // worth interrupting anybody over. A real one is.
       if (error instanceof Error && !/cancel/i.test(error.message)) {
-        Alert.alert('Could not share', 'Please try again.');
+        Alert.alert('Could not share', 'Check your connection and try again.');
       }
+    } finally {
+      if (local) await FileSystem.deleteAsync(local, { idempotent: true }).catch(() => {});
+      setSharing(false);
     }
   };
 
@@ -346,11 +471,7 @@ export default function PhotoViewerScreen() {
     if (!source || saving || !photo?.capabilities.download) return;
     setSaving(true);
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permission needed', 'Allow photo access to save images.');
-        return;
-      }
+      if (!(await canSaveToPhotos('this photo'))) return;
       const safeName = photo.originalName.replace(/[^a-z0-9._-]/gi, '_');
       const target = `${FileSystem.cacheDirectory}${safeName}`;
       const result = await FileSystem.downloadAsync(source, target);
@@ -381,13 +502,28 @@ export default function PhotoViewerScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
+            const at = photos.findIndex((p) => p.key === photo.key);
+            // The one after it, as a gallery does; the one before if it was last.
+            const neighbour = photos[at + 1] ?? photos[at - 1] ?? null;
             try {
               await storageApi.remove(photo.key);
+              if (neighbour) {
+                landAfterRemove.current = {
+                  removed: photo.key,
+                  next: neighbour.key,
+                  index: Math.max(at, 0),
+                };
+              }
               await queryClient.invalidateQueries({
                 queryKey: ['storage', 'files', albumId],
               });
-              if (photos.length <= 1) router.back();
-              else setCurrentIndex((value) => Math.max(0, value - 1));
+              // The album's counts and cover, and the storage it used, all
+              // changed too; only the file list used to be refreshed.
+              void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
+              void queryClient.invalidateQueries({ queryKey: usageQueryKey });
+              void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
+              void queryClient.invalidateQueries({ queryKey: ['storage', 'breakdown'] });
+              if (!neighbour) router.back();
             } catch (error) {
               Alert.alert(
                 'Could not remove photo',
@@ -401,15 +537,44 @@ export default function PhotoViewerScreen() {
   };
 
   if (!photo) {
+    // "No photos yet" was the answer to every way of having none to show: a
+    // load still running, or one that failed, said the album was empty.
+    const failed = filesQuery.loadFailed;
+    const loading = !failed && (filesQuery.isLoading || filesQuery.isFetching);
     return (
       <View className="flex-1 bg-black items-center justify-center px-8">
-        <Text className="text-white text-lg font-semibold">No photos yet</Text>
-        <Pressable
-          onPress={() => router.back()}
-          className="mt-6 bg-white/10 rounded-full px-6 py-3 active:opacity-70"
-        >
-          <Text className="text-white font-semibold">Go back</Text>
-        </Pressable>
+        {loading ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <>
+            <Text className="text-white text-lg font-semibold text-center">
+              {failed ? "Couldn't load these photos" : 'No photos yet'}
+            </Text>
+            {failed && (
+              <Text className="text-white/70 text-sm text-center mt-2">
+                Check your connection and try again.
+              </Text>
+            )}
+            <View className="flex-row gap-3 mt-6">
+              {failed && (
+                <Pressable
+                  onPress={() => void filesQuery.refetch()}
+                  accessibilityRole="button"
+                  className="bg-white rounded-full px-6 py-3 active:opacity-70"
+                >
+                  <Text className="text-black font-semibold">Try again</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={() => router.back()}
+                accessibilityRole="button"
+                className="bg-white/10 rounded-full px-6 py-3 active:opacity-70"
+              >
+                <Text className="text-white font-semibold">Go back</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
       </View>
     );
   }
@@ -424,6 +589,11 @@ export default function PhotoViewerScreen() {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         scrollEnabled={!zoomed}
+        // The photo on screen and one either side. The default window kept
+        // about twenty-one full-screen photographs decoded at once.
+        windowSize={3}
+        initialNumToRender={1}
+        maxToRenderPerBatch={2}
         initialScrollIndex={Math.min(currentIndex, Math.max(photos.length - 1, 0))}
         getItemLayout={(_, index) => ({
           length: width,
@@ -458,7 +628,7 @@ export default function PhotoViewerScreen() {
 
       <Animated.View
         style={chromeStyle}
-        pointerEvents={zoomed ? 'none' : 'box-none'}
+        pointerEvents={zoomed || !chromeShown ? 'none' : 'box-none'}
         className="absolute inset-0"
       >
         <LinearGradient
@@ -480,10 +650,10 @@ export default function PhotoViewerScreen() {
 
         <SafeAreaView edges={['top']} className="absolute top-0 left-0 right-0">
           <View className="px-4 pt-2 flex-row items-center gap-3">
-            <Pressable
+            <Pressable accessibilityRole="button" accessibilityLabel="Close"
               onPress={() => router.back()}
               hitSlop={8}
-              className="w-10 h-10 rounded-full bg-black/45 items-center justify-center active:opacity-70"
+              className="w-11 h-11 rounded-full bg-black/45 items-center justify-center active:opacity-70"
             >
               <XIcon size={19} color="#fff" />
             </Pressable>
@@ -507,8 +677,11 @@ export default function PhotoViewerScreen() {
         >
           {showInfo && (
             <View className="mx-4 mb-3 rounded-2xl bg-black/55 px-4 py-3">
+              {/* When it was taken, from the camera. It showed the upload
+                  date under that label. */}
+              {photo.takenAt ? <InfoRow label="Taken" value={takenLabel(photo.takenAt)} /> : null}
               <InfoRow
-                label="Taken"
+                label="Uploaded"
                 value={new Date(photo.createdAt).toLocaleDateString('en-GB', {
                   day: 'numeric',
                   month: 'long',
@@ -567,9 +740,15 @@ export default function PhotoViewerScreen() {
           />
 
           <View className="flex-row items-center gap-2 px-4 pt-4 pb-2">
-            <Action onPress={sharePhoto} label="Share">
-              <Share2Icon size={19} color="#fff" />
-            </Action>
+            {canShare && (
+              <Action onPress={sharePhoto} label="Share" disabled={sharing}>
+                {sharing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Share2Icon size={19} color="#fff" />
+                )}
+              </Action>
+            )}
             {photo.capabilities.download && (
               <Action onPress={savePhoto} label="Save" disabled={saving}>
                 {saving ? (
@@ -625,6 +804,26 @@ function Action({
       {children}
     </Pressable>
   );
+}
+
+/**
+ * "14 March 2026, 4:12 pm", as the camera wrote it.
+ *
+ * Built from its parts rather than parsed: it carries no zone, and parsing
+ * would move a frame shot late at night onto another day for anyone outside
+ * the zone it was taken in.
+ */
+function takenLabel(takenAt: string): string {
+  const [date, time = '00:00:00'] = takenAt.split('T');
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  return new Date(y, m - 1, d, hh, mm).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {

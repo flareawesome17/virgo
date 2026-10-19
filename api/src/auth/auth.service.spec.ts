@@ -40,6 +40,8 @@ function serviceFor(user: UserRow) {
     findActiveRefreshToken: jest.fn(async () => ({ id: 't1', user_id: user.id })),
     revokeRefreshToken: jest.fn(async () => undefined),
     storeRefreshToken: jest.fn(async () => undefined),
+    forgetPushToken: jest.fn(async () => undefined),
+    enable: jest.fn(async () => ({ ...user, disabled_until: null })),
   };
   const jwt = { signAsync: jest.fn(async () => 'access-token') };
   const config = {
@@ -122,5 +124,93 @@ describe('AuthService and a suspended account', () => {
       expect.objectContaining({ accessToken: 'access-token' }),
     );
     expect(users.storeRefreshToken).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AuthService.forgetDevice', () => {
+  it('finds the session by the same hash logout revokes', async () => {
+    const { service, users } = serviceFor(userWith());
+
+    await service.logout('refresh-token');
+    await service.forgetDevice('refresh-token', 'ExponentPushToken[abc]');
+
+    const [revokedHash] = users.revokeRefreshToken.mock.calls[0] as unknown as [string];
+    expect(users.forgetPushToken).toHaveBeenCalledWith(revokedHash, 'ExponentPushToken[abc]');
+    // Never the raw token: the table only holds hashes.
+    expect(revokedHash).not.toBe('refresh-token');
+  });
+});
+
+describe('AuthService.login and a paused account', () => {
+  const PAUSED = { disabled_until: new Date(Date.now() + 30 * 86_400_000) };
+
+  it('refuses sign-in during a pause, as before', async () => {
+    const { service, users } = serviceFor(userWith(PAUSED));
+    await expect(service.login('mika@example.com', PASSWORD)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ACCOUNT_DISABLED' }),
+    });
+    expect(users.enable).not.toHaveBeenCalled();
+  });
+
+  // There was no way back before the date: lifting it needed a session.
+  it('lifts the pause and signs in when asked to', async () => {
+    const { service, users } = serviceFor(userWith(PAUSED));
+    const result = await service.login('mika@example.com', PASSWORD, { unpause: true });
+    expect(users.enable).toHaveBeenCalledWith('user-1');
+    expect(result).toHaveProperty('accessToken');
+  });
+
+  it('never lifts a suspension', async () => {
+    const { service, users } = serviceFor(userWith({ ...PAUSED, ...SUSPENDED }));
+    await expect(
+      service.login('mika@example.com', PASSWORD, { unpause: true }),
+    ).rejects.toEqual(suspendedRefusal);
+    expect(users.enable).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A signed-in device is one family of refresh tokens, so the console can list
+ * it as one row and sign it out. Refreshing must keep the family, and only
+ * the device type is kept — never an address.
+ */
+describe('AuthService and the device a session belongs to', () => {
+  it('starts a new device at sign-in, with its User-Agent', async () => {
+    const { service, users } = serviceFor(userWith());
+    await service.login('mika@example.com', PASSWORD, { userAgent: 'Virgo/1 CFNetwork Darwin' });
+    expect(users.storeRefreshToken).toHaveBeenCalledWith(
+      'user-1',
+      expect.any(String),
+      expect.any(Date),
+      { userAgent: 'Virgo/1 CFNetwork Darwin' },
+    );
+  });
+
+  it('keeps the device across a refresh', async () => {
+    const { service, users } = serviceFor(userWith());
+    users.findActiveRefreshToken.mockResolvedValueOnce({
+      id: 't1',
+      user_id: 'user-1',
+      family_id: 'family-1',
+      user_agent: 'okhttp/4.12',
+    } as never);
+    await service.refresh('refresh-token');
+    expect(users.storeRefreshToken).toHaveBeenCalledWith(
+      'user-1',
+      expect.any(String),
+      expect.any(Date),
+      { familyId: 'family-1', userAgent: 'okhttp/4.12' },
+    );
+  });
+
+  it('gives a token from before devices were tracked a family of its own', async () => {
+    const { service, users } = serviceFor(userWith());
+    await service.refresh('refresh-token', 'Mozilla/5.0 Chrome');
+    expect(users.storeRefreshToken).toHaveBeenCalledWith(
+      'user-1',
+      expect.any(String),
+      expect.any(Date),
+      { familyId: undefined, userAgent: 'Mozilla/5.0 Chrome' },
+    );
   });
 });

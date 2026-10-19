@@ -46,11 +46,11 @@ export default function ForgotPasswordScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
           <View className="px-6 pt-4 pb-2 flex-row items-center gap-3">
-            <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
               style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
               <ArrowLeftIcon size={18} className="text-foreground" />
             </Pressable>
-            <Text className="text-foreground text-[28px] font-bold tracking-tight">Reset Password</Text>
+            <Text className="text-foreground text-[28px] font-bold tracking-tight">Reset password</Text>
           </View>
 
           {sent ? (
@@ -59,7 +59,7 @@ export default function ForgotPasswordScreen() {
                 style={{ shadowColor: '#6B8E4E', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: 3 }, elevation: 5 }}>
                 <CheckCircleIcon size={36} color="#6B8E4E" />
               </View>
-              <Text className="text-foreground text-xl font-extrabold">Check Your Email</Text>
+              <Text className="text-foreground text-xl font-extrabold">Check your email</Text>
               <Text className="text-muted-foreground text-sm text-center mt-3 leading-relaxed px-4">
                 If an account exists for <Text className="text-foreground font-semibold">{email}</Text>, we’ve sent a password reset link.
               </Text>
@@ -80,7 +80,8 @@ export default function ForgotPasswordScreen() {
                   <MailIcon size={16} className="text-muted-foreground" />
                   <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
                     placeholderTextColor="#A89489" className="flex-1 text-foreground text-base"
-                    keyboardType="email-address" autoCapitalize="none" autoFocus />
+                    keyboardType="email-address" autoCapitalize="none" autoFocus
+                    autoCorrect={false} textContentType="username" autoComplete="email" />
                 </View>
               </View>
 

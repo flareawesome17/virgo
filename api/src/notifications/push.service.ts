@@ -69,6 +69,24 @@ export class PushService {
     );
   }
 
+  /**
+   * The phone holding this token has just scheduled its reminders locally, as
+   * far as `coveredUntil` (null: all it was given). See migration 076: the
+   * reminder sweep skips its push for what the phone already has.
+   */
+  async markRemindersSynced(
+    userId: string,
+    token: string,
+    coveredUntil: string | null,
+  ): Promise<void> {
+    await this.db.query(
+      `update push_tokens
+          set reminders_synced_at = now(), reminders_covered_until = $3
+        where user_id = $1 and token = $2`,
+      [userId, token, coveredUntil],
+    );
+  }
+
   async removeToken(userId: string, token: string): Promise<void> {
     await this.db.query(
       'delete from push_tokens where user_id = $1 and token = $2',
@@ -80,8 +98,9 @@ export class PushService {
    * Active tokens for a user. None while the console has them suspended.
    *
    * Decided here, when a push is about to go, rather than by deleting tokens
-   * on suspension. The app never unregisters on a forced sign-out, so a
-   * suspended phone would keep showing message previews on its lock screen;
+   * on suspension. The app's own unregister on a forced sign-out is best
+   * effort — an offline phone never sends it — so a suspended phone could keep
+   * showing message previews on its lock screen;
    * a token it registers again inside its last fifteen minutes still fails
    * this join; and lifting the suspension brings pushes back with no
    * re-registration.
@@ -93,7 +112,10 @@ export class PushService {
          join users u on u.id = t.user_id
         where t.user_id = $1
           and t.disabled_at is null
-          and u.suspended_at is null`,
+          and u.suspended_at is null
+          -- Paused: every session was ended and none can start until the date
+          -- (account-state.ts), so these would reach a signed-out phone.
+          and (u.disabled_until is null or u.disabled_until <= now())`,
       [userId],
     );
     return rows.map((r) => r.token);

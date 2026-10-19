@@ -28,7 +28,7 @@ import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
 import {
   CHROME_HEIGHT,
   DEFAULT_DENSITY,
-  DENSITIES,
+  densitiesFor,
   HAIRLINE,
   clock,
   toSections,
@@ -81,7 +81,8 @@ export default function VideosScreen() {
     openFilm(film, files);
   }, [files, params.key, openFilm]);
 
-  const columns = DENSITIES[density];
+  const densities = densitiesFor(width);
+  const columns = densities[density];
   const tile = (width - HAIRLINE * (columns - 1)) / columns;
   const sections = useMemo(() => toSections(files, columns), [files, columns]);
 
@@ -93,11 +94,11 @@ export default function VideosScreen() {
 
   const changeDensity = useCallback((step: number) => {
     setDensity((current) => {
-      const next = Math.min(Math.max(current + step, 0), DENSITIES.length - 1);
+      const next = Math.min(Math.max(current + step, 0), densities.length - 1);
       if (next !== current) void Haptics.selectionAsync();
       return next;
     });
-  }, []);
+  }, [densities.length]);
 
   const pinch = useMemo(
     () =>
@@ -235,10 +236,10 @@ export default function VideosScreen() {
           pointerEvents="none"
         />
         <View className="px-4 pt-2 pb-3 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
             hitSlop={8}
-            className="w-10 h-10 rounded-full bg-black/40 items-center justify-center active:opacity-70"
+            className="w-11 h-11 rounded-full bg-black/40 items-center justify-center active:opacity-70"
           >
             <ArrowLeftIcon size={19} color="#fff" />
           </Pressable>

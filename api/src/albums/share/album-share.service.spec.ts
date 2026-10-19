@@ -1,6 +1,8 @@
+import { DownloadCacheService } from '../../storage/download-cache.service';
 import type { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { DatabaseService } from '../../database/database.service';
+import type { DownloadAllowanceService } from '../../quota/download-allowance.service';
 import type { NotifyService } from '../../notifications/notify.service';
 import type { HlsService } from '../../storage/hls.service';
 import { MediaLinkService } from '../../storage/media-link.service';
@@ -189,6 +191,53 @@ describe('AlbumShareService.resolve on a client link', () => {
   });
 });
 
+describe('A single download from a client link', () => {
+  function over(purpose: 'client' | 'portfolio', row: { key: string; position: string } | null) {
+    const mediaUrl = jest.fn(
+      async (key: string, _ttl: number, name?: string) => `https://b2.test/${key}?as=${name}`,
+    );
+    const queryOne = jest.fn(async () => row);
+    const service = new AlbumShareService(
+      { queryOne, query: jest.fn() } as unknown as DatabaseService,
+      { mediaUrl } as unknown as StorageService,
+      {} as unknown as MediaLinkService,
+      {} as unknown as HlsService,
+      { get: () => '' } as unknown as ConfigService,
+      {} as unknown as NotifyService,
+      {} as unknown as WorkspaceActivityService,
+    );
+    jest
+      .spyOn(service as unknown as { linkFor: () => Promise<unknown> }, 'linkFor')
+      .mockResolvedValue({
+        user_id: 'u',
+        album_id: 'a',
+        name: "Ana's (Wedding)",
+        purpose,
+        media_kinds: ['image', 'video'],
+      });
+    return { service, mediaUrl };
+  }
+
+  it('signs at click time under the same delivery name the zip uses', async () => {
+    const { service, mediaUrl } = over('client', { key: 'users/u/a/x.jpg', position: '7' });
+    await expect(service.downloadLocation('token', 'file-id')).resolves.toBe(
+      "https://b2.test/users/u/a/x.jpg?as=Ana's (Wedding) - 007.jpg",
+    );
+    expect(mediaUrl).toHaveBeenCalledWith('users/u/a/x.jpg', 3600, "Ana's (Wedding) - 007.jpg");
+  });
+
+  it('refuses a file that is not in this delivery', async () => {
+    const { service } = over('client', null);
+    await expect(service.downloadLocation('token', 'other')).rejects.toThrow('not in this delivery');
+  });
+
+  it('refuses a portfolio link, which offers no downloads', async () => {
+    const { service, mediaUrl } = over('portfolio', { key: 'k', position: '1' });
+    await expect(service.downloadLocation('token', 'file-id')).rejects.toThrow();
+    expect(mediaUrl).not.toHaveBeenCalled();
+  });
+});
+
 describe('The zip behind a share link', () => {
   /** Enough of a response for the one answer the route gives here. */
   interface Answer {
@@ -208,9 +257,15 @@ describe('The zip behind a share link', () => {
     await expect(service.filesForDownload('token')).resolves.toEqual({
       albumName: 'Wedding',
       files: [],
+      ownerId: OWNER,
     });
 
-    const controller = new PublicAlbumController(service, {} as unknown as VisitsService);
+    const controller = new PublicAlbumController(
+      service,
+      {} as unknown as VisitsService,
+      {} as unknown as DownloadCacheService,
+      {} as unknown as DownloadAllowanceService,
+    );
     const res = response();
     await controller.downloadAll('token', res as unknown as Response);
     expect(res.status).toHaveBeenCalledWith(404);

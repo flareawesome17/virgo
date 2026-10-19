@@ -90,14 +90,20 @@ export const blocksApi = {
   },
 
   /**
-   * One report per person you report; sending another is accepted and does
-   * nothing. A blank note is left out rather than stored as whitespace.
+   * One open report per person you report; sending another while it waits is
+   * accepted and adds nothing but its messages. A blank note is left out
+   * rather than stored as whitespace.
+   *
+   * From a chat, `messages` are the latest the reporter can see there. The
+   * API copies only those between the two of them, and staff read that copy,
+   * never the conversation.
    */
   report(input: {
     ref: PersonRef;
     reason: UserReportReason;
     note?: string;
     from?: ReportSource;
+    messages?: { conversationId: string; messageIds: string[] };
   }): Promise<{ reported: boolean }> {
     return api.post('/reports', {
       body: {
@@ -105,6 +111,9 @@ export const blocksApi = {
         reason: input.reason,
         note: input.note?.trim() || undefined,
         from: input.from,
+        ...(input.messages?.messageIds.length
+          ? { conversationId: input.messages.conversationId, messageIds: input.messages.messageIds }
+          : {}),
       },
     });
   },

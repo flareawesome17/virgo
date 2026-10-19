@@ -3,12 +3,12 @@ import { Throttle } from '@nestjs/throttler';
 import {
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { HireService } from './hire.service';
+import { IsCalendarDate } from '../common/validators/calendar-date';
 
 export class SendEnquiryDto {
   @IsString()
@@ -34,7 +34,7 @@ export class SendEnquiryDto {
    * a `date` column as the 13th.
    */
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use a date like 2026-11-14' })
+  @IsCalendarDate({ notPast: true })
   eventDate?: string;
 
   @IsOptional()

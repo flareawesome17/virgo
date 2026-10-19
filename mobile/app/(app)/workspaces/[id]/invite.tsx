@@ -21,6 +21,7 @@ import {
   useWorkspaceMembers,
 } from '@/src/hooks';
 import { useLocalSearchParams, router } from 'expo-router';
+import { goToTab } from '@/src/lib/navigation';
 import { useMemo, useState } from 'react';
 import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, SearchIcon, SendIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -181,7 +182,7 @@ export default function InviteCollaboratorsScreen() {
                 <LoadFailed what="your friends" onRetry={() => refetch()} compact />
               ) : friends.length === 0 ? (
                 <Pressable
-                  onPress={() => router.push('/(app)/(tabs)/connect?view=people')}
+                  onPress={() => goToTab('/(app)/(tabs)/connect?view=people')}
                   className="px-4 py-5 items-center active:opacity-70"
                 >
                   <Text className="text-foreground text-sm font-semibold">No friends yet</Text>
@@ -268,6 +269,10 @@ export default function InviteCollaboratorsScreen() {
             <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[1.5px] mx-1">Albums</Text>
             {albumsQuery.isLoading ? (
               <ActivityIndicator className="py-4" />
+            ) : albumsQuery.loadFailed && albums.length === 0 ? (
+              // Not "no albums yet": that invited somebody to a workspace with
+              // no albums picked, because the list of them had failed.
+              <LoadFailed what="the albums" onRetry={() => void albumsQuery.refetch()} compact />
             ) : albums.length === 0 ? (
               <Text className="text-muted-foreground text-sm mx-1">This workspace has no albums yet.</Text>
             ) : (

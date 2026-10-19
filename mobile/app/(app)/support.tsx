@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,17 +11,33 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, router } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import {
   useOpenTicket,
   useReplyToTicket,
   useSupportThread,
   useSupportTickets,
 } from '@/src/hooks';
+import { ApiError } from '@/src/api';
+import { ScreenHeader } from '@/components/ScreenHeader';
+import { RateTicket } from '@/components/RateTicket';
+import {
+  AttachButton,
+  AttachFiles,
+  MessageFiles,
+  PendingFiles,
+  useSupportUploads,
+} from '@/components/SupportFiles';
 
+/**
+ * What each status means to the person who raised the request.
+ *
+ * `pending` is what a support reply sets, so it is the customer's move, not
+ * ours — it read "Waiting on us" while support was waiting on them.
+ */
 const STATUS_LABEL: Record<string, string> = {
   open: 'Open',
-  pending: 'Waiting on us',
+  pending: 'Waiting on you',
   resolved: 'Resolved',
   closed: 'Closed',
 };
@@ -33,27 +50,35 @@ const STATUS_LABEL: Record<string, string> = {
  * request people cannot see the state of gets sent three more times.
  *
  * One screen holding both the list and the open thread, rather than a second
- * route. The thread is only ever reached from the list, and a stack entry for
- * it would put a back button where the phone's own gesture already goes.
+ * route. Going back from a thread — the header's arrow or Android's back
+ * button — returns to the list rather than leaving Support. A "support
+ * replied" notification opens straight onto its thread (`?ticket=`).
  */
 export default function SupportScreen() {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const { ticket } = useLocalSearchParams<{ ticket?: string }>();
+  const [openId, setOpenId] = useState<string | null>(ticket ?? null);
+
+  useEffect(() => {
+    if (!openId) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setOpenId(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [openId]);
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top', 'bottom']}>
-      <Stack.Screen
-        options={{
-          title: openId ? 'Request' : 'Support',
-          headerBackTitle: 'Back',
-        }}
+      <ScreenHeader
+        title={openId ? 'Request' : 'Support'}
+        onBack={openId ? () => setOpenId(null) : undefined}
       />
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {openId ? (
-          <Thread id={openId} onBack={() => setOpenId(null)} />
+          <Thread id={openId} />
         ) : (
           <TicketList onOpen={setOpenId} />
         )}
@@ -67,7 +92,7 @@ function TicketList({ onOpen }: { onOpen: (id: string) => void }) {
   const [composing, setComposing] = useState(false);
 
   return (
-    <ScrollView contentContainerClassName="p-5 pb-16">
+    <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-16">
       <Pressable
         onPress={() => setComposing((v) => !v)}
         className="mb-4 items-center rounded-xl py-3"
@@ -102,8 +127,8 @@ function TicketList({ onOpen }: { onOpen: (id: string) => void }) {
             No requests yet
           </Text>
           <Text className="mt-1 text-center text-[12px] leading-5 text-muted-foreground">
-            If something is broken or confusing, tell us — during the
-            pre-release that is the most useful thing you can do.
+            If something is broken or confusing, tell us here. Every request
+            is read, and you will hear back in this screen.
           </Text>
         </View>
       ) : (
@@ -122,13 +147,13 @@ function TicketList({ onOpen }: { onOpen: (id: string) => void }) {
                   {t.messages ?? 0} message{(t.messages ?? 0) === 1 ? '' : 's'}
                 </Text>
               </View>
+              {/* Semantic colours: the grey chip's text had none, so it drew
+                  black on the dark theme's card and vanished. */}
               <View
-                className="rounded-full px-2 py-1"
-                style={{ backgroundColor: t.status === 'open' ? '#B66A40' : '#8882' }}
+                className={`rounded-full px-2 py-1 ${t.status === 'open' ? 'bg-action' : 'bg-muted'}`}
               >
                 <Text
-                  className="text-[10px] font-bold"
-                  style={{ color: t.status === 'open' ? '#fff' : undefined }}
+                  className={`text-[10px] font-bold ${t.status === 'open' ? 'text-action-foreground' : 'text-muted-foreground'}`}
                 >
                   {STATUS_LABEL[t.status] ?? t.status}
                 </Text>
@@ -145,7 +170,9 @@ function Compose({ onDone }: { onDone: () => void }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const open = useOpenTicket();
+  const uploads = useSupportUploads();
   const tooShort = body.trim().length < 10 || subject.trim().length < 3;
+  const blocked = open.isPending || tooShort || uploads.busy || uploads.failed;
 
   return (
     <View className="mb-5 gap-3 rounded-xl border border-border p-4">
@@ -178,37 +205,46 @@ function Compose({ onDone }: { onDone: () => void }) {
           style={{ textAlignVertical: 'top' }}
         />
       </View>
+      <AttachFiles uploads={uploads} disabled={open.isPending} />
       {open.isError && (
         <Text className="text-[12px]" style={{ color: '#dc2626' }}>
           {open.error instanceof Error ? open.error.message : 'Could not send'}
         </Text>
       )}
       <Pressable
-        disabled={open.isPending || tooShort}
-        style={{ opacity: open.isPending || tooShort ? 0.5 : 1, backgroundColor: '#B66A40' }}
+        disabled={blocked}
+        style={{ opacity: blocked ? 0.5 : 1, backgroundColor: '#B66A40' }}
         className="items-center rounded-xl py-3"
-        onPress={() => open.mutate({ subject, body }, { onSuccess: onDone })}
+        onPress={() =>
+          open.mutate(
+            { subject, body, attachments: uploads.ids },
+            {
+              onSuccess: () => {
+                uploads.clear();
+                onDone();
+              },
+            },
+          )
+        }
       >
         <Text className="text-[14px] font-bold text-white">
-          {open.isPending ? 'Sending…' : 'Send request'}
+          {open.isPending ? 'Sending…' : uploads.busy ? 'Uploading…' : 'Send request'}
         </Text>
       </Pressable>
     </View>
   );
 }
 
-function Thread({ id, onBack }: { id: string; onBack: () => void }) {
+function Thread({ id }: { id: string }) {
   const { ticket, messages, isLoading, loadFailed } = useSupportThread(id);
   const reply = useReplyToTicket(id);
   const [body, setBody] = useState('');
+  const uploads = useSupportUploads();
+  const blocked = reply.isPending || !body.trim() || uploads.busy || uploads.failed;
 
   return (
     <View className="flex-1">
-      <ScrollView contentContainerClassName="p-5 pb-4">
-        <Pressable onPress={onBack} className="mb-4">
-          <Text className="text-[13px] text-muted-foreground">← All requests</Text>
-        </Pressable>
-
+      <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-4" keyboardShouldPersistTaps="handled">
         {isLoading ? (
           <ActivityIndicator color="#B66A40" className="mt-10" />
         ) : loadFailed ? (
@@ -237,18 +273,36 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                   <Text className="text-[14px] leading-5 text-foreground">
                     {m.body}
                   </Text>
+                  <MessageFiles files={m.attachments} />
                   <Text className="mt-1.5 text-[10px] text-muted-foreground">
                     {new Date(m.created_at).toLocaleString()}
                   </Text>
                 </View>
               ))}
             </View>
+            {ticket && <RateTicket ticket={ticket} />}
           </>
         )}
       </ScrollView>
 
+      {!loadFailed && !isLoading && reply.isError && (
+        // The text stays in the box, so trying again is one tap.
+        <Text className="px-4 pt-2 text-[12px] text-destructive">
+          {reply.error instanceof ApiError && reply.error.status === 400
+            ? reply.error.message
+            : 'That did not send. Check your connection and try again.'}
+        </Text>
+      )}
+      {!loadFailed && !isLoading && (uploads.files.length > 0 || uploads.note) && (
+        <View className="border-t border-border px-3 pt-3">
+          <PendingFiles uploads={uploads} />
+        </View>
+      )}
       {!loadFailed && !isLoading && (
-        <View className="flex-row items-end gap-2 border-t border-border p-3">
+        <View
+          className={`flex-row items-end gap-2 p-3 ${uploads.files.length > 0 || uploads.note ? '' : 'border-t border-border'}`}
+        >
+          <AttachButton uploads={uploads} disabled={reply.isPending} />
           <TextInput
             value={body}
             onChangeText={setBody}
@@ -260,13 +314,23 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
             style={{ textAlignVertical: 'top' }}
           />
           <Pressable
-            disabled={reply.isPending || !body.trim()}
+            disabled={blocked}
             style={{
-              opacity: reply.isPending || !body.trim() ? 0.5 : 1,
+              opacity: blocked ? 0.5 : 1,
               backgroundColor: '#B66A40',
             }}
             className="rounded-xl px-4 py-3"
-            onPress={() => reply.mutate(body, { onSuccess: () => setBody('') })}
+            onPress={() =>
+              reply.mutate(
+                { body, attachments: uploads.ids },
+                {
+                  onSuccess: () => {
+                    setBody('');
+                    uploads.clear();
+                  },
+                },
+              )
+            }
           >
             <Text className="text-[13px] font-bold text-white">Send</Text>
           </Pressable>

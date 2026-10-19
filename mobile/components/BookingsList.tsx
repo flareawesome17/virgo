@@ -1,10 +1,14 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Pressable, RefreshControl, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { router } from 'expo-router';
 import { CalendarIcon, FileTextIcon, MapPinIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useBookings, useTheme } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
+import { EmptyState } from '@/components/EmptyState';
+import { CardListSkeleton } from '@/components/Skeleton';
+import { useTabObstruction } from '@/components/TabScreen';
 import { rateLabel, type Booking } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { RemoteImage } from '@/components/RemoteImage';
@@ -51,40 +55,35 @@ function day(iso: string | null): string | null {
  * a booking that fell through is part of what happened.
  */
 export function BookingsList({ bottomPadding = 40 }: { bottomPadding?: number }) {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
   const { bookings, isLoading, loadFailed, refetch } = useBookings();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
+  const obstruction = useTabObstruction();
 
   if (isLoading && bookings.length === 0) {
-    return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator color={palette.primary} />
-      </View>
-    );
+    return <CardListSkeleton count={3} />;
   }
   if (loadFailed && bookings.length === 0) {
     return <LoadFailed what="your bookings" onRetry={() => void refetch()} />;
   }
   if (bookings.length === 0) {
     return (
-      <View className="flex-1 items-center justify-center px-10">
-        <View className="w-14 h-14 rounded-full bg-muted items-center justify-center">
-          <FileTextIcon size={24} className="text-muted-foreground" />
-        </View>
-        <Text className="text-foreground text-base font-bold mt-4">No bookings yet</Text>
-        <Text className="text-muted-foreground text-sm text-center mt-1 leading-5">
-          One is made when a job application is accepted, from either side. It holds the role, the day and the rate, so neither of you has to remember them.
-        </Text>
+      <View className="flex-1 justify-center" style={{ paddingBottom: obstruction }}>
+        <EmptyState
+          icon={FileTextIcon}
+          title="No bookings yet"
+          body="One is made when a job application is accepted, from either side. It holds the role, the day and the rate, so neither of you has to remember them."
+        />
       </View>
     );
   }
 
   return (
-    <ScrollView
-          onScroll={chrome.onScroll}
-          scrollEventThrottle={16}
+    <Animated.ScrollView
+      onScroll={onScroll}
+      scrollEventThrottle={16}
       contentContainerStyle={{ padding: 20, paddingBottom: bottomPadding, gap: 10 }}
       refreshControl={
         <RefreshControl
@@ -156,6 +155,6 @@ export function BookingsList({ bottomPadding = 40 }: { bottomPadding?: number })
           </Pressable>
         );
       })}
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }

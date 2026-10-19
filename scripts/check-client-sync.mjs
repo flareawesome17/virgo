@@ -83,6 +83,9 @@ const PLATFORM_SPECIFIC = {
 const SHARED_LIB = [
   'calendar.ts',
   'job-form.ts',
+  // The terms and privacy policy. One product, one set of terms: the two
+  // copies drifted while they were kept in step by hand.
+  'legal-content.ts',
   // Which day a photograph belongs under. Both galleries group by it, and a
   // difference here puts the same frame under different days on each.
   'media-days.ts',

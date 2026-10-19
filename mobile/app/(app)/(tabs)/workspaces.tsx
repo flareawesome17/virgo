@@ -1,11 +1,17 @@
-import { View, Text, FlatList, ScrollView, RefreshControl, Pressable, TextInput } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppTopBar } from '@/components';
+import { View, Text, ScrollView, RefreshControl, Pressable, TextInput } from 'react-native';
+import Animated from 'react-native-reanimated';
+import {
+  CardListSkeleton,
+  EmptyState,
+  FilterChip,
+  TabScreen,
+  useTabBottomInset,
+} from '@/components';
 import { useAuth, useCollaboratorInvitations, useTheme, useWorkspaces, usePlanLimits } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { useCallback, useMemo, useState } from 'react';
 import { router } from 'expo-router';
-import { ArchiveIcon, ChevronRightIcon, FolderPlusIcon, PlusIcon, SearchIcon } from 'lucide-react-native';
+import { ArchiveIcon, ChevronRightIcon, FolderPlusIcon, SearchIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { WorkspaceInvitations } from '@/components/WorkspaceInvitations';
@@ -14,7 +20,6 @@ import { PALETTES } from '@/theme';
 import type { Workspace } from '@/src/api';
 
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FolderPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ArchiveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -28,7 +33,8 @@ const SCOPES: { key: Scope; label: string }[] = [
 ];
 
 export default function WorkspacesScreen() {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
+  const bottomInset = useTabBottomInset();
   const { guardWorkspaceCreate } = usePlanLimits();
   const { user } = useAuth();
   const { isDark } = useTheme();
@@ -82,47 +88,23 @@ export default function WorkspacesScreen() {
     );
   }, [workspaces, yours, shared, query, scope]);
 
-  const summary = [
-    yours.length > 0 && `${yours.length} yours`,
-    shared.length > 0 && `${shared.length} shared with you`,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <AppTopBar />
-      <FlatList
-        onScroll={chrome.onScroll}
+    <TabScreen title="Workspaces" create="workspace">
+      <Animated.FlatList
+        onScroll={onScroll}
         scrollEventThrottle={16}
         data={visible}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
         keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />
         }
         ListHeaderComponent={
           <View>
-            <View className="px-5 pt-4 pb-1 flex-row items-center justify-between">
-              <View className="flex-1 min-w-0">
-                <Text className="text-foreground text-[28px] font-bold tracking-tight">Workspaces</Text>
-                {summary ? (
-                  <Text className="text-muted-foreground text-sm mt-1">{summary}</Text>
-                ) : null}
-              </View>
-              <Pressable
-                onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
-                accessibilityRole="button"
-                accessibilityLabel="Create a workspace"
-                className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
-              >
-                <PlusIcon size={20} className="text-action-foreground" />
-              </Pressable>
-            </View>
-
-            {/* Under the title, above the list it would join: an invitation is
-                the one thing on this screen waiting on somebody else. */}
+            {/* First, above the list it would join: an invitation is the one
+                thing on this screen waiting on somebody else. The screen's
+                name is in the top bar, and making one is its +. */}
             <WorkspaceInvitations />
 
             {workspaces.length > 0 && (
@@ -153,24 +135,14 @@ export default function WorkspacesScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingVertical: 10 }}
               >
-                {SCOPES.map((s) => {
-                  const on = s.key === scope;
-                  return (
-                    <Pressable
-                      key={s.key}
-                      onPress={() => setScope(s.key)}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected: on }}
-                      className={`h-9 rounded-full px-4 justify-center active:scale-[0.98] ${
-                        on ? 'bg-foreground' : 'bg-card border border-border'
-                      }`}
-                    >
-                      <Text className={`text-[13px] ${on ? 'text-background font-bold' : 'text-foreground font-medium'}`}>
-                        {s.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+                {SCOPES.map((s) => (
+                  <FilterChip
+                    key={s.key}
+                    label={s.label}
+                    on={s.key === scope}
+                    onPress={() => setScope(s.key)}
+                  />
+                ))}
               </ScrollView>
             )}
             <View className="h-2" />
@@ -194,54 +166,42 @@ export default function WorkspacesScreen() {
         ListEmptyComponent={
           // "No workspaces yet" on a failed request tells someone their own
           // work is gone. It is not, and saying so is the worst kind of wrong.
-          isLoading ? null : loadFailed ? (
+          // A placeholder in the list's own shape while it loads. It was null,
+          // which left the screen empty under the bar until it all arrived.
+          isLoading ? (
+            <CardListSkeleton />
+          ) : loadFailed ? (
             <View className="pt-8">
               <LoadFailed what="your workspaces" onRetry={() => refetchWorkspaces()} compact />
             </View>
           ) : workspaces.length > 0 ? (
             // Filtered down to nothing, which is not the same as having none.
-            <View className="px-5 pt-8 items-center gap-3">
-              <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
-                <SearchIcon size={26} className="text-muted-foreground" />
-              </View>
-              <Text className="text-foreground text-lg font-bold">Nothing matches</Text>
-              <Text className="text-muted-foreground text-sm text-center px-8">
-                {query.trim() ? `No workspace matches “${query.trim()}”.` : 'Nothing here yet.'}
-              </Text>
-              <Pressable
-                onPress={() => {
+            <EmptyState
+              icon={SearchIcon}
+              title="Nothing matches"
+              body={query.trim() ? `No workspace matches “${query.trim()}”.` : 'Nothing here yet.'}
+              secondary={{
+                label: 'Show all',
+                onPress: () => {
                   setQuery('');
                   setScope('all');
-                }}
-                className="bg-card rounded-2xl px-5 py-3 active:scale-[0.96]"
-                style={{ borderWidth: 1, borderColor: palette.border }}
-              >
-                <Text className="text-foreground text-sm font-semibold">Show all</Text>
-              </Pressable>
-            </View>
+                },
+              }}
+            />
           ) : (
-            <View className="px-5 pt-8 items-center gap-4">
-              <View className="w-16 h-16 rounded-full bg-muted items-center justify-center">
-                <FolderPlusIcon size={28} className="text-muted-foreground" />
-              </View>
-              <View className="items-center gap-1">
-                <Text className="text-foreground text-lg font-bold">No workspaces yet</Text>
-                <Text className="text-muted-foreground text-sm text-center px-8">
-                  A workspace holds the albums, schedule and people for one client.
-                </Text>
-              </View>
-              <Pressable
-                onPress={guardWorkspaceCreate(() => router.push('/workspaces/create'))}
-                className="bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:scale-[0.96]"
-              >
-                <PlusIcon size={18} className="text-white" />
-                <Text className="text-white text-sm font-semibold">Create a workspace</Text>
-              </Pressable>
-            </View>
+            <EmptyState
+              icon={FolderPlusIcon}
+              title="No workspaces yet"
+              body="A workspace holds the albums, schedule and people for one client."
+              action={{
+                label: 'Create a workspace',
+                onPress: guardWorkspaceCreate(() => router.push('/workspaces/create')),
+              }}
+            />
           )
         }
         renderItem={renderItem}
       />
-    </SafeAreaView>
+    </TabScreen>
   );
 }

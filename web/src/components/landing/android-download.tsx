@@ -36,25 +36,27 @@ export function AndroidDownload({ build }: { build: AndroidBuild | null }) {
   if (!build) return null;
 
   return (
-    <section className="mt-10 flex flex-col gap-3 border-t border-white/8 pt-8">
+    <section className="flex flex-col gap-3 border-t border-[#2A2522] pt-10">
       <div className="flex items-baseline gap-2.5">
-        <h2 className="text-[13px] font-bold uppercase tracking-[0.14em] text-white/45">
+        <h2 className="font-mono text-[11px] font-normal uppercase tracking-[0.2em] text-[#A08E84]">
           Android
         </h2>
-        <span className="text-[12px] text-white/35">{build.version}</span>
+        <span className="font-mono text-[11px] text-[#A08E84]/80">{build.version}</span>
       </div>
 
       <a
         href={build.url}
         download
-        className="group flex min-h-11 w-full items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-white/85 transition-colors hover:bg-white/[0.06] hover:text-white sm:w-[calc(50%-0.3125rem)]"
+        className="group flex min-h-14 w-full items-center gap-3.5 rounded-2xl border border-[#2A2522] bg-[linear-gradient(165deg,#211C19,#1A1614)] px-4 py-3.5 text-[#F2EDE8] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_40px_-28px_rgba(0,0,0,0.9)] transition-[border-color,transform] duration-300 hover:-translate-y-0.5 hover:border-[#D18A5A]/50 focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#F2EDE8] motion-reduce:hover:translate-y-0 sm:w-[calc(50%-0.3125rem)]"
       >
-        <Smartphone className="size-5 shrink-0" aria-hidden />
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[radial-gradient(120%_120%_at_30%_20%,#3A2F28,#1A1513_70%)] text-[#F0C88E] shadow-[inset_0_1px_0_rgba(240,200,142,0.35),inset_0_0_0_1px_rgba(209,138,90,0.28)]">
+          <Smartphone className="size-5" aria-hidden />
+        </span>
         <span className="flex min-w-0 flex-col text-left">
-          <span className="text-[14px] font-semibold leading-tight">
+          <span className="text-[15px] font-semibold leading-tight">
             Download the APK
           </span>
-          <span className="text-[12px] leading-tight text-white/50">
+          <span className="mt-0.5 text-[12.5px] leading-tight text-[#A08E84]">
             Android 8 and later · {formatSize(build.size)}
           </span>
         </span>
@@ -64,7 +66,7 @@ export function AndroidDownload({ build }: { build: AndroidBuild | null }) {
           install. Being warned by the phone that a file is unusual, with no
           warning from the people who made it, is what a careful person backs
           out of — and they would be right to. */}
-      <p className="max-w-xl text-[12px] leading-relaxed text-white/45">
+      <p className="max-w-xl text-[13px] leading-relaxed text-[#A08E84]">
         Virgo is not on Google Play yet, so this installs from the file itself.
         Android will ask whether to allow installs from your browser the first
         time; that permission is per-app and you can turn it off afterwards.

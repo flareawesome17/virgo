@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, Alert, Linking } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import Constants from 'expo-constants';
 import * as StoreReview from 'expo-store-review';
@@ -29,7 +28,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { AppTopBar } from '@/components';
+import { SegmentedTabs, TabScreen, useTabBottomInset } from '@/components';
 import { RemoteImage } from '@/components/RemoteImage';
 import {
   useAuth,
@@ -84,6 +83,7 @@ const APPEARANCE: Record<string, string> = { light: 'Light', dark: 'Dark', syste
  * link land on the right one.
  */
 export default function SettingsScreen() {
+  const bottomInset = useTabBottomInset();
   const params = useLocalSearchParams<{ view?: string }>();
   const requestedView: SettingsView = params.view === 'app' ? 'app' : 'account';
   const [view, setView] = useState<SettingsView>(requestedView);
@@ -104,43 +104,26 @@ export default function SettingsScreen() {
   const { offers: rewards } = usePromoOffers(!!user?.id);
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <AppTopBar />
+    <TabScreen title="Settings">
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
       >
-        <View className="px-5 pt-4 pb-2">
-          <Text className="text-foreground text-[28px] font-bold tracking-tight">Settings</Text>
-          <Text className="text-muted-foreground text-sm mt-1">
-            Your account, and how the app works
-          </Text>
-        </View>
-
-        <View
-          accessibilityRole="tablist"
-          className="mx-5 mt-3 mb-1 flex-row rounded-xl bg-secondary p-1"
-        >
-          <SegmentTab
-            label="Profile & account"
-            icon={UserIcon}
-            active={view === 'account'}
-            badge={rewards.length}
-            onPress={() => show('account')}
-          />
-          <SegmentTab
-            label="App"
-            icon={SlidersHorizontalIcon}
-            active={view === 'app'}
-            badge={0}
-            onPress={() => show('app')}
+        <View className="mx-5 mt-2 mb-1">
+          <SegmentedTabs<typeof view>
+            segments={[
+              { key: 'account', label: 'Profile & account', icon: UserIcon, badge: rewards.length },
+              { key: 'app', label: 'App', icon: SlidersHorizontalIcon },
+            ]}
+            value={view}
+            onChange={show}
           />
         </View>
 
         {view === 'account' ? <AccountHalf rewards={rewards.length} /> : <AppHalf />}
       </ScrollView>
-    </SafeAreaView>
+    </TabScreen>
   );
 }
 
@@ -184,13 +167,6 @@ function AccountHalf({ rewards }: { rewards: number }) {
           route: '/settings/public-profile',
           color: palette.primary,
         },
-        {
-          icon: BriefcaseIcon,
-          label: 'Hire enquiries',
-          detail: 'Work people have offered you',
-          route: '/friends/enquiries',
-          color: CHART_COLORS.green,
-        },
       ],
     },
     {
@@ -199,7 +175,7 @@ function AccountHalf({ rewards }: { rewards: number }) {
         {
           icon: UserCogIcon,
           label: 'Account & security',
-          detail: 'Email and password',
+          detail: 'Email, password, pause or delete',
           route: '/settings/account',
           color: palette.primary,
         },
@@ -322,9 +298,15 @@ function AppHalf() {
   const rateVirgo = async () => {
     try {
       const storeUrl = StoreReview.storeUrl();
-      if (storeUrl && await Linking.canOpenURL(storeUrl)) {
-        await Linking.openURL(storeUrl);
-        return;
+      // Tried, not asked about: see help.tsx — canOpenURL says no on Android
+      // 11+ for anything the manifest does not declare.
+      if (storeUrl) {
+        try {
+          await Linking.openURL(storeUrl);
+          return;
+        } catch {
+          // Fall through to the in-app review.
+        }
       }
       if (await StoreReview.isAvailableAsync()) {
         await StoreReview.requestReview();
@@ -377,11 +359,11 @@ function AppHalf() {
       ],
     },
     {
-      title: 'Storage & Sync',
+      title: 'Storage & sync',
       rows: [
         {
           icon: CloudIcon,
-          label: 'Offline Sync',
+          label: 'Offline sync',
           detail: 'What works without a connection',
           // Was a hardcoded green "Synced" chip on the Profile tab that said
           // the same thing with the network off.
@@ -403,7 +385,7 @@ function AppHalf() {
         },
         {
           icon: HelpCircleIcon,
-          label: 'Help Center',
+          label: 'Help center',
           detail: 'Answers to common questions',
           route: '/settings/help',
           color: palette.primary,
@@ -535,41 +517,3 @@ function Section({
   );
 }
 
-/** The two halves, drawn like Connect's Messages/People switch. */
-function SegmentTab({
-  label,
-  icon: Icon,
-  active,
-  badge,
-  onPress,
-}: {
-  label: string;
-  icon: LucideIcon;
-  active: boolean;
-  badge: number;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={badge > 0 ? `${label}, ${badge} waiting` : label}
-      className={`min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-lg px-3 active:scale-[0.98] ${
-        active ? 'bg-card' : 'bg-transparent'
-      }`}
-    >
-      <Icon size={17} className={active ? 'text-primary' : 'text-muted-foreground'} />
-      <Text className={`text-sm font-semibold ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
-        {label}
-      </Text>
-      {badge > 0 && (
-        <View className="min-w-[20px] rounded-full bg-action px-1.5 py-0.5">
-          <Text className="text-action-foreground text-[11px] font-bold text-center">
-            {badge > 99 ? '99+' : badge}
-          </Text>
-        </View>
-      )}
-    </Pressable>
-  );
-}

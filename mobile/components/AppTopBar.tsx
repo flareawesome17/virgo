@@ -1,20 +1,22 @@
 import { useState } from 'react';
-import { Animated, Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 // expo-image rather than RN Image, as everywhere else in this app.
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { NotificationBell } from '@/components/NotificationBell';
-import { UpdateBanner } from '@/components/UpdateBanner';
-import { useChrome } from '@/src/providers/ChromeProvider';
-import { MessageCircleIcon, SettingsIcon } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import { MessageCircleIcon, PlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { CreateSheet, type CreateKind } from '@/components/CreateSheet';
+import { NotificationBell } from '@/components/NotificationBell';
+import { RemoteImage } from '@/components/RemoteImage';
 import {
-  useIncomingFriendRequests,
+  useAuth,
+  usePeopleUnseen,
   usePromoOffers,
   useUnreadCount,
 } from '@/src/hooks';
 
-for (const Icon of [MessageCircleIcon, SettingsIcon]) {
+for (const Icon of [MessageCircleIcon, PlusIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -27,63 +29,70 @@ for (const Icon of [MessageCircleIcon, SettingsIcon]) {
  */
 const LOGO = require('@/assets/splash-icon.png');
 
+const AVATAR = 32;
+
 /**
- * The bar every tab screen wears, in two tiers.
+ * The bar every tab screen wears, and the only header a tab has.
  *
- * The first tier is identity and the one action: the mark and wordmark on the
- * left, the bell alone on the right. The second is where you are: Dashboard
- * and Jobs as equal-width tabs. They used to share one row — logo, then bell,
- * then the tabs — and the bell sat between an empty left half and the text
- * tabs, where it read as a stray fourth tab. Giving it a row of its own is
- * what fixes that; spacing alone did not.
+ * Left, who and where: your photo, which opens your profile and settings, and
+ * the screen's name — or, on the Dashboard, the mark. Right, the things you
+ * reach for from anywhere: + to make something, your messages, and what is
+ * new. Each tab used to put its own big title under this bar, so every
+ * screen started with two headers; and four of them had their own + in four
+ * different places and shapes.
  *
- * The Feed joins the second tier when it ships. Listing it before there is
- * anything in it would be a tab that leads to an empty screen.
+ * Settings moved behind the photo. Three icons is as many as a bar this size
+ * holds before they start to read as a row of tabs.
  *
- * It appears on all six tab screens rather than on Dashboard alone: without
- * a bar that travels, Workspaces would be a screen with no way back to it.
+ * It has no motion of its own. TabScreen draws it and slides it away and back
+ * by transform; it used to collapse its own height, which the native driver
+ * cannot animate, so it faded out and then the screen jumped up under it.
  */
-export function AppTopBar() {
+export function AppTopBar({
+  title,
+  create,
+}: {
+  /** The screen's name. Without one the bar shows the mark, as on the Dashboard. */
+  title?: string;
+  /** What this screen makes, marked in the Create sheet. */
+  create?: CreateKind;
+}) {
   const unread = useUnreadCount();
-  const { count: friendRequests } = useIncomingFriendRequests();
+  // Requests and hire enquiries that arrived since People was last opened.
+  // Enquiries are paid work and counted nowhere before; requests counted
+  // until answered, so an ignored one kept the dot lit for good.
+  const { count: people } = usePeopleUnseen();
   const { offers: rewards } = usePromoOffers();
   // One dot for both: a message and a request are each somebody waiting on
   // you, and two badges on one icon would be a puzzle rather than a count.
-  const connectAlerts = unread + friendRequests;
+  const connectAlerts = unread + people;
+  // The half the dot is about: People when only people are waiting.
+  const connectHref = unread === 0 && people > 0 ? '/connect?view=people' : '/connect?view=messages';
+  const [creating, setCreating] = useState(false);
 
-  const { hidden } = useChrome();
-  // Measured rather than assumed: the row is min-h-11 but grows with the
-  // system font size, and collapsing to a guessed height would clip it or
-  // leave a band behind.
-  const [height, setHeight] = useState(0);
-  const onLayout = (event: LayoutChangeEvent) => {
-    const measured = event.nativeEvent.layout.height;
-    if (measured > 0 && measured !== height) setHeight(measured);
+  const openCreate = () => {
+    // A light tap to say the sheet is this button's doing. Only here: the
+    // sheet's own rows navigate, and the screen they open says enough.
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    setCreating(true);
   };
 
   return (
-    <>
-      {/* Collapsing the height rather than sliding the bar up: the screen
-          below is in normal flow, so the content rises into the space as the
-          bar goes. Height is a layout property and cannot use the native
-          driver — the trade is one short animation off the UI thread against
-          every screen needing a top inset otherwise. */}
-      <Animated.View
-        className="bg-background overflow-hidden"
-        style={
-          height > 0
-            ? {
-                height: hidden.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [height, 0],
-                }),
-                opacity: hidden.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-              }
-            : undefined
-        }
-      >
-        <View onLayout={onLayout}>
-        <View className="min-h-11 flex-row items-center justify-between pl-4 pr-1">
+    <View className="min-h-12 flex-row items-center bg-background pl-3 pr-1">
+      <Avatar rewards={rewards.length} />
+
+      {title ? (
+        <Text
+          accessibilityRole="header"
+          numberOfLines={1}
+          className="flex-1 ml-3 text-foreground text-[20px] font-bold tracking-tight"
+        >
+          {title}
+        </Text>
+      ) : (
+        <View className="flex-1 ml-2.5 flex-row">
           <Pressable
             onPress={() => router.navigate('/')}
             accessibilityRole="button"
@@ -91,55 +100,80 @@ export function AppTopBar() {
             hitSlop={8}
             className="min-h-11 flex-row items-center gap-2 active:opacity-70"
           >
-            <Image
-              source={LOGO}
-              style={{ width: 28, height: 28 }}
-              contentFit="contain"
-            />
-            <Text className="text-foreground text-[20px] font-bold tracking-tight">
-              Virgo
-            </Text>
+            <Image source={LOGO} style={{ width: 26, height: 26 }} contentFit="contain" />
+            <Text className="text-foreground text-[20px] font-bold tracking-tight">Virgo</Text>
           </Pressable>
+        </View>
+      )}
 
-          <View className="flex-row items-center">
-            <Pressable
-              onPress={() => router.navigate('/connect')}
-              accessibilityRole="button"
-              accessibilityLabel={
-                connectAlerts > 0
-                  ? `Connections, ${connectAlerts} waiting`
-                  : 'Connections'
-              }
-              className="w-11 h-11 items-center justify-center active:opacity-70"
-            >
-              <MessageCircleIcon size={22} className="text-foreground" />
-              {connectAlerts > 0 && <Dot count={connectAlerts} />}
-            </Pressable>
-
-            <NotificationBell />
-
-            <Pressable
-              onPress={() => router.navigate('/settings')}
-              accessibilityRole="button"
-              accessibilityLabel={
-                rewards.length > 0 ? 'Settings, an offer is waiting' : 'Settings'
-              }
-              className="w-11 h-11 items-center justify-center active:opacity-70"
-            >
-              <SettingsIcon size={22} className="text-foreground" />
-              {rewards.length > 0 && <Dot count={rewards.length} />}
-            </Pressable>
+      <View className="flex-row items-center">
+        <Pressable
+          onPress={openCreate}
+          accessibilityRole="button"
+          accessibilityLabel="Create"
+          accessibilityHint="Post a showcase or a job, or make a workspace, album, event or reminder"
+          className="w-11 h-11 items-center justify-center active:opacity-80"
+        >
+          <View className="w-[34px] h-[34px] rounded-xl bg-action items-center justify-center">
+            <PlusIcon size={20} strokeWidth={2.5} className="text-action-foreground" />
           </View>
+        </Pressable>
+
+        <Pressable
+          onPress={() => router.navigate(connectHref)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            connectAlerts > 0 ? `Messages and people, ${connectAlerts} waiting` : 'Messages and people'
+          }
+          className="w-11 h-11 items-center justify-center active:opacity-70"
+        >
+          <MessageCircleIcon size={22} className="text-foreground" />
+          {connectAlerts > 0 && <Dot count={connectAlerts} />}
+        </Pressable>
+
+        <NotificationBell />
+      </View>
+
+      <CreateSheet visible={creating} onClose={() => setCreating(false)} current={create} />
+    </View>
+  );
+}
+
+/**
+ * Your photo, or your initial: the way to your profile and settings.
+ *
+ * The waiting-offer count moved here from the Settings cog it used to sit on,
+ * since this is now the way to the screen the offer is on.
+ */
+function Avatar({ rewards }: { rewards: number }) {
+  const { user, profile } = useAuth();
+  const initial = (profile?.displayName || user?.email || '?').charAt(0).toUpperCase();
+
+  return (
+    <Pressable
+      onPress={() => router.navigate('/settings')}
+      accessibilityRole="button"
+      accessibilityLabel={
+        rewards > 0 ? 'Your profile and settings, an offer is waiting' : 'Your profile and settings'
+      }
+      hitSlop={6}
+      className="w-11 h-11 items-center justify-center active:opacity-70"
+    >
+      {profile?.avatarUrl ? (
+        <RemoteImage
+          source={{ uri: profile.avatarUrl }}
+          style={{ width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 }}
+        />
+      ) : (
+        <View
+          className="items-center justify-center rounded-full bg-primary/15"
+          style={{ width: AVATAR, height: AVATAR }}
+        >
+          <Text className="text-primary text-[14px] font-bold">{initial}</Text>
         </View>
-        </View>
-      </Animated.View>
-      {/* Under the bar, not in it: the rows above are a fixed set of
-          destinations, and this is news. Here rather than wrapping the
-          navigator — unlike an upload, which starts from an album, a new
-          build is something you are told about on landing, and the app
-          opens on a tab. Renders nothing the rest of the time. */}
-      <UpdateBanner />
-    </>
+      )}
+      {rewards > 0 && <Dot count={rewards} />}
+    </Pressable>
   );
 }
 
@@ -153,7 +187,7 @@ export function AppTopBar() {
  */
 function Dot({ count }: { count: number }) {
   return (
-    <View className="absolute right-1.5 top-1.5 min-w-[17px] h-[17px] items-center justify-center rounded-full bg-action border-2 border-background px-1">
+    <View className="absolute right-1 top-1 min-w-[17px] h-[17px] items-center justify-center rounded-full bg-action border-2 border-background px-1">
       <Text className="text-action-foreground text-[9px] font-bold" allowFontScaling={false}>
         {count > 99 ? '99+' : count}
       </Text>

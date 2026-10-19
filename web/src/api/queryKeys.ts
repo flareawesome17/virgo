@@ -122,10 +122,27 @@ export const queryKeys = {
     list: ['bookings', 'list'] as const,
     detail: (id: string) => ['bookings', 'detail', id] as const,
   },
+  /** One person's ledger. Every write invalidates `all`: lists and totals move together. */
+  money: {
+    all: ['money'] as const,
+    list: (params?: unknown) => ['money', 'list', params ?? {}] as const,
+    detail: (id: string) => ['money', 'detail', id] as const,
+    summary: (from: string, to: string) => ['money', 'summary', from, to] as const,
+    suggestions: ['money', 'suggestions'] as const,
+    booking: (bookingId: string) => ['money', 'booking', bookingId] as const,
+    packages: (status: string) => ['money', 'packages', status] as const,
+    package: (id: string) => ['money', 'package', id] as const,
+    payMethods: ['money', 'pay-methods'] as const,
+    insights: (year: number) => ['money', 'insights', year] as const,
+    tax: (year: number) => ['money', 'tax', year] as const,
+    recurring: ['money', 'recurring'] as const,
+  },
   portfolio: {
     all: ['portfolio'] as const,
   },
   showcases: {
+    /** Every showcase query: lists, single posts, profiles and threads. */
+    all: ['showcases'] as const,
     /** The owner's own list, drafts included. */
     mine: ['showcases', 'mine'] as const,
     one: (id: string) => ['showcases', 'one', id] as const,
@@ -137,9 +154,14 @@ export const queryKeys = {
     scope: (scope: 'everyone' | 'connections') => ['feed', scope] as const,
   },
   shelves: {
+    /** Every shelf query: your own, somebody's profile, and a shelf's entries. */
+    all: ['shelves'] as const,
     mine: ['shelves', 'mine'] as const,
+    holding: (showcaseId: string) => ['shelves', 'mine', 'holding', showcaseId] as const,
     ofHandle: (handle: string) => ['shelves', 'of', handle] as const,
     entries: (id: string) => ['shelves', 'entries', id] as const,
+    /** Everything you have kept, across your shelves. */
+    allKept: ['shelves', 'all-kept'] as const,
   },
   profile: {
     /** Settings and the page together: a handle or a publish changes both. */

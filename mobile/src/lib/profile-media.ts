@@ -155,9 +155,18 @@ export type ProfileAction =
   | 'setting'
   | 'connect'
   | 'accept'
+  | 'decline'
+  | 'withdraw'
+  | 'unfriend'
+  | 'enquiry'
   | 'message'
   | 'showcase'
+  | 'editShowcase'
   | 'unshowcase'
+  | 'comment'
+  | 'shelf'
+  | 'keep'
+  | 'report'
   | 'reorder';
 
 const ACTION_COPY: Record<ProfileAction, string> = {
@@ -166,9 +175,23 @@ const ACTION_COPY: Record<ProfileAction, string> = {
   setting: "Couldn't save that setting. Try again later.",
   connect: "Couldn't send the request. Try again.",
   accept: "Couldn't accept the request. Try again.",
+  // Each its own: a failed Decline said "Couldn't accept", a failed
+  // Withdraw "Couldn't send", and a failed unfriend said nothing.
+  decline: "Couldn't decline the request. Try again.",
+  withdraw: "Couldn't withdraw your request. Try again.",
+  unfriend: "Couldn't remove this connection. Try again.",
+  enquiry: "Couldn't answer the enquiry. Try again.",
   message: "Couldn't open the chat. Try again.",
-  showcase: "Couldn't add that to your portfolio. Try again.",
+  // 'showcase' was once the portfolio, and posting, commenting, keeping and
+  // reporting all borrowed it — so every one of them apologised for not
+  // adding something to a portfolio.
+  showcase: "Couldn't post that. Try again.",
+  editShowcase: "Couldn't save your changes. Try again.",
   unshowcase: "Couldn't remove that. Try again.",
+  comment: "Couldn't post your comment. Try again.",
+  shelf: "Couldn't make that shelf. Try again.",
+  keep: "Couldn't keep it. Try again.",
+  report: "Couldn't send the report. Try again.",
   reorder: "Couldn't save the new order. Try again.",
 };
 
@@ -214,6 +237,31 @@ export function profileActionMessage(err: unknown, action: ProfileAction): strin
   }
 
   const code = codeOf(err);
+  // Posting, said for what actually went wrong. Every one of these read
+  // "Couldn't post that. Try again." — and a photograph that can never be
+  // posted was retried for ever.
+  if (code === 'SHOWCASE_FILM_NOT_READY') {
+    return 'That film is still being prepared. Give it a minute, then post again.';
+  }
+  if (code === 'SHOWCASE_TOO_LARGE') {
+    return 'That photo is too large to post. Take it out, or choose one under 40 MB.';
+  }
+  if (code === 'SHOWCASE_NO_WEB_COPY') {
+    return "That photo can't be posted. Take it out, or try a JPEG or PNG copy of it.";
+  }
+  // The composer stops this before it is sent; this is for a server whose
+  // rule is stricter than the phone that asked.
+  if (code === 'SHOWCASE_FILM_ALONE') {
+    return "Photos and a film can't share a post. A film is posted on its own.";
+  }
+  if (code === 'SHOWCASE_LIMIT') {
+    return 'You have 100 showcases, which is the most there can be. Delete one to post another.';
+  }
+  if (code === 'COMMENTS_OFF') return 'Comments are off for this post.';
+  if (code === 'SHELF_NAME_TAKEN' || (action === 'shelf' && status === 409)) {
+    return 'You already have a shelf with that name. Choose another, or keep it there.';
+  }
+  if (code === 'SHELF_LIMIT') return "You're at the most shelves you can have. Delete one first.";
   if (code === 'EMAIL_NOT_VERIFIED') {
     return 'Confirm your email address first. The link is in your inbox.';
   }
@@ -237,9 +285,25 @@ export function profileActionMessage(err: unknown, action: ProfileAction): strin
     status === 403 && code === undefined && err instanceof ApiError &&
     typeof err.body === 'object' && err.body !== null;
   if ((action === 'photo' || action === 'cover') && (code === 'STORAGE_FULL' || uncoded403)) {
-    return 'Your storage is full. Free up space, or upgrade your plan, to add photos.';
+    return 'Your storage is full. Free up space to add photos.';
   }
   if (status === 429) return "You're doing that a lot. Wait a moment and try again.";
   if (action === 'connect' && status === 404) return "This profile isn't available any more.";
+  if ((action === 'comment' || action === 'keep' || action === 'report') && status === 404) {
+    return "This showcase isn't available any more.";
+  }
   return ACTION_COPY[action];
+}
+
+/**
+ * The piece a posting refusal is about, when the server named one — so the
+ * form can mark that photograph rather than leave somebody guessing which of
+ * ten it was.
+ */
+export function faultyPiece(err: unknown): string | null {
+  if (err instanceof ApiError && err.body && typeof err.body === 'object') {
+    const key = (err.body as { fileKey?: unknown }).fileKey;
+    return typeof key === 'string' ? key : null;
+  }
+  return null;
 }

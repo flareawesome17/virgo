@@ -28,6 +28,7 @@ import { Public } from '../auth/public.decorator';
 import { AdminGuard, CurrentAdmin, RequirePermission } from '../admin/admin.guard';
 import type { AdminIdentity } from '../admin/admin-auth.service';
 import { AuditService } from '../admin/audit.service';
+import { OutreachService } from '../admin/outreach.service';
 import { PromosService } from './promos.service';
 
 class CreatePromoDto {
@@ -62,6 +63,10 @@ class ActiveDto {
   @IsBoolean() active!: boolean;
 }
 
+class SegmentGrantDto {
+  @IsUUID() segmentId!: string;
+}
+
 class GrantDto {
   @IsArray()
   @ArrayNotEmpty()
@@ -91,6 +96,7 @@ export class AdminPromosController {
   constructor(
     private readonly promos: PromosService,
     private readonly audit: AuditService,
+    private readonly outreach: OutreachService,
   ) {}
 
   @RequirePermission('promos.read')
@@ -161,6 +167,30 @@ export class AdminPromosController {
       // Both numbers: "granted 12" alone hides that 30 were selected and 18
       // already had it, which is the question anyone reading this log has.
       detail: { selected: dto.userIds.length, granted: result.granted },
+    });
+    return result;
+  }
+
+  /**
+   * Offers a targeted promo to everyone a segment reaches today — the whole
+   * segment, chosen on the server, rather than a list of ids the console
+   * would have to page through and send back. Suspended accounts are left
+   * out. Telling them follows in the background.
+   */
+  @RequirePermission('promos.manage')
+  @HttpCode(200)
+  @Post(':id/grants/segment')
+  async grantToSegment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SegmentGrantDto,
+    @CurrentAdmin() admin: AdminIdentity,
+  ) {
+    const result = await this.outreach.grantPromoToSegment(id, dto.segmentId);
+    await this.audit.record(admin, {
+      action: 'promo.grant_segment',
+      targetType: 'promo',
+      targetId: id,
+      detail: { segmentId: dto.segmentId, segment: result.segment, matched: result.matched, granted: result.granted },
     });
     return result;
   }

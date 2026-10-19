@@ -1,0 +1,38 @@
+{
+  "name": "marketing-assets",
+  "version": "1.0.0",
+  "description": "Story-site assets for virgo.ph: data scripts, Remotion videos and stills. Not deployed.",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.532",
+    "@remotion/google-fonts": "4.0.532",
+    "@remotion/layout-utils": "4.0.532",
+    "@remotion/tailwind-v4": "4.0.532",
+    "@remotion/transitions": "4.0.532",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.532"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.532",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.39.5",
+    "mapshaper": "0.7.72",
+    "prettier": "3.8.1",
+    "proj4": "2.22.0",
+    "sharp": "0.35.5",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion bundle",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc",
+    "render:all": "node scripts/render-all.mjs",
+    "publish": "node scripts/publish.mjs"
+  }
+}

@@ -1,8 +1,10 @@
 /**
  * Terms of Service and Privacy Policy.
  *
- * The exact text the mobile app shows, in `mobile/app/legal.tsx`. One product
- * must not present two different sets of terms; if you edit one, edit both.
+ * One file, shown by both clients: this copy and `mobile/src/lib/legal-content.ts`
+ * are compared byte for byte by scripts/check-client-sync.mjs. They drifted
+ * while they were kept in step by hand — the web gained an analytics section
+ * the app never showed — and one product must not present two sets of terms.
  *
  * Every limit and every third party named here is one the code actually
  * enforces or talks to, so the document can be checked against the source
@@ -15,13 +17,13 @@ export interface Clause {
 }
 
 export const CONTACT_EMAIL = 'support@virgo.ph';
-export const LAST_UPDATED = '2 August 2026';
+export const LAST_UPDATED = '8 October 2026';
 
 export const TERMS: Clause[] = [
   {
     heading: 'Using Virgo',
     body: [
-      'Virgo is a workspace for photographers: storing shoots, scheduling them, sharing them with clients, and working on them with collaborators.',
+      'Virgo is where photographers, videographers and other creatives keep and deliver their work, show it, and get hired: albums and client galleries, a feed of work, a jobs board, bookings, schedules and messages.',
       'You need an account. You are responsible for keeping your password to yourself and for what happens under your account.',
       'You must be old enough to enter a contract where you live.',
     ],
@@ -30,26 +32,49 @@ export const TERMS: Clause[] = [
     heading: 'Your content stays yours',
     body: [
       'Every photo, video and audio file you upload remains yours. Uploading does not give us ownership of it.',
-      'You grant us only the permission needed to run the service: to store your files, serve them back to you, and deliver them to people you have explicitly shared them with.',
+      'You grant us only the permission needed to run the service: to store your files, serve them back to you, deliver them to the people you share them with, and show what you choose to post — a showcase, your profile, a shelf — to the people it is posted to.',
       'We do not use your work to train models, and we do not sell it.',
     ],
   },
   {
-    heading: 'What you may not upload',
+    heading: 'Community rules',
     body: [
-      'Content you do not hold the rights to.',
-      'Content that is unlawful where you or your subjects are, or that depicts the abuse of a person.',
-      'Malware, or anything intended to break the service or reach other accounts.',
-      'We may remove content that breaks these rules and, for serious or repeated breaches, close the account.',
+      'No harassment, threats, hate or impersonation, in messages, comments, profiles or anywhere else.',
+      'Nothing sexual involving a minor, no intimate images shared without consent, and nothing that depicts the abuse of a person.',
+      'Only upload or post work you hold the rights to. No spam, scams, fake job posts or fake bookings, and no malware or attempts to reach other accounts.',
+      'There is no tolerance for objectionable content or abusive users. Any post, comment, profile or job can be reported, and anyone can be blocked. We review reports, and may remove content or suspend an account that breaks these rules, without notice for serious breaches.',
+    ],
+  },
+  {
+    heading: 'Showcases, profiles and shelves',
+    body: [
+      'A showcase you post appears in the feed and on your profile, with your name, for other Virgo users to see. They see a display copy, never your original file.',
+      'Your profile is visible to other Virgo users once you publish it. Likes and comments are visible to other users too.',
+      'Shelves are public: a shelf shows what you kept, and who made it, on your profile.',
+      'Taking a showcase down removes it from the feed and your profile.',
+    ],
+  },
+  {
+    heading: 'Jobs, hiring and bookings',
+    body: [
+      'Job posts are visible to signed-in Virgo users. Applying, or sending a hire enquiry, shares your profile and your message with the other person.',
+      'Virgo puts clients and creatives in touch. It is not a party to the work you agree, and it does not take or hold payment for it. A booking records what you both agreed; the rate and the terms are between you.',
+    ],
+  },
+  {
+    heading: 'Money',
+    body: [
+      'Money is a record you keep for yourself of what you earn and spend. Its totals, summaries and exports show what you entered, counted the way the screen says. They are not tax, legal or accounting advice.',
+      'Virgo is not a BIR-registered book of accounts or invoicing system, and nothing in Money is an official receipt or an invoice. Issue your own registered invoices, and keep the records the law asks of you.',
     ],
   },
   {
     heading: 'Plans and limits',
     body: [
-      'Free includes 15 GB of storage, 1 workspace and 2 albums.',
-      'Freelance is US$25 a month and includes 100 GB, 2 workspaces and 5 albums in each.',
-      'Studio is not available yet.',
-      'Album limits are counted per workspace, not in total. When you reach a limit, creating more is blocked until you delete something or change plan.',
+      'Virgo is free for now, with 15 GB of storage and 3 workspaces of up to 10 albums each.',
+      'Paid plans are not on sale yet. When they are, the price and what it includes will be shown before you pay, and payment will be handled by PayMongo.',
+      'Album limits are counted per workspace, not in total, and archived workspaces count towards the workspace limit. When you reach a limit, creating more is blocked until you delete something.',
+      'Rewards and referral bonuses add to your limits. We may take back a bonus gained by abuse, such as referring accounts you made yourself.',
     ],
   },
   {
@@ -63,7 +88,7 @@ export const TERMS: Clause[] = [
   {
     heading: 'Collaborators',
     body: [
-      'You can only invite people you are already friends with in the app, and they must accept the invitation before they gain access.',
+      'You can only invite people you are already connected with in the app, and they must accept the invitation before they gain access.',
       'A collaborator on a workspace can see its albums. You can remove them, or untick individual albums, at any time.',
     ],
   },
@@ -84,7 +109,7 @@ export const TERMS: Clause[] = [
   {
     heading: 'Changes and ending',
     body: [
-      'You can stop using Virgo at any time and delete your data from Settings.',
+      'You can stop using Virgo at any time, and delete your account in Settings, Account & security. Deleting it removes your files and what you posted, and cancels any paid plan.',
       'We may update these terms. If a change materially affects you, we will say so in the app before it takes effect.',
       'These terms are governed by the laws of the Republic of the Philippines.',
     ],
@@ -95,26 +120,42 @@ export const PRIVACY: Clause[] = [
   {
     heading: 'What we collect',
     body: [
-      'Account: your email address, and the name, photo, title, phone, website, location and bio you choose to add.',
-      'Content: the photos, videos and audio you upload, and the albums, workspaces, events, reminders and messages you create.',
-      'Device: a push notification token, so reminders and messages can reach you when the app is closed.',
-      'Location: only if you turn on location sharing. See below.',
+      'Account: your email address, your password (stored hashed), your name, and what you do — your roles.',
+      'Address: the postal address you give when you sign up. Your street address is private: never shown on your profile or to another user. The city and province from it are shown as your location on your profile, and are used to place you in Nearby and to put jobs near you first — never the street.',
+      'Profile, if you add it: a photo, a cover photo, a bio, your title, studio, website, social handle, phone, and the area you work in.',
+      'Content: the photos, videos and audio you upload; the albums, workspaces, events, reminders and messages you create; and the showcases, comments, likes, shelves, job posts, applications, enquiries and bookings you make.',
+      'Safety: reports you make or that are made about you, and the people you have blocked.',
+      'Device: a push notification token and the app version, so notifications reach the right phone.',
+      'Sign-ins: the kind of device and browser each session signed in from, such as "iPhone app" or "Chrome on Windows" — never your IP address — so our support team can help you sign out a device you no longer have.',
+      'Support: what you write to us when you ask for help, the screenshots and files you attach, and how you rated our answer. Our support team reads these to help you; the files you attach are deleted with your account.',
+      'Location: the city in your address, and your device’s position only if you turn on your exact location. See below.',
     ],
   },
   {
     heading: 'What we do not collect',
     body: [
-      'We do not collect your contacts, your photo library beyond the files you pick, your browsing outside the app, or advertising identifiers.',
-      'There are no advertising SDKs and no advertising partners. We do not sell your data.',
+      'We do not collect your contacts, your photo library beyond the files you pick, your browsing outside Virgo, or advertising identifiers.',
+      'There are no advertising SDKs and no advertising partners, and the mobile app has no third-party analytics. We do not sell your data.',
+    ],
+  },
+  {
+    heading: 'What other people see',
+    body: [
+      'Other Virgo users can find you by name and see your photo and roles, unless you turn name search off. Once you publish your profile, they can see it and what you post: showcases, comments, likes and shelves.',
+      'Job posts are seen by signed-in users. Applications and hire enquiries are seen by the person they are sent to.',
+      'A client you send a share link to sees only the files that link exposes.',
+      'People using Nearby see the city you are placed in, or about how far away you are if you share your exact location — never your street or a coordinate.',
+      'Blocking someone hides you from each other across Virgo.',
     ],
   },
   {
     heading: 'Location',
     body: [
-      'Location sharing is off until you turn it on, and granting the operating system permission does not by itself turn it on.',
-      'While it is on we store your latest coordinates so we can calculate distances. Other users are shown a distance in kilometres and never a coordinate or a place.',
-      'Turning sharing off erases the stored coordinates immediately and removes you from other people’s results.',
-      'You can only see other people if you are sharing too.',
+      'Nearby places you at the centre of the city in your address, or of your province when we cannot place the city. We work that out from our own list of places; your address is not sent to a mapping service. Other users see the name of that city and roughly how far it is — never your street.',
+      'You appear in Nearby unless you hide yourself in Settings, Privacy. Hiding takes you out of everyone else’s results straight away, and you can still look around.',
+      'Sharing your exact location is optional and off until you turn it on, and granting the operating system permission does not by itself turn it on. While it is on we store your position, rounded to about a kilometre, so we can calculate distances; other users are shown a distance in whole kilometres and never a coordinate. A position over 30 days old stops counting, and your city is used instead.',
+      'Turning your exact location off erases the stored position immediately; you are placed by your city again.',
+      'The same city, or your exact location while it counts, is used to put jobs near you first on the jobs board.',
     ],
   },
   {
@@ -122,16 +163,27 @@ export const PRIVACY: Clause[] = [
     body: [
       'Messages are stored so they can be delivered and read later. They are not end-to-end encrypted, which means we are technically able to access them; we do not read them except where we must to investigate abuse or comply with the law.',
       'Deleting a message for everyone clears its text from our database. Deleting it for yourself hides it from your view only.',
-      'Read and delivery receipts are recorded so the sender can see whether a message arrived and was opened.',
+      'Read receipts are recorded so the sender can see whether a message was opened.',
+    ],
+  },
+  {
+    heading: 'Money',
+    body: [
+      'If you use Money, we store the income and expenses you record: amounts, the tax a client withheld, dates, categories, who paid or was paid, how, reference numbers, notes, and any receipt you attach.',
+      'Only you can see them. They are not shared with your collaborators, with the other side of a booking, or with anyone else on Virgo; our support team cannot open them, and they are not used for analytics.',
+      'Receipts are stored privately and do not count against your storage. A receipt you remove, or the receipt of an entry you delete, is deleted within a day.',
+      'An export is made when you ask for it and is not kept. Its download link works for five minutes.',
+      'Entries you log with no connection are kept on your phone until they reach us.',
     ],
   },
   {
     heading: 'Product analytics',
     body: [
-      'We use PostHog to count how the product is used — which screens are opened, and whether things like posting a job or confirming a booking actually get finished. It is how we find out what is broken during the pre-release.',
+      'On the web app, we use PostHog to count how the product is used — which pages are opened, and whether things like posting a job or confirming a booking actually get finished. The mobile app sends nothing to PostHog.',
       'It records the page you are on, a small set of named actions, and your account id. It does not record your name, your email, your messages, your files, or anything you type.',
       'Session recording and automatic click capture are both switched off. Those features would capture the contents of your screen — client galleries, chat, rates — and that is not something we are willing to send anywhere.',
       'If your browser sends a Do Not Track signal, we do not record anything at all.',
+      'Our public web pages count visits without keeping your IP address or browser details.',
     ],
   },
   {
@@ -139,7 +191,9 @@ export const PRIVACY: Clause[] = [
     body: [
       'Backblaze B2 stores your uploaded files, served through a Cloudflare content network.',
       'Expo delivers push notifications. The notification title and a preview of the message pass through their service.',
-      'PostHog receives the usage events described above. See Product analytics.',
+      'SMTP2GO sends our emails — confirmations, password resets and notices — so your address and the email pass through their service.',
+      'PayMongo will take payment for paid plans. Your card details go to them, not to us; we keep the plan, the amount and whether it is paid.',
+      'PostHog receives the web usage events described above.',
       'These providers process data on our instructions. We do not sell your data to anyone, and there are no advertising partners.',
     ],
   },
@@ -147,24 +201,28 @@ export const PRIVACY: Clause[] = [
     heading: 'How long we keep it',
     body: [
       'Content stays until you delete it. Deletion from storage is immediate and permanent.',
-      'Past calendar events are removed automatically once they are well over.',
-      'Closing your account removes your content. Some records may persist briefly in backups before they age out.',
+      'Past calendar events are deleted 30 days after their date.',
+      'Deleting your account removes your account and your content. Reports, and what we decided about them, are kept afterwards, so an account removed for abuse cannot simply start again. Some records may persist briefly in backups before they age out.',
     ],
   },
   {
     heading: 'Your choices',
     body: [
       'Turn name search off in Settings, Privacy, so only someone with your exact email can find you.',
-      'Turn location sharing off at any time, which also erases what was stored.',
+      'Hide yourself from Nearby in Settings, Privacy.',
+      'Turn your exact location off at any time, which also erases the stored position.',
       'Turn push off for a device in Settings, Privacy.',
-      'Wipe every file you have uploaded in Settings, Sync & Storage.',
-      'To request a copy of your data or ask us to delete your account, email us.',
+      'Wipe every file you have uploaded in Settings, Storage & plan, Sync & Storage.',
+      'Export your money entries as a spreadsheet from Money.',
+      'Delete your account in Settings, Account & security.',
+      'To request a copy of your data, email us.',
     ],
   },
   {
     heading: 'Security',
     body: [
       'Passwords are stored hashed, never in readable form. Traffic between the app and our servers is encrypted in transit.',
+      'You can add a second sign-in step, a code sent to your email, in Settings.',
       'No system is perfectly secure. If a breach affects you, we will tell you.',
     ],
   },

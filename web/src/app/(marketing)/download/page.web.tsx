@@ -1,6 +1,11 @@
 import type { Metadata } from 'next';
-import { LandingNav } from '@/components/landing/nav';
-import { LandingFooter } from '@/components/landing/closing';
+import { Credits, MoreLinks } from '@/components/story/page/chapters/closing';
+import { Frame } from '@/components/story/page/cinema/frame';
+import { MotionRoot } from '@/components/story/page/motion';
+import { PrePaint } from '@/components/story/page/pre-paint';
+import { DownloadStage } from '@/components/story/download/download-stage';
+import { MEDIA } from '@/components/story/media.generated';
+import '@/components/story/page/story.css';
 import {
   DownloadPanel,
   type LatestRelease,
@@ -20,6 +25,13 @@ export const metadata: Metadata = {
 
 /** How long a fetched release listing stays good for. */
 const RELEASE_TTL = 300;
+
+/**
+ * How long to wait for the API before rendering without it. Both reads fail
+ * soft (the panel explains, the Android section hides), so a slow or
+ * unreachable API costs the buttons for one render, never the page itself.
+ */
+const API_TIMEOUT = 5_000;
 
 /**
  * Rendered per request, not at build — the same reason as the landing page.
@@ -49,6 +61,7 @@ async function fetchLatest(): Promise<LatestRelease | null> {
   try {
     const res = await fetch(`${base}/downloads/latest`, {
       next: { revalidate: RELEASE_TTL },
+      signal: AbortSignal.timeout(API_TIMEOUT),
     });
     // 404 is the ordinary answer before the first release with installers, and
     // on a deployment with no GitHub token configured. Neither is an error
@@ -73,6 +86,7 @@ async function fetchAndroid(): Promise<AndroidBuild | null> {
   try {
     const res = await fetch(`${base}/downloads/android`, {
       next: { revalidate: RELEASE_TTL },
+      signal: AbortSignal.timeout(API_TIMEOUT),
     });
     if (!res.ok) return null;
     // The endpoint answers `null` until a mobile release exists, which parses
@@ -94,6 +108,13 @@ function formatDate(iso: string | null): string | null {
   });
 }
 
+/**
+ * The download page, in the story's film grammar (05-cinema.md): inside the
+ * story's frame, a title card that opens on a light sweep, the app hanging in
+ * 3D in a warm key light with the tools of the trade around it, and the
+ * downloads as lit cards with the visitor's own system first. No header: the
+ * frame's watermark goes back to the story, and Sign in and Join sit opposite.
+ */
 export default async function DownloadPage() {
   // Together: two independent reads of the same API, and waiting for one
   // before starting the other would double the page's time to first byte for
@@ -102,65 +123,99 @@ export default async function DownloadPage() {
   const released = formatDate(release?.publishedAt ?? null);
 
   return (
-    <>
-      {/* '/' so the section links go back to the landing page rather than to
-          fragments that do not exist on this one. */}
-      <LandingNav sectionBase="/" />
+    <div className="story-page relative isolate min-h-svh bg-[#161311] text-[#F2EDE8] [overflow-x:clip]">
+      <PrePaint />
+      {/* The story's frame, without the film's controls: the watermark leads back to the story. */}
+      <MotionRoot>
+        <Frame film={false} home="/" homeLabel="Virgo, back to the story" rail="Download" />
+      </MotionRoot>
 
-      {/* pt-16 clears the fixed header, which is 4rem tall and overlays the
-          page rather than taking part in the flow. */}
-      <main className="min-h-screen bg-[#161311] pt-16">
-        <div className="mx-auto w-full max-w-3xl px-5 py-16 sm:px-8 sm:py-24">
-          <header className="flex flex-col gap-4">
-            <p className="text-[12px] font-bold uppercase tracking-[0.16em] text-[#c17745]">
-              Desktop app
-            </p>
-            <h1 className="text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              Virgo on your desktop
-            </h1>
-            <p className="max-w-xl text-[15px] leading-relaxed text-white/60">
-              The same workspace, in its own window. Your shoots, albums and
-              client delivery, without a browser tab to lose.
-            </p>
-          </header>
-
-          <div className="mt-12">
-            <DownloadPanel release={release} />
+      <main>
+        <section aria-labelledby="download-title" className="relative overflow-clip">
+          {/* The sky from the story, low behind the title, settling into the night. */}
+          <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[110svh]">
+            <picture>
+              <source media="(min-width: 768px)" type={MEDIA.posterDesktopAvif.type} srcSet={MEDIA.posterDesktopAvif.url} />
+              <source media="(min-width: 768px)" type={MEDIA.posterDesktopWebp.type} srcSet={MEDIA.posterDesktopWebp.url} />
+              <source type={MEDIA.posterMobileAvif.type} srcSet={MEDIA.posterMobileAvif.url} />
+              <img src={MEDIA.posterMobileWebp.url} alt="" decoding="async" className="size-full object-cover opacity-45" />
+            </picture>
+            <div className="absolute inset-0 bg-[radial-gradient(70%_60%_at_30%_40%,rgba(22,19,17,0.55),rgba(22,19,17,0.9)_70%)]" />
+            <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-b from-transparent to-[#161311]" />
+          </div>
+          {/* One light sweep across the title card as it opens. */}
+          <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="story-sweep absolute -inset-y-1/2 left-0 w-[40%] bg-[linear-gradient(90deg,rgba(240,200,142,0),rgba(240,200,142,0.22),rgba(255,231,194,0.4),rgba(240,200,142,0.22),rgba(240,200,142,0))]" />
           </div>
 
-          {/* Directly under the buttons rather than at the foot of the page:
-              somebody reading this has a dialog open on the other monitor and
-              is looking for the words they just saw. Windows only: the Mac
-              builds are signed and notarised, so macOS opens them without
-              asking. */}
-          <WindowsFirstRun />
+          <div className="relative mx-auto grid max-w-6xl gap-16 px-5 pb-24 pt-28 sm:px-8 lg:min-h-svh lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center lg:gap-12 lg:pt-32">
+            <div className="min-w-0">
+              <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-[#D18A5A] sm:text-xs">Download</p>
+              <h1
+                id="download-title"
+                className="mt-5 text-balance text-[clamp(2.4rem,1.3rem+3.6vw,4.25rem)] font-semibold leading-[1] tracking-[-0.035em]"
+              >
+                <span className="block font-medium text-[#BCADA3]">Virgo, on every</span>{' '}
+                <span className="block bg-gradient-to-r from-[#e8b189] via-[#c17745] to-[#a85f38] bg-clip-text text-transparent">
+                  screen you work from.
+                </span>
+              </h1>
+              <p className="mt-6 max-w-[44ch] text-pretty text-[1.0625rem] leading-[1.55] text-[#BCADA3] sm:text-lg">
+                The same workspace on Windows, macOS and Android: your crew, your albums, your client links.
+              </p>
 
-          {/* After the desktop installers and the Windows note, not between
-              them: those two are one thought, and the phone app is a different
-              one that should not interrupt it. */}
-          <AndroidDownload build={android} />
+              <div className="mt-10">
+                <DownloadPanel release={release} />
+              </div>
 
-          {release && (
-            <p className="mt-10 border-t border-white/8 pt-6 text-[12px] text-white/40">
-              {/* Named as the desktop version now that an Android build with
-                  its own number sits above it. Unqualified, this line read as
-                  the version of everything on the page. */}
-              Desktop version {release.version}
-              {released && ` · released ${released}`}
+              {/* Directly under the buttons rather than at the foot of the page:
+                  somebody reading this has a dialog open on the other monitor and
+                  is looking for the words they just saw. Windows only: the Mac
+                  builds are signed and notarised, so macOS opens them without
+                  asking. */}
+              <WindowsFirstRun />
+            </div>
+
+            <div className="order-last px-3 pb-10 sm:px-8 lg:order-none lg:px-0">
+              <DownloadStage />
+            </div>
+          </div>
+        </section>
+
+        <section aria-label="More ways to get Virgo" className="mx-auto max-w-6xl px-5 pb-24 sm:px-8">
+          <div className="max-w-2xl">
+            {/* After the desktop installers and the Windows note, not between
+                them: those two are one thought, and the phone app is a different
+                one that should not interrupt it. */}
+            <AndroidDownload build={android} />
+
+            {release && (
+              <p className="mt-10 border-t border-[#2A2522] pt-6 font-mono text-[11px] uppercase tracking-[0.16em] text-[#A08E84]">
+                {/* Named as the desktop version now that an Android build with
+                    its own number sits above it. Unqualified, this line read as
+                    the version of everything on the page. */}
+                Desktop version {release.version}
+                {released && ` · released ${released}`}
+              </p>
+            )}
+
+            {/* Named on the page rather than left to the installer to reveal.
+                Somebody on Windows 8 or an old Mac should find that out before a
+                100 MB download, not after it. */}
+            <p className="mt-3 text-[13px] leading-relaxed text-[#A08E84]">
+              Windows 10 and 11, or macOS 10.15 and later. Virgo also runs in any modern browser, and the iPhone app is coming to the App
+              Store soon.
             </p>
-          )}
-
-          {/* Named on the page rather than left to the installer to reveal.
-              Somebody on Windows 8 or an old Mac should find that out before a
-              100 MB download, not after it. */}
-          <p className="mt-3 text-[12px] leading-relaxed text-white/35">
-            Windows 10 and 11, or macOS 10.15 and later. Virgo also runs in any
-            modern browser, and on iOS through the App Store.
-          </p>
-        </div>
+          </div>
+        </section>
       </main>
 
-      <LandingFooter />
-    </>
+      {/* No footer, as on the story: the same links as its last screen, then the fine print. */}
+      <div className="relative z-10 flex flex-col items-center gap-8 border-t border-white/[0.06] px-5 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-12 sm:px-8">
+        <MoreLinks />
+        <Credits data={false} honesty={false} />
+      </div>
+      <div aria-hidden className="story-grain" style={{ backgroundImage: `url(${MEDIA.grain.url})` }} />
+    </div>
   );
 }

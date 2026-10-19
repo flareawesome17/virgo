@@ -17,7 +17,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { NewAlbumDialog } from '@/components/new-album-dialog';
 import { ActivityFeed } from '@/components/workspaces/activity-feed';
@@ -196,7 +196,7 @@ function OwnerWorkspace({ workspace }: { workspace: Workspace }) {
   const startCreateAlbum = () => {
     if (isAlbumLimitReached(workspace.album_total)) {
       toast.error('This workspace is full', {
-        description: `Your ${usage?.plan ?? 'free'} plan allows ${albumLimit} album${albumLimit === 1 ? '' : 's'} in each workspace. Delete one, use another workspace, or upgrade.`,
+        description: `Your ${usage?.plan ?? 'free'} plan allows ${albumLimit} album${albumLimit === 1 ? '' : 's'} in each workspace. Delete one, or use another workspace.`,
         action: { label: 'See plans', onClick: () => router.push('/settings/plans') },
       });
       return;
@@ -241,7 +241,7 @@ function OwnerWorkspace({ workspace }: { workspace: Workspace }) {
         }
       />
 
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-5">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 sm:px-6 py-5">
         <div className="flex flex-wrap items-center gap-2.5">
           <Pill>Yours</Pill>
           <PeopleStack people={present} size="size-7" max={5} />
@@ -525,7 +525,7 @@ function SharedWorkspace({ workspace }: { workspace: Workspace }) {
         }
       />
 
-      <div className="mx-auto grid w-full max-w-6xl gap-4 px-6 py-5 lg:grid-cols-3">
+      <div className="mx-auto grid w-full max-w-6xl gap-4 px-4 sm:px-6 py-5 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="text-[15px] font-semibold">Albums shared with you</h2>
@@ -640,7 +640,7 @@ function WorkspacePageBody() {
   const { data: workspace, isLoading, isError, refetch } = useWorkspace(id);
 
   return (
-    <AppShell title={workspace?.name ?? 'Workspace'}>
+    <Screen title={workspace?.name ?? 'Workspace'}>
       {workspace ? (
         workspace.is_owner ? (
           <OwnerWorkspace workspace={workspace} />
@@ -650,7 +650,7 @@ function WorkspacePageBody() {
       ) : isLoading ? (
         <>
           <PageHeader title={<Skeleton className="h-6 w-56" />} />
-          <div className="mx-auto w-full max-w-6xl px-6 py-6">
+          <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6">
             <ListSkeleton rows={3} />
           </div>
         </>
@@ -659,7 +659,7 @@ function WorkspacePageBody() {
         // server gives one. It spun here forever before.
         <>
           <PageHeader title="Workspace" />
-          <div className="mx-auto w-full max-w-3xl px-6 py-10">
+          <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-10">
             <Card>
               <EmptyState
                 icon={FolderX}
@@ -684,7 +684,7 @@ function WorkspacePageBody() {
           </div>
         </>
       )}
-    </AppShell>
+    </Screen>
   );
 }
 

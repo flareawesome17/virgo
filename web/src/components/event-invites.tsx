@@ -46,7 +46,7 @@ export function InvitePeople({
   onChange,
   /** Already invited; shown as such rather than offered again. */
   disabledIds = [],
-  emptyHint = 'Add friends from the Network screen to invite them to events.',
+  emptyHint = 'Connect with people in People to invite them to events.',
 }: {
   selected: string[];
   onChange: (ids: string[]) => void;
@@ -248,7 +248,17 @@ export function ManageAttendeesDialog({
                     aria-label={`Remove ${person.name}`}
                     disabled={uninvite.isPending}
                     onClick={() =>
-                      uninvite.mutate({ eventId, userId: person.user_id })
+                      // A refusal used to leave the person on the list with
+                      // nothing to say the removal had not happened.
+                      uninvite.mutate(
+                        { eventId, userId: person.user_id },
+                        {
+                          onError: (err: Error) =>
+                            toast.error(`Could not remove ${person.name}`, {
+                              description: err.message,
+                            }),
+                        },
+                      )
                     }
                   >
                     <X className="size-3.5" />

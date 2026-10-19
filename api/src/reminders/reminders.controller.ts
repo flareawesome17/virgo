@@ -30,9 +30,10 @@ export class RemindersController {
       schedule_event_id: query.schedule_event_id,
       is_completed: query.is_completed,
     };
+    const from = { reminder_time: query.due_from };
     const [data, total] = await Promise.all([
-      this.reminders.list(userId, { ...query, filters }),
-      this.reminders.count(userId, filters),
+      this.reminders.list(userId, { ...query, filters, from }),
+      this.reminders.count(userId, filters, from),
     ]);
     return { data, total };
   }

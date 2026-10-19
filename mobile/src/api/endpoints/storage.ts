@@ -22,6 +22,17 @@ import {
   uploadInParts,
 } from '../multipart-upload';
 
+/** How long a confirm may take; see storageApi.confirm. */
+const CONFIRM_TIMEOUT_MS = 120_000;
+
+/**
+ * How long a delete may take to answer. Deleting goes object by object on the
+ * server when the store refuses bulk deletes, and the default wait gave up
+ * while the server was still working, so the files stayed on screen behind a
+ * "timed out". Under the 100 s Cloudflare allows a request.
+ */
+const DELETE_TIMEOUT_MS = 90_000;
+
 /**
  * Where an upload goes. 'avatars' and 'covers' land in the public bucket and
  * are re-encoded on confirm; an older API refuses 'covers' at upload-url, so
@@ -166,10 +177,94 @@ export function largestDisplaySource(file: StoredFile): string | null {
   return file.displaySources.at(-1)?.url ?? null;
 }
 
+/**
+ * The long edge the API makes thumbnails at, in pixels. THUMB_EDGE in
+ * api/src/storage/thumbnails.service.ts.
+ */
+export const THUMBNAIL_EDGE = 640;
+
+/**
+ * How long a picture's long edge must be, in pixels, to fill a box of that
+ * many pixels cropped the way `cover` crops.
+ *
+ * Display copies are named by their long edge, and a cropped box is filled by
+ * the short one: a square tile 600 px across needs a 4:3 copy whose short
+ * edge is 600, which is a long edge of 800. A picture of unknown shape is
+ * taken to be square. That only happens without copies to choose from — the
+ * API records a photograph's size in the statement that records its copies.
+ */
+export function longEdgeToCover(
+  size: { width?: number | null; height?: number | null },
+  boxWidth: number,
+  boxHeight: number,
+): number {
+  const { width, height } = size;
+  if (!width || !height) return Math.max(boxWidth, boxHeight);
+  return Math.max(width, height) * Math.max(boxWidth / width, boxHeight / height);
+}
+
+/**
+ * The smallest display copy whose long edge is at least `longEdge` pixels, the
+ * widest when none is that long, or null when there are none.
+ */
+export function displaySourceAtLeast(
+  file: Pick<StoredFile, 'displaySources'>,
+  longEdge: number,
+): string | null {
+  const sources = file.displaySources;
+  return (sources.find((source) => source.width >= longEdge) ?? sources.at(-1))?.url ?? null;
+}
+
+/**
+ * A display copy's width in pixels.
+ *
+ * Copies are named by their long edge, which on a portrait photograph is its
+ * height. A `srcset` descriptor is a width, and handing the browser the long
+ * edge there made it think every portrait copy a third wider than it is — so
+ * it settled for one a size too small.
+ */
+function displayWidthOf(file: Pick<StoredFile, 'width' | 'height'>, longEdge: number): number {
+  if (!file.width || !file.height || file.width >= file.height) return longEdge;
+  return Math.round((longEdge * file.width) / file.height);
+}
+
 /** A `srcset` value, or null when there is nothing to build one from. */
 export function displaySrcSet(file: StoredFile): string | null {
   if (!file.displaySources.length) return null;
-  return file.displaySources.map((source) => `${source.url} ${source.width}w`).join(', ');
+  return file.displaySources
+    .map((source) => `${source.url} ${displayWidthOf(file, source.width)}w`)
+    .join(', ');
+}
+
+/**
+ * Types every client draws straight from the file, whatever the platform.
+ * HEIC is not one — only Apple's decoders read it — and a TIFF is not drawn
+ * by a browser at all.
+ */
+const DRAWABLE_ORIGINALS = ['image/jpeg', 'image/png', 'image/webp'];
+
+/**
+ * The original, when magnifying a photograph would show more of it than its
+ * widest display copy can — or null when it would not.
+ *
+ * Only for a type the client can draw (`alsoDraws` adds any this platform
+ * reads beyond the common ones), and only when the original is meaningfully
+ * larger than that copy: the copies go up to 3072 px, and to a photograph's
+ * own size below that, so for most photographs the copy already is all of it.
+ */
+export function originalForDetail(
+  file: StoredFile,
+  { alsoDraws = [] }: { alsoDraws?: readonly string[] } = {},
+): string | null {
+  if (!file.url || !file.contentType) return null;
+  if (!DRAWABLE_ORIGINALS.includes(file.contentType) && !alsoDraws.includes(file.contentType)) {
+    return null;
+  }
+  const widest = file.displaySources.at(-1)?.width ?? 0;
+  const longest = Math.max(file.width ?? 0, file.height ?? 0);
+  // A tenth larger at least, so a copy a few pixels short of its original
+  // does not cost a camera file for a difference nobody could see.
+  return longest > widest * 1.1 ? file.url : null;
 }
 
 function storedFileFromUnknown(value: unknown): StoredFile | null {
@@ -318,6 +413,38 @@ function withoutContentLength(
 }
 
 /**
+ * Streams a file on this device to a signed PUT, reporting progress — the
+ * transfer half of uploadFile, for tickets minted elsewhere (support
+ * attachments). Content-Length is dropped for the reason given in uploadFile.
+ */
+export async function putFileToBucket(
+  fileUri: string,
+  ticket: { uploadUrl: string; requiredHeaders: Record<string, string> },
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
+  const task = FileSystem.createUploadTask(
+    ticket.uploadUrl,
+    fileUri,
+    {
+      httpMethod: 'PUT',
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      headers: withoutContentLength(ticket.requiredHeaders),
+    },
+    (data) => {
+      if (data.totalBytesExpectedToSend > 0) {
+        onProgress?.(Math.min(data.totalBytesSent / data.totalBytesExpectedToSend, 1));
+      }
+    },
+  );
+  const response = await task.uploadAsync();
+  if (!response) throw new ApiError(0, 'Upload was cancelled.');
+  if (response.status < 200 || response.status >= 300) {
+    throw new ApiError(response.status, 'Upload failed. Please try again.');
+  }
+  onProgress?.(1);
+}
+
+/**
  * The largest single file the API will issue a ticket for.
  *
  * Mirrors MAX_UPLOAD_BYTES in api/src/storage/storage.config.ts. Duplicated
@@ -360,7 +487,16 @@ export const storageApi = {
 
   /** Step 3: confirm the object actually landed before saving its URL. */
   confirm(key: string, albumId?: string, originalName?: string): Promise<ConfirmResult> {
-    return api.post('/storage/confirm', { body: { key, albumId, originalName } });
+    // Two minutes, not the usual twenty seconds. The server now answers once
+    // the object is verified and makes an album thumbnail afterwards, but a
+    // profile photo or cover is still re-encoded before it answers, and an
+    // older API made every thumbnail first — a large photograph or a film's
+    // poster took longer than twenty seconds, so an upload that had worked was
+    // marked failed, and its retry sent every byte again.
+    return api.post('/storage/confirm', {
+      body: { key, albumId, originalName },
+      timeoutMs: CONFIRM_TIMEOUT_MS,
+    });
   },
 
   /** Objects the user has stored, optionally narrowed to one album. */
@@ -406,7 +542,10 @@ export const storageApi = {
    * triggered by an empty or accidental request body.
    */
   wipeAll(): Promise<WipeResult> {
-    return api.post('/storage/wipe', { body: { confirm: 'DELETE' } });
+    return api.post('/storage/wipe', {
+      body: { confirm: 'DELETE' },
+      timeoutMs: DELETE_TIMEOUT_MS,
+    });
   },
 
   /** Time-limited read URL, for buckets that are not publicly served. */
@@ -418,7 +557,7 @@ export const storageApi = {
   },
 
   remove(key: string): Promise<void> {
-    return api.post<void>('/storage/delete', { body: { key } });
+    return api.post<void>('/storage/delete', { body: { key }, timeoutMs: DELETE_TIMEOUT_MS });
   },
 
   /**
@@ -426,7 +565,7 @@ export const storageApi = {
    * file may not be deleted by this account, nothing is.
    */
   removeMany(keys: string[]): Promise<{ deleted: number; failed: number }> {
-    return api.post('/storage/delete-many', { body: { keys } });
+    return api.post('/storage/delete-many', { body: { keys }, timeoutMs: DELETE_TIMEOUT_MS });
   },
 
   /**
@@ -482,7 +621,11 @@ export const storageApi = {
        * in the bucket under a key only the dead process knew.
        */
       onTicket?: (key: string) => void;
-      /** Stops the transfer. The upload then rejects with ApiError status 0. */
+      /**
+       * Stops the transfer — before it starts, mid-part, or between the 403
+       * retry's two attempts. The upload then rejects with ApiError status 0,
+       * "Upload was cancelled".
+       */
       signal?: AbortSignal;
       /**
        * A multipart session saved by an earlier attempt at this same file.
@@ -919,35 +1062,117 @@ function nativeMultipartDeps(onTicket?: (key: string) => void): MultipartDeps {
   };
 }
 
-/** Maps an expo-image-picker asset to a content type the API accepts. */
+/**
+ * What the API accepts. Mirrors ALLOWED_CONTENT_TYPES in
+ * api/src/storage/storage.config.ts — change both together.
+ */
+export const UPLOADABLE_CONTENT_TYPES: ReadonlySet<string> = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/avif',
+  'image/heic',
+  'image/heif',
+  'image/gif',
+  'image/tiff',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/wav',
+  'audio/aac',
+  'audio/flac',
+  'audio/ogg',
+  'application/pdf',
+]);
+
+/**
+ * Names the pickers use for types the API knows by another.
+ *
+ * iOS reports an m4a as audio/x-m4a, Android's file browser a wav as
+ * audio/x-wav or audio/vnd.wave, and so on. Passed through as they came, the
+ * API's allow-list refused them at the ticket, after they were queued, and the
+ * person was never told why.
+ */
+const CONTENT_TYPE_ALIASES: Record<string, string> = {
+  'image/jpg': 'image/jpeg',
+  'image/pjpeg': 'image/jpeg',
+  'image/x-png': 'image/png',
+  'image/heic-sequence': 'image/heic',
+  'image/heif-sequence': 'image/heif',
+  'image/x-tiff': 'image/tiff',
+  'video/x-m4v': 'video/mp4',
+  'audio/x-m4a': 'audio/mp4',
+  'audio/m4a': 'audio/mp4',
+  'audio/x-mp4': 'audio/mp4',
+  'audio/mp3': 'audio/mpeg',
+  'audio/x-mp3': 'audio/mpeg',
+  'audio/mpeg3': 'audio/mpeg',
+  'audio/x-mpeg': 'audio/mpeg',
+  'audio/x-wav': 'audio/wav',
+  'audio/wave': 'audio/wav',
+  'audio/vnd.wave': 'audio/wav',
+  'audio/x-aac': 'audio/aac',
+  'audio/aacp': 'audio/aac',
+  'audio/x-flac': 'audio/flac',
+  'audio/vorbis': 'audio/ogg',
+  'application/ogg': 'audio/ogg',
+  'application/x-pdf': 'application/pdf',
+};
+
+const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  heic: 'image/heic',
+  heif: 'image/heif',
+  gif: 'image/gif',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  wav: 'audio/wav',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
+  ogg: 'audio/ogg',
+  pdf: 'application/pdf',
+};
+
+/**
+ * Maps a picked asset to a content type the API accepts, when it has one.
+ *
+ * The picker's own type first, with aliases folded to the API's name and any
+ * parameters (`; codecs=…`) dropped. When the picker gave nothing usable —
+ * nothing at all, or the generic octet-stream a file browser falls back to —
+ * the extension of the file name, then of the uri, decides.
+ */
 export function contentTypeForAsset(asset: {
   mimeType?: string | null;
   uri: string;
+  /** The file's own name, which keeps its extension when the uri does not. */
+  name?: string | null;
 }): string {
-  if (asset.mimeType) return asset.mimeType;
+  const reported = asset.mimeType?.split(';')[0].trim().toLowerCase() ?? '';
+  const folded = CONTENT_TYPE_ALIASES[reported] ?? reported;
+  if (UPLOADABLE_CONTENT_TYPES.has(folded)) return folded;
 
-  const ext = asset.uri.split('.').pop()?.toLowerCase() ?? '';
-  const byExt: Record<string, string> = {
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    png: 'image/png',
-    webp: 'image/webp',
-    avif: 'image/avif',
-    heic: 'image/heic',
-    heif: 'image/heif',
-    gif: 'image/gif',
-    tif: 'image/tiff',
-    tiff: 'image/tiff',
-    mp4: 'video/mp4',
-    mov: 'video/quicktime',
-    webm: 'video/webm',
-    mp3: 'audio/mpeg',
-    m4a: 'audio/mp4',
-    wav: 'audio/wav',
-    aac: 'audio/aac',
-    flac: 'audio/flac',
-    ogg: 'audio/ogg',
-    pdf: 'application/pdf',
-  };
-  return byExt[ext] ?? 'application/octet-stream';
+  for (const source of [asset.name, asset.uri]) {
+    const ext = source?.split(/[?#]/)[0].split('.').pop()?.toLowerCase() ?? '';
+    const byExt = CONTENT_TYPE_BY_EXTENSION[ext];
+    if (byExt) return byExt;
+  }
+  // Something the API will refuse; returned as it was so it can be named.
+  return folded || 'application/octet-stream';
+}
+
+/** Whether the API will take a file of this type. */
+export function isUploadable(contentType: string): boolean {
+  return UPLOADABLE_CONTENT_TYPES.has(contentType);
 }

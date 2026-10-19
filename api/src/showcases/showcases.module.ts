@@ -10,13 +10,16 @@ import {
   CommentsController,
   LikesController,
   ShowcaseReportsController,
+  MyKeptController,
   MyShelvesController,
   MyShowcasesController,
   ProfileWorkController,
+  PublicShowcasesController,
   ShelvesController,
   ShowcasesController,
 } from './showcases.controller';
 import { ShowcasesService } from './showcases.service';
+import { ShowcaseMediaService } from './showcase-media.service';
 
 /**
  * Showcases, and the shelves people keep them on.
@@ -32,7 +35,9 @@ import { ShowcasesService } from './showcases.service';
   controllers: [
     MyShowcasesController,
     ShowcasesController,
+    PublicShowcasesController,
     MyShelvesController,
+    MyKeptController,
     ShelvesController,
     FeedController,
     ProfileWorkController,
@@ -40,7 +45,15 @@ import { ShowcasesService } from './showcases.service';
     ShowcaseReportsController,
     CommentsController,
   ],
-  providers: [ShowcasesService, ShelvesService, FeedService, LikesService, ShowcaseReportsService, CommentsService],
+  providers: [
+    ShowcasesService,
+    ShowcaseMediaService,
+    ShelvesService,
+    FeedService,
+    LikesService,
+    ShowcaseReportsService,
+    CommentsService,
+  ],
   exports: [ShowcasesService, ShelvesService, FeedService, LikesService, ShowcaseReportsService, CommentsService],
 })
 export class ShowcasesModule {}

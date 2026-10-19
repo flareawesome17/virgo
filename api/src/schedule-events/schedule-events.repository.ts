@@ -30,6 +30,9 @@ export interface ScheduleEventRow {
 export interface VisibleScheduleEventRow extends ScheduleEventRow {
   /** False when you are attending someone else's event. */
   is_owner: boolean;
+  /** Absent on a write's returned row, which goes back to the organiser anyway. */
+  organiser_name?: string | null;
+  organiser_avatar_url?: string | null;
 }
 
 @Injectable()
@@ -87,6 +90,14 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     from schedule_events e
    where ${ScheduleEventsRepository.VISIBLE_TO_$1}`;
 
+  /**
+   * Who organised it, for a guest: they could see who else was going but not
+   * whose event it was.
+   */
+  private static readonly ORGANISER = `(select coalesce(o.display_name, split_part(o.email, '@', 1))
+                 from users o where o.id = e.user_id) as organiser_name,
+              (select o.avatar_url from users o where o.id = e.user_id) as organiser_avatar_url`;
+
   /** Calendar and agenda screens need a window, not offset pagination. */
   async findInRange(
     userId: string,
@@ -94,7 +105,8 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     to: string,
   ): Promise<VisibleScheduleEventRow[]> {
     return this.db.query<VisibleScheduleEventRow>(
-      `select e.*, (e.user_id = $1) as is_owner
+      `select e.*, (e.user_id = $1) as is_owner,
+              ${ScheduleEventsRepository.ORGANISER}
        ${ScheduleEventsRepository.VISIBLE}
          and e.event_date between $2 and $3
        order by e.event_date asc, e.event_time asc nulls last`,
@@ -137,14 +149,21 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
       ? (options.orderBy as string)
       : this.defaultOrderBy;
     const direction = options.direction === 'desc' ? 'DESC' : 'ASC';
+    // Within a day, by time: ordering by date alone left a day's events in
+    // whatever order the rows came, so 4 pm could list above 9 am. The id makes
+    // the order stable, so paging never repeats or skips a row.
+    const timeWithinDay = orderBy === 'event_date' ? `, e.event_time ${direction} nulls last` : '';
 
     params.push(Math.min(Math.max(options.limit ?? 50, 1), this.maxLimit));
     params.push(Math.max(options.offset ?? 0, 0));
 
+    // The organiser too, so a guest's list can say whose event each one is
+    // without a read per row.
     return this.db.query<VisibleScheduleEventRow>(
-      `select e.*, (e.user_id = $1) as is_owner
+      `select e.*, (e.user_id = $1) as is_owner,
+              ${ScheduleEventsRepository.ORGANISER}
        ${ScheduleEventsRepository.VISIBLE}${where}
-       order by e.${orderBy} ${direction}
+       order by e.${orderBy} ${direction}${timeWithinDay}, e.id
        limit $${params.length - 1} offset $${params.length}`,
       params,
     );
@@ -180,7 +199,8 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
     id: string,
   ): Promise<VisibleScheduleEventRow | null> {
     return this.db.queryOne<VisibleScheduleEventRow>(
-      `select e.*, (e.user_id = $1) as is_owner
+      `select e.*, (e.user_id = $1) as is_owner,
+              ${ScheduleEventsRepository.ORGANISER}
        ${ScheduleEventsRepository.VISIBLE}
          and e.id = $2`,
       [userId, id],
@@ -231,8 +251,41 @@ export class ScheduleEventsRepository extends OwnedRepository<ScheduleEventRow> 
           set ${assignments.join(', ')}
         where e.id = $${params.length}
           and ${ScheduleEventsRepository.VISIBLE_TO_$1}
-        returning e.*`,
+        returning e.*, (e.user_id = $1) as is_owner`,
       params,
     );
+  }
+
+  /**
+   * Moves the reminders set for an event along with it.
+   *
+   * A reminder stores the moment it goes off, not "an hour before", so a shoot
+   * moved to the afternoon left every attendee's reminder at the old morning
+   * hour. Each unfinished one moves by however far the event did: the days,
+   * plus the time of day when the event had a time both before and after.
+   * Finished ones stay where they were. Moving one re-arms it (migration 081).
+   *
+   * Returns who had a reminder moved, so their phones can be told.
+   */
+  async shiftReminders(
+    eventId: string,
+    before: { event_date: string; event_time: string | null },
+    after: { event_date: string; event_time: string | null },
+  ): Promise<string[]> {
+    const rows = await this.db.query<{ user_id: string }>(
+      `update reminders
+          set reminder_time = reminder_time
+                + ($2::date - $3::date) * interval '1 day'
+                + case
+                    when $4::time is not null and $5::time is not null
+                      then $4::time - $5::time
+                    else interval '0'
+                  end
+        where schedule_event_id = $1
+          and is_completed = false
+        returning user_id`,
+      [eventId, after.event_date, before.event_date, after.event_time, before.event_time],
+    );
+    return [...new Set(rows.map((r) => r.user_id))];
   }
 }

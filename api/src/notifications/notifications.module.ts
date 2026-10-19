@@ -33,6 +33,7 @@ import { ReminderDispatcherService } from './reminder-dispatcher.service';
   ],
   // The feed is deliberately not exported. Every feature in the app can reach
   // this module, and none of them has any business reading someone's list.
-  exports: [PushService, NotifyService],
+  // AppUpdatesService for the console, which announces updates from there.
+  exports: [PushService, NotifyService, AppUpdatesService],
 })
 export class NotificationsModule {}

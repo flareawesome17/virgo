@@ -3,290 +3,204 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Plus, ShieldCheck } from 'lucide-react';
+import { useMe, usePresence, useSetCustomerTags, useUser } from '@/hooks/useConsole';
+import { CustomerActions } from '@/components/console/customer/actions';
+import { NotesTab } from '@/components/console/customer/notes';
+import { OverviewTab } from '@/components/console/customer/overview';
 import {
-  useMe,
-  useSetUserDisabled,
-  useSetUserPlan,
-  useUser,
-} from '@/hooks/useConsole';
-import {
-  DataState,
-  PageHeader,
-  StatCard,
-  bytes,
-  when,
-} from '@/components/console/primitives';
+  BillingTab,
+  ContentTab,
+  DevicesTab,
+  MarketplaceTab,
+  SafetyTab,
+  SupportTab,
+} from '@/components/console/customer/tabs';
+import { TimelineTab } from '@/components/console/customer/timeline';
+import { PresenceBar } from '@/components/console/presence';
+import { DataState, StatStrip, bytes, num } from '@/components/console/primitives';
+import { useRecordTab } from '@/components/console/record-tabs';
+import { TagChip, TagPicker } from '@/components/console/tags';
 import { isPaused, isSuspended } from '@/lib/account-state';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-const PLANS = ['free', 'freelance', 'studio', 'business'];
-
-interface UserDetail {
-  user: Record<string, string | boolean | null> & {
-    disabled_at: string | null;
-    /** Absent, not null, from an API older than suspensions. See isSuspended. */
-    suspended_at?: string | null;
-    disabled_until?: string | null;
-  };
-  storage: { bytes: number; files: number; limitBytes: number | null };
-  limits: { workspaces: number | null; albumsPerWorkspace: number | null };
-  workspaces: { id: string; name: string; created_at: string }[];
-  albums: {
-    id: string;
-    name: string;
-    status: string;
-    item_count: number;
-    share_links: number;
-    created_at: string;
-  }[];
-  subscription: Record<string, string | number | null> | null;
-  tickets: { id: string; subject: string; status: string; created_at: string }[];
-}
-
-export default function VirgoUserDetailPage() {
+/**
+ * Customer 360: one account, all the way round.
+ *
+ * The header says who they are and what state the account is in; the tabs
+ * hold everything else, each loaded only when opened. Every action here is
+ * the same one the API audits, so whatever staff do shows on the timeline.
+ */
+export default function CustomerPage() {
   const { id } = useParams<{ id: string }>();
   const { can } = useMe();
-  const { data, isLoading, isError, refetch } = useUser(id);
-  const setDisabled = useSetUserDisabled(id);
-  const setPlan = useSetUserPlan(id);
-  const [reason, setReason] = useState('');
+  const { data: d, isLoading, isError, refetch } = useUser(id);
+  const setTags = useSetCustomerTags(id);
+  const [tab, setTab] = useState('overview');
 
-  const d = data as unknown as UserDetail | undefined;
   const u = d?.user;
+  const name = u ? u.display_name?.trim() || u.email : undefined;
+  useRecordTab({ href: `/virgo-users/${id}`, kind: 'user', title: name });
+  const others = usePresence('user', id);
+
   const suspended = !!u && isSuspended(u);
-  // Shown beside a suspension rather than instead of it: restoring access
-  // does not end a pause the person chose, and the console should not look
-  // as if it had.
+  // Shown beside a suspension rather than instead of it: restoring access does
+  // not end a pause the person chose, and the console should not look as if it
+  // had.
   const paused = !!u && isPaused(u);
+  const tagIds = new Set((d?.tags ?? []).map((t) => t.id));
+  const openTickets = d?.tickets.filter((t) => t.status === 'open' || t.status === 'pending').length ?? 0;
 
   return (
     <>
       <Link
         href="/virgo-users"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" />
+        <ArrowLeft className="size-3.5" />
         Virgo users
       </Link>
 
-      <DataState
-        isLoading={isLoading}
-        isError={isError}
-        isEmpty={false}
-        onRetry={() => void refetch()}
-      >
+      <DataState isLoading={isLoading} isError={isError} isEmpty={false} onRetry={() => void refetch()}>
         {d && u && (
-          <>
-            <PageHeader
-              title={String(u.display_name || u.email || 'Account')}
-              description={String(u.email)}
-              action={
-                <div className="flex items-center gap-2">
+          <div className="space-y-4">
+            <header className="flex flex-wrap items-start gap-3">
+              <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/15 text-sm font-bold text-primary">
+                {u.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={u.avatar_url} alt="" className="size-full object-cover" />
+                ) : (
+                  (name ?? '?').slice(0, 2).toUpperCase()
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="truncate text-lg font-semibold tracking-tight">{name}</h1>
                   <Badge variant="secondary" className="capitalize">
-                    {String(u.plan)}
+                    {u.plan}
                   </Badge>
                   {suspended && <Badge variant="destructive">Suspended</Badge>}
                   {paused && <Badge variant="outline">Paused</Badge>}
+                  {!u.email_verified_at && <Badge variant="outline">Unconfirmed email</Badge>}
+                  {u.two_factor && (
+                    <Badge variant="outline" className="gap-1">
+                      <ShieldCheck className="size-3" /> Two-factor
+                    </Badge>
+                  )}
                 </div>
-              }
+                <p className="truncate text-sm text-muted-foreground">
+                  {u.email}
+                  {u.handle ? ` · @${u.handle}` : ''}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {(d.tags ?? []).map((t) => (
+                    <TagChip key={t.id} tag={t} />
+                  ))}
+                  {can('users.notes') && (
+                    <TagPicker
+                      selected={tagIds}
+                      canCreate
+                      onToggle={(tag, on) => {
+                        const next = new Set(tagIds);
+                        if (on) next.add(tag.id);
+                        else next.delete(tag.id);
+                        setTags.mutate([...next]);
+                      }}
+                      trigger={
+                        <button
+                          type="button"
+                          className="inline-flex h-5 items-center gap-1 rounded-full border border-dashed px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                        >
+                          <Plus className="size-3" />
+                          {tagIds.size ? 'Tag' : 'Add a tag'}
+                        </button>
+                      }
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <PresenceBar others={others} />
+                <CustomerActions customer={d} />
+              </div>
+            </header>
+
+            <StatStrip
+              items={[
+                {
+                  label: 'Storage',
+                  value: bytes(d.storage.bytes),
+                  hint: d.storage.limitBytes
+                    ? `of ${bytes(d.storage.limitBytes)}${d.storage.bonusBytes ? ` incl. ${bytes(d.storage.bonusBytes)} promo` : ''}`
+                    : 'unlimited',
+                  tone:
+                    d.storage.limitBytes && d.storage.bytes / d.storage.limitBytes >= 0.8 ? 'warn' : 'default',
+                },
+                { label: 'Files', value: num(d.storage.files) },
+                {
+                  label: 'Workspaces',
+                  value: num(d.workspaces.length),
+                  hint: d.limits.workspaces === null ? 'unlimited' : `limit ${d.limits.workspaces}`,
+                },
+                { label: 'Albums', value: num(d.albums.length) },
+                {
+                  label: 'Open tickets',
+                  value: num(openTickets),
+                  tone: openTickets ? 'warn' : 'default',
+                },
+              ]}
             />
 
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <StatCard
-                label="Storage"
-                value={bytes(d.storage.bytes)}
-                hint={
-                  d.storage.limitBytes
-                    ? `of ${bytes(d.storage.limitBytes)}`
-                    : 'unlimited'
-                }
-              />
-              <StatCard label="Files" value={d.storage.files} />
-              <StatCard
-                label="Workspaces"
-                value={d.workspaces.length}
-                hint={
-                  d.limits.workspaces === null
-                    ? 'unlimited'
-                    : `limit ${d.limits.workspaces}`
-                }
-              />
-              <StatCard label="Albums" value={d.albums.length} />
-            </div>
-
-            <div className="mt-6 grid gap-3 lg:grid-cols-2">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Account</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-1.5 p-4 pt-0 text-sm">
-                  <Field label="Joined" value={when(u.created_at as string)} />
-                  <Field label="Last seen" value={when(u.last_seen_at as string)} />
-                  <Field
-                    label="Email verified"
-                    value={u.email_verified_at ? 'Yes' : 'No'}
-                  />
-                  <Field label="Handle" value={(u.handle as string) || '—'} />
-                  <Field
-                    label="Public profile"
-                    value={u.public_profile ? 'Published' : 'Private'}
-                  />
-                  <Field
-                    label="Discoverable"
-                    value={u.discoverable ? 'Yes' : 'No'}
-                  />
-                  <Field label="Location" value={(u.location as string) || '—'} />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Actions</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 p-4 pt-0">
-                  {can('users.setPlan') ? (
-                    <div>
-                      <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                        Plan
-                      </p>
-                      <Select
-                        value={String(u.plan)}
-                        onValueChange={(v) => setPlan.mutate(v)}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PLANS.map((p) => (
-                            <SelectItem key={p} value={p} className="capitalize">
-                              {p}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="mt-1.5 text-[11px] text-muted-foreground">
-                        Changes limits immediately. No payment is taken and no
-                        subscription is created.
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Your role cannot change plans.
-                    </p>
-                  )}
-
-                  {can('users.disable') && (
-                    <div className="border-t pt-4">
-                      <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                        Access
-                      </p>
-                      {!suspended && (
-                        <Input
-                          value={reason}
-                          onChange={(e) => setReason(e.target.value)}
-                          placeholder="Reason (recorded in the audit log)"
-                          className="mb-2"
-                        />
-                      )}
-                      <Button
-                        variant={suspended ? 'secondary' : 'destructive'}
-                        size="sm"
-                        disabled={setDisabled.isPending}
-                        onClick={() =>
-                          setDisabled.mutate({
-                            disabled: !suspended,
-                            reason: reason || undefined,
-                          })
-                        }
-                      >
-                        {suspended ? 'Restore access' : 'Suspend account'}
-                      </Button>
-                      {/* Said here because it was not always true: the old
-                          switch only stamped a column nothing enforced. The
-                          15 minutes is the life of an access token already
-                          issued; refresh and sign-in are refused at once. */}
-                      <p className="mt-1.5 text-[11px] text-muted-foreground">
-                        {suspended
-                          ? 'Lets them sign in again. '
-                          : 'Signs them out everywhere within 15 minutes and stops them signing back in. '}
-                        Their media is untouched either way.
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            {d.albums.length > 0 && (
-              <Card className="mt-6">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Albums</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Items</TableHead>
-                        <TableHead>Live links</TableHead>
-                        <TableHead>Created</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {d.albums.map((a) => (
-                        <TableRow key={a.id}>
-                          <TableCell className="font-medium">{a.name}</TableCell>
-                          <TableCell className="capitalize text-muted-foreground">
-                            {a.status}
-                          </TableCell>
-                          <TableCell className="tabular-nums">
-                            {a.item_count}
-                          </TableCell>
-                          <TableCell className="tabular-nums">
-                            {a.share_links}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {when(a.created_at)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            )}
-          </>
+            <Tabs value={tab} onValueChange={setTab}>
+              <div className="overflow-x-auto [scrollbar-width:none]">
+                <TabsList>
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                  <TabsTrigger value="notes">Notes</TabsTrigger>
+                  <TabsTrigger value="support">Support · {d.tickets.length}</TabsTrigger>
+                  <TabsTrigger value="content">Content</TabsTrigger>
+                  {can('billing.read') && <TabsTrigger value="billing">Billing</TabsTrigger>}
+                  <TabsTrigger value="marketplace">Marketplace</TabsTrigger>
+                  {can('content.read') && <TabsTrigger value="safety">Safety</TabsTrigger>}
+                  <TabsTrigger value="devices">Devices</TabsTrigger>
+                </TabsList>
+              </div>
+              <TabsContent value="overview" className="mt-4">
+                <OverviewTab customer={d} onOpenNotes={() => setTab('notes')} />
+              </TabsContent>
+              <TabsContent value="timeline" className="mt-4">
+                <TimelineTab id={id} />
+              </TabsContent>
+              <TabsContent value="notes" className="mt-4">
+                <NotesTab id={id} />
+              </TabsContent>
+              <TabsContent value="support" className="mt-4">
+                <SupportTab customer={d} />
+              </TabsContent>
+              <TabsContent value="content" className="mt-4">
+                <ContentTab customer={d} />
+              </TabsContent>
+              {can('billing.read') && (
+                <TabsContent value="billing" className="mt-4">
+                  <BillingTab id={id} />
+                </TabsContent>
+              )}
+              <TabsContent value="marketplace" className="mt-4">
+                <MarketplaceTab id={id} />
+              </TabsContent>
+              {can('content.read') && (
+                <TabsContent value="safety" className="mt-4">
+                  <SafetyTab id={id} />
+                </TabsContent>
+              )}
+              <TabsContent value="devices" className="mt-4">
+                <DevicesTab id={id} />
+              </TabsContent>
+            </Tabs>
+          </div>
         )}
       </DataState>
     </>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="truncate font-medium">{value}</span>
-    </div>
   );
 }

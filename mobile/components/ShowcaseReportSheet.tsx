@@ -60,7 +60,7 @@ export function ShowcaseReportSheet({
                 350,
               );
             },
-            onError: (err) => setError(profileActionMessage(err, 'showcase')),
+            onError: (err) => setError(profileActionMessage(err, 'report')),
           },
         );
       }}

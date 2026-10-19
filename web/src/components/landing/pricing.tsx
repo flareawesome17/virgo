@@ -42,7 +42,7 @@ export function LandingPricing({ plans }: { plans: PlanInfo[] }) {
           index="09"
           eyebrow="Pricing"
           align="center"
-          title="Free while we are in pre-release."
+          title="Free for now."
           lead="No card, no trial clock. We would rather find out what a working photographer actually needs than guess at a price and be wrong about it."
         />
 
@@ -98,7 +98,7 @@ export function LandingPricing({ plans }: { plans: PlanInfo[] }) {
         {upcoming.length > 0 && (
           <Reveal delay={150} className="mt-16">
             <p className="text-center text-[13px] text-white/40">
-              Where pricing is heading once the pre-release ends. Nothing here
+              Where pricing is heading once paid plans arrive. Nothing here
               is charged yet — if a number looks wrong,{' '}
               <a
                 href="mailto:hello@virgo.ph"

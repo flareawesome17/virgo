@@ -5,8 +5,15 @@
  * original out of B2:
  *
  *   - the 640 px grid thumbnail (migration 038), beside the original in B2
- *   - display copies at DISPLAY_WIDTHS (061), on the media volume
+ *   - display copies (061), on the media volume, when it has none at all
  *   - the inline blur preview (063), in its row
+ *
+ * Display copies are not what this is for any more. A photograph that has a
+ * preview is never chosen here, whatever copies it has — and since 091 the
+ * API makes every photograph's copies again by itself, a few a minute, in
+ * DisplayBackfillService: the ones from before 061, the ones confirmed while
+ * the media host was not set up, and the old 1024/2048 ones alike. Nothing
+ * needs to be run for those; DISPLAY_BACKFILL_PER_MINUTE paces or stops it.
  *
  * A film gets the preview alone. The media worker makes a film's preview from
  * the poster frame it extracted, so that is what is read here as well: a small
@@ -52,7 +59,9 @@
  * so without that rule every one would be picked, and each would gain a
  * thumbnail in the public bucket and display copies that nothing ever reads.
  * Nor does this remake display copies the sweep has evicted. Eviction keeps
- * the preview, and a missing preview is what this looks for.
+ * the preview, and a missing preview is what this looks for. The API's own
+ * backfill goes through each photograph once, so one evicted after that
+ * keeps its display_version and stays evicted.
  *
  * --portfolio is a different question: which photographs can a public
  * profile not show? A profile shows a photograph only through its thumbnail,

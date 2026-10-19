@@ -1,104 +1,122 @@
 'use client';
 
+import Link from 'next/link';
+import { useState } from 'react';
 import { useSubscriptions } from '@/hooks/useConsole';
+import { DataTable, type Column } from '@/components/console/data-table';
 import {
-  DataState,
   PageHeader,
-  StatCard,
+  StatStrip,
+  StatusDot,
+  day,
+  num,
   peso,
-  when,
 } from '@/components/console/primitives';
-import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+
+type Row = Record<string, string | number | null>;
+
+const COLUMNS: Column<Row>[] = [
+  {
+    id: 'account',
+    header: 'Account',
+    cell: (row) => (
+      <Link href={`/virgo-users/${row.user_id}`} className="block min-w-0 max-w-72">
+        <span className="block truncate font-medium">{String(row.user_name || row.user_email)}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {String(row.user_email)}
+        </span>
+      </Link>
+    ),
+    csv: (row) => row.user_email,
+  },
+  {
+    id: 'plan',
+    header: 'Plan',
+    cell: (row) => <span className="capitalize">{String(row.plan_name)}</span>,
+    csv: (row) => row.plan_name,
+  },
+  {
+    id: 'amount',
+    header: 'Amount',
+    className: 'text-right tabular-nums',
+    cell: (row) => peso(Number(row.amount_minor ?? 0)),
+    csv: (row) => Number(row.amount_minor ?? 0) / 100,
+  },
+  {
+    id: 'kind',
+    header: 'Kind',
+    cell: (row) => (
+      <span className="text-muted-foreground">
+        {row.kind === 'subscription' ? 'Recurring' : 'One month'}
+      </span>
+    ),
+    csv: (row) => row.kind,
+  },
+  {
+    id: 'status',
+    header: 'Status',
+    cell: (row) => (
+      <StatusDot tone={row.status === 'active' ? 'ok' : 'muted'}>
+        <span className="capitalize">{String(row.status)}</span>
+      </StatusDot>
+    ),
+    csv: (row) => row.status,
+  },
+  {
+    id: 'period',
+    header: 'Period ends',
+    cell: (row) => (
+      <span className="text-muted-foreground">{day(row.current_period_end as string)}</span>
+    ),
+    csv: (row) => row.current_period_end,
+  },
+];
 
 export default function BillingPage() {
-  const { data, isLoading, isError, refetch } = useSubscriptions({ limit: 50 });
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(50);
+  const { data, isLoading, isError, isFetching, refetch } = useSubscriptions({ limit, offset });
 
   return (
     <>
       <PageHeader
         title="Billing"
-        description="Subscriptions and what they are worth. Nothing is purchasable during the pre-release, so this stays quiet by design."
+        description="Subscriptions and what they are worth. Virgo is free for now, so this stays quiet until paid plans go on sale."
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          label="Monthly recurring"
-          value={data ? peso(data.mrrMinor) : '—'}
-          hint="active subscriptions only"
-        />
-        <StatCard label="Active" value={data?.activeCount ?? '—'} />
-        <StatCard label="Records" value={data?.total ?? '—'} />
-      </div>
+      <StatStrip
+        className="mb-4"
+        items={[
+          {
+            label: 'Monthly recurring',
+            value: data ? peso(data.mrrMinor) : '—',
+            hint: 'active subscriptions only',
+          },
+          { label: 'Active', value: data ? num(data.activeCount) : '—' },
+          { label: 'Records', value: data ? num(data.total) : '—' },
+        ]}
+      />
 
-      <DataState
+      <DataTable
+        id="billing"
+        columns={COLUMNS}
+        rows={data?.data as Row[] | undefined}
+        rowKey={(row) => String(row.id)}
+        rowHref={(row) => `/virgo-users/${row.user_id}`}
         isLoading={isLoading}
         isError={isError}
-        isEmpty={!!data && data.data.length === 0}
-        emptyLabel="No subscriptions. Expected while paid plans are switched off."
+        isFetching={isFetching}
         onRetry={() => void refetch()}
-      >
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Account</TableHead>
-                <TableHead>Plan</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Kind</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Period ends</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data?.data.map((s) => {
-                const row = s as Record<string, string | number | null>;
-                return (
-                  <TableRow key={String(row.id)}>
-                    <TableCell>
-                      <span className="block font-medium">
-                        {String(row.user_name || row.user_email)}
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        {String(row.user_email)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="capitalize">
-                      {String(row.plan_name)}
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {peso(Number(row.amount_minor ?? 0))}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {row.kind === 'subscription' ? 'Recurring' : 'One month'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          row.status === 'active' ? 'secondary' : 'outline'
-                        }
-                        className="capitalize"
-                      >
-                        {String(row.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {when(row.current_period_end as string)}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </DataState>
+        empty="No subscriptions yet. Expected while Virgo is free."
+        pagination={{
+          offset,
+          limit,
+          total: data?.total ?? 0,
+          onOffsetChange: setOffset,
+          onLimitChange: setLimit,
+        }}
+        exportName="subscriptions"
+      />
     </>
   );
 }

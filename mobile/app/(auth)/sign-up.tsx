@@ -1,16 +1,21 @@
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, useTheme } from '@/src/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { authApi } from '@/src/api';
-import { Redirect, router } from 'expo-router';
+import { Redirect, router, useNavigation } from 'expo-router';
+import { usePreventRemove } from '@react-navigation/native';
 import { useState } from 'react';
 import {
   ArrowLeftIcon, UserIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
-  CheckIcon, MapPinIcon, Building2Icon, AtSignIcon, HomeIcon, GlobeIcon, GiftIcon,
+  CheckIcon, MapPinIcon, Building2Icon, AtSignIcon, GlobeIcon, GiftIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PALETTES } from '@/theme';
+import { LoadFailed } from '@/components/LoadFailed';
+import { CitySuggestions } from '@/components/LocationField';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UserIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -23,7 +28,6 @@ cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(Building2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(AtSignIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(GlobeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(GiftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -48,12 +52,30 @@ cssInterop(GiftIcon, { className: { target: 'style', nativeStyleToProp: { color:
 const STEPS = ['You', 'What you do', 'Where you are'] as const;
 
 export default function SignUpScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const { signUp, user } = useAuth();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
   const [step, setStep] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+
+  /*
+   * Back, the button or the swipe, steps back through the wizard. It left
+   * sign-up altogether from any step, and everything typed went with it.
+   * Only going back is held: finishing replaces the screen, and that goes
+   * through as asked.
+   */
+  const navigation = useNavigation();
+  usePreventRemove(step > 0, ({ data }) => {
+    if (data.action.type !== 'GO_BACK' && data.action.type !== 'POP') {
+      navigation.dispatch(data.action);
+      return;
+    }
+    setErrorMsg('');
+    setStep((s) => Math.max(0, s - 1));
+  });
   const [showPassword, setShowPassword] = useState(false);
 
   // Step 1
@@ -68,8 +90,8 @@ export default function SignUpScreen() {
 
   // Step 3
   const [line1, setLine1] = useState('');
-  const [line2, setLine2] = useState('');
   const [city, setCity] = useState('');
+  const [cityFocused, setCityFocused] = useState(false);
   const [province, setProvince] = useState('');
   const [postal, setPostal] = useState('');
   const [country, setCountry] = useState('PH');
@@ -82,11 +104,15 @@ export default function SignUpScreen() {
    * the register endpoint validates against, so the form cannot offer
    * something that will be rejected.
    */
-  const { data: roleList } = useQuery({
+  const rolesQuery = useQuery({
     queryKey: ['auth', 'roles'],
     queryFn: () => authApi.listRoles(),
     staleTime: Infinity,
   });
+  const roleList = rolesQuery.data;
+  // Failed or paused (offline): either way there are no chips to pick, and
+  // this step used to be a blank that could not be finished or retried.
+  const rolesFailed = !roleList && (rolesQuery.isError || rolesQuery.isPaused);
 
   // <Redirect> rather than router.replace(): navigating during render mutates
   // the navigation container mid-render and triggers React's
@@ -145,7 +171,6 @@ export default function SignUpScreen() {
         displayName: name.trim(),
         roles,
         addressLine1: line1.trim(),
-        addressLine2: line2.trim() || undefined,
         addressCity: city.trim(),
         addressProvince: province.trim(),
         addressPostal: postal.trim() || undefined,
@@ -186,7 +211,7 @@ export default function SignUpScreen() {
               <ArrowLeftIcon size={18} className="text-foreground" />
             </Pressable>
             <View>
-              <Text className="text-foreground text-[28px] font-bold tracking-tight">Create Account</Text>
+              <Text className="text-foreground text-[28px] font-bold tracking-tight">Create account</Text>
               <Text className="text-muted-foreground text-sm mt-0.5">Step {step + 1} of {STEPS.length}</Text>
             </View>
           </View>
@@ -213,21 +238,25 @@ export default function SignUpScreen() {
           <View className="px-6 gap-4">
             {step === 0 && (
               <>
-                <Field label="Full Name" icon={<UserIcon size={16} className="text-muted-foreground" />}>
+                <Field label="Full name" icon={<UserIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={name} onChangeText={setName} placeholder="Your name"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" autoCapitalize="words" />
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" autoCapitalize="words"
+                    textContentType="name" autoComplete="name" />
                 </Field>
 
                 <Field label="Email" icon={<MailIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+                    keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
+                    textContentType="username" autoComplete="email" />
                 </Field>
 
                 <Field label="Password" icon={<LockIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={password} onChangeText={setPassword} placeholder="Min. 8 characters"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    secureTextEntry={!showPassword} autoCapitalize="none" />
+                    secureTextEntry={!showPassword} autoCapitalize="none"
+                    textContentType="newPassword" autoComplete="new-password"
+                    passwordRules="minlength: 8;" />
                   <Pressable
                     onPress={() => setShowPassword(!showPassword)}
                     accessibilityRole="button"
@@ -242,13 +271,14 @@ export default function SignUpScreen() {
                     account they had just made, and the way back was the
                     password reset flow. */}
                 <Field
-                  label="Confirm Password"
+                  label="Confirm password"
                   icon={<LockIcon size={16} className="text-muted-foreground" />}
                   error={confirmPassword.length > 0 && confirmPassword !== password ? 'These do not match.' : undefined}
                 >
                   <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Re-enter password"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    secureTextEntry={!showPassword} autoCapitalize="none" />
+                    secureTextEntry={!showPassword} autoCapitalize="none"
+                    textContentType="newPassword" autoComplete="new-password" />
                 </Field>
 
                 {/* On the first step rather than with the other optional fields
@@ -284,6 +314,11 @@ export default function SignUpScreen() {
                 <Text className="text-muted-foreground text-xs mb-3 ml-1">
                   Pick every one that applies. It is how the right jobs find you.
                 </Text>
+                {rolesFailed ? (
+                  <LoadFailed what="the list of roles" onRetry={() => rolesQuery.refetch()} compact />
+                ) : !roleList ? (
+                  <ActivityIndicator color="#B66A40" style={{ paddingVertical: 24 }} />
+                ) : null}
                 <View className="flex-row flex-wrap gap-2">
                   {(roleList?.data ?? []).map((role) => {
                     const on = roles.includes(role);
@@ -303,52 +338,61 @@ export default function SignUpScreen() {
                     );
                   })}
                 </View>
-                <Text
-                  className={`text-xs mt-3 ml-1 ${roles.length === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
-                >
-                  {roles.length === 0
-                    ? 'Required — choose at least one.'
-                    : `${roles.length} selected — you can change these later.`}
-                </Text>
+                {roleList && (
+                  <Text
+                    className={`text-xs mt-3 ml-1 ${roles.length === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
+                  >
+                    {roles.length === 0
+                      ? 'Required — choose at least one.'
+                      : `${roles.length} selected — you can change these later.`}
+                  </Text>
+                )}
               </View>
             )}
 
             {step === 2 && (
               <>
-                <Field label="Street Address" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
+                <Field label="Street address" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
                   <TextInput value={line1} onChangeText={setLine1} placeholder="123 Rizal Street, Barangay San Roque"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
                 </Field>
 
-                <Field label="Apartment, Unit, Floor" hint="Optional." icon={<HomeIcon size={16} className="text-muted-foreground" />}>
-                  <TextInput value={line2} onChangeText={setLine2} placeholder="Unit 4B"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
-                </Field>
-
-                <View className="flex-row gap-3">
-                  <View className="flex-1">
-                    <Field label="City" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
-                      <TextInput value={city} onChangeText={setCity} placeholder="Cebu City"
-                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
-                    </Field>
-                  </View>
-                  <View className="flex-1">
-                    <Field label="Province">
-                      <TextInput value={province} onChangeText={setProvince} placeholder="Cebu"
-                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
-                    </Field>
-                  </View>
+                {/* Full width, with the suggestions under it: the city is
+                    what places somebody in Nearby, so the spelling the app
+                    knows is worth offering. Still free text — a town the list
+                    lacks is placed by its province. */}
+                <View>
+                  <Field label="City or municipality" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
+                    <TextInput value={city} onChangeText={setCity} placeholder="Cebu City"
+                      placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120}
+                      onFocus={() => setCityFocused(true)}
+                      // A beat late, so a tap on a suggestion lands first.
+                      onBlur={() => setTimeout(() => setCityFocused(false), 200)} />
+                  </Field>
+                  <CitySuggestions
+                    query={city}
+                    visible={cityFocused}
+                    onPick={(picked) => {
+                      setCity(picked);
+                      setCityFocused(false);
+                    }}
+                  />
                 </View>
+
+                <Field label="Province">
+                  <TextInput value={province} onChangeText={setProvince} placeholder="Cebu"
+                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
+                </Field>
 
                 <View className="flex-row gap-3">
                   {/* Optional on purpose. Plenty of Philippine addresses have
                       no ZIP, and refusing somebody for that is refusing them
                       for where they live. */}
                   <View className="flex-1">
-                    <Field label="Postal Code" hint="Optional.">
+                    <Field label="Postal code" hint="Optional.">
                       <TextInput value={postal} onChangeText={setPostal} placeholder="6000"
                         placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                        keyboardType="number-pad" maxLength={20} />
+                        keyboardType="number-pad" inputAccessoryViewID={KEYBOARD_DONE} maxLength={20} />
                     </Field>
                   </View>
                   <View className="flex-1">
@@ -360,7 +404,7 @@ export default function SignUpScreen() {
                   </View>
                 </View>
 
-                <Field label="Studio Name" hint="Optional — if you trade under one." icon={<Building2Icon size={16} className="text-muted-foreground" />}>
+                <Field label="Studio name" hint="Optional — if you trade under one." icon={<Building2Icon size={16} className="text-muted-foreground" />}>
                   <TextInput value={studioName} onChangeText={setStudioName} placeholder="Northlight Studio"
                     placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
                 </Field>
@@ -406,8 +450,9 @@ export default function SignUpScreen() {
                 </Pressable>
 
                 <Text className="text-muted-foreground text-xs leading-5 px-1">
-                  Your address is private. It is never shown on your profile or
-                  to anyone you work with.
+                  Your street address is private. Your city and province show
+                  on your profile and place you in Nearby — never your street,
+                  and you can hide from Nearby in Privacy.
                 </Text>
               </>
             )}
@@ -448,7 +493,7 @@ export default function SignUpScreen() {
               accessibilityState={{ disabled: !stepReady || signUp.isPending }}
               className={`min-h-12 flex-1 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${stepReady ? 'bg-action' : 'bg-muted'}`}>
               <Text className={`text-base font-bold ${stepReady ? 'text-action-foreground' : 'text-muted-foreground'}`}>
-                {signUp.isPending ? 'Creating account...' : isLast ? 'Create Account' : 'Continue'}
+                {signUp.isPending ? 'Creating account...' : isLast ? 'Create account' : 'Continue'}
               </Text>
               {!signUp.isPending && (
                 isLast
@@ -460,7 +505,7 @@ export default function SignUpScreen() {
           <View className="flex-row items-center justify-center gap-1">
             <Text className="text-muted-foreground text-sm">Already have an account?</Text>
             <Pressable onPress={() => router.push('/sign-in')} className="active:opacity-60">
-              <Text className="text-primary text-sm font-bold">Sign In</Text>
+              <Text className="text-primary text-sm font-bold">Sign in</Text>
             </Pressable>
           </View>
         </View>

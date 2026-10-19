@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -28,8 +29,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
-import { profilesApi, profileUrl, storageApi, kindOf, type PortfolioItem } from '@/api';
+import { profilesApi, storageApi, kindOf, type PortfolioItem } from '@/api';
 import {
   usePortfolio,
   usePortfolioActions,
@@ -41,9 +52,6 @@ import { useAlbums } from '@/hooks/useAlbums';
 
 const MAX_IMAGES = 24;
 const MAX_ALBUMS = 12;
-
-/** Where a claimed handle actually resolves. */
-const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
 
 /**
  * A profile photo or a cover. They are the account's own uploads too, but a
@@ -97,6 +105,14 @@ function HandleField({
   }, [current, changedAt]);
 
   const unchanged = value.trim().toLowerCase() === (current ?? '');
+  /** The handle waiting on a yes, while the confirmation is up. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+
+  const save = (next: string) =>
+    setHandle.mutate(next, {
+      onSuccess: () => toast.success('Handle saved'),
+      onError: (error: Error) => toast.error(error.message),
+    });
 
   return (
     <div className="space-y-2">
@@ -114,13 +130,11 @@ function HandleField({
             className="border-0 pl-0 shadow-none focus-visible:ring-0"
           />
         </div>
+        {/* Said back before it is done, as on the phone: the old address
+            stops working at once and the new one is fixed for thirty days.
+            One click did both, with nothing in between. */}
         <Button
-          onClick={() =>
-            setHandle.mutate(value.trim().toLowerCase(), {
-              onSuccess: () => toast.success('Handle saved'),
-              onError: (error: Error) => toast.error(error.message),
-            })
-          }
+          onClick={() => setConfirming(value.trim().toLowerCase())}
           disabled={
             unchanged ||
             Boolean(lockedUntil) ||
@@ -157,6 +171,34 @@ function HandleField({
           {check.data.available ? 'Available' : check.data.reason}
         </p>
       ) : null}
+
+      <AlertDialog open={confirming !== null} onOpenChange={(open) => !open && setConfirming(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {current ? `Change to virgo.ph/@${confirming}?` : `Claim virgo.ph/@${confirming}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {/* 30 days is HANDLE_CHANGE_COOLDOWN_DAYS, and a first claim
+                  starts the clock too. */}
+              {current
+                ? `virgo.ph/@${current} stops working straight away, for every link you have shared. You can't change it again for 30 days.`
+                : "This becomes your public link. You can't change it again for 30 days."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirming) save(confirming);
+                setConfirming(null);
+              }}
+            >
+              {current ? 'Change it' : 'Claim it'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -519,17 +561,15 @@ export function PublicProfileCard() {
 
         <HandleField current={settings.handle} changedAt={settings.handleChangedAt} />
 
-        {settings.published && settings.handle && (
-          <a
-            href={profileUrl(settings.handle, SITE)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-          >
-            <ExternalLink className="size-3.5" />
-            View your public page
-          </a>
-        )}
+        {/* In the app, not virgo.ph in a new tab: the desktop app opens no
+            second window, and your page is here with your drafts too. */}
+        <Link
+          href="/profile"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+        >
+          <ExternalLink className="size-3.5" />
+          {settings.published ? 'View your public page' : 'See your page as it will look'}
+        </Link>
 
         <div className="space-y-3 border-t pt-5">
           <div className="flex items-center justify-between gap-3">

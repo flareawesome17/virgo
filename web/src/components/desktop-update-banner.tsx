@@ -7,11 +7,11 @@ import { toast } from 'sonner';
 /**
  * Updates the desktop app in place.
  *
- * The app has no auto-update in the sense of doing it behind your back — it
- * runs the web client, so the product itself changes on every deploy and only
- * the shell needs replacing, which is rare. What this does is make that
- * replacement not feel like a chore: the update downloads inside the app with a
- * progress bar, and then asks before restarting.
+ * Nothing updates behind your back. The installer carries its own frozen copy
+ * of the web client, so a web deploy changes nothing here: a fix reaches the
+ * desktop app only in a new release, and this is how it arrives. What this
+ * does is make taking it not feel like a chore: the update downloads inside the
+ * app with a progress bar, and then asks before restarting.
  *
  * The previous version sent people to the browser to fetch an installer and run
  * it by hand. That worked, and felt like homework.

@@ -91,7 +91,9 @@ if (exists === false && APPLY) {
 //
 // Matches StorageConfig.bucketForKey exactly. If these two ever disagree the
 // app looks in the wrong bucket and every affected image 404s.
-const IS_AVATAR = /^users\/[^/]+\/avatars\//;
+// Everything that belongs in the public bucket stays there: avatars, covers
+// and showcases' web copies. Re-running this must not move them out.
+const IS_AVATAR = /^users\/[^/]+\/(avatars|covers|showcases)\//;
 
 const toMove = [];
 let token;

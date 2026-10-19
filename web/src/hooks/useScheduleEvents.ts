@@ -73,11 +73,21 @@ export function useUpdateScheduleEvent() {
     mutationFn: ({ id, ...input }: UpdateScheduleEventInput & { id: string }) =>
       scheduleEventsApi.update(id, input),
     onSuccess: (updated) => {
-      queryClient.setQueryData(
+      // Over what the screen already had: a save does not say who organised
+      // it, and an older API did not say whose it was either.
+      queryClient.setQueryData<ScheduleEvent>(
         queryKeys.scheduleEvents.detail(updated.id),
-        updated,
+        (prev) => ({
+          ...prev,
+          ...updated,
+          is_owner: updated.is_owner ?? prev?.is_owner,
+          organiser_name: updated.organiser_name ?? prev?.organiser_name,
+          organiser_avatar_url: updated.organiser_avatar_url ?? prev?.organiser_avatar_url,
+        }),
       );
       queryClient.invalidateQueries({ queryKey: queryKeys.scheduleEvents.all });
+      // A moved event moves its reminders on the server.
+      queryClient.invalidateQueries({ queryKey: queryKeys.reminders.all });
     },
   });
 }

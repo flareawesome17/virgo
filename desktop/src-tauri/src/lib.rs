@@ -16,6 +16,7 @@
 //! deployment. The server costs ~30 MB and a cold start; the restructure would
 //! cost a fork.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -26,7 +27,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use sysinfo::{ProcessesToUpdate, System};
-use tauri::{Emitter, Manager};
+use tauri::webview::{DownloadEvent, NewWindowResponse};
+use tauri::{Emitter, Manager, Url, WebviewWindowBuilder};
+use tauri_plugin_opener::OpenerExt;
 
 /// Ties the Node child's lifetime to this process, whatever ends it.
 ///
@@ -100,22 +103,39 @@ fn tie_child_to_this_process(_child: &Child) {
 /// touched — never another Node on the machine. With the job object above this
 /// should find nothing; it matters when upgrading from a build that did not
 /// have one, and as insurance if the job object ever fails to attach.
+///
+/// Only orphans: a server whose parent is a running copy of this app is that
+/// copy's, and is left alone. This used to kill every server on the bundled
+/// `node`, so opening Virgo a second time took the first window's server down
+/// on its way to finding the port taken. The single-instance plugin now stops
+/// a second launch before it gets here; this keeps a copy that slips past it —
+/// another user's session, a build that predates it — from doing the damage.
 fn reap_orphaned_servers(node: &Path) {
     let mut system = System::new();
     system.refresh_processes(ProcessesToUpdate::All, true);
 
     let ours = std::process::id();
+    let this_app = std::env::current_exe().ok();
     for process in system.processes().values() {
-        if process.pid().as_u32() == ours {
+        if process.pid().as_u32() == ours || process.exe() != Some(node) {
             continue;
         }
-        if process.exe() == Some(node) {
+        let parent_is_virgo = process
+            .parent()
+            .and_then(|pid| system.process(pid))
+            .is_some_and(|parent| parent.exe().is_some() && parent.exe() == this_app.as_deref());
+        if parent_is_virgo {
             log(&format!(
-                "killing a server left behind by an earlier run (pid {})",
+                "leaving pid {} alone: it belongs to a copy of Virgo that is still running",
                 process.pid()
             ));
-            process.kill();
+            continue;
         }
+        log(&format!(
+            "killing a server left behind by an earlier run (pid {})",
+            process.pid()
+        ));
+        process.kill();
     }
 }
 
@@ -144,9 +164,32 @@ const READY_TIMEOUT: Duration = Duration::from_secs(45);
 /// for `cargo tauri dev`, where there is a terminal to read.
 fn log(message: &str) {
     println!("[shell] {message}");
-    let path = std::env::temp_dir().join("virgo-desktop.log");
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_path()) {
         let _ = writeln!(file, "{message}");
+    }
+}
+
+fn log_path() -> PathBuf {
+    std::env::temp_dir().join("virgo-desktop.log")
+}
+
+/// How big the log may grow before a launch starts a fresh one.
+///
+/// It only ever grew: every launch and every line Next printed was appended to
+/// the same file in temp, for as long as the app had been installed. Two
+/// megabytes holds many launches' worth, which is all anyone reads it for.
+const LOG_LIMIT: u64 = 2 * 1024 * 1024;
+
+/// Moves an oversized log aside as `virgo-desktop.log.old`, replacing the
+/// previous one, so there is at most one launch-sized history behind the
+/// current file. Once per launch, before anything is written.
+fn rotate_log() {
+    let path = log_path();
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return;
+    };
+    if meta.len() >= LOG_LIMIT {
+        let _ = std::fs::rename(&path, path.with_extension("log.old"));
     }
 }
 
@@ -321,6 +364,20 @@ fn start_server(resources: PathBuf) -> Result<u16, String> {
     let port = APP_PORT;
 
     let mut command = Command::new(&node);
+
+    // Before server.js, so it is in place when Next names its process: on
+    // macOS that name checks the server in with Launch Services as an app of
+    // its own, and a "node" tile appeared in the Dock beside Virgo. The file
+    // is staged beside server.js; a build staged before it existed starts
+    // without it, as it always did.
+    #[cfg(target_os = "macos")]
+    {
+        let keep_title = resources.join("keep-process-title.cjs");
+        if keep_title.is_file() {
+            command.arg("--require").arg(&keep_title);
+        }
+    }
+
     command
         .arg(&server_js)
         // `current_dir` matters: Next resolves `.next/static` and `public`
@@ -412,6 +469,15 @@ const WATCH_EVERY: Duration = Duration::from_secs(1);
 /// battery showing them the same blank window.
 const MAX_RESTARTS: u32 = 3;
 
+/// How long a restarted server has to stay up before its earlier crashes stop
+/// counting towards `MAX_RESTARTS`.
+///
+/// The count never went down, so three unrelated crashes across a week of the
+/// app being left open used up the allowance, and the fourth, however far
+/// apart, ended in "Virgo stopped responding". A server that keeps dying fails
+/// well inside this window; one that has run for ten minutes is healthy.
+const HEALTHY_AFTER: Duration = Duration::from_secs(10 * 60);
+
 /// Watches the server for the rest of the app's life.
 ///
 /// Startup was already supervised — a 45-second timeout and an error on the
@@ -429,6 +495,7 @@ const MAX_RESTARTS: u32 = 3;
 fn supervise(handle: tauri::AppHandle, resources: PathBuf, port: u16) {
     thread::spawn(move || {
         let mut restarts = 0u32;
+        let mut last_restart: Option<Instant> = None;
 
         loop {
             thread::sleep(WATCH_EVERY);
@@ -449,7 +516,16 @@ fn supervise(handle: tauri::AppHandle, resources: PathBuf, port: u16) {
                 }
             };
 
-            let Some(status) = exited else { continue };
+            let Some(status) = exited else {
+                if restarts > 0 && last_restart.is_some_and(|at| at.elapsed() >= HEALTHY_AFTER) {
+                    log(&format!(
+                        "the server has stayed up since its last restart — {restarts} earlier restart(s) no longer count"
+                    ));
+                    restarts = 0;
+                    last_restart = None;
+                }
+                continue;
+            };
 
             // Drop the handle before restarting, so `start_server` is not
             // storing a child into a slot that still holds the dead one.
@@ -480,6 +556,7 @@ fn supervise(handle: tauri::AppHandle, resources: PathBuf, port: u16) {
                 }
             }) {
                 Ok(_) => {
+                    last_restart = Some(Instant::now());
                     log("server back up — reloading the webview");
                     if let Some(window) = handle.get_webview_window("main") {
                         // `replace`, not `reload`: a reload would replay
@@ -487,7 +564,7 @@ fn supervise(handle: tauri::AppHandle, resources: PathBuf, port: u16) {
                         // which for a POST means asking the browser to resend
                         // it. The app is a client-rendered SPA, so landing on
                         // the root costs a navigation and nothing else.
-                        let _ = window.eval(&format!(
+                        let _ = window.eval(format!(
                             "window.location.replace('http://127.0.0.1:{port}/')"
                         ));
                     }
@@ -524,9 +601,222 @@ fn report_lost(handle: &tauri::AppHandle) {
     );
 }
 
+/// The Next dev server `cargo tauri dev` points the window at (`devUrl`).
+const DEV_PORT: u16 = 4123;
+
+/// Whether the window may show `url` itself: its own splash, the app it
+/// serves, and, in a dev build, the dev server.
+///
+/// The splash is `tauri://localhost` on macOS and `http://tauri.localhost` on
+/// Windows. `about:` and `blob:` are the webview's own and never leave it.
+fn is_app_url(url: &Url) -> bool {
+    match url.scheme() {
+        "tauri" | "about" | "blob" => true,
+        "http" | "https" => match url.host_str() {
+            Some("tauri.localhost") => true,
+            Some("127.0.0.1") => {
+                let port = url.port_or_known_default();
+                port == Some(APP_PORT) || (cfg!(debug_assertions) && port == Some(DEV_PORT))
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// The fragment the web app puts on a link it knows is a download.
+///
+/// A navigation is decided before its response arrives, so nothing here can
+/// tell a download from a page. The two downloads the app offers — an
+/// original, and an album as a zip — are signed links served as attachments,
+/// and the app marks them; anything else outside the app goes to the browser.
+/// A fragment never reaches the server, so the signature is untouched.
+const DOWNLOAD_MARK: &str = "virgo-download";
+
+fn is_marked_download(url: &Url) -> bool {
+    // Plain http only in a dev build, whose API may be a local one.
+    let secure = url.scheme() == "https" || (cfg!(debug_assertions) && url.scheme() == "http");
+    secure && url.fragment() == Some(DOWNLOAD_MARK)
+}
+
+/// Hands a link the window will not show to the system browser.
+///
+/// Links out of the app did nothing at all: Terms and Privacy on sign-up, the
+/// Open on a share link, a profile's website, a public page. The webview was
+/// asked to navigate away from the app, or to open a window it had no way to
+/// draw. Only web and mail links go anywhere; any other scheme a page asks for
+/// is dropped. The log names the host only, because these are often signed
+/// links whose query is a credential.
+fn open_outside<R: tauri::Runtime>(handle: &tauri::AppHandle<R>, url: &Url) {
+    if !matches!(url.scheme(), "http" | "https" | "mailto") {
+        log(&format!("not opening a {} link", url.scheme()));
+        return;
+    }
+    let host = url.host_str().unwrap_or("").to_owned();
+    if let Err(error) = handle.opener().open_url(url.as_str(), None::<&str>) {
+        log(&format!("could not open a link to {host} in the browser: {error}"));
+    } else {
+        log(&format!("opened a link to {host} in the browser"));
+    }
+}
+
+/// Where each download in progress is being written, by URL.
+///
+/// Kept from the start of a download because macOS reports no path when it
+/// finishes, and the app wants to say which file was saved.
+static DOWNLOADS: Mutex<Option<HashMap<String, PathBuf>>> = Mutex::new(None);
+
+/// Saves downloads to the Downloads folder and tells the page when each ends.
+///
+/// Without a handler a download did nothing on macOS and showed WebView2's own
+/// panel on Windows, while the app said "Your browser takes it from here". The
+/// destination the webview proposes is already the right one — the Downloads
+/// folder, the server's file name, numbered rather than overwriting — so it is
+/// kept. The page hears about the end through a DOM event, the only channel
+/// that reaches a page served from the loopback address.
+fn on_download<R: tauri::Runtime>(webview: tauri::Webview<R>, event: DownloadEvent<'_>) -> bool {
+    match event {
+        DownloadEvent::Requested { url, destination } => {
+            log(&format!(
+                "download from {} to {}",
+                url.host_str().unwrap_or("?"),
+                destination.display()
+            ));
+            DOWNLOADS
+                .lock()
+                .unwrap()
+                .get_or_insert_with(HashMap::new)
+                .insert(url.to_string(), destination.clone());
+            true
+        }
+        DownloadEvent::Finished { url, path, success } => {
+            let planned = DOWNLOADS
+                .lock()
+                .unwrap()
+                .as_mut()
+                .and_then(|map| map.remove(url.as_str()));
+            let path = path.or(planned);
+            let name = path
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "The file".to_owned());
+            log(&format!("download {}: {name}", if success { "finished" } else { "failed" }));
+
+            // Only where it certainly exists: "Show in folder" on a file that
+            // never arrived would open the folder and find nothing.
+            let shown = path.filter(|_| success).map(|p| p.display().to_string());
+            let detail = serde_json::json!({ "name": name, "path": shown, "ok": success });
+            let _ = webview.eval(format!(
+                "window.dispatchEvent(new CustomEvent('virgo:download-finished', {{ detail: {detail} }}))"
+            ));
+            true
+        }
+        _ => true,
+    }
+}
+
+/// Reload, Back and Forward in the macOS menu bar, and a Quit that asks.
+///
+/// The default menu has none of them, so on a Mac there was no way to reload
+/// a page that had gone wrong, and no keyboard Back. Windows needs nothing:
+/// WebView2 keeps F5 and Alt+Left itself.
+#[cfg(target_os = "macos")]
+fn add_navigation_menu(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
+
+    let handle = app.handle();
+    let menu = Menu::default(handle)?;
+    let reload = MenuItem::with_id(handle, "virgo-reload", "Reload", true, Some("CmdOrCtrl+R"))?;
+    let back = MenuItem::with_id(handle, "virgo-back", "Back", true, Some("CmdOrCtrl+["))?;
+    let forward = MenuItem::with_id(handle, "virgo-forward", "Forward", true, Some("CmdOrCtrl+]"))?;
+    let separator = PredefinedMenuItem::separator(handle)?;
+
+    // Into the existing View menu, where a Mac app keeps Reload.
+    let view = menu.items()?.into_iter().find_map(|item| match item {
+        MenuItemKind::Submenu(submenu) if submenu.text().ok().as_deref() == Some("View") => Some(submenu),
+        _ => None,
+    });
+    match view {
+        Some(view) => view.append_items(&[&separator, &reload, &back, &forward])?,
+        None => log("no View menu to add Reload to"),
+    }
+
+    // Quit by closing the window, rather than the predefined item's straight
+    // terminate. Terminating is not a close, so nothing could ask first: ⌘Q
+    // with uploads running dropped them, where the red button asks. Once the
+    // window has closed the app exits as it always did, because the last
+    // window going is what ends it.
+    let quit = MenuItem::with_id(handle, "virgo-quit", "Quit Virgo", true, Some("CmdOrCtrl+Q"))?;
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+        let predefined = app_menu.items()?.into_iter().enumerate().find_map(|(position, item)| match item {
+            MenuItemKind::Predefined(item)
+                if item.text().is_ok_and(|text| text.replace('&', "").starts_with("Quit")) =>
+            {
+                Some((position, item))
+            }
+            _ => None,
+        });
+        match predefined {
+            Some((position, item)) => {
+                app_menu.remove(&item)?;
+                app_menu.insert(&quit, position)?;
+            }
+            None => log("no Quit item to replace"),
+        }
+    }
+    app.set_menu(menu)?;
+
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() == "virgo-quit" {
+            match app.get_webview_window("main") {
+                Some(window) => {
+                    let _ = window.close();
+                }
+                None => app.exit(0),
+            }
+            return;
+        }
+        let script = match event.id().as_ref() {
+            "virgo-reload" => "window.location.reload()",
+            "virgo-back" => "window.history.back()",
+            "virgo-forward" => "window.history.forward()",
+            _ => return,
+        };
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.eval(script);
+        }
+    });
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    rotate_log();
+
+    let builder = tauri::Builder::default();
+
+    // First, as the plugin requires: a second launch has to exit before
+    // anything else starts, and above all before `start_server` goes looking
+    // for the port. It brings the open window forward instead. Clicking a
+    // Windows notification launches the app again too, so this is also what
+    // brings Virgo forward from one.
+    //
+    // Release builds only. The lock is keyed on the app's identifier, which a
+    // `cargo tauri dev` build shares, so with the installed app open a dev run
+    // would focus it and quit. A dev build starts no server and uses its own
+    // port, so the two never got in each other's way.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        log("another launch — focusing the open window instead");
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+
+    builder
         // Restores the window to where it was left, and saves it on exit.
         // Opening at the same centred 1280x860 every launch, whatever the user
         // did last time, is a small thing that reads as "web page in a frame"
@@ -542,6 +832,40 @@ pub fn run() {
         // through the standard Notification API, which this plugin provides.
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            // Built here rather than by Tauri from the config, which is the
+            // only way to attach what happens to links and downloads. The
+            // config still says everything else about the window; it is
+            // marked `"create": false` so it is not made twice.
+            let config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .cloned()
+                .ok_or("tauri.conf.json has no main window")?;
+            let navigating = app.handle().clone();
+            let opening = app.handle().clone();
+            WebviewWindowBuilder::from_config(app.handle(), &config)?
+                .on_navigation(move |url| {
+                    if is_app_url(url) || is_marked_download(url) {
+                        return true;
+                    }
+                    open_outside(&navigating, url);
+                    false
+                })
+                // target="_blank" and window.open: never a second webview,
+                // which would be a bare window with no way back to the app.
+                .on_new_window(move |url, _features| {
+                    open_outside(&opening, &url);
+                    NewWindowResponse::Deny
+                })
+                .on_download(on_download)
+                .build()?;
+
+            #[cfg(target_os = "macos")]
+            add_navigation_menu(app)?;
+
             // Windows draws a title bar the app replaces with its own, so the
             // system one is turned off before the window is ever shown.
             //
@@ -617,7 +941,7 @@ pub fn run() {
                     // `location.replace` rather than an assignment so the splash
                     // does not become a back-history entry.
                     Some(window) => {
-                        let _ = window.eval(&format!(
+                        let _ = window.eval(format!(
                             "window.location.replace('http://127.0.0.1:{port}/')"
                         ));
 

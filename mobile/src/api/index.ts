@@ -7,7 +7,7 @@
  */
 
 export { api, request, setAuthFailureHandler } from './client';
-export { ApiError, chatRefusal, type ChatRefusal } from './errors';
+export { ApiError, chatRefusal, retryUnlessGone, type ChatRefusal } from './errors';
 export { API_BASE_URL } from './config';
 export {
   clearTokens,
@@ -31,6 +31,58 @@ export {
   type BookingSide,
 } from './endpoints/bookings';
 export {
+  moneyApi,
+  bookingLabel,
+  payMethodName,
+  MAX_PAY_METHODS,
+  PAY_METHOD_KINDS,
+  categoryLabel,
+  dateOfIso,
+  dayLabel,
+  dayOfMonthLabel,
+  isOverdue,
+  isoDay,
+  methodLabel,
+  minorToPesos,
+  monthLabel,
+  monthOf,
+  monthRange,
+  pesosToMinor,
+  receiptFileProblem,
+  shiftMonth,
+  todayIso,
+  MAX_AMOUNT_MINOR,
+  MAX_RECEIPT_BYTES,
+  MONEY_CATEGORIES,
+  MONEY_METHODS,
+  RECEIPT_FILE_TYPES,
+  TAX_FORM_LABELS,
+  type MoneyBookingLink,
+  type MoneyCategory,
+  type MoneyEntry,
+  type MoneyEntryInput,
+  type MoneyEntryPatch,
+  type MoneyInsights,
+  type MoneyKind,
+  type MoneyListParams,
+  type MoneyMethod,
+  type MoneyPackage,
+  type MoneyPackageInput,
+  type MoneyPackagePatch,
+  type MoneyPayMethod,
+  type MoneyPayMethodInput,
+  type MoneyReceipt,
+  type MoneyRecurring,
+  type MoneyRecurringPatch,
+  type PayMethodKind,
+  type MoneySuggestion,
+  type MoneySummary,
+  type MoneyTax,
+  type MoneyTaxForm,
+  type MoneyTaxOption,
+  type ReceiptUploadTicket,
+} from './endpoints/money';
+export {
   promosApi,
   expiryLabel,
   rewardLabel,
@@ -53,8 +105,15 @@ export {
 } from './endpoints/notifications';
 export {
   supportApi,
+  fileSizeLabel,
+  supportFileProblem,
+  MAX_SUPPORT_FILE_BYTES,
+  MAX_SUPPORT_FILES,
+  SUPPORT_FILE_TYPES,
+  type SupportAttachment,
   type SupportTicket,
   type SupportMessage,
+  type SupportUploadTicket,
   type TicketStatus,
 } from './endpoints/support';
 export {
@@ -71,8 +130,22 @@ export {
 } from './endpoints/workspaces';
 export {
   albumsApi,
+  addDaysToKey,
+  daysBetweenKeys,
+  MAX_RETENTION_DAYS,
+  RETENTION_DAY_PRESETS,
+  retentionBadge,
+  retentionDateLabel,
+  retentionDaysLabel,
+  retentionInput,
+  retentionOf,
+  retentionReady,
+  retentionSummary,
+  sameRetention,
+  todayDateKey,
   type CreateAlbumInput,
   type ListAlbumsParams,
+  type Retention,
   type UpdateAlbumInput,
 } from './endpoints/albums';
 export {
@@ -104,6 +177,7 @@ export {
   type ListFriendsParams,
   type PersonResult,
   type SendRequestResult,
+  type PeopleUnseen,
   type UpdateFriendInput,
 } from './endpoints/friends';
 export {
@@ -183,9 +257,15 @@ export {
 } from './endpoints/usage';
 export {
   storageApi,
+  putFileToBucket,
   contentTypeForAsset,
+  isUploadable,
+  displaySourceAtLeast,
   displaySrcSet,
   largestDisplaySource,
+  longEdgeToCover,
+  originalForDetail,
+  THUMBNAIL_EDGE,
   type UploadResult,
   type UploadScope,
   type UploadTicket,
@@ -225,7 +305,14 @@ export {
   type SendMessageInput,
 } from './endpoints/chat';
 export { versionApi, type ServerVersion } from './endpoints/version';
-export { discoverApi, type NearbyPerson, type LocationStatus } from './endpoints/discover';
+export {
+  discoverApi,
+  type NearbyPerson,
+  type LocationStatus,
+  type NearbySource,
+  type NearbyOrigin,
+  type NearbyResult,
+} from './endpoints/discover';
 export {
   feedApi,
   showcasesApi,
@@ -233,14 +320,24 @@ export {
   likesApi,
   commentsApi,
   type Comment,
+  type CommentPage,
+  type ProfileWorkPage,
+  pieceAspect,
+  pieceSource,
   showcaseReportsApi,
   SHOWCASE_REPORT_REASONS,
   type ShowcaseReportReason,
   shelvesApi,
+  publicShowcaseApi,
+  canPostTogether,
+  showcaseShareUrl,
+  type PublicShowcase,
   MAX_SHOWCASE_ITEMS,
   MAX_CRAFT_TAGS,
   UNKNOWN_MAKER,
   makerOf,
+  showcaseStatus,
+  type ShowcaseStatus,
   type Showcase,
   type ShowcasePiece,
   type FeedItem,

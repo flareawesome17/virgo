@@ -27,10 +27,7 @@ export function LocationField({
   onChange: (next: string) => void;
   placeholder?: string;
 }) {
-  const { isDark } = useTheme();
   const [focused, setFocused] = useState(false);
-
-  const suggestions = focused ? suggestLocations(value, 4) : [];
 
   return (
     <View>
@@ -43,44 +40,76 @@ export function LocationField({
           placeholderTextColor="#9ca3af"
           maxLength={120}
           onFocus={() => setFocused(true)}
-          // Not onBlur: tapping a suggestion blurs the input first, and hiding
-          // the list on blur means the tap lands on nothing. The list closes
-          // when something is chosen instead.
+          // Closes when the field is left, a beat late: tapping a suggestion
+          // blurs the input first, and closing at once meant the tap landed on
+          // nothing. Without it the list stayed open over the form below.
+          onBlur={() => setTimeout(() => setFocused(false), 200)}
           className="text-foreground text-sm flex-1 py-3"
         />
       </View>
 
-      {suggestions.length > 0 && (
-        <View
-          className="bg-card rounded-xl mt-1 overflow-hidden"
-          style={{
-            borderWidth: 1,
-            borderColor: isDark ? '#2A2522' : '#F0E8E2',
-          }}
+      <CitySuggestions
+        query={value}
+        visible={focused}
+        onPick={(city) => {
+          onChange(city);
+          setFocused(false);
+        }}
+      />
+    </View>
+  );
+}
+
+/**
+ * The suggestion list on its own, for a city box drawn in a form's own style
+ * — the address on sign-up and on the profile, where the field has to look
+ * like the fields around it.
+ *
+ * Hide it on blur a beat late, as LocationField does, or a tap on a
+ * suggestion lands after the list has gone.
+ */
+export function CitySuggestions({
+  query,
+  visible,
+  onPick,
+  limit = 4,
+}: {
+  query: string;
+  visible: boolean;
+  onPick: (city: string) => void;
+  limit?: number;
+}) {
+  const { isDark } = useTheme();
+  const suggestions = visible ? suggestLocations(query, limit) : [];
+  if (suggestions.length === 0) return null;
+
+  return (
+    <View
+      className="bg-card rounded-xl mt-1 overflow-hidden"
+      style={{
+        borderWidth: 1,
+        borderColor: isDark ? '#2A2522' : '#F0E8E2',
+      }}
+    >
+      {suggestions.map((city, i) => (
+        <Pressable
+          key={city}
+          onPress={() => onPick(city)}
+          accessibilityRole="button"
+          className="px-3.5 py-2.5 flex-row items-center gap-2 active:bg-muted/40"
+          style={
+            i < suggestions.length - 1
+              ? {
+                  borderBottomWidth: 1,
+                  borderBottomColor: isDark ? '#2A2522' : '#F0E8E2',
+                }
+              : undefined
+          }
         >
-          {suggestions.map((city, i) => (
-            <Pressable
-              key={city}
-              onPress={() => {
-                onChange(city);
-                setFocused(false);
-              }}
-              className="px-3.5 py-2.5 flex-row items-center gap-2 active:bg-muted/40"
-              style={
-                i < suggestions.length - 1
-                  ? {
-                      borderBottomWidth: 1,
-                      borderBottomColor: isDark ? '#2A2522' : '#F0E8E2',
-                    }
-                  : undefined
-              }
-            >
-              <MapPinIcon size={12} className="text-muted-foreground" />
-              <Text className="text-foreground text-[13px]">{city}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+          <MapPinIcon size={12} className="text-muted-foreground" />
+          <Text className="text-foreground text-[13px]">{city}</Text>
+        </Pressable>
+      ))}
     </View>
   );
 }

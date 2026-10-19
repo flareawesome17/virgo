@@ -1,4 +1,5 @@
-import { Animated, Platform } from 'react-native';
+import { Platform } from 'react-native';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { Tabs } from 'expo-router';
 import { BottomTabBar, type BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,7 +7,7 @@ import {
   FolderIcon,
   CalendarIcon,
   HomeIcon,
-  LayoutGridIcon,
+  GalleryVerticalEndIcon,
   BriefcaseIcon,
 } from 'lucide-react-native';
 import { cssInterop, useColorScheme } from 'nativewind';
@@ -19,7 +20,7 @@ import { AppTabBar } from '@/components/AppTabBar';
 import { ChromeProvider, useChrome } from '@/src/providers/ChromeProvider';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [FolderIcon, CalendarIcon, HomeIcon, LayoutGridIcon, BriefcaseIcon]) {
+for (const Icon of [FolderIcon, CalendarIcon, HomeIcon, GalleryVerticalEndIcon, BriefcaseIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -33,24 +34,25 @@ const badgeCount = (n: number) => (n > 0 ? (n > 99 ? '99+' : n) : undefined);
  * The stock bar, on Android, with the same going-away behaviour as the iOS
  * capsule.
  *
- * It sits in the navigator's own space rather than floating, so it slides down
- * past the bottom edge. The space it leaves is not reclaimed — a list that
- * reflowed every time the bar went would jump under the finger that sent it
- * away.
+ * It floats over the screens, as the capsule does, and slides down past the
+ * bottom edge on the UI thread. It used to sit in the navigator's own space,
+ * which it kept while away: an empty band where the bar had been, since a list
+ * that reflowed every time the bar went would jump under the finger that sent
+ * it away. Floating, there is no band and nothing reflows. Tab screens keep
+ * the bar's height clear at the foot of their lists (useTabBottomInset), so
+ * nothing is left under it while it shows.
  */
 function SlidingBar(props: BottomTabBarProps) {
   const { hidden } = useChrome();
   const insets = useSafeAreaInsets();
   const height = TAB_CONTENT_HEIGHT + TAB_PADDING_TOP + Math.max(insets.bottom, 8);
 
+  const slide = useAnimatedStyle(() => ({
+    transform: [{ translateY: hidden.value * height }],
+  }));
+
   return (
-    <Animated.View
-      style={{
-        transform: [
-          { translateY: hidden.interpolate({ inputRange: [0, 1], outputRange: [0, height] }) },
-        ],
-      }}
-    >
+    <Animated.View style={[{ position: 'absolute', left: 0, right: 0, bottom: 0 }, slide]}>
       <BottomTabBar {...props} />
     </Animated.View>
   );
@@ -60,6 +62,7 @@ function TabsLayoutInner() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
+  const { reveal } = useChrome();
   // An invitation is invisible until answered — the workspace does not
   // show up anywhere else — so the count has to live on the tab itself.
   const { invitations } = useCollaboratorInvitations();
@@ -67,7 +70,9 @@ function TabsLayoutInner() {
   const { invitations: eventInvites } = useEventInvitations();
   // Jobs posted since the board was last opened. It moved down here with the
   // tab; the top bar no longer carries it.
-  const { count: unseenJobs } = useUnseenJobs();
+  // New postings and applications waiting on you, both: applicants never lit
+  // the badge, so somebody waiting for an answer was invisible from the bar.
+  const { total: unseenJobs } = useUnseenJobs();
   // Unread messages, friend requests and waiting rewards all badge the top
   // bar now rather than a tab, so this layout no longer counts them.
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -92,14 +97,29 @@ function TabsLayoutInner() {
 
   return (
     <Tabs
+      // Back goes to the tab you came from. The default is the first tab, so
+      // Schedule → your photo → Settings → back landed on the Dashboard, and
+      // Settings and Connect have no back button of their own.
+      backBehavior="history"
       // iOS gets the floating capsule. Android — and the web preview, which
       // reports its own platform — keep the stock bar with the options below,
       // exactly as before.
       tabBar={(props) =>
         Platform.OS === 'ios' ? <AppTabBar {...props} /> : <SlidingBar {...props} />
       }
+      // Both bars come back whenever a tab comes into focus — switched to,
+      // opened from a tile, or returned to from a pushed screen. Connect, Chat,
+      // Network and Settings never report their scrolling, so a Dashboard
+      // scrolled far enough to hide the bars used to open Connect with no
+      // navigation at all, and nothing on it could bring them back.
+      screenListeners={{ focus: reveal }}
       screenOptions={{
         headerShown: false,
+        // No transition between tabs: they cut straight across, as the system
+        // tab bars do. A cross-fade was tried and is gone — the navigator
+        // detaches the tab you leave and fades the one you arrive at in from
+        // nothing, and the two together left the Feed at zero opacity on
+        // every other visit: a white screen until you switched away and back.
         tabBarStyle: {
           backgroundColor: palette.card,
           borderTopColor: palette.border,
@@ -134,8 +154,11 @@ function TabsLayoutInner() {
         name="feed"
         options={{
           title: 'Feed',
+          // A stack of cards, which is what the Feed is. It was a grid of
+          // squares, which is what it is not — and with no labels on the bar,
+          // the picture is all that says where a tab goes.
           tabBarIcon: ({ focused, color }) => (
-            <LayoutGridIcon color={color} size={23} strokeWidth={focused ? 2.5 : 2} />
+            <GalleryVerticalEndIcon color={color} size={23} strokeWidth={focused ? 2.5 : 2} />
           ),
         }}
       />

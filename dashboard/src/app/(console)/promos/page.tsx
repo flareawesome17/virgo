@@ -1,25 +1,28 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
-import { Check, Gift, Search, Users2 } from 'lucide-react';
-import type { Promo } from '@/api/console';
+import { useMemo, useState } from 'react';
+import { Check, ChevronRight, Gift, Search, Users2 } from 'lucide-react';
+import type { Promo, PromoGrant } from '@/api/console';
 import {
   useCreatePromo,
   useGrantPromo,
+  useGrantPromoToSegment,
   useMe,
   usePromoGrants,
   usePromos,
+  useSegments,
   useSetPromoActive,
   useUsers,
 } from '@/hooks/useConsole';
+import { DataTable, type Column } from '@/components/console/data-table';
 import {
-  DataState,
   PageHeader,
+  StatusDot,
   bytes,
+  num,
   until,
   when,
 } from '@/components/console/primitives';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -42,14 +45,6 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 
 const GB = 1024 ** 3;
 
@@ -117,7 +112,7 @@ function CreatePromoDialog() {
           New promo
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>New promo</DialogTitle>
           <DialogDescription>
@@ -244,11 +239,18 @@ function CreatePromoDialog() {
  * search so a batch can be assembled across several queries.
  */
 function GrantDialog({ promo }: { promo: Promo }) {
+  const { can } = useMe();
   const [open, setOpen] = useState(false);
+  // People picked by hand, or a whole segment chosen on the server.
+  const [mode, setMode] = useState<'people' | 'segment'>('people');
+  const [segmentId, setSegmentId] = useState('');
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<Record<string, string>>({});
   const { data, isLoading } = useUsers({ q: q.trim() || undefined, limit: 50 });
   const grant = useGrantPromo();
+  const segments = useSegments(open && mode === 'segment' && can('outreach.read'));
+  const grantSegment = useGrantPromoToSegment();
+  const segment = segments.data?.find((s) => s.id === segmentId);
 
   const ids = useMemo(() => Object.keys(selected), [selected]);
 
@@ -275,7 +277,7 @@ function GrantDialog({ promo }: { promo: Promo }) {
           Offer to…
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Offer “{promo.name}”</DialogTitle>
           <DialogDescription>
@@ -284,6 +286,45 @@ function GrantDialog({ promo }: { promo: Promo }) {
           </DialogDescription>
         </DialogHeader>
 
+        {can('outreach.read') && (
+          <div className="flex gap-1" role="radiogroup" aria-label="Offer to">
+            {(['people', 'segment'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={mode === m}
+                onClick={() => setMode(m)}
+                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${mode === m ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground'}`}
+              >
+                {m === 'people' ? 'People I pick' : 'A whole segment'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {mode === 'segment' ? (
+          <div className="space-y-3">
+            <Select value={segmentId} onValueChange={setSegmentId}>
+              <SelectTrigger aria-label="Segment" className="w-full">
+                <SelectValue placeholder={segments.isLoading ? 'Loading…' : 'Choose a segment'} />
+              </SelectTrigger>
+              <SelectContent>
+                {segments.data?.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name} · {s.count.toLocaleString()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {segment
+                ? `Everyone in “${segment.name}” today — ${segment.count.toLocaleString()} people — except anyone who has it already. They are told in the app.`
+                : 'Segments are made under Outreach.'}
+            </p>
+          </div>
+        ) : (
+          <>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -334,7 +375,33 @@ function GrantDialog({ promo }: { promo: Promo }) {
             })}
           </div>
         </ScrollArea>
+          </>
+        )}
 
+        {mode === 'segment' ? (
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!segment || grantSegment.isPending}
+              onClick={() =>
+                segment &&
+                grantSegment.mutate(
+                  { id: promo.id, segmentId: segment.id },
+                  {
+                    onSuccess: () => {
+                      setOpen(false);
+                      setSegmentId('');
+                    },
+                  },
+                )
+              }
+            >
+              {grantSegment.isPending ? 'Offering…' : segment ? `Offer to ${segment.count.toLocaleString()}` : 'Offer'}
+            </Button>
+          </DialogFooter>
+        ) : (
         <DialogFooter className="sm:justify-between">
           <span className="self-center text-sm text-muted-foreground">
             {ids.length === 0
@@ -353,75 +420,154 @@ function GrantDialog({ promo }: { promo: Promo }) {
             </Button>
           </span>
         </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
+const GRANT_COLUMNS: Column<PromoGrant>[] = [
+  {
+    id: 'account',
+    header: 'Account',
+    sort: (g) => g.displayName || g.email,
+    cell: (g) => (
+      <>
+        <span className="block text-sm font-medium">{g.displayName || g.email}</span>
+        <span className="block text-xs text-muted-foreground">
+          {g.referredName ? `earned when ${g.referredName} joined` : g.email}
+        </span>
+      </>
+    ),
+    csv: (g) => g.email,
+  },
+  {
+    id: 'status',
+    header: 'Status',
+    sort: (g) => (g.claimedAt ? 2 : g.expiresAt && new Date(g.expiresAt) < new Date() ? 0 : 1),
+    cell: (g) =>
+      g.claimedAt ? (
+        <StatusDot tone="ok">Claimed</StatusDot>
+      ) : g.expiresAt && new Date(g.expiresAt) < new Date() ? (
+        <StatusDot tone="muted">Expired</StatusDot>
+      ) : (
+        <StatusDot tone="info">Waiting</StatusDot>
+      ),
+    csv: (g) => (g.claimedAt ? 'claimed' : g.expiresAt && new Date(g.expiresAt) < new Date() ? 'expired' : 'waiting'),
+  },
+  {
+    id: 'offered',
+    header: 'Offered',
+    sort: (g) => g.createdAt,
+    cell: (g) => <span className="text-muted-foreground">{when(g.createdAt)}</span>,
+    csv: (g) => g.createdAt,
+  },
+  {
+    id: 'expires',
+    header: 'Expires',
+    sort: (g) => g.expiresAt,
+    cell: (g) => <span className="text-muted-foreground">{until(g.expiresAt)}</span>,
+    csv: (g) => g.expiresAt,
+  },
+];
+
 /** Who holds a promo and who took it. Loaded only when a row is opened. */
 function GrantList({ promoId }: { promoId: string }) {
-  const { data, isLoading } = usePromoGrants(promoId);
-
-  if (isLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
-  }
-  if (!data?.length) {
-    return (
-      <p className="p-4 text-sm text-muted-foreground">
-        Nobody has been offered this yet.
-      </p>
-    );
-  }
-
+  const { data, isLoading, isError, refetch } = usePromoGrants(promoId);
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Account</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Offered</TableHead>
-          <TableHead>Expires</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {data.map((g) => (
-          <TableRow key={g.id}>
-            <TableCell>
-              <span className="block text-sm font-medium">
-                {g.displayName || g.email}
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                {g.referredName ? `earned when ${g.referredName} joined` : g.email}
-              </span>
-            </TableCell>
-            <TableCell>
-              {g.claimedAt ? (
-                <Badge variant="secondary">Claimed</Badge>
-              ) : g.expiresAt && new Date(g.expiresAt) < new Date() ? (
-                <Badge variant="outline">Expired</Badge>
-              ) : (
-                <Badge>Waiting</Badge>
-              )}
-            </TableCell>
-            <TableCell className="text-sm text-muted-foreground">
-              {when(g.createdAt)}
-            </TableCell>
-            <TableCell className="text-sm text-muted-foreground">
-              {until(g.expiresAt)}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <div className="p-3 pl-10">
+      <DataTable
+        id="promo-grants"
+        columns={GRANT_COLUMNS}
+        rows={data}
+        rowKey={(g) => g.id}
+        rowHref={(g) => `/virgo-users/${g.userId}`}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => void refetch()}
+        empty="Nobody has been offered this yet."
+        exportName="promo-grants"
+      />
+    </div>
   );
 }
 
 export default function PromosPage() {
   const { can } = useMe();
-  const { data, isLoading, isError, refetch } = usePromos();
+  const { data, isLoading, isError, isFetching, refetch } = usePromos();
   const setActive = useSetPromoActive();
   const [openRow, setOpenRow] = useState<string | null>(null);
   const manage = can('promos.manage');
+
+  const columns: Column<Promo>[] = [
+    {
+      id: 'name',
+      header: 'Promo',
+      sort: (p) => p.name,
+      cell: (p) => (
+        <div className="flex items-start gap-2">
+          <ChevronRight
+            className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${
+              openRow === p.id ? 'rotate-90' : ''
+            }`}
+          />
+          <div className="min-w-0">
+            <span className="block font-medium">{p.name}</span>
+            <span className="block text-xs text-muted-foreground">
+              {p.kind === 'referral' ? 'Referral' : 'Targeted'}
+              {p.description ? ` · ${p.description}` : ''}
+            </span>
+          </div>
+        </div>
+      ),
+      csv: (p) => p.name,
+    },
+    { id: 'gives', header: 'Gives', cell: (p) => rewardLabel(p), csv: (p) => rewardLabel(p) },
+    {
+      id: 'expiry',
+      header: 'Claim window',
+      cell: (p) => (
+        <span className="text-muted-foreground">
+          {p.claimWindowDays ? `${p.claimWindowDays} days` : 'Never expires'}
+        </span>
+      ),
+      csv: (p) => p.claimWindowDays,
+    },
+    {
+      id: 'offered',
+      header: 'Offered',
+      sort: (p) => p.granted,
+      className: 'text-right tabular-nums',
+      cell: (p) => num(p.granted),
+      csv: (p) => p.granted,
+    },
+    {
+      id: 'claimed',
+      header: 'Claimed',
+      sort: (p) => p.claimed,
+      className: 'text-right tabular-nums',
+      cell: (p) => num(p.claimed),
+      csv: (p) => p.claimed,
+    },
+    {
+      id: 'active',
+      header: 'Active',
+      cell: (p) => (
+        <Switch
+          checked={p.active}
+          disabled={!manage || setActive.isPending}
+          onCheckedChange={(active) => setActive.mutate({ id: p.id, active })}
+        />
+      ),
+      csv: (p) => (p.active ? 'yes' : 'no'),
+    },
+    {
+      id: 'offer',
+      header: '',
+      className: 'text-right',
+      cell: (p) => (manage && p.kind === 'targeted' ? <GrantDialog promo={p} /> : null),
+    },
+  ];
 
   return (
     <>
@@ -431,81 +577,24 @@ export default function PromosPage() {
         action={manage ? <CreatePromoDialog /> : undefined}
       />
 
-      <DataState
+      <DataTable
+        id="promos"
+        columns={columns}
+        rows={data}
+        rowKey={(p) => p.id}
+        onRowClick={(p) => setOpenRow(openRow === p.id ? null : p.id)}
+        expanded={(p) => (openRow === p.id ? <GrantList promoId={p.id} /> : null)}
         isLoading={isLoading}
         isError={isError}
-        isEmpty={!!data && data.length === 0}
-        emptyLabel="No promos yet. Create one to offer storage or extra workspaces to a group of accounts."
+        isFetching={isFetching}
         onRetry={() => void refetch()}
-      >
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Promo</TableHead>
-                <TableHead>Gives</TableHead>
-                <TableHead>Expiry</TableHead>
-                <TableHead>Offered</TableHead>
-                <TableHead>Claimed</TableHead>
-                <TableHead>Active</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data?.map((p) => (
-                // A keyed Fragment, not `<>`: the shorthand takes no key, and a
-                // promo renders two sibling rows when its grants are open.
-                <Fragment key={p.id}>
-                  <TableRow
-                    className="cursor-pointer"
-                    onClick={() => setOpenRow(openRow === p.id ? null : p.id)}
-                  >
-                    <TableCell>
-                      <span className="block font-medium">{p.name}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {p.kind === 'referral' ? 'Referral' : 'Targeted'}
-                        {p.description ? ` · ${p.description}` : ''}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm">{rewardLabel(p)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {p.claimWindowDays ? `${p.claimWindowDays} days` : 'Never'}
-                    </TableCell>
-                    <TableCell className="text-sm">{p.granted}</TableCell>
-                    <TableCell className="text-sm">{p.claimed}</TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Switch
-                        checked={p.active}
-                        disabled={!manage || setActive.isPending}
-                        onCheckedChange={(active) =>
-                          setActive.mutate({ id: p.id, active })
-                        }
-                      />
-                    </TableCell>
-                    <TableCell
-                      className="text-right"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {manage && p.kind === 'targeted' && <GrantDialog promo={p} />}
-                    </TableCell>
-                  </TableRow>
-                  {openRow === p.id && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="bg-muted/30 p-0">
-                        <GrantList promoId={p.id} />
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </DataState>
+        empty="No promos yet. Create one to offer storage or extra workspaces to a group of accounts."
+        exportName="promos"
+      />
 
       <p className="mt-4 text-xs text-muted-foreground">
-        Switching a promo off stops new offers. It never takes back a reward
-        somebody already claimed — that storage is holding their work.
+        Switching a promo off stops new offers. It never takes back a reward somebody already
+        claimed — that storage is holding their work.
       </p>
     </>
   );

@@ -78,7 +78,17 @@ export const queryClient = new QueryClient({
  * them threw, which took the whole app down until the screen learned to catch
  * it. Bump this in the same commit as a payload change, not after one.
  */
-const CACHE_VERSION = 'v3-showcases-maker-and-film';
+// v4: showcases gained unpublishedAt, and a maker's handle can now be null for
+// an unpublished profile.
+// v5: the job board is paged, and a saved board has no pages.
+// v6: the chat list and every thread are paged, comments come with an
+// `earlier` flag and profile work with a cursor. A saved thread is one array,
+// which the paged thread reads as no pages at all.
+// v7: a support thread's messages carry their files, and its ticket a rating.
+// v8: Nearby places people by their address's city. A saved list said
+// "turn on sharing" to almost everyone, and a saved status had no idea what
+// placed them; both would show for a moment on the first launch after.
+const CACHE_VERSION = 'v11-money-insights';
 
 /**
  * Queries never written to disk, whatever their staleTime says.

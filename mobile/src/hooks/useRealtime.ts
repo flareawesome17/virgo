@@ -3,13 +3,22 @@ import { AppState } from 'react-native';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   API_BASE_URL,
+  authApi,
   getAccessToken,
   hydrateTokens,
   queryKeys,
   type ConversationMessage,
-  type Thread,
 } from '@/src/api';
-import { chatKeys, getOpenConversation } from '@/src/hooks/useChat';
+import {
+  applyMessageDeleted,
+  chatKeys,
+  flushOutbox,
+  getOpenConversation,
+  insertThreadMessage,
+  isConversationMuted,
+  noteLiveMessage,
+} from '@/src/hooks/useChat';
+import { removeFromOutbox } from '@/src/lib/outbox';
 import { useAuth } from '@/src/hooks/useAuth';
 import {
   registerTypingSender,
@@ -17,7 +26,7 @@ import {
   setPresence,
   setTyping,
 } from '@/src/lib/presence-store';
-import { buzzForMessage } from '@/src/lib/notifications';
+import { buzzForMessage, setForegroundNotificationRule } from '@/src/lib/notifications';
 import { loadSoundPreference, playAlert } from '@/src/lib/sounds';
 
 /*
@@ -74,8 +83,10 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   'collaborator-response': [queryKeys.collaborators.all, queryKeys.workspaces.all],
   'event-invite': [queryKeys.scheduleEvents.all],
   'event-response': [queryKeys.scheduleEvents.all],
-  'event-updated': [queryKeys.scheduleEvents.all],
-  'hire-enquiry': [queryKeys.hire.all],
+  // Reminders too: a moved event moves its guests' reminders with it.
+  'event-updated': [queryKeys.scheduleEvents.all, queryKeys.reminders.all],
+  // Friends too: the Messages dot counts new enquiries under friends.
+  'hire-enquiry': [queryKeys.hire.all, queryKeys.friends.all],
   // Accepting also creates a friendship and a conversation, so all three lists
   // are stale for the sender the moment this arrives.
   'hire-response': [
@@ -89,6 +100,9 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   support: [queryKeys.support.all],
   // Confirming or cancelling one moves the jobs-done count on your own page.
   booking: [queryKeys.bookings.all, queryKeys.profile.page],
+  // A reminder about a payment changes nothing on screen; the ledger may
+  // have moved elsewhere, so it is read again.
+  money: [queryKeys.money.all],
   // Accepting also connects the two and opens a chat.
   'job-response': [
     queryKeys.jobs.all,
@@ -100,18 +114,20 @@ const TOPIC_KEYS: Record<NotificationTopic, readonly (readonly unknown[])[]> = {
   reminder: [queryKeys.reminders.all],
   // These two exist on the server and were missing here, so their notifications
   // arrived without refreshing anything.
-  billing: [['usage'], ['plans']],
+  billing: [['me', 'usage'], ['plans']],
   retention: [queryKeys.albums.all],
   // The picks are on each file's row, so the album's grids are stale as well
   // as its counts.
   'client-picks': [queryKeys.albums.all, ['storage', 'files']],
   // Usage too: an offer is not a reward yet, but the Rewards screen shows both
   // what is waiting and what the account currently gets.
-  promo: [queryKeys.promos.all, ['usage']],
+  promo: [queryKeys.promos.all, ['me', 'usage']],
   // Never arrives over the socket: announcements are aimed at a platform and
   // version, and a frame reaches every session an account has open. Listed
   // so the table stays complete; it reaches the list through the feed.
   'app-update': [],
+  // News: nothing cached changes, the list is refreshed for every frame.
+  announcement: [],
 };
 
 function applyNotification(
@@ -164,6 +180,25 @@ export function useRealtime(enabled: boolean): void {
   const backoff = useRef(1000);
   const stopped = useRef(false);
 
+  /*
+   * What a message push does while the app is open.
+   *
+   * Every push showed its system banner and played its sound in the
+   * foreground — over the chat it was about, while that chat was on screen,
+   * and on top of the in-app chime for the same message. A message push now
+   * makes no sound here (the chime is the sound), and shows no banner for the
+   * open chat or a muted one.
+   */
+  useEffect(() => {
+    setForegroundNotificationRule((data) => {
+      if (data?.type !== 'message' || !data.conversationId) return null;
+      const looking = getOpenConversation() === data.conversationId;
+      const muted = isConversationMuted(queryClient, data.conversationId);
+      return { banner: !looking && !muted, sound: false };
+    });
+    return () => setForegroundNotificationRule(null);
+  }, [queryClient]);
+
   useEffect(() => {
     if (!enabled || !user?.id) return;
     stopped.current = false;
@@ -175,53 +210,77 @@ export function useRealtime(enabled: boolean): void {
 
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    /** Whether this session has been connected before, so a ready is a reconnect. */
+    let connectedBefore = false;
+    /** The token a 4001 was answered for, so a refresh is tried once per token. */
+    let refusedToken: string | null = null;
 
     const apply = (event: ServerEvent) => {
       switch (event.type) {
         case 'message': {
           // Written straight into the cache rather than invalidating: the point
           // is that it appears now, and a refetch is another round trip.
-          queryClient.setQueryData<Thread>(
-            chatKeys.thread(event.conversationId),
-            (old) =>
-              old && !old.data.some((m) => m.id === event.message.id)
-                ? { ...old, data: [event.message, ...old.data] }
-                : old,
-          );
+          insertThreadMessage(queryClient, event.conversationId, event.message);
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
           queryClient.invalidateQueries({ queryKey: chatKeys.unread });
 
           const mine = event.message.sender_id === user.id;
+          // Your own message, back from the server — usually before the send's
+          // own response. It is drawn now, so the bubble that stood in for it
+          // goes now too, rather than the two showing side by side until the
+          // response lands.
+          if (mine && event.message.client_id) removeFromOutbox(event.message.client_id);
           const looking = getOpenConversation() === event.conversationId;
+          const quiet = isConversationMuted(queryClient, event.conversationId);
+          // Backgrounded, the push is what announces it: a chime under the
+          // push's own sound was two alerts for one message.
+          const active = AppState.currentState === 'active';
+          noteLiveMessage();
+          if (!active) break;
           // Sound whenever somebody else writes, including while their thread
           // is open. It sat inside the `!looking` guard below and was silent
           // for exactly the case people test first — sitting in a chat waiting
           // for a reply. Still nothing for your own message: you know you sent
           // it.
-          if (!mine) playAlert('chat');
+          if (!mine && !quiet) playAlert('chat');
 
           // The push notification covers a backgrounded app; this is the
           // foreground case, where no system notification is produced.
-          if (!mine && !looking) void buzzForMessage();
+          if (!mine && !looking && !quiet) void buzzForMessage();
           break;
         }
         case 'message-deleted':
+          // Patched wherever the message is, a page scrolled back to included.
+          // Refetching the thread only ever refreshed the newest page.
+          applyMessageDeleted(queryClient, event.conversationId, event.messageId, event.scope);
+          queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+          queryClient.invalidateQueries({ queryKey: chatKeys.unread });
+          break;
         case 'read':
         case 'delivered':
-          // Cheaper to refetch than to model each mutation twice: these change
-          // derived state — ticks, counts — the server already computes.
-          queryClient.invalidateQueries({
-            queryKey: chatKeys.thread(event.conversationId),
-          });
+          // Ticks are worked out from each member's receipts, which ride on
+          // the participants; the messages themselves have not changed.
           queryClient.invalidateQueries({
             queryKey: chatKeys.participants(event.conversationId),
           });
-          if (event.type !== 'read') {
+          // You, reading on another device: this one's row and badge are out
+          // of date until the next poll otherwise.
+          if (event.type === 'read' && event.userId === user.id) {
             queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+            queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+            queryClient.invalidateQueries({ queryKey: chatKeys.unread });
           }
           break;
         case 'conversation':
+          // Created, renamed, joined, left or muted. Each screen refetches what
+          // it shows; the thread too, which answers "gone" once you have left.
           queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.conversation(event.conversationId) });
+          queryClient.invalidateQueries({ queryKey: chatKeys.participants(event.conversationId) });
+          queryClient.invalidateQueries({ queryKey: chatKeys.thread(event.conversationId) });
+          queryClient.invalidateQueries({ queryKey: chatKeys.unread });
           break;
         case 'job-posted':
           // Silent on purpose. Somebody else posted a job; that is not an
@@ -262,6 +321,31 @@ export function useRealtime(enabled: boolean): void {
       const token = getAccessToken();
       if (!token) return;
 
+      /*
+       * One socket at a time. Coming back to the app while a socket was still
+       * connecting, or with a retry already scheduled, opened a second one —
+       * and every message then arrived, chimed and buzzed twice. The old one
+       * is closed with its handlers taken off, so its close does not schedule
+       * yet another.
+       */
+      if (retry) {
+        clearTimeout(retry);
+        retry = undefined;
+      }
+      if (socket) {
+        const previous = socket;
+        previous.onopen = null;
+        previous.onmessage = null;
+        previous.onclose = null;
+        previous.onerror = null;
+        try {
+          previous.close();
+        } catch {
+          // Already closed.
+        }
+        socket = null;
+      }
+
       try {
         socket = new WebSocket(socketUrl());
       } catch {
@@ -293,6 +377,15 @@ export function useRealtime(enabled: boolean): void {
         }
         if (event.type === 'ready') {
           backoff.current = 1000;
+          refusedToken = null;
+          // A reconnect — after a deploy, a dropped network or the app coming
+          // back — missed whatever was sent meanwhile. Refetching the chat
+          // that is on screen catches up now rather than on the next poll, up
+          // to a minute later.
+          if (connectedBefore) queryClient.invalidateQueries({ queryKey: ['chat'] });
+          connectedBefore = true;
+          // A live socket is a working connection: whatever is queued goes.
+          void flushOutbox(queryClient);
           return;
         }
         apply(event);
@@ -300,10 +393,32 @@ export function useRealtime(enabled: boolean): void {
 
       socket.onclose = (closeEvent) => {
         socketRef.current = null;
-        // 4001 means the token was rejected. Reconnecting with the same one
-        // would loop; the REST layer's refresh fixes the session and the next
-        // mount reconnects.
-        if (closeEvent.code === 4001 || stopped.current) return;
+        socket = null;
+        if (stopped.current) return;
+        if (closeEvent.code === 4001) {
+          /*
+           * The token was refused — it expired while the socket was down, most
+           * often. Realtime used to stop there until something remounted it,
+           * so a phone left open went quiet within fifteen minutes. An ordinary
+           * request makes the client refresh the session; with a new token,
+           * connect again. Once per token, so a refusal that is not about
+           * expiry cannot loop, and a session that is really over is signed
+           * out by the client as usual.
+           */
+          if (refusedToken === token) return;
+          refusedToken = token;
+          void authApi
+            .me()
+            .then(() => {
+              if (!stopped.current && getAccessToken() && getAccessToken() !== token) {
+                void connect();
+              }
+            })
+            .catch(() => {
+              // Offline or signed out: the next return to the app tries again.
+            });
+          return;
+        }
         schedule();
       };
 
@@ -312,11 +427,47 @@ export function useRealtime(enabled: boolean): void {
 
     void connect();
 
+    /*
+     * Closed in the background, opened again on return.
+     *
+     * Android keeps a backgrounded app's socket open, so messages there went
+     * on chiming over the push for the same message, went on being marked
+     * delivered, and the person went on showing as online while the phone
+     * sat in their pocket. Push is the channel for a backgrounded app. iOS's
+     * brief 'inactive' — a pulled-down notification centre — is not the
+     * background and leaves the socket alone.
+     */
+    const goQuiet = () => {
+      if (retry) {
+        clearTimeout(retry);
+        retry = undefined;
+      }
+      if (!socket) return;
+      const previous = socket;
+      previous.onopen = null;
+      previous.onmessage = null;
+      previous.onclose = null;
+      previous.onerror = null;
+      socket = null;
+      socketRef.current = null;
+      try {
+        previous.close();
+      } catch {
+        // Already closed.
+      }
+    };
+
     // An app returning from the background usually holds a socket the OS
     // tore down while it slept.
     const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'background') {
+        goQuiet();
+        return;
+      }
       if (state !== 'active') return;
-      if (socketRef.current?.readyState === WebSocket.OPEN) return;
+      const ready = socketRef.current?.readyState;
+      // Connecting counts: a second connect here was the duplicate socket.
+      if (ready === WebSocket.OPEN || ready === WebSocket.CONNECTING) return;
       backoff.current = 1000;
       void connect();
     });

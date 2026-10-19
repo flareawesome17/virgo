@@ -1,17 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import {
   CalendarDays,
   FolderOpen,
   HardDrive,
   Images,
   MessageCircle,
-  Plus,
   UserPlus,
   Users,
 } from 'lucide-react';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,15 +20,18 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAlbums } from '@/hooks/useAlbums';
-import { useScheduleEvents } from '@/hooks/useScheduleEvents';
+import { useScheduleEventRange, useScheduleEvents } from '@/hooks/useScheduleEvents';
 import { useCollaborators } from '@/hooks/useCollaborators';
 import { useUsage } from '@/hooks/useUsage';
 import { formatBytes } from '@/api';
+import { MoneyCard } from '@/components/money/money-card';
 import {
+  dateToKey,
   eventTypeLabel,
   formatTime,
   isEventUpcoming,
   labelForDateKey,
+  todayKey,
 } from '@/lib/calendar';
 
 function greeting(): string {
@@ -41,19 +44,34 @@ function greeting(): string {
 export default function HomePage() {
   const { profile, user } = useAuth();
   const {
-    workspaces,
+    total: workspaceTotal,
+    data: workspacesData,
     isLoading: loadingWorkspaces,
     loadFailed: workspacesFailed,
     refetch: refetchWorkspaces,
   } = useWorkspaces({ limit: 100 });
-  const { albums } = useAlbums({ limit: 100 });
+  const { albums, total: albumTotal, data: albumsData } = useAlbums({ limit: 100 });
+  /*
+   * The next 60 days, not the account's 100 oldest events. Upcoming was cut
+   * from that list, so an account with a past behind it was told "Nothing
+   * scheduled" with a week of shoots ahead. The count is the server's total.
+   */
+  const [soonWindow] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 60);
+    return { from: todayKey(), to: dateToKey(end) };
+  });
   const {
     events,
     isLoading: loadingEvents,
     loadFailed: eventsFailed,
     refetch: refetchEvents,
-  } = useScheduleEvents({ limit: 100 });
-  const { collaborators } = useCollaborators({ limit: 100 });
+  } = useScheduleEventRange(soonWindow.from, soonWindow.to);
+  const { total: eventTotal, data: eventsData } = useScheduleEvents({ limit: 1 });
+  const {
+    total: collaboratorTotal,
+    data: collaboratorsData,
+  } = useCollaborators({ limit: 100 });
   const { storageUsedBytes, storageLimitBytes, storageFraction, usage } = useUsage();
 
   const name = profile?.displayName?.split(' ')[0] || user?.email?.split('@')[0] || '';
@@ -70,29 +88,28 @@ export default function HomePage() {
 
   const recentAlbums = albums.slice(0, 6);
 
+  // Null until each list has arrived, and drawn as a dash: a 0 read as "you
+  // have none" for the second or two before the real number came in.
+  // The server's totals, not the length of a list capped at 100.
   const stats = [
-    { label: 'Workspaces', value: workspaces.length, icon: FolderOpen, href: '/workspaces' },
-    { label: 'Albums', value: albums.length, icon: Images, href: '/workspaces' },
-    { label: 'Collaborators', value: collaborators.length, icon: Users, href: '/network' },
-    { label: 'Events', value: events.length, icon: CalendarDays, href: '/schedule' },
+    { label: 'Workspaces', value: workspacesData ? workspaceTotal : null, icon: FolderOpen, href: '/workspaces' },
+    { label: 'Albums', value: albumsData ? albumTotal : null, icon: Images, href: '/albums' },
+    { label: 'Collaborators', value: collaboratorsData ? collaboratorTotal : null, icon: Users, href: '/people' },
+    { label: 'Events', value: eventsData ? eventTotal : null, icon: CalendarDays, href: '/schedule' },
   ];
 
   return (
-    <AppShell title="Dashboard">
-      <PageHeader
-        title={`${greeting()}${name ? `, ${name}` : ''}`}
-        description="Everything on your plate today."
-        actions={
-          <Button asChild>
-            <Link href="/workspaces?new=1">
-              <Plus className="size-4" />
-              New workspace
-            </Link>
-          </Button>
-        }
-      />
+    <Screen title="Dashboard">
+      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6">
+        {/* The greeting is the page's own; the bar carries its name. The
+            "New workspace" button that sat here is the bar's Create now. */}
+        <div className="mb-6">
+          <h1 className="text-xl font-bold tracking-tight">
+            {`${greeting()}${name ? `, ${name}` : ''}`}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">Everything on your plate today.</p>
+        </div>
 
-      <div className="mx-auto w-full max-w-6xl px-6 py-6">
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {stats.map((stat) => {
@@ -106,7 +123,7 @@ export default function HomePage() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-xl font-bold leading-none tabular-nums">
-                        {stat.value.toLocaleString()}
+                        {stat.value === null ? '—' : stat.value.toLocaleString()}
                       </p>
                       <p className="mt-1 truncate text-xs text-muted-foreground">
                         {stat.label}
@@ -238,14 +255,18 @@ export default function HomePage() {
 
           {/* Side rail */}
           <aside className="flex flex-col gap-6">
+            <MoneyCard />
+
             <Card>
               <CardContent className="py-5">
                 <div className="flex items-center gap-2">
                   <HardDrive className="size-4 text-muted-foreground" />
                   <h3 className="text-sm font-semibold">Storage</h3>
                 </div>
+                {/* A dash until the reading arrives. "0 B used" is a real
+                    answer, and it was being given before there was one. */}
                 <p className="mt-3 text-2xl font-bold tabular-nums">
-                  {formatBytes(storageUsedBytes)}
+                  {usage ? formatBytes(storageUsedBytes) : '—'}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {storageLimitBytes
@@ -269,22 +290,13 @@ export default function HomePage() {
 
             <Card>
               <CardContent className="py-5">
+                {/* Making things is the bar's Create, as on the phone, which
+                    dropped its own quick-create row; these two are ways to
+                    other people, which Create does not do. */}
                 <h3 className="text-sm font-semibold">Quick actions</h3>
                 <div className="mt-3 flex flex-col gap-2">
                   <Button asChild variant="outline" size="sm" className="justify-start">
-                    <Link href="/workspaces?new=1">
-                      <FolderOpen className="size-4" />
-                      New workspace
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm" className="justify-start">
-                    <Link href="/schedule?new=1">
-                      <CalendarDays className="size-4" />
-                      Schedule an event
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm" className="justify-start">
-                    <Link href="/network">
+                    <Link href="/people">
                       <UserPlus className="size-4" />
                       Find collaborators
                     </Link>
@@ -301,6 +313,6 @@ export default function HomePage() {
           </aside>
         </div>
       </div>
-    </AppShell>
+    </Screen>
   );
 }

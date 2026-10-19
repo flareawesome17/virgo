@@ -1,21 +1,13 @@
 'use client';
 
-import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import {
-  useNotificationSettings,
-  useUpdateNotificationSetting,
-} from '@/hooks/useNotifications';
+import { useNotificationSettings, useUpdateNotificationSetting } from '@/hooks/useNotifications';
 import type { NotificationChannel, NotificationSetting } from '@/api';
-import {
-  CATEGORY_DESCRIPTIONS,
-  CATEGORY_LABELS,
-} from '@/lib/notification-categories';
+import { CATEGORY_DESCRIPTIONS, CATEGORY_LABELS } from '@/lib/notification-categories';
 
 const CHANNELS: { key: NotificationChannel; label: string; spoken: string }[] = [
   { key: 'push', label: 'Phone', spoken: 'on your phone' },
@@ -77,22 +69,13 @@ export default function NotificationSettingsPage() {
     );
 
   return (
-    <AppShell title="Notification settings">
+    <Screen title="Notification settings">
       <PageHeader
-        title={
-          <span className="flex items-center gap-2">
-            <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
-              <Link href="/settings" aria-label="Back">
-                <ArrowLeft className="size-4" />
-              </Link>
-            </Button>
-            Notifications
-          </span>
-        }
+        title="Notifications"
         description="Choose which kinds reach your phone, your inbox and this computer"
       />
 
-      <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
+      <div className="w-full max-w-3xl">
         {isLoading ? (
           <CenteredSpinner />
         ) : loadFailed ? (
@@ -151,6 +134,6 @@ export default function NotificationSettingsPage() {
           </>
         )}
       </div>
-    </AppShell>
+    </Screen>
   );
 }

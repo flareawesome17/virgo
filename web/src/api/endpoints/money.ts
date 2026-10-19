@@ -1,0 +1,687 @@
+import { api } from '../client';
+import { API_BASE_URL } from '../config';
+
+/**
+ * Money — each person's own ledger of what came in and what went out.
+ *
+ * Strictly personal: every route is scoped to the signed-in account on the
+ * server, and nothing here is shared through a workspace or a booking.
+ */
+
+export type MoneyKind = 'income' | 'expense';
+export type MoneyMethod = 'gcash' | 'maya' | 'bank' | 'cash' | 'card' | 'other';
+
+/** A receipt on an entry. */
+export interface MoneyReceipt {
+  id: string;
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  /** Signed for an hour: draws a photo, opens a PDF. Null when storage is off. */
+  url: string | null;
+}
+
+export interface MoneyEntry {
+  id: string;
+  kind: MoneyKind;
+  /** Centavos. For income, the gross — before what the client withheld. */
+  amountMinor: number;
+  /** Tax the client kept back (their 2307). Always 0 on an expense. */
+  withheldMinor: number;
+  currency: string;
+  category: string;
+  /** YYYY-MM-DD: the shoot, the purchase — or, unpaid, the day it's due. */
+  occurredOn: string;
+  /** YYYY-MM-DD the money moved. Null is still outstanding. */
+  paidOn: string | null;
+  method: MoneyMethod | null;
+  reference: string | null;
+  counterparty: string | null;
+  note: string | null;
+  receipt: MoneyReceipt | null;
+  /**
+   * The booking it was recorded from, while that booking exists. Optional
+   * because entries saved on a phone before bookings were linked have none:
+   * read it with `?? null`.
+   */
+  booking?: MoneyBookingLink | null;
+  /**
+   * The package it is a payment toward (income) or a cost of (expense).
+   * Optional like `booking`: read with `?? null`.
+   */
+  package?: { id: string; title: string } | null;
+  /** The repeating entry it was made from, or started. Optional: read with `?? null`. */
+  recurringId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * What a client agreed to pay for a job, and where that stands — worked out
+ * on the server from the payments linked to it.
+ */
+export interface MoneyPackage {
+  id: string;
+  title: string;
+  clientName: string | null;
+  totalMinor: number;
+  eventDate: string | null;
+  note: string | null;
+  /** Paid so far, gross. */
+  receivedMinor: number;
+  /** Payments due but not made yet. */
+  scheduledMinor: number;
+  /** What is left, never below zero. */
+  balanceMinor: number;
+  /** The part of the balance no payment is due for yet. */
+  unscheduledMinor: number;
+  nextDueOn: string | null;
+  overdue: boolean;
+  paidInFull: boolean;
+  payments: number;
+  /**
+   * Expenses recorded as costs of the job, and what it earned so far
+   * (received less costs). Optional — a package cached before costs existed
+   * has neither: read with `?? 0`.
+   */
+  costsMinor?: number;
+  profitMinor?: number;
+  /** The statement link while shared; null when not. */
+  shareUrl: string | null;
+  sharedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MoneyPackageInput {
+  /** Made on the device, so a retried save finds the package it already made. */
+  id?: string;
+  title: string;
+  clientName?: string | null;
+  totalMinor: number;
+  eventDate?: string | null;
+  note?: string | null;
+  /** The down payment or reservation fee: paid already, or due on a day. */
+  deposit?: { amountMinor: number; paidOn?: string | null; dueOn?: string | null } | null;
+  /** When the rest is due. Left out, it is not scheduled yet. */
+  balanceDueOn?: string | null;
+}
+
+export type MoneyPackagePatch = Partial<
+  Pick<MoneyPackageInput, 'title' | 'clientName' | 'totalMinor' | 'eventDate' | 'note'>
+>;
+
+export type PayMethodKind = 'gcash' | 'maya' | 'bank' | 'other';
+
+/** How clients pay you: shown on the statements you share. */
+export interface MoneyPayMethod {
+  id: string;
+  kind: PayMethodKind;
+  /** The bank's name, or what "other" is. */
+  label: string | null;
+  accountName: string | null;
+  accountNumber: string | null;
+  qr: MoneyReceipt | null;
+}
+
+export interface MoneyPayMethodInput {
+  kind: PayMethodKind;
+  label?: string | null;
+  accountName?: string | null;
+  accountNumber?: string | null;
+  /** From signReceipt, once uploaded; null removes the QR code. */
+  qrReceiptId?: string | null;
+}
+
+export const PAY_METHOD_KINDS: readonly { slug: PayMethodKind; label: string }[] = [
+  { slug: 'gcash', label: 'GCash' },
+  { slug: 'maya', label: 'Maya' },
+  { slug: 'bank', label: 'Bank' },
+  { slug: 'other', label: 'Other' },
+];
+
+/** What a payment method is called on a card: the bank's name, or the wallet's. */
+export function payMethodName(m: Pick<MoneyPayMethod, 'kind' | 'label'>): string {
+  if ((m.kind === 'bank' || m.kind === 'other') && m.label) return m.label;
+  return PAY_METHOD_KINDS.find((k) => k.slug === m.kind)?.label ?? m.kind;
+}
+
+/** The most ways to pay one account can list. Mirrors MAX_PAY_METHODS on the server. */
+export const MAX_PAY_METHODS = 4;
+
+/** A year of the ledger at a glance, counted when the money moved. */
+export interface MoneyInsights {
+  year: number;
+  /** Years with anything filed in them, newest first, and always the one asked for. */
+  years: number[];
+  /** January to December. */
+  months: { month: string; incomeMinor: number; expenseMinor: number }[];
+  incomeMinor: number;
+  withheldMinor: number;
+  expenseMinor: number;
+  /** The year before up to the same date (`through`), or all of it for a past year. */
+  lastYear: { incomeMinor: number; expenseMinor: number; through: string };
+  byCategory: { kind: MoneyKind; category: string; totalMinor: number; count: number }[];
+  /** Up to eight, by the name on the entries. */
+  topClients: { name: string; totalMinor: number; count: number }[];
+  /** Income with no client named. */
+  unnamedIncomeMinor: number;
+  /** Jobs with money moving in the year, best earners first. Up to ten. */
+  packages: {
+    id: string;
+    title: string;
+    clientName: string | null;
+    receivedMinor: number;
+    costsMinor: number;
+    profitMinor: number;
+  }[];
+}
+
+/** One way of working out the year's tax, as an estimate. */
+export interface MoneyTaxOption {
+  taxableMinor: number;
+  incomeTaxMinor: number;
+  /** 3% of gross on the graduated options; none under 8%. */
+  percentageTaxMinor: number;
+  totalMinor: number;
+  /** Income tax less withholding, plus the percentage tax. Never below zero. */
+  stillToPayMinor: number;
+  /** Withheld beyond the income tax: a credit, not a refund of the 3%. */
+  excessCreditMinor: number;
+}
+
+export type MoneyTaxForm = '1701Q' | '1701A' | '2551Q';
+
+/** Tax help for one year: estimates for planning, never advice. */
+export interface MoneyTax {
+  year: number;
+  /** Counted up to this day. */
+  through: string;
+  /** Income paid in the year, before withholding. */
+  grossMinor: number;
+  expenseMinor: number;
+  withheldMinor: number;
+  quarters: { quarter: 1 | 2 | 3 | 4; grossMinor: number; expenseMinor: number; withheldMinor: number }[];
+  threshold: { limitMinor: number; warnMinor: number; status: 'under' | 'near' | 'over' };
+  /** Null above the ₱3M line, where none of the three applies. */
+  estimates: {
+    eightPercent: MoneyTaxOption;
+    osd: MoneyTaxOption;
+    itemized: MoneyTaxOption;
+    lowest: 'eightPercent' | 'osd' | 'itemized';
+  } | null;
+  /** One client's withholding in one quarter: what a single 2307 covers. */
+  form2307: {
+    client: string | null;
+    quarter: 1 | 2 | 3 | 4;
+    withheldMinor: number;
+    grossMinor: number;
+    entries: { id: string; paidOn: string; amountMinor: number; withheldMinor: number; received: boolean }[];
+    received: boolean;
+  }[];
+  deadlines: { form: MoneyTaxForm; period: string; dueOn: string; who: 'everyone' | 'graduated' }[];
+}
+
+/** What each return is called, plainly. */
+export const TAX_FORM_LABELS: Record<MoneyTaxForm, string> = {
+  '1701Q': 'Quarterly income tax',
+  '1701A': 'Annual income tax',
+  '2551Q': 'Percentage tax',
+};
+
+/** An entry made again every month on its day. */
+export interface MoneyRecurring {
+  id: string;
+  kind: MoneyKind;
+  amountMinor: number;
+  withheldMinor: number;
+  category: string;
+  method: MoneyMethod | null;
+  counterparty: string | null;
+  note: string | null;
+  /** 1 to 28. */
+  dayOfMonth: number;
+  /** When the next entry is made. */
+  nextOn: string;
+  stopped: boolean;
+  createdAt: string;
+}
+
+export type MoneyRecurringPatch = Partial<
+  Pick<MoneyRecurring, 'amountMinor' | 'withheldMinor' | 'category' | 'method' | 'counterparty' | 'note'>
+>;
+
+/** "the 5th". */
+export function dayOfMonthLabel(day: number): string {
+  const suffix =
+    day >= 11 && day <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th';
+  return `the ${day}${suffix}`;
+}
+
+/** The booking an entry was recorded from, as much as the ledger needs. */
+export interface MoneyBookingLink {
+  id: string;
+  postTitle: string;
+  role: string | null;
+  eventDate: string | null;
+  /** Cancelled since the entry was recorded. */
+  cancelled: boolean;
+}
+
+/**
+ * An entry Money offers to record for an agreed booking, filled in from it.
+ * Nothing is saved until the person records it.
+ */
+export interface MoneySuggestion {
+  bookingId: string;
+  /** Income for the creative who was hired, an expense for whoever hired. */
+  kind: MoneyKind;
+  category: string;
+  /** The agreed rate in centavos, or null when none was set. */
+  amountMinor: number | null;
+  /** The shoot day, or today for a booking with no date. */
+  occurredOn: string;
+  /** Whether the form starts as paid: the shoot day has come. */
+  paid: boolean;
+  /** The other person on the booking. */
+  counterparty: string;
+  note: string;
+  postTitle: string;
+  role: string | null;
+  eventDate: string | null;
+}
+
+/** "Reyes wedding · Second shooter": a booking, the way a ledger row names it. */
+export function bookingLabel(b: { postTitle: string; role: string | null }): string {
+  return b.role ? `${b.postTitle} · ${b.role}` : b.postTitle;
+}
+
+export interface MoneySummary {
+  from: string;
+  to: string;
+  /** Income paid within the range, gross. */
+  incomeMinor: number;
+  /** Of that, what clients withheld. */
+  withheldMinor: number;
+  /** Expenses paid within the range. */
+  expenseMinor: number;
+  /** Entries filed within the range, paid or not. */
+  entries: number;
+  /** Everything clients still owe, whenever it was due: the net expected. */
+  owedToYouMinor: number;
+  owedToYouCount: number;
+  /** Everything not paid yet on the other side. */
+  youOweMinor: number;
+  youOweCount: number;
+  byCategory: { kind: MoneyKind; category: string; totalMinor: number; count: number }[];
+}
+
+export interface MoneyEntryInput {
+  /** Made on the device, so a retried save finds the entry it already wrote. */
+  id?: string;
+  kind: MoneyKind;
+  amountMinor: number;
+  withheldMinor?: number;
+  category: string;
+  occurredOn: string;
+  paidOn?: string | null;
+  method?: MoneyMethod | null;
+  reference?: string | null;
+  counterparty?: string | null;
+  note?: string | null;
+  receiptId?: string | null;
+  /** The booking it records — one you are on. */
+  bookingId?: string | null;
+  /** The package it is a payment toward — income only, and your own. */
+  packageId?: string | null;
+}
+
+/** Undefined leaves a field alone; null clears it. */
+export type MoneyEntryPatch = Partial<Omit<MoneyEntryInput, 'id'>>;
+
+export interface MoneyListParams {
+  /** Filed on or after this day. */
+  from?: string;
+  /** Filed on or before this day. */
+  to?: string;
+  kind?: MoneyKind;
+  /** Only what is still outstanding. */
+  unpaid?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+/** A signed upload for one receipt. `id` is what the entry sends. */
+export interface ReceiptUploadTicket {
+  id: string;
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}
+
+export interface MoneyCategory {
+  slug: string;
+  label: string;
+}
+
+/**
+ * The categories, in the order the chips show them. Mirrors
+ * api/src/money/money.categories.ts — change both together. Slugs are stored,
+ * so one is never renamed.
+ */
+export const MONEY_CATEGORIES: Record<MoneyKind, readonly MoneyCategory[]> = {
+  income: [
+    { slug: 'job', label: 'Job fee' },
+    { slug: 'crew', label: 'Crew work' },
+    { slug: 'editing', label: 'Editing' },
+    { slug: 'products', label: 'Prints & products' },
+    { slug: 'other', label: 'Other' },
+  ],
+  expense: [
+    { slug: 'transport', label: 'Transport' },
+    { slug: 'meals', label: 'Meals' },
+    { slug: 'accommodation', label: 'Accommodation' },
+    { slug: 'crew', label: 'Crew & assistants' },
+    { slug: 'gear', label: 'Gear & repairs' },
+    { slug: 'rental', label: 'Gear rental' },
+    { slug: 'supplies', label: 'Makeup & supplies' },
+    { slug: 'software', label: 'Apps & subscriptions' },
+    { slug: 'data', label: 'Load & internet' },
+    { slug: 'studio', label: 'Studio & venue' },
+    { slug: 'printing', label: 'Prints & albums' },
+    { slug: 'marketing', label: 'Ads & marketing' },
+    { slug: 'fees', label: 'Fees & charges' },
+    { slug: 'other', label: 'Other' },
+  ],
+};
+
+export const MONEY_METHODS: readonly { slug: MoneyMethod; label: string }[] = [
+  { slug: 'gcash', label: 'GCash' },
+  { slug: 'maya', label: 'Maya' },
+  { slug: 'bank', label: 'Bank' },
+  { slug: 'cash', label: 'Cash' },
+  { slug: 'card', label: 'Card' },
+  { slug: 'other', label: 'Other' },
+];
+
+/** What an entry's category is called, or the slug for one this app predates. */
+export function categoryLabel(kind: MoneyKind, slug: string): string {
+  return MONEY_CATEGORIES[kind].find((c) => c.slug === slug)?.label ?? slug;
+}
+
+export function methodLabel(method: MoneyMethod | null): string | null {
+  return method ? (MONEY_METHODS.find((m) => m.slug === method)?.label ?? null) : null;
+}
+
+/** The most an entry can be: ₱10,000,000. Only there to catch a typo. */
+export const MAX_AMOUNT_MINOR = 1_000_000_000;
+
+/**
+ * Typed pesos as centavos: "1,500" is 150000, "350.5" is 35050. Null for
+ * anything that is not a positive amount with at most two decimals.
+ *
+ * Whole pesos and centavos are read apart rather than by multiplying a float,
+ * which turns 0.29 into 28.999… and a peso into a centavo short.
+ */
+export function pesosToMinor(text: string): number | null {
+  const cleaned = text.replace(/[₱,\s]/g, '');
+  const match = /^(\d{1,8})(?:\.(\d{0,2}))?$/.exec(cleaned) ?? /^\.(\d{1,2})$/.exec(cleaned);
+  if (!match) return null;
+  const [whole, cents] = match.length === 3 ? [match[1], match[2] ?? ''] : ['0', match[1]];
+  const minor = Number(whole) * 100 + Number(cents.padEnd(2, '0'));
+  return minor > 0 && minor <= MAX_AMOUNT_MINOR ? minor : null;
+}
+
+/** Centavos back into what the amount field holds: "1500", "350.50". */
+export function minorToPesos(minor: number): string {
+  const whole = Math.floor(minor / 100);
+  const cents = minor % 100;
+  return cents ? `${whole}.${String(cents).padStart(2, '0')}` : String(whole);
+}
+
+/** Today on this device, YYYY-MM-DD — the day the person is living in. */
+export function todayIso(now: Date = new Date()): string {
+  return isoDay(now);
+}
+
+/** A local date as YYYY-MM-DD, without passing through UTC. */
+export function isoDay(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** YYYY-MM-DD as a local date at midnight, for a date picker. */
+export function dateOfIso(day: string): Date {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/** "2026-10" for the month a day is in. */
+export function monthOf(day: string): string {
+  return day.slice(0, 7);
+}
+
+/** The first and last day of a month written "2026-10". */
+export function monthRange(month: string): { from: string; to: string } {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, '0')}` };
+}
+
+/** The month `delta` months from this one. */
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const moved = new Date(y, m - 1 + delta, 1);
+  return `${moved.getFullYear()}-${String(moved.getMonth() + 1).padStart(2, '0')}`;
+}
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * "October 2026", or "October" within the current year. Spelled out by hand,
+ * like formatMoney: Intl's month names are not something Hermes can be
+ * relied on for.
+ */
+export function monthLabel(month: string, today: string = todayIso()): string {
+  const [y, m] = month.split('-').map(Number);
+  const name = MONTHS[m - 1] ?? month;
+  return String(y) === today.slice(0, 4) ? name : `${name} ${y}`;
+}
+
+/** "Today", "Yesterday", "Sat, Oct 3", or "Oct 3, 2025" for another year. */
+export function dayLabel(day: string, today: string = todayIso()): string {
+  if (day === today) return 'Today';
+  const date = dateOfIso(day);
+  const yesterday = dateOfIso(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (day === isoDay(yesterday)) return 'Yesterday';
+  const short = `${MONTHS[date.getMonth()].slice(0, 3)} ${date.getDate()}`;
+  return day.slice(0, 4) === today.slice(0, 4)
+    ? `${DAYS[date.getDay()]}, ${short}`
+    : `${short}, ${date.getFullYear()}`;
+}
+
+/** Whether an unpaid entry's day has gone by. */
+export function isOverdue(entry: Pick<MoneyEntry, 'paidOn' | 'occurredOn'>, today: string = todayIso()): boolean {
+  return entry.paidOn === null && entry.occurredOn < today;
+}
+
+/**
+ * What can be attached. Mirrors RECEIPT_FILE_TYPES in
+ * api/src/storage/receipt-files.service.ts — change both together.
+ */
+export const RECEIPT_FILE_TYPES: readonly string[] = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+];
+export const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
+
+/** Why a file cannot be a receipt, or null when it can. */
+export function receiptFileProblem(file: { type: string; size: number }): string | null {
+  if (!RECEIPT_FILE_TYPES.includes(file.type)) {
+    return 'Attach a photo (JPEG, PNG or WebP) or a PDF.';
+  }
+  if (file.size > MAX_RECEIPT_BYTES) return 'A receipt has to be under 10 MB.';
+  if (file.size <= 0) return 'That file appears to be empty.';
+  return null;
+}
+
+export const moneyApi = {
+  list(params: MoneyListParams = {}): Promise<{ data: MoneyEntry[]; total: number }> {
+    return api.get('/money/entries', { query: params });
+  },
+
+  get(id: string): Promise<MoneyEntry> {
+    return api.get(`/money/entries/${id}`);
+  },
+
+  /** Saves once per `id`: the same id again returns the entry already saved. */
+  create(input: MoneyEntryInput): Promise<MoneyEntry> {
+    return api.post('/money/entries', { body: input });
+  },
+
+  update(id: string, patch: MoneyEntryPatch): Promise<MoneyEntry> {
+    return api.patch(`/money/entries/${id}`, { body: patch });
+  },
+
+  remove(id: string): Promise<void> {
+    return api.delete(`/money/entries/${id}`);
+  },
+
+  /** Paid totals for a span of days, and what is outstanding overall. */
+  summary(from: string, to: string): Promise<MoneySummary> {
+    return api.get('/money/summary', { query: { from, to } });
+  },
+
+  /** Agreed bookings not recorded yet, soonest shoot first. */
+  suggestions(): Promise<MoneySuggestion[]> {
+    return api.get('/money/suggestions');
+  },
+
+  /** "Not this": the booking is not offered again. */
+  dismissSuggestion(bookingId: string): Promise<void> {
+    return api.post(`/money/suggestions/${bookingId}/dismiss`);
+  },
+
+  /** Your packages: open ones (something still owed) first, soonest due first. */
+  packages(status: 'open' | 'all' = 'all'): Promise<MoneyPackage[]> {
+    return api.get('/money/packages', { query: { status } });
+  },
+
+  /** One package, with every payment toward it. */
+  getPackage(id: string): Promise<{ package: MoneyPackage; entries: MoneyEntry[] }> {
+    return api.get(`/money/packages/${id}`);
+  },
+
+  /** A package and the payments its plan implies, made together. Once per `id`. */
+  createPackage(input: MoneyPackageInput): Promise<{ package: MoneyPackage; entries: MoneyEntry[] }> {
+    return api.post('/money/packages', { body: input });
+  },
+
+  updatePackage(id: string, patch: MoneyPackagePatch): Promise<MoneyPackage> {
+    return api.patch(`/money/packages/${id}`, { body: patch });
+  },
+
+  /** The package and the payments still due under it. Payments made stay. */
+  deletePackage(id: string): Promise<void> {
+    return api.delete(`/money/packages/${id}`);
+  },
+
+  /** Turns the statement link on — the same link while it stays on. */
+  sharePackage(id: string): Promise<{ url: string }> {
+    return api.post(`/money/packages/${id}/share`);
+  },
+
+  /** Turns it off for good. Sharing again makes a new link. */
+  unsharePackage(id: string): Promise<void> {
+    return api.delete(`/money/packages/${id}/share`);
+  },
+
+  payMethods(): Promise<MoneyPayMethod[]> {
+    return api.get('/money/pay-methods');
+  },
+
+  createPayMethod(input: MoneyPayMethodInput): Promise<MoneyPayMethod> {
+    return api.post('/money/pay-methods', { body: input });
+  },
+
+  updatePayMethod(id: string, patch: Partial<MoneyPayMethodInput>): Promise<MoneyPayMethod> {
+    return api.patch(`/money/pay-methods/${id}`, { body: patch });
+  },
+
+  deletePayMethod(id: string): Promise<void> {
+    return api.delete(`/money/pay-methods/${id}`);
+  },
+
+  /** A year at a glance: months, categories, clients, and what each job earned. */
+  insights(year: number): Promise<MoneyInsights> {
+    return api.get('/money/insights', { query: { year } });
+  },
+
+  /** Tax help for a year: estimates, the ₱3M line, 2307s and deadlines. */
+  tax(year: number): Promise<MoneyTax> {
+    return api.get('/money/tax', { query: { year } });
+  },
+
+  /** Ticks entries' 2307s as in hand, or not — usually a client's whole quarter. */
+  mark2307(entryIds: string[], received: boolean): Promise<{ updated: number }> {
+    return api.post('/money/tax/2307', { body: { entryIds, received } });
+  },
+
+  /** What repeats every month: running ones first. */
+  recurring(): Promise<MoneyRecurring[]> {
+    return api.get('/money/recurring');
+  },
+
+  /**
+   * Repeats a saved entry every month on its day. An entry dated months back
+   * is caught up at once; `note` says so.
+   */
+  repeatEntry(entryId: string): Promise<{ recurring: MoneyRecurring; added: number; note: string }> {
+    return api.post('/money/recurring', { body: { entryId } });
+  },
+
+  /** Changes what later entries will be; ones already made stay. */
+  updateRecurring(id: string, patch: MoneyRecurringPatch): Promise<MoneyRecurring> {
+    return api.patch(`/money/recurring/${id}`, { body: patch });
+  },
+
+  /** Stops it for good. What it made stays in the ledger. */
+  stopRecurring(id: string): Promise<void> {
+    return api.post(`/money/recurring/${id}/stop`);
+  },
+
+  /** One booking from your side: what Money offers for it, and what was recorded from it. */
+  forBooking(bookingId: string): Promise<{ suggestion: MoneySuggestion | null; entries: MoneyEntry[] }> {
+    return api.get(`/money/bookings/${bookingId}`);
+  },
+
+  /**
+   * Signs one receipt's upload. Put the bytes to `uploadUrl` with
+   * `requiredHeaders`, then save the entry with `receiptId: id`. Unsaved, it
+   * is gone a day later.
+   */
+  signReceipt(input: {
+    contentType: string;
+    contentLength: number;
+    name?: string;
+  }): Promise<ReceiptUploadTicket> {
+    return api.post('/money/receipts', { body: input });
+  },
+
+  /**
+   * A link to the range as a CSV, good for five minutes. It needs no
+   * session, so a phone can hand it to the browser to save the file.
+   */
+  async exportUrl(from: string, to: string): Promise<string> {
+    const { token } = await api.post<{ token: string; expiresAt: string }>('/money/export', {
+      body: { from, to },
+    });
+    return `${API_BASE_URL}/money/export/${token}`;
+  },
+};

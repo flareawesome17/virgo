@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Banknote, BriefcaseBusiness, CalendarDays, Loader2, MapPin, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { track } from '@/lib/analytics';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -40,18 +40,18 @@ export default function ApplyPage() {
   const apply = useApplyToJob();
   const [role, setRole] = useState<string | null>(null);
 
-  if (job.isLoading) return <AppShell title="Apply"><CenteredSpinner /></AppShell>;
+  if (job.isLoading) return <Screen title="Apply"><CenteredSpinner /></Screen>;
 
   if (job.isError || !job.data) {
     return (
-      <AppShell title="Apply">
+      <Screen title="Apply">
         <EmptyState
           icon={BriefcaseBusiness}
           title="Job not found"
-          description="This post has been filled, closed, or taken down."
-          action={<Button onClick={() => router.push('/jobs/mine')}>My jobs</Button>}
+          description="This post has ended or been taken down."
+          action={<Button onClick={() => router.push('/jobs')}>My jobs</Button>}
         />
-      </AppShell>
+      </Screen>
     );
   }
 
@@ -61,14 +61,14 @@ export default function ApplyPage() {
   // post. Say so before the form rather than after the submit.
   if (post.isMine) {
     return (
-      <AppShell title="Apply">
+      <Screen title="Apply">
         <EmptyState
           icon={BriefcaseBusiness}
           title="This is your own post"
           description="You cannot apply to a job you posted. Applications you receive arrive under My jobs."
-          action={<Button onClick={() => router.push('/jobs/mine')}>My jobs</Button>}
+          action={<Button onClick={() => router.push('/jobs')}>My jobs</Button>}
         />
-      </AppShell>
+      </Screen>
     );
   }
 
@@ -79,7 +79,7 @@ export default function ApplyPage() {
   // offering a form whose only outcome is a 409.
   if (left.length === 0) {
     return (
-      <AppShell title="Apply">
+      <Screen title="Apply">
         <EmptyState
           icon={BriefcaseBusiness}
           title="You have applied for every role on this job"
@@ -90,7 +90,7 @@ export default function ApplyPage() {
             </Button>
           }
         />
-      </AppShell>
+      </Screen>
     );
   }
 
@@ -100,6 +100,15 @@ export default function ApplyPage() {
   const choosing = left.length > 1;
   const ready = !choosing || !!role;
 
+  /*
+   * Applying goes back to the post.
+   *
+   * It went to the applications tab, under a toast promising a chat that only
+   * exists once they accept you. The post now says what you applied as, and
+   * offers to take it back — which is the one thing worth doing next.
+   * replace, not push, so Back from the post does not reopen a form you have
+   * already sent.
+   */
   const submit = () => {
     apply.mutate(
       // With one role left the picker is not shown, so send that one.
@@ -108,9 +117,9 @@ export default function ApplyPage() {
         onSuccess: () => {
           track('job_applied', { rolesOnPost: post.rolesWanted.length, chose: choosing });
           toast.success('Application sent', {
-            description: `${post.postedBy.displayName} will see it and can reply in chat.`,
+            description: `${post.postedBy.displayName} will see it. A chat opens if they take you on.`,
           });
-          router.push('/jobs/mine?tab=applications');
+          router.replace(`/jobs/${slug}`);
         },
         onError: (error: Error) => toast.error(error.message),
       },
@@ -118,8 +127,8 @@ export default function ApplyPage() {
   };
 
   return (
-    <AppShell title="Apply">
-      <div className="mx-auto w-full max-w-2xl px-6 py-6">
+    <Screen title="Apply">
+      <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6">
         <Button
           variant="ghost"
           size="sm"
@@ -240,6 +249,6 @@ export default function ApplyPage() {
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+    </Screen>
   );
 }

@@ -87,6 +87,12 @@ export interface Album {
   my_access?: 'owner' | 'view' | 'download' | 'upload' | 'manage' | null;
   status: AlbumStatus;
   retention_days: number | null;
+  /**
+   * The last day the files are kept, YYYY-MM-DD, when the album keeps them
+   * until a date rather than for a number of days. Optional: albums saved on
+   * a device before the field existed have none.
+   */
+  retention_until?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -130,6 +136,9 @@ export interface ScheduleEvent {
    * comes back from the insert, which has nobody else's invitation to consider.
    */
   is_owner?: boolean;
+  /** Whose event it is, on a single read. For a guest to see who organised it. */
+  organiser_name?: string | null;
+  organiser_avatar_url?: string | null;
 }
 
 export type AttendeeStatus = 'pending' | 'accepted' | 'declined';
@@ -215,6 +224,11 @@ export interface Friend {
   friend_name: string;
   friend_email: string | null;
   friend_avatar_url: string | null;
+  /**
+   * Their profile's handle, once they have published it. Absent from an API
+   * that predates it, so it is optional: no link, not a crash.
+   */
+  friend_handle?: string | null;
   status: FriendStatus;
   requested_by: RequestedBy;
   created_at: string;
@@ -233,6 +247,11 @@ export interface AuthUser {
   title: string | null;
   phone: string | null;
   website: string | null;
+  /**
+   * What the profile shows as where they are: "Cebu City, Cebu", set by the
+   * API from the address whenever the address is saved. Older accounts keep
+   * the free text they typed until then.
+   */
   location: string | null;
   bio: string | null;
   /** Whether name search can surface this account. Email lookup is unaffected. */
@@ -251,6 +270,12 @@ export interface AuthUser {
   addressPostal: string | null;
   /** Two letters, ISO 3166-1. */
   addressCountry: string | null;
+  /**
+   * Where the address puts them in Nearby — a city, or a province when the
+   * city is not one the API knows — and null when it could not be placed.
+   * Absent from an older API, which placed nobody by their address.
+   */
+  addressPlace?: string | null;
   /** What they trade as, if that is not their own name. */
   studioName: string | null;
   /** A handle, a page or a URL — whatever they actually use. */
@@ -280,6 +305,10 @@ export interface UpdateProfileInput {
   title?: string | null;
   phone?: string | null;
   website?: string | null;
+  /**
+   * Not sent by the current screens: the API sets it from the address. Kept
+   * for the installed apps, whose free-text field still sends it.
+   */
   location?: string | null;
   bio?: string | null;
   /** A setting rather than a field, so it is never cleared to null. */
@@ -304,7 +333,12 @@ export interface UpdateProfileInput {
   addressProvince?: string;
   addressCountry?: string;
 
-  /** Genuinely optional, so `null` clears them. */
+  /**
+   * Genuinely optional, so `null` clears them.
+   *
+   * The current screens no longer ask for a second address line; they fold
+   * an existing one into the street address and send null here.
+   */
   addressLine2?: string | null;
   addressPostal?: string | null;
   studioName?: string | null;

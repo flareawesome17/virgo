@@ -1,15 +1,21 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
+  Ban,
   Bell,
   BellOff,
   Check,
+  ChevronRight,
+  Flag,
   Loader2,
   LogOut,
   Pencil,
   Trash2,
   UserPlus,
+  UserRound,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -50,9 +56,12 @@ import {
   useMuteConversation,
   useParticipants,
   useRenameConversation,
+  reportableMessageIds,
 } from '@/hooks/useChat';
-import { useFriends } from '@/hooks/useFriends';
+import { useAllConnections } from '@/hooks/useFriends';
 import { useAuth } from '@/hooks/useAuth';
+import { PersonSafetyMenu, usePersonSafety } from '@/components/people/person-safety';
+import { firstName } from '@/lib/workspaces';
 
 /** Minutes. A year stands in for "until I turn it back on". */
 const MUTE_OPTIONS = [
@@ -93,9 +102,12 @@ export function ConversationInfo({
   onLeft: () => void;
 }) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { participants } = useParticipants(conversationId);
   const { conversation } = useConversation(conversationId);
-  const { friends } = useFriends({ status: 'accepted', limit: 100 });
+  // Every connection, not the first hundred: past the hundredth nobody could
+  // be added to a group.
+  const { friends } = useAllConnections({ enabled: open });
 
   const mute = useMuteConversation(conversationId);
   const rename = useRenameConversation(conversationId);
@@ -107,10 +119,17 @@ export function ConversationInfo({
   const [titleDraft, setTitleDraft] = useState('');
   const [confirming, setConfirming] = useState<'leave' | 'delete' | null>(null);
 
-  const isGroup = participants.length > 2 || !!conversation?.isGroup;
+  // The server's word first: a group down to two members is still a group.
+  const isGroup = conversation?.isGroup ?? participants.length > 2;
   const others = participants.filter((p) => p.id !== user?.id);
   const title = conversation?.title ?? (isGroup ? 'Group' : (others[0]?.name ?? 'Conversation'));
   const muted = !!conversation?.muted;
+
+  // By account id: participants carry it, and a handle is often unpublished.
+  // A block refreshes the participants, which turns Block into Unblock here.
+  const direct = !isGroup ? (others[0] ?? null) : null;
+  const directFirst = firstName(direct?.name ?? '');
+  const safety = usePersonSafety('chat');
 
   const addable = useMemo(() => {
     const inside = new Set(participants.map((p) => p.id));
@@ -198,6 +217,17 @@ export function ConversationInfo({
                         Rename group
                       </Button>
                     )}
+                    {/* Their profile, the obvious next stop from a chat. Only
+                        when they have a public page to open. */}
+                    {direct?.handle && (
+                      <Button asChild variant="outline" size="sm" className="mt-3">
+                        <Link href={`/u/${direct.handle}`} onClick={() => onOpenChange(false)}>
+                          <UserRound className="size-3.5" />
+                          View profile
+                          <ChevronRight className="size-3.5 text-muted-foreground" />
+                        </Link>
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
@@ -246,8 +276,8 @@ export function ConversationInfo({
                 </DropdownMenu>
               )}
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Messages still arrive and still count as unread. They just will
-                not interrupt.
+                Messages keep arriving and wait in the chat. They just will not
+                sound, show a notification or add to the unread count.
               </p>
 
               <Separator className="my-4" />
@@ -303,10 +333,113 @@ export function ConversationInfo({
                         YOU
                       </Badge>
                     )}
+                    {person.blocked_by_me && (
+                      <Badge variant="outline" className="text-[10px]">
+                        BLOCKED
+                      </Badge>
+                    )}
                     {addMember.isPending && <Loader2 className="size-3.5 animate-spin" />}
+                    {/* A direct chat has its own Safety rows below instead. */}
+                    {isGroup && person.id !== user?.id && (
+                      <PersonSafetyMenu
+                        safety={safety}
+                        subject={{
+                          name: person.name,
+                          target: { userId: person.id },
+                          blockId: person.block_id ?? null,
+                        }}
+                      >
+                        {person.handle && (
+                          <DropdownMenuItem asChild>
+                            <Link href={`/u/${person.handle}`} onClick={() => onOpenChange(false)}>
+                              <UserRound />
+                              View profile
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                      </PersonSafetyMenu>
+                    )}
                   </li>
                 ))}
               </ul>
+
+              {/* Safety, for a direct chat. Its own group rather than a place
+                  among the exits: blocking keeps the conversation, so it is not
+                  a way out of it, and reporting has nothing to do with leaving. */}
+              {direct && (
+                <>
+                  <Separator className="my-4" />
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                    Safety
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      variant="outline"
+                      className="h-auto justify-start py-2.5"
+                      onClick={() =>
+                        safety.report({
+                          name: direct.name,
+                          target: { userId: direct.id },
+                          // The latest messages between the two of you, as
+                          // this browser already has them.
+                          messages: user
+                            ? {
+                                conversationId,
+                                messageIds: reportableMessageIds(queryClient, conversationId, [
+                                  user.id,
+                                  direct.id,
+                                ]),
+                              }
+                            : null,
+                        })
+                      }
+                    >
+                      <Flag className="size-4" />
+                      <span className="flex-1 text-left">
+                        <span className="block">Report {directFirst}</span>
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          Tell us something&apos;s wrong. They won&apos;t know.
+                        </span>
+                      </span>
+                    </Button>
+                    {direct.blocked_by_me ? (
+                      <Button
+                        variant="outline"
+                        className="h-auto justify-start py-2.5"
+                        disabled={safety.pending}
+                        onClick={() =>
+                          safety.unblock({ name: direct.name, blockId: direct.block_id ?? null })
+                        }
+                      >
+                        <Ban className="size-4" />
+                        <span className="flex-1 text-left">
+                          <span className="block">Unblock {directFirst}</span>
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            You&apos;ll be able to message each other in this chat again.
+                          </span>
+                        </span>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="h-auto justify-start py-2.5 text-destructive hover:text-destructive"
+                        disabled={safety.pending}
+                        onClick={() =>
+                          safety.block({ name: direct.name, target: { userId: direct.id } })
+                        }
+                      >
+                        <Ban className="size-4" />
+                        <span className="flex-1 text-left">
+                          <span className="block">Block {directFirst}</span>
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            They can&apos;t message you or find you. They won&apos;t be told.
+                          </span>
+                        </span>
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
 
               <Separator className="my-4" />
 
@@ -370,6 +503,8 @@ export function ConversationInfo({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {safety.dialogs}
     </>
   );
 }

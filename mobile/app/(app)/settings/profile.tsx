@@ -2,21 +2,24 @@ import {
   View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform,
   Switch, useWindowDimensions,
 } from 'react-native';
+import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth, useTheme, useUpdateProfileFlags } from '@/src/hooks';
 import { COVER_ASPECT, queryKeys, titleFromRoles, type AuthUser } from '@/src/api';
 import { RolePicker } from '@/components';
+import { CitySuggestions } from '@/components/LocationField';
 import { useAvatarEditor, useCoverEditor } from '@/components/ProfilePhotoEditors';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { CHART_COLORS, PALETTES, type Palette } from '@/theme';
 import {
   ArrowLeftIcon, CameraIcon, UserIcon, MailIcon, BriefcaseIcon, PhoneIcon,
   GlobeIcon, MapPinIcon, ChevronRightIcon, CheckIcon, LockIcon, HashIcon,
-  Building2Icon, AtSignIcon, HomeIcon,
+  Building2Icon, AtSignIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -35,7 +38,6 @@ cssInterop(LockIcon, { className: { target: 'style', nativeStyleToProp: { color:
 cssInterop(HashIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(Building2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(AtSignIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(HomeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function ProfileSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -59,14 +61,20 @@ export default function ProfileSettingsScreen() {
   const [title, setTitle] = useState('');
   const [phone, setPhone] = useState('');
   const [website, setWebsite] = useState('');
-  const [location, setLocation] = useState('');
   const [bio, setBio] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
   const [studioName, setStudioName] = useState('');
   const [socialHandle, setSocialHandle] = useState('');
   const [line1, setLine1] = useState('');
-  const [line2, setLine2] = useState('');
+  /*
+   * A second address line the account already had, kept apart only when it
+   * would not fit on the first. Nothing asks for one any more: anything
+   * saved there is folded into the street address, so it stays visible and
+   * editable instead of sitting in the row where nobody can see it.
+   */
+  const [keptLine2, setKeptLine2] = useState(false);
   const [city, setCity] = useState('');
+  const [cityFocused, setCityFocused] = useState(false);
   const [province, setProvince] = useState('');
   const [postal, setPostal] = useState('');
   const [country, setCountry] = useState('');
@@ -89,7 +97,6 @@ export default function ProfileSettingsScreen() {
     setTitle(profile.title ?? '');
     setPhone(profile.phone ?? '');
     setWebsite(profile.website ?? '');
-    setLocation(profile.location ?? '');
     setBio(profile.bio ?? '');
     setRoles(profile.roles ?? []);
 
@@ -108,8 +115,14 @@ export default function ProfileSettingsScreen() {
 
     setStudioName(profile.studioName ?? '');
     setSocialHandle(profile.socialHandle ?? '');
-    setLine1(profile.addressLine1 ?? '');
-    setLine2(profile.addressLine2 ?? '');
+    // The API's limit on the street line. Past it the two stay apart.
+    const folded = [profile.addressLine1, profile.addressLine2]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(', ');
+    const fits = folded.length <= 200;
+    setLine1(fits ? folded : profile.addressLine1 ?? '');
+    setKeptLine2(!fits);
     setCity(profile.addressCity ?? '');
     setProvince(profile.addressProvince ?? '');
     setPostal(profile.addressPostal ?? '');
@@ -130,6 +143,26 @@ export default function ProfileSettingsScreen() {
   }, [derivedTitle, titleFollowsRoles]);
 
   const [saved, setSaved] = useState(false);
+  // The switches save as they move, so they are not changes to lose. A title
+  // still following the roles is the roles' doing, not typing.
+  const { markSaved } = useDiscardGuard(
+    {
+      name,
+      title: titleFollowsRoles ? null : title,
+      phone,
+      website,
+      bio,
+      roles,
+      studioName,
+      socialHandle,
+      line1,
+      city,
+      province,
+      postal,
+      country,
+    },
+    hydrated,
+  );
 
   // Empty string means "cleared", which the API models as null.
   const orNull = (v: string) => (v.trim() ? v.trim() : null);
@@ -148,8 +181,13 @@ export default function ProfileSettingsScreen() {
     addressProvince: province.trim(),
     addressCountry: country.trim().toUpperCase(),
   };
+  // An address already on the account counts as started even when every
+  // field has been emptied: it cannot be removed (the API keeps one, as
+  // signup asks for it), and emptying it was left out of the save while the
+  // screen said Saved. Now it says what is missing instead.
+  const hadAddress = Boolean(profile?.addressLine1);
   const addressStarted =
-    Object.values(address).some(Boolean) || !!line2.trim() || !!postal.trim();
+    hadAddress || Object.values(address).some(Boolean) || !!postal.trim();
   const addressMissing = !addressStarted
     ? []
     : ([
@@ -168,7 +206,7 @@ export default function ProfileSettingsScreen() {
         title: orNull(title),
         phone: orNull(phone),
         website: orNull(website),
-        location: orNull(location),
+        // No location: the API sets it from the address — "Cebu City, Cebu".
         bio: orNull(bio),
         studioName: orNull(studioName),
         socialHandle: orNull(socialHandle),
@@ -176,11 +214,17 @@ export default function ProfileSettingsScreen() {
         // array would fail the whole save rather than just leaving roles be.
         ...(roles.length > 0 ? { roles } : {}),
         ...(addressStarted
-          ? { ...address, addressLine2: orNull(line2), addressPostal: orNull(postal) }
+          ? {
+              ...address,
+              addressPostal: orNull(postal),
+              // Folded into the street above, so emptied here.
+              ...(keptLine2 ? {} : { addressLine2: null }),
+            }
           : {}),
       },
       {
         onSuccess: () => {
+          markSaved();
           setSaved(true);
           setTimeout(() => setSaved(false), 2000);
         },
@@ -209,6 +253,24 @@ export default function ProfileSettingsScreen() {
     });
   };
 
+  /*
+   * Where the saved address put them in Nearby, said under the city — but
+   * only while the city and province on screen are the saved ones, or it
+   * would describe an address that is not there any more. Nothing from an
+   * API too old to say.
+   */
+  const addressSaved =
+    !!profile?.addressCity &&
+    city.trim() === profile.addressCity.trim() &&
+    province.trim() === (profile.addressProvince ?? '').trim();
+  const nearbyHint: { text: string; warn: boolean } | null = !addressSaved
+    ? null
+    : profile?.addressPlace
+      ? { text: `Shown in Nearby as ${profile.addressPlace}.`, warn: false }
+      : profile?.addressPlace === null
+        ? { text: "We couldn't place this city — check the spelling.", warn: true }
+        : null;
+
   const savedStudio = profile?.studioName?.trim() || null;
   const busy = updateProfile.isPending || avatar.busy;
   const blocked = roles.length === 0 || addressMissing.length > 0;
@@ -224,7 +286,7 @@ export default function ProfileSettingsScreen() {
         className="flex-1"
       >
 
-      <ScrollView
+      <ScrollView keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 140 }}
@@ -232,9 +294,9 @@ export default function ProfileSettingsScreen() {
       >
         {/* Header */}
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
@@ -312,7 +374,7 @@ export default function ProfileSettingsScreen() {
                 </Text>
               </View>
             )}
-            <Pressable
+            <Pressable hitSlop={8}
               onPress={() => void avatar.choose()}
               disabled={busy}
               accessibilityRole="button"
@@ -354,18 +416,17 @@ export default function ProfileSettingsScreen() {
             </View>
           </View>
           <FieldRow icon={PhoneIcon} label="Phone" value={phone} onChange={setPhone} color="#6B8E4E" keyboardType="phone-pad" maxLength={40} />
-          <FieldRow icon={GlobeIcon} label="Website" value={website} onChange={setWebsite} color="#5B7B9A" maxLength={255} />
+          <FieldRow icon={GlobeIcon} label="Website" value={website} onChange={setWebsite} color="#5B7B9A" maxLength={255} autoCapitalize="none" keyboardType="url" />
           {/* Both collected at sign-up and both optional there, so they are
               optional here too — plenty of people freelance under the name on
               their passport. */}
           <View>
-            <FieldRow icon={Building2Icon} label="Studio Name" value={studioName} onChange={setStudioName} color={CHART_COLORS.brown} maxLength={120} />
+            <FieldRow icon={Building2Icon} label="Studio name" value={studioName} onChange={setStudioName} color={CHART_COLORS.brown} maxLength={120} />
             <Text className="text-muted-foreground text-xs ml-1 mt-1.5">
               Private unless Show studio on profile is on.
             </Text>
           </View>
-          <FieldRow icon={AtSignIcon} label="Social" value={socialHandle} onChange={setSocialHandle} color="#5B7B9A" maxLength={200} />
-          <FieldRow icon={MapPinIcon} label="Location" value={location} onChange={setLocation} color="#C17745" maxLength={160} />
+          <FieldRow icon={AtSignIcon} label="Social" value={socialHandle} onChange={setSocialHandle} color="#5B7B9A" maxLength={200} autoCapitalize="none" />
 
           {/* Bio */}
           <View>
@@ -436,9 +497,9 @@ export default function ProfileSettingsScreen() {
           </View>
 
           {/* Everything above this line is how you appear to other people.
-              Everything below it is not, and saying so is the point — a
-              postal address sitting unmarked among the fields that go on a
-              profile reads like a promise to publish it. */}
+              Below it is the address, and saying exactly what leaves it is
+              the point: the street never does, the city and province do —
+              as the location on your profile, and as your place in Nearby. */}
           <View className="mt-2">
             <View className="h-px bg-border mb-4" />
             <View className="flex-row items-center gap-2 ml-1">
@@ -447,23 +508,53 @@ export default function ProfileSettingsScreen() {
                 Address
               </Text>
               <View className="bg-muted rounded-full px-2 py-0.5">
-                <Text className="text-muted-foreground text-[10px] font-bold">Private</Text>
+                <Text className="text-muted-foreground text-[10px] font-bold">Street kept private</Text>
               </View>
             </View>
             <Text className="text-muted-foreground text-xs mt-1.5 ml-1 leading-4">
-              Only you can see this. It is never shown on your profile, on a
-              job post, or to anyone you work with.
+              Your street is never shown to anyone. Your city and province
+              show as your location, and place you in Nearby — you can hide
+              from Nearby in Privacy.
             </Text>
           </View>
 
-          <FieldRow icon={MapPinIcon} label="Street Address" value={line1} onChange={setLine1} color="#C17745" maxLength={200} />
-          <FieldRow icon={HomeIcon} label="Apartment, Unit, Floor · optional" value={line2} onChange={setLine2} color="#8B5E3C" maxLength={200} />
-          <FieldRow icon={MapPinIcon} label="City" value={city} onChange={setCity} color="#C17745" maxLength={120} />
+          <FieldRow icon={MapPinIcon} label="Street address" value={line1} onChange={setLine1} color="#C17745" maxLength={200} />
+          {/* Suggestions so the city is spelt the way Nearby knows it, but
+              still free text: a municipality the list lacks is placed by
+              its province instead. */}
+          <View>
+            <FieldRow
+              icon={MapPinIcon}
+              label="City or municipality"
+              value={city}
+              onChange={setCity}
+              color="#C17745"
+              maxLength={120}
+              onFocus={() => setCityFocused(true)}
+              onBlur={() => setTimeout(() => setCityFocused(false), 200)}
+            />
+            <CitySuggestions
+              query={city}
+              visible={cityFocused}
+              onPick={(picked) => {
+                setCity(picked);
+                setCityFocused(false);
+              }}
+            />
+            {nearbyHint && (
+              <Text
+                className="text-xs ml-1 mt-1.5 leading-4"
+                style={{ color: nearbyHint.warn ? '#C4776A' : palette.mutedForeground }}
+              >
+                {nearbyHint.text}
+              </Text>
+            )}
+          </View>
           <FieldRow icon={MapPinIcon} label="Province" value={province} onChange={setProvince} color="#C17745" maxLength={120} />
           {/* Optional on purpose, as at sign-up: plenty of Philippine
               addresses have no ZIP. */}
           <FieldRow icon={HashIcon} label="Postal Code · optional" value={postal} onChange={setPostal} color="#6B8E4E" keyboardType="number-pad" maxLength={20} />
-          <FieldRow icon={GlobeIcon} label="Country" value={country} onChange={(v) => setCountry(v.toUpperCase())} color="#5B7B9A" maxLength={2} />
+          <FieldRow icon={GlobeIcon} label="Country" value={country} onChange={(v) => setCountry(v.toUpperCase())} color="#5B7B9A" maxLength={2} autoCapitalize="characters" />
 
           {addressMissing.length > 0 && (
             <Text style={{ color: '#C4776A' }} className="text-xs ml-1 leading-4">
@@ -498,7 +589,7 @@ export default function ProfileSettingsScreen() {
                   ? '✓  Saved'
                   : updateProfile.isPending
                     ? 'Saving…'
-                    : 'Save Changes'}
+                    : 'Save changes'}
           </Text>
         </Pressable>
       </View>
@@ -543,12 +634,24 @@ function FlagCard({
 function FieldRow({
   icon: IconComp, label, value, onChange, color, keyboardType, maxLength,
   placeholder,
+  autoCapitalize = 'words',
+  onFocus,
+  onBlur,
 }: {
   icon: LucideIcon; label: string; value: string;
   onChange: (v: string) => void; color: string; keyboardType?: string;
   maxLength?: number;
+  /**
+   * Words by default: every field here was "none", so a name, a city or a
+   * studio came out lower case unless typed otherwise. Links and handles pass
+   * "none"; the country code passes "characters".
+   */
+  autoCapitalize?: 'none' | 'words' | 'sentences' | 'characters';
   /** Shown when the field is empty. Used by Title to suggest the roles. */
   placeholder?: string;
+  /** For a field with suggestions under it, which open while it has focus. */
+  onFocus?: () => void;
+  onBlur?: () => void;
 }) {
   return (
     <View>
@@ -569,8 +672,12 @@ function FieldRow({
           placeholderTextColor="#A89489"
           className="text-foreground text-sm flex-1"
           keyboardType={keyboardType as any}
+          // The phone and number pads have no return key on iOS.
+          inputAccessoryViewID={keyboardType === 'number-pad' || keyboardType === 'phone-pad' ? KEYBOARD_DONE : undefined}
           maxLength={maxLength}
-          autoCapitalize="none"
+          autoCapitalize={autoCapitalize}
+          onFocus={onFocus}
+          onBlur={onBlur}
         />
       </View>
     </View>

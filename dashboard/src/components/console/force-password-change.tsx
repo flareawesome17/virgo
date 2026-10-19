@@ -59,8 +59,8 @@ export function ForcePasswordChange({ email }: { email: string }) {
           </span>
           <h1 className="text-xl font-bold tracking-tight">Choose a password</h1>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-            This account was set up with a password the server generated and
-            wrote to its log. Replace it before going any further.
+            This account still has a password someone else chose, when it was
+            set up or last reset. Replace it before going any further.
           </p>
           <p className="mt-2 text-xs text-muted-foreground">{email}</p>
         </div>

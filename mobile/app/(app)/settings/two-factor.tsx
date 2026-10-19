@@ -7,6 +7,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -35,6 +36,8 @@ import {
 } from '@/src/hooks';
 import { PALETTES } from '@/theme';
 import type { TwoFactorSetup } from '@/src/api';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
+import { LoadFailed } from '@/components/LoadFailed';
 
 for (const Icon of [
   ArrowLeftIcon,
@@ -60,6 +63,8 @@ function messageOf(error: unknown): string {
 }
 
 export default function TwoFactorSettingsScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const { user } = useAuth();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -204,6 +209,11 @@ export default function TwoFactorSettingsScreen() {
           <View className="px-5 mt-6">
             {status.isLoading ? (
               <View className="h-40 rounded-3xl bg-secondary" />
+            ) : !status.data && (status.isError || status.isPaused) ? (
+              // Not the setup screen: offering to turn on two-factor to
+              // somebody who already has it, because their status did not
+              // load, is how a second setup gets started over the first.
+              <LoadFailed what="your two-factor settings" onRetry={() => void status.refetch()} compact />
             ) : recoveryCodes.length > 0 ? (
               <RecoveryCodes
                 codes={recoveryCodes}
@@ -382,6 +392,7 @@ function EmailSetup({
         onChangeText={onCodeChange}
         onSubmitEditing={onConfirm}
         keyboardType="number-pad"
+        inputAccessoryViewID={KEYBOARD_DONE}
         textContentType="oneTimeCode"
         placeholder="000000"
         placeholderTextColor={palette.mutedForeground}

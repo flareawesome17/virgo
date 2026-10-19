@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Bell, CheckCheck, Settings } from 'lucide-react';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { NotificationRow, notificationHref } from '@/components/notification-bell';
 import { NotificationDetail } from '@/components/notification-detail';
 import { Button } from '@/components/ui/button';
@@ -114,7 +114,8 @@ function NotificationsPageInner() {
 
   const {
     notifications,
-    unread,
+    unread: allUnread,
+    categoryUnread,
     isLoading,
     loadFailed,
     refetch,
@@ -122,6 +123,8 @@ function NotificationsPageInner() {
     fetchNextPage,
     isFetchingNextPage,
   } = useNotificationFeed({ unread: unreadOnly, category });
+  // Inside a kind, its own count and its own "mark all".
+  const unread = category ? (categoryUnread ?? allUnread) : allUnread;
   const markRead = useMarkNotificationsRead();
   const days = useMemo(() => groupByDay(notifications), [notifications]);
 
@@ -141,7 +144,7 @@ function NotificationsPageInner() {
       : 'Nothing yet';
 
   return (
-    <AppShell title="Notifications">
+    <Screen title="Notifications">
       <PageHeader
         title="Notifications"
         description={
@@ -152,7 +155,7 @@ function NotificationsPageInner() {
             {unread > 0 && (
               <Button
                 variant="outline"
-                onClick={() => markRead.mutate(undefined)}
+                onClick={() => markRead.mutate(category ? { category } : undefined)}
                 disabled={markRead.isPending}
               >
                 <CheckCheck className="size-4" />
@@ -294,7 +297,7 @@ function NotificationsPageInner() {
           </div>
         </div>
       </div>
-    </AppShell>
+    </Screen>
   );
 }
 

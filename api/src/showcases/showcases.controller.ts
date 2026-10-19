@@ -3,7 +3,9 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -11,8 +13,9 @@ import {
   Query,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Public } from '../auth/public.decorator';
 import {
   CreateShelfDto,
   CreateShowcaseDto,
@@ -92,8 +95,8 @@ export class MyShowcasesController {
  *
  * Signed-in only, like /profiles/:handle and for the same reason: an
  * unauthenticated reader of a creative's work is a scraper as often as a
- * client. The open-web read is the feed's problem, and the feed does not
- * exist yet.
+ * client. The one open-web read is PublicShowcasesController below, and it
+ * answers only for a post its maker showed to everyone.
  */
 @Controller('showcases')
 export class ShowcasesController {
@@ -106,14 +109,56 @@ export class ShowcasesController {
   }
 }
 
+/**
+ * One showcase for anybody, with no account: what virgo.ph/p/:id draws when
+ * a post is shared, and the preview other apps make of it.
+ *
+ * The one open-web read of somebody's work, so it answers only for a post
+ * its maker showed to everyone (ShowcasesService.publicOne), and everything
+ * else — private, unposted, taken down, connections-only, a suspended maker,
+ * or an id that is not an id at all — is the same 404.
+ *
+ * Throttled per caller like the other reads (an address when signed out). The
+ * share page fetches it from its server and passes the visitor's
+ * CF-Connecting-IP along, so each visitor has their own allowance rather than
+ * the page sharing one.
+ */
+@Controller('public/showcases')
+export class PublicShowcasesController {
+  constructor(private readonly showcases: ShowcasesService) {}
+
+  @Public()
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Get(':id')
+  // A post made private stops answering at once: nothing between here and
+  // the reader may keep a copy.
+  @Header('Cache-Control', 'no-store')
+  one(
+    @Param(
+      'id',
+      new ParseUUIDPipe({ exceptionFactory: () => new NotFoundException('Showcase not found') }),
+    )
+    id: string,
+  ) {
+    return this.showcases.publicOne(id);
+  }
+}
+
+class MyShelvesQueryDto {
+  /** A showcase to ask about: each shelf then says whether it holds it. */
+  @IsOptional()
+  @IsUUID('all')
+  holding?: string;
+}
+
 /** The shelves somebody keeps other people's work on. */
 @Controller('me/shelves')
 export class MyShelvesController {
   constructor(private readonly shelves: ShelvesService) {}
 
   @Get()
-  async list(@CurrentUser('id') userId: string) {
-    const data = await this.shelves.list(userId, userId);
+  async list(@CurrentUser('id') userId: string, @Query() query: MyShelvesQueryDto) {
+    const data = await this.shelves.list(userId, userId, query.holding);
     return { data, total: data.length };
   }
 
@@ -165,6 +210,22 @@ export class MyShelvesController {
     @Param('showcaseId', ParseUUIDPipe) showcaseId: string,
   ) {
     return this.shelves.unkeep(userId, id, showcaseId);
+  }
+}
+
+/**
+ * Everything you have kept, on any shelf, once each and newest first: the
+ * "All kept" collection. Beside /me/shelves rather than under it, where
+ * `kept` would read as a shelf id.
+ */
+@Controller('me/kept')
+export class MyKeptController {
+  constructor(private readonly shelves: ShelvesService) {}
+
+  @Get()
+  async list(@CurrentUser('id') userId: string) {
+    const data = await this.shelves.allKept(userId);
+    return { data, total: data.length };
   }
 }
 
@@ -228,9 +289,13 @@ export class ProfileWorkController {
 
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get('showcases')
-  async work(@CurrentUser('id') viewerId: string, @Param('handle') handle: string) {
-    const data = await this.showcases.byHandle(viewerId, handle);
-    return { data, total: data.length };
+  async work(
+    @CurrentUser('id') viewerId: string,
+    @Param('handle') handle: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const { data, nextCursor } = await this.showcases.byHandle(viewerId, handle, { cursor });
+    return { data, total: data.length, nextCursor };
   }
 
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
@@ -306,8 +371,14 @@ export class CommentsController {
 
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   @Get()
-  list(@CurrentUser('id') viewerId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.comments.list(viewerId, id);
+  list(
+    @CurrentUser('id') viewerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    // A string, not validated as more: a cursor that does not decode is the
+    // newest page, which is the safe answer.
+    @Query('before') before?: string,
+  ) {
+    return this.comments.list(viewerId, id, { before });
   }
 
   // Tighter than reading: a comment is somebody else's notification.
@@ -319,8 +390,8 @@ export class CommentsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AddCommentDto,
   ) {
-    const data = await this.comments.add(viewerId, id, dto.body);
-    return { data };
+    // The newest page, with `earlier`; `data` is what an older app reads.
+    return this.comments.add(viewerId, id, dto.body);
   }
 
   @Delete(':commentId')
@@ -330,7 +401,6 @@ export class CommentsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Param('commentId', ParseUUIDPipe) commentId: string,
   ) {
-    const data = await this.comments.remove(viewerId, id, commentId);
-    return { data };
+    return this.comments.remove(viewerId, id, commentId);
   }
 }

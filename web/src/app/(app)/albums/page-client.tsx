@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImageIcon, Layers, Loader2, Music, Plus, Search, Video, X } from 'lucide-react';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { NewAlbumDialog } from '@/components/new-album-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,8 +62,13 @@ export default function AlbumsPage() {
     orderBy: 'updated_at',
     direction: 'desc',
   });
-  const { workspaces } = useWorkspaces({ limit: 100 });
-  const names = useMemo(() => new Map(workspaces.map((w) => [w.id, w.name])), [workspaces]);
+  // Archived ones too: albums in a workspace you archived were filed under
+  // "Shared with you", because its name could not be found.
+  const { workspaces } = useWorkspaces({ limit: 100, archived: 'include' });
+  const names = useMemo(
+    () => new Map(workspaces.map((w) => [w.id, w.archived_at ? `${w.name} · archived` : w.name])),
+    [workspaces],
+  );
 
   const groups = useMemo(() => {
     const buckets = new Map<string, Album[]>();
@@ -89,7 +94,7 @@ export default function AlbumsPage() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <AppShell title="Albums">
+    <Screen title="Albums">
       <PageHeader
         title="Albums"
         description={
@@ -97,12 +102,8 @@ export default function AlbumsPage() {
             ? 'Everything you have shot, by workspace'
             : `${albumsQuery.total.toLocaleString()} album${albumsQuery.total === 1 ? '' : 's'}${groups.length > 1 ? ` in ${groups.length} workspaces` : ''}`
         }
-        actions={
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="size-4" />
-            New album
-          </Button>
-        }
+        // New album is the bar's Create, as on the phone; the empty state
+        // keeps its own.
       />
 
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
@@ -216,7 +217,7 @@ export default function AlbumsPage() {
       </div>
 
       <NewAlbumDialog open={creating} onOpenChange={setCreating} />
-    </AppShell>
+    </Screen>
   );
 }
 

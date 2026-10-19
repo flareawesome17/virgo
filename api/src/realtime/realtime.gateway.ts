@@ -43,6 +43,11 @@ export type NotificationTopic =
   | 'support'
   /** A booking was created, changed, agreed or cancelled. */
   | 'booking'
+  /**
+   * A payment a client owes is due tomorrow, or overdue. Under the
+   * bookings switch in settings, beside the "Got paid?" question.
+   */
+  | 'money'
   /** A reward is being offered to this account, and is waiting to be claimed. */
   | 'promo'
   /**
@@ -51,7 +56,12 @@ export type NotificationTopic =
    * to every session an account has open, phone and browser alike. It reaches
    * the list through the feed, which asks each client what it is.
    */
-  | 'app-update';
+  | 'app-update'
+  /**
+   * News from Virgo, sent from the console to a segment of accounts. In the
+   * 'updates' category, so whoever switched those off is not pushed.
+   */
+  | 'announcement';
 
 /** What the server pushes. Discriminated on `type`. */
 export type ServerEvent =

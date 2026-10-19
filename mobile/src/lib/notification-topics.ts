@@ -7,11 +7,13 @@ import {
   GiftIcon,
   HeartIcon,
   LifeBuoyIcon,
+  MegaphoneIcon,
   MessageCircleIcon,
   SparklesIcon,
   Trash2Icon,
   UserPlusIcon,
   UsersIcon,
+  WalletIcon,
 } from 'lucide-react-native';
 import type {
   AppNotification,
@@ -34,8 +36,8 @@ const TOPICS: Record<
   NotificationTopic,
   { icon: Icon; href: string | ((d: Record<string, unknown>) => string) }
 > = {
-  'friend-request': { icon: UserPlusIcon, href: '/friends' },
-  'friend-accepted': { icon: UserPlusIcon, href: '/friends' },
+  'friend-request': { icon: UserPlusIcon, href: '/(app)/(tabs)/connect?view=people' },
+  'friend-accepted': { icon: UserPlusIcon, href: '/(app)/(tabs)/connect?view=people' },
   'collaborator-invite': { icon: UsersIcon, href: '/workspaces' },
   'collaborator-response': {
     icon: UsersIcon,
@@ -43,24 +45,56 @@ const TOPICS: Record<
       typeof d.workspaceId === 'string' ? `/workspaces/${d.workspaceId}?tab=members` : '/workspaces',
   },
   'event-invite': { icon: CalendarIcon, href: '/schedule' },
-  'event-response': { icon: CalendarIcon, href: '/schedule' },
-  'event-updated': { icon: CalendarIcon, href: '/schedule' },
-  'hire-enquiry': { icon: MessageCircleIcon, href: '/friends/enquiries' },
-  'hire-response': { icon: MessageCircleIcon, href: '/friends/enquiries' },
-  'job-application': { icon: BriefcaseBusinessIcon, href: '/jobs/mine?tab=posted' },
+  // As a push opens them (useNotificationRouting): this list sent these to
+  // the Schedule tab while the push opened the event itself.
+  'event-response': {
+    icon: CalendarIcon,
+    href: (d) => (typeof d.eventId === 'string' ? `/schedule/${d.eventId}` : '/schedule'),
+  },
+  'event-updated': {
+    icon: CalendarIcon,
+    href: (d) => (typeof d.eventId === 'string' ? `/schedule/${d.eventId}` : '/schedule'),
+  },
+  // Waiting enquiries are answered on People, beside connection requests.
+  'hire-enquiry': { icon: MessageCircleIcon, href: '/(app)/(tabs)/connect?view=people' },
+  'hire-response': {
+    icon: MessageCircleIcon,
+    href: (d) =>
+      typeof d.conversationId === 'string' ? `/chat/${d.conversationId}` : '/friends/enquiries',
+  },
+  'job-application': {
+    icon: BriefcaseBusinessIcon,
+    href: (d) =>
+      typeof d.postId === 'string'
+        ? `/(app)/(tabs)/jobs?tab=posted&post=${d.postId}`
+        : '/(app)/(tabs)/jobs?tab=posted',
+  },
   'job-response': {
     icon: BriefcaseBusinessIcon,
     href: (d) =>
       typeof d.conversationId === 'string'
         ? `/chat/${d.conversationId}`
-        : '/jobs/mine?tab=applied',
+        : '/(app)/(tabs)/jobs?tab=applied',
   },
   booking: {
     icon: FileTextIcon,
     href: (d) =>
       typeof d.bookingId === 'string' ? `/bookings/${d.bookingId}` : '/bookings',
   },
-  reminder: { icon: CalendarIcon, href: '/schedule' },
+  money: {
+    icon: WalletIcon,
+    href: (d) =>
+      typeof d.recap === 'string'
+        ? `/money/insights?year=${d.recap.slice(0, 4)}&month=${d.recap}`
+        : typeof d.packageId === 'string'
+          ? `/money/packages/${d.packageId}`
+          : '/money',
+  },
+  reminder: {
+    icon: CalendarIcon,
+    href: (d) =>
+      typeof d.reminderId === 'string' ? `/schedule/reminders/${d.reminderId}` : '/schedule/reminders',
+  },
   // There is no /settings/billing; plans and what you are paying live here.
   billing: { icon: CreditCardIcon, href: '/settings/storage/plans' },
   retention: { icon: Trash2Icon, href: '/albums' },
@@ -69,12 +103,20 @@ const TOPICS: Record<
     href: (d) =>
       typeof d.albumId === 'string' ? `/albums/${d.albumId}?picked=1` : '/albums',
   },
-  support: { icon: LifeBuoyIcon, href: '/support' },
+  support: {
+    icon: LifeBuoyIcon,
+    href: (d) => (typeof d.ticketId === 'string' ? `/support?ticket=${d.ticketId}` : '/support'),
+  },
   promo: { icon: GiftIcon, href: '/rewards' },
   // An announcement opens its link when it has one, and otherwise has said
   // all it needs to.
   'app-update': {
     icon: SparklesIcon,
+    href: (d) => (typeof d.url === 'string' ? d.url : ''),
+  },
+  // News from Virgo: its link when it has one, otherwise it has said its piece.
+  announcement: {
+    icon: MegaphoneIcon,
     href: (d) => (typeof d.url === 'string' ? d.url : ''),
   },
 };

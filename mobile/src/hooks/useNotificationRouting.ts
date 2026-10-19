@@ -1,6 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { router } from 'expo-router';
 import { onNotificationTap, type NotificationPayload } from '@/src/lib/notifications';
+import { goToTab } from '@/src/lib/navigation';
+import { getOpenConversation } from '@/src/hooks/useChat';
+import { useMarkNotificationsRead } from '@/src/hooks/useNotifications';
 
 /**
  * Opens whatever a tapped notification is about.
@@ -13,13 +16,28 @@ import { onNotificationTap, type NotificationPayload } from '@/src/lib/notificat
  * signed-out user at a protected screen.
  */
 export function useNotificationRouting(enabled: boolean): void {
+  // In a ref: the tap listener is set up once, and the mutation's identity
+  // changes with every render.
+  const markRead = useMarkNotificationsRead();
+  const markReadRef = useRef(markRead);
+  markReadRef.current = markRead;
+
   useEffect(() => {
     if (!enabled) return;
 
     const go = (payload: NotificationPayload) => {
+      // Opened is read. The bell went on counting a push you had tapped.
+      if (payload.notificationId) markReadRef.current.mutate([payload.notificationId]);
+
+      // Tab destinations go back to the tabs that are already there (goToTab):
+      // a push from whatever screen the tap landed on stacked a second set.
       switch (payload.type) {
         case 'message':
-          if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
+          // Already on screen: opening it again stacked a second copy of the
+          // same thread, and back then went to the first.
+          if (payload.conversationId && payload.conversationId !== getOpenConversation()) {
+            router.push(`/chat/${payload.conversationId}`);
+          }
           return;
         case 'reminder':
           if (payload.reminderId) router.push(`/schedule/reminders/${payload.reminderId}`);
@@ -29,7 +47,7 @@ export function useNotificationRouting(enabled: boolean): void {
         // is. Not the event's own screen: it is not on your calendar until you
         // accept, so opening it would show a page you cannot act on.
         case 'event_invite':
-          router.push('/(app)/(tabs)/schedule');
+          goToTab('/(app)/(tabs)/schedule');
           return;
         // A response is about an event you own, so the event itself is right.
         // A move is about one you accepted, which you can also open — the
@@ -37,13 +55,13 @@ export function useNotificationRouting(enabled: boolean): void {
         case 'event_response':
         case 'event_updated':
           if (payload.eventId) router.push(`/schedule/${payload.eventId}`);
-          else router.push('/(app)/(tabs)/schedule');
+          else goToTab('/(app)/(tabs)/schedule');
           return;
 
         // Friendships are answered from Network.
         case 'friend_request':
         case 'friend_accepted':
-          router.push('/(app)/(tabs)/connect?view=people');
+          goToTab('/(app)/(tabs)/connect?view=people');
           return;
 
         // A workspace invitation is answered on Workspaces, where it shows
@@ -51,18 +69,18 @@ export function useNotificationRouting(enabled: boolean): void {
         // it any more. An answer — or someone leaving — is about one of your
         // own workspaces, so it opens that workspace's members.
         case 'collaborator_invite':
-          router.push('/(app)/(tabs)/workspaces');
+          goToTab('/(app)/(tabs)/workspaces');
           return;
         case 'collaborator_response':
           if (payload.workspaceId) router.push(`/workspaces/${payload.workspaceId}?tab=members`);
-          else router.push('/(app)/(tabs)/workspaces');
+          else goToTab('/(app)/(tabs)/workspaces');
           return;
 
         // Both sides of a hire enquiry are answered from the same list, and an
         // accepted one is the only notification here that has a chat waiting
         // on the other end of it.
         case 'hire_enquiry':
-          router.push('/friends/enquiries');
+          goToTab('/(app)/(tabs)/connect?view=people');
           return;
         case 'hire_response':
           if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
@@ -71,8 +89,14 @@ export function useNotificationRouting(enabled: boolean): void {
 
         // An application is answered from your own posts; an accepted one has
         // a chat waiting on the other end of it.
+        // On the post it is about, with its applicants open — it landed on a
+        // second copy of the Jobs tab with every post collapsed.
         case 'job_application':
-          router.push('/jobs/mine');
+          goToTab(
+            payload.postId
+              ? `/(app)/(tabs)/jobs?tab=posted&post=${payload.postId}`
+              : '/(app)/(tabs)/jobs?tab=posted',
+          );
           return;
 
         // Straight to what they chose, not to the album's front page.
@@ -82,8 +106,8 @@ export function useNotificationRouting(enabled: boolean): void {
         case 'job_response':
           if (payload.conversationId) router.push(`/chat/${payload.conversationId}`);
           // Their applications, not their own postings — this is the
-          // applicant's side of the workflow, and /jobs/mine opens on Posted.
-          else router.push('/jobs/mine?tab=applications');
+          // applicant's side of the workflow.
+          else goToTab('/(app)/(tabs)/jobs?tab=applied');
           return;
 
         // An announcement about the app itself opens the notification list,
@@ -91,9 +115,41 @@ export function useNotificationRouting(enabled: boolean): void {
         // directly, which would take someone from a push straight out of the
         // app into a browser they did not ask for.
         case 'app-update':
+        // News, the same way: its words are in the list, and so is its link.
+        case 'announcement':
           router.push('/notifications');
           return;
+
+        // These four were sent and never routed, so a tap only opened the app
+        // wherever it was last. The in-app list already sent each of them to
+        // the same places (notification-topics.ts).
+        case 'booking':
+          router.push(payload.bookingId ? `/bookings/${payload.bookingId}` : '/bookings');
+          return;
+        // A payment due or late: its package, where the statement is shared
+        // from. A monthly recap: Insights, on that month.
+        case 'money':
+          if (payload.recap) {
+            router.push(`/money/insights?year=${payload.recap.slice(0, 4)}&month=${payload.recap}`);
+            return;
+          }
+          router.push(payload.packageId ? `/money/packages/${payload.packageId}` : '/money');
+          return;
+        case 'support_reply':
+          router.push(payload.ticketId ? `/support?ticket=${payload.ticketId}` : '/support');
+          return;
+        // There is no billing screen; plans and what you pay live here.
+        case 'billing':
+          router.push('/settings/storage/plans');
+          return;
+        case 'retention':
+          router.push('/albums');
+          return;
       }
+
+      // A reward carries no type, only its id, and pushes already on phones
+      // cannot gain one.
+      if (payload.promoId) router.push('/rewards');
     };
 
     return onNotificationTap(go);

@@ -24,8 +24,9 @@ export abstract class OwnedResourceService<Row extends QueryResultRow> {
   async count(
     userId: string,
     filters: Record<string, unknown> = {},
+    from: Record<string, unknown> = {},
   ): Promise<number> {
-    return this.repo.count(userId, filters);
+    return this.repo.count(userId, filters, from);
   }
 
   async get(userId: string, id: string): Promise<Row> {

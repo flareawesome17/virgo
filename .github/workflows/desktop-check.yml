@@ -1,0 +1,91 @@
+# Compiles the desktop shell on a pull request that touches it.
+#
+# Nothing did before. The shell was compiled for the first time by the release
+# workflow, after the tag was cut, so a mistake in lib.rs surfaced as a release
+# without installers. And because nothing built with --locked, Cargo.lock was
+# allowed to fall behind Cargo.toml: tauri-plugin-notification was added
+# without it, and every release since resolved the newest tauri and wry afresh
+# on the runner, so no two releases were promised the same dependencies.
+#
+# A check, not a build: no web app, no Node, no bundling or signing. Those are
+# what make a release leg take half an hour, and none of them can be wrong in
+# a way this would catch. scripts/stage-check.mjs puts placeholders where the
+# build script expects staged files.
+#
+# Windows and macOS both, because the shell has code for each that the other
+# never compiles — the job object on one, the menu bar on the other. Only on
+# changes to desktop/, so pull requests that do not touch it do not pay for a
+# macOS runner.
+#
+# Actions are pinned to full commit SHAs, the same ones release.yml uses.
+
+name: Desktop check
+
+on:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-check.yml'
+
+concurrency:
+  group: desktop-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: desktop — cargo check (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            runner: windows-latest
+          - name: macos
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: desktop/src-tauri
+          key: check-${{ matrix.name }}
+
+      - name: Stage placeholders
+        working-directory: desktop
+        run: node scripts/stage-check.mjs
+
+      # --locked fails the job when Cargo.lock does not match Cargo.toml, which
+      # is the drift described above. Run `cargo check` locally without it and
+      # commit the lock it writes.
+      - name: Clippy
+        working-directory: desktop/src-tauri
+        run: cargo clippy --locked -- -D warnings
+
+      # Release too: some of the shell only exists there (the single-instance
+      # lock, which a dev build must not take), and a release is what ships.
+      - name: Clippy (release)
+        working-directory: desktop/src-tauri
+        run: cargo clippy --locked --release -- -D warnings

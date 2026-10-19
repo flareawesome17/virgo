@@ -65,7 +65,7 @@ export function useCancelSubscription() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: billingKeys.status });
       // The tier drives every limit on screen.
-      queryClient.invalidateQueries({ queryKey: ['usage'] });
+      queryClient.invalidateQueries({ queryKey: ['me', 'usage'] });
       queryClient.invalidateQueries({ queryKey: queryKeys.auth.all });
     },
   });

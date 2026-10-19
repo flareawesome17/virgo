@@ -1,5 +1,7 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+import { DetailFallback } from '@/components/DetailFallback';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { InsetFrame } from '@/components/InsetFrame';
 import {
   useAuth,
   useCreateScheduleEvent,
@@ -10,9 +12,11 @@ import {
   useTheme,
 } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
+import { FormHeader } from '@/components/FormHeader';
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeftIcon, TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
+  TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
   CalendarDaysIcon, ClockIcon, CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -25,8 +29,8 @@ import {
   dateToTimeString,
   parseDateKey,
 } from '@/src/lib/calendar';
+import { useHoldUpdates } from '@/src/lib/ota-updates';
 
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -50,6 +54,8 @@ const OTHER_LABEL_MAX = 40;
 
 
 export default function CreateEventScreen() {
+  // A code fetched from email, or a form half filled: see useHoldUpdates.
+  useHoldUpdates();
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   // workspaceId arrives when this is opened from a workspace's quick actions,
@@ -90,7 +96,13 @@ export default function CreateEventScreen() {
   const [showWsPicker, setShowWsPicker] = useState(false);
   const [guests, setGuests] = useState<string[]>([]);
 
-  const { data: existing } = useScheduleEvent(eventId ?? undefined);
+  const {
+    data: existing,
+    error: existingError,
+    isError: existingFailed,
+    isPaused: existingPaused,
+    refetch: refetchExisting,
+  } = useScheduleEvent(eventId ?? undefined);
 
   // Once per event, not on every refetch: React Query refreshing in the
   // background must not overwrite what is being typed.
@@ -117,6 +129,11 @@ export default function CreateEventScreen() {
   }, [existing]);
 
   // Archived ones too, so an event already filed under one still shows it.
+  const { allowLeave } = useDiscardGuard(
+    { eventType, otherLabel, location, title, description, when: when.getTime(), hasTime, guests },
+    !editing || (!!existing && prefilledFor.current === existing.id),
+  );
+
   const { workspaces: listed } = useWorkspaces(
     { orderBy: 'name', direction: 'asc', limit: 100, archived: 'include' },
     { enabled: !!user?.id },
@@ -161,7 +178,9 @@ export default function CreateEventScreen() {
   const createEvent = useCreateScheduleEvent();
   const updateEvent = useUpdateScheduleEvent();
   const inviteToEvent = useInviteToEvent();
-  const saving = editing ? updateEvent.isPending : createEvent.isPending;
+  const saving = editing
+    ? updateEvent.isPending
+    : createEvent.isPending || inviteToEvent.isPending;
 
   const handleUpdate = () => {
     if (!eventId) return;
@@ -179,7 +198,10 @@ export default function CreateEventScreen() {
         ...(guestEdit ? {} : { workspace_id: selectedWsId }),
       },
       {
-        onSuccess: () => router.back(),
+        onSuccess: () => {
+          allowLeave();
+          router.back();
+        },
         onError: (err: any) =>
           Alert.alert(
             'Could not save the event',
@@ -202,22 +224,26 @@ export default function CreateEventScreen() {
         ...(selectedWsId ? { workspace_id: selectedWsId } : {}),
       },
       {
-        onSuccess: (event) => {
+        onSuccess: async (event) => {
           // A second call on purpose: the event exists either way, so a failure
           // here costs the invitations, not the event. The detail screen the
           // user lands on shows who was actually invited.
+          //
+          // Awaited before leaving. It was fired and then the screen replaced
+          // at once, and a mutation's own callbacks do not run once the screen
+          // that made it is gone — so this alert could never appear, and a
+          // failed invitation went unmentioned.
           if (guests.length > 0) {
-            inviteToEvent.mutate(
-              { eventId: event.id, userIds: guests },
-              {
-                onError: (err: any) =>
-                  Alert.alert(
-                    'Event created, but the invitations failed',
-                    err?.message || 'Try inviting them from the event.',
-                  ),
-              },
-            );
+            try {
+              await inviteToEvent.mutateAsync({ eventId: event.id, userIds: guests });
+            } catch (err: any) {
+              Alert.alert(
+                'Event created, but the invitations failed',
+                err?.message || 'Try inviting them from the event.',
+              );
+            }
           }
+          allowLeave();
           router.replace(`/schedule/${event.id}`);
         },
         // Show what actually went wrong. A flat "Could not create event"
@@ -233,8 +259,24 @@ export default function CreateEventScreen() {
     );
   };
 
+  // Editing opened on an empty form, as if creating, until the event arrived
+  // — and stayed that way when it did not.
+  if (editing && !existing) {
+    return (
+      <DetailFallback
+        title="Edit event"
+        what="this event"
+        gone="It was deleted, or you were taken off it."
+        error={existingError}
+        failed={existingFailed || existingPaused}
+        onRetry={() => void refetchExisting()}
+      />
+    );
+  }
+
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
+      <FormHeader title={editing ? 'Edit event' : 'New event'} />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
       <KeyboardAvoidingView
@@ -242,18 +284,11 @@ export default function CreateEventScreen() {
         className="flex-1"
       >
 
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
-        <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <ArrowLeftIcon size={18} className="text-foreground" />
-          </Pressable>
-          <Text className="text-foreground text-[22px] font-bold tracking-tight">{editing ? 'Edit Event' : 'New Event'}</Text>
-        </View>
+      <ScrollView keyboardDismissMode="on-drag" className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
 
         {/* Event Type */}
         <View className="px-5 mt-5">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Event Type</Text>
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Event type</Text>
           <View className="flex-row flex-wrap gap-2">
             {EVENT_TYPES.map(t => {
               const Icon = t.icon;
@@ -285,7 +320,7 @@ export default function CreateEventScreen() {
         <View className="px-5 mt-5">
           <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Title</Text>
           <TextInput value={title} onChangeText={setTitle} placeholder="e.g. Look 2 — Studio Session" placeholderTextColor="#A89489"
-            className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }} autoFocus />
+            className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }} autoFocus={!editing} />
         </View>
 
         {/* Description */}
@@ -305,17 +340,29 @@ export default function CreateEventScreen() {
             value={when}
             onChange={(next) => setWhen(next)}
           />
-          <DateTimeField
-            // Says so rather than showing a plausible-looking 9:00 for an
-            // all-day event. Touching the picker is what gives it a time.
-            label={hasTime ? 'Time' : 'Time (not set)'}
-            mode="time"
-            value={when}
-            onChange={(next) => {
-              setWhen(next);
-              setHasTime(true);
-            }}
-          />
+          {hasTime && (
+            <DateTimeField
+              label="Time"
+              mode="time"
+              value={when}
+              onChange={(next) => {
+                setWhen(next);
+                setHasTime(true);
+              }}
+            />
+          )}
+        </View>
+        {/* All day, said and chosen. Only an event made on the web could be
+            one; here every new event got 9:00 whether it had a time or not. */}
+        <View className="px-5 mt-3">
+          <View className="bg-card rounded-2xl px-4 min-h-[52px] flex-row items-center justify-between">
+            <Text className="text-foreground text-[15px] font-semibold">All day</Text>
+            <Switch
+              value={!hasTime}
+              onValueChange={(allDay) => setHasTime(!allDay)}
+              accessibilityLabel="All day"
+            />
+          </View>
         </View>
 
         {/* Where */}
@@ -402,15 +449,15 @@ export default function CreateEventScreen() {
       <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background flex-row gap-3" style={{ paddingBottom: insets.bottom + 16 }}>
         <Pressable onPress={() => router.back()} className="flex-1 bg-card rounded-2xl py-3.5 items-center active:scale-[0.97]"
           style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-          <Text className="text-foreground text-base font-semibold">Back</Text>
+          <Text className="text-foreground text-base font-semibold">Cancel</Text>
         </Pressable>
         <Pressable onPress={() => canSave && (editing ? handleUpdate() : handleCreate())} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-action' : 'bg-muted'}`} disabled={!canSave || saving}>
           <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>
-            {saving ? (editing ? 'Saving...' : 'Creating...') : editing ? 'Save Changes' : 'Create Event'}
+            {saving ? (editing ? 'Saving...' : 'Creating...') : editing ? 'Save changes' : 'Create event'}
           </Text>
         </Pressable>
       </View>
           </KeyboardAvoidingView>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

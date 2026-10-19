@@ -34,6 +34,7 @@ import {
 } from '@/src/hooks';
 import type { Album, AlbumStatus } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
+import { FilterChip } from '@/components/FilterChip';
 import { PALETTES } from '@/theme';
 
 const interop = { className: { target: 'style', nativeStyleToProp: { color: true } } } as const;
@@ -111,9 +112,14 @@ export default function AlbumsListScreen() {
     },
     { enabled: !!user?.id },
   );
-  const { workspaces, refetch: refetchWorkspaces } = useWorkspaces({ limit: 100 }, { enabled: !!user?.id });
+  // Archived ones too, for the labels: albums in a workspace you archived
+  // were filed under "Shared with you", because its name could not be found.
+  const { workspaces, refetch: refetchWorkspaces } = useWorkspaces(
+    { limit: 100, archived: 'include' },
+    { enabled: !!user?.id },
+  );
   const workspaceName = useMemo(
-    () => new Map(workspaces.map((w) => [w.id, w.name])),
+    () => new Map(workspaces.map((w) => [w.id, w.archived_at ? `${w.name} · archived` : w.name])),
     [workspaces],
   );
 
@@ -212,7 +218,7 @@ export default function AlbumsListScreen() {
                     onPress={() => router.back()}
                     accessibilityRole="button"
                     accessibilityLabel="Back"
-                    className="w-10 h-10 rounded-2xl bg-card border border-border items-center justify-center active:opacity-70"
+                    className="w-11 h-11 rounded-2xl bg-card border border-border items-center justify-center active:opacity-70"
                   >
                     <ArrowLeftIcon size={18} className="text-foreground" />
                   </Pressable>
@@ -263,22 +269,14 @@ export default function AlbumsListScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingBottom: 4 }}
             >
-              {STATUSES.map((option) => {
-                const active = status === option.key;
-                return (
-                  <Pressable
-                    key={option.key}
-                    onPress={() => setStatus(option.key)}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: active }}
-                    className={`rounded-full px-4 py-2 ${active ? 'bg-foreground' : 'bg-card border border-border'}`}
-                  >
-                    <Text className={`text-sm font-semibold ${active ? 'text-background' : 'text-foreground'}`}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+              {STATUSES.map((option) => (
+                <FilterChip
+                  key={option.key}
+                  label={option.label}
+                  on={status === option.key}
+                  onPress={() => setStatus(option.key)}
+                />
+              ))}
             </ScrollView>
           </View>
         }

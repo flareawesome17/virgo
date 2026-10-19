@@ -105,6 +105,45 @@ export interface MessageRow {
   kind?: 'text' | 'job-accepted';
   /** Whatever the card needs to render. Null on a typed message. */
   context?: Record<string, unknown> | null;
+  /**
+   * The id the sender's app gave the message before sending it. Lets that app
+   * match the stored message to the bubble it drew while sending. Null on
+   * anything sent before apps made one, and on system messages.
+   */
+  client_id?: string | null;
+}
+
+/**
+ * One message as every reader gets it: the sender's name, and a preview of
+ * what it replies to.
+ *
+ * Shared by the thread, the live frame and the response to a send. The live
+ * frame used to carry the bare inserted row, so a group's new line arrived
+ * without a name and a reply arrived as "Message unavailable" until the next
+ * refetch filled them in.
+ */
+const MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.created_at,
+                m.deleted_at, m.mentions, m.reply_to_id, m.kind, m.context, m.client_id,
+                -- A tombstone carries no text. Cleared on delete, so this is
+                -- belt and braces rather than the only thing hiding it.
+                case when m.deleted_at is null then m.body else '' end as body,
+                coalesce(u.display_name, split_part(u.email, '@', 1)) as sender_name,
+                case when r.deleted_at is null then r.body else null end as reply_to_body,
+                coalesce(ru.display_name, split_part(ru.email, '@', 1)) as reply_to_sender,
+                (r.id is not null and r.deleted_at is not null) as reply_to_deleted`;
+
+const MESSAGE_JOINS = `join users u on u.id = m.sender_id
+           left join messages r on r.id = m.reply_to_id
+           left join users ru on ru.id = r.sender_id`;
+
+/** What the conversation list can be narrowed or paged by. */
+export interface ConversationsOptions {
+  /** Matches a group name, a participant's name, or a message body. */
+  q?: string;
+  /** Just this one conversation. */
+  id?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export interface Thread {
@@ -297,10 +336,15 @@ export class MessagesService {
    *
    * Best-effort. A failed receipt must never fail the fetch that carries the
    * messages themselves.
+   *
+   * And said out loud, like a read. The receipt was written and never
+   * announced, so a sender's ticks only moved when their own app happened to
+   * refetch the thread — "delivered" in practice never showed. Each
+   * conversation whose receipt moved now tells the people in it.
    */
   private async markDelivered(userId: string, conversationId?: string): Promise<void> {
     try {
-      await this.db.query(
+      const moved = await this.db.query<{ conversation_id: string }>(
         `update conversation_participants p
             set last_delivered_at = now()
           where p.user_id = $1
@@ -311,12 +355,38 @@ export class MessagesService {
                      and m.sender_id <> $1
                      and (p.last_delivered_at is null
                           or m.created_at > p.last_delivered_at)
-                )`,
+                )
+          returning p.conversation_id`,
         [userId, conversationId ?? null],
       );
+      const at = new Date().toISOString();
+      for (const { conversation_id } of moved) {
+        // Not across a block, the same as a read.
+        this.realtime.emitToUsers(await this.participantIdsVisibleTo(conversation_id, userId), {
+          type: 'delivered',
+          conversationId: conversation_id,
+          userId,
+          at,
+        });
+      }
     } catch {
       // Swallowed on purpose — see above.
     }
+  }
+
+  /**
+   * Tells people a conversation changed under them: it was created, renamed,
+   * gained or lost a member, or was muted or removed on another of their
+   * devices.
+   *
+   * The frame carries only the id. Each client refetches what it shows, so
+   * none of the detail is decided twice. Group changes waited for the
+   * sixty-second poll before this: someone added to a group did not see it
+   * until then, and a rename did not show on anyone else's phone.
+   */
+  private announce(userIds: readonly string[], conversationId: string): void {
+    if (userIds.length === 0) return;
+    this.realtime.emitToUsers([...new Set(userIds)], { type: 'conversation', conversationId });
   }
 
   /** Throws unless the caller is in the conversation. */
@@ -413,7 +483,7 @@ export class MessagesService {
       );
     }
 
-    return this.db.transaction(async (client) => {
+    const created = await this.db.transaction(async (client) => {
       const { rows } = await client.query<{ id: string }>(
         `insert into conversations (is_group, title, created_by)
          values (true, $1, $2) returning id`,
@@ -427,6 +497,8 @@ export class MessagesService {
       );
       return { id };
     });
+    this.announce([userId, ...unique], created.id);
+    return created;
   }
 
   /** Adds someone to an existing group. Members can invite their own friends. */
@@ -469,6 +541,9 @@ export class MessagesService {
        returning user_id`,
       [conversationId, memberId],
     );
+    // Everyone now in it, the person added included: the group appears in
+    // their list, and everyone else's member count and names move.
+    if (rows.length > 0) this.announce(await this.participantIds(conversationId), conversationId);
     return { added: rows.length > 0 };
   }
 
@@ -489,6 +564,8 @@ export class MessagesService {
         where conversation_id = $1 and user_id = $2`,
       [conversationId, userId, until],
     );
+    // Only the caller: muting is theirs, and their other devices show it.
+    this.announce([userId], conversationId);
     return { muted: !!until && until.getTime() > Date.now(), mutedUntil: until };
   }
 
@@ -517,6 +594,7 @@ export class MessagesService {
       conversationId,
       name,
     ]);
+    this.announce(await this.participantIds(conversationId), conversationId);
     return { id: conversationId, title: name };
   }
 
@@ -540,11 +618,14 @@ export class MessagesService {
     );
 
     if (convo?.is_group) {
+      // Read before the row goes, so the leaver's other devices hear it too.
+      const members = await this.participantIds(conversationId);
       await this.db.query(
         `delete from conversation_participants
           where conversation_id = $1 and user_id = $2`,
         [conversationId, userId],
       );
+      this.announce(members, conversationId);
       return { deleted: true, left: true };
     }
 
@@ -554,17 +635,21 @@ export class MessagesService {
         where conversation_id = $1 and user_id = $2`,
       [conversationId, userId],
     );
+    // Only the caller. The other person's thread is untouched by this.
+    this.announce([userId], conversationId);
     return { deleted: true, left: false };
   }
 
   /** Leaving deletes only your membership; the conversation survives. */
   async leave(userId: string, conversationId: string): Promise<{ left: boolean }> {
     await this.assertMember(userId, conversationId);
+    const members = await this.participantIds(conversationId);
     await this.db.query(
       `delete from conversation_participants
         where conversation_id = $1 and user_id = $2`,
       [conversationId, userId],
     );
+    this.announce(members, conversationId);
     return { left: true };
   }
 
@@ -576,8 +661,15 @@ export class MessagesService {
    * was said. A body match also returns the line it matched, so the row can
    * show why it is a result instead of the unrelated last message.
    */
-  async conversations(userId: string, q?: string): Promise<ConversationSummary[]> {
+  async conversations(
+    userId: string,
+    options: ConversationsOptions = {},
+  ): Promise<ConversationSummary[]> {
+    const q = options.q;
     const term = q?.trim() ? `%${q.trim()}%` : null;
+    const only = options.id ?? null;
+    const limit = Math.min(Math.max(options.limit ?? 100, 1), 100);
+    const offset = Math.max(options.offset ?? 0, 0);
 
     const rows = await this.db.query<{
       id: string;
@@ -687,7 +779,11 @@ export class MessagesService {
           -- A conversation you deleted stays gone until something new arrives
           -- in it. Dropping your participant row instead would make a direct
           -- chat un-reopenable by the other person.
-          (me.cleared_at is null or last.created_at is not null)
+          (me.cleared_at is null or last.created_at is not null or $3::uuid is not null)
+          -- One conversation by id, for a thread whose row is not on the
+          -- first page of the list. Asked for by id, it is found even when
+          -- deleted from the list: the thread itself is still open.
+          and ($3::uuid is null or c.id = $3)
           and (
             $2::text is null
             or c.title ilike $2
@@ -701,13 +797,15 @@ export class MessagesService {
                     and coalesce(u.display_name, split_part(u.email, '@', 1)) ilike $2
                )
           )
-        order by coalesce(last.created_at, c.created_at) desc
-        limit 100`,
-      [userId, term],
+        -- The id breaks ties, so a page boundary between two rows with the
+        -- same time cannot show one of them twice and the other never.
+        order by coalesce(last.created_at, c.created_at) desc, c.id desc
+        limit $4 offset $5`,
+      [userId, term, only, limit, offset],
     );
 
     // Listing conversations is proof their messages reached this device.
-    await this.markDelivered(userId);
+    await this.markDelivered(userId, only ?? undefined);
 
     // Presence for the other side of each direct chat. Included here rather
     // than left to the socket because a client that has only just opened has
@@ -746,28 +844,31 @@ export class MessagesService {
     }));
   }
 
+  /** One conversation as the list shows it, for a thread opened from anywhere. */
+  async conversation(userId: string, conversationId: string): Promise<ConversationSummary> {
+    const [row] = await this.conversations(userId, { id: conversationId, limit: 1 });
+    if (!row) throw new NotFoundException('Conversation not found');
+    return row;
+  }
+
   async messages(
     userId: string,
     conversationId: string,
     limit = 100,
+    /**
+     * Only messages older than this one, for paging back. By id rather than a
+     * timestamp: (created_at, id) is compared exactly, so two messages sent in
+     * the same millisecond are never skipped at a page boundary.
+     */
+    before?: string,
   ): Promise<Thread> {
     const state = await this.sendState(conversationId, userId);
 
     const [messages, me] = await Promise.all([
       this.db.query<MessageRow>(
-        `select m.id, m.conversation_id, m.sender_id, m.created_at,
-                m.deleted_at, m.mentions, m.reply_to_id, m.kind, m.context,
-                -- A tombstone carries no text. Cleared on delete, so this is
-                -- belt and braces rather than the only thing hiding it.
-                case when m.deleted_at is null then m.body else '' end as body,
-                coalesce(u.display_name, split_part(u.email, '@', 1)) as sender_name,
-                case when r.deleted_at is null then r.body else null end as reply_to_body,
-                coalesce(ru.display_name, split_part(ru.email, '@', 1)) as reply_to_sender,
-                (r.id is not null and r.deleted_at is not null) as reply_to_deleted
+        `select ${MESSAGE_COLUMNS}
            from messages m
-           join users u on u.id = m.sender_id
-           left join messages r on r.id = m.reply_to_id
-           left join users ru on ru.id = r.sender_id
+           ${MESSAGE_JOINS}
           where m.conversation_id = $1
             -- Hidden by "delete for myself", which affects only this reader.
             and not exists (
@@ -781,9 +882,18 @@ export class MessagesService {
                   or m.created_at > (select cleared_at from conversation_participants
                                       where conversation_id = $1 and user_id = $3)
                 )
-          order by m.created_at desc
+            -- Paging back. A cursor from another conversation matches no row,
+            -- so the comparison is null and the page is empty.
+            and (
+                  $4::uuid is null
+                  or (m.created_at, m.id) < (
+                       select b.created_at, b.id from messages b
+                        where b.id = $4 and b.conversation_id = $1
+                     )
+                )
+          order by m.created_at desc, m.id desc
           limit $2`,
-        [conversationId, Math.min(Math.max(limit, 1), 200), userId],
+        [conversationId, Math.min(Math.max(limit, 1), 200), userId, before ?? null],
       ),
       this.db.queryOne<{ last_read_at: Date | null }>(
         `select last_read_at from conversation_participants
@@ -880,11 +990,22 @@ export class MessagesService {
     return { deleted: true, scope };
   }
 
+  /** One message, joined the way a reader sees it. */
+  private async joinedMessage(messageId: string): Promise<MessageRow | null> {
+    return this.db.queryOne<MessageRow>(
+      `select ${MESSAGE_COLUMNS}
+         from messages m
+         ${MESSAGE_JOINS}
+        where m.id = $1`,
+      [messageId],
+    );
+  }
+
   async send(
     userId: string,
     conversationId: string,
     body: string,
-    options: { replyToId?: string; mentionIds?: string[] } = {},
+    options: { replyToId?: string; mentionIds?: string[]; clientId?: string } = {},
   ): Promise<MessageRow> {
     // Before the text is even looked at: a frozen thread refuses whatever is
     // sent to it, and the reason must not depend on what was typed.
@@ -926,11 +1047,34 @@ export class MessagesService {
       mentions = rows.map((r) => r.user_id);
     }
 
-    const row = await this.db.queryOne<MessageRow>(
-      `insert into messages (conversation_id, sender_id, body, reply_to_id, mentions)
-       values ($1, $2, $3, $4, $5::uuid[]) returning *`,
-      [conversationId, userId, text, replyToId, mentions],
+    // A send repeated with the same client id — the app retrying one whose
+    // response it never got — stores nothing new. The conflict target names
+    // the partial index's predicate, which is how Postgres finds it.
+    const clientId = options.clientId ?? null;
+    const inserted = await this.db.queryOne<{ id: string }>(
+      `insert into messages (conversation_id, sender_id, body, reply_to_id, mentions, client_id)
+       values ($1, $2, $3, $4, $5::uuid[], $6::uuid)
+       on conflict (sender_id, client_id) where client_id is not null do nothing
+       returning id`,
+      [conversationId, userId, text, replyToId, mentions, clientId],
     );
+
+    if (!inserted) {
+      // The first attempt got through. Answer with what it stored and nothing
+      // else: it was already sent live and pushed, and doing either again is
+      // the duplicate this exists to prevent.
+      const earlier = await this.db.queryOne<{ id: string }>(
+        `select id from messages
+          where sender_id = $1 and client_id = $2::uuid and conversation_id = $3`,
+        [userId, clientId, conversationId],
+      );
+      // The same id on a message in another conversation. Only a broken
+      // client does that, and the other message is not this one.
+      if (!earlier) throw new BadRequestException('That message id is already in use');
+      return (await this.joinedMessage(earlier.id))!;
+    }
+
+    const row = await this.joinedMessage(inserted.id);
 
     // Bumps the conversation so the list re-sorts even before anyone reads it.
     await this.db.query('update conversations set updated_at = now() where id = $1', [
@@ -948,7 +1092,11 @@ export class MessagesService {
       message: row,
     });
 
-    await this.notify(userId, conversationId, text, mentions);
+    // Not awaited. It looked up and pushed to each recipient in turn, and the
+    // sender's request waited for all of it: in a group, sending was slow in
+    // proportion to its size. The message is stored and delivered live by
+    // now, and notify never throws.
+    void this.notify(userId, conversationId, text, mentions);
     return row!;
   }
 
@@ -974,11 +1122,12 @@ export class MessagesService {
     body: string,
     context: Record<string, unknown>,
   ): Promise<MessageRow> {
-    const row = await this.db.queryOne<MessageRow>(
+    const inserted = await this.db.queryOne<{ id: string }>(
       `insert into messages (conversation_id, sender_id, body, kind, context)
-       values ($1, $2, $3, $4, $5::jsonb) returning *`,
+       values ($1, $2, $3, $4, $5::jsonb) returning id`,
       [conversationId, senderId, body.trim(), kind, JSON.stringify(context)],
     );
+    const row = await this.joinedMessage(inserted!.id);
 
     await this.db.query('update conversations set updated_at = now() where id = $1', [
       conversationId,
@@ -1023,8 +1172,11 @@ export class MessagesService {
           and m.deleted_at is null
           and (p.cleared_at is null or m.created_at > p.cleared_at)
           and (p.last_read_at is null or m.created_at > p.last_read_at)
-          -- A muted conversation still counts as unread inside the app; the
-          -- badge is a count, not an interruption. Muting only silences push.
+          -- Muted conversations are left out. Somebody muting a busy group
+          -- is asking it to stop calling for attention, and a badge that
+          -- never clears is exactly that. Its row in the list still shows
+          -- its own count.
+          and (p.muted_until is null or p.muted_until <= now())
           and not exists (
                 select 1 from message_deletions d
                  where d.message_id = m.id and d.user_id = $1
@@ -1151,35 +1303,37 @@ export class MessagesService {
 
       const mentioned = new Set(mentions);
 
-      for (const r of recipients) {
-        const tokens = await this.push.tokensFor(r.user_id);
-        if (tokens.length === 0) continue;
-        await this.push.send(
-          tokens.map((to) => ({
-            to,
-            // Being named in a busy group is worth surfacing above the rest —
-            // it is the difference between a thread you skim and one that
-            // needs you.
-            title: mentioned.has(r.user_id)
-              ? `${sender} mentioned you${meta?.is_group && meta.title ? ` · ${meta.title}` : ''}`
-              : title,
-            // Truncated: a preview should not spill a long message onto a lock
-            // screen in full.
-            body: body.length > 140 ? `${body.slice(0, 137)}…` : body,
-            // Its own channel, not 'reminders' — that one is silent and does
-            // not vibrate by design, which is wrong for a message. Android
-            // fixes importance at channel creation, so a message needs a
-            // channel of its own rather than a louder send.
-            channelId: 'messages',
-            sound: 'default' as const,
-            // Otherwise Android may hold the message until the next
-            // maintenance window while the device is dozing.
-            priority: 'high' as const,
-            // `conversationId` is what the tap handler routes on.
-            data: { type: 'message', conversationId },
-          })),
-        );
-      }
+      // Every recipient's pushes in one send, which batches them itself —
+      // not a round trip to Expo per person.
+      const tokenLists = await Promise.all(
+        recipients.map(async (r) => ({ r, tokens: await this.push.tokensFor(r.user_id) })),
+      );
+      const messages = tokenLists.flatMap(({ r, tokens }) =>
+        tokens.map((to) => ({
+          to,
+          // Being named in a busy group is worth surfacing above the rest —
+          // it is the difference between a thread you skim and one that
+          // needs you.
+          title: mentioned.has(r.user_id)
+            ? `${sender} mentioned you${meta?.is_group && meta.title ? ` · ${meta.title}` : ''}`
+            : title,
+          // Truncated: a preview should not spill a long message onto a lock
+          // screen in full.
+          body: body.length > 140 ? `${body.slice(0, 137)}…` : body,
+          // Its own channel, not 'reminders' — that one is silent and does
+          // not vibrate by design, which is wrong for a message. Android
+          // fixes importance at channel creation, so a message needs a
+          // channel of its own rather than a louder send.
+          channelId: 'messages',
+          sound: 'default' as const,
+          // Otherwise Android may hold the message until the next
+          // maintenance window while the device is dozing.
+          priority: 'high' as const,
+          // `conversationId` is what the tap handler routes on.
+          data: { type: 'message', conversationId },
+        })),
+      );
+      if (messages.length > 0) await this.push.send(messages);
     } catch {
       // Swallowed on purpose — see above.
     }

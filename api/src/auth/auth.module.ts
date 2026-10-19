@@ -10,6 +10,7 @@ import { AuthTokensService } from './auth-tokens.service';
 import { JwtStrategy } from './jwt.strategy';
 import { StorageModule } from '../storage/storage.module';
 import { PromosModule } from '../promos/promos.module';
+import { BillingModule } from '../billing/billing.module';
 import { UsersRepository } from './users.repository';
 import { TwoFactorService } from './two-factor.service';
 
@@ -26,6 +27,9 @@ import { TwoFactorService } from './two-factor.service';
     // Signup records who referred an account; verifying the address is what
     // pays them. Both halves of a referral live in this module's flows.
     PromosModule,
+    // Deleting an account cancels its auto-renewing plan first, or PayMongo
+    // keeps charging a card with no account left to stop it from.
+    BillingModule,
   ],
   controllers: [AuthController],
   providers: [
@@ -37,6 +41,9 @@ import { TwoFactorService } from './two-factor.service';
     UsersRepository,
     TwoFactorService,
   ],
-  exports: [AuthService],
+  // The console reuses these rather than keeping copies: a reset email, a
+  // verification link and a deletion from the console must be exactly the
+  // ones the app sends and does.
+  exports: [AuthService, AccountService, AccountFlowsService, UsersRepository],
 })
 export class AuthModule {}

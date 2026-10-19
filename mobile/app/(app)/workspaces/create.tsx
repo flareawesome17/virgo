@@ -1,18 +1,23 @@
 import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PALETTES } from '@/theme';
+import { InsetFrame } from '@/components/InsetFrame';
 import { useCreateWorkspace,
   usePlanLimits,
+  useTheme,
 } from '@/src/hooks';
 import { router } from 'expo-router';
+import { ApiError } from '@/src/api';
+import { useDiscardGuard } from '@/src/lib/discard-guard';
+import { FormHeader } from '@/components/FormHeader';
 import { useState } from 'react';
 import {
-  ArrowLeftIcon,
   PaletteIcon,
   CheckIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PaletteIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -28,11 +33,13 @@ const ACCENT_COLORS = [
 ];
 
 export default function CreateWorkspaceScreen() {
+  const placeholderColor = (useTheme().isDark ? PALETTES.dark : PALETTES.light).mutedForeground;
   const { atWorkspaceLimit, workspaceLimit, plan } = usePlanLimits();
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [accentColor, setAccentColor] = useState('#B66A40');
+  const { allowLeave } = useDiscardGuard({ name, description, accentColor });
 
   // The API owns id generation and the created_at / updated_at timestamps, so
   // none of them are sent from here any more.
@@ -46,9 +53,21 @@ export default function CreateWorkspaceScreen() {
         accent_color: accentColor,
       },
       {
-        onSuccess: (workspace) => router.replace(`/workspaces/${workspace.id}`),
+        onSuccess: (workspace) => {
+          allowLeave();
+          router.replace(`/workspaces/${workspace.id}`);
+        },
+        // A 403 here is the workspace limit (the count on this screen was
+        // stale), and its message is written for people, so it is shown as
+        // is. Anything else gets the generic line: a 400's wording comes from
+        // the validator and is not meant to be read.
         onError: (err) => {
-          Alert.alert('Error', 'Could not create workspace. Please try again.');
+          Alert.alert(
+            'Could not create workspace',
+            err instanceof ApiError && err.status === 403
+              ? err.message
+              : 'Please try again.',
+          );
           console.error(err);
         },
       },
@@ -60,7 +79,8 @@ export default function CreateWorkspaceScreen() {
   const canSave = name.trim().length > 0 && !atWorkspaceLimit;
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <InsetFrame>
+      <FormHeader title="New workspace" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
       <KeyboardAvoidingView
@@ -68,53 +88,32 @@ export default function CreateWorkspaceScreen() {
         className="flex-1"
       >
 
-      <ScrollView
+      <ScrollView keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Header */}
-        <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
-            onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: 0.04,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 2,
-            }}
-          >
-            <ArrowLeftIcon size={18} className="text-foreground" />
-          </Pressable>
-          <View>
-            <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              New Workspace
-            </Text>
-            <Text className="text-muted-foreground text-sm mt-0.5">
-              Create a creative project space
-            </Text>
-          </View>
-        </View>
 
         {/* Explains the disabled Create button. Without this the form simply
             refuses to submit with no stated reason. */}
         {atWorkspaceLimit && (
-          <View className="mx-5 mt-4 rounded-2xl p-4" style={{ backgroundColor: '#C76B4A18' }}>
-            <Text className="text-[#C76B4A] text-sm font-bold">Workspace limit reached</Text>
-            <Text className="text-[#C76B4A] text-xs mt-1">
+          <View className="mx-5 mt-4 rounded-2xl p-4 bg-warning/10">
+            <Text className="text-warning text-sm font-bold">Workspace limit reached</Text>
+            <Text className="text-warning text-xs mt-1">
               The {plan} plan includes {workspaceLimit} workspace
-              {workspaceLimit === 1 ? '' : 's'}. Delete one, or upgrade to add another.
+              {workspaceLimit === 1 ? '' : 's'}. Archived ones count too, so delete one you
+              have finished with to add another.
             </Text>
-            <Pressable
-              onPress={() => router.push('/settings/storage/plans')}
-              className="mt-3 rounded-xl py-2.5 items-center active:scale-[0.97]"
-              style={{ backgroundColor: '#C76B4A' }}
-            >
-              <Text className="text-white text-xs font-bold">See plans</Text>
-            </Pressable>
+            {/* Only where a plan can be bought: see SELLS_PLANS_HERE. */}
+            {SELLS_PLANS_HERE && (
+              <Pressable
+                onPress={() => router.push('/settings/storage/plans')}
+                className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
+              >
+                <Text className="text-white text-xs font-bold">See plans</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -123,13 +122,13 @@ export default function CreateWorkspaceScreen() {
           {/* Name */}
           <View>
             <Text className="text-foreground text-sm font-semibold mb-2 ml-1">
-              Workspace Name
+              Workspace name
             </Text>
             <TextInput
               value={name}
               onChangeText={setName}
               placeholder="e.g. Spring Collection 2026"
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',
@@ -151,7 +150,7 @@ export default function CreateWorkspaceScreen() {
               value={description}
               onChangeText={setDescription}
               placeholder="Brief description of this workspace..."
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholderColor}
               className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
               style={{
                 shadowColor: '#000',
@@ -171,7 +170,7 @@ export default function CreateWorkspaceScreen() {
           <View>
             <View className="flex-row items-center gap-2 mb-2 ml-1">
               <PaletteIcon size={14} className="text-muted-foreground" />
-              <Text className="text-foreground text-sm font-semibold">Workspace Color</Text>
+              <Text className="text-foreground text-sm font-semibold">Workspace color</Text>
             </View>
             <View className="flex-row flex-wrap gap-3">
               {ACCENT_COLORS.map((c) => (
@@ -269,6 +268,6 @@ export default function CreateWorkspaceScreen() {
         </Pressable>
       </View>
           </KeyboardAvoidingView>
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

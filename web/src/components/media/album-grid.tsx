@@ -3,7 +3,7 @@
 
 import { useMemo, type DragEvent, type MouseEvent } from 'react';
 import { Check, FileText, Heart, Music, Play, Video } from 'lucide-react';
-import { kindOf, type StoredFile } from '@/api';
+import { kindOf, THUMBNAIL_EDGE, type StoredFile } from '@/api';
 import { daySpan, groupByDay } from '@/lib/media-days';
 import { cn } from '@/lib/utils';
 import type { useSelection } from '@/hooks/useMediaSelection';
@@ -17,6 +17,43 @@ const TILE: Record<Density, string> = {
   comfortable: 'grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-2',
   compact: 'grid-cols-[repeat(auto-fill,minmax(6.75rem,1fr))] gap-1',
 };
+
+/**
+ * How wide a tile is drawn, for choosing among its pictures.
+ *
+ * `auto` is the tile's real width, where the browser knows it — Chromium,
+ * for a lazy image. Elsewhere the length after it stands in: the column's
+ * minimum with room for the stretch an auto-fill grid gives it.
+ */
+const TILE_SIZES: Record<Density, string> = {
+  comfortable: 'auto, 14rem',
+  compact: 'auto, 9rem',
+};
+
+/**
+ * A `srcset` for a square, cropped tile: the thumbnail and every display copy,
+ * each described by its SHORT edge.
+ *
+ * Cropped square, the short edge is what has to cover the tile, so that is
+ * the width the browser should weigh — it then takes the thumbnail while that
+ * covers the tile at the screen's density and a display copy once it does
+ * not. On a large or high-density screen the thumbnail was drawn stretched.
+ * Undefined when the photograph's size is unknown, and the thumbnail alone
+ * is drawn as before.
+ */
+function tileSrcSet(file: StoredFile): string | undefined {
+  const { width, height } = file;
+  if (!width || !height) return undefined;
+  const long = Math.max(width, height);
+  const shortOf = (edge: number) => Math.max(1, Math.round((edge * Math.min(width, height)) / long));
+  const candidates = [
+    ...(file.thumbnailUrl
+      ? [`${file.thumbnailUrl} ${shortOf(Math.min(THUMBNAIL_EDGE, long))}w`]
+      : []),
+    ...file.displaySources.map((source) => `${source.url} ${shortOf(source.width)}w`),
+  ];
+  return candidates.length > 1 ? candidates.join(', ') : undefined;
+}
 
 function clock(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -43,6 +80,7 @@ export function AlbumGrid({
   selecting,
   density,
   canDrag,
+  canSelect = true,
   onOpen,
 }: {
   files: StoredFile[];
@@ -52,13 +90,20 @@ export function AlbumGrid({
   density: Density;
   /** Only someone who can organise the album may drag files onto sections. */
   canDrag: boolean;
+  /**
+   * Whether there is anything a selection could be used for. Without it the
+   * ticks, the modifier clicks and Select day are gone, and a click opens.
+   */
+  canSelect?: boolean;
   onOpen: (file: StoredFile) => void;
 }) {
   const days = useMemo(() => groupByDay(files), [files]);
   const order = useMemo(() => files.map((file) => file.key), [files]);
 
   const click = (event: MouseEvent, file: StoredFile) => {
-    if (event.shiftKey) {
+    if (!canSelect) {
+      onOpen(file);
+    } else if (event.shiftKey) {
       event.preventDefault();
       selection.extendTo(file.key, order);
     } else if (event.metaKey || event.ctrlKey || selecting) {
@@ -94,16 +139,18 @@ export function AlbumGrid({
                 {day.items.length.toLocaleString()} item{day.items.length === 1 ? '' : 's'}
                 {span ? ` · ${span}` : ''}
               </p>
-              <button
-                type="button"
-                onClick={() => selection.setMany(keys, !allChosen)}
-                className={cn(
-                  'rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100',
-                  selecting ? 'opacity-100' : 'opacity-0 group-hover/day:opacity-100',
-                )}
-              >
-                {allChosen ? 'Clear day' : 'Select day'}
-              </button>
+              {canSelect && (
+                <button
+                  type="button"
+                  onClick={() => selection.setMany(keys, !allChosen)}
+                  className={cn(
+                    'rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100',
+                    selecting ? 'opacity-100' : 'opacity-0 group-hover/day:opacity-100',
+                  )}
+                >
+                  {allChosen ? 'Clear day' : 'Select day'}
+                </button>
+              )}
             </header>
 
             <ul className={cn('grid', TILE[density])}>
@@ -111,9 +158,11 @@ export function AlbumGrid({
                 <Tile
                   key={file.key}
                   file={file}
+                  sizes={TILE_SIZES[density]}
                   index={day.start + offset}
                   chosen={selection.has(file.key)}
                   selecting={selecting}
+                  selectable={canSelect}
                   draggable={canDrag}
                   onClick={click}
                   onToggle={() => selection.toggle(file.key)}
@@ -130,18 +179,23 @@ export function AlbumGrid({
 
 function Tile({
   file,
+  sizes,
   index,
   chosen,
   selecting,
+  selectable,
   draggable,
   onClick,
   onToggle,
   onDragStart,
 }: {
   file: StoredFile;
+  /** The tile's drawn width, as an `<img sizes>` value. */
+  sizes: string;
   index: number;
   chosen: boolean;
   selecting: boolean;
+  selectable: boolean;
   draggable: boolean;
   onClick: (event: MouseEvent, file: StoredFile) => void;
   onToggle: () => void;
@@ -149,6 +203,7 @@ function Tile({
 }) {
   const kind = kindOf(file.contentType);
   const still = kind === 'video' ? file.posterUrl : kind === 'image' ? (file.thumbnailUrl ?? file.url) : null;
+  const srcSet = kind === 'image' ? tileSrcSet(file) : undefined;
   const what = kind === 'image' ? 'Photograph' : kind === 'video' ? 'Film' : kind === 'audio' ? 'Recording' : 'File';
   const name = file.mediaTitle || file.originalName;
 
@@ -169,6 +224,8 @@ function Tile({
         {still ? (
           <img
             src={still}
+            srcSet={srcSet}
+            sizes={srcSet ? sizes : undefined}
             alt=""
             loading="lazy"
             decoding="async"
@@ -218,21 +275,23 @@ function Tile({
 
       {/* The tick. Its own button so it can be reached by keyboard and does
           not open the file; always there in selection mode, on hover otherwise. */}
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-pressed={chosen}
-        aria-label={`${chosen ? 'Deselect' : 'Select'} ${name}`}
-        className={cn(
-          'absolute top-1.5 left-1.5 grid size-6 place-items-center rounded-full border-2 transition-opacity focus-visible:opacity-100',
-          chosen
-            ? 'border-transparent bg-action text-action-foreground opacity-100'
-            : 'border-white bg-black/30 text-transparent hover:bg-black/45',
-          selecting || chosen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-        )}
-      >
-        <Check className="size-3.5" strokeWidth={3} aria-hidden />
-      </button>
+      {selectable && (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={chosen}
+          aria-label={`${chosen ? 'Deselect' : 'Select'} ${name}`}
+          className={cn(
+            'absolute top-1.5 left-1.5 grid size-6 place-items-center rounded-full border-2 transition-opacity focus-visible:opacity-100',
+            chosen
+              ? 'border-transparent bg-action text-action-foreground opacity-100'
+              : 'border-white bg-black/30 text-transparent hover:bg-black/45',
+            selecting || chosen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          )}
+        >
+          <Check className="size-3.5" strokeWidth={3} aria-hidden />
+        </button>
+      )}
     </li>
   );
 }

@@ -202,29 +202,47 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+  put: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
 
 /** Sign-in bypasses `request`: there is no token yet and nothing to refresh. */
-export async function signIn(email: string, password: string) {
-  const res = await fetch(`${API_BASE_URL}/admin/auth/login`, {
+async function postAuth(path: string, payload: unknown) {
+  const res = await fetch(`${API_BASE_URL}/admin/auth/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(payload),
   });
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     throw new ApiError(res.status, messageFrom(body, 'Could not sign in'));
   }
-  const parsed = body as {
-    accessToken: string;
-    refreshToken: string;
-    admin: unknown;
-  };
-  tokens.set(parsed.accessToken, parsed.refreshToken);
-  return parsed.admin;
+  return body as
+    | { accessToken: string; refreshToken: string }
+    | { twoFactorRequired: true; challenge: string };
+}
+
+/**
+ * The password step. Either signs in, or — for an account with two-factor —
+ * hands back a challenge for `completeSignIn`, valid for five minutes.
+ */
+export async function signIn(
+  email: string,
+  password: string,
+): Promise<{ challenge: string } | { challenge: null }> {
+  const result = await postAuth('login', { email, password });
+  if ('twoFactorRequired' in result) return { challenge: result.challenge };
+  tokens.set(result.accessToken, result.refreshToken);
+  return { challenge: null };
+}
+
+/** The code step: from the authenticator app, or a recovery code. */
+export async function completeSignIn(challenge: string, code: string): Promise<void> {
+  const result = await postAuth('login/2fa', { challenge, code });
+  if ('accessToken' in result) tokens.set(result.accessToken, result.refreshToken);
 }
 
 export async function signOut() {

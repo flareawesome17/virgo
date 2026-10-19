@@ -11,13 +11,14 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
+  Max,
   Min,
   ValidateIf,
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { BookingsService } from './bookings.service';
+import { IsCalendarDate } from '../common/validators/calendar-date';
 
 /**
  * Editing the terms.
@@ -35,7 +36,9 @@ class UpdateBookingDto {
 
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use a date like 2027-02-14' })
+  // A past date is refused in the service, and only when the date changed:
+  // the rest of an old booking's terms can still be corrected.
+  @IsCalendarDate()
   eventDate?: string | null;
 
   @IsOptional()
@@ -44,11 +47,15 @@ class UpdateBookingDto {
   @MaxLength(200)
   location?: string | null;
 
-  /** Centavos, so 15000 pesos is 1_500_000. */
+  /**
+   * Centavos, so 15000 pesos is 1_500_000. At most ₱500,000, the most a role
+   * can be posted at: past an int's range it was a server error.
+   */
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsInt()
   @Min(0)
+  @Max(50_000_000)
   rateMinor?: number | null;
 
   @IsOptional()

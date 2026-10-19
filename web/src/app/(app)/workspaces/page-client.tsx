@@ -1,19 +1,18 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
-import { Archive, ArrowLeft, FolderOpen, Loader2, Plus, Search } from 'lucide-react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Archive, ArrowLeft, FolderOpen, Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState } from '@/components/states';
 import { WorkspaceInvitations } from '@/components/workspace-invitations';
 import { WorkspaceCard } from '@/components/workspaces/workspace-card';
+import { CreateWorkspaceDialog } from '@/components/workspaces/create-workspace-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -21,129 +20,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { useCreateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces';
+import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAlbums } from '@/hooks/useAlbums';
 import { useUsage } from '@/hooks/useUsage';
-import { ACCENT_COLORS, plural } from '@/lib/workspaces';
+import { plural } from '@/lib/workspaces';
 import { cn } from '@/lib/utils';
-
-function CreateWorkspaceDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const router = useRouter();
-  const create = useCreateWorkspace();
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [color, setColor] = useState(ACCENT_COLORS[0].hex);
-
-  const submit = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    create.mutate(
-      { name: trimmed, description: description.trim() || null, accent_color: color },
-      {
-        onSuccess: (workspace) => {
-          onOpenChange(false);
-          setName('');
-          setDescription('');
-          setColor(ACCENT_COLORS[0].hex);
-          router.push(`/workspaces/${workspace.id}`);
-        },
-        onError: (err: Error) => toast.error('Could not create workspace', {
-          description: err.message,
-        }),
-      },
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New workspace</DialogTitle>
-          <DialogDescription>
-            A workspace holds the albums, schedule and people for one client or
-            one strand of work.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <Label htmlFor="ws-name">Name</Label>
-            <Input
-              id="ws-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Reyes Wedding"
-              autoFocus
-              maxLength={200}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit();
-              }}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="ws-description">Description</Label>
-            <Textarea
-              id="ws-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional"
-              rows={3}
-              maxLength={2000}
-            />
-          </div>
-          <fieldset className="grid gap-2">
-            <legend className="mb-2 text-sm font-medium">Colour</legend>
-            <div role="radiogroup" aria-label="Colour" className="flex flex-wrap gap-2">
-              {ACCENT_COLORS.map((c) => {
-                const on = c.hex === color;
-                return (
-                  <button
-                    key={c.hex}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    aria-label={c.name}
-                    title={c.name}
-                    onClick={() => setColor(c.hex)}
-                    className="size-7 rounded-full"
-                    style={{
-                      backgroundColor: c.hex,
-                      boxShadow: on ? `0 0 0 2px var(--background), 0 0 0 4px ${c.hex}` : undefined,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </fieldset>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!name.trim() || create.isPending}>
-            {create.isPending && <Loader2 className="size-4 animate-spin" />}
-            Create workspace
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 type Scope = 'all' | 'yours' | 'shared';
 type Sort = 'last_activity_at' | 'name' | 'created_at';
@@ -171,22 +52,37 @@ function WorkspacesContent() {
   });
   // For covers, and for what a member can do in the albums shared with them.
   const { albums } = useAlbums({ limit: 100 });
-  const { atWorkspaceLimit, usage } = useUsage();
+  const { atWorkspaceLimit, usage, loadFailed: usageFailed } = useUsage();
+
+  const limitReached = useCallback(() => {
+    // Nothing can be bought yet, so there is no upgrade to point at.
+    toast.error('Workspace limit reached', {
+      description: `Your ${usage?.plan ?? 'free'} plan includes ${usage?.workspaces.limit} workspace${usage?.workspaces.limit === 1 ? '' : 's'}. Archived ones count too, so delete one you have finished with to add another.`,
+    });
+  }, [usage]);
 
   // ?new=1 opens the dialog, so "New workspace" links from anywhere land here
   // already open rather than needing a second click. Applied during render
   // when the link arrives, rather than in an effect; the effect only takes it
   // back out of the URL, so a refresh does not reopen the dialog.
+  //
+  // It waits for the plan to be known and is held to the same limit as the
+  // button. The link used to open the form regardless, so somebody at the
+  // limit filled it in and was then refused by the server.
   const linkedNew = searchParams.get('new') === '1';
+  const usageKnown = usage !== undefined || usageFailed;
   const [appliedNew, setAppliedNew] = useState(false);
-  if (linkedNew !== appliedNew) {
-    setAppliedNew(linkedNew);
-    if (linkedNew) setCreating(true);
+  if (linkedNew && usageKnown && !appliedNew) {
+    setAppliedNew(true);
+    if (!atWorkspaceLimit) setCreating(true);
   }
+  if (!linkedNew && appliedNew) setAppliedNew(false);
 
   useEffect(() => {
-    if (linkedNew) router.replace('/workspaces');
-  }, [linkedNew, router]);
+    if (!linkedNew || !appliedNew) return;
+    if (atWorkspaceLimit) limitReached();
+    router.replace('/workspaces');
+  }, [linkedNew, appliedNew, atWorkspaceLimit, limitReached, router]);
 
   const yours = workspaces.filter((w) => w.is_owner);
   const shared = workspaces.filter((w) => !w.is_owner);
@@ -204,10 +100,7 @@ function WorkspacesContent() {
 
   const startCreate = () => {
     if (atWorkspaceLimit) {
-      toast.error('Workspace limit reached', {
-        description: `Your ${usage?.plan ?? 'free'} plan includes ${usage?.workspaces.limit} workspace${usage?.workspaces.limit === 1 ? '' : 's'}. Delete or archive one, or upgrade to add another.`,
-        action: { label: 'See plans', onClick: () => router.push('/settings/plans') },
-      });
+      limitReached();
       return;
     }
     setCreating(true);
@@ -224,7 +117,7 @@ function WorkspacesContent() {
         .join(' · ');
 
   return (
-    <AppShell title="Workspaces">
+    <Screen title="Workspaces">
       <PageHeader
         title={
           showArchived ? (
@@ -239,17 +132,11 @@ function WorkspacesContent() {
           )
         }
         description={isLoading ? undefined : summary}
-        actions={
-          showArchived ? undefined : (
-            <Button onClick={startCreate}>
-              <Plus className="size-4" />
-              New workspace
-            </Button>
-          )
-        }
+        // No "New workspace" here: that is the bar's Create, as on the
+        // phone. The empty state keeps its own, for a first one.
       />
 
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 sm:px-6 py-6">
         {/* Above the toolbar and the grid on purpose: an invitation is the one
             thing here that expires on someone else's patience. */}
         {!showArchived && <WorkspaceInvitations />}
@@ -361,7 +248,7 @@ function WorkspacesContent() {
       </div>
 
       <CreateWorkspaceDialog open={creating} onOpenChange={setCreating} />
-    </AppShell>
+    </Screen>
   );
 }
 

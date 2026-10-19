@@ -25,6 +25,7 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
+import { ScreenHeader } from '@/components/ScreenHeader';
 import { SITE, profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
@@ -53,8 +54,18 @@ export default function PublicProfileScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { settings, isLoading } = useProfileSettings();
+  const { settings, isLoading, loadFailed, refetch } = useProfileSettings();
   const setPublished = useSetPublished();
+
+  // It spun for as long as the settings were missing — forever, offline.
+  if (!settings && loadFailed) {
+    return (
+      <SafeAreaView className="flex-1 bg-background" edges={['top']}>
+        <ScreenHeader title="Public profile" />
+        <LoadFailed what="your public profile" onRetry={() => void refetch()} />
+      </SafeAreaView>
+    );
+  }
 
   if (isLoading || !settings) {
     return (
@@ -68,7 +79,7 @@ export default function PublicProfileScreen() {
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <View className="flex-row items-center gap-3 px-5 py-3">
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={10}>
           <ArrowLeftIcon size={20} className="text-foreground" />
         </Pressable>
         <Text className="text-foreground text-lg font-bold">Public profile</Text>
@@ -217,7 +228,8 @@ function HandleCard({
           />
         </View>
         <Pressable
-          className="rounded-xl px-4 py-3 bg-action"
+          className="rounded-xl px-4 min-h-[44px] justify-center bg-action"
+          accessibilityRole="button"
           style={{
             opacity:
               unchanged || lockedUntil || value.trim().length < 3 ||
@@ -228,11 +240,25 @@ function HandleCard({
             unchanged || Boolean(lockedUntil) || value.trim().length < 3 ||
             setHandle.isPending || check.data?.available === false
           }
-          onPress={() =>
-            setHandle.mutate(value.trim().toLowerCase(), {
-              onError: (error: Error) => Alert.alert('Could not save', error.message),
-            })
-          }
+          // Said back before it is done: the old address stops working at once
+          // and the new one cannot be changed again for thirty days.
+          onPress={() => {
+            const next = value.trim().toLowerCase();
+            const save = () =>
+              setHandle.mutate(next, {
+                onError: (error: Error) => Alert.alert("Couldn't save it", error.message),
+              });
+            Alert.alert(
+              current ? `Change to virgo.ph/@${next}?` : `Claim virgo.ph/@${next}?`,
+              current
+                ? `virgo.ph/@${current} stops working straight away, for every link you have shared. You can't change it again for 30 days.`
+                : "This becomes your public link. You can't change it again for 30 days.",
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: current ? 'Change it' : 'Claim it', onPress: save },
+              ],
+            );
+          }}
         >
           <Text className="text-action-foreground text-[13px] font-bold">
             {current ? 'Change' : 'Claim'}

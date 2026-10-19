@@ -20,18 +20,49 @@ import { BlocksService } from '../safety/blocks.service';
 import { normalizeRoles } from '../auth/roles';
 import { slugify } from './slug';
 import { canonicalLocation, coordsFor, locationKey } from './locations';
+import { positionOf } from '../discover/position-sql';
+
+/**
+ * An application that holds its role: accepted, with a booking that has not
+ * been cancelled.
+ *
+ * Accepted alone was the rule, and a cancelled booking left its application
+ * accepted — so the role read filled for ever, the poster could never hire
+ * anyone else for it, and a post whose only booking fell through dropped off
+ * the board. An accepted application from before bookings existed has none,
+ * and still holds its role.
+ */
+export const HOLDS_ROLE = (a: string): string => `(${a}.status = 'accepted'
+  and not exists (select 1 from job_bookings jb
+                   where jb.application_id = ${a}.id
+                     and jb.cancelled_at is not null))`;
+
+/**
+ * A post's status as everybody sees it.
+ *
+ * The stored status says open until the nightly sweep marks it expired, while
+ * every public read already treats a post past its window or its date as
+ * over. Said the same way everywhere, so the app is not told "open" about a
+ * post it then cannot open.
+ */
+const LIVE_STATUS = `case when p.status = 'open'
+                          and (p.expires_at <= now()
+                               or (p.event_date is not null and p.event_date < current_date))
+                         then 'expired' else p.status end`;
 
 /** How far ahead a post stays live without being touched. */
 const DEFAULT_LIFETIME_DAYS = 30;
 
 /**
- * Ten million centavos is ₱100,000 — well past any rate on this market.
+ * Fifty million centavos is ₱500,000. It is there to catch a slipped zero, not
+ * to set a price: ₱100,000 refused real posts, since a premium wedding
+ * photographer or videographer can charge more than that for one role.
  *
  * The same ceiling the controller used to apply to the post-level budget.
  * Enforced here now, because the shape it guards is a map keyed by role name
  * and a DTO cannot describe one.
  */
-const MAX_BUDGET = 100_000_00;
+const MAX_BUDGET = 500_000_00;
 
 /** What a stranger sees on the board. Deliberately not a `users` row. */
 /**
@@ -281,9 +312,9 @@ export class HiringService {
     (select coalesce(array_agg(distinct a.role), '{}')
        from hiring_applications a
       where a.post_id = p.id
-        and a.status = 'accepted'
+        and ${HOLDS_ROLE('a')}
         and a.role is not null) as filled_roles,
-    p.event_date, p.location, p.budget_min, p.budget_max, p.status,
+    p.event_date, p.location, p.budget_min, p.budget_max, ${LIVE_STATUS} as status,
     p.created_at, p.expires_at,
     u.display_name as poster_name,
     u.email        as poster_email,
@@ -358,20 +389,17 @@ export class HiringService {
     const locationKeyQuery = typed ? locationKey(canonicalLocation(typed)) : null;
 
     /*
-     * Where the reader is, on exactly the terms Nearby already uses.
-     *
-     * Only when they share their location and it is recent — somebody who
-     * shared a position months ago is not "near" anything in a useful sense,
-     * and ranking on it would be worse than not ranking at all.
+     * Where the reader is, on exactly the terms Nearby uses: a position they
+     * share while it counts — somebody who shared one months ago is not
+     * "near" anything in a useful sense — and otherwise the city on their
+     * address. Hiding from Nearby does not change it; this is their own
+     * board, ranked for them.
      */
     const me = await this.db.queryOne<{ lat: number | null; lon: number | null }>(
-      `select case when shares_location
-                    and location_updated_at > now() - interval '30 days'
-                   then latitude end as lat,
-              case when shares_location
-                    and location_updated_at > now() - interval '30 days'
-                   then longitude end as lon
-         from users where id = $1`,
+      `select pos.lat, pos.lon
+         from users u
+         cross join lateral (${positionOf('u')}) pos
+        where u.id = $1`,
       [viewerId],
     );
     const lat = me?.lat ?? null;
@@ -406,7 +434,7 @@ export class HiringService {
              where not exists (
                select 1 from hiring_applications a
                 where a.post_id = p.id
-                  and a.status = 'accepted'
+                  and ${HOLDS_ROLE('a')}
                   and a.role = wanted.role_name
              )
           )
@@ -494,17 +522,21 @@ export class HiringService {
          join users u on u.id = p.user_id
         where p.slug = $1
           and p.hidden_at is null
-          and p.expires_at > now()
           -- The same rule the board applies. Without it a post whose date has
           -- passed is missing from the board and still reachable by link, so
           -- it goes on quietly taking applications for a job that is over.
           --
           -- The owner is exempt: correcting the date is exactly how you repair
           -- one of these, and both create() and update() return through here.
+          -- So is anybody hired on it: that is their job, and links to it from
+          -- their applications and the chat said "no longer available".
           and (
-            p.event_date is null
-            or p.event_date >= current_date
+            (p.expires_at > now() and (p.event_date is null or p.event_date >= current_date))
             or p.user_id = $2
+            or exists (select 1 from hiring_applications hired
+                        where hired.post_id = p.id
+                          and hired.user_id = $2
+                          and hired.status = 'accepted')
           )
           and (
             p.user_id = $2
@@ -555,7 +587,8 @@ export class HiringService {
              -- Only posts still taking applications. A filled or closed post
              -- has already answered everyone, and counting its history kept
              -- the Jobs badge lit permanently on a job finished weeks ago.
-             and p.status = 'open'
+             -- One past its window or date is over too, swept or not.
+             and ${LIVE_STATUS} = 'open'
              and a.status = 'new'
              and not ${blockedBetween('$1', 'a.user_id')}
              and not ${suspendedAccount('a.user_id')})::text as applications`,
@@ -1004,13 +1037,32 @@ export class HiringService {
   async remove(userId: string, id: string): Promise<{ deleted: boolean }> {
     await this.ownedPost(userId, id);
     const cost = await this.endingCost(userId, id);
+    /*
+     * Not while somebody is booked on it.
+     *
+     * A booking is an agreement with another person, and deleting the post
+     * deleted it by cascade — without a word to the creative, whose booking
+     * simply vanished. Closing the post keeps the bookings; cancelling one
+     * tells them. Either is available; silently erasing an agreement is not.
+     */
+    if (cost.bookings > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'POST_HAS_BOOKINGS',
+        bookings: cost.bookings,
+        message:
+          cost.bookings === 1
+            ? 'Somebody is booked on this post. Close it instead, or cancel the booking first — deleting it would delete the booking without telling them.'
+            : `${cost.bookings} people are booked on this post. Close it instead, or cancel the bookings first — deleting it would delete them without telling anyone.`,
+      });
+    }
     await this.db.query('delete from hiring_posts where id = $1 and user_id = $2', [
       id,
       userId,
     ]);
     this.logger.warn(
       `job post ${id} deleted by ${userId} ` +
-        `(${cost.applications} application(s), ${cost.bookings} booking(s) went with it)`,
+        `(${cost.applications} application(s) went with it)`,
     );
     return { deleted: true };
   }
@@ -1154,12 +1206,58 @@ export class HiringService {
       email: jobApplication({
         applicantName: name,
         jobTitle: post.title,
-        url: `${this.mailConfig.appUrl}/jobs/mine`,
+        url: `${this.mailConfig.appUrl}/jobs`,
       }),
     });
 
     this.logger.log(`application ${row!.id} on post ${post.id} by ${userId}`);
     return this.applicationById(row!.id, userId);
+  }
+
+  /**
+   * Takes back an application the poster has not decided on.
+   *
+   * There was no way to do this at all: somebody who applied by mistake, or
+   * who took other work for the date, stayed in the poster's list until the
+   * post closed, and the only way out was to message a stranger asking to be
+   * declined.
+   *
+   * Deleted rather than marked, so the poster's list simply no longer has it,
+   * and so applying again later is possible — changing your mind twice is
+   * still a person, not a pattern. Only while it is new or shortlisted:
+   *
+   * - accepted means hired, with a booking hanging off the row, and walking
+   *   away from that is the booking's cancellation, not this;
+   * - declined stays, or deleting it would be a way to apply again to
+   *   somebody who has already said no.
+   *
+   * The status test is in the delete itself, so an acceptance that lands
+   * first wins — Postgres re-checks the row once the accept's lock is gone.
+   */
+  async withdraw(userId: string, applicationId: string): Promise<{ withdrawn: true }> {
+    const gone = await this.db.queryOne<{ id: string; post_id: string }>(
+      `delete from hiring_applications
+        where id = $1 and user_id = $2 and status in ('new', 'shortlisted')
+        returning id, post_id`,
+      [applicationId, userId],
+    );
+    if (gone) {
+      this.logger.log(`application ${gone.id} on post ${gone.post_id} withdrawn by ${userId}`);
+      return { withdrawn: true };
+    }
+
+    const row = await this.db.queryOne<{ status: string }>(
+      `select status from hiring_applications where id = $1 and user_id = $2`,
+      [applicationId, userId],
+    );
+    // Same answer for "not yours" and "does not exist", as respond() gives.
+    if (!row) throw new NotFoundException('Application not found');
+    if (row.status === 'accepted') {
+      throw new BadRequestException(
+        'You have been hired for this one — cancel the booking instead',
+      );
+    }
+    throw new BadRequestException('This application has already been answered');
   }
 
   /**
@@ -1200,7 +1298,7 @@ export class HiringService {
   private readonly applicationSelect = `
     select a.*, p.title as post_title, p.slug as post_slug,
            p.user_id as post_owner_id,
-           p.status  as post_status,
+           ${LIVE_STATUS} as post_status,
            u.display_name as person_name,
            u.email        as person_email,
            u.avatar_url   as person_avatar_url,
@@ -1314,6 +1412,30 @@ export class HiringService {
       // Stated, or — for an application written before the field existed —
       // inferred the old way, which is still right when it is unambiguous.
       const role = row.role ?? (overlap.length === 1 ? overlap[0] : null);
+
+      /*
+       * One booking per role. Accept was offered, and taken, on a role that
+       * was already filled, which booked it twice. Under a lock on the post,
+       * so two Accepts for the same role cannot both get through. A role
+       * whose booking was cancelled is free again (HOLDS_ROLE).
+       */
+      if (role) {
+        await client.query('select id from hiring_posts where id = $1 for update', [row.post_id]);
+        const taken = await client.query<{ id: string }>(
+          `select a.id from hiring_applications a
+            where a.post_id = $1 and a.role = $2 and a.id <> $3 and ${HOLDS_ROLE('a')}
+            limit 1`,
+          [row.post_id, role, applicationId],
+        );
+        if (taken.rows.length > 0) {
+          throw new ConflictException({
+            statusCode: 409,
+            error: 'Conflict',
+            code: 'ROLE_FILLED',
+            message: `Someone is already booked as ${role} on this job. Cancel their booking first to hire someone else.`,
+          });
+        }
+      }
 
       const forRole = role ? post.rows[0]?.role_budgets?.[role] : undefined;
 
@@ -1447,7 +1569,7 @@ export class HiringService {
            where not exists (
              select 1 from hiring_applications a
               where a.post_id = p.id
-                and a.status = 'accepted'
+                and ${HOLDS_ROLE('a')}
                 and a.role = wanted.role_name
            ))::text as open,
          (select count(*) from hiring_applications a

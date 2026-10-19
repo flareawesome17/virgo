@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, CloudOff, Loader2, MapPin, Send, UserSearch } from 'lucide-react';
+import { ArrowLeft, Clock, CloudOff, Loader2, MapPin, Send, UserSearch } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { useSendEnquiry } from '@/hooks/useHire';
+import { useHireEnquiries, useSendEnquiry } from '@/hooks/useHire';
 import { usePublicProfile } from '@/hooks/useProfile';
 
 /**
@@ -32,45 +32,65 @@ export default function HirePage() {
   // The same query, and so the same cache entry, as the profile this is
   // opened from: arriving here from it costs no second fetch.
   const profile = usePublicProfile(handle);
+  const hire = useHireEnquiries();
+  // Asking again, after already asking about another job, is your call.
+  const [askAgain, setAskAgain] = useState(false);
 
   const [message, setMessage] = useState('');
   const [roleWanted, setRoleWanted] = useState<string | null>(null);
   const [eventDate, setEventDate] = useState('');
   const [budget, setBudget] = useState('');
 
-  if (profile.isLoading) return <AppShell title="Hire"><CenteredSpinner /></AppShell>;
+  // Waits for the enquiries as well, or the form shows and then swaps for
+  // "you've already asked" a moment later. A list that fails to load does not
+  // hold the form back: isLoading goes false whether it arrived or not.
+  if (profile.isLoading || hire.isLoading) {
+    return <Screen title="Hire"><CenteredSpinner /></Screen>;
+  }
 
   // A failed load is not a missing profile: saying "not found" to somebody
   // on a bad connection sends them away from a person who is right there.
   if (!profile.notFound && profile.loadFailed) {
     return (
-      <AppShell title="Hire">
+      <Screen title="Hire">
         <EmptyState
           icon={CloudOff}
           title="Could not load this profile"
           description="Check your connection and try again."
           action={<Button onClick={() => profile.refetch()}>Try again</Button>}
         />
-      </AppShell>
+      </Screen>
     );
   }
 
   if (profile.notFound || !profile.profile) {
     return (
-      <AppShell title="Hire">
+      <Screen title="Hire">
         <EmptyState
           icon={UserSearch}
           title="Profile not found"
           description="This profile is private, or the handle has changed."
-          action={<Button onClick={() => router.push('/nearby')}>Find collaborators</Button>}
+          action={<Button onClick={() => router.push('/people?tab=nearby')}>Find collaborators</Button>}
         />
-      </AppShell>
+      </Screen>
     );
   }
 
   const person = profile.profile;
   const firstName = person.displayName.split(' ')[0];
   const tooShort = message.trim().length < 10;
+  /*
+   * One you sent that they have not answered.
+   *
+   * The form never knew, so a second click on Hire — from Nearby, then from
+   * their profile — sent the same person the same enquiry twice. Matched by
+   * handle, since that is all the address has; the leading @ and the case are
+   * how people type it, not part of it.
+   */
+  const asked = String(handle).replace(/^@/, '').toLowerCase();
+  const waiting = hire.sent.find(
+    (e) => e.status === 'new' && !!e.personHandle && e.personHandle.toLowerCase() === asked,
+  );
 
   const onSubmit = () => {
     send.mutate(
@@ -86,7 +106,7 @@ export default function HirePage() {
           toast.success(`Enquiry sent to ${firstName}`, {
             description: 'You will be connected as soon as they accept.',
           });
-          router.push('/network?tab=enquiries');
+          router.push('/people?tab=enquiries');
         },
         onError: (error: Error) => toast.error(error.message),
       },
@@ -94,8 +114,8 @@ export default function HirePage() {
   };
 
   return (
-    <AppShell title={`Hire ${person.displayName ?? ""}`.trim()}>
-      <div className="mx-auto w-full max-w-2xl px-6 py-6">
+    <Screen title={`Hire ${person.displayName ?? ""}`.trim()}>
+      <div className="mx-auto w-full max-w-2xl px-4 sm:px-6 py-6">
         <Button
           variant="ghost"
           size="sm"
@@ -137,87 +157,117 @@ export default function HirePage() {
               </Link>
             </div>
 
-            {person.roles.length > 0 && (
-              <div>
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-                  What do you need?
-                </Label>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {person.roles.map((role) => (
-                    <button
-                      key={role}
-                      type="button"
-                      onClick={() =>
-                        setRoleWanted((current) => (current === role ? null : role))
-                      }
-                    >
-                      <Badge
-                        variant={roleWanted === role ? 'default' : 'outline'}
-                        className="cursor-pointer px-3 py-1.5 text-[13px]"
-                      >
-                        {role}
-                      </Badge>
-                    </button>
-                  ))}
+            {waiting && !askAgain ? (
+              <div className="space-y-4">
+                <div className="space-y-2 rounded-xl bg-muted/40 p-4">
+                  <p className="flex items-center gap-2 text-[15px] font-bold">
+                    <Clock className="size-4 text-primary" />
+                    You’ve already asked {firstName}
+                  </p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Sent {new Date(waiting.createdAt).toLocaleDateString()}
+                    {waiting.roleWanted ? ` for ${waiting.roleWanted}` : ''}. They haven’t
+                    answered yet — you’ll hear when they do, and a chat opens if
+                    they accept.
+                  </p>
+                  <p className="line-clamp-4 whitespace-pre-line text-sm leading-relaxed">
+                    “{waiting.message}”
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button asChild>
+                    <Link href="/people?tab=enquiries">See your enquiries</Link>
+                  </Button>
+                  <Button variant="ghost" onClick={() => setAskAgain(true)}>
+                    Ask about a different job
+                  </Button>
                 </div>
               </div>
-            )}
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="eventDate">Date of the job</Label>
-                <Input
-                  id="eventDate"
-                  type="date"
-                  value={eventDate}
-                  onChange={(e) => setEventDate(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="budget">Budget (optional)</Label>
-                <Input
-                  id="budget"
-                  placeholder="₱25,000"
-                  value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
-                  maxLength={60}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="message">The brief</Label>
-              <Textarea
-                id="message"
-                rows={6}
-                maxLength={2000}
-                placeholder={`Hi ${firstName} — tell them what the job is, where it is, and roughly how long you need them for.`}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                {message.trim().length < 10
-                  ? 'A sentence or two at least — a blank enquiry rarely gets a reply.'
-                  : `${message.length} / 2000`}
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between gap-4 border-t pt-4">
-              <p className="text-xs text-muted-foreground">
-                Accepting connects you both and opens a chat.
-              </p>
-              <Button onClick={onSubmit} disabled={tooShort || send.isPending}>
-                {send.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Send className="size-4" />
+            ) : (
+              <>
+                {person.roles.length > 0 && (
+                  <div>
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                      What do you need?
+                    </Label>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {person.roles.map((role) => (
+                        <button
+                          key={role}
+                          type="button"
+                          onClick={() =>
+                            setRoleWanted((current) => (current === role ? null : role))
+                          }
+                        >
+                          <Badge
+                            variant={roleWanted === role ? 'default' : 'outline'}
+                            className="cursor-pointer px-3 py-1.5 text-[13px]"
+                          >
+                            {role}
+                          </Badge>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
-                Send enquiry
-              </Button>
-            </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="eventDate">Date of the job</Label>
+                    <Input
+                      id="eventDate"
+                      type="date"
+                      value={eventDate}
+                      onChange={(e) => setEventDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="budget">Budget (optional)</Label>
+                    <Input
+                      id="budget"
+                      placeholder="₱25,000"
+                      value={budget}
+                      onChange={(e) => setBudget(e.target.value)}
+                      maxLength={60}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="message">The brief</Label>
+                  <Textarea
+                    id="message"
+                    rows={6}
+                    maxLength={2000}
+                    placeholder={`Hi ${firstName} — tell them what the job is, where it is, and roughly how long you need them for.`}
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {message.trim().length < 10
+                      ? 'A sentence or two at least — a blank enquiry rarely gets a reply.'
+                      : `${message.length} / 2000`}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 border-t pt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Accepting connects you both and opens a chat.
+                  </p>
+                  <Button onClick={onSubmit} disabled={tooShort || send.isPending}>
+                    {send.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Send className="size-4" />
+                    )}
+                    Send enquiry
+                  </Button>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+    </Screen>
   );
 }

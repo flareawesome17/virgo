@@ -1,5 +1,6 @@
 import { useContext } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { interpolate, useAnimatedStyle } from 'react-native-reanimated';
 import {
   BottomTabBarHeightCallbackContext,
   type BottomTabBarProps,
@@ -49,6 +50,15 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
   const focusedKey = state.routes[state.index]?.key;
   const { hidden } = useChrome();
 
+  // Slid out rather than faded: it is already floating clear of the content,
+  // so there is somewhere to go. On the UI thread, from the same value the
+  // scrolling drives there, so it moves with the list rather than after it.
+  const slide = useAnimatedStyle(() => ({
+    transform: [{ translateY: hidden.value * (HEIGHT + INSET * 2) }],
+    // Gone before it reaches the edge, so it never sits half-cut by it.
+    opacity: interpolate(hidden.value, [0, 0.7], [1, 0], 'clamp'),
+  }));
+
   return (
     <Animated.View
       pointerEvents="box-none"
@@ -57,26 +67,17 @@ export function AppTabBar({ state, descriptors, navigation }: BottomTabBarProps)
       // reporting the same height while hidden: a list that reflowed every
       // time the bar went would jump under the finger that sent it away.
       onLayout={(e) => setTabBarHeight?.(e.nativeEvent.layout.height + INSET)}
-      style={{
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: INSET,
-        paddingHorizontal: INSET,
-        alignItems: 'center',
-        // Slid out rather than faded: it is already floating clear of the
-        // content, so there is somewhere to go. Native driver, so it stays
-        // smooth while the list it is reacting to is moving.
-        transform: [
-          {
-            translateY: hidden.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, HEIGHT + INSET * 2],
-            }),
-          },
-        ],
-        opacity: hidden.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-      }}
+      style={[
+        {
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: INSET,
+          paddingHorizontal: INSET,
+          alignItems: 'center',
+        },
+        slide,
+      ]}
     >
       <View
         accessibilityRole="tablist"

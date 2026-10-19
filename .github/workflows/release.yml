@@ -462,6 +462,17 @@ jobs:
             echo "::error::The build reported success but produced no installers."
             exit 1
           fi
+          # Each Windows installer is now an update channel of its own: an MSI
+          # install is offered the MSI, and NSIS the NSIS. `nullglob` would let
+          # either signature go missing without a word, and its installs would
+          # simply stop being offered updates, so a missing one fails here, as
+          # it does for the macOS tarball below.
+          for INSTALLER in "$BUNDLE"/msi/*.msi "$BUNDLE"/nsis/*-setup.exe; do
+            if [ ! -f "$INSTALLER.sig" ]; then
+              echo "::error::$INSTALLER has no .sig; bundle.createUpdaterArtifacts must be on."
+              exit 1
+            fi
+          done
           mkdir -p installers
           cp "${FILES[@]}" installers/
           printf 'collected %s\n' "${FILES[@]}"

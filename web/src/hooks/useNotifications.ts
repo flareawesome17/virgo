@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query';
 import {
   ApiError,
+  CATEGORY_OF_TOPIC,
   notificationsApi,
   queryKeys,
   type AppNotification,
@@ -98,6 +99,8 @@ export function useNotificationFeed(
     loadFailed: query.isError || query.isPaused,
     notifications,
     unread: query.data?.pages[0]?.unread ?? 0,
+    /** The filtered kind's own count, when one is chosen and the API says. */
+    categoryUnread: query.data?.pages[0]?.categoryUnread,
   };
 }
 
@@ -215,11 +218,18 @@ export function useUnreadNotifications() {
 export function useMarkNotificationsRead() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (ids?: string[]) => notificationsApi.markRead(ids),
-    onMutate: (ids) => {
+    // Ids, or one kind (`{ category }`), or nothing for every one.
+    mutationFn: (target?: string[] | { category: NotificationCategory }) =>
+      Array.isArray(target)
+        ? notificationsApi.markRead(target)
+        : target
+          ? notificationsApi.markRead(undefined, target.category)
+          : notificationsApi.markRead(),
+    onMutate: (target) => {
       const at = new Date().toISOString();
-      patchCached(queryClient, ids ? new Set(ids) : null, (n) =>
-        n.readAt ? n : { ...n, readAt: at },
+      const category = target && !Array.isArray(target) ? target.category : null;
+      patchCached(queryClient, Array.isArray(target) ? new Set(target) : null, (n) =>
+        n.readAt || (category && CATEGORY_OF_TOPIC[n.topic] !== category) ? n : { ...n, readAt: at },
       );
     },
     onSuccess: (result) => {

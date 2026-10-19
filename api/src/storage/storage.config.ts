@@ -74,8 +74,13 @@ export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
  */
 const AVATAR_KEY = /^users\/[^/]+\/avatars\//;
 const COVER_KEY = /^users\/[^/]+\/covers\//;
-/** Objects kept in the public bucket at a permanent CDN URL. */
-const PUBLIC_KEY = /^users\/[^/]+\/(avatars|covers)\//;
+/**
+ * Objects kept in the public bucket at a permanent CDN URL.
+ *
+ * Showcases too: each piece's own web copies (090), made so a post outlives
+ * the album file it came from. Never an original — those stay private.
+ */
+const PUBLIC_KEY = /^users\/[^/]+\/(avatars|covers|showcases)\//;
 
 /**
  * What a cover upload may be: stills the server's sharp can decode.
@@ -234,7 +239,7 @@ export class StorageConfig {
   private readonly logger = new Logger(StorageConfig.name);
 
   readonly provider: string;
-  /** The original bucket. Public, and holds nothing but avatars and covers. */
+  /** The original bucket. Public: avatars, covers and showcases' web copies. */
   readonly bucket: string;
   /** Private. Everything that is somebody's work rather than their face. */
   readonly mediaBucket: string;
@@ -314,7 +319,8 @@ export class StorageConfig {
   }
 
   /**
-   * Is this an avatar or a cover — an object at a permanent public URL?
+   * Is this an object at a permanent public URL — an avatar, a cover, or a
+   * showcase's web copy?
    *
    * Those are never filed into an album. An album can be deleted or swept by
    * retention, and a profile photo filed into one would go with it and leave

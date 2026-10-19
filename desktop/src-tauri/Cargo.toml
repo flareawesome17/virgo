@@ -60,9 +60,19 @@ tauri-plugin-process = "2"
 
 # System notifications. It also stands in for the browser's `Notification` API,
 # which the webview does not have, so the web client's existing alerts work in
-# the app unchanged. 2.4 needs tauri ^2.10, which the lock already satisfies, so
-# adding it moves nothing else.
+# the app unchanged.
+#
+# It was added here without Cargo.lock being updated, so every release since
+# resolved it — and with it the newest tauri and wry — afresh on the runner.
+# The lock now records that resolution, and the desktop check in CI builds
+# with --locked so a manifest change cannot leave it behind again.
 tauri-plugin-notification = "2.4"
+
+# One copy of the app at a time. Opening Virgo while it was already open
+# started a second shell, which killed the first one's server on its way to
+# finding the port taken, and left the first window loading forever. A second
+# launch now focuses the window that is already there and exits.
+tauri-plugin-single-instance = "2"
 
 # Nothing else. The Node process is started with std::process::Command and the
 # webview is moved with `eval`, so neither tauri-plugin-shell nor

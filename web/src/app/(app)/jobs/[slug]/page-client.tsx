@@ -8,6 +8,7 @@ import {
   Banknote,
   BriefcaseBusiness,
   CalendarDays,
+  Ellipsis,
   Flag,
   MapPin,
   Send,
@@ -15,7 +16,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell } from '@/components/app-shell';
+import { Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,13 +26,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   applicationFor,
   budgetLabel,
   isRoleFilled,
-  jobUrl,
   openRolesOf,
   roleBudgetLabel,
   rolesLeftFor,
@@ -39,18 +41,18 @@ import {
 } from '@/api';
 import { cn } from '@/lib/utils';
 import { useJob, useMyApplications, useReportJob } from '@/hooks/useJobs';
+import { PersonSafetyItems, usePersonSafety } from '@/components/people/person-safety';
 import {
   ApplicationBadge,
   ApplicationState,
 } from '@/components/jobs/application-state';
+import { copyJobLink } from '@/components/jobs/copy-job-link';
 
 /** "Photographer and HMUA", "a, b and c" — a list a sentence can contain. */
 function listOf(items: readonly string[]): string {
   if (items.length <= 1) return items[0] ?? '';
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
-
-const SITE = process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph';
 
 /** "Sat 19 Dec". */
 function jobDate(value: string): string {
@@ -87,6 +89,14 @@ export default function JobPage() {
   const job = useJob(slug);
   const report = useReportJob();
   const [reported, setReported] = useState(false);
+  // By post: it names the poster and carries no account id. Across a block
+  // the post is gone, so blocking goes back, as on the phone.
+  const safety = usePersonSafety('job', {
+    onBlocked: () => {
+      if (window.history.length > 1) router.back();
+      else router.replace('/jobs');
+    },
+  });
   /*
    * The conversation, if acceptance already opened one.
    *
@@ -98,18 +108,20 @@ export default function JobPage() {
   const conversationId =
     applications.find((a) => a.postSlug === slug)?.conversationId ?? null;
 
-  if (job.isLoading) return <AppShell title="Job"><CenteredSpinner /></AppShell>;
+  if (job.isLoading) return <Screen title="Job"><CenteredSpinner /></Screen>;
 
   if (job.isError || !job.data) {
     return (
-      <AppShell title="Job">
+      <Screen title="Job">
         <EmptyState
           icon={BriefcaseBusiness}
           title="Job not found"
-          description="This post has been filled, closed, or taken down."
-          action={<Button onClick={() => router.push('/jobs/mine')}>Browse jobs</Button>}
+          // Filled and closed posts still open, saying so; what does not open
+          // is one that has ended or been taken down.
+          description="This post has ended or been taken down."
+          action={<Button onClick={() => router.push('/jobs')}>Browse jobs</Button>}
         />
-      </AppShell>
+      </Screen>
     );
   }
 
@@ -119,15 +131,7 @@ export default function JobPage() {
   const rolesLeft = rolesLeftFor(post);
   const openRoles = openRolesOf(post);
 
-  const share = async () => {
-    const url = jobUrl(post.slug, SITE);
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success('Link copied', { description: url });
-    } catch {
-      toast.info(url);
-    }
-  };
+  const share = () => copyJobLink(post.slug);
 
   const flag = (reason: ReportReason) => {
     report.mutate(
@@ -143,8 +147,8 @@ export default function JobPage() {
   };
 
   return (
-    <AppShell title={job.data.title}>
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+    <Screen title={job.data.title}>
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
         <Button
           variant="ghost"
           size="sm"
@@ -160,9 +164,9 @@ export default function JobPage() {
             {post.status === 'filled'
               ? 'This job has been filled.'
               : post.status === 'expired'
-                ? 'This post has expired.'
+                ? 'This job has ended.'
                 : 'This post is closed.'}{' '}
-            <Link href="/jobs/mine" className="font-semibold underline">
+            <Link href="/jobs" className="font-semibold underline">
               See what else is open
             </Link>
           </div>
@@ -180,25 +184,37 @@ export default function JobPage() {
                 <Button variant="ghost" size="icon" onClick={share} aria-label="Copy link">
                   <Share2 className="size-4" />
                 </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Report this post"
-                      disabled={reported || report.isPending}
-                    >
-                      <Flag className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {REPORT_REASONS.map((r) => (
-                      <DropdownMenuItem key={r.value} onClick={() => flag(r.value)}>
-                        {r.label}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* The post and the person behind it are reported apart: what is
+                    wrong with one post is not always wrong with its poster. */}
+                {!post.isMine && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label="More for this post">
+                        <Ellipsis className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-52">
+                      <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Flag className="size-3.5" />
+                        {reported ? 'Post reported' : 'Report this post'}
+                      </DropdownMenuLabel>
+                      {REPORT_REASONS.map((r) => (
+                        <DropdownMenuItem
+                          key={r.value}
+                          disabled={reported || report.isPending}
+                          onSelect={() => flag(r.value)}
+                        >
+                          {r.label}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                      <PersonSafetyItems
+                        safety={safety}
+                        subject={{ name: post.postedBy.displayName, target: { jobPostId: post.id } }}
+                      />
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
             </div>
 
@@ -307,10 +323,12 @@ export default function JobPage() {
             {post.isMine ? (
               <div className="flex items-center justify-between gap-4 border-t pt-5">
                 <p className="text-xs text-muted-foreground">
-                  This is your post. Applications arrive under My jobs.
+                  This is your post. Applications arrive under Jobs › Posted.
                 </p>
+                {/* To this post's row with its applicants open, not the top
+                    of the board with every post shut. */}
                 <Button asChild variant="outline">
-                  <Link href="/jobs/mine">
+                  <Link href={`/jobs?tab=posted&post=${post.id}`}>
                     <Users className="size-4" />
                     Manage post
                   </Link>
@@ -348,7 +366,8 @@ export default function JobPage() {
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+      {safety.dialogs}
+    </Screen>
   );
 }
 

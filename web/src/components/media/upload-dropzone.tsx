@@ -64,11 +64,18 @@ export function UploadDropzone({
   target,
   children,
   className,
+  disabled = false,
 }: {
   target: UploadTarget;
   /** The content the zone wraps, so the whole page is a drop target. */
   children: ReactNode;
   className?: string;
+  /**
+   * For someone who may look but not add. Nothing is taken and no overlay
+   * invites the drop; the page still swallows it, so a stray file does not
+   * open in the tab in place of the app.
+   */
+  disabled?: boolean;
 }) {
   const { enqueue } = useUploadQueue();
   const [dragging, setDragging] = useState(false);
@@ -137,12 +144,21 @@ export function UploadDropzone({
   return (
     <div
       className={cn('relative', className)}
-      onDragEnter={onDragEnter}
+      onDragEnter={disabled ? undefined : onDragEnter}
       onDragOver={(event) => {
-        if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+        if (!event.dataTransfer?.types.includes('Files')) return;
+        event.preventDefault();
+        // The no-entry cursor, so the refusal shows before anything is let go.
+        if (disabled) event.dataTransfer.dropEffect = 'none';
       }}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
+      onDragLeave={disabled ? undefined : onDragLeave}
+      onDrop={
+        disabled
+          ? (event) => {
+              if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+            }
+          : onDrop
+      }
     >
       {children}
 
@@ -180,7 +196,7 @@ export function UploadDropzone({
       <button type="button" data-upload-trigger aria-hidden tabIndex={-1} className="sr-only" onClick={() => filesInput.current?.click()} />
       <button type="button" data-upload-folder-trigger aria-hidden tabIndex={-1} className="sr-only" onClick={() => folderInput.current?.click()} />
 
-      {dragging && (
+      {dragging && !disabled && (
         <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center rounded-xl border-2 border-dashed border-primary bg-background/85 backdrop-blur-sm">
           <div className="text-center">
             <CloudUpload className="mx-auto size-10 text-primary" />

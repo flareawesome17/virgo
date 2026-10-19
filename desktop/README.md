@@ -22,16 +22,24 @@ starting a third UI tree.
 ```
   Tauri window
     ├─ splash/index.html          shown immediately, ~1 s
-    └─ http://127.0.0.1:<port>    the real app, once the server answers
+    └─ http://127.0.0.1:41730     the real app, once the server answers
          ▲
          └── node server.js       Next standalone, spawned by the Rust shell
-                                  on a loopback port, killed on exit
+                                  on the loopback port, killed on exit
 ```
 
-`src-tauri/src/lib.rs` reserves a free port, starts the bundled Node runtime
-against the staged server, polls until the socket accepts, then moves the
-webview off the splash. The server binds `127.0.0.1` only, so an open app does
+`src-tauri/src/lib.rs` starts the bundled Node runtime against the staged
+server on port 41730, polls until the socket accepts, then moves the webview
+off the splash. The port is fixed because `http://127.0.0.1:41730` is the
+origin the API accepts. The server binds `127.0.0.1` only, so an open app does
 not put a signed-in session on the local network.
+
+The shell also decides what the window may show. Its own splash and the app on
+41730 load in it; every other link goes to the system browser, and a new
+window (`target="_blank"`, `window.open`) is never a second webview. The one
+exception is a download the app marks with `#virgo-download`: that loads, and
+the shell saves it to the Downloads folder and tells the page when it is done.
+Only one copy runs: a second launch focuses the open window and exits.
 
 ### Why a server and not a static export
 
@@ -71,40 +79,84 @@ and position on exit and restores them on launch. Opening at the same centred
 1280×860 every time, whatever the user did last, is a small thing that reads as
 a web page rather than an application.
 
-Windows keeps its standard frame for now. Replacing it means drawing the
-controls in the app, which needs Tauri's JS API — and that is not injected here,
-because the app is loaded from `http://127.0.0.1:41730`, an origin the webview
-treats as remote. Granting IPC to that origin is a deliberate decision rather
-than a detail, so it is not taken as part of this.
+On Windows the app draws its own title bar, `DesktopTitleBar` in `web/`, and
+the shell turns the system frame off. That needs Tauri's JS API in a page
+loaded from `http://127.0.0.1:41730`, an origin the webview treats as remote,
+so the capabilities in `src-tauri/capabilities/` grant IPC to that origin and
+list exactly what it may do: the window controls, its title and badge, holding
+a close while uploads run, notifications, the updater, and opening links only
+to `api.virgo.ph`. Nothing reads the filesystem or runs a shell.
 
 ## Updates
 
-There is no auto-updater, and for this architecture that is less of a gap than
-it sounds. The app *is* the web client, so every product change reaches it the
-moment the server is deployed — no installer involved. The installer only needs
-replacing when the shell itself changes, which is rare.
+**Deploying the web does not update the desktop app.** The app runs the web
+client, but its own copy of it: `stage-web.mjs` builds `web/` in standalone
+mode and stages that build into `src-tauri/resources/web`, which Tauri bundles
+into the installer. Every installed copy runs the web app exactly as it was at
+the release it was installed or last updated from. A deploy to web.virgo.ph
+changes the browser and nothing on anyone's desktop. Only the API is shared
+live: the app calls `api.virgo.ph` like any other client, so a server change
+reaches it at once.
 
-What the app cannot work out on its own is that it has been superseded. So
-`DesktopUpdateBanner` in `web/src/components` asks `/downloads/latest` on load,
-compares it to the version staged into the bundle, and offers the installer for
-the platform it is running on. Dismissal is remembered per version, so saying
-"not now" to 1.8.0 does not also silence 1.9.0.
+So a web fix reaches desktop users the same way a change to the shell does:
+through a release. Publishing a `vX.Y.Z` release runs the release workflow,
+which builds new installers from that tag, web app included, and attaches them
+to the release. Installed copies then find the update and offer it in the app.
+Every `v*` release rebuilds the installers whether or not its change was meant
+for desktop, so there is nothing extra to do beyond cutting the release, and
+nothing reaches a desktop until somebody does.
 
-Two things make that work, both of them build-time:
+How the app finds out: `DesktopUpdateBanner` in `web/src/components` asks
+`tauri-plugin-updater` on launch, every 30 minutes while the app is open, and
+when the window comes back after five minutes away. The plugin polls
 
-- `NEXT_PUBLIC_VIRGO_DESKTOP` is set only by `stage-web.mjs`, so the banner is
-  inert in the image serving web.virgo.ph. It cannot be detected at runtime:
-  Tauri injects its API only into pages it serves itself, and this bundle is
-  loaded over `http://127.0.0.1:41730`, which the webview treats as remote.
-  Nothing on the page can tell itself apart from a browser tab.
-- `NEXT_PUBLIC_DESKTOP_VERSION` is read out of `tauri.conf.json` by the same
-  script, so it is by construction the number the installer carries. A bundle
-  that disagreed with its own installer would either nag forever or never
-  mention an update at all.
+```
+https://api.virgo.ph/downloads/updater/{{target}}/{{arch}}/{{current_version}}?bundle={{bundle_type}}
+```
+
+which `api/src/downloads` answers with the newest release's signed installer,
+or `204` when the app is current. The update downloads inside the app with a
+progress bar, then asks before restarting. Dismissal is remembered per version,
+so saying "not now" to 1.8.0 does not also silence 1.9.0. Nothing is installed
+unless it is signed with the key whose public half is in `tauri.conf.json`.
+
+`?bundle=` is there for Windows, which ships two installers that put the app in
+different places: the MSI installs it for the whole machine, the NSIS
+`-setup.exe` for the current user. Running the NSIS installer over an MSI
+install does not update it; it installs a second copy beside the first. So the
+plugin says which installer it came from, the API answers `msi` with the
+release's `.msi` and its `.msi.sig`, and answers anything else with the NSIS
+installer. Anything else includes no parameter at all, which is what every
+copy built before the parameter existed sends: an MSI install from before it is
+still offered the NSIS installer until it is reinstalled from a newer MSI. A
+release missing its signed MSI offers MSI installs nothing rather than the
+wrong installer.
+
+Two things are fixed at build time:
+
+- `NEXT_PUBLIC_VIRGO_DESKTOP` is set only by `stage-web.mjs`, so the image
+  serving web.virgo.ph compiles the banner away entirely.
+- The version the update check compares against is the shell's own, from
+  `tauri.conf.json`, which the release workflow stamps from the tag.
+  `NEXT_PUBLIC_DESKTOP_VERSION` is read out of the same file by
+  `stage-web.mjs`, so the web bundle states the number its installer carries.
+  Settings → About shows it, and update announcements are targeted by it.
 
 A local `npm run stage` picks up whatever version that file says, which is
 usually behind the newest release — so a locally built app will offer to update
 itself to the real one. That is correct rather than a bug.
+
+## The log
+
+A release build has no console, so the shell writes what it does to
+`%TEMP%\virgo-desktop.log` (on macOS, `$TMPDIR/virgo-desktop.log`): each step
+of starting up, and every line the Next server prints, prefixed `[next]`. The
+splash's error text points there when the app fails to start.
+
+It is rotated at launch. Once it reaches about 2 MB it is renamed
+`virgo-desktop.log.old`, replacing the previous one, and a fresh file is
+started, so there is the current log and at most one older copy. Before that
+it only ever grew, for as long as the app had been installed.
 
 ## The API has to allow this app's origin
 
@@ -240,6 +292,22 @@ VIRGO_API_URL=https://virgo-dev-api.virgo.ph npm run stage
 
 Defaults to `https://api.virgo.ph`.
 
+### Checking the shell without building it
+
+The release workflow is the only place the shell is built, so check a change
+to `src-tauri/` before it gets there. The build script wants the staged icons,
+sidecar and server on disk; `stage-check.mjs` puts placeholders in whichever
+are missing, and never replaces a real staged file:
+
+```bash
+node scripts/stage-check.mjs
+cd src-tauri && cargo clippy --locked -- -D warnings && cargo clippy --locked --release -- -D warnings
+```
+
+The `Desktop check` workflow runs the same on Windows and macOS for any pull
+request that touches `desktop/`. `--locked` fails when `Cargo.lock` is behind
+`Cargo.toml`: run `cargo check` without it and commit the lock it writes.
+
 ## What is verified, and what is not
 
 The web half was run end to end from the staged bundle on this machine:
@@ -309,11 +377,16 @@ above, with no `\\?\`, is that fix working.
 - **Payload.** ~122 MB staged before compression: 33 MB app, 89 MB Node. A
   smaller runtime, or a static export after restructuring the seven dynamic
   routes, is where that goes if it matters.
-- **Offline.** The app talks to `api.virgo.ph` for everything. The shell starts
-  and the UI renders offline; the content does not load. TanStack Query's
-  AsyncStorage persistence is mobile-only — web has no equivalent.
-- **No desktop integration yet.** No tray, no native menu, no notifications, no
-  deep links, no auto-update. Tauri supports all of them; none is wired.
+- **Offline.** The app talks to `api.virgo.ph` for everything. The desktop build
+  keeps the query cache on disk for a day (`virgo.offline.cache`), so what was
+  last open still shows without a connection; nothing new loads, and changes
+  wait for one.
+- **Desktop integration is partial.** Updates (see above), system
+  notifications, the unread count in the window title and the Dock badge, and
+  on macOS a View menu with Reload, Back and Forward are wired (Windows keeps
+  WebView2's F5 and Alt+Left). Clicking a notification brings Virgo forward but
+  does not open what it was about. There is no tray and there are no deep links
+  yet; Tauri supports both.
 - **Signing.** macOS signs and notarises in the release workflow once the six
   `APPLE_*` repository secrets exist. The Node sidecar is signed with
   `src-tauri/Entitlements.plist`, because V8 needs JIT under the hardened
@@ -325,6 +398,7 @@ above, with no `\\?\`, is that fix working.
   Windows locks a running executable — the linker then retries for as long as
   the app is open. One rebuild here took 67 minutes for that reason instead of
   two. Close the app before rebuilding.
-- **Port race.** The free port is reserved by binding and releasing, so another
-  process can take it in the gap. Surfaces as a failed start, never as a wrong
-  connection, because the port is passed to Node explicitly.
+- **One port.** The fixed port means one running copy per machine: a second
+  Windows user signed in at the same time cannot open Virgo while the first has
+  it open, and gets "Port 41730 is already in use". Allowing a range would mean
+  the API accepting each of those origins.

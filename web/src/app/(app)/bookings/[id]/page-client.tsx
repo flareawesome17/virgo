@@ -7,9 +7,11 @@ import { ArrowLeft, Check, MessageCircle, Pencil, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { track } from '@/lib/analytics';
 import { rateLabel, type Booking } from '@/api';
-import { AppShell } from '@/components/app-shell';
+import { MAX_ROLE_BUDGET_MINOR } from '@/lib/job-form';
+import { Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { bookingState } from '@/components/jobs/booking-card';
+import { BookingMoney } from '@/components/money/booking-money';
 import {
   useBooking,
   useCancelBooking,
@@ -22,6 +24,16 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 /**
  * One booking, and the two things you can do to it.
@@ -38,26 +50,26 @@ export default function BookingPage() {
 
   if (isLoading) {
     return (
-      <AppShell title="Booking">
+      <Screen title="Booking">
         <CenteredSpinner />
-      </AppShell>
+      </Screen>
     );
   }
 
   if (loadFailed || !booking) {
     return (
-      <AppShell title="Booking">
-        <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <Screen title="Booking">
+        <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
           <p className="py-16 text-center text-sm text-muted-foreground">
             That booking is not available.
           </p>
         </div>
-      </AppShell>
+      </Screen>
     );
   }
 
   return (
-    <AppShell title="Booking">
+    <Screen title="Booking">
       {/*
         The same container every other page in the app has, and this one did
         not: it rendered straight into the shell, so the back link sat against
@@ -68,9 +80,9 @@ export default function BookingPage() {
         max-w-3xl to match the other detail pages (a job post, settings,
         nearby) rather than the wider list pages.
       */}
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
         <Link
-          href="/bookings"
+          href="/jobs?tab=bookings"
           className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
@@ -86,7 +98,7 @@ export default function BookingPage() {
           <View booking={booking} onEdit={() => setEditing(true)} />
         )}
       </div>
-    </AppShell>
+    </Screen>
   );
 }
 
@@ -94,6 +106,8 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
   const state = bookingState(booking);
   const confirm = useConfirmBooking(booking.id);
   const cancel = useCancelBooking(booking.id);
+  const [cancelling, setCancelling] = useState(false);
+  const [reason, setReason] = useState('');
   const rate = rateLabel(booking.rateMinor, booking.currency);
   const done = !!booking.cancelledAt;
   /*
@@ -171,6 +185,10 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
             : `Only ${booking.otherParty.displayName} can change these terms — they posted the job. If something is not right, say so in the chat.`)}
       </p>
 
+      {/* What it earned or cost, in Money. The "Got paid?" notification opens
+          this page, so this is where it is answered. */}
+      <BookingMoney bookingId={booking.id} cancelled={done} />
+
       {!done && (
         <div className="mt-5 flex flex-wrap gap-2">
           {/* Only the person hired. The poster wrote the offer; agreeing with
@@ -214,14 +232,8 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
             className="ml-auto text-muted-foreground hover:text-destructive"
             disabled={cancel.isPending}
             onClick={() => {
-              const reason = prompt(
-                'Cancel this booking? Tell them why (optional).',
-              );
-              if (reason === null) return;
-              cancel.mutate(reason || undefined, {
-                onSuccess: () => toast.success('Booking cancelled'),
-                onError: (e: Error) => toast.error(e.message),
-              });
+              setReason('');
+              setCancelling(true);
             }}
           >
             <X className="size-4" />
@@ -229,6 +241,48 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
           </Button>
         </div>
       )}
+
+      {/*
+        The app's own dialog rather than the browser's prompt, which could
+        not say what cancelling does — that they are told, and that the role
+        opens again on the post — and gave the reason a one-line box.
+      */}
+      <AlertDialog open={cancelling} onOpenChange={setCancelling}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {booking.otherParty.displayName} will be told, with your reason if
+              you give one.
+              {booking.yourSide === 'poster' && booking.role
+                ? ` ${booking.role} opens again on the post, so you can hire someone else.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            maxLength={500}
+            rows={3}
+            placeholder="Why, in a line (optional)"
+            aria-label="Reason for cancelling"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() =>
+                cancel.mutate(reason.trim() || undefined, {
+                  onSuccess: () => toast.success('Booking cancelled'),
+                  onError: (e: Error) => toast.error(e.message),
+                })
+              }
+            >
+              Cancel booking
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <p className="mt-6 text-xs text-muted-foreground">
         A record of what you agreed, not a legal contract. It is here so neither
@@ -293,6 +347,22 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
   );
   const [notes, setNotes] = useState(booking.notes ?? '');
 
+  /*
+   * Checked as you type, and said under the field.
+   *
+   * "15,000" and "₱15,000" are how people write a rate, and Number() read
+   * both as not a number and refused them. Past ₱500,000 the server refuses
+   * it (the most a role can be posted at), which was only found out on Save.
+   */
+  const typed = rate.replace(/[^\d.]/g, '');
+  const parsed = typed === '' ? null : Math.round(Number(typed) * 100);
+  const rateProblem =
+    rate.trim() !== '' && (parsed == null || !Number.isFinite(parsed) || parsed < 0)
+      ? 'Give a number, or leave it blank.'
+      : parsed != null && parsed > MAX_ROLE_BUDGET_MINOR
+        ? 'A rate can be up to ₱500,000.'
+        : null;
+
   return (
     <Card>
       <CardContent className="p-5">
@@ -307,11 +377,9 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
           className="mt-5 space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
-            const parsed = rate.trim() === '' ? null : Math.round(Number(rate) * 100);
-            if (parsed != null && (!Number.isFinite(parsed) || parsed < 0)) {
-              toast.error('Give a rate as a number, or leave it blank');
-              return;
-            }
+            // Save is disabled too; this keeps a bad rate off the wire
+            // whatever submitted the form.
+            if (rateProblem) return;
             update.mutate(
               {
                 role: role.trim() || null,
@@ -362,8 +430,15 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
                 inputMode="decimal"
                 value={rate}
                 onChange={(e) => setRate(e.target.value)}
-                placeholder="15000"
+                placeholder="15,000"
+                aria-invalid={!!rateProblem}
+                aria-describedby={rateProblem ? 'rate-problem' : undefined}
               />
+              {rateProblem && (
+                <p id="rate-problem" className="text-xs text-destructive">
+                  {rateProblem}
+                </p>
+              )}
             </div>
           </div>
 
@@ -379,7 +454,7 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
           </div>
 
           <div className="flex gap-2">
-            <Button type="submit" disabled={update.isPending}>
+            <Button type="submit" disabled={update.isPending || !!rateProblem}>
               {update.isPending ? 'Saving…' : 'Save terms'}
             </Button>
             <Button type="button" variant="ghost" onClick={onDone}>

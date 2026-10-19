@@ -12,35 +12,9 @@
  * it.
  */
 
-const SITE = 'https://virgo.ph';
+import { CONTACT_EMAIL } from '@/components/story/data/strings/page-finale';
 
-/** Kept beside the FAQ section's copy — if one changes the other must. */
-export const FAQS: { q: string; a: string }[] = [
-  {
-    q: 'Is Virgo free?',
-    a: 'Yes. Virgo is free for everyone during the pre-release — 15 GB of storage, a workspace and two albums, with no card required. Paid tiers arrive later; nothing is charged today.',
-  },
-  {
-    q: 'Do my clients need an account to see their photos?',
-    a: 'No. You send a client link that opens in any browser. They can view and download without signing up for anything.',
-  },
-  {
-    q: 'What happens to delivered files?',
-    a: 'You choose a retention period per album. When it passes, the files are deleted automatically, so old jobs stop consuming your storage.',
-  },
-  {
-    q: 'Who can see my work?',
-    a: 'Nobody, unless you share it. Albums are private to you until you grant a collaborator access, and your location is only used for discovery if you turn it on.',
-  },
-  {
-    q: 'How do I find other creatives to work with?',
-    a: 'Nearby shows photographers, videographers, editors, HMUAs and coordinators around you who have opted into discovery. You can also post a job to the board and take applications.',
-  },
-  {
-    q: 'Is Virgo only for the Philippines?',
-    a: 'It is built for Filipino creatives first — pricing is in pesos and payments go through PayMongo — but nothing stops you using it elsewhere.',
-  },
-];
+const SITE = 'https://virgo.ph';
 
 export function StructuredData() {
   const organization = {
@@ -52,6 +26,12 @@ export function StructuredData() {
     description:
       'A network and workspace for photographers, videographers, editors and HMUAs in the Philippines.',
     areaServed: { '@type': 'Country', name: 'Philippines' },
+    email: CONTACT_EMAIL,
+    contactPoint: {
+      '@type': 'ContactPoint',
+      contactType: 'customer support',
+      email: CONTACT_EMAIL,
+    },
   };
 
   const application = {
@@ -59,7 +39,7 @@ export function StructuredData() {
     '@type': 'SoftwareApplication',
     name: 'Virgo',
     applicationCategory: 'BusinessApplication',
-    operatingSystem: 'Web, iOS, Android',
+    operatingSystem: 'Web, iOS, Android, Windows, macOS',
     url: SITE,
     description:
       'Find and hire creatives near you, run the shoot together, and deliver to clients with links that need no account.',
@@ -73,23 +53,15 @@ export function StructuredData() {
       price: '0',
       priceCurrency: 'PHP',
       description:
-        'Free during the pre-release: 15 GB storage, one workspace, two albums.',
+        'Free for now: 15 GB storage, three workspaces, ten albums in each.',
     },
-  };
-
-  const faq = {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: FAQS.map(({ q, a }) => ({
-      '@type': 'Question',
-      name: q,
-      acceptedAnswer: { '@type': 'Answer', text: a },
-    })),
   };
 
   return (
     <>
-      {[organization, application, faq].map((graph, i) => (
+      {/* No FAQPage: the page has no visible FAQ, and Google only allows the
+          markup for questions a visitor can read on the page. */}
+      {[organization, application].map((graph, i) => (
         <script
           key={i}
           type="application/ld+json"

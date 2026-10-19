@@ -7,10 +7,11 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { queryClient, persistOptions } from '@/lib/queryClient';
 import type { ReactNode } from 'react';
-import { useMessageAlerts } from '@/hooks/useChat';
+import { useMessageAlerts, useOutboxSender } from '@/hooks/useChat';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useAuth } from '@/hooks/useAuth';
 import { AnalyticsBridge } from '@/components/analytics-bridge';
+import { DiscardPrompt } from '@/components/discard-prompt';
 
 /**
  * Everything the client tree needs.
@@ -40,6 +41,7 @@ export function Providers({ children }: { children: ReactNode }) {
           <RealtimeBridge />
           <AnalyticsBridge />
           {children}
+          <DiscardPrompt />
           <Toaster position="bottom-right" richColors closeButton />
         </TooltipProvider>
       </QueryCache>
@@ -77,15 +79,18 @@ function QueryCache({ children }: { children: ReactNode }) {
 }
 
 /**
- * Holds the live connection and the unread-count alerts open for the whole
- * session.
+ * Holds the live connection, the unread-count alerts and the message queue
+ * open for the whole session.
  *
- * A component rather than hooks in Providers because both need the session,
- * which only exists inside QueryClientProvider.
+ * A component rather than hooks in Providers because they need the session,
+ * which only exists inside QueryClientProvider. The queue is here rather than
+ * in the thread so that a message written just before leaving a chat still
+ * goes.
  */
 function RealtimeBridge() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   useRealtime(isAuthenticated);
   useMessageAlerts(isAuthenticated);
+  useOutboxSender(isAuthenticated ? user?.id : undefined);
   return null;
 }

@@ -58,6 +58,12 @@ export interface ConversationMessage {
   kind?: 'text' | 'job-accepted';
   /** What the card needs. Null on a typed message. */
   context?: JobAcceptedContext | null;
+  /**
+   * The id the sender's app gave this message before sending it — how that app
+   * matches the stored message to the bubble it drew while sending. Absent
+   * from an older API, and null on messages sent before apps made one.
+   */
+  client_id?: string | null;
 }
 
 /**
@@ -81,6 +87,18 @@ export interface SendMessageInput {
   body: string;
   replyToId?: string;
   mentionIds?: string[];
+  /**
+   * A v4 uuid the app makes once per message and keeps across retries. The
+   * server stores a message once per id, so a retry after a lost response
+   * cannot send it twice.
+   */
+  clientId?: string;
+}
+
+/** A page of the conversation list. Leaving both out is the newest 100. */
+export interface ConversationPage {
+  limit?: number;
+  offset?: number;
 }
 
 export interface Participant {
@@ -134,9 +152,29 @@ export interface Thread {
  * owns `POST /chat` for the AI proxy.
  */
 export const chatApi = {
-  /** `q` matches a group name, a participant's name, or a message body. */
-  conversations(q?: string): Promise<{ data: Conversation[]; total: number }> {
-    return api.get('/messages/conversations', { query: q ? { q } : undefined });
+  /**
+   * `q` matches a group name, a participant's name, or a message body.
+   *
+   * Paging parameters are only sent when asked for, so the first page reads
+   * the same on an API that predates them.
+   */
+  conversations(
+    q?: string,
+    page: ConversationPage = {},
+  ): Promise<{ data: Conversation[]; total: number }> {
+    const query = {
+      ...(q ? { q } : {}),
+      ...(page.limit !== undefined ? { limit: page.limit } : {}),
+      ...(page.offset ? { offset: page.offset } : {}),
+    };
+    return api.get('/messages/conversations', {
+      query: Object.keys(query).length > 0 ? query : undefined,
+    });
+  },
+
+  /** One conversation, as its row in the list. */
+  conversation(id: string): Promise<Conversation> {
+    return api.get(`/messages/${id}`);
   },
 
   unread(): Promise<{ count: number }> {
@@ -152,8 +190,9 @@ export const chatApi = {
     return api.post('/messages/groups', { body: { title, memberIds } });
   },
 
-  messages(id: string, limit = 100): Promise<Thread> {
-    return api.get(`/messages/${id}/messages`, { query: { limit } });
+  /** The newest `limit`, or with `before` (a message id) the ones older than it. */
+  messages(id: string, limit = 100, before?: string): Promise<Thread> {
+    return api.get(`/messages/${id}/messages`, { query: { limit, before } });
   },
 
   participants(id: string): Promise<{ data: Participant[]; total: number }> {

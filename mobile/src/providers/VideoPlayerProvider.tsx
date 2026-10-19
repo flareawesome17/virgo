@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { type StoredFile } from '@/src/api';
+import { pauseAlbumAudio } from '@/src/lib/media-focus';
 
 /**
  * How much of the screen the player is taking.
@@ -67,12 +68,33 @@ const VideoPlayerContext = createContext<VideoPlayerContextValue>(FALLBACK);
  * minimising possible at all. Unmounting to shrink would stop playback, so
  * `mode` changes how the player draws rather than whether it exists.
  */
+/**
+ * Pauses the album film, open or docked, from anywhere.
+ *
+ * For a showcase film starting, which sits nowhere near this provider: a feed
+ * film began while a docked album film carried on playing, and the two talked
+ * over each other. The player registers itself (VideoPlayer) while it exists.
+ */
+let pauseDocked: (() => void) | null = null;
+export function registerDockedPause(pause: (() => void) | null): void {
+  pauseDocked = pause;
+}
+export function pauseDockedFilm(): void {
+  try {
+    pauseDocked?.();
+  } catch {
+    // Already released.
+  }
+}
+
 export function VideoPlayerProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<StoredFile | null>(null);
   const [queue, setQueue] = useState<StoredFile[]>([]);
   const [mode, setMode] = useState<VideoMode>('full');
 
   const open = useCallback((file: StoredFile, films: StoredFile[] = []) => {
+    // A film and a recording do not play over each other.
+    pauseAlbumAudio();
     setCurrent(file);
     // Falls back to the file alone, so the player always has a queue to look
     // itself up in and `hasNext` is answerable without a special case.

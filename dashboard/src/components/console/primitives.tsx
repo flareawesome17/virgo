@@ -1,7 +1,6 @@
 'use client';
 
 import { AlertTriangle, Inbox } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
@@ -15,11 +14,11 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">{title}</h1>
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0">
+        <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
         {description && (
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          <p className="mt-0.5 max-w-3xl text-sm text-muted-foreground">{description}</p>
         )}
       </div>
       {action}
@@ -27,33 +26,126 @@ export function PageHeader({
   );
 }
 
-export function StatCard({
-  label,
-  value,
-  hint,
-  tone = 'default',
-}: {
+type Tone = 'default' | 'good' | 'warn' | 'danger';
+
+const TONE_TEXT: Record<Tone, string | undefined> = {
+  default: undefined,
+  good: 'text-success',
+  warn: 'text-warning',
+  danger: 'text-destructive',
+};
+
+export interface Stat {
   label: string;
-  value: string | number;
+  value: React.ReactNode;
   hint?: string;
-  tone?: 'default' | 'warn' | 'good';
+  tone?: Tone;
+}
+
+/** Column counts that leave no empty cell showing through the hairlines. */
+const STRIP_COLUMNS: Record<number, string> = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-2',
+  3: 'grid-cols-1 sm:grid-cols-3',
+  4: 'grid-cols-2 lg:grid-cols-4',
+  5: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5',
+  6: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6',
+};
+
+/**
+ * A row of numbers in one frame, divided by hairlines — Termix's stats bar.
+ *
+ * One frame rather than a card each: four boxes side by side read as four
+ * things to look at, where a strip reads as one summary.
+ */
+export function StatStrip({ items, className }: { items: Stat[]; className?: string }) {
+  return (
+    <div
+      className={cn(
+        'grid gap-px overflow-hidden rounded-lg border bg-border',
+        STRIP_COLUMNS[items.length] ?? STRIP_COLUMNS[4],
+        className,
+      )}
+    >
+      {items.map((item) => (
+        <div key={item.label} className="min-w-0 bg-card px-4 py-3">
+          <p className="caption truncate">{item.label}</p>
+          <p
+            className={cn(
+              'mt-1 truncate text-xl font-semibold tabular-nums tracking-tight',
+              TONE_TEXT[item.tone ?? 'default'],
+            )}
+          >
+            {item.value}
+          </p>
+          {item.hint && (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.hint}</p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const DOT: Record<'ok' | 'warn' | 'danger' | 'info' | 'muted', string> = {
+  ok: 'bg-success',
+  warn: 'bg-warning',
+  danger: 'bg-destructive',
+  info: 'bg-info',
+  muted: 'bg-muted-foreground/50',
+};
+
+/** State as a dot and a word, where a filled badge would shout. */
+export function StatusDot({
+  tone,
+  children,
+}: {
+  tone: keyof typeof DOT;
+  children: React.ReactNode;
 }) {
   return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p
-          className={cn(
-            'mt-1 text-2xl font-bold tabular-nums',
-            tone === 'warn' && 'text-amber-600 dark:text-amber-500',
-            tone === 'good' && 'text-emerald-600 dark:text-emerald-500',
-          )}
-        >
-          {value}
-        </p>
-        {hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium">
+      <span className={cn('size-1.5 shrink-0 rounded-full', DOT[tone])} aria-hidden />
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A titled block on a detail page: caption header over a hairline, then the
+ * body. Termix's metric cards.
+ */
+export function Panel({
+  title,
+  action,
+  children,
+  className,
+  bodyClassName,
+}: {
+  title: React.ReactNode;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+  bodyClassName?: string;
+}) {
+  return (
+    <section className={cn('flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card', className)}>
+      <header className="flex h-10 shrink-0 items-center justify-between gap-3 border-b px-4">
+        <h2 className="caption truncate">{title}</h2>
+        {action}
+      </header>
+      <div className={cn('min-h-0 flex-1 p-4', bodyClassName)}>{children}</div>
+    </section>
+  );
+}
+
+/** A label and its value on one line, for the facts on a detail page. */
+export function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-1 text-sm">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-right font-medium">{value}</span>
+    </div>
   );
 }
 
@@ -143,8 +235,8 @@ export function MiniBars({
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p className="text-xs tabular-nums text-muted-foreground">{total} total</p>
+        <p className="caption">{label}</p>
+        <p className="text-xs tabular-nums text-muted-foreground">{num(total)} total</p>
       </div>
       <div className="mt-3 flex h-24 items-end gap-[3px]">
         {data.length === 0 ? (
@@ -181,6 +273,11 @@ export function bytes(n: number | string | null | undefined): string {
   return `${scaled >= 100 || i === 0 ? Math.round(scaled) : scaled.toFixed(1)} ${units[i]}`;
 }
 
+/** A count with thousands separators: 1,284. */
+export function num(n: number | string | null | undefined): string {
+  return Number(n ?? 0).toLocaleString('en-PH');
+}
+
 export function peso(minor: number): string {
   return new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -205,6 +302,20 @@ export function until(value: string | null | undefined): string {
   if (hours < 24) return `in ${hours}h`;
   const days = Math.ceil(hours / 24);
   return `in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+/**
+ * A calendar date, for when the day itself is the point: "Nov 12, 2026".
+ *
+ * A billing period's end is in the future, which `when` reads as "just now".
+ */
+export function day(value: string | null | undefined): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString('en-PH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 export function when(value: string | null | undefined): string {

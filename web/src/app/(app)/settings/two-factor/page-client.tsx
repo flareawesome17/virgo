@@ -15,7 +15,7 @@ import {
   ShieldOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -189,12 +189,12 @@ export default function TwoFactorSettingsPage() {
   };
 
   return (
-    <AppShell title="Two-factor authentication">
+    <Screen title="Two-factor authentication">
       <PageHeader
         title={
           <span className="flex items-center gap-2">
             <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
-              <Link href="/settings" aria-label="Back">
+              <Link href="/settings/account" aria-label="Back">
                 <ArrowLeft className="size-4" />
               </Link>
             </Button>
@@ -204,7 +204,7 @@ export default function TwoFactorSettingsPage() {
         description="Protect sign-in with a code sent to your email"
       />
 
-      <div className="mx-auto w-full max-w-xl px-6 py-6">
+      <div className="w-full max-w-xl">
         {status.isLoading ? (
           <CenteredSpinner />
         ) : recoveryCodes.length > 0 ? (
@@ -279,7 +279,7 @@ export default function TwoFactorSettingsPage() {
           </p>
         )}
       </div>
-    </AppShell>
+    </Screen>
   );
 }
 

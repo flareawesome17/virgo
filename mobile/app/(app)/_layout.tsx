@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator } from 'react-native';
-import { Redirect, Stack } from 'expo-router';
+import { Redirect, Stack, router, type ErrorBoundaryProps } from 'expo-router';
 import {
   useAuth,
   useMessageAlerts,
@@ -11,16 +12,68 @@ import {
 } from '@/src/hooks';
 import {
   RolesRequiredSheet,
-  UploadBar,
+  UploadRing,
   VerifyEmailBanner,
   VideoSurface,
 } from '@/components';
+import { useOutboxSender } from '@/src/hooks/useChat';
+import { useMoneyOutboxSender } from '@/src/lib/money-outbox';
+import { CrashScreen } from '@/components/CrashScreen';
 import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
 import { VideoPlayerProvider } from '@/src/providers/VideoPlayerProvider';
+import { WindowInsetsProvider } from '@/src/lib/window-insets';
+import { AudioDock } from '@/components/AudioDock';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
 };
+
+/**
+ * The forms that make something — everything the Create sheet opens. They
+ * rise from the bottom as modals and close with an X (FormHeader): making a
+ * thing is a task you finish or abandon, not a place you go further into.
+ *
+ * Full-screen rather than the card-style sheet iOS swipes away. These forms
+ * have keyboards and unsaved typing in them: inside a card the keyboard
+ * avoidance is measured against the wrong origin, and a stray downward swipe
+ * would throw away a half-written job post.
+ */
+const CREATE_FORMS = [
+  'showcase/new',
+  'jobs/new',
+  'workspaces/create',
+  'albums/create',
+  'schedule/create',
+  'schedule/reminders/create',
+  'money/new',
+  'money/packages/new',
+  'money/pay-methods/edit',
+] as const;
+
+const CREATE_FORM_OPTIONS = {
+  presentation: 'fullScreenModal',
+  // Android has no modal presentation of its own; this is the same rise.
+  animation: 'slide_from_bottom',
+} as const;
+
+/**
+ * Any signed-in screen that fails to draw lands here instead of closing the app.
+ *
+ * "Go to start" navigates first and retries second: this replaces the layout
+ * but not the route, so a retry alone would draw the screen that just failed.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <CrashScreen
+      error={error}
+      onRetry={() => void retry()}
+      onHome={() => {
+        router.replace('/(app)/(tabs)');
+        void retry();
+      }}
+    />
+  );
+}
 
 /**
  * Auth gate for every protected screen.
@@ -39,7 +92,14 @@ export const unstable_settings = {
  *                 the network hiccups.
  */
 export default function AppLayout() {
-  const { isAuthenticated, isLoading, isSessionError, retrySession } = useAuth();
+  const {
+    isAuthenticated,
+    isLoading,
+    isSessionError,
+    isCheckingSession,
+    retrySession,
+    signOut,
+  } = useAuth();
 
   if (isLoading) {
     return (
@@ -50,6 +110,11 @@ export default function AppLayout() {
   }
 
   if (isSessionError && !isAuthenticated) {
+    // Retry used to give no sign it had been pressed: the request failed again
+    // in a moment and the screen looked exactly as before. And there was no
+    // way off this screen at all — someone who wanted a different account, or
+    // whose server really was gone for good, could only uninstall.
+    const busy = isCheckingSession || signOut.isPending;
     return (
       <View className="flex-1 items-center justify-center bg-background px-10">
         <Text className="text-foreground text-lg font-bold">Can’t reach the server</Text>
@@ -58,9 +123,28 @@ export default function AppLayout() {
         </Text>
         <Pressable
           onPress={() => retrySession()}
-          className="mt-6 bg-action rounded-2xl px-8 py-3.5 active:scale-[0.96]"
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityState={{ busy: isCheckingSession, disabled: busy }}
+          className="mt-6 min-w-[140px] items-center bg-action rounded-2xl px-8 py-3.5 active:scale-[0.96]"
+          style={{ opacity: signOut.isPending ? 0.5 : 1 }}
         >
-          <Text className="text-white text-base font-bold">Retry</Text>
+          {isCheckingSession ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text className="text-white text-base font-bold">Retry</Text>
+          )}
+        </Pressable>
+        <Pressable
+          onPress={() => signOut.mutate()}
+          disabled={busy}
+          accessibilityRole="button"
+          hitSlop={8}
+          className="mt-4 px-4 py-2"
+        >
+          <Text className="text-muted-foreground text-sm font-semibold">
+            {signOut.isPending ? 'Signing out…' : 'Sign out'}
+          </Text>
         </Pressable>
       </View>
     );
@@ -84,20 +168,32 @@ export default function AppLayout() {
           its children untouched once the address is confirmed. */}
       <VideoPlayerProvider>
       <AlbumAudioProvider>
+      {/* Above the banners: what a <Modal> reads, since it covers them. */}
+      <WindowInsetsProvider>
         <VerifyEmailBanner>
           {/* Wraps the navigator, not AppTopBar, which renders on the six tab
               screens only — and nobody uploads from a tab. Every route into
               the upload screen is an album or a workspace, so this is the one
-              placement where the indicator is on screen while it runs. */}
-          <UploadBar>
-            {/* Inside UploadBar so the docked film sits below the upload
-                strip rather than fighting it for the same edge, and around
-                the navigator so a film survives going back to the album. */}
+              placement where the indicator is on screen while it runs. It
+              floats, so it takes no room from anything underneath. */}
+          <UploadRing>
+            {/* Inside UploadRing so the ring floats over a docked film too,
+                and around the navigator so a film survives going back to the
+                album. */}
             <VideoSurface>
-              <Stack screenOptions={{ headerShown: false }} />
+              {/* Inside the film's surface, so a recording's strip sits above
+                  a docked film rather than under it. */}
+              <AudioDock>
+              <Stack screenOptions={{ headerShown: false }}>
+                {CREATE_FORMS.map((name) => (
+                  <Stack.Screen key={name} name={name} options={CREATE_FORM_OPTIONS} />
+                ))}
+              </Stack>
+              </AudioDock>
             </VideoSurface>
-          </UploadBar>
+          </UploadRing>
         </VerifyEmailBanner>
+      </WindowInsetsProvider>
       </AlbumAudioProvider>
       </VideoPlayerProvider>
     </>
@@ -113,17 +209,35 @@ export default function AppLayout() {
  * hooks cannot be called conditionally.
  */
 function NotificationServices() {
-  const { reminders } = useReminders({
+  const { user } = useAuth();
+  // Upcoming and not done, soonest first. This was the 100 oldest, completed
+  // and long past included, so from a busy account's hundredth reminder on the
+  // new ones were never scheduled. Fixed at mount so the query key is stable;
+  // anything that falls due during the session is skipped by the scheduler.
+  const [dueFrom] = useState(() => new Date(Date.now() - 60_000).toISOString());
+  const upcoming = useReminders({
+    is_completed: false,
+    due_from: dueFrom,
     orderBy: 'reminder_time',
     direction: 'asc',
     limit: 100,
   });
+  const list = upcoming.reminders;
 
-  useReminderNotifications(reminders);
-  usePushRegistration(true);
+  useReminderNotifications(list, {
+    ready: upcoming.isSuccess,
+    // More exist than came back: nothing past the last one is known here.
+    listThrough: upcoming.total > list.length ? (list[list.length - 1]?.reminder_time ?? null) : null,
+  });
+  usePushRegistration(user?.id ?? null);
   useNotificationRouting(true);
   useMessageAlerts(true);
   useRealtime(true);
+  // Messages written offline, or left unsent when the app closed, go out
+  // whenever there is a connection again.
+  useOutboxSender(user?.id);
+  // Money entries logged with no signal, the same way.
+  useMoneyOutboxSender(user?.id);
 
   return null;
 }

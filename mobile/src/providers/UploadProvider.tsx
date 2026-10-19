@@ -7,14 +7,14 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useQueryClient } from '@tanstack/react-query';
 import { storageApi } from '@/src/api';
 import { withConfirmRetry } from '@/src/api/confirm-retry';
-import { usageQueryKey } from '@/src/hooks';
+import { useAuth, usageQueryKey } from '@/src/hooks';
 import { MAX_RESUME_AGE_MS, type MultipartSession } from '@/src/lib/multipart-resume';
 import {
   connectivityRetryDelayMs,
@@ -27,6 +27,7 @@ import {
   showUploadFinished,
   showUploadProgress,
 } from '@/src/lib/notifications';
+import { LEGACY_UPLOAD_QUEUE_KEY, uploadQueueKey } from '@/src/lib/upload-queue-storage';
 
 export type UploadStatus = 'queued' | 'uploading' | 'done' | 'failed';
 
@@ -110,19 +111,23 @@ const UploadContext = createContext<UploadContextValue>(FALLBACK);
 /** Only rewrite the drawer when the number visibly moved. */
 const NOTIFY_EVERY_PERCENT = 5;
 
-/** Where the queue survives a process that ended without being asked. */
-const QUEUE_STORAGE_KEY = 'virgo.upload.queue.v1';
-
 /**
- * Reads the queue left behind by a previous launch.
+ * Reads the queue this account left behind on a previous launch.
  *
  * Anything unparseable is discarded rather than thrown: a queue we cannot read
  * is not worth failing the app's startup over, and the objects it described are
  * still recoverable by the server's own accounting.
  */
-async function loadPersisted(): Promise<UploadTask[]> {
+async function loadPersisted(userId: string): Promise<UploadTask[]> {
   try {
-    const raw = await AsyncStorage.getItem(QUEUE_STORAGE_KEY);
+    let raw = await AsyncStorage.getItem(uploadQueueKey(userId));
+    if (raw === null) {
+      // The one queue from before they were kept per account. It belongs to
+      // whoever was signed in when this version arrived — the same session,
+      // carried across the update — so the first account to load takes it.
+      raw = await AsyncStorage.getItem(LEGACY_UPLOAD_QUEUE_KEY);
+      if (raw !== null) await AsyncStorage.removeItem(LEGACY_UPLOAD_QUEUE_KEY);
+    }
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as UploadTask[]) : [];
@@ -169,6 +174,14 @@ function releaseMultipart(session: MultipartSession | undefined): void {
 export function UploadProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  /**
+   * The account `tasks` belongs to. Set with the tasks it loaded, and cleared
+   * the moment the signed-in account changes, so nothing is saved under — or
+   * run for — the wrong one in between.
+   */
+  const [owner, setOwner] = useState<string | null>(null);
 
   // The loop reads these without re-subscribing. `running` is a ref rather
   // than state because two renders in the same tick must not both start an
@@ -212,9 +225,26 @@ export function UploadProvider({ children }: { children: ReactNode }) {
    */
   const lastPatchedPercent = useRef(-1);
 
+  // Read by the listener below, which is set up once.
+  const waitingRef = useRef(0);
+
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
+      const was = appState.current;
       appState.current = next;
+      /*
+       * Said, since it cannot yet be helped. iOS suspends this queue in the
+       * background: the file in flight finishes in its own session, and the
+       * rest wait for the app to come back. A batch left to "carry on" was
+       * found an hour later exactly where it was, with nothing to say why.
+       */
+      const waiting = waitingRef.current - 1;
+      if (Platform.OS === 'ios' && was === 'active' && next === 'background' && waiting > 0) {
+        void showUploadFinished(
+          'Uploads paused',
+          `${waiting} ${waiting === 1 ? 'file is' : 'files are'} waiting. They carry on when you open Virgo again.`,
+        );
+      }
     });
     return () => sub.remove();
   }, []);
@@ -223,7 +253,14 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const tasksRef = useRef<UploadTask[]>([]);
   tasksRef.current = tasks;
 
-  /** How to stop the upload in flight, by task id. */
+  /**
+   * How to stop the upload in flight, by task id.
+   *
+   * Removing a task used to leave a running upload running: the row went, the
+   * bytes kept going, and the file then turned up in the album anyway. The
+   * controller exists from the moment the runner picks a task, so one removed
+   * before its transfer has started is stopped the moment it does.
+   */
   const controllers = useRef(new Map<string, AbortController>());
 
   /** Wakes the runner when a file's wait after a connectivity failure ends. */
@@ -271,11 +308,20 @@ export function UploadProvider({ children }: { children: ReactNode }) {
    */
   const [hydrated, setHydrated] = useState(false);
 
+  // Once per account: on launch, and again whenever someone else signs in.
+  // Signing out empties the list and loads nothing. An upload already in
+  // flight finishes or fails on its own; its row stays in its own account's
+  // saved queue, and that account picks it up — by its key, like any upload
+  // cut off by the process ending — the next time it signs in here.
   useEffect(() => {
     let cancelled = false;
+    setHydrated(false);
+    setOwner(null);
+    setTasks([]);
+    if (!userId) return;
 
     (async () => {
-      const saved = await loadPersisted();
+      const saved = await loadPersisted(userId);
       if (cancelled) return;
 
       // Settle each interrupted task against the server before the runner is
@@ -354,6 +400,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
       if (!cancelled) {
         setTasks(checked);
+        setOwner(userId);
         setHydrated(true);
       }
     })();
@@ -361,19 +408,19 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [userId]);
 
   // Written on every change, so a process that ends without warning leaves
   // behind whatever was true a moment ago. Finished rows are dropped: their
   // only purpose was to be displayed, and a batch from last week should not
   // greet somebody on launch.
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !owner) return;
     const worth = tasks.filter((task) => task.status !== 'done');
-    void AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(worth)).catch(
+    void AsyncStorage.setItem(uploadQueueKey(owner), JSON.stringify(worth)).catch(
       () => {},
     );
-  }, [tasks, hydrated]);
+  }, [tasks, hydrated, owner]);
 
   const patch = useCallback((id: string, next: Partial<UploadTask>) => {
     setTasks((prev) =>
@@ -384,7 +431,13 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const enqueue = useCallback((items: NewUpload[]) => {
     if (items.length === 0) return;
     setTasks((prev) => [
-      ...prev,
+      // A batch started after the last one finished begins from nothing. The
+      // finished rows were only there for its "3 of 5"; left in, they counted
+      // toward the new batch, which then started at 90-odd percent. Failures
+      // stay until they are retried or removed.
+      ...(prev.some((task) => task.status === 'queued' || task.status === 'uploading')
+        ? prev
+        : prev.filter((task) => task.status !== 'done')),
       ...items.map((item) => ({
         ...item,
         // Date.now() alone collides when twenty files are added in one tick.
@@ -430,8 +483,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   // busy.
   useEffect(() => {
     // Not before the previous launch has been settled, or a file already in
-    // the bucket gets sent again.
-    if (!hydrated) return;
+    // the bucket gets sent again. And only for the account signed in now.
+    if (!hydrated || !owner || owner !== userId) return;
     if (running.current) return;
 
     // Offline, nothing starts; the NetInfo listener re-runs this on return.
@@ -463,9 +516,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       try {
         // A key from an earlier attempt means bytes may already be in the
         // bucket: the native transfer can finish after the attempt that
-        // started it gave up, and a large file may have been assembled with
-        // only the reply lost. Asked first, so a file that arrived is not sent
-        // twice. A failure to ask is handled like any other failure below.
+        // started it gave up, a large file may have been assembled with only
+        // the reply lost, or the bytes landed and only the confirm timed out.
+        // Asked first — on a tap on Retry as much as after a restart — so a
+        // file that arrived is not sent, and stored, twice. A failure to ask
+        // is handled like any other failure below.
         if (next.key) {
           const stat = await withConfirmRetry(
             () => storageApi.confirm(next.key, next.albumId, next.name),
@@ -582,8 +637,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // true once, and this effect has to re-run on that flip to pick up a queue
     // restored from the last launch. Without it a recovered upload would sit
     // there until something else changed `tasks`. `online` likewise: coming
-    // back online is what starts a queue that was held.
-  }, [tasks, patch, queryClient, hydrated, online]);
+    // back online is what starts a queue that was held. `owner` and `userId`
+    // because the runner only works the signed-in account's own queue.
+  }, [tasks, patch, queryClient, hydrated, online, owner, userId]);
 
   const pending = tasks.filter((task) => task.status !== 'done');
   const active = pending.some(
@@ -599,15 +655,19 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   // zero bytes, which pinned the bar at 0% for the whole upload no matter how
   // much real progress had been reported. An unweighted average is less
   // truthful about the remaining time; it is not silently wrong.
-  const totalBytes = tasks.reduce((sum, task) => sum + task.sizeBytes, 0);
+  // Failures are left out: one stuck at 40% held the bar short of the end
+  // of a batch that had otherwise finished.
+  const batch = tasks.filter((task) => task.status !== 'failed');
+  const totalBytes = batch.reduce((sum, task) => sum + task.sizeBytes, 0);
   const overall =
     totalBytes > 0
-      ? tasks.reduce((sum, task) => sum + task.sizeBytes * task.progress, 0) /
+      ? batch.reduce((sum, task) => sum + task.sizeBytes * task.progress, 0) /
         totalBytes
-      : tasks.length > 0
-        ? tasks.reduce((sum, task) => sum + task.progress, 0) / tasks.length
+      : batch.length > 0
+        ? batch.reduce((sum, task) => sum + task.progress, 0) / batch.length
         : 0;
   const remaining = pending.filter((task) => task.status !== 'failed').length;
+  waitingRef.current = remaining;
 
   // The drawer. Only while the app is off screen: a banner over the app saying
   // what the app is already showing is noise, and on iOS every one of these
@@ -651,6 +711,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // once rather than per file.
     queryClient.invalidateQueries({ queryKey: ['albums'] });
     queryClient.invalidateQueries({ queryKey: usageQueryKey });
+    // The workspace's file and storage counts, and the storage breakdown,
+    // are counted from the same files and stayed as they were.
+    queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+    queryClient.invalidateQueries({ queryKey: ['storage', 'breakdown'] });
 
     if (appState.current !== 'active') {
       void showUploadFinished(

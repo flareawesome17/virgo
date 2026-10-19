@@ -1,4 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { Agent as HttpsAgent } from 'node:https';
 import type { Readable } from 'node:stream';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
@@ -14,6 +16,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -24,6 +27,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MediaLinkService } from './media-link.service';
+import { sendContentMd5OnBulkDelete } from './bulk-delete-md5';
 import { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import { contentDisposition, safeFileStem, uniqueNames } from './download-names';
 import {
@@ -93,6 +97,24 @@ export { contentDisposition } from './download-names';
  * video through the API's memory and bandwidth, which is the fastest way to
  * make a media app fall over.
  */
+/**
+ * How many single deletes are in flight at once when DeleteObjects cannot be
+ * used. A pool rather than rounds: in rounds of eight, each round waited on
+ * its slowest request, and one slow handshake held up seven finished ones.
+ */
+const SINGLE_DELETE_CONCURRENCY = 16;
+
+/**
+ * Files per step of a selection's delete. Each step's files are forgotten as
+ * soon as their objects are gone, so a long delete that outlives the app's
+ * wait has still removed what it got through, rather than nothing until the
+ * very end.
+ */
+const DELETE_CHUNK_FILES = 100;
+
+/** Keys the server mints for itself, outside any user's prefix. */
+const SERVER_KEY = /^(support|receipts)\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
+
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
@@ -140,6 +162,103 @@ export class StorageService {
           maxAttempts: 3,
         })
       : null;
+    if (this.client) sendContentMd5OnBulkDelete(this.client);
+  }
+
+  /**
+   * Set once DeleteObjects has been refused as a request, so later deletes
+   * go straight to deleting one object at a time. Per process: a deploy that
+   * fixes the store, or a new store, gets asked again.
+   */
+  private bulkDeleteRefused = false;
+
+  /**
+   * Deletes objects, and returns the keys confirmed gone. Never throws.
+   *
+   * DeleteObjects first: a thousand at a time, one request per bucket, sent
+   * with the Content-MD5 B2 wants (see bulk-delete-md5). Whatever it did not
+   * confirm gone, because the request was refused or the key came back in its
+   * Errors, is tried again on its own with DeleteObject, which carries no
+   * checksum — the path every delete took while B2 refused the SDK's own
+   * checksum, and still the one taken if a store refuses DeleteObjects.
+   *
+   * Logs counts and codes, never keys: a log line naming a client's files
+   * outlives the files.
+   */
+  private async deleteFromBuckets(
+    keys: readonly string[],
+    context: string,
+  ): Promise<Set<string>> {
+    const client = this.requireClient();
+    const gone = new Set<string>();
+    const retry: string[] = [];
+    const describe = (err: unknown) => {
+      const e = err as { name?: string; Code?: string; message?: string; $metadata?: { httpStatusCode?: number } };
+      return `${e.$metadata?.httpStatusCode ?? '?'} ${e.Code ?? e.name ?? 'Error'}: ${String(e.message ?? err).slice(0, 160)}`;
+    };
+
+    for (let i = 0; i < keys.length; i += 1000) {
+      const batch = keys.slice(i, i + 1000);
+      if (this.bulkDeleteRefused) {
+        retry.push(...batch);
+        continue;
+      }
+      const byBucket = new Map<string, string[]>();
+      for (const key of batch) {
+        const bucket = this.config.bucketForKey(key);
+        byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), key]);
+      }
+      await Promise.all(
+        [...byBucket].map(async ([Bucket, list]) => {
+          try {
+            const result = await client.send(
+              new DeleteObjectsCommand({
+                Bucket,
+                Delete: { Objects: list.map((Key) => ({ Key })), Quiet: false },
+              }),
+            );
+            for (const item of result.Deleted ?? []) if (item.Key) gone.add(item.Key);
+            const errors = result.Errors ?? [];
+            if (errors.length > 0) {
+              this.logger.warn(
+                `${context}: ${errors.length} object(s) refused by DeleteObjects (${errors[0].Code ?? 'unknown'}); trying them one at a time`,
+              );
+            }
+            for (const key of list) if (!gone.has(key)) retry.push(key);
+          } catch (err) {
+            // Refused as a request, rather than lost on the way: it will be
+            // refused the same way next time.
+            const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+            if (status === 400 || status === 501) this.bulkDeleteRefused = true;
+            this.logger.warn(`${context}: DeleteObjects failed (${describe(err)}); deleting one at a time`);
+            retry.push(...list);
+          }
+        }),
+      );
+    }
+
+    // A pool of a few: hundreds at once would trip the store's rate limits.
+    let next = 0;
+    let failed = 0;
+    let reason = '';
+    const worker = async () => {
+      while (next < retry.length) {
+        const Key = retry[next];
+        next += 1;
+        try {
+          await client.send(new DeleteObjectCommand({ Bucket: this.config.bucketForKey(Key), Key }));
+          gone.add(Key);
+        } catch (err) {
+          failed += 1;
+          reason ||= describe(err);
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(SINGLE_DELETE_CONCURRENCY, retry.length) }, worker),
+    );
+    if (failed > 0) this.logger.warn(`${context}: ${failed} object(s) could not be deleted (${reason})`);
+    return gone;
   }
 
   private requireClient(): S3Client {
@@ -550,16 +669,12 @@ export class StorageService {
         billedTo === userId ? 'yours' : 'album-owner',
       );
     } catch (err) {
-      await client
-        .send(
-          new DeleteObjectsCommand({
-            Bucket: bucket,
-            Delete: { Objects: [{ Key: input.key }], Quiet: true },
-          }),
-        )
-        .catch((e) =>
-          this.logger.error(`Could not remove refused upload ${input.key}: ${String(e)}`),
-        );
+      // Through deleteFromBuckets, so a store that refuses DeleteObjects
+      // still has the object removed one at a time. It never throws.
+      const gone = await this.deleteFromBuckets([input.key], 'completeMultipart refusal');
+      if (!gone.has(input.key)) {
+        this.logger.error('Could not remove a refused multipart upload');
+      }
       throw err;
     }
 
@@ -593,6 +708,87 @@ export class StorageService {
       this.logger.error(`AbortMultipartUpload failed for ${input.key}: ${String(err)}`);
       throw new ServiceUnavailableException('Could not reach storage');
     }
+  }
+
+  /**
+   * Refuses any key outside the prefixes the server mints for itself.
+   *
+   * The three methods below skip the `users/<id>/` ownership check, because
+   * what they handle belongs to no one's library: support attachments and
+   * receipts, whose owners are rows in `support_attachments` and
+   * `money_receipts`. Holding them to their own prefixes is what stops them
+   * being a way round that check.
+   */
+  private assertServerKey(key: string): void {
+    this.assertSafeKey(key);
+    if (!SERVER_KEY.test(key)) {
+      throw new BadRequestException('Invalid object key');
+    }
+  }
+
+  /**
+   * A presigned PUT for a key the server minted — see assertServerKey.
+   *
+   * Type and size are signed in, as for every upload, so the bytes that
+   * arrive are the ones declared. Nothing is recorded against storage: the
+   * caller keeps its own row.
+   */
+  async signServerUpload(
+    key: string,
+    contentType: string,
+    contentLength: number,
+  ): Promise<Omit<UploadTicket, 'key' | 'publicUrl'>> {
+    const client = this.requireClient();
+    this.assertServerKey(key);
+    const uploadUrl = await getSignedUrl(
+      client,
+      new PutObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        ContentType: contentType,
+        ContentLength: contentLength,
+      }),
+      { expiresIn: UPLOAD_URL_TTL_SECONDS },
+    );
+    return {
+      uploadUrl,
+      requiredHeaders: {
+        'Content-Type': contentType,
+        'Content-Length': String(contentLength),
+      },
+      expiresAt: new Date(Date.now() + UPLOAD_URL_TTL_SECONDS * 1000).toISOString(),
+    };
+  }
+
+  /** What landed under a server-minted key; null when nothing did. */
+  async headServerObject(
+    key: string,
+  ): Promise<{ size: number; contentType?: string } | null> {
+    const client = this.requireClient();
+    this.assertServerKey(key);
+    try {
+      const head = await client.send(
+        new HeadObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
+      );
+      return { size: head.ContentLength ?? 0, contentType: head.ContentType };
+    } catch (err) {
+      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+      if (status === 404) return null;
+      this.logger.error(`HEAD failed for a server object: ${String(err)}`);
+      throw new ServiceUnavailableException('Could not reach storage');
+    }
+  }
+
+  /** Deletes server-minted objects; the keys confirmed gone come back. */
+  async deleteServerObjects(keys: readonly string[], context: string): Promise<Set<string>> {
+    for (const key of keys) this.assertServerKey(key);
+    if (keys.length === 0) return new Set();
+    return this.deleteFromBuckets(keys, context);
+  }
+
+  /** Whether objects can be signed at all here. */
+  get configured(): boolean {
+    return this.client !== null;
   }
 
   /**
@@ -633,6 +829,13 @@ export class StorageService {
   ): Promise<string | null> {
     if (!key || !this.client) return null;
 
+    // The public bucket needs no signature, and a plain CDN address caches
+    // for good where a signed one changes every six hours.
+    if (!downloadAs && this.config.isPublicKey(key)) {
+      const url = this.config.publicUrl(key);
+      if (url) return url;
+    }
+
     // Pinned to a window sized for this URL's lifetime: five minutes for a
     // one-hour download, six hours for a display link. See signingWindowFor.
     const windowMs = signingWindowFor(ttlSeconds) * 1000;
@@ -659,12 +862,17 @@ export class StorageService {
    * check here would mean inventing a user for an anonymous client.
    */
   async readStream(key: string): Promise<Readable> {
+    return (await this.readStreamWithSize(key)).stream;
+  }
+
+  /** As `readStream`, plus the object's size when storage reports it. */
+  async readStreamWithSize(key: string): Promise<{ stream: Readable; size?: number }> {
     const client = this.requireClient();
     this.assertSafeKey(key);
     const res = await client.send(
       new GetObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
     );
-    return res.Body as Readable;
+    return { stream: res.Body as Readable, size: res.ContentLength };
   }
 
   /**
@@ -717,6 +925,70 @@ export class StorageService {
         CacheControl: IMMUTABLE_CACHE_CONTROL,
       }),
     );
+  }
+
+  /**
+   * putDerived for something too big to hold in memory: a film, streamed from
+   * the file ffmpeg wrote. The length is sent up front, which a stream body
+   * needs for the upload to be signed at all.
+   */
+  async putDerivedFile(key: string, file: string, contentType: string): Promise<void> {
+    const client = this.requireClient();
+    this.assertSafeKey(key);
+    const { size } = await stat(file);
+    await client.send(
+      new PutObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        Body: createReadStream(file),
+        ContentLength: size,
+        ContentType: contentType,
+        CacheControl: IMMUTABLE_CACHE_CONTROL,
+      }),
+    );
+  }
+
+  /**
+   * Deletes server-made objects by key, and returns the keys confirmed gone.
+   * Never throws: for tidying up after something that has already happened.
+   */
+  async deleteKeys(keys: readonly string[], context: string): Promise<Set<string>> {
+    const safe = keys.filter((key) => this.isSafeKey(key));
+    if (safe.length === 0 || !this.client) return new Set();
+    return this.deleteFromBuckets(safe, context);
+  }
+
+  /**
+   * The permanent address of a public-bucket object, or null when no CDN is
+   * configured to serve one.
+   */
+  publicUrl(key: string | null | undefined): string | null {
+    return key ? this.config.publicUrl(key) : null;
+  }
+
+  /**
+   * Deletes every object under a prefix, in the bucket that prefix lives in.
+   *
+   * For server-made objects with no user_files row to find them by — a
+   * showcase's web copies. Returns how many went and how many did not.
+   */
+  async deletePrefix(prefix: string): Promise<{ deleted: number; failed: number }> {
+    const client = this.requireClient();
+    this.assertSafeKey(prefix);
+    if (!prefix.endsWith('/')) throw new BadRequestException('Invalid prefix');
+    const Bucket = this.config.bucketForKey(prefix);
+    const keys: string[] = [];
+    let token: string | undefined;
+    do {
+      const page = await client.send(
+        new ListObjectsV2Command({ Bucket, Prefix: prefix, ContinuationToken: token }),
+      );
+      for (const item of page.Contents ?? []) if (item.Key) keys.push(item.Key);
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    if (keys.length === 0) return { deleted: 0, failed: 0 };
+    const gone = await this.deleteFromBuckets(keys, 'deletePrefix');
+    return { deleted: gone.size, failed: keys.length - gone.size };
   }
 
   /** The object key a stored public URL points at, or null if it is not ours. */
@@ -809,30 +1081,15 @@ export class StorageService {
   }
 
   async deleteObject(userId: string, key: string): Promise<void> {
-    const client = this.requireClient();
+    this.requireClient();
     // Destroying someone else's media is the highest bar there is.
     await this.assertCanAccess(userId, key, 'manage');
 
     const targets = await this.quota.objectAndDerivedKeys([key]);
-    const deleted = new Set<string>();
-    const byBucket = new Map<string, string[]>();
-    for (const target of targets.length > 0 ? targets : [key]) {
-      const bucket = this.config.bucketForKey(target);
-      byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), target]);
-    }
-    const results = await Promise.all(
-      [...byBucket].map(([Bucket, keys]) =>
-        client.send(
-          new DeleteObjectsCommand({
-            Bucket,
-            Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
-          }),
-        ),
-      ),
+    const deleted = await this.deleteFromBuckets(
+      targets.length > 0 ? targets : [key],
+      'delete',
     );
-    for (const result of results) {
-      for (const item of result.Deleted ?? []) if (item.Key) deleted.add(item.Key);
-    }
     if (!deleted.has(key)) {
       throw new ServiceUnavailableException('Could not delete media');
     }
@@ -867,7 +1124,7 @@ export class StorageService {
     keys: readonly string[],
   ): Promise<{ deleted: number; failed: number }> {
     if (keys.length === 0) return { deleted: 0, failed: 0 };
-    const client = this.requireClient();
+    this.requireClient();
     for (const key of keys) this.assertSafeKey(key);
 
     const rows = await this.quota.fileOwnership(keys);
@@ -886,39 +1143,20 @@ export class StorageService {
     }
 
     const known = rows.map((row) => row.key);
-    const targets = await this.quota.objectAndDerivedKeys(known);
-    const gone = new Set<string>();
-    for (let i = 0; i < targets.length; i += 1000) {
-      const byBucket = new Map<string, string[]>();
-      for (const key of targets.slice(i, i + 1000)) {
-        const bucket = this.config.bucketForKey(key);
-        byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), key]);
-      }
-      try {
-        const results = await Promise.all(
-          [...byBucket].map(([Bucket, batch]) =>
-            client.send(
-              new DeleteObjectsCommand({
-                Bucket,
-                Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: false },
-              }),
-            ),
-          ),
-        );
-        for (const result of results) {
-          for (const item of result.Deleted ?? []) if (item.Key) gone.add(item.Key);
-        }
-      } catch (err) {
-        // One bad batch must not strand the rest.
-        this.logger.error(`deleteMany batch failed for ${userId}: ${String(err)}`);
-      }
-    }
+    let deletedCount = 0;
+    for (let i = 0; i < known.length; i += DELETE_CHUNK_FILES) {
+      const chunk = known.slice(i, i + DELETE_CHUNK_FILES);
+      const targets = await this.quota.objectAndDerivedKeys(chunk);
+      const gone = await this.deleteFromBuckets(targets, `deleteMany for ${userId}`);
 
-    const deleted = known.filter((key) => gone.has(key));
-    await this.quota.forgetKeys(deleted);
-    // Renditions are not bucket objects; see deleteObject.
-    await this.mediaLink.removeFor(known);
-    return { deleted: deleted.length, failed: keys.length - deleted.length };
+      const deleted = chunk.filter((key) => gone.has(key));
+      await this.quota.forgetKeys(deleted);
+      // Renditions are not bucket objects; see deleteObject. Only for what
+      // went: a file still in the bucket keeps its display copies.
+      await this.mediaLink.removeFor(deleted);
+      deletedCount += deleted.length;
+    }
+    return { deleted: deletedCount, failed: keys.length - deletedCount };
   }
 
   /**
@@ -1007,7 +1245,7 @@ export class StorageService {
   async wipeAll(
     userId: string,
   ): Promise<{ deleted: number; failed: number; freedBytes: number }> {
-    const client = this.requireClient();
+    this.requireClient();
 
     const files = await this.quota.allFiles(userId);
     const coverUrl = await this.quota.coverUrl(userId);
@@ -1044,54 +1282,12 @@ export class StorageService {
     if (failed > 0) {
       this.logger.warn(`wipeAll: skipped ${failed} malformed key(s) for ${userId}`);
     }
-    const deletedKeys: string[] = [];
-
-    for (let i = 0; i < keys.length; i += 1000) {
-      const batch = keys.slice(i, i + 1000);
-
-      try {
-        // A batch can straddle both buckets — avatars and covers live in the
-        // public one, everything else in the private one — and DeleteObjects
-        // takes exactly one bucket, so the batch is split by where each key
-        // actually is.
-        const byBucket = new Map<string, string[]>();
-        for (const key of batch) {
-          const b = this.config.bucketForKey(key);
-          const list = byBucket.get(b) ?? [];
-          list.push(key);
-          byBucket.set(b, list);
-        }
-
-        const results = await Promise.all(
-          [...byBucket].map(([Bucket, keys]) =>
-            client.send(
-              new DeleteObjectsCommand({
-                Bucket,
-                Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: false },
-              }),
-            ),
-          ),
-        );
-        const res = {
-          Deleted: results.flatMap((r) => r.Deleted ?? []),
-          Errors: results.flatMap((r) => r.Errors ?? []),
-        };
-        for (const d of res.Deleted ?? []) {
-          if (d.Key) deletedKeys.push(d.Key);
-        }
-        failed += (res.Errors ?? []).length;
-        if (res.Errors?.length) {
-          this.logger.warn(
-            `wipeAll: ${res.Errors.length} object(s) failed to delete for ${userId}`,
-          );
-        }
-      } catch (err) {
-        // A whole batch failing is not fatal — keep going so one bad batch
-        // does not strand the rest of the user's storage.
-        failed += batch.length;
-        this.logger.error(`wipeAll batch failed for ${userId}: ${String(err)}`);
-      }
-    }
+    // Split by bucket inside: avatars and covers live in the public one and
+    // everything else in the private one. Never throws, so one bad batch does
+    // not strand the rest of the user's storage.
+    const gone = await this.deleteFromBuckets(keys, `wipeAll for ${userId}`);
+    const deletedKeys = keys.filter((key) => gone.has(key));
+    failed += keys.length - deletedKeys.length;
 
     await this.quota.forgetFiles(userId, deletedKeys);
     const after = await this.quota.storageUsed(userId);

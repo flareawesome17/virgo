@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { albumSectionsApi, queryKeys, type AlbumSectionList } from '@/api';
 
+/** The most keys one request may carry (ArrayMaxSize on the API's DTOs). */
+const BULK_LIMIT = 500;
+
 /**
  * An album's sections, with the counts every album screen draws from.
  *
@@ -106,8 +109,14 @@ export function useDeleteSection(albumId: string) {
 export function useAssignSection(albumId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ keys, sectionId }: { keys: string[]; sectionId: string | null }) =>
-      albumSectionsApi.assign(albumId, keys, sectionId),
+    // In batches of the API's 500, as deleting does.
+    mutationFn: async ({ keys, sectionId }: { keys: string[]; sectionId: string | null }) => {
+      let moved = 0;
+      for (let i = 0; i < keys.length; i += BULK_LIMIT) {
+        moved += (await albumSectionsApi.assign(albumId, keys.slice(i, i + BULK_LIMIT), sectionId)).moved;
+      }
+      return { moved };
+    },
     onSuccess: () => refreshAlbumMedia(queryClient, albumId),
   });
 }

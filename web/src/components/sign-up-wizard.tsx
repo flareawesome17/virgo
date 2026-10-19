@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LegalDialog, type LegalTab } from '@/components/legal-dialog';
+import { LocationField } from '@/components/location-field';
 import { cn } from '@/lib/utils';
 
 /**
@@ -55,7 +57,6 @@ export function SignUpWizard() {
 
   // Step 3
   const [line1, setLine1] = useState('');
-  const [line2, setLine2] = useState('');
   const [city, setCity] = useState('');
   const [province, setProvince] = useState('');
   const [postal, setPostal] = useState('');
@@ -75,7 +76,10 @@ export function SignUpWizard() {
     staleTime: Infinity,
   });
 
-  const next = searchParams.get('next') || '/';
+  // A path in this app only, as on sign-in.
+  const requested = searchParams.get('next');
+  const next = requested && /^\/(?![/\\])/.test(requested) ? requested : '/';
+  const [reading, setReading] = useState<LegalTab | null>(null);
   useEffect(() => {
     if (isAuthenticated) router.replace(next);
   }, [isAuthenticated, next, router]);
@@ -110,6 +114,9 @@ export function SignUpWizard() {
   const isLast = step === STEPS.length - 1;
 
   const submit = () => {
+    // Enter submits the form whatever state the button is in, so a second
+    // press while the first request was out registered twice.
+    if (!stepReady || signUp.isPending) return;
     setError(null);
     signUp.mutate(
       {
@@ -118,7 +125,6 @@ export function SignUpWizard() {
         displayName: displayName.trim() || undefined,
         roles,
         addressLine1: line1.trim(),
-        addressLine2: line2.trim() || undefined,
         addressCity: city.trim(),
         addressProvince: province.trim(),
         addressPostal: postal.trim() || undefined,
@@ -323,25 +329,13 @@ export function SignUpWizard() {
               />
             </Field>
 
-            <Field label="Apartment, unit, floor" hint="Optional.">
-              <Input
-                value={line2}
-                onChange={(e) => setLine2(e.target.value)}
-                autoComplete="address-line2"
-                maxLength={200}
-              />
-            </Field>
-
             <div className="grid gap-4 sm:grid-cols-2">
+              {/* Suggestions, because the city is what places somebody in
+                  Nearby and the spelling the app knows is worth offering.
+                  Still free text: a town the list lacks is placed by its
+                  province. */}
               <Field label="City or municipality">
-                <Input
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  placeholder="Cebu City"
-                  autoComplete="address-level2"
-                  maxLength={120}
-                  required
-                />
+                <LocationField id="signup-city" value={city} onChange={setCity} placeholder="Cebu City" />
               </Field>
               <Field label="Province or region">
                 <Input
@@ -401,20 +395,33 @@ export function SignUpWizard() {
               />
               <span className="text-sm leading-relaxed text-muted-foreground">
                 I have read and agree to the{' '}
-                <Link href="/terms" className="font-medium text-primary hover:underline">
+                {/* Opened over the form. These went to the marketing pages in
+                    the same tab, a full page load that threw away all three
+                    steps of what had been typed. */}
+                <button
+                  type="button"
+                  onClick={() => setReading('terms')}
+                  className="font-medium text-primary hover:underline"
+                >
                   Terms of Service
-                </Link>{' '}
+                </button>{' '}
                 and{' '}
-                <Link href="/privacy" className="font-medium text-primary hover:underline">
+                <button
+                  type="button"
+                  onClick={() => setReading('privacy')}
+                  className="font-medium text-primary hover:underline"
+                >
                   Privacy Policy
-                </Link>
+                </button>
                 .
               </span>
             </label>
+            <LegalDialog tab={reading} onClose={() => setReading(null)} />
 
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Your address is private. It is never shown on your profile or to
-              anyone you work with.
+              Your street address is private. Your city and province show on
+              your profile and place you in Nearby — never your street, and you
+              can hide from Nearby in Settings.
             </p>
           </div>
         )}

@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { blockedBetween } from '../safety/block-sql';
-import { ShowcasesService } from './showcases.service';
+import {
+  decodeShowcaseCursor,
+  encodeShowcaseCursor,
+  ShowcasesService,
+} from './showcases.service';
 
 /**
  * Comments on a showcase.
@@ -29,8 +33,16 @@ export interface Comment {
   canRemove: boolean;
 }
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
+
+/** A page of the thread, oldest first within it. */
+export interface CommentPage {
+  data: Comment[];
+  allowed: boolean;
+  /** Where the comments before these start, or null when these are the first. */
+  earlier: string | null;
+}
 
 @Injectable()
 export class CommentsService {
@@ -40,7 +52,11 @@ export class CommentsService {
   ) {}
 
   /**
-   * One thread, oldest first.
+   * One thread, the newest page of it, read oldest first.
+   *
+   * It was the oldest 30 and nothing more: past the thirtieth, a new comment
+   * never appeared, so people posted it again. Now the newest come back, and
+   * `before` (the page's `earlier`) reaches back from there.
    *
    * Reads the showcase as the viewer first, so a post they cannot see has no
    * readable thread either — otherwise the comments are a way to learn what a
@@ -55,24 +71,30 @@ export class CommentsService {
   async list(
     viewerId: string,
     showcaseId: string,
-    opts: { limit?: number } = {},
-  ): Promise<{ data: Comment[]; allowed: boolean }> {
+    opts: { limit?: number; before?: string } = {},
+  ): Promise<CommentPage> {
     const showcase = await this.showcases.one(viewerId, showcaseId);
     const mine = showcase.userId === viewerId;
-    if (!showcase.allowComments && !mine) return { data: [], allowed: false };
+    if (!showcase.allowComments && !mine) return { data: [], allowed: false, earlier: null };
 
     const limit = Math.min(Math.max(opts.limit ?? PAGE_SIZE, 1), MAX_PAGE_SIZE);
-    const rows = await this.db.query<{
+    const before = decodeShowcaseCursor(opts.before);
+    const newestFirst = await this.db.query<{
       id: string;
       body: string;
       created_at: Date | string;
+      cursor_at: string;
       author_id: string;
       display_name: string | null;
       handle: string | null;
       avatar_url: string | null;
     }>(
-      `select c.id, c.body, c.created_at,
-              u.id as author_id, u.display_name, u.handle, u.avatar_url
+      `select c.id, c.body, c.created_at, c.created_at::text as cursor_at,
+              u.id as author_id, u.display_name, u.avatar_url,
+              -- A handle is only a link once the profile is published: /profiles/:handle
+              -- and hire both refuse an unpublished one, so handing it out made the
+              -- avatar and Hire lead to "Profile not found".
+              case when u.public_profile then u.handle end as handle
          from showcase_comments c
          join users u on u.id = c.user_id
         where c.showcase_id = $1
@@ -81,13 +103,19 @@ export class CommentsService {
           -- there, and a comment is them being there.
           and not ${blockedBetween('$2', 'c.user_id')}
           and u.suspended_at is null
-        order by c.created_at, c.id
+          and ($4::timestamptz is null or (c.created_at, c.id) < ($4::timestamptz, $5::uuid))
+        order by c.created_at desc, c.id desc
         limit $3`,
-      [showcaseId, viewerId, limit],
+      [showcaseId, viewerId, limit + 1, before?.at ?? null, before?.id ?? null],
     );
+
+    const hasEarlier = newestFirst.length > limit;
+    const rows = (hasEarlier ? newestFirst.slice(0, limit) : newestFirst).reverse();
+    const first = rows[0];
 
     return {
       allowed: showcase.allowComments,
+      earlier: hasEarlier && first ? encodeShowcaseCursor(first.cursor_at, first.id) : null,
       data: rows.map((r) => ({
         id: r.id,
         body: r.body,
@@ -105,7 +133,7 @@ export class CommentsService {
   }
 
   /** Say something. Refused when the author has turned comments off. */
-  async add(viewerId: string, showcaseId: string, body: string): Promise<Comment[]> {
+  async add(viewerId: string, showcaseId: string, body: string): Promise<CommentPage> {
     const showcase = await this.showcases.one(viewerId, showcaseId);
     if (!showcase.allowComments) {
       throw new ForbiddenException({
@@ -125,8 +153,7 @@ export class CommentsService {
       'insert into showcase_comments (showcase_id, user_id, body) values ($1, $2, $3)',
       [showcaseId, viewerId, trimmed],
     );
-    const { data } = await this.list(viewerId, showcaseId);
-    return data;
+    return this.list(viewerId, showcaseId);
   }
 
   /**
@@ -136,7 +163,7 @@ export class CommentsService {
    * comment that is neither answers the same way as one that does not exist —
    * a 404 either way tells nobody whose it was.
    */
-  async remove(viewerId: string, showcaseId: string, commentId: string): Promise<Comment[]> {
+  async remove(viewerId: string, showcaseId: string, commentId: string): Promise<CommentPage> {
     const gone = await this.db.query(
       `delete from showcase_comments c
         using showcases s
@@ -148,7 +175,6 @@ export class CommentsService {
       [commentId, showcaseId, viewerId],
     );
     if (gone.length === 0) throw new NotFoundException('Comment not found');
-    const { data } = await this.list(viewerId, showcaseId);
-    return data;
+    return this.list(viewerId, showcaseId);
   }
 }

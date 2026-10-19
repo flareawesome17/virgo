@@ -4,7 +4,8 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import Animated, { FadeInUp, FadeOutUp } from 'react-native-reanimated';
 import { useMutation } from '@tanstack/react-query';
 import { MailWarningIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -42,41 +43,59 @@ export function VerifyEmailBanner({ children }: { children: ReactNode }) {
 
   // `emailVerified` is absent on responses from an older API; treating that as
   // verified keeps the banner from appearing for everyone during a rollout.
-  if (!profile || profile.emailVerified !== false || dismissed) {
-    return <>{children}</>;
-  }
+  const showing = !!profile && profile.emailVerified === false && !dismissed;
+
+  // The tree keeps one shape whether the banner shows or not, and the inset
+  // object stays the same until it has to change. Returning the children bare
+  // when hidden made React rebuild the whole app under it on dismiss.
+  const below = useMemo(
+    () => (showing ? { ...insets, top: 0 } : insets),
+    [showing, insets],
+  );
 
   return (
     <>
-    <View
-      className="flex-row items-center gap-2.5 px-4 pb-2.5"
-      style={{ paddingTop: insets.top + 8, backgroundColor: '#f59e0b1a' }}
-    >
-      <MailWarningIcon size={16} color="#f59e0b" />
-      <View className="flex-1 min-w-0">
-        <Text className="text-foreground text-[12px] font-bold">
-          Confirm your email to finish setting up
-        </Text>
-        <Text className="text-muted-foreground text-[11px] mt-0.5">
-          We sent a link to {profile.email}. Until then, changes will not save.
-        </Text>
-      </View>
-      <Pressable
-        className="rounded-lg px-3 py-1.5"
-        style={{ backgroundColor: '#f59e0b', opacity: resend.isPending ? 0.6 : 1 }}
-        disabled={resend.isPending}
-        onPress={() => resend.mutate()}
-      >
-        {resend.isPending ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Text className="text-white text-[11px] font-bold">Resend</Text>
-        )}
-      </Pressable>
-      <Pressable onPress={() => setDismissed(true)} hitSlop={8}>
-        <XIcon size={15} className="text-muted-foreground" />
-      </Pressable>
-    </View>
+    {showing && profile ? (
+      <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutUp.duration(180)}>
+        <View
+          className="flex-row items-center gap-2.5 pl-4 pr-1 pb-1.5 bg-warning/10"
+          style={{ paddingTop: insets.top + 6 }}
+        >
+          <MailWarningIcon size={16} color="#f59e0b" />
+          <View className="flex-1 min-w-0">
+            <Text className="text-foreground text-[12px] font-bold">
+              Confirm your email to finish setting up
+            </Text>
+            <Text className="text-muted-foreground text-[11px] mt-0.5">
+              We sent a link to {profile.email}.
+            </Text>
+          </View>
+          {/* The warning token, not amber: white on #f59e0b was about 2:1. */}
+          <Pressable
+            className="rounded-lg px-3 min-h-[36px] justify-center bg-warning"
+            style={{ opacity: resend.isPending ? 0.6 : 1 }}
+            disabled={resend.isPending}
+            accessibilityRole="button"
+            hitSlop={4}
+            onPress={() => resend.mutate()}
+          >
+            {resend.isPending ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text className="text-white text-[12px] font-bold">Resend</Text>
+            )}
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+            onPress={() => setDismissed(true)}
+            className="w-11 h-11 items-center justify-center active:opacity-60"
+          >
+            <XIcon size={16} className="text-muted-foreground" />
+          </Pressable>
+        </View>
+      </Animated.View>
+    ) : null}
 
     {/*
       The banner has already covered the notch, so the screens below must not
@@ -86,9 +105,7 @@ export function VerifyEmailBanner({ children }: { children: ReactNode }) {
       banner. The other edges are passed through untouched, so the home
       indicator is still cleared at the bottom.
     */}
-    <SafeAreaInsetsContext.Provider value={{ ...insets, top: 0 }}>
-      {children}
-    </SafeAreaInsetsContext.Provider>
+    <SafeAreaInsetsContext.Provider value={below}>{children}</SafeAreaInsetsContext.Provider>
     </>
   );
 }

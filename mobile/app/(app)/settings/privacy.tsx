@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Platform,
   TextInput,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomSheet } from '@/components/BottomSheet';
@@ -32,6 +33,7 @@ import { cssInterop } from 'nativewind';
 import {
   useAuth,
   useLocationSharing,
+  useSetNearbyHidden,
   useShareLocation,
   useStopSharingLocation,
   useTheme,
@@ -40,7 +42,10 @@ import { api } from '@/src/api/client';
 import {
   ensurePermissions,
   getPushRegistration,
+  hasNotificationPermission,
+  isPushTurnedOff,
   isRemotePushAvailable,
+  setPushTurnedOff,
 } from '@/src/lib/notifications';
 
 for (const Icon of [
@@ -88,7 +93,7 @@ export default function PrivacyScreen() {
           dismissClosing();
           Alert.alert(
             'Account paused',
-            `You are signed out everywhere. You can sign in again on ${disabledUntil.slice(0, 10)}.`,
+            `You are signed out everywhere. It lifts on ${disabledUntil.slice(0, 10)}, or sooner if you sign in again — you will be asked whether to unpause.`,
             [{ text: 'OK', onPress: () => router.replace('/(auth)/welcome') }],
           );
         },
@@ -113,13 +118,35 @@ export default function PrivacyScreen() {
     });
   };
 
-  const { sharing, isLoading: loadingLocation } = useLocationSharing();
+  const {
+    sharing,
+    place: shownIn,
+    source,
+    hidden,
+    exactLocation,
+    exactLocationStale,
+    isLoading: loadingLocation,
+    loadFailed: locationFailed,
+    data: locationStatus,
+    refetch: refetchLocation,
+  } = useLocationSharing();
+  // Not known, rather than off. A failed load read as "not sharing", and a
+  // tap on that switch could do the opposite of what was meant.
+  const locationUnknown = locationFailed && !locationStatus;
+  // What places them. An older API sends no source, and there sharing was the
+  // only way to be placed.
+  const placedBy =
+    source !== undefined ? source : sharing ? (shownIn ? 'place' : 'gps') : null;
   const startSharing = useShareLocation();
   const stopSharing = useStopSharingLocation();
+  const setHidden = useSetNearbyHidden();
 
   const discoverable = profile?.discoverable ?? true;
 
-  // Whether this device is currently registered to receive push.
+  // Whether this device receives push for this account: allowed by the system,
+  // and not switched off here. Both read without asking for anything — this
+  // used to call getPushRegistration, which prompts, just to draw the switch.
+  const userId = profile?.id ?? null;
   const [pushOn, setPushOn] = useState<boolean | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const pushPossible = isRemotePushAvailable();
@@ -127,17 +154,20 @@ export default function PrivacyScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      if (!pushPossible) {
+      if (!pushPossible || !userId) {
         if (!cancelled) setPushOn(false);
         return;
       }
-      const registration = await getPushRegistration();
-      if (!cancelled) setPushOn(!!registration);
+      const [off, allowed] = await Promise.all([
+        isPushTurnedOff(userId),
+        hasNotificationPermission(),
+      ]);
+      if (!cancelled) setPushOn(!off && allowed);
     })();
     return () => {
       cancelled = true;
     };
-  }, [pushPossible]);
+  }, [pushPossible, userId]);
 
   const toggleDiscoverable = (next: boolean) => {
     updateProfile.mutate(
@@ -149,19 +179,60 @@ export default function PrivacyScreen() {
     );
   };
 
-  const toggleLocation = (next: boolean) => {
-    const mutation = next ? startSharing : stopSharing;
-    mutation.mutate(undefined as never, {
+  /** "Show me in Nearby" is the inverse of the hidden flag. */
+  const toggleShown = (next: boolean) => {
+    setHidden.mutate(!next, {
       onError: (err: any) =>
-        Alert.alert('Could not change sharing', err?.message || 'Please try again.'),
+        Alert.alert("Couldn't change that", err?.message || 'Please try again.'),
     });
   };
 
+  const toggleExactLocation = (next: boolean) => {
+    const mutation = next ? startSharing : stopSharing;
+    mutation.mutate(undefined as never, {
+      onError: (err: any) =>
+        Alert.alert(
+          "Couldn't change your exact location",
+          err?.message || 'Please try again.',
+          err?.code === 'LOCATION_BLOCKED'
+            ? [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+              ]
+            : undefined,
+        ),
+    });
+  };
+
+  /*
+   * What each switch says, from the server's own answer — which applies the
+   * 30-day expiry. "You appear in Nearby" used to be said to anyone with the
+   * switch on, including people whose position had expired weeks before.
+   */
+  const shownDetail = locationUnknown
+    ? "Couldn't check whether you're shown in Nearby"
+    : hidden
+      ? 'Nobody sees you in Nearby. You can still look around'
+      : placedBy === 'gps'
+        ? 'Shown near your exact location. Others see a distance, never a place'
+        : placedBy && shownIn
+          ? `Shown in ${shownIn}. Never your street`
+          : 'Add your city to your profile to appear in Nearby';
+  const exactDetail = locationUnknown
+    ? "Couldn't check whether you're sharing it"
+    : exactLocationStale
+      ? 'Over 30 days old, so the city in your address is used instead. Turn it off and on to update it'
+      : exactLocation
+        ? 'From this device, kept to about a kilometre. Turning it off erases it'
+        : 'Off. Nearby uses the city in your address';
+
   const togglePush = async (next: boolean) => {
+    if (!userId) return;
     setPushBusy(true);
     try {
       if (next) {
-        if (!(await ensurePermissions())) {
+        // They just asked for it; no explainer in front of the system prompt.
+        if (!(await ensurePermissions({ explain: false }))) {
           Alert.alert(
             'Notifications are off',
             `Turn them on for Virgo in your ${Platform.OS === 'ios' ? 'iOS' : 'Android'} settings, then try again.`,
@@ -172,22 +243,33 @@ export default function PrivacyScreen() {
         if (!registration) {
           Alert.alert(
             'Not available here',
-            'Push needs a development build on a real device. Reminders still alarm locally.',
+            'Push notifications are not available on this device. Reminders still go off on this phone.',
           );
           return;
         }
         await api.post('/notifications/token', { body: registration });
+        await setPushTurnedOff(userId, false);
         setPushOn(true);
         return;
       }
 
-      const registration = await getPushRegistration();
+      // Without permission there is no token to forget, and asking for one
+      // just to switch push off would be backwards.
+      const registration = (await hasNotificationPermission())
+        ? await getPushRegistration()
+        : null;
       if (registration) {
         await api.delete('/notifications/token', { body: { token: registration.token } });
       }
+      // Only once the server has let go of the token: remembered first, a
+      // failed delete would show Off while push kept arriving.
+      await setPushTurnedOff(userId, true);
       setPushOn(false);
-    } catch (err: any) {
-      Alert.alert('Could not change notifications', err?.message || 'Please try again.');
+    } catch {
+      Alert.alert(
+        'Could not change notifications',
+        'Check your connection and try again.',
+      );
     } finally {
       setPushBusy(false);
     }
@@ -211,6 +293,7 @@ export default function PrivacyScreen() {
     busy,
     onChange,
     last,
+    onRetry,
   }: {
     icon: LucideIcon;
     tint: string;
@@ -220,6 +303,8 @@ export default function PrivacyScreen() {
     busy?: boolean;
     onChange: (next: boolean) => void;
     last?: boolean;
+    /** Could not be read: a retry instead of a switch that would guess. */
+    onRetry?: () => void;
   }) => (
     <View
       className="px-4 py-3.5 flex-row items-center gap-3"
@@ -240,6 +325,14 @@ export default function PrivacyScreen() {
       </View>
       {busy ? (
         <ActivityIndicator size="small" color="#B66A40" />
+      ) : onRetry ? (
+        <Pressable
+          onPress={onRetry}
+          accessibilityRole="button"
+          className="min-h-[44px] px-2 justify-center active:opacity-60"
+        >
+          <Text className="text-primary text-[13px] font-bold">Try again</Text>
+        </Pressable>
       ) : (
         <Switch
           value={value}
@@ -259,9 +352,9 @@ export default function PrivacyScreen() {
         contentContainerStyle={{ paddingBottom: 60 }}
       >
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={cardShadow}
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
@@ -296,24 +389,32 @@ export default function PrivacyScreen() {
               onChange={toggleDiscoverable}
             />
             <Toggle
-              icon={MapPinIcon}
+              icon={EyeIcon}
               tint="#6B8E4E"
-              title="Share my location"
-              detail={
-                sharing
-                  ? 'You appear in Nearby. Others see a distance, never a place'
-                  : 'You do not appear in Nearby and no location is stored'
-              }
-              value={sharing}
+              title="Show me in Nearby"
+              detail={shownDetail}
+              value={!hidden}
+              busy={loadingLocation || setHidden.isPending}
+              onChange={toggleShown}
+              onRetry={locationUnknown ? () => void refetchLocation() : undefined}
+            />
+            <Toggle
+              icon={MapPinIcon}
+              tint="#C17745"
+              title="Use my exact location"
+              detail={exactDetail}
+              value={exactLocation}
               busy={loadingLocation || startSharing.isPending || stopSharing.isPending}
-              onChange={toggleLocation}
+              onChange={toggleExactLocation}
+              onRetry={locationUnknown ? () => void refetchLocation() : undefined}
               last
             />
           </View>
           <Text className="text-muted-foreground text-[11px] mt-2 ml-1 leading-4">
             Turning off name search does not hide you from people you already
             share a workspace with, and an exact email address still reaches
-            you — otherwise nobody could invite you.
+            you — otherwise nobody could invite you. Nearby places you by the
+            city in your address, never the street.
           </Text>
         </View>
 
@@ -329,7 +430,7 @@ export default function PrivacyScreen() {
               title="Push to this device"
               detail={
                 !pushPossible
-                  ? 'Unavailable in Expo Go and on simulators'
+                  ? 'Not available on this device'
                   : pushOn
                     ? 'Messages and reminders reach you when the app is closed'
                     : 'This device will not receive push. Local alarms still fire'
@@ -423,7 +524,7 @@ export default function PrivacyScreen() {
                 </Text>
                 <Text className="text-muted-foreground text-xs mt-0.5 leading-4">
                   Sign out everywhere for a set number of days. Nothing is
-                  deleted and it comes back on its own
+                  deleted, and signing in again lifts it early
                 </Text>
               </View>
               <ChevronRightIcon size={14} className="text-muted-foreground" />
@@ -464,7 +565,7 @@ export default function PrivacyScreen() {
           </Text>
           <Text className="text-muted-foreground text-sm mt-1.5 leading-5">
             {closing === 'pause'
-              ? 'You will be signed out on every device. Nobody can message you or invite you until it lifts.'
+              ? 'You will be signed out on every device. Nobody can message you or invite you until it lifts — on the date, or when you sign in again and choose to unpause.'
               : 'Your workspaces, albums, messages and every uploaded file are erased. Share links stop working. This cannot be undone.'}
           </Text>
 
@@ -516,7 +617,7 @@ export default function PrivacyScreen() {
                 autoCapitalize="none"
                 className="flex-1 py-3.5 text-foreground text-base"
               />
-              <Pressable
+              <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
                 onPress={() => setShowPassword((s) => !s)}
                 className="pl-3 active:opacity-60"
               >

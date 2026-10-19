@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
+import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
+import { enterAlertMode } from '@/src/lib/audio-mode';
 
 /**
  * Notification sounds, for events that arrive while the app is open.
@@ -48,7 +49,6 @@ const MIN_GAP_MS = 800;
 
 let lastPlayedAt = 0;
 let enabled = true;
-let modeSet = false;
 const players = new Map<AlertSound, AudioPlayer>();
 
 /**
@@ -81,30 +81,6 @@ export async function setSoundEnabled(on: boolean): Promise<void> {
   }
 }
 
-/**
- * Makes a notification behave like a notification rather than like music.
- *
- * playsInSilentMode stays false on purpose: the ringer switch means "do not
- * make noise", and an app that talks over it is an app people uninstall.
- * shouldPlayInBackground is false for the same reason the module only covers
- * the foreground.
- */
-async function ensureAudioMode(): Promise<void> {
-  if (modeSet) return;
-  modeSet = true;
-  try {
-    await setAudioModeAsync({
-      playsInSilentMode: false,
-      shouldPlayInBackground: false,
-      // Ducks whatever is playing rather than stopping it. Somebody editing to
-      // music should hear the alert over the track, and still have the track.
-      interruptionMode: 'duckOthers',
-      shouldRouteThroughEarpiece: false,
-    });
-  } catch {
-    // An older runtime, or web. The player still works with default routing.
-  }
-}
 
 function playerFor(sound: AlertSound): AudioPlayer | null {
   let player = players.get(sound);
@@ -135,7 +111,8 @@ export function playAlert(sound: AlertSound): void {
 
   void (async () => {
     try {
-      await ensureAudioMode();
+      // A notification's mode, unless album audio is playing — see audio-mode.
+      await enterAlertMode();
       const player = playerFor(sound);
       if (!player) return;
       // Rewound rather than played from wherever it stopped: two messages in a

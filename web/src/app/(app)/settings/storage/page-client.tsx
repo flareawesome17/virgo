@@ -1,19 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeft,
   CreditCard,
   FileQuestion,
   FolderInput,
   Images,
   Loader2,
   Music,
+  Trash2,
   Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AppShell, PageHeader } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState, ErrorState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,6 +22,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -36,15 +38,32 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useAuth } from '@/hooks/useAuth';
 import { useUsage } from '@/hooks/useUsage';
 import {
+  unassignedFilesKey,
   useAttachToAlbum,
   useStorageBreakdown,
   useUnassignedFiles,
 } from '@/hooks/useStorageAdmin';
+import { useDeleteFiles } from '@/hooks/useMediaSelection';
+import { useWipeStorage } from '@/hooks/useStorageAdmin';
 import { useAlbums } from '@/hooks/useAlbums';
 import { fileNameFromKey } from '@/hooks/useAlbumFiles';
 import { formatBytes } from '@/api';
+
+/** Typed into the box before a wipe is allowed to run. */
+const CONFIRM_WORD = 'DELETE';
 
 const TYPE_META: Record<
   string,
@@ -68,13 +87,45 @@ const TYPE_META: Record<
  * gets filed.
  */
 function UnassignedFiles() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
   const { files, isLoading, loadFailed, refetch } = useUnassignedFiles();
   const { albums } = useAlbums({ limit: 100 });
   const attach = useAttachToAlbum();
+  const remove = useDeleteFiles(undefined);
+
+  // Only your own: the server files into an album it checks you own, so
+  // offering a shared one ended in a refusal after the choice was made.
+  const ownAlbums = useMemo(
+    () =>
+      albums.filter((album) =>
+        album.my_access ? album.my_access === 'owner' : album.user_id === user?.id,
+      ),
+    [albums, user?.id],
+  );
 
   const [picked, setPicked] = useState<string[]>([]);
   const [albumId, setAlbumId] = useState('');
   const [assigning, setAssigning] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const deleteNow = () =>
+    remove.mutate(picked, {
+      onSuccess: (result) => {
+        setDeleting(false);
+        setPicked([]);
+        // useDeleteFiles refreshes the album lists; this list is its own key.
+        void queryClient.invalidateQueries({ queryKey: unassignedFilesKey });
+        if (result.failed > 0) {
+          toast.error('Some files were not deleted', {
+            description: `${result.failed} ${result.failed === 1 ? 'is' : 'are'} still here. Try those again.`,
+          });
+        } else {
+          toast.success(`Deleted ${result.deleted} file${result.deleted === 1 ? '' : 's'}`);
+        }
+      },
+      onError: (err: Error) => toast.error('Could not delete', { description: err.message }),
+    });
 
   if (isLoading) return <CenteredSpinner />;
   if (loadFailed) {
@@ -102,6 +153,15 @@ function UnassignedFiles() {
         </p>
         <Button
           size="sm"
+          variant="outline"
+          disabled={picked.length === 0 || remove.isPending}
+          onClick={() => setDeleting(true)}
+        >
+          <Trash2 className="size-3.5" />
+          Delete
+        </Button>
+        <Button
+          size="sm"
           disabled={picked.length === 0}
           onClick={() => setAssigning(true)}
         >
@@ -109,6 +169,34 @@ function UnassignedFiles() {
           File into an album
         </Button>
       </div>
+
+      <AlertDialog open={deleting} onOpenChange={setDeleting}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {picked.length} file{picked.length === 1 ? '' : 's'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              They are removed from storage for good, along with their previews.
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={remove.isPending}
+              onClick={(event) => {
+                // Open until the request settles, so a failure is reported.
+                event.preventDefault();
+                deleteNow();
+              }}
+            >
+              {remove.isPending && <Loader2 className="size-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ul className="max-h-80 overflow-y-auto">
         {files.map((file) => (
@@ -150,13 +238,18 @@ function UnassignedFiles() {
                 <SelectValue placeholder="Choose an album" />
               </SelectTrigger>
               <SelectContent>
-                {albums.map((album) => (
+                {ownAlbums.map((album) => (
                   <SelectItem key={album.id} value={album.id}>
                     {album.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {ownAlbums.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Files can only go into an album of your own, and you have none yet.
+              </p>
+            )}
           </div>
 
           <DialogFooter>
@@ -199,19 +292,18 @@ export default function StorageSettingsPage() {
   const byType = breakdown?.byType ?? [];
   const byAlbum = breakdown?.byAlbum ?? [];
 
+  // Wiping everything lived on the long Settings page; it belongs with the
+  // storage it empties.
+  const wipe = useWipeStorage();
+  const [confirmingWipe, setConfirmingWipe] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const fail = (label: string) => (err: Error) =>
+    toast.error(label, { description: err.message });
+
   return (
-    <AppShell title="Storage">
+    <Screen title="Storage">
       <PageHeader
-        title={
-          <span className="flex items-center gap-2">
-            <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
-              <Link href="/settings" aria-label="Back">
-                <ArrowLeft className="size-4" />
-              </Link>
-            </Button>
-            Storage
-          </span>
-        }
+        title="Storage"
         description="What you have uploaded, and where it sits"
         actions={
           <Button asChild variant="outline">
@@ -223,13 +315,15 @@ export default function StorageSettingsPage() {
         }
       />
 
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <div className="w-full max-w-3xl">
         <Card>
           <CardContent className="py-6">
             <div className="flex items-end justify-between gap-4">
               <div>
+                {/* Dashes until the reading arrives: "0 B" and "0 files" are
+                    real answers, and they were given before there was one. */}
                 <p className="text-3xl font-bold tabular-nums">
-                  {formatBytes(storageUsedBytes)}
+                  {usage ? formatBytes(storageUsedBytes) : '—'}
                 </p>
                 {/*
                   "on the free plan" only while the plan is the whole story.
@@ -249,7 +343,7 @@ export default function StorageSettingsPage() {
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold tabular-nums">
-                  {usage?.storage.fileCount ?? 0}
+                  {usage ? (usage.storage.fileCount ?? 0) : '—'}
                 </p>
                 <p className="text-xs text-muted-foreground">files</p>
               </div>
@@ -261,18 +355,42 @@ export default function StorageSettingsPage() {
             <div className="mt-5 grid grid-cols-2 gap-3">
               <div className="rounded-lg bg-muted px-3 py-2.5">
                 <p className="text-sm font-bold tabular-nums">
-                  {usage?.workspaces.used ?? 0}
+                  {usage ? usage.workspaces.used : '—'}
                   {usage?.workspaces.limit != null ? ` / ${usage.workspaces.limit}` : ''}
                 </p>
                 <p className="text-xs text-muted-foreground">Workspaces</p>
               </div>
               <div className="rounded-lg bg-muted px-3 py-2.5">
                 <p className="text-sm font-bold tabular-nums">
-                  {usage?.albums.used ?? 0}
+                  {usage ? usage.albums.used : '—'}
                   {usage?.albums.limit != null ? ` / ${usage.albums.limit} each` : ''}
                 </p>
                 <p className="text-xs text-muted-foreground">Albums</p>
               </div>
+              {/* What clients have downloaded through share links this month.
+                  Over the allowance the gallery still opens; new downloads
+                  wait for the reset, so say when that is. */}
+              {usage?.downloads ? (
+                <div className="col-span-2 rounded-lg bg-muted px-3 py-2.5">
+                  <p className="text-sm font-bold tabular-nums">
+                    {formatBytes(usage.downloads.usedBytes)}
+                    {usage.downloads.limitBytes != null
+                      ? ` / ${formatBytes(usage.downloads.limitBytes)}`
+                      : ''}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {usage.downloads.limitBytes != null &&
+                    usage.downloads.usedBytes >= usage.downloads.limitBytes
+                      ? 'Client downloads paused until '
+                      : 'Client downloads this month · resets '}
+                    {new Date(usage.downloads.resetsAt).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      timeZone: 'UTC',
+                    })}
+                  </p>
+                </div>
+              ) : null}
             </div>
           </CardContent>
         </Card>
@@ -370,7 +488,93 @@ export default function StorageSettingsPage() {
             <UnassignedFiles />
           </CardContent>
         </Card>
+
+        {/* Last, and apart: it cannot be undone. */}
+        <h2 className="mb-2 mt-8 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Wipe
+        </h2>
+        <Card className="border-destructive/25">
+          <CardContent className="py-5">
+            <div className="flex items-start gap-4">
+              <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-destructive/10">
+                <Trash2 className="size-4 text-destructive" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Wipe cloud data</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  Deletes every photo, video and audio file you have uploaded,
+                  across all workspaces. This cannot be undone.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 text-destructive hover:text-destructive"
+                onClick={() => {
+                  setConfirmText('');
+                  setConfirmingWipe(true);
+                }}
+              >
+                Wipe
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </AppShell>
+
+      <AlertDialog open={confirmingWipe} onOpenChange={setConfirmingWipe}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Wipe every uploaded file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {/* "Deletes 0 B" before the reading arrives would make the wipe
+                  sound harmless. */}
+              This deletes {usage ? `${formatBytes(storageUsedBytes)} of media` : 'every file you have uploaded'}{' '}
+              from storage permanently. Albums and workspaces survive, but they
+              will be empty. We cannot recover the files for you.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="grid gap-2">
+            <p className="text-sm">
+              Type <span className="font-mono font-bold">{CONFIRM_WORD}</span> to confirm.
+            </p>
+            <Input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={CONFIRM_WORD}
+              autoComplete="off"
+            />
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirmText !== CONFIRM_WORD || wipe.isPending}
+              onClick={(event) => {
+                // The dialog closes on action by default; keep it open while
+                // the request runs so the result can be reported.
+                event.preventDefault();
+                wipe.mutate(undefined, {
+                  onSuccess: (result) => {
+                    setConfirmingWipe(false);
+                    toast.success(`Deleted ${result.deleted} file${result.deleted === 1 ? '' : 's'}`, {
+                      description:
+                        result.failed > 0
+                          ? `${result.failed} could not be deleted and still count towards your quota.`
+                          : `Freed ${formatBytes(result.freedBytes)}.`,
+                    });
+                  },
+                  onError: fail('Could not wipe storage'),
+                });
+              }}
+            >
+              {wipe.isPending && <Loader2 className="size-4 animate-spin" />}
+              Wipe everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Screen>
   );
 }

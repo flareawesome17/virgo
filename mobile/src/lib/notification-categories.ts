@@ -25,7 +25,7 @@ export const CATEGORY_LABELS: Record<NotificationCategory, string> = {
 };
 
 export const CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
-  bookings: 'New, agreed, changed and cancelled bookings',
+  bookings: 'Bookings, and payments clients owe you',
   albums: 'Client picks and scheduled clean-ups',
   jobs: 'Applications and replies',
   hire: 'People asking to hire you',
@@ -57,6 +57,7 @@ export const FILTER_CATEGORIES: readonly NotificationCategory[] = [
  */
 const ACTION_LABELS: Record<NotificationTopic, string> = {
   booking: 'Open booking',
+  money: 'Open Money',
   'client-picks': 'See their picks',
   retention: 'Open albums',
   'job-application': 'See applications',
@@ -75,11 +76,15 @@ const ACTION_LABELS: Record<NotificationTopic, string> = {
   support: 'Open support',
   promo: 'Open rewards',
   'app-update': 'Read more',
+  announcement: 'Read more',
 };
 
 export function actionLabel(n: AppNotification): string {
-  // An accepted application opens the conversation it started.
-  if (n.topic === 'job-response' && typeof n.data.conversationId === 'string') {
+  // An accepted application or enquiry opens the conversation it started.
+  if (
+    (n.topic === 'job-response' || n.topic === 'hire-response') &&
+    typeof n.data.conversationId === 'string'
+  ) {
     return 'Open chat';
   }
   return ACTION_LABELS[n.topic] ?? 'Open';

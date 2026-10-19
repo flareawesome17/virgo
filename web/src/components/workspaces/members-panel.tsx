@@ -70,7 +70,12 @@ export function MembersPanel({
   const resend = useResendInvitation();
   const remove = useDeleteCollaborator();
 
-  const open = members.find((m) => m.id === selected && m.status === 'accepted') ?? null;
+  // Someone still invited too. An invitee offered only Resend and Cancel left
+  // no way to say what they should see; the API takes it either way, and it
+  // applies once they accept.
+  const open =
+    members.find((m) => m.id === selected && (m.status === 'accepted' || m.status === 'pending')) ??
+    null;
 
   const changeRole = (member: WorkspaceMember, role: CollaboratorRole) =>
     updateRole.mutate(
@@ -169,6 +174,14 @@ export function MembersPanel({
                       <Pill tone="warning">Invited {invitedWhen(member.invited_at)}</Pill>
                       <Button
                         size="sm"
+                        variant="outline"
+                        aria-pressed={member.id === selected}
+                        onClick={() => setSelected(member.id === selected ? null : member.id)}
+                      >
+                        Access
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="ghost"
                         disabled={resend.isPending}
                         onClick={() =>
@@ -264,6 +277,7 @@ function AccessEditor({
   const remove = useDeleteCollaborator();
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const name = firstName(member.name);
+  const invited = member.status === 'pending';
 
   // What they have today is where the choices start: derived, so it is right
   // from the render the albums arrive, and only copied once something changes.
@@ -307,9 +321,15 @@ function AccessEditor({
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold">{member.name}</p>
           <p className="text-xs text-muted-foreground">
-            {ROLE_LABEL[member.role]}
-            {member.responded_at &&
-              ` · joined ${new Date(member.responded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`}
+            {invited ? (
+              "Invited, hasn't joined yet. What you choose here is theirs when they accept."
+            ) : (
+              <>
+                {ROLE_LABEL[member.role]}
+                {member.responded_at &&
+                  ` · joined ${new Date(member.responded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`}
+              </>
+            )}
           </p>
         </div>
         <Button size="icon" variant="ghost" aria-label="Close" onClick={onClose}>
@@ -400,10 +420,14 @@ function AccessEditor({
       </div>
 
       <div className="flex items-center gap-2">
-        <Button size="sm" variant="destructive" onClick={() => setConfirmingRemove(true)}>
-          <Trash2 className="size-4" />
-          Remove from workspace
-        </Button>
+        {/* An invitee is not in the workspace to be removed from it; their
+            row already has Cancel for withdrawing the invitation. */}
+        {!invited && (
+          <Button size="sm" variant="destructive" onClick={() => setConfirmingRemove(true)}>
+            <Trash2 className="size-4" />
+            Remove from workspace
+          </Button>
+        )}
         <span className="flex-1" />
         <Button size="sm" onClick={submit} disabled={!isSuccess || !dirty || save.isPending}>
           {save.isPending && <Loader2 className="size-4 animate-spin" />}

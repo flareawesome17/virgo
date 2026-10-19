@@ -151,6 +151,22 @@ const MOBILE_TAG_PATTERN =
  */
 const CACHE_TTL_MS = 5 * 60_000;
 
+/**
+ * How the release list is read: newest first, a page of 100 (GitHub's
+ * largest) at a time, up to RELEASE_PAGES pages, stopping at the first
+ * release that answers.
+ *
+ * It used to be the first 20 only. The web app is released often, several
+ * times on a busy day, and the phone app rarely, so the newest mobile release
+ * sank out of that window: on 2026-10-05 mobile-v1.3.4 was 38th, the Android
+ * download vanished from virgo.ph, and installed apps stopped hearing that an
+ * update existed. One page of 100 covers that today, at the same single
+ * request; the further pages are for whenever the phone app goes quiet for
+ * longer.
+ */
+const RELEASES_PER_PAGE = 100;
+const RELEASE_PAGES = 5;
+
 @Injectable()
 export class DownloadsService {
   private readonly logger = new Logger(DownloadsService.name);
@@ -161,6 +177,11 @@ export class DownloadsService {
    * page for an answer that will not change for weeks.
    */
   private cachedAndroid: { at: number; build: AndroidBuild | null } | null = null;
+  /**
+   * The newest mobile version, for installed apps asking whether they are
+   * behind. Every launch asks, so it is held like the listings are.
+   */
+  private cachedMobile: { at: number; latest: { version: string; tag: string } | null } | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -353,6 +374,7 @@ export class DownloadsService {
     target: string,
     arch: string,
     currentVersion: string,
+    bundle?: string,
   ): Promise<UpdateManifest | null> {
     // `target` is the plugin's own word for the platform: `windows` or
     // `darwin`. Anything else has never been built here.
@@ -364,16 +386,35 @@ export class DownloadsService {
     const version = release.tag_name.replace(/^v/, '');
     if (!isNewer(version, currentVersion)) return null;
 
+    // Windows has two installers for the same app, and an update has to come
+    // from the one that put it there. The MSI installs for the whole machine
+    // and the NSIS installer for the current user, into different folders, so
+    // running the NSIS installer over an MSI install does not update it: it
+    // installs a second copy beside the first.
+    //
+    // The plugin says which one it is through `{{bundle_type}}` in the query
+    // string. Only the exact word `msi` changes anything. Every copy installed
+    // before the query string existed sends nothing, and a binary the bundler
+    // never patched sends `unknown`; both keep getting the NSIS installer,
+    // which is what they were offered before. The value is from the caller, so
+    // it picks between two of the release's own files and does nothing else.
+    const wantsMsi = target === 'windows' && bundle === 'msi';
+
     // What the updater actually applies. On Windows that is the NSIS
-    // installer; on macOS it is the .app tarball, never the .dmg, which is a
-    // disk image the updater has no way to unpack over a running app.
+    // installer, or the MSI for an MSI install; on macOS it is the .app
+    // tarball, never the .dmg, which is a disk image the updater has no way to
+    // unpack over a running app.
     //
     // macOS also has to match the architecture, because a release carries both
     // and handing an Intel Mac the Apple Silicon build would install something
     // that cannot run. The plugin sends `aarch64` or `x86_64`; the release
     // names them `aarch64` and `x64`, following the .dmg names.
     let installer: GitHubAsset | undefined;
-    if (target === 'windows') {
+    if (wantsMsi) {
+      installer = release.assets.find((asset) =>
+        asset.name.toLowerCase().endsWith('.msi'),
+      );
+    } else if (target === 'windows') {
       installer = release.assets.find((asset) =>
         asset.name.toLowerCase().endsWith('-setup.exe'),
       );
@@ -391,13 +432,23 @@ export class DownloadsService {
     // the same build; a release carrying one without the other is not offered
     // at all, because the plugin would download the installer and then refuse
     // it.
+    //
+    // An MSI install with no signed MSI to go to is offered nothing, not the
+    // NSIS installer instead. That substitute is the second-copy problem
+    // above; staying on the current version until a release carries its MSI
+    // is the better of the two.
     const signatureAsset = installer
       ? release.assets.find((asset) => asset.name === `${installer.name}.sig`)
       : undefined;
 
     if (!installer || !signatureAsset) {
+      const what = wantsMsi
+        ? 'MSI'
+        : target === 'windows'
+          ? 'Windows installer'
+          : `macOS ${arch} build`;
       this.logger.warn(
-        `${release.tag_name} has no signed ${target === 'windows' ? 'Windows installer' : `macOS ${arch} build`} — not offering an update.`,
+        `${release.tag_name} has no signed ${what} — not offering an update.`,
       );
       return null;
     }
@@ -419,8 +470,9 @@ export class DownloadsService {
     target: string,
     arch: string,
     currentVersion: string,
+    bundle?: string,
   ): Promise<UpdateManifest | null> {
-    return this.updateFor(target, arch, currentVersion);
+    return this.updateFor(target, arch, currentVersion, bundle);
   }
 
   /**
@@ -445,6 +497,34 @@ export class DownloadsService {
   }
 
   /**
+   * Walks published releases newest first (drafts and prereleases skipped)
+   * until `pick` returns something, reading a page at a time (see
+   * RELEASE_PAGES). `failed` is the response of a page GitHub would not give,
+   * so each caller can say what a failure means for it.
+   */
+  private async walkReleases<T>(
+    pick: (release: GitHubRelease) => T | null,
+  ): Promise<{ found: T | null; failed?: Response }> {
+    for (let page = 1; page <= RELEASE_PAGES; page++) {
+      const response = await this.github(
+        `/repos/${this.repository}/releases?per_page=${RELEASES_PER_PAGE}&page=${page}`,
+        'application/vnd.github+json',
+      );
+      if (!response.ok) return { found: null, failed: response };
+
+      const releases = (await response.json()) as GitHubRelease[];
+      for (const release of releases) {
+        if (release.draft || release.prerelease) continue;
+        const hit = pick(release);
+        if (hit !== null) return { found: hit };
+      }
+      // A short page is the last one.
+      if (releases.length < RELEASES_PER_PAGE) break;
+    }
+    return { found: null };
+  }
+
+  /**
    * The newest mobile release, whether or not it carries a file.
    *
    * This is what an installed app asks to find out it is out of date. Separate
@@ -458,22 +538,20 @@ export class DownloadsService {
    * that is the app's business, not this endpoint's.
    */
   async getMobileLatest(): Promise<{ version: string; tag: string } | null> {
-    const response = await this.github(
-      `/repos/${this.repository}/releases?per_page=20`,
-      'application/vnd.github+json',
-    );
-    if (!response.ok) return null;
-
-    const releases = (await response.json()) as GitHubRelease[];
-    for (const release of releases) {
-      if (release.draft || release.prerelease) continue;
-      if (!MOBILE_TAG_PATTERN.test(release.tag_name)) continue;
-      return {
-        version: release.tag_name.replace(/^mobile-v/, ''),
-        tag: release.tag_name,
-      };
+    if (this.cachedMobile && Date.now() - this.cachedMobile.at < CACHE_TTL_MS) {
+      return this.cachedMobile.latest;
     }
-    return null;
+
+    const { found, failed } = await this.walkReleases((release) =>
+      MOBILE_TAG_PATTERN.test(release.tag_name)
+        ? { version: release.tag_name.replace(/^mobile-v/, ''), tag: release.tag_name }
+        : null,
+    );
+    // Stale over empty: a failed read must not tell every installed app it is current.
+    if (failed) return this.cachedMobile?.latest ?? null;
+
+    this.cachedMobile = { at: Date.now(), latest: found };
+    return found;
   }
 
   /**
@@ -492,29 +570,11 @@ export class DownloadsService {
       return this.cachedAndroid.build;
     }
 
-    const response = await this.github(
-      `/repos/${this.repository}/releases?per_page=20`,
-      'application/vnd.github+json',
-    );
-
-    if (!response.ok) {
-      this.logger.error(
-        `Listing releases for Android failed: ${response.status} ${response.statusText}`,
-      );
-      // Stale over empty, same as the desktop listing.
-      return this.cachedAndroid?.build ?? null;
-    }
-
-    const releases = (await response.json()) as GitHubRelease[];
-
-    for (const release of releases) {
-      if (release.draft || release.prerelease) continue;
-      if (!MOBILE_TAG_PATTERN.test(release.tag_name)) continue;
-
+    const { found, failed } = await this.walkReleases<AndroidBuild>((release) => {
+      if (!MOBILE_TAG_PATTERN.test(release.tag_name)) return null;
       const apk = release.assets.find((asset) => this.isAndroidApk(asset));
-      if (!apk) continue;
-
-      const build: AndroidBuild = {
+      if (!apk) return null;
+      return {
         version: release.tag_name.replace(/^mobile-v/, ''),
         tag: release.tag_name,
         filename: apk.name,
@@ -522,32 +582,29 @@ export class DownloadsService {
         url: `${this.publicApiUrl}/downloads/${release.tag_name}/${encodeURIComponent(apk.name)}`,
         publishedAt: release.published_at,
       };
+    });
 
-      this.cachedAndroid = { at: Date.now(), build };
-      return build;
+    if (failed) {
+      this.logger.error(
+        `Listing releases for Android failed: ${failed.status} ${failed.statusText}`,
+      );
+      // Stale over empty, same as the desktop listing.
+      return this.cachedAndroid?.build ?? null;
     }
 
-    this.cachedAndroid = { at: Date.now(), build: null };
-    return null;
+    this.cachedAndroid = { at: Date.now(), build: found };
+    return found;
   }
 
   /** The raw release behind `getLatest`, for callers that need its assets. */
   private async newestReleaseWithInstallers(): Promise<GitHubRelease | null> {
-    const response = await this.github(
-      `/repos/${this.repository}/releases?per_page=20`,
-      'application/vnd.github+json',
+    const { found } = await this.walkReleases((release) =>
+      TAG_PATTERN.test(release.tag_name) &&
+      release.assets.some((asset) => this.classify(asset, release.tag_name))
+        ? release
+        : null,
     );
-    if (!response.ok) return null;
-
-    const releases = (await response.json()) as GitHubRelease[];
-    for (const release of releases) {
-      if (release.draft || release.prerelease) continue;
-      if (!TAG_PATTERN.test(release.tag_name)) continue;
-      if (release.assets.some((asset) => this.classify(asset, release.tag_name))) {
-        return release;
-      }
-    }
-    return null;
+    return found;
   }
 
   /**
@@ -565,12 +622,29 @@ export class DownloadsService {
       return this.cached.release;
     }
 
-    const response = await this.github(
-      `/repos/${this.repository}/releases?per_page=20`,
-      'application/vnd.github+json',
-    );
+    const { found, failed: response } = await this.walkReleases<LatestRelease>((release) => {
+      if (!TAG_PATTERN.test(release.tag_name)) return null;
 
-    if (!response.ok) {
+      const assets = release.assets
+        .map((asset) => this.classify(asset, release.tag_name))
+        .filter((asset): asset is DownloadAsset => asset !== null)
+        // Windows first, then Apple Silicon, then Intel — the order the page
+        // reads top to bottom, so it does not have to re-sort.
+        .sort((a, b) => {
+          if (a.platform !== b.platform) return a.platform === 'windows' ? -1 : 1;
+          return a.arch === b.arch ? 0 : a.arch === 'arm64' ? -1 : 1;
+        });
+
+      if (assets.length === 0) return null;
+      return {
+        version: release.tag_name.replace(/^v/, ''),
+        tag: release.tag_name,
+        publishedAt: release.published_at,
+        assets,
+      };
+    });
+
+    if (response) {
       this.logger.error(
         `Listing releases failed: ${response.status} ${response.statusText}`,
       );
@@ -599,36 +673,10 @@ export class DownloadsService {
       );
     }
 
-    const releases = (await response.json()) as GitHubRelease[];
+    if (!found) throw new NotFoundException('No downloads are available yet.');
 
-    for (const release of releases) {
-      if (release.draft || release.prerelease) continue;
-      if (!TAG_PATTERN.test(release.tag_name)) continue;
-
-      const assets = release.assets
-        .map((asset) => this.classify(asset, release.tag_name))
-        .filter((asset): asset is DownloadAsset => asset !== null)
-        // Windows first, then Apple Silicon, then Intel — the order the page
-        // reads top to bottom, so it does not have to re-sort.
-        .sort((a, b) => {
-          if (a.platform !== b.platform) return a.platform === 'windows' ? -1 : 1;
-          return a.arch === b.arch ? 0 : a.arch === 'arm64' ? -1 : 1;
-        });
-
-      if (assets.length === 0) continue;
-
-      const latest: LatestRelease = {
-        version: release.tag_name.replace(/^v/, ''),
-        tag: release.tag_name,
-        publishedAt: release.published_at,
-        assets,
-      };
-
-      this.cached = { at: Date.now(), release: latest };
-      return latest;
-    }
-
-    throw new NotFoundException('No downloads are available yet.');
+    this.cached = { at: Date.now(), release: found };
+    return found;
   }
 
   /**

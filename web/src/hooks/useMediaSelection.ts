@@ -4,6 +4,13 @@ import { queryKeys, storageApi } from '@/api';
 import { usageQueryKey } from '@/hooks/useUsage';
 
 /**
+ * Files per delete request. The API takes up to 500 (ArrayMaxSize), but a
+ * request that size could run past the wait for its answer when the store
+ * was slow, and then nothing on screen changed although files had gone.
+ */
+const DELETE_BATCH = 100;
+
+/**
  * Which files are chosen, for acting on several at once.
  *
  * Held as keys rather than positions: a list that pages in more files, or
@@ -99,8 +106,20 @@ export function useSelection() {
 export function useDeleteFiles(albumId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (keys: string[]) => storageApi.removeMany(keys),
-    onSuccess: () =>
+    // In batches, one after another. A selection over the API's 500 was
+    // refused whole, with the validator's own words for an error.
+    mutationFn: async (keys: string[]) => {
+      const total = { deleted: 0, failed: 0 };
+      for (let i = 0; i < keys.length; i += DELETE_BATCH) {
+        const part = await storageApi.removeMany(keys.slice(i, i + DELETE_BATCH));
+        total.deleted += part.deleted;
+        total.failed += part.failed;
+      }
+      return total;
+    },
+    // Settled, not only succeeded: when a later batch fails, the earlier ones
+    // have still gone, and the grid should stop showing them.
+    onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ['storage', 'files', albumId ?? 'all'] }),
         albumId
@@ -108,6 +127,9 @@ export function useDeleteFiles(albumId: string | undefined) {
           : Promise.resolve(),
         queryClient.invalidateQueries({ queryKey: queryKeys.albums.all }),
         queryClient.invalidateQueries({ queryKey: usageQueryKey }),
+        // Counted from the same files: the workspace page kept the old totals.
+        queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all }),
+        queryClient.invalidateQueries({ queryKey: ['storage', 'breakdown'] }),
       ]),
   });
 }

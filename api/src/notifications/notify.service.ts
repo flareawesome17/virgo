@@ -29,7 +29,7 @@ export interface Notification {
    * Left unset, it is derived from the topic — see channelFor. Setting it by
    * hand at every call site is how invitations ended up silent.
    */
-  channelId?: 'alarms' | 'reminders' | 'messages' | 'invitations';
+  channelId?: 'alarms' | 'reminders' | 'messages' | 'invitations' | 'updates';
   sound?: 'default' | null;
   priority?: 'default' | 'normal' | 'high';
   /**
@@ -38,6 +38,17 @@ export interface Notification {
    * not, and neither is anything that fires on a schedule.
    */
   email?: RenderedEmail;
+  /**
+   * Push tokens to leave out: devices that already deliver this themselves.
+   * A reminder the phone scheduled as a local alarm rang twice when it was
+   * pushed as well.
+   */
+  skipTokens?: readonly string[];
+  /**
+   * false: the list and the live frame only, no push. A broadcast sent
+   * quietly, to be found the next time somebody opens the app.
+   */
+  push?: boolean;
 }
 
 /** One notification aimed at one person. */
@@ -166,8 +177,11 @@ export class NotifyService {
     const wants = (d: Delivery, channel: NotificationChannel) =>
       allows(stored.get(d.userId), CATEGORY_OF_TOPIC[d.topic], channel);
 
+    // The stored row each delivery became, so a tapped push can mark it read.
+    const rowOf = new Map(deliveries.map((d, i) => [d, ids[i]] as const));
+
     try {
-      const pushed = deliveries.filter((d) => wants(d, 'push'));
+      const pushed = deliveries.filter((d) => d.push !== false && wants(d, 'push'));
       const tokensByUser = new Map<string, string[]>();
       for (const userId of new Set(pushed.map((d) => d.userId))) {
         tokensByUser.set(userId, await this.push.tokensFor(userId));
@@ -176,6 +190,7 @@ export class NotifyService {
       const messages: PushMessage[] = [];
       for (const d of pushed) {
         for (const to of tokensByUser.get(d.userId) ?? []) {
+          if (d.skipTokens?.includes(to)) continue;
           messages.push({
             to,
             title: d.title,
@@ -186,7 +201,11 @@ export class NotifyService {
             // while the device is dozing — an invitation that arrives an hour
             // late is one the organiser has already given up on.
             priority: d.priority ?? (d.topic === 'reminder' ? 'default' : 'high'),
-            data: d.data ?? {},
+            // Opening a push read the notification, but the bell kept
+            // counting it: the phone had no way to say which one it was.
+            data: rowOf.get(d)
+              ? { ...(d.data ?? {}), notificationId: rowOf.get(d) }
+              : (d.data ?? {}),
           });
         }
       }

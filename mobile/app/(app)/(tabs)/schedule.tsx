@@ -1,7 +1,7 @@
-import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth, useReminders, useScheduleEvents, useTheme, useUpdateReminder } from '@/src/hooks';
-import { useChrome } from '@/src/providers/ChromeProvider';
+import { View, Text, RefreshControl, Pressable, Alert } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { useAuth, useReminders, useScheduleEventRange, useTheme, useUpdateReminder } from '@/src/hooks';
+import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
@@ -13,6 +13,7 @@ import {
   PackageIcon,
   PresentationIcon,
   PlusIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
   BellIcon,
   BellOffIcon,
@@ -21,7 +22,14 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { AppTopBar, AttendeeSummary, EventInvitationsCard } from '@/components';
+import {
+  AttendeeSummary,
+  EventInvitationsCard,
+  PressableScale,
+  TabScreen,
+  useTabBottomInset,
+} from '@/components';
+import { LoadFailed } from '@/components/LoadFailed';
 import {
   DAY_DOT_SIZE,
   DAYS,
@@ -31,7 +39,7 @@ import {
   formatTime,
   getMonthWeeks,
   labelForDateKey,
-  todayKey, isEventUpcoming, eventTypeLabel } from '@/src/lib/calendar';
+  todayKey, isEventUpcoming, eventTypeLabel, dateToKey } from '@/src/lib/calendar';
 import { PALETTES } from '@/theme';
 
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -42,6 +50,7 @@ cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: 
 cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(ChevronLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -57,7 +66,8 @@ const EVENT_ICONS: Record<string, LucideIcon> = {
 // rollover; the colour table had drifted into five copies.
 
 export default function ScheduleScreen() {
-  const chrome = useChrome();
+  const onScroll = useChromeScroll();
+  const bottomInset = useTabBottomInset();
   const { user } = useAuth();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -68,24 +78,51 @@ export default function ScheduleScreen() {
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState(todayKey);
 
-  const { events, refetch: refetchEvents } = useScheduleEvents(
-    { orderBy: 'event_date', direction: 'asc', limit: 100 },
-    { enabled: !!user?.id },
+  /*
+   * The month on screen, and the weeks ahead — not the account's 100 oldest.
+   *
+   * Both came from one list of the 100 earliest events, so an account with a
+   * past behind it saw no events this month or later at all, and Upcoming
+   * sat empty. The grid asks for exactly the days it draws; Upcoming for the
+   * next 60 days.
+   */
+  const monthWeeks = getMonthWeeks(viewYear, viewMonth);
+  const { events, refetch: refetchEvents, loadFailed: monthFailed } = useScheduleEventRange(
+    monthWeeks[0]?.[0]?.key,
+    monthWeeks[monthWeeks.length - 1]?.[6]?.key,
+  );
+  const [soonWindow] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 60);
+    return { from: todayKey(), to: dateToKey(end) };
+  });
+  const { events: soonEvents, refetch: refetchSoon, loadFailed: soonFailed } = useScheduleEventRange(
+    soonWindow.from,
+    soonWindow.to,
   );
 
-  const { reminders, refetch: refetchReminders } = useReminders(
-    { orderBy: 'reminder_time', direction: 'asc', limit: 100 },
+  // Not done, oldest first: the overdue as well as what is coming. Counted
+  // from today only, one whose time had passed unticked dropped off Schedule
+  // for good. The same query as Reminders › See all, so it is one fetch.
+  const { reminders, refetch: refetchReminders, loadFailed: remindersFailed } = useReminders(
+    { is_completed: false, orderBy: 'reminder_time', direction: 'asc', limit: 100 },
     { enabled: !!user?.id },
   );
 
   // The tick had no handler, so reminders could not be completed from here.
   const updateReminder = useUpdateReminder();
   const toggleReminder = (id: string, is_completed: boolean) =>
-    updateReminder.mutate({ id, is_completed });
+    updateReminder.mutate(
+      { id, is_completed },
+      {
+        onError: (error) =>
+          Alert.alert("Couldn't update it", error instanceof Error ? error.message : 'Please try again.'),
+      },
+    );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetchEvents(), refetchReminders()]);
+    await Promise.all([refetchEvents(), refetchSoon(), refetchReminders()]);
     setRefreshing(false);
   };
 
@@ -98,18 +135,27 @@ export default function ScheduleScreen() {
     return m;
   }, [events]);
 
-  const monthWeeks = getMonthWeeks(viewYear, viewMonth);
   const selectedEvents = eventsByDate[selectedDate] || [];
   // Compared against the moment, not the date: a 9am event was still listed as
   // upcoming that same evening.
-  const upcomingEvents = events
+  const upcomingEvents = soonEvents
     .filter((e) => isEventUpcoming(e.event_date, e.event_time))
     .slice(0, 3);
-  const activeReminders = reminders.filter(r => !r.is_completed);
+  const [now] = useState(() => Date.now());
+  const overdueReminders = reminders.filter((r) => !r.is_completed && Date.parse(r.reminder_time) < now);
+  const activeReminders = reminders.filter((r) => !r.is_completed && Date.parse(r.reminder_time) >= now);
 
   const goPrevMonth = () => {
     if (viewMonth === 0) { setViewYear(viewYear - 1); setViewMonth(11); }
     else setViewMonth(viewMonth - 1);
+  };
+  // Offered once you have moved off today — another month, or another day.
+  const awayFromToday =
+    viewMonth !== today.getMonth() || viewYear !== today.getFullYear() || selectedDate !== todayKey();
+  const goToday = () => {
+    setViewYear(today.getFullYear());
+    setViewMonth(today.getMonth());
+    setSelectedDate(todayKey());
   };
   const goNextMonth = () => {
     if (viewMonth === 11) { setViewYear(viewYear + 1); setViewMonth(0); }
@@ -117,56 +163,66 @@ export default function ScheduleScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <AppTopBar />
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}
-        onScroll={chrome.onScroll}
+    <TabScreen title="Schedule" create="event">
+      <Animated.ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}
+        onScroll={onScroll}
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: bottomInset }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}>
         
-        {/* Header */}
-        <View className="px-5 pt-4 pb-1 flex-row items-center justify-between">
-          <View>
-            <Text className="text-foreground text-[28px] font-bold tracking-tight">Schedule</Text>
-            <Text className="text-muted-foreground text-sm mt-1">{events.length} events · {activeReminders.length} reminders</Text>
+        {/* A failed load drew "No upcoming events" and "No active reminders" —
+            a confident empty day, from requests that never arrived. */}
+        {(monthFailed || soonFailed || remindersFailed) &&
+          events.length === 0 && soonEvents.length === 0 && reminders.length === 0 && (
+          <View className="mx-5 mt-3 bg-card rounded-2xl">
+            <LoadFailed what="your schedule" onRetry={() => void onRefresh()} compact />
           </View>
-          <Pressable
-            onPress={() => router.push('/schedule/create')}
-            accessibilityRole="button"
-            accessibilityLabel="Create an event"
-            className="w-11 h-11 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
-          >
-            <PlusIcon size={20} className="text-action-foreground" />
-          </Pressable>
-        </View>
+        )}
 
+        {/* No title row: the screen's name is in the top bar, and a new event
+            or reminder is its +. The month comes first. */}
         {/* Month Calendar */}
         <View className="mx-5 mt-4 bg-secondary rounded-2xl p-4">
-          {/* Month navigator */}
-          <View className="flex-row items-center justify-between mb-4">
+          {/* Month navigator: the month, a way home when you have wandered
+              off it, and the arrows together on the right where the thumb
+              is. The arrows were the ‹ and › characters at text size, and a
+              "Full" link sat squeezed against the second one — the full
+              calendar is still a tap away, under Upcoming. */}
+          <View className="flex-row items-center gap-2 mb-3">
+            <Text
+              accessibilityRole="header"
+              className="flex-1 text-foreground text-[17px] font-bold tracking-tight"
+            >
+              {MONTHS[viewMonth]} {viewYear}
+            </Text>
+            {awayFromToday && (
+              <Pressable
+                onPress={goToday}
+                accessibilityRole="button"
+                accessibilityLabel="Go to today"
+                className="h-9 px-3.5 rounded-full bg-card items-center justify-center active:opacity-70"
+              >
+                <Text className="text-primary text-[13px] font-semibold">Today</Text>
+              </Pressable>
+            )}
             <Pressable
               onPress={goPrevMonth}
               accessibilityRole="button"
               accessibilityLabel="Previous month"
-              className="w-11 h-11 rounded-xl bg-card items-center justify-center active:scale-[0.96]"
+              hitSlop={4}
+              className="w-10 h-10 rounded-full bg-card items-center justify-center active:opacity-70"
             >
-              <Text className="text-foreground text-sm font-bold">‹</Text>
+              <ChevronLeftIcon size={18} className="text-foreground" />
             </Pressable>
-            <Text className="text-foreground text-base font-bold tracking-tight">{MONTHS[viewMonth]} {viewYear}</Text>
-            <View className="flex-row items-center gap-2">
-              <Pressable onPress={() => router.push('/schedule/calendar')} className="active:opacity-60">
-                <Text className="text-primary text-xs font-semibold">Full</Text>
-              </Pressable>
-              <Pressable
-                onPress={goNextMonth}
-                accessibilityRole="button"
-                accessibilityLabel="Next month"
-                className="w-11 h-11 rounded-xl bg-card items-center justify-center active:scale-[0.96]"
-              >
-                <Text className="text-foreground text-sm font-bold">›</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={goNextMonth}
+              accessibilityRole="button"
+              accessibilityLabel="Next month"
+              hitSlop={4}
+              className="w-10 h-10 rounded-full bg-card items-center justify-center active:opacity-70"
+            >
+              <ChevronRightIcon size={18} className="text-foreground" />
+            </Pressable>
           </View>
           {/* Day labels — flex-1 so the columns line up exactly with the grid */}
           <View className="flex-row mb-1">
@@ -203,7 +259,7 @@ export default function ScheduleScreen() {
                   className="items-center py-1.5"
                 >
                   <View className={`w-8 h-8 rounded-full items-center justify-center ${cell.isToday ? 'bg-action' : isSel ? 'bg-primary/15' : ''}`}>
-                    <Text className={`text-xs font-bold ${cell.isOutside ? 'text-muted-foreground/40' : cell.isToday ? 'text-action-foreground' : isSel ? 'text-primary' : 'text-foreground'}`}>
+                    <Text className={`text-xs font-bold ${cell.isOutside ? 'text-muted-foreground/70' : cell.isToday ? 'text-action-foreground' : isSel ? 'text-primary' : 'text-foreground'}`}>
                       {cell.day}
                     </Text>
                   </View>
@@ -243,7 +299,7 @@ export default function ScheduleScreen() {
         <View className="px-5 mt-5">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-lg font-bold tracking-tight">{labelForDateKey(selectedDate)}</Text>
-            <Pressable onPress={() => router.push(`/schedule/agenda?date=${selectedDate}`)} className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push(`/schedule/agenda?date=${selectedDate}`)} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
               <Text className="text-primary text-sm font-semibold">Agenda</Text>
               <ChevronRightIcon size={14} className="text-primary" />
             </Pressable>
@@ -258,7 +314,7 @@ export default function ScheduleScreen() {
                 className="min-h-11 bg-action rounded-xl px-5 py-2.5 flex-row items-center gap-2 active:scale-[0.98]"
               >
                 <PlusIcon size={15} className="text-action-foreground" />
-                <Text className="text-action-foreground text-sm font-semibold">Add Event</Text>
+                <Text className="text-action-foreground text-sm font-semibold">Add event</Text>
               </Pressable>
             </View>
           ) : (
@@ -298,7 +354,7 @@ export default function ScheduleScreen() {
         <View className="px-5 mt-6">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-foreground text-lg font-bold tracking-tight">Upcoming</Text>
-            <Pressable onPress={() => router.push('/schedule/calendar')} className="flex-row items-center gap-1 active:opacity-60">
+            <Pressable onPress={() => router.push('/schedule/calendar')} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
               <Text className="text-primary text-sm font-semibold">Calendar</Text>
               <ChevronRightIcon size={14} className="text-primary" />
             </Pressable>
@@ -313,8 +369,11 @@ export default function ScheduleScreen() {
               {upcomingEvents.map(ev => {
                 const color = eventColor(ev.event_type);
                 return (
-                  <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
-                    className="bg-card rounded-2xl px-4 py-3 flex-row items-center gap-3 border border-border/30 active:scale-[0.98]">
+                  <PressableScale key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${ev.title}`}
+                    scaleTo={0.98}
+                    className="bg-card rounded-2xl px-4 py-3 flex-row items-center gap-3 border border-border/30">
                     <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: color }} />
                     <View className="flex-1 min-w-0">
                       <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>{ev.title}</Text>
@@ -323,16 +382,51 @@ export default function ScheduleScreen() {
                     <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: `${color}14` }}>
                       <Text numberOfLines={1} style={{ color, fontSize: 11, fontWeight: '700' }}>{eventTypeLabel(ev)}</Text>
                     </View>
-                  </Pressable>
+                  </PressableScale>
                 );
               })}
             </View>
           )}
         </View>
 
-        {/* Reminders */}
+        {/* Reminders. Their own, not only from inside an event: a reminder
+            to back up a card or send an invoice belongs to no event. */}
         <View className="px-5 mt-6">
-          <Text className="text-foreground text-lg font-bold tracking-tight mb-3">Reminders</Text>
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-foreground text-lg font-bold tracking-tight">Reminders</Text>
+            <View className="flex-row items-center gap-1">
+              {/* Only four show here; the rest were unreachable. */}
+              {(activeReminders.length > 4 || overdueReminders.length > 0) && (
+                <Pressable
+                  onPress={() => router.push('/schedule/reminders')}
+                  accessibilityRole="button"
+                  className="min-h-11 justify-center px-2 active:opacity-60"
+                >
+                  <Text className="text-primary text-sm font-semibold">See all</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={() => router.push('/schedule/reminders/create')}
+                accessibilityRole="button"
+                accessibilityLabel="New reminder"
+                className="min-h-11 justify-center px-2 active:opacity-60"
+              >
+                <Text className="text-primary text-sm font-bold">+ New</Text>
+              </Pressable>
+            </View>
+          </View>
+          {overdueReminders.length > 0 && (
+            <Pressable
+              onPress={() => router.push('/schedule/reminders')}
+              accessibilityRole="button"
+              className="flex-row items-center gap-2 rounded-2xl bg-destructive/10 px-4 min-h-[44px] mb-2 active:opacity-70"
+            >
+              <BellIcon size={14} className="text-destructive" />
+              <Text className="text-destructive text-sm font-semibold flex-1">
+                {overdueReminders.length} overdue — tick {overdueReminders.length === 1 ? 'it' : 'them'} off or move {overdueReminders.length === 1 ? 'it' : 'them'}
+              </Text>
+            </Pressable>
+          )}
           {activeReminders.length === 0 ? (
             <View className="bg-card rounded-2xl p-6 items-center gap-2">
               <BellIcon size={20} className="text-muted-foreground" />
@@ -350,7 +444,11 @@ export default function ScheduleScreen() {
                   <View className="flex-1 min-w-0">
                     <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>{rem.title}</Text>
                     <View className="flex-row items-center gap-2 mt-0.5">
-                      <Text className="text-muted-foreground text-xs">{new Date(rem.reminder_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
+                      <Text className="text-muted-foreground text-xs">
+                        {new Date(rem.reminder_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {' · '}
+                        {new Date(rem.reminder_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      </Text>
                       {rem.has_push_notification && (
                         <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: '#5B7B9A18' }}>
                           <Text style={{ color: '#5B7B9A', fontSize: 11, fontWeight: '700' }}>Push</Text>
@@ -375,7 +473,7 @@ export default function ScheduleScreen() {
             </View>
           )}
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </Animated.ScrollView>
+    </TabScreen>
   );
 }

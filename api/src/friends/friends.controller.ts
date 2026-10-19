@@ -37,6 +37,22 @@ export class FriendsController {
     return { data, total };
   }
 
+  /**
+   * What the Messages dot counts: requests and hire enquiries that arrived
+   * since People was last opened. Before `:id`, like `presence`.
+   */
+  @Get('unseen')
+  unseen(@CurrentUser('id') userId: string) {
+    return this.friends.unseen(userId);
+  }
+
+  /** Clears the dot. Called when People is opened. */
+  @HttpCode(200)
+  @Post('seen')
+  markSeen(@CurrentUser('id') userId: string) {
+    return this.friends.markSeen(userId);
+  }
+
   /** Declared before `:id` so "presence" is not swallowed as an id. */
   @Get('presence')
   presence(@CurrentUser('id') userId: string) {

@@ -10,6 +10,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { InsetFrame } from '@/components/InsetFrame';
 import { router, useLocalSearchParams } from 'expo-router';
 import { RemoteImage } from '@/components/RemoteImage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -488,10 +489,10 @@ export default function AudioScreen() {
           className="absolute inset-0"
         />
         <View className="px-4 pt-2 pb-3 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
             hitSlop={8}
-            className="w-10 h-10 rounded-full bg-black/35 items-center justify-center active:opacity-70"
+            className="w-11 h-11 rounded-full bg-black/35 items-center justify-center active:opacity-70"
           >
             <ArrowLeftIcon size={19} color="#fff" />
           </Pressable>
@@ -513,6 +514,7 @@ export default function AudioScreen() {
           albumName={album?.name}
           playing={audio.playing}
           loading={audio.loading}
+          unplayable={audio.unplayable}
           progress={
             audio.duration > 0
               ? Math.min(audio.position / audio.duration, 1)
@@ -557,6 +559,7 @@ function MiniBar({
   albumName,
   playing,
   loading,
+  unplayable,
   progress,
   onToggle,
   onNext,
@@ -567,6 +570,7 @@ function MiniBar({
   albumName?: string;
   playing: boolean;
   loading: boolean;
+  unplayable: boolean;
   progress: number;
   onToggle: () => void;
   onNext: () => void;
@@ -588,8 +592,11 @@ function MiniBar({
             <Text className="text-white text-[13.5px] font-semibold" numberOfLines={1}>
               {file.mediaTitle || file.originalName}
             </Text>
-            <Text className="text-white/40 text-[12px] mt-0.5" numberOfLines={1}>
-              {file.mediaArtist || albumName || 'Virgo'}
+            <Text
+              className={`text-[12px] mt-0.5 ${unplayable ? 'text-[#E8A27C]' : 'text-white/40'}`}
+              numberOfLines={1}
+            >
+              {unplayable ? "Can't play this file" : file.mediaArtist || albumName || 'Virgo'}
             </Text>
           </View>
           <Pressable
@@ -662,7 +669,7 @@ function NowPlaying({
         style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 520 }}
         pointerEvents="none"
       />
-      <SafeAreaView edges={['top', 'bottom']} className="flex-1">
+      <InsetFrame edges={['top', 'bottom']} className="flex-1" modal>
         <View className="px-5 pt-2 flex-row items-center">
           <Pressable
             onPress={onClose}
@@ -699,8 +706,13 @@ function NowPlaying({
           >
             {file.mediaTitle || file.originalName}
           </Text>
-          <Text className="text-white/45 text-[15px] mt-1" numberOfLines={1}>
-            {file.mediaArtist || albumName || 'Virgo'}
+          <Text
+            className={`text-[15px] mt-1 ${audio.unplayable ? 'text-[#E8A27C]' : 'text-white/45'}`}
+            numberOfLines={1}
+          >
+            {audio.unplayable
+              ? "This file can't be played"
+              : file.mediaArtist || albumName || 'Virgo'}
           </Text>
 
           <View className="mt-6">
@@ -822,7 +834,7 @@ function NowPlaying({
             </Pressable>
           </View>
         </View>
-      </SafeAreaView>
+      </InsetFrame>
     </View>
   );
 }

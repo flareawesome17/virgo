@@ -69,6 +69,17 @@ const SOUNDS: { key: AlertSound; icon: typeof BellIcon; label: string; detail: s
 ];
 
 /**
+ * How wide the Push and Email columns are. The headings, the switches and the
+ * dashes all use it, so they line up.
+ *
+ * React Native sizes an iOS switch from the phone's own. That's 53pt before
+ * iOS 26 and 65pt for iOS 26's glass switch. At 56, two glass switches in
+ * one row overlapped. 72 fits the wide switch with a few points of air on
+ * each side.
+ */
+const CHANNEL_COLUMN = 72;
+
+/**
  * One cell of the table: a switch, "Always" where it cannot be turned off, or
  * a dash where that kind never travels on that channel — a switch there would
  * do nothing, and one that does nothing is a lie.
@@ -84,7 +95,7 @@ function ChannelCell({
 }) {
   const value = row[channel];
   return (
-    <View style={{ width: 56, alignItems: 'center' }}>
+    <View style={{ width: CHANNEL_COLUMN, alignItems: 'center' }}>
       {value === null ? (
         <Text className="text-muted-foreground text-sm" accessibilityLabel="Not sent">—</Text>
       ) : row.locked ? (
@@ -95,6 +106,9 @@ function ChannelCell({
           onValueChange={onChange}
           trackColor={{ false: '#D9C2B7', true: '#B66A40' }}
           thumbColor="#FFFFFF"
+          // On iOS, React Native pins a switch to the left of its box
+          // (alignSelf: flex-start), so the cell's centring never reached it.
+          style={{ alignSelf: 'center' }}
           accessibilityLabel={`${CATEGORY_LABELS[row.category]} by ${channel === 'push' ? 'push' : 'email'}`}
         />
       )}
@@ -139,10 +153,10 @@ function WhatReachesYou() {
                 <Text className="flex-1 text-muted-foreground text-[11px] font-bold uppercase tracking-[1px]">
                   Kind
                 </Text>
-                <Text style={{ width: 56 }} className="text-center text-muted-foreground text-[11px] font-bold uppercase tracking-[1px]">
+                <Text style={{ width: CHANNEL_COLUMN }} className="text-center text-muted-foreground text-[11px] font-bold uppercase tracking-[1px]">
                   Push
                 </Text>
-                <Text style={{ width: 56 }} className="text-center text-muted-foreground text-[11px] font-bold uppercase tracking-[1px]">
+                <Text style={{ width: CHANNEL_COLUMN }} className="text-center text-muted-foreground text-[11px] font-bold uppercase tracking-[1px]">
                   Email
                 </Text>
               </View>
@@ -204,9 +218,9 @@ export default function NotificationSettingsScreen() {
         contentContainerStyle={{ paddingBottom: 48 }}
       >
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
           >
             <ArrowLeftIcon size={18} className="text-foreground" />

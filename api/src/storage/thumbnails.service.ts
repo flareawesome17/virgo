@@ -159,16 +159,68 @@ const STALE_STILL_MS = 10 * 60_000;
  * Quality for a display copy.
  *
  * Higher than the thumbnail's 72 because this one is looked AT rather than
- * glanced at — it is what fills the viewer when somebody opens a photograph.
+ * glanced at — it is what fills the viewer when somebody opens a photograph,
+ * and the people opening them are photographers. 80 was chosen for bandwidth
+ * and showed it: smeared skin and banded skies, the first things a
+ * photographer looks at in their own work. 86 is where WebP stops costing
+ * visible detail, at roughly a third more bytes than 80.
+ *
  * Still WebP rather than AVIF: AVIF would save perhaps another 30% and costs
  * seconds per image to encode, which on a 200-photo wedding is minutes added
  * to the confirm path.
  */
-const DISPLAY_QUALITY = 80;
+const DISPLAY_QUALITY = 86;
+
+/**
+ * Which generation of display copies a row's `display_version` says it has.
+ *
+ * Null is a photograph from before this number existed: copies at 1024 and
+ * 2048 only, at quality 80, or none at all. DisplayBackfillService makes them
+ * again for those, a few a minute; a change to the sizes or the quality that
+ * should reach the existing library is a bump here plus a migration that sets
+ * the column back to null.
+ */
+export const DISPLAY_VERSION = 2;
+
+/**
+ * Formats a browser and both apps draw from the original as it is.
+ *
+ * sharp's names for them. Anything else — an iPhone's HEIC, a TIFF — can be
+ * shown only through a copy, so its copies are kept even when they come out
+ * larger than the original.
+ */
+const DRAWABLE_FORMATS = new Set(['jpeg', 'png', 'webp', 'gif']);
+
+/**
+ * The long edges a source this size gets display copies at, narrowest first.
+ *
+ * Each of DISPLAY_WIDTHS it is larger than, and then one at its own long edge
+ * — up to the last of them — so that every photograph has a copy as sharp as
+ * it is. Without that last one, a 1800 px source had only the 1024 copy and a
+ * 900 px one had none, and opening either drew something smaller than the
+ * photograph stretched to fit, or fell back to the original.
+ *
+ * Never larger than the source: nothing is gained by enlarging.
+ */
+export function displaySizesFor(longest: number): number[] {
+  if (!Number.isFinite(longest) || longest < 1) return [];
+  const own = Math.min(Math.floor(longest), DISPLAY_WIDTHS[DISPLAY_WIDTHS.length - 1]);
+  const below = DISPLAY_WIDTHS.filter((size) => size < own);
+  return [...below, own];
+}
 
 /** `.../abc.jpg` → `.../abc-thumb.webp`, beside the original. */
 export function thumbKeyFor(key: string): string {
   return `${key.replace(/\.[^./]+$/, '')}-thumb.webp`;
+}
+
+/** A photograph the backfill is making display copies for, as its row has it. */
+export interface DisplayRefresh {
+  key: string;
+  contentType: string | null;
+  thumbKey: string | null;
+  displayWidths: readonly number[] | null;
+  blurDataUrl: string | null;
 }
 
 /**
@@ -319,6 +371,16 @@ export class ThumbnailsService implements OnModuleInit {
   }
 
   /**
+   * Whether a confirm is making a thumbnail in this process right now.
+   *
+   * The backfill waits while one is: somebody is watching that upload, and
+   * nobody is waiting on the backfill.
+   */
+  get busy(): boolean {
+    return this.inFlight.size > 0;
+  }
+
+  /**
    * `generate` for a confirm, which a client may send more than once.
    *
    * A confirm starts the thumbnail in the background, and a client that
@@ -412,26 +474,11 @@ export class ThumbnailsService implements OnModuleInit {
     }
 
     try {
-      const source = await this.readAll(key);
-      // A GIF whose thumbnail cannot move is cut to its first frame before
-      // sharp is asked anything about it, because opening one costs a scan of
-      // every frame in it. Everything else goes through as it is.
-      const decodable =
-        contentType === 'image/gif' ? gifToDecode(source, true) : source;
-      const metadata = await sharp(decodable, { failOn: 'none' }).metadata();
-      // Everything below is made from `pixels`: the original, or for an
-      // iPhone's HEIC a still ffmpeg decoded, since sharp here cannot.
-      const pixels = await this.pixelsFor(
+      const { source, metadata, pixels, decoded, width, height } = await this.decode(
         key,
-        decodable,
-        metadata,
+        contentType,
         options.stillDecodeTimeoutMs,
       );
-      const decoded =
-        pixels === decodable ? metadata : await sharp(pixels, { failOn: 'none' }).metadata();
-      const rotated = (decoded.orientation ?? 1) >= 5;
-      const width = rotated ? decoded.height : decoded.width;
-      const height = rotated ? decoded.width : decoded.height;
       // From the original, since a decoded still carries no EXIF. sharp
       // reports it for most formats; a TIFF keeps it in its own directories
       // instead, which the header reader covers.
@@ -444,15 +491,17 @@ export class ThumbnailsService implements OnModuleInit {
         await this.storage.putDerived(thumbKey, body, THUMB_CONTENT_TYPE);
       }
 
-      // Null leaves the recorded widths as they are. A GIF gets none: a
-      // display copy is a still, and the viewer would open it in place of
-      // the animation.
+      // Null leaves the recorded widths as they are, and so does the version
+      // beside them. A GIF gets none: a display copy is a still, and the
+      // viewer would open it in place of the animation.
       let displayWidths: number[] | null = null;
       if (!existing.displayWidths?.length) {
         displayWidths =
           contentType === 'image/gif'
             ? []
-            : await this.createDisplayCopies(key, pixels, width, height, sizeBytes);
+            : await this.createDisplayCopies(key, pixels, width, height, sizeBytes, {
+                keepLarger: !DRAWABLE_FORMATS.has(metadata.format ?? ''),
+              });
       }
 
       // From the same buffer, while it is still decoded and in hand. An
@@ -469,11 +518,21 @@ export class ThumbnailsService implements OnModuleInit {
                 display_widths = coalesce($5, display_widths),
                 blur_data_url = coalesce($6, blur_data_url),
                 taken_at = coalesce($7::timestamp, taken_at),
+                display_version = coalesce($8::smallint, display_version),
                 processing_status = 'ready',
                 next_processing_at = null,
                 processed_at = now()
           where key = $1`,
-        [key, thumbKey, width ?? null, height ?? null, displayWidths, blur, takenAt],
+        [
+          key,
+          thumbKey,
+          width ?? null,
+          height ?? null,
+          displayWidths,
+          blur,
+          takenAt,
+          displayWidths ? DISPLAY_VERSION : null,
+        ],
       );
       return thumbKey;
     } catch (err) {
@@ -489,6 +548,129 @@ export class ThumbnailsService implements OnModuleInit {
       );
       return null;
     }
+  }
+
+  /**
+   * Makes a stored photograph's display copies again, at today's sizes and
+   * quality, and records them. For DisplayBackfillService.
+   *
+   * Unlike `generate`, copies the row already has are replaced rather than
+   * kept — they are what is being upgraded — while a thumbnail or a preview
+   * it already has is kept, because neither changed. A width the old set had
+   * and the new one does not is removed from the volume once the row stops
+   * naming it.
+   *
+   * Throws when the original cannot be read or decoded, for the caller to
+   * count against the file; it does not touch `processing_status`, which says
+   * what happened on upload and is not this method's to change.
+   *
+   * Returns the sizes it recorded, or null when the row was deleted while this
+   * was working — in which case whatever it wrote is removed again, since the
+   * delete that took the row has already been through the volume.
+   */
+  async refreshDisplayCopies(
+    file: DisplayRefresh,
+    sizeBytes: number,
+    options: Pick<GenerateOptions, 'stillDecodeTimeoutMs'> = {},
+  ): Promise<number[] | null> {
+    if (!this.mediaLink.isConfigured) {
+      throw new Error('The media host is not configured, so there is nowhere to write copies');
+    }
+    const { key, contentType } = file;
+    if (!contentType?.startsWith('image/')) {
+      throw new Error(`${key} is ${contentType ?? 'of no type'}, not a photograph`);
+    }
+
+    const { metadata, pixels, decoded, width, height } = await this.decode(
+      key,
+      contentType,
+      options.stillDecodeTimeoutMs,
+    );
+
+    let thumbKey: string | null = null;
+    if (!file.thumbKey) {
+      const body = await this.thumbnail(pixels, contentType, decoded);
+      thumbKey = thumbKeyFor(key);
+      await this.storage.putDerived(thumbKey, body, THUMB_CONTENT_TYPE);
+    }
+
+    const widths =
+      contentType === 'image/gif'
+        ? []
+        : ((await this.createDisplayCopies(key, pixels, width, height, sizeBytes, {
+            keepLarger: !DRAWABLE_FORMATS.has(metadata.format ?? ''),
+          })) ?? []);
+    const blur = file.blurDataUrl ? null : await blurDataUrl(pixels);
+
+    // The size is written with the copies because the clients choose a copy
+    // by it: a row probed by ffprobe before this service existed can hold a
+    // camera's sideways dimensions, and these copies are upright.
+    const row = await this.db.queryOne<{ key: string }>(
+      `update user_files
+          set display_widths = $2,
+              display_version = $3,
+              thumb_key = coalesce(thumb_key, $4),
+              blur_data_url = coalesce(blur_data_url, $5),
+              width_px = coalesce($6, width_px),
+              height_px = coalesce($7, height_px)
+        where key = $1
+        returning key`,
+      [key, widths, DISPLAY_VERSION, thumbKey, blur, width ?? null, height ?? null],
+    );
+
+    if (!row) {
+      // Deleted mid-way. The delete has been through the volume already, and
+      // these were written after it looked.
+      await this.mediaLink.removeFor([key]);
+      if (thumbKey) {
+        // Said rather than deleted: there is no way to remove a bucket object
+        // here without an owner to check, and it is one 40 KB file.
+        this.logger.warn(`${key} was deleted while its thumbnail was made; ${thumbKey} may be left in the bucket`);
+      }
+      return null;
+    }
+
+    const stale = (file.displayWidths ?? []).filter((width) => !widths.includes(width));
+    if (stale.length) await this.mediaLink.removeDisplayCopies(key, stale);
+    return widths;
+  }
+
+  /**
+   * Reads an original and decodes it as far as every derivative needs.
+   *
+   * `pixels` is what everything is made from: the original, or for an
+   * iPhone's HEIC a still ffmpeg decoded, since sharp here cannot. A GIF
+   * whose thumbnail cannot move is cut to its first frame before sharp is
+   * asked anything about it, because opening one costs a scan of every frame
+   * in it. `width` and `height` are upright, EXIF orientation applied.
+   */
+  private async decode(
+    key: string,
+    contentType: string,
+    stillDecodeTimeoutMs?: number,
+  ): Promise<{
+    source: Buffer;
+    metadata: Metadata;
+    pixels: Buffer;
+    decoded: Metadata;
+    width: number | undefined;
+    height: number | undefined;
+  }> {
+    const source = await this.readAll(key);
+    const decodable = contentType === 'image/gif' ? gifToDecode(source, true) : source;
+    const metadata = await sharp(decodable, { failOn: 'none' }).metadata();
+    const pixels = await this.pixelsFor(key, decodable, metadata, stillDecodeTimeoutMs);
+    const decoded =
+      pixels === decodable ? metadata : await sharp(pixels, { failOn: 'none' }).metadata();
+    const rotated = (decoded.orientation ?? 1) >= 5;
+    return {
+      source,
+      metadata,
+      pixels,
+      decoded,
+      width: rotated ? decoded.height : decoded.width,
+      height: rotated ? decoded.width : decoded.height,
+    };
   }
 
   /**
@@ -600,10 +782,15 @@ export class ThumbnailsService implements OnModuleInit {
    * that produced it, and an on-demand resizer would have to make that same
    * trans-Pacific fetch again, per size, while somebody waited.
    *
+   * The sizes are `displaySizesFor` the source's long edge: the fixed ones it
+   * is larger than, and one at its own long edge up to the largest, each named
+   * by its long edge.
+   *
    * Never throws. A missing display copy costs bandwidth; a thrown one would
    * cost the upload, and the photograph is worth more than the optimisation.
-   * Returns the widths actually written, which may be fewer than asked for or
-   * none at all.
+   * Returns the sizes actually written, which may be fewer than asked for or
+   * none at all — or null when the media host is not configured and nothing
+   * was tried, so the row can say it is still owed its copies.
    */
   private async createDisplayCopies(
     key: string,
@@ -611,19 +798,18 @@ export class ThumbnailsService implements OnModuleInit {
     width: number | undefined,
     height: number | undefined,
     sizeBytes: number,
-  ): Promise<number[]> {
-    if (!this.mediaLink.isConfigured) return [];
+    { keepLarger }: { keepLarger: boolean },
+  ): Promise<number[] | null> {
+    if (!this.mediaLink.isConfigured) return null;
 
-    // Without dimensions there is no way to tell which widths would be an
+    // Without dimensions there is no way to tell which sizes would be an
     // enlargement, and guessing produces a 2048 copy of a 900 px scan that is
     // larger than the thing it replaces.
     const longest = Math.max(width ?? 0, height ?? 0);
     if (!longest) return [];
 
     const written: number[] = [];
-    for (const target of DISPLAY_WIDTHS) {
-      // Nothing to gain from re-encoding a source that is already smaller.
-      if (longest <= target) continue;
+    for (const target of displaySizesFor(longest)) {
       try {
         const body = await sharp(source, { failOn: 'none' })
           .rotate()
@@ -631,9 +817,11 @@ export class ThumbnailsService implements OnModuleInit {
           .webp({ quality: DISPLAY_QUALITY })
           .toBuffer();
 
-        // The same guard the thumbnail uses: a "smaller" copy that is not
-        // smaller is pure cost, and PNG screenshots hit this regularly.
-        if (body.length >= sizeBytes) continue;
+        // The same guard the thumbnail once had: a "smaller" copy that is not
+        // smaller is pure cost, and PNG screenshots hit this regularly. Not
+        // for a HEIC or a TIFF, though, which nothing can draw as it is — for
+        // those a copy is the only way the photograph is seen at all.
+        if (!keepLarger && body.length >= sizeBytes) continue;
 
         await this.mediaLink.write(displayKeyFor(key, target), body);
         written.push(target);

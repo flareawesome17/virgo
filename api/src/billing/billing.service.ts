@@ -40,6 +40,12 @@ export interface SubscriptionRow {
 /** A subscription still entitled to its plan. */
 const ENTITLED: SubscriptionStatus[] = ['active', 'past_due'];
 
+/**
+ * A subscription PayMongo may still charge: entitled, or behind on payment and
+ * being retried. `incomplete` has no card on it yet.
+ */
+const CAN_CHARGE: SubscriptionStatus[] = [...ENTITLED, 'unpaid'];
+
 /** Which app the customer is paying from, so they are sent back to it. */
 export type BillingPlatform = 'web' | 'mobile';
 
@@ -570,6 +576,37 @@ export class BillingService {
       cancelled: true,
       accessUntil: live.current_period_end?.toISOString() ?? null,
     };
+  }
+
+  /**
+   * Stops every auto-renewing plan on an account that is about to be deleted.
+   *
+   * The subscription rows go with the user (on delete cascade), but PayMongo
+   * keeps its own copy and would go on charging a card that nobody can reach
+   * any more: no account left to cancel from, and renewal webhooks for a
+   * subscription this side no longer knows. So it runs before anything is
+   * deleted, and any failure throws so the deletion stops.
+   *
+   * Only subscriptions that can still take money: a one-off month will not
+   * repeat, and a cancelled one has already stopped.
+   */
+  async cancelBeforeDeletion(userId: string): Promise<number> {
+    const renewing = await this.db.query<SubscriptionRow>(
+      `select * from subscriptions
+        where user_id = $1
+          and kind = 'subscription'
+          and cancelled_at is null
+          and status = any($2::text[])`,
+      [userId, CAN_CHARGE],
+    );
+
+    for (const row of renewing) {
+      await this.paymongo.request('POST', `/subscriptions/${row.provider_id}/cancel`, {
+        cancellation_reason: 'other',
+      });
+      this.logger.log(`Subscription ${row.provider_id} cancelled: account ${userId} is being deleted`);
+    }
+    return renewing.length;
   }
 
   // ─── Applied by the webhook ────────────────────────────────────────────────

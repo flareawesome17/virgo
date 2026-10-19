@@ -17,6 +17,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsIn,
   IsOptional,
   IsString,
@@ -74,6 +75,17 @@ export class UnregisterPushTokenDto {
   token!: string;
 }
 
+export class RemindersSyncedDto {
+  @IsString()
+  @MaxLength(256)
+  token!: string;
+
+  /** How far ahead the phone scheduled, when it could not take them all. */
+  @IsOptional()
+  @IsDateString()
+  coveredUntil?: string;
+}
+
 export class MarkReadDto {
   /**
    * Which ones. Left out, every unread notification is marked — that is the
@@ -85,6 +97,14 @@ export class MarkReadDto {
   @ArrayMaxSize(200)
   @IsUUID('4', { each: true })
   ids?: string[];
+
+  /**
+   * Only this kind. "Mark all read" inside a filter marked every kind, so a
+   * look at Jobs cleared the Messages and Bookings ones too.
+   */
+  @IsOptional()
+  @IsIn(NOTIFICATION_CATEGORIES)
+  category?: NotificationCategory;
 }
 
 /** Marking unread and deleting always name what they act on. */
@@ -179,6 +199,7 @@ export class NotificationsController {
         userId,
         dto.ids,
         parseClient(platform, version),
+        dto.category ?? null,
       ),
     };
   }
@@ -230,6 +251,19 @@ export class NotificationsController {
     @Body() dto: RegisterPushTokenDto,
   ): Promise<void> {
     await this.push.registerToken(userId, dto.token, dto.platform, dto.appVersion);
+  }
+
+  /**
+   * The app has scheduled its reminders on this device. Its push for those is
+   * skipped, so a reminder rings once, not twice.
+   */
+  @HttpCode(204)
+  @Post('token/reminders-synced')
+  async remindersSynced(
+    @CurrentUser('id') userId: string,
+    @Body() dto: RemindersSyncedDto,
+  ): Promise<void> {
+    await this.push.markRemindersSynced(userId, dto.token, dto.coveredUntil ?? null);
   }
 
   /** Called on sign-out so a shared device stops receiving the old account. */

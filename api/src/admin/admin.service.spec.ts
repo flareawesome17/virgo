@@ -3,7 +3,7 @@ import type { MailService } from '../mail/mail.service';
 import type { RealtimeGateway } from '../realtime/realtime.gateway';
 import type { StorageService } from '../storage/storage.service';
 import type { VisitsService } from '../visits/visits.service';
-import { AdminService } from './admin.service';
+import { AdminService, userOrder } from './admin.service';
 
 /**
  * How many items the console says an album holds.
@@ -19,6 +19,11 @@ import { AdminService } from './admin.service';
  * back to the column. Only a real Postgres can prove the count itself.
  */
 
+/** The one query that reads the account row itself (with its referrer joined). */
+function readsAccount(sql: string): boolean {
+  return /from users u\s+left join users r[\s\S]*where u\.id = \$1/.test(sql);
+}
+
 /** Whether a query reads the stored column, rather than naming a count after it. */
 function readsStoredCount(sql: string): boolean {
   return /\bitem_count\b/.test(sql.replace(/\bas\s+item_count\b/g, ''));
@@ -30,7 +35,7 @@ function serviceOver() {
   const query = jest.fn(async (_sql: string, _params?: unknown[]) => [] as unknown[]);
   // Only the account itself has to exist; every other single row may be absent.
   const queryOne = jest.fn(async (sql: string, _params?: unknown[]) =>
-    sql.includes('from users where id') ? { id: 'user-1', plan: 'free' } : null,
+    readsAccount(sql) ? { id: 'user-1', plan: 'free' } : null,
   );
   const db = { query, queryOne } as unknown as DatabaseService;
 
@@ -138,42 +143,57 @@ describe('AdminService.setUserDisabled', () => {
   });
 });
 
-describe('AdminService.userReports', () => {
-  it('clamps the page and joins the target and, when they still exist, the reporter', async () => {
-    const { service, query } = suspensionHarness();
-
-    await service.userReports({ limit: 0 });
-    await service.userReports({ limit: 500, offset: -3 });
-
-    expect(query.mock.calls[0][1]).toEqual([1, 0]);
-    expect(query.mock.calls[1][1]).toEqual([100, 0]);
-    const [sql] = query.mock.calls[0];
-    expect(sql).toMatch(/join users t on t\.id = r\.target_id/);
-    expect(sql).toMatch(/left join users u on u\.id = r\.reporter_id/);
-    expect(sql).toMatch(/as target_report_count/);
-  });
-
-  it('adds people reports to the overview without folding them into job reports', async () => {
+describe('AdminService reports and suspensions', () => {
+  it('counts the open reports of each kind, and all of them together', async () => {
     const { service, queryOne } = suspensionHarness();
-    queryOne.mockImplementationOnce(async () => ({ reports: '2', user_reports: '5' }));
+    queryOne.mockImplementationOnce(async () => ({ reports: '2', user_reports: '5', showcase_reports: '1' }));
 
     const overview = await service.overview(30);
 
     expect(overview.totals.userReports).toBe(5);
     expect(overview.totals.reports).toBe(2);
+    expect(overview.totals.showcaseReports).toBe(1);
+    expect(overview.totals.openReports).toBe(8);
+    const [sql] = queryOne.mock.calls[0] as unknown as [string];
+    expect(sql).toMatch(/from user_reports where status = 'open'/);
   });
 
   it('shows the suspension on the account list and page', async () => {
     const { service, query, queryOne } = suspensionHarness();
     queryOne.mockImplementation(async (sql: string) =>
-      sql.includes('from users where id') ? { id: 'user-1', plan: 'free' } : null,
+      readsAccount(sql) ? { id: 'user-1', plan: 'free' } : null,
     );
 
     await service.users({});
     await service.user('user-1');
 
     expect(query.mock.calls[0][0]).toMatch(/u\.suspended_at/);
-    const account = queryOne.mock.calls.find(([sql]) => sql.includes('from users where id'))!;
+    const account = queryOne.mock.calls.find(([sql]) => readsAccount(sql))!;
     expect(account[0]).toMatch(/suspended_at/);
+  });
+});
+
+/**
+ * Ordering the people list.
+ *
+ * ORDER BY cannot be a bind parameter, so the column comes from a fixed map.
+ * Anything else the console sends must fall back to newest-first rather than
+ * reach the SQL.
+ */
+describe('userOrder', () => {
+  it('defaults to newest accounts first', () => {
+    expect(userOrder()).toBe('u.created_at desc nulls last, u.id desc');
+  });
+
+  it('orders by a known column in either direction', () => {
+    expect(userOrder('last_seen', 'desc')).toBe('u.last_seen_at desc nulls last, u.id desc');
+    expect(userOrder('storage', 'asc')).toBe('storage_bytes asc nulls last, u.id asc');
+  });
+
+  it('never lets an unknown column or direction through', () => {
+    expect(userOrder('email; drop table users', 'asc')).toBe(
+      'u.created_at asc nulls last, u.id asc',
+    );
+    expect(userOrder('email', 'desc; select 1')).toBe('u.email desc nulls last, u.id desc');
   });
 });

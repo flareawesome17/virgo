@@ -7,6 +7,8 @@ import {
   usePresence,
   useTypingIn,
 } from '@/src/lib/presence-store';
+import { useTheme } from '@/src/hooks';
+import { PALETTES } from '@/theme';
 
 /**
  * A dot on an avatar showing whether somebody is connected.
@@ -18,13 +20,18 @@ import {
 export function PresenceDot({
   userId,
   size = 13,
-  /** Should match the surface behind the avatar. */
-  borderColor = '#161311',
+  /**
+   * Should match the surface behind the avatar. Defaults to the theme's
+   * background — it was the dark one always, a black ring in light mode.
+   */
+  borderColor,
 }: {
   userId: string | null | undefined;
   size?: number;
   borderColor?: string;
 }) {
+  const { isDark } = useTheme();
+  const ring = borderColor ?? (isDark ? PALETTES.dark : PALETTES.light).background;
   const { online } = usePresence(userId);
   if (!userId || !online) return null;
 
@@ -39,7 +46,7 @@ export function PresenceDot({
         borderRadius: size / 2,
         backgroundColor: '#6B8E4E',
         borderWidth: 2,
-        borderColor,
+        borderColor: ring,
       }}
     />
   );

@@ -50,7 +50,7 @@ export function JobAcceptedCard({ context }: { context: JobAcceptedContext }) {
         // has to say so rather than quietly render a job title and nothing.
         <p className="mt-3 text-sm text-muted-foreground">
           Could not load the terms.{' '}
-          <Link href="/bookings" className="font-medium text-primary hover:underline">
+          <Link href="/jobs?tab=bookings" className="font-medium text-primary hover:underline">
             Open bookings
           </Link>
         </p>

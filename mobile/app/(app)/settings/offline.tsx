@@ -58,7 +58,12 @@ const CAPABILITIES: { label: string; works: boolean; detail: string }[] = [
     detail: 'Kept in the thread and marked unsent, so you can retry rather than retype',
   },
   {
-    label: 'Create or edit anything',
+    label: 'Log income and expenses',
+    works: true,
+    detail: 'Kept on this phone and saved to your account when you are back online. Receipts need a connection',
+  },
+  {
+    label: 'Create or edit anything else',
     works: false,
     detail: 'Albums, events and invitations are written on the server',
   },
@@ -110,16 +115,16 @@ export default function OfflineSyncScreen() {
         contentContainerStyle={{ paddingBottom: 60 }}
       >
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Back"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
             style={cardShadow}
           >
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
           <View className="flex-1">
             <Text className="text-foreground text-[22px] font-bold tracking-tight">
-              Offline Sync
+              Offline sync
             </Text>
             <Text className="text-muted-foreground text-sm mt-0.5">
               What works without a connection

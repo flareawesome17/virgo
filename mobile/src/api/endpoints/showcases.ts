@@ -9,8 +9,29 @@ import { api } from '../client';
  * still serves every profile.
  */
 
-/** Matches MAX_SHOWCASE_ITEMS on the server. */
-export const MAX_SHOWCASE_ITEMS = 10;
+/**
+ * Matches MAX_SHOWCASE_ITEMS on the server: photographs per post. A film is a
+ * post of its own — one film and nothing else (SHOWCASE_FILM_ALONE).
+ */
+export const MAX_SHOWCASE_ITEMS = 20;
+
+/**
+ * Whether a set of pieces may be posted together: any number of photographs
+ * up to the limit, or exactly one film on its own.
+ */
+export function canPostTogether(kinds: ('image' | 'video')[]): boolean {
+  if (kinds.length === 0 || kinds.length > MAX_SHOWCASE_ITEMS) return false;
+  return !kinds.includes('video') || kinds.length === 1;
+}
+
+/**
+ * The address a post is shared at: a public page with the work and a preview
+ * other apps can draw. Public, posted showcases only — anything else answers
+ * "not found" there.
+ */
+export function showcaseShareUrl(id: string, site: string): string {
+  return `${site.replace(/\/+$/, '')}/p/${id}`;
+}
 /** Matches MAX_CRAFT_TAGS. */
 export const MAX_CRAFT_TAGS = 6;
 
@@ -31,6 +52,31 @@ export interface ShowcasePiece {
   displaySources: { width: number; url: string }[];
   /** Only sent to the owner; false when this piece has no web copy. */
   publiclyShown?: boolean;
+  /**
+   * The piece's size, upright. Absent from an older API and on a file whose
+   * size was never read; draw those at a default shape.
+   */
+  width?: number | null;
+  height?: number | null;
+}
+
+/** Width over height, or null when the size is not known. */
+export function pieceAspect(piece: Pick<ShowcasePiece, 'width' | 'height'>): number | null {
+  return piece.width && piece.height ? piece.width / piece.height : null;
+}
+
+/**
+ * The still to draw at a given size, in device pixels.
+ *
+ * The smallest display copy at least that wide, or the widest there is. The
+ * feed drew the 640 px thumbnail full width — two or three times upscaled on
+ * a modern phone, which photographers notice first. `url` (the thumbnail, or
+ * a film's poster) is the fallback, and the placeholder while this loads.
+ */
+export function pieceSource(piece: ShowcasePiece, pixelWidth: number): string {
+  const sources = piece.displaySources ?? [];
+  const fit = sources.find((s) => s.width >= pixelWidth) ?? sources[sources.length - 1];
+  return fit?.url ?? piece.url;
 }
 
 export interface Showcase {
@@ -47,6 +93,11 @@ export interface Showcase {
   allowComments: boolean;
   showHire: boolean;
   publishedAt: string | null;
+  /**
+   * Set while the author has it taken down. publishedAt survives a take-down,
+   * so this is what tells a live post from one that is down.
+   */
+  unpublishedAt: string | null;
   /** Set when Virgo has taken it down. Only its author ever sees this. */
   hiddenAt: string | null;
   keptCount: number;
@@ -54,6 +105,26 @@ export interface Showcase {
   commentCount: number;
   pieces: ShowcasePiece[];
   createdAt: string;
+}
+
+/**
+ * Where a showcase stands, as its author needs to know it.
+ *
+ * Visitors only ever receive live ones; the owner's own list carries the rest,
+ * and each needs saying differently — a draft was never out, a take-down can
+ * be undone by its author, and a moderation take-down cannot.
+ */
+export type ShowcaseStatus = 'live' | 'draft' | 'down' | 'removed';
+
+export function showcaseStatus(
+  s: Pick<Showcase, 'publishedAt' | 'unpublishedAt' | 'hiddenAt'>,
+): ShowcaseStatus {
+  if (s.hiddenAt) return 'removed';
+  if (!s.publishedAt) return 'draft';
+  // Absent, not null, on a payload cached before the field existed: read as
+  // live, which is what every showcase a visitor can see is.
+  if (s.unpublishedAt) return 'down';
+  return 'live';
 }
 
 export interface FeedMaker {
@@ -115,12 +186,41 @@ export interface FeedPage {
   nextCursor: string | null;
 }
 
+/** One page of a profile's work. `nextCursor` is absent from an older API. */
+export interface ProfileWorkPage {
+  data: Showcase[];
+  total: number;
+  nextCursor?: string | null;
+}
+
 export interface ShelfSummary {
   id: string;
   name: string;
   isPublic: boolean;
   count: number;
   coverUrl: string | null;
+  /**
+   * Up to four stills, newest kept first, for a mosaic cover. Absent from an
+   * API that predates it; draw coverUrl alone then.
+   */
+  coverUrls?: string[];
+  /** Only when asked about a showcase (mine(holding)): whether this shelf holds it. */
+  holds?: boolean;
+}
+
+/**
+ * A showcase as anyone may see it, signed in or not: the public page a shared
+ * link opens. Only what the post itself shows.
+ */
+export interface PublicShowcase {
+  id: string;
+  title: string | null;
+  caption: string | null;
+  location: string | null;
+  publishedAt: string;
+  likeCount: number;
+  maker: { displayName: string; handle: string | null; avatarUrl: string | null; title: string | null };
+  pieces: ShowcasePiece[];
 }
 
 export interface ShelfEntry {
@@ -162,6 +262,9 @@ export const feedApi = {
   },
 };
 
+/** See showcasesApi.create. */
+const POSTING_TIMEOUT_MS = 90_000;
+
 export const showcasesApi = {
   mine(): Promise<{ data: Showcase[]; total: number }> {
     return api.get('/me/showcases');
@@ -171,12 +274,17 @@ export const showcasesApi = {
     return api.get(`/showcases/${id}`);
   },
 
+  /**
+   * Posting can encode a web copy of every piece before it answers, which on
+   * a slow connection outran the usual timeout — and the retry posted it a
+   * second time. Given a minute and a half.
+   */
   create(body: NewShowcase): Promise<Showcase> {
-    return api.post('/me/showcases', { body });
+    return api.post('/me/showcases', { body, timeoutMs: POSTING_TIMEOUT_MS });
   },
 
   update(id: string, body: Partial<NewShowcase>): Promise<Showcase> {
-    return api.patch(`/me/showcases/${id}`, { body });
+    return api.patch(`/me/showcases/${id}`, { body, timeoutMs: POSTING_TIMEOUT_MS });
   },
 
   publish(id: string): Promise<Showcase> {
@@ -194,8 +302,9 @@ export const showcasesApi = {
 };
 
 export const shelvesApi = {
-  mine(): Promise<{ data: ShelfSummary[]; total: number }> {
-    return api.get('/me/shelves');
+  /** With `holding`, each shelf also says whether it holds that showcase. */
+  mine(holding?: string): Promise<{ data: ShelfSummary[]; total: number }> {
+    return api.get('/me/shelves', holding ? { query: { holding } } : undefined);
   },
 
   create(name: string, isPublic?: boolean): Promise<{ data: ShelfSummary[] }> {
@@ -226,13 +335,31 @@ export const shelvesApi = {
   unkeep(shelfId: string, showcaseId: string): Promise<{ data: ShelfEntry[] }> {
     return api.delete(`/me/shelves/${shelfId}/items/${showcaseId}`);
   },
+
+  /** Everything you have kept, on any shelf, newest first, once each. */
+  allKept(): Promise<{ data: ShelfEntry[]; total: number }> {
+    return api.get('/me/kept');
+  },
+};
+
+/** The public page behind a shared link. Needs no session. */
+export const publicShowcaseApi = {
+  one(id: string): Promise<PublicShowcase> {
+    return api.get(`/public/showcases/${id}`);
+  },
 };
 
 /** Somebody's profile, in its two halves. */
 export const profileWorkApi = {
-  /** What they have posted, newest first, as this viewer may see it. */
-  showcases(handle: string): Promise<{ data: Showcase[]; total: number }> {
-    return api.get(`/profiles/${encodeURIComponent(handle)}/showcases`);
+  /**
+   * What they have posted, newest first, as this viewer may see it, a page at
+   * a time. A visitor saw the newest 24 and nothing older.
+   */
+  showcases(handle: string, cursor?: string): Promise<ProfileWorkPage> {
+    return api.get(
+      `/profiles/${encodeURIComponent(handle)}/showcases`,
+      cursor ? { query: { cursor } } : undefined,
+    );
   },
 
   /** Their public shelves. Private ones are never returned to a visitor. */
@@ -284,22 +411,41 @@ export interface Comment {
   canRemove: boolean;
 }
 
+/**
+ * A page of a thread, read oldest first.
+ *
+ * The first page is the newest; `earlier` is where the one before it starts,
+ * or null at the beginning. An older API sends only `data` (the oldest 30),
+ * which reads here as a thread with nothing earlier.
+ */
+export interface CommentPage {
+  data: Comment[];
+  /** False when the author has turned commenting off. Absent after an add. */
+  allowed?: boolean;
+  earlier?: string | null;
+}
+
 export const commentsApi = {
   /**
-   * The thread, oldest first.
+   * The thread: the newest page, or with `before` (a page's `earlier`) the
+   * page before that.
    *
    * `allowed` is false when the author has turned commenting off — the thread
    * is hidden rather than deleted, and they still see it themselves.
    */
-  list(showcaseId: string): Promise<{ data: Comment[]; allowed: boolean }> {
-    return api.get(`/showcases/${showcaseId}/comments`);
+  list(showcaseId: string, before?: string): Promise<CommentPage> {
+    return api.get(
+      `/showcases/${showcaseId}/comments`,
+      before ? { query: { before } } : undefined,
+    );
   },
 
-  add(showcaseId: string, body: string): Promise<{ data: Comment[] }> {
+  /** Answers with the newest page, the new comment last in it. */
+  add(showcaseId: string, body: string): Promise<CommentPage> {
     return api.post(`/showcases/${showcaseId}/comments`, { body: { body } });
   },
 
-  remove(showcaseId: string, commentId: string): Promise<{ data: Comment[] }> {
+  remove(showcaseId: string, commentId: string): Promise<CommentPage> {
     return api.delete(`/showcases/${showcaseId}/comments/${commentId}`);
   },
 };

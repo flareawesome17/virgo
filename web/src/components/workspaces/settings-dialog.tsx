@@ -36,9 +36,24 @@ import {
 import { useDeleteWorkspace, useUpdateWorkspace } from '@/hooks/useWorkspaces';
 import type { Album, Workspace } from '@/api';
 import { ACCENT_COLORS, deleteConsequence } from '@/lib/workspaces';
+import {
+  DISCARD_BODY,
+  DISCARD_TITLE,
+  useDiscardGuard,
+  useGuardedClose,
+  useOpeningKey,
+} from '@/lib/discard-guard';
 
 /** The cover select's value for "no album chosen". */
 const NEWEST = 'newest';
+
+type WorkspaceSettingsDialogProps = {
+  workspace: Workspace;
+  /** The workspace's albums, for the cover. */
+  albums: Album[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
 
 /**
  * Everything about a workspace that is its owner's to change: its name,
@@ -49,18 +64,14 @@ const NEWEST = 'newest';
  * files stay in the owner's library, unsorted — so someone could keep a
  * workspace they wanted gone for fear of losing work that was never at risk.
  */
-export function WorkspaceSettingsDialog({
-  workspace,
-  albums,
-  open,
-  onOpenChange,
-}: {
-  workspace: Workspace;
-  /** The workspace's albums, for the cover. */
-  albums: Album[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+export function WorkspaceSettingsDialog(props: WorkspaceSettingsDialogProps) {
+  // Filled afresh from the workspace on each opening, so a cancelled edit is
+  // not waiting next time, and the discard guard starts from what is saved.
+  const opening = useOpeningKey(props.open);
+  return <WorkspaceSettingsForm key={opening} {...props} />;
+}
+
+function WorkspaceSettingsForm({ workspace, albums, open, onOpenChange }: WorkspaceSettingsDialogProps) {
   const router = useRouter();
   const update = useUpdateWorkspace();
   const remove = useDeleteWorkspace();
@@ -71,17 +82,11 @@ export function WorkspaceSettingsDialog({
   const [cover, setCover] = useState(workspace.cover_album_id ?? NEWEST);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  // Refilled on each opening, so a cancelled edit is not waiting next time.
-  const [filledFor, setFilledFor] = useState(open);
-  if (open !== filledFor) {
-    setFilledFor(open);
-    if (open) {
-      setName(workspace.name);
-      setDescription(workspace.description ?? '');
-      setColor(workspace.accent_color);
-      setCover(workspace.cover_album_id ?? NEWEST);
-    }
-  }
+  const { dirty } = useDiscardGuard({ name, description, color, cover }, open);
+  // Escape, the overlay, the X and Cancel ask first. Saving, archiving and
+  // deleting close directly: each is a decision about these settings already.
+  const guard = useGuardedClose(dirty, onOpenChange);
+  const close = guard.close;
 
   const withCovers = albums.filter((a) => a.cover_url);
   const coverUrl =
@@ -130,7 +135,7 @@ export function WorkspaceSettingsDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={close}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Workspace settings</DialogTitle>
@@ -257,7 +262,7 @@ export function WorkspaceSettingsDialog({
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" onClick={() => close(false)}>
               Cancel
             </Button>
             <Button onClick={save} disabled={!name.trim() || update.isPending}>
@@ -266,6 +271,19 @@ export function WorkspaceSettingsDialog({
             </Button>
           </DialogFooter>
         </DialogContent>
+
+        <AlertDialog open={guard.asking} onOpenChange={(o) => !o && guard.keepEditing()}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{DISCARD_TITLE}</AlertDialogTitle>
+              <AlertDialogDescription>{DISCARD_BODY}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep editing</AlertDialogCancel>
+              <AlertDialogAction onClick={guard.discard}>Discard</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </Dialog>
 
       <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>

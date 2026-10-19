@@ -10,7 +10,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { AdminAuthService, type AdminIdentity } from './admin-auth.service';
-import type { AdminPermission } from './rbac';
+import { SIGNED_IN, type AdminPermission } from './rbac';
 
 export const PERMISSION_KEY = 'admin:permission';
 
@@ -24,6 +24,26 @@ export const PERMISSION_KEY = 'admin:permission';
  */
 export const RequirePermission = (permission: AdminPermission) =>
   SetMetadata(PERMISSION_KEY, permission);
+
+/**
+ * A route for any signed-in console account, whatever its role: reading
+ * itself, its own password, two-factor and sessions. See SIGNED_IN in rbac.ts.
+ */
+export const SignedIn = () => SetMetadata(PERMISSION_KEY, SIGNED_IN);
+
+export const PENDING_SETUP_KEY = 'admin:allowsPendingSetup';
+
+/**
+ * Marks the routes an account may still use while it has setup to finish —
+ * a password somebody else chose, or two-factor its role requires.
+ *
+ * Only reading who you are and finishing that setup. Everything else is
+ * refused until then, here rather than only in the console's layout — a
+ * password someone else chose must not be usable against the API directly,
+ * and a role that requires two-factor means nothing if the API serves the
+ * account before it has any.
+ */
+export const AllowsPendingSetup = () => SetMetadata(PENDING_SETUP_KEY, true);
 
 export interface AdminRequest extends Request {
   admin?: AdminIdentity;
@@ -64,7 +84,7 @@ export class AdminGuard implements CanActivate {
     const admin = await this.auth.verify(header.slice(7));
     req.admin = admin;
 
-    const required = this.reflector.getAllAndOverride<AdminPermission | undefined>(
+    const required = this.reflector.getAllAndOverride<AdminPermission | typeof SIGNED_IN | undefined>(
       PERMISSION_KEY,
       [context.getHandler(), context.getClass()],
     );
@@ -74,6 +94,19 @@ export class AdminGuard implements CanActivate {
     if (!required) {
       throw new ForbiddenException('This action is not available');
     }
+
+    const pendingAllowed = this.reflector.getAllAndOverride<boolean>(PENDING_SETUP_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (admin.mustChangePassword && !pendingAllowed) {
+      throw new ForbiddenException('Choose a new password before continuing');
+    }
+    if (admin.mustSetUpTwoFactor && !pendingAllowed) {
+      throw new ForbiddenException('Set up two-factor sign-in before continuing');
+    }
+
+    if (required === SIGNED_IN) return true;
 
     if (!admin.permissions.includes(required)) {
       throw new ForbiddenException(

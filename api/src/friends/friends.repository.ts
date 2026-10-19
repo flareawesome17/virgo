@@ -18,6 +18,8 @@ export interface FriendRow {
   friend_name: string;
   friend_email: string | null;
   friend_avatar_url: string | null;
+  /** Their published profile's handle; null when unpublished. Presented only. */
+  friend_handle?: string | null;
   status: FriendStatus;
   requested_by: RequestedBy;
   /**

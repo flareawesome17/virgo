@@ -1,16 +1,19 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { BillingService } from '../billing/billing.service';
 import { MailConfig } from '../mail/mail.config';
 import { MailService } from '../mail/mail.service';
 import { accountDisabled, accountDeleted } from '../mail/mail.templates';
 import { StorageService } from '../storage/storage.service';
-import { UsersRepository, type PublicUser } from './users.repository';
+import { SupportFilesService } from '../storage/support-files.service';
+import { ReceiptFilesService } from '../storage/receipt-files.service';
+import { UsersRepository, type PublicUser, type UserRow } from './users.repository';
 import { toPublicUser } from './users.repository';
 
 /** The longest pause on offer. */
@@ -33,14 +36,23 @@ export class AccountService {
     private readonly storage: StorageService,
     private readonly mail: MailService,
     private readonly mailConfig: MailConfig,
+    private readonly billing: BillingService,
+    private readonly supportFiles: SupportFilesService,
+    private readonly receipts: ReceiptFilesService,
   ) {}
 
   private async assertPassword(userId: string, password: string) {
     const user = await this.users.findById(userId);
     if (!user) throw new NotFoundException('Account not found');
 
+    // 403, not 401: a 401 reads to the client as an expired session, which it
+    // refreshes and resends — two of the throttle's five tries for one typo.
     if (!(await bcrypt.compare(password, user.password_hash))) {
-      throw new UnauthorizedException('That password is not correct');
+      throw new ForbiddenException({
+        message: 'That password is not correct',
+        code: 'WRONG_PASSWORD',
+        statusCode: 403,
+      });
     }
     return user;
   }
@@ -80,7 +92,7 @@ export class AccountService {
         name: user.display_name ?? user.email.split('@')[0],
         until: until.toISOString().slice(0, 10),
         days,
-        url: `${this.mailConfig.appUrl}/login`,
+        url: `${this.mailConfig.appUrl}/sign-in`,
       }),
     );
 
@@ -105,7 +117,10 @@ export class AccountService {
   /**
    * Deletes the account and everything in it.
    *
-   * Storage first, then the row. The order matters: the keys to the uploaded
+   * Any auto-renewing plan is cancelled first, for the same reason files go
+   * before the row: afterwards there is nothing left to do it from.
+   *
+   * Storage next, then the row. The order matters: the keys to the uploaded
    * objects are derived from data in Postgres, so deleting the row first would
    * strand every file in the bucket with nothing left pointing at it — paid
    * for, unreachable, and impossible to find again.
@@ -118,7 +133,34 @@ export class AccountService {
     userId: string,
     password: string,
   ): Promise<{ deleted: true; filesDeleted: number }> {
-    const user = await this.assertPassword(userId, password);
+    return this.erase(await this.assertPassword(userId, password));
+  }
+
+  /**
+   * The console's way in: an owner, who has typed the account's address back
+   * to confirm, instead of the account's own password. The same steps in the
+   * same order as above — plan, files, email, row — so a deletion from the
+   * console is never a lesser one.
+   */
+  async removeByStaff(userId: string): Promise<{ deleted: true; filesDeleted: number }> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new NotFoundException('Account not found');
+    return this.erase(user);
+  }
+
+  private async erase(user: UserRow): Promise<{ deleted: true; filesDeleted: number }> {
+    const userId = user.id;
+
+    // Before anything is deleted: once the account is gone there is nothing
+    // left to cancel a plan from, and PayMongo would keep charging the card.
+    try {
+      await this.billing.cancelBeforeDeletion(userId);
+    } catch (err) {
+      this.logger.error(`Delete aborted for ${userId}, plan not cancelled: ${String(err)}`);
+      throw new BadRequestException(
+        'Your paid plan could not be cancelled, so the account was left untouched. Try again in a few minutes.',
+      );
+    }
 
     let filesDeleted = 0;
     try {
@@ -126,6 +168,19 @@ export class AccountService {
       filesDeleted = wiped.deleted;
       if (wiped.failed > 0) {
         throw new Error(`${wiped.failed} object(s) could not be deleted`);
+      }
+      // What they attached to support requests too. The tickets stay, for
+      // the record, the way a deleted account's posts leave replies behind;
+      // the files are theirs and go with them.
+      filesDeleted += await this.supportFiles.eraseFor(userId);
+      // Receipts on their money entries. The entries go with the account's
+      // row; the photos are objects with nothing else to find them by.
+      filesDeleted += await this.receipts.eraseFor(userId);
+      // Their showcases' own copies, which have no file rows for the wipe
+      // above to find. The posts themselves go with the account's row.
+      const copies = await this.storage.deletePrefix(`users/${userId}/showcases/`);
+      if (copies.failed > 0) {
+        throw new Error(`${copies.failed} showcase copy object(s) could not be deleted`);
       }
     } catch (err) {
       this.logger.error(`Delete aborted for ${userId}: ${String(err)}`);

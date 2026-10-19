@@ -9,7 +9,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.virgo.app",
       "config": {
         "usesNonExemptEncryption": false
@@ -25,6 +25,12 @@
       "permissions": [
         "POST_NOTIFICATIONS",
         "SCHEDULE_EXACT_ALARM"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
       ]
     },
     "plugins": [
@@ -123,10 +129,7 @@
         {
           "photosPermission": "Virgo needs access to your photo library so it can save photos and videos from your albums onto this device.",
           "savePhotosPermission": "Virgo saves the photos and videos you download from an album into your device photo library.",
-          "granularPermissions": [
-            "photo",
-            "video"
-          ]
+          "granularPermissions": []
         }
       ],
       [

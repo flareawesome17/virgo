@@ -1,7 +1,6 @@
-import { Fragment, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import * as Linking from 'expo-linking';
-import { CameraIcon, LayersIcon, UsersIcon, type LucideIcon } from 'lucide-react-native';
+import { CameraIcon, UsersIcon, type LucideIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { useTheme } from '@/src/hooks';
@@ -9,16 +8,13 @@ import {
   COVER_ASPECT,
   mutualConnectionsLine,
   profileStatsLine,
-  type PortfolioAlbum,
-  type PortfolioImage,
-  type PortfolioItem,
   type ProfileStats,
 } from '@/src/api';
 import { PALETTES } from '@/theme';
 
 // Every icon drawn here. One left out renders without its colour rather than
 // failing, and nobody traces a grey icon back to this list.
-for (const Icon of [CameraIcon, LayersIcon, UsersIcon]) {
+for (const Icon of [CameraIcon, UsersIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -260,106 +256,6 @@ export function ProfileDetails({ rows }: { rows: ProfileDetailRow[] }) {
           </View>
         );
       })}
-    </View>
-  );
-}
-
-/**
- * The work on a profile: photos three across, then the galleries.
- *
- * `emptyState` stands in for the whole list when there is nothing in it,
- * which is also how a caller shows loading or a failed load in its place.
- */
-export function PortfolioBlock({
-  items,
-  width,
-  header,
-  action,
-  emptyState,
-  footer,
-}: {
-  items: PortfolioItem[];
-  width: number;
-  header: string;
-  action?: { label: string; onPress: () => void };
-  emptyState: ReactNode;
-  footer?: ReactNode;
-}) {
-  const images = items.filter((i): i is PortfolioImage => i.kind === 'image');
-  // A gallery with no link has nowhere to open, so it is not offered.
-  const albums = items.filter((i): i is PortfolioAlbum => i.kind === 'album' && Boolean(i.url));
-
-  // Three across with 2px seams, the same grid the web profile uses. Computed
-  // from the real width because a percentage leaves a sub-pixel gap that shows
-  // as a hairline between tiles.
-  const tile = Math.floor((width - 4) / 3);
-  const empty = images.length === 0 && albums.length === 0;
-
-  return (
-    <View className="mt-6">
-      <View className="flex-row items-center justify-between px-5 mb-2">
-        <Text className={LABEL}>{header}</Text>
-        {action && (
-          <Pressable onPress={action.onPress} accessibilityRole="button" hitSlop={13}>
-            <Text className="text-primary text-[13px] font-semibold">{action.label}</Text>
-          </Pressable>
-        )}
-      </View>
-
-      {empty ? (
-        <View className="px-5">{emptyState}</View>
-      ) : (
-        <Fragment>
-          {images.length > 0 && (
-            <View className="flex-row flex-wrap" style={{ gap: 2 }}>
-              {images.map((item) => (
-                <RemoteImage
-                  key={item.id}
-                  source={{ uri: item.url }}
-                  style={{ width: tile, height: tile }}
-                  contentFit="cover"
-                  accessibilityLabel={item.caption ?? undefined}
-                />
-              ))}
-            </View>
-          )}
-
-          {albums.length > 0 && (
-            <View className="mt-6 px-5 gap-2.5">
-              <Text className={LABEL}>Galleries</Text>
-              {albums.map((album) => (
-                <Pressable
-                  key={album.id}
-                  className="rounded-2xl overflow-hidden bg-card active:opacity-90"
-                  accessibilityRole="link"
-                  accessibilityLabel={`${album.name}, ${album.itemCount} ${album.itemCount === 1 ? 'photo' : 'photos'}`}
-                  onPress={() => album.url && Linking.openURL(album.url)}
-                >
-                  {album.coverUrl ? (
-                    <RemoteImage
-                      source={{ uri: album.coverUrl }}
-                      style={{ width: '100%', height: 140 }}
-                      contentFit="cover"
-                    />
-                  ) : (
-                    <View style={{ height: 140 }} className="bg-primary/10 items-center justify-center">
-                      <LayersIcon size={26} className="text-primary" />
-                    </View>
-                  )}
-                  <View className="p-3.5">
-                    <Text className="text-foreground text-[14px] font-bold">{album.name}</Text>
-                    <Text className="text-muted-foreground text-[11px] mt-0.5">
-                      {album.itemCount} {album.itemCount === 1 ? 'photo' : 'photos'}
-                    </Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </Fragment>
-      )}
-
-      {footer}
     </View>
   );
 }

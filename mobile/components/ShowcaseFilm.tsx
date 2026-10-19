@@ -5,6 +5,21 @@ import { PlayIcon, Volume2Icon, VolumeXIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { clock } from '@/src/lib/media-grid';
+import { pauseAlbumAudio } from '@/src/providers/AlbumAudioProvider';
+import { pauseDockedFilm } from '@/src/providers/VideoPlayerProvider';
+
+/**
+ * The backing for controls drawn on a film: dark in both themes. It was the
+ * theme's foreground at 55%, which in dark mode is a light disc under a white
+ * icon, about 1.1:1.
+ */
+const BACKING = 'rgba(0,0,0,0.55)';
+
+/** Everything else that might be talking stops when a film starts. */
+function quietOthers(): void {
+  pauseAlbumAudio();
+  pauseDockedFilm();
+}
 import type { ShowcasePiece } from '@/src/api';
 
 for (const Icon of [PlayIcon, Volume2Icon, VolumeXIcon]) {
@@ -45,6 +60,18 @@ export function ShowcaseFilm({
    * the thing a set of pieces on one screen makes easy to do by accident.
    */
   onPlay,
+  /**
+   * How far up to lift the running time and the sound control, for a parent
+   * that lays something over the foot of the film. The feed's placard covers
+   * its bottom 32 points, and both controls sat underneath it.
+   */
+  controlsInset = 0,
+  /**
+   * 'contain' for a film that is not its frame's shape — a feed card stops at
+   * 9:16 and 3:1 and letterboxes anything past them, on black, rather than
+   * cut the film to fit.
+   */
+  contentFit = 'cover',
 }: {
   piece: ShowcasePiece;
   width: number;
@@ -52,6 +79,8 @@ export function ShowcaseFilm({
   loop?: boolean;
   active?: boolean;
   onPlay?: () => void;
+  controlsInset?: number;
+  contentFit?: 'cover' | 'contain';
 }) {
   const [started, setStarted] = useState(false);
   const source = piece.playbackUrl ?? null;
@@ -66,7 +95,10 @@ export function ShowcaseFilm({
         width={width}
         height={height}
         playable={Boolean(source)}
+        controlsInset={controlsInset}
+        contentFit={contentFit}
         onPress={() => {
+          quietOthers();
           setStarted(true);
           onPlay?.();
         }}
@@ -82,6 +114,8 @@ export function ShowcaseFilm({
       height={height}
       loop={loop}
       active={active}
+      controlsInset={controlsInset}
+      contentFit={contentFit}
       onPlay={onPlay}
       // Back to the still, which is the honest answer to a proxy that is
       // missing or a ladder that is half-written — not a black rectangle.
@@ -96,17 +130,21 @@ function Poster({
   width,
   height,
   playable,
+  controlsInset,
+  contentFit,
   onPress,
 }: {
   piece: ShowcasePiece;
   width: number;
   height: number;
   playable: boolean;
+  controlsInset: number;
+  contentFit: 'cover' | 'contain';
   onPress: () => void;
 }) {
   return (
-    <View style={{ width, height }} className="bg-muted">
-      <RemoteImage source={{ uri: piece.url }} style={{ width, height }} contentFit="cover" />
+    <View style={{ width, height }} className={contentFit === 'contain' ? 'bg-black' : 'bg-muted'}>
+      <RemoteImage source={{ uri: piece.url }} style={{ width, height }} contentFit={contentFit} />
       <Pressable
         onPress={playable ? onPress : undefined}
         disabled={!playable}
@@ -116,8 +154,8 @@ function Poster({
         className="absolute inset-0 items-center justify-center"
       >
         <View
-          className="w-16 h-16 rounded-full bg-foreground/55 items-center justify-center"
-          style={{ opacity: playable ? 1 : 0.4 }}
+          className="w-16 h-16 rounded-full items-center justify-center"
+          style={{ opacity: playable ? 1 : 0.4, backgroundColor: BACKING }}
         >
           {/* Named outright, the way the album player's controls are: a lucide
               fill of currentColor renders hollow on a device, and this badge
@@ -125,8 +163,11 @@ function Poster({
           <PlayIcon size={26} color="#fff" fill="#fff" />
         </View>
         {piece.durationMs ? (
-          <View className="absolute left-3 bottom-3 rounded-full bg-foreground/55 px-2 py-0.5">
-            <Text className="text-background text-[11px] font-bold">
+          <View
+            className="absolute left-3 rounded-full px-2 py-0.5"
+            style={{ bottom: 12 + controlsInset, backgroundColor: BACKING }}
+          >
+            <Text className="text-[11px] font-bold" style={{ color: '#FFFFFF' }}>
               {clock(piece.durationMs / 1000)}
             </Text>
           </View>
@@ -151,6 +192,8 @@ function Film({
   height,
   loop,
   active,
+  controlsInset,
+  contentFit,
   onPlay,
   onFailed,
 }: {
@@ -160,6 +203,8 @@ function Film({
   height: number;
   loop: boolean;
   active: boolean;
+  controlsInset: number;
+  contentFit: 'cover' | 'contain';
   onPlay?: () => void;
   onFailed: () => void;
 }) {
@@ -218,11 +263,11 @@ function Film({
   }, [active, player]);
 
   return (
-    <View style={{ width, height }} className="bg-muted">
+    <View style={{ width, height }} className={contentFit === 'contain' ? 'bg-black' : 'bg-muted'}>
       <VideoView
         player={player}
         style={{ width, height }}
-        contentFit="cover"
+        contentFit={contentFit}
         nativeControls={false}
         onFirstFrameRender={() => setDrawn(true)}
       />
@@ -233,6 +278,7 @@ function Film({
           if (playing) {
             player.pause();
           } else {
+            quietOthers();
             player.play();
             onPlay?.();
           }
@@ -242,29 +288,38 @@ function Film({
         className="absolute inset-0 items-center justify-center"
       >
         {!playing && (
-          <View className="w-16 h-16 rounded-full bg-foreground/55 items-center justify-center">
+          <View
+            className="w-16 h-16 rounded-full items-center justify-center"
+            style={{ backgroundColor: BACKING }}
+          >
             <PlayIcon size={26} color="#fff" fill="#fff" />
           </View>
         )}
       </Pressable>
 
+      {/* A 44 pt target around a 36 pt disc. */}
       <Pressable
         onPress={() => setMuted((m) => !m)}
         accessibilityRole="button"
         accessibilityLabel={muted ? 'Turn the sound on' : 'Turn the sound off'}
-        hitSlop={8}
-        className="absolute right-3 bottom-3 w-9 h-9 rounded-full bg-foreground/55 items-center justify-center active:opacity-80"
+        className="absolute right-1 w-11 h-11 items-center justify-center active:opacity-80"
+        style={{ bottom: 8 + controlsInset }}
       >
-        {muted ? (
-          <VolumeXIcon size={16} className="text-background" />
-        ) : (
-          <Volume2Icon size={16} className="text-background" />
-        )}
+        <View
+          className="w-9 h-9 rounded-full items-center justify-center"
+          style={{ backgroundColor: BACKING }}
+        >
+          {muted ? (
+            <VolumeXIcon size={16} color="#FFFFFF" />
+          ) : (
+            <Volume2Icon size={16} color="#FFFFFF" />
+          )}
+        </View>
       </Pressable>
 
       {!drawn && (
         <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
-          <RemoteImage source={{ uri: poster }} style={{ width, height }} contentFit="cover" />
+          <RemoteImage source={{ uri: poster }} style={{ width, height }} contentFit={contentFit} />
           <View className="absolute inset-0 items-center justify-center">
             <ActivityIndicator color="#fff" />
           </View>

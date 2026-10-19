@@ -1,4 +1,11 @@
 import { Image, type ImageContentFit, type ImageProps } from 'expo-image';
+import { useTheme } from '@/src/hooks';
+import {
+  PLACEHOLDER_COVER,
+  PLACEHOLDER_COVER_DARK,
+  PLACEHOLDER_IMAGE,
+  PLACEHOLDER_IMAGE_DARK,
+} from '@/src/lib/placeholder';
 
 /**
  * The signature half of a presigned B2 URL.
@@ -111,6 +118,15 @@ export function RemoteImage({
     'uri' in source
       ? source.uri
       : undefined;
+
+  // The placeholder blocks are light; in dark mode they are swapped for the
+  // dark ones here, the one place every image passes through.
+  const { isDark } = useTheme();
+  if (isDark && uri === PLACEHOLDER_IMAGE) {
+    source = { uri: PLACEHOLDER_IMAGE_DARK };
+  } else if (isDark && uri === PLACEHOLDER_COVER) {
+    source = { uri: PLACEHOLDER_COVER_DARK };
+  }
 
   const remote = typeof uri === 'string' && /^https?:\/\//i.test(uri);
   const key = remote ? stableCacheKey(uri) : undefined;

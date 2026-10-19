@@ -12,19 +12,46 @@ export const nearbyKeys = {
     ['discover', 'nearby', 'role-counts', radiusKm, place] as const,
 };
 
-/** Whether the caller is discoverable, and when they last updated. */
+/**
+ * How the caller is placed in Nearby: whether they appear, what places them,
+ * and whether they have hidden.
+ */
 export function useLocationSharing() {
   const query = useQuery({
     queryKey: nearbyKeys.status,
     queryFn: () => discoverApi.locationStatus(),
   });
+  const data = query.data;
   return {
     ...query,
     /** Failed *or* paused — an offline device never reaches `isError`. */
     loadFailed: query.isError || query.isPaused,
-    sharing: query.data?.sharing ?? false,
-    /** The city they picked, or null when the position came from the device. */
-    place: query.data?.place ?? null,
+    /** Whether they appear in Nearby: placed by something, and not hidden. */
+    sharing: data?.sharing ?? false,
+    /** The place they are shown at, or null for a device position. */
+    place: data?.place ?? null,
+    /**
+     * What places them — device, picked city or address — and null when
+     * nothing does. Undefined from an older API, which placed nobody by
+     * their address; the screens fall back to `sharing` for that.
+     */
+    source: data?.source,
+    /** Left out of everyone else's Nearby by their own choice. */
+    hidden: data?.hidden ?? false,
+    /** Where the address on the profile resolved to, if it did. */
+    addressPlace: data?.addressPlace ?? null,
+    /**
+     * Whether the device's position is shared, fresh or not. An older API
+     * says only "sharing, and no picked city", which meant the same.
+     */
+    exactLocation:
+      data?.shared !== undefined
+        ? data.shared === 'gps'
+        : !!data?.sharing && !data?.place,
+    /** Shared, but over 30 days old, so the address's city places them instead. */
+    exactLocationStale: data?.shared === 'gps' && data?.source !== 'gps',
+    /** When the shared position was set; a device one stops counting after 30 days. */
+    updatedAt: data?.updatedAt ?? null,
   };
 }
 
@@ -69,8 +96,9 @@ function currentPosition(): Promise<GeolocationPosition> {
 }
 
 /**
- * Turns sharing on: asks the browser for permission, reads the position, and
- * sends it up.
+ * "Use my exact location": asks the browser for permission, reads the
+ * position, and sends it up. It places the caller more closely than their
+ * city does; it does not decide whether they are shown.
  *
  * Permission and the app-level opt-in are separate on purpose. Granting the
  * browser prompt should not by itself publish someone's location to other
@@ -93,26 +121,25 @@ export function useShareLocation() {
 }
 
 /**
- * Turns sharing on from a named city instead of the device.
+ * Shows or hides the caller in everyone else's Nearby.
  *
- * The way in for anyone who will not grant a location permission — and on a
- * desktop browser, usually the better one: the prompt there is more intrusive
- * and the answer less accurate than simply saying which city you work in.
- *
- * Still an explicit opt-in, and still reciprocal: naming a place publishes an
- * approximate position, so it makes you findable on the same terms as the
- * people it lets you find.
+ * Hiding keeps the address and any shared position, so showing again puts
+ * them straight back; it does not stop them searching.
  */
-export function useSetLocationPlace() {
+export function useSetNearbyHidden() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (place: string) => discoverApi.shareLocationPlace(place),
+    mutationFn: (hidden: boolean) => discoverApi.setHidden(hidden),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['discover'] });
     },
   });
 }
 
+/**
+ * Erases the shared position, device or picked city. The caller is placed by
+ * their address's city again — this does not hide them.
+ */
 export function useStopSharingLocation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -126,7 +153,9 @@ export function useStopSharingLocation() {
 /**
  * People nearby, optionally only those who do a particular job.
  *
- * Returns `sharing: false` rather than failing when opted out.
+ * `origin` is null rather than an error when there is nowhere to measure
+ * from — no address city, no shared position, no typed city — so the screen
+ * can ask for a city instead of showing a failure.
  *
  * `placeholderData` keeps the previous list on screen while a new filter
  * loads, so toggling a role chip does not blink the screen empty.
@@ -150,6 +179,11 @@ export function useNearbyPeople(
     sharing: query.data?.sharing ?? false,
     /** Echoed back by the API, so the screen names the place it searched. */
     searchedPlace: query.data?.place ?? null,
+    /**
+     * Where the search measured from; null when there was nowhere, undefined
+     * before an answer or from an older API.
+     */
+    origin: query.data?.origin,
   };
 }
 

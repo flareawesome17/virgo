@@ -2,15 +2,14 @@ import type { Metadata } from 'next';
 import PageClient from './page-client';
 
 /*
- * A server component so the tab title can be a real metadata export.
+ * Your profile as other people see it, with your work (drafts and posts you
+ * took down included, marked), your taste (private shelves included) and your
+ * cover, as the phone's Profile is. Editing what it says is
+ * /settings/profile.
  *
- * `metadata` is Server Components only, and this page is interactive, so
- * the two halves are split: the title is resolved on the server and sent
- * in the initial HTML, and everything below it stays a client component in
- * page-client.tsx. Setting document.title from the client instead loses a
- * race against Next re-asserting this value after every navigation.
+ * A server component so the tab title can be a real metadata export.
  */
-export const metadata: Metadata = { title: "Profile" };
+export const metadata: Metadata = { title: 'Your profile' };
 
 export default function Page() {
   return <PageClient />;
