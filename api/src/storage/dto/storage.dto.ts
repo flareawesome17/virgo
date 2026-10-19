@@ -11,10 +11,14 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import {
   ALLOWED_CONTENT_TYPES,
   MAX_UPLOAD_BYTES,
+  MULTIPART_MAX_BYTES,
+  MULTIPART_MAX_PARTS,
+  MULTIPART_PART_BYTES,
   UPLOAD_SCOPES,
 } from '../storage.config';
 
@@ -47,6 +51,77 @@ export class CreateUploadUrlDto {
    * with room could fill the owner's. Optional, because apps already
    * installed do not send it; they get the check they always had.
    */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  albumId?: string;
+}
+
+/** Begins a multipart upload: the same facts as a single PUT, up to a higher ceiling. */
+export class StartMultipartDto {
+  @IsIn(ALLOWED_CONTENT_TYPES as unknown as string[], {
+    message: 'Unsupported content type',
+  })
+  contentType!: string;
+
+  @IsIn(UPLOAD_SCOPES as unknown as string[])
+  scope!: (typeof UPLOAD_SCOPES)[number];
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MULTIPART_MAX_BYTES)
+  contentLength!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  albumId?: string;
+}
+
+export class MultipartRefDto {
+  @IsString()
+  @MaxLength(1024)
+  key!: string;
+
+  @IsString()
+  @MaxLength(1024)
+  uploadId!: string;
+}
+
+export class PartUrlDto extends MultipartRefDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MULTIPART_MAX_PARTS)
+  partNumber!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MULTIPART_PART_BYTES)
+  contentLength!: number;
+}
+
+export class CompletedPartDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MULTIPART_MAX_PARTS)
+  partNumber!: number;
+
+  @IsString()
+  @MaxLength(256)
+  etag!: string;
+}
+
+export class CompleteMultipartDto extends MultipartRefDto {
+  @IsArray()
+  @ArrayMaxSize(MULTIPART_MAX_PARTS)
+  @ValidateNested({ each: true })
+  @Type(() => CompletedPartDto)
+  parts!: CompletedPartDto[];
+
   @IsOptional()
   @IsString()
   @MaxLength(64)

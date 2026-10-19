@@ -17,11 +17,15 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../auth/public.decorator';
 import {
   AttachToAlbumDto,
+  CompleteMultipartDto,
   ConfirmUploadDto,
   CreateUploadUrlDto,
   ListFilesDto,
+  MultipartRefDto,
   ObjectKeyDto,
   ObjectKeysDto,
+  PartUrlDto,
+  StartMultipartDto,
   WipeStorageDto,
   ZipSelectionDto,
 } from './dto/storage.dto';
@@ -65,6 +69,46 @@ export class StorageController {
       contentLength: dto.contentLength,
       albumId: dto.albumId,
     });
+  }
+
+  /**
+   * Multipart upload for large files (docs/LARGE_UPLOADS.md): start, one URL
+   * per part, complete, abort. The client then calls `confirm` as it does after
+   * a single PUT. Part URLs are minted per part, so they get a higher limit
+   * than a ticket: a 10 GB file is 640 of them.
+   */
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('multipart/start')
+  startMultipart(@CurrentUser('id') userId: string, @Body() dto: StartMultipartDto) {
+    return this.storage.startMultipart(userId, {
+      contentType: dto.contentType,
+      scope: dto.scope,
+      contentLength: dto.contentLength,
+      albumId: dto.albumId,
+    });
+  }
+
+  @Throttle({ default: { limit: 1200, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('multipart/part-url')
+  createPartUrl(@CurrentUser('id') userId: string, @Body() dto: PartUrlDto) {
+    return this.storage.createPartUrl(userId, dto);
+  }
+
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('multipart/complete')
+  completeMultipart(@CurrentUser('id') userId: string, @Body() dto: CompleteMultipartDto) {
+    return this.storage.completeMultipart(userId, dto);
+  }
+
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('multipart/abort')
+  async abortMultipart(@CurrentUser('id') userId: string, @Body() dto: MultipartRefDto) {
+    await this.storage.abortMultipart(userId, dto);
+    return { ok: true };
   }
 
   @HttpCode(200)
