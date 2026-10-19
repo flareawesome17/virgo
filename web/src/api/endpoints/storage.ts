@@ -1,5 +1,6 @@
 import { api } from '../client';
 import { API_BASE_URL } from '../config';
+import { withConfirmRetry } from '../confirm-retry';
 import { ApiError } from '../errors';
 import { type MultipartDeps, UploadCancelled, uploadInParts } from '../multipart-upload';
 
@@ -439,7 +440,10 @@ export const storageApi = {
         if (error instanceof UploadCancelled) throw new ApiError(0, 'Upload was cancelled.');
         throw error;
       }
-      const stat = await this.confirm(done.key, options.albumId, file.name);
+      const stat = await withConfirmRetry(
+        () => this.confirm(done.key, options.albumId, file.name),
+        { signal: options.signal },
+      );
       if (!stat.exists) {
         throw new ApiError(0, 'Upload could not be verified. Please try again.');
       }
@@ -488,8 +492,14 @@ export const storageApi = {
     }
 
     // A 2xx from B2 is good evidence, but confirming via the API is what
-    // guarantees a row never ends up pointing at a missing object.
-    const stat = await this.confirm(ticket.key, options.albumId, file.name);
+    // guarantees a row never ends up pointing at a missing object. The bytes
+    // are already stored, so a 5xx or a dropped connection here is asked
+    // again rather than failing a file that arrived (confirm-retry.ts).
+    const ticketKey = ticket.key;
+    const stat = await withConfirmRetry(
+      () => this.confirm(ticketKey, options.albumId, file.name),
+      { signal: options.signal },
+    );
     if (!stat.exists) {
       throw new ApiError(0, 'Upload could not be verified. Please try again.');
     }

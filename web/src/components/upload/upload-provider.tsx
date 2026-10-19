@@ -13,6 +13,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys, storageApi, type UploadScope } from '@/api';
 import { usageQueryKey } from '@/hooks/useUsage';
+import { UPLOAD_CONCURRENCY } from './upload-concurrency';
 
 export interface UploadItem {
   id: string;
@@ -46,17 +47,8 @@ interface UploadQueue {
   clearFinished: () => void;
 }
 
-/**
- * How many files go up at once, across the whole app.
- *
- * Browsers cap concurrent connections per host at around six, and B2 is a
- * different host from the API — but a wedding drop can be hundreds of files,
- * and firing them all at once means the browser queues them opaquely with no
- * useful progress. Three keeps the bar moving and leaves headroom for the
- * app's own requests. It used to be three per drop, so two quick drops ran
- * six; one queue means three is three.
- */
-const CONCURRENCY = 3;
+/** How many files go up at once, across the whole app. See upload-concurrency.ts. */
+const CONCURRENCY = UPLOAD_CONCURRENCY;
 
 /** How often a long upload refreshes the album it is filling. */
 const REFRESH_EVERY_MS = 4000;
@@ -166,7 +158,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
             signal: controller.signal,
             onProgress: (fraction) => {
               sent.current.set(id, fraction * entry.file.size);
-              // Browsers report progress many times a second per file; three
+              // Browsers report progress many times a second per file; six
               // files at that rate re-rendered every consumer constantly.
               const now = Date.now();
               if (fraction >= 1 || now - (lastPatch.current.get(id) ?? 0) >= PROGRESS_EVERY_MS) {
