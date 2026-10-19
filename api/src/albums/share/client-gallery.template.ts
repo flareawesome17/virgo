@@ -1,3 +1,4 @@
+import { FAVICON_LINK } from './client-favicon';
 import { DOWNLOADS_PAUSED_MESSAGE } from '../../quota/download-allowance.service';
 import type { PublicAlbumView } from './album-share.service';
 import { DELIVERY_PALETTE as P } from './client-palette';
@@ -48,7 +49,7 @@ const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 
  * are trusted constants, not user input.
  */
 function renderNotice(title: string, icon: string, heading: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${title}</title><style>${PAGE_STYLE}
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">${FAVICON_LINK}<title>${title}</title><style>${PAGE_STYLE}
   main{min-height:100dvh;display:grid;place-items:center;padding:32px}.empty{text-align:center;max-width:34rem}.mark{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 22px;border-radius:22px;background:color-mix(in srgb,var(--line) 72%,transparent)}.mark svg{width:27px;fill:none;stroke:var(--muted);stroke-width:1.5}h1{margin:0;font-size:25px;letter-spacing:-.035em}p{margin:12px auto 0;color:var(--muted);max-width:42ch}footer{margin-top:30px;color:var(--muted);font-size:12px}
   </style></head><body><main><div class="empty"><div class="mark">${icon}</div><h1>${heading}</h1><p>${body}</p><footer>Shared with Virgo</footer></div></main></body></html>`;
 }
@@ -107,7 +108,7 @@ export function renderClientGallery(
 ): string {
   const hasSections = view.sections.length > 0;
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(view.album.name)}</title><style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">${FAVICON_LINK}<title>${esc(view.album.name)}</title><style>
 ${PAGE_STYLE}
   .shell{max-width:1440px;margin:0 auto;padding:16px 16px 120px}
   .hero{padding:6px;border-radius:30px;background:var(--panel);box-shadow:0 28px 80px -48px rgba(62,39,26,.72)}
