@@ -1,6 +1,7 @@
 import { api } from '../client';
 import { API_BASE_URL } from '../config';
 import { ApiError } from '../errors';
+import { type MultipartDeps, UploadCancelled, uploadInParts } from '../multipart-upload';
 
 /**
  * Where an upload goes. 'avatars' and 'covers' land in the public bucket and
@@ -276,6 +277,12 @@ export interface UploadResult {
  */
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
+/**
+ * From this size a file goes up in parts. Mirrors MULTIPART_MIN_BYTES in
+ * api/src/storage/storage.config.ts.
+ */
+export const MULTIPART_MIN_BYTES = 100 * 1024 * 1024;
+
 export const storageApi = {
   /** Step 1: ask the server for a signed PUT URL. Keys are server-generated. */
   createUploadUrl(input: {
@@ -408,6 +415,37 @@ export const storageApi = {
     const contentType =
       options.contentType || file.type || contentTypeForName(file.name);
 
+    // A big file goes up as independent parts instead of one PUT: no part has
+    // to finish inside a single presigned window, and a dropped connection
+    // costs one 16 MB part rather than the whole film. Small files keep the
+    // single PUT, where multipart's three extra round trips would only slow
+    // them down. See docs/LARGE_UPLOADS.md.
+    if (file.size >= MULTIPART_MIN_BYTES && options.scope !== 'avatars' && options.scope !== 'covers') {
+      let done: { key: string; size: number };
+      try {
+        done = await uploadInParts(
+          file,
+          {
+            contentType,
+            scope: options.scope,
+            albumId: options.albumId,
+            onProgress: options.onProgress,
+            signal: options.signal,
+          },
+          multipartDeps,
+        );
+      } catch (error) {
+        // Callers recognise a cancelled upload by ApiError status 0.
+        if (error instanceof UploadCancelled) throw new ApiError(0, 'Upload was cancelled.');
+        throw error;
+      }
+      const stat = await this.confirm(done.key, options.albumId, file.name);
+      if (!stat.exists) {
+        throw new ApiError(0, 'Upload could not be verified. Please try again.');
+      }
+      return { key: done.key, publicUrl: null, size: stat.size };
+    }
+
     /**
      * One ticket and one attempt at sending it.
      *
@@ -515,6 +553,69 @@ function putToBucket(
     xhr.send(file);
   });
 }
+
+/**
+ * Sends one part of a multipart upload and resolves with its ETag, which the
+ * server needs to assemble the parts.
+ *
+ * Reading the ETag needs `etag` in the bucket's CORS `exposeHeaders`, which the
+ * browser-upload rule already has. If a browser still hides it the part
+ * cannot be assembled, and the upload says so rather than completing wrongly.
+ */
+function putPartToBucket(
+  part: Blob,
+  ticket: { uploadUrl: string; requiredHeaders: Record<string, string> },
+  onLoaded: (loaded: number) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', ticket.uploadUrl, true);
+
+    for (const [header, value] of Object.entries(ticket.requiredHeaders)) {
+      if (header.toLowerCase() === 'content-length') continue;
+      xhr.setRequestHeader(header, value);
+    }
+
+    xhr.upload.onprogress = (event) => onLoaded(event.loaded);
+
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new ApiError(xhr.status, 'Upload failed. Please try again.'));
+        return;
+      }
+      const etag = xhr.getResponseHeader('ETag');
+      if (!etag) {
+        // Not retryable by status 0: asking again returns the same hidden header.
+        reject(new ApiError(400, 'Could not read the upload receipt from storage.'));
+        return;
+      }
+      resolve(etag);
+    };
+    xhr.onerror = () =>
+      reject(new ApiError(0, 'Could not reach storage. Check your connection.'));
+    xhr.onabort = () => reject(new ApiError(0, 'Upload was cancelled.'));
+
+    signal?.addEventListener('abort', () => xhr.abort());
+    if (signal?.aborted) {
+      xhr.abort();
+      return;
+    }
+
+    xhr.send(part);
+  });
+}
+
+/** The server half of a multipart upload; see api/src/storage/storage.controller.ts. */
+const multipartDeps: MultipartDeps = {
+  start: (body) => api.post('/storage/multipart/start', { body }),
+  partUrl: (body) => api.post('/storage/multipart/part-url', { body }),
+  putPart: putPartToBucket,
+  complete: (body) => api.post('/storage/multipart/complete', { body }),
+  abort: async (body) => {
+    await api.post('/storage/multipart/abort', { body });
+  },
+};
 
 /** Falls back to the extension when a browser reports no type for a file. */
 export function contentTypeForName(name: string): string {
