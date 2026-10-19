@@ -5,6 +5,7 @@ import {
   planUploads,
   possibleDuplicatesMessage,
   possibleDuplicatesTitle,
+  refusesField,
   skippedSummary,
   UPLOAD_CHECK_MAX_FILES,
 } from './upload-dedup.ts';
@@ -108,6 +109,34 @@ describe('planUploads', () => {
     });
     assert.equal(asked, false);
     assert.deepEqual(plan, { upload: [], duplicates: [], possible: [], checked: true });
+  });
+});
+
+describe('refusesField', () => {
+  // The API refuses unknown keys with a 400 (forbidNonWhitelisted), so a new
+  // client confirming against an API from before `lastModified` must notice
+  // and send the confirm again without it, or every upload fails at the end.
+  const refusal = (field) =>
+    Object.assign(new Error('Bad Request'), {
+      status: 400,
+      body: { statusCode: 400, message: [`property ${field} should not exist`], error: 'Bad Request' },
+    });
+
+  it('recognises an older API refusing the field', () => {
+    assert.equal(refusesField(refusal('lastModified'), 'lastModified'), true);
+  });
+
+  it('recognises it in the message when there is no body', () => {
+    const err = Object.assign(new Error('property lastModified should not exist'), { status: 400 });
+    assert.equal(refusesField(err, 'lastModified'), true);
+  });
+
+  it('is not fooled by any other failure', () => {
+    assert.equal(refusesField(refusal('clientId'), 'lastModified'), false);
+    assert.equal(refusesField(Object.assign(refusal('lastModified'), { status: 500 }), 'lastModified'), false);
+    assert.equal(refusesField(Object.assign(new Error('offline'), { status: 0 }), 'lastModified'), false);
+    assert.equal(refusesField(null, 'lastModified'), false);
+    assert.equal(refusesField('nope', 'lastModified'), false);
   });
 });
 

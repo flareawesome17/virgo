@@ -132,6 +132,26 @@ export async function planUploads<T>(
   return plan;
 }
 
+/**
+ * Whether a request was refused for carrying `field`, by an API from before
+ * the field existed.
+ *
+ * The API refuses any key it does not know with a 400 ("property x should not
+ * exist"). A client newer than the API it talks to — a rollback, or a tab
+ * opened before a deploy was reverted — has to recognise that and send again
+ * without the field. For confirm's `lastModified` the alternative is every
+ * upload failing at the very end, with its bytes already stored.
+ */
+export function refusesField(error: unknown, field: string): boolean {
+  const e = error as { status?: unknown; body?: unknown; message?: unknown } | null;
+  if (!e || typeof e !== 'object' || e.status !== 400) return false;
+  try {
+    return JSON.stringify(e.body ?? e.message ?? '').includes(`${field} should not exist`);
+  } catch {
+    return false;
+  }
+}
+
 const files = (count: number) => `${count.toLocaleString('en-US')} file${count === 1 ? '' : 's'}`;
 
 /** "37 files already uploaded, skipped". */

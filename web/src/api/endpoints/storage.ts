@@ -3,10 +3,17 @@ import { API_BASE_URL } from '../config';
 import { withConfirmRetry, withUploadRetry } from '../confirm-retry';
 import { ApiError } from '../errors';
 import { type MultipartDeps, UploadCancelled, uploadInParts } from '../multipart-upload';
-import { UPLOAD_CHECK_TIMEOUT_MS, type UploadCheckFile } from '../upload-dedup';
+import { refusesField, UPLOAD_CHECK_TIMEOUT_MS, type UploadCheckFile } from '../upload-dedup';
 
 /** How long a confirm may take; see storageApi.confirm. */
 const CONFIRM_TIMEOUT_MS = 120_000;
+
+/**
+ * Whether the API takes a file's modified time on confirm. Assumed until it
+ * says otherwise, as useChat does for `clientId`: an API from before the
+ * field refuses any confirm carrying it.
+ */
+let serverTakesLastModified = true;
 
 /**
  * How long a delete may take to answer. Deleting goes object by object on the
@@ -410,10 +417,12 @@ export const storageApi = {
    * Step 3: confirm the object actually landed before saving its URL.
    *
    * `lastModified` is the file's own modified time. Stored so a later
-   * re-upload of the same file is recognised (upload-dedup.ts); an API from
-   * before that ignores it.
+   * re-upload of the same file is recognised (upload-dedup.ts). An API from
+   * before that refuses the key with a 400, so the confirm is sent again
+   * without it, and without it for the rest of the session — the bytes are
+   * already stored, and a confirm must not fail over a hint.
    */
-  confirm(key: string, albumId?: string, originalName?: string, lastModified?: number): Promise<{
+  async confirm(key: string, albumId?: string, originalName?: string, lastModified?: number): Promise<{
     exists: boolean;
     size: number;
     contentType?: string;
@@ -424,10 +433,19 @@ export const storageApi = {
     // older API made every thumbnail first — a large photograph or a film's
     // poster took longer than twenty seconds, so an upload that had worked was
     // marked failed, and its retry sent every byte again.
-    return api.post('/storage/confirm', {
-      body: { key, albumId, originalName, lastModified },
-      timeoutMs: CONFIRM_TIMEOUT_MS,
-    });
+    const send = (withTime: boolean) =>
+      api.post<{ exists: boolean; size: number; contentType?: string }>('/storage/confirm', {
+        body: { key, albumId, originalName, ...(withTime ? { lastModified } : {}) },
+        timeoutMs: CONFIRM_TIMEOUT_MS,
+      });
+    if (lastModified === undefined || !serverTakesLastModified) return send(false);
+    try {
+      return await send(true);
+    } catch (error) {
+      if (!refusesField(error, 'lastModified')) throw error;
+      serverTakesLastModified = false;
+      return send(false);
+    }
   },
 
   /** Objects the user has stored, optionally narrowed to one album. */
