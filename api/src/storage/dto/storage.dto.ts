@@ -176,10 +176,15 @@ export class UploadCheckFileDto {
   @MaxLength(1024)
   name!: string;
 
+  /**
+   * Not held to the upload ceiling: a file too large to upload is refused by
+   * the upload, and refusing the check over it would leave the rest of its
+   * batch unchecked. It simply matches nothing.
+   */
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  @Max(MULTIPART_MAX_BYTES)
+  @Max(Number.MAX_SAFE_INTEGER)
   size!: number;
 
   /** Epoch milliseconds, when the device knows it. See ConfirmUploadDto.lastModified. */

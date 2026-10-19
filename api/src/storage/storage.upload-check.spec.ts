@@ -201,6 +201,17 @@ describe('upload check and confirm validation', () => {
     ).toEqual(['files']);
   });
 
+  it('does not refuse a batch over one file too large to upload', async () => {
+    // The upload refuses that file on its own. Refusing the check instead
+    // would leave the other 499 in its piece unchecked.
+    expect(
+      await errors(CheckUploadsDto, {
+        albumId: ALBUM,
+        files: [file(1), { name: 'FILM.MOV', size: 12 * 1024 ** 3 }],
+      }),
+    ).toEqual([]);
+  });
+
   it('needs an album, and checks every file in the list', async () => {
     expect(await errors(CheckUploadsDto, { files: [file(1)] })).toEqual(['albumId']);
     expect(
