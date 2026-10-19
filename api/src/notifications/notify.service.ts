@@ -187,6 +187,20 @@ export class NotifyService {
         tokensByUser.set(userId, await this.push.tokensFor(userId));
       }
 
+      // The app-icon number for everyone about to get a push, in one query,
+      // read after the rows above were stored so each count includes them. A
+      // failed read costs the badge, never the push: the icon keeps what it
+      // said, and the app corrects it the next time it opens.
+      const reached = [...tokensByUser].filter(([, tokens]) => tokens.length > 0).map(([id]) => id);
+      let badges = new Map<string, number>();
+      if (reached.length > 0) {
+        try {
+          badges = await this.push.badgeCounts(reached);
+        } catch (err) {
+          this.logger.warn(`Could not count badges: ${String(err)}`);
+        }
+      }
+
       const messages: PushMessage[] = [];
       for (const d of pushed) {
         for (const to of tokensByUser.get(d.userId) ?? []) {
@@ -206,6 +220,7 @@ export class NotifyService {
             data: rowOf.get(d)
               ? { ...(d.data ?? {}), notificationId: rowOf.get(d) }
               : (d.data ?? {}),
+            ...(badges.has(d.userId) ? { badge: badges.get(d.userId) } : {}),
           });
         }
       }

@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+// A plain SQL fragment, not the messages module: that module imports this one.
+import { unreadMessagesCount } from '../messages/unread-sql';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -20,6 +22,13 @@ export interface PushMessage {
    * needlessly rude for anything that can wait.
    */
   priority?: 'default' | 'normal' | 'high';
+  /**
+   * The number on the app's home-screen icon (iOS). Expo passes it to APNs as
+   * `aps.badge`, which sets the icon to exactly this — 0 clears it — and a
+   * push without it leaves the icon as it was. Set from badgeCounts, never a
+   * guess: the app sets the same total itself while it is open.
+   */
+  badge?: number;
 }
 
 interface ExpoTicket {
@@ -119,6 +128,38 @@ export class PushService {
       [userId],
     );
     return rows.map((r) => r.token);
+  }
+
+  /**
+   * What each person's app icon should say: unread notifications plus unread
+   * messages — the bell and the Messages count, the two numbers the app
+   * itself shows.
+   *
+   * One query for the whole batch, however many people are in it: the reminder
+   * sweep hands NotifyService hundreds at a time. Read after the thing being
+   * pushed was stored, so the count includes it — the icon shows what the
+   * person will find when they open the app.
+   *
+   * Update announcements are not counted: which ones somebody sees depends on
+   * the platform and version of each device, and this is one number per
+   * person. The app adds them back once it is open (mobile app-badge.ts).
+   *
+   * Users with no row come back absent rather than 0, so a caller can leave
+   * the badge off their push rather than clear an icon it knows nothing about.
+   */
+  async badgeCounts(userIds: readonly string[]): Promise<Map<string, number>> {
+    const ids = [...new Set(userIds)];
+    if (ids.length === 0) return new Map();
+    const rows = await this.db.query<{ user_id: string; badge: number | string }>(
+      `select r.id as user_id,
+              ((select count(*)
+                  from notifications n
+                 where n.user_id = r.id and n.read_at is null)
+               + ${unreadMessagesCount('r.id')})::int as badge
+         from unnest($1::uuid[]) as r(id)`,
+      [ids],
+    );
+    return new Map(rows.map((r) => [r.user_id, Number(r.badge)]));
   }
 
   private async disableToken(token: string): Promise<void> {
