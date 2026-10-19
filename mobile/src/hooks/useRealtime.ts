@@ -382,7 +382,13 @@ export function useRealtime(enabled: boolean): void {
           // back — missed whatever was sent meanwhile. Refetching the chat
           // that is on screen catches up now rather than on the next poll, up
           // to a minute later.
-          if (connectedBefore) queryClient.invalidateQueries({ queryKey: ['chat'] });
+          // The bell too: a notification sent while the socket was down never
+          // reached this frame handler, and its count — and the icon badge
+          // built on it — waited for the next poll.
+          if (connectedBefore) {
+            queryClient.invalidateQueries({ queryKey: ['chat'] });
+            queryClient.invalidateQueries({ queryKey: queryKeys.notifications.unread });
+          }
           connectedBefore = true;
           // A live socket is a working connection: whatever is queued goes.
           void flushOutbox(queryClient);

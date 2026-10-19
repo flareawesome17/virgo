@@ -7,7 +7,7 @@
  * consuming it did not need to change.
  */
 
-import { clearReminderNotifications, knownPushToken } from '@/src/lib/notifications';
+import { clearReminderNotifications, knownPushToken, setAppBadgeCount } from '@/src/lib/notifications';
 import { forgetUploadQueue } from '@/src/lib/upload-queue-storage';
 import { useEffect } from 'react';
 import {
@@ -119,6 +119,8 @@ function forgetSession(queryClient: QueryClient) {
   // Otherwise this account's alarms keep firing on the device after it is
   // gone, including for whoever signs in next.
   void clearReminderNotifications();
+  // And its unread count off the home-screen icon, for the same reason.
+  void setAppBadgeCount(0);
 }
 
 /**

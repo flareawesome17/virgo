@@ -41,6 +41,11 @@ function harness(
     between?: { id: string; byMe: boolean } | null;
     visible?: string[];
     everyone?: string[];
+    /** Push tokens per user. */
+    tokens?: Record<string, string[]>;
+    /** What PushService.badgeCounts answers, per user. */
+    badges?: Record<string, number>;
+    badgeError?: Error;
   } = {},
 ) {
   const calls: { sql: string; params: unknown[] }[] = [];
@@ -100,7 +105,16 @@ function harness(
   const db = { query, queryOne, transaction } as unknown as DatabaseService;
 
   const friends = { areFriends: jest.fn(async () => options.friends ?? true) };
-  const push = { tokensFor: jest.fn(async () => [] as string[]), send: jest.fn() };
+  const push = {
+    tokensFor: jest.fn(async (userId: string) => options.tokens?.[userId] ?? ([] as string[])),
+    send: jest.fn(async (_messages: unknown[]) => ({ sent: 0, failed: 0 })),
+    badgeCounts: jest.fn(async (ids: readonly string[]) => {
+      if (options.badgeError) throw options.badgeError;
+      return new Map(
+        ids.flatMap((id) => (options.badges?.[id] === undefined ? [] : [[id, options.badges[id]] as const])),
+      );
+    }),
+  };
   const realtime = {
     emitToUsers: jest.fn(),
     onlineAmong: jest.fn((ids: readonly string[]) => new Set(ids)),
@@ -123,7 +137,7 @@ function harness(
   );
 
   const ran = (pattern: RegExp) => calls.filter((c) => pattern.test(c.sql));
-  return { service, calls, ran, realtime, presence, friends, blocks, transaction };
+  return { service, calls, ran, realtime, presence, friends, blocks, transaction, push };
 }
 
 /** The body a refusal carries, which is what the clients read. */
@@ -444,7 +458,8 @@ describe('MessagesService reads across a block', () => {
 
     await h.service.unreadCount(ME);
 
-    const [count] = h.ran(/count\(\*\)::text as count\s+from messages m/);
+    const [count] = h.ran(/::text as count/);
+    expect(count.sql).toMatch(/from messages m/);
     expect(count.sql).toMatch(/user_blocks/);
     expect(count.sql).toMatch(/ub\.blocked_id = m\.sender_id/);
   });
@@ -584,7 +599,8 @@ describe('MessagesService list and badge', () => {
 
     await h.service.unreadCount(ME);
 
-    const [count] = h.ran(/count\(\*\)::text as count\s+from messages m/);
+    const [count] = h.ran(/::text as count/);
+    expect(count.sql).toMatch(/from messages m/);
     expect(count.sql).toMatch(/p\.muted_until is null or p\.muted_until <= now\(\)/);
   });
 
@@ -606,5 +622,65 @@ describe('MessagesService list and badge', () => {
     await expect(h.service.conversation(ME, CONVO)).rejects.toThrow('Conversation not found');
     const [select] = h.ran(/as other_blocked/);
     expect(select.params).toEqual([ME, null, CONVO, 1, 0]);
+  });
+});
+
+describe('MessagesService message push badge', () => {
+  const recipients: Answer = (sql) =>
+    /select p\.user_id from conversation_participants p/.test(sql)
+      ? [{ user_id: THEM }, { user_id: OTHER }]
+      : /as sender_name/.test(sql)
+        ? [{ sender_name: 'Me', is_group: true, title: 'Crew' }]
+        : undefined;
+
+  /** The private push step, awaited, rather than the fire-and-forget send. */
+  const push = (h: ReturnType<typeof harness>) =>
+    (h.service as unknown as { notify: (...a: unknown[]) => Promise<void> }).notify(
+      ME,
+      CONVO,
+      'hello',
+    );
+
+  it("sets each recipient's app-icon badge to their own unread total", async () => {
+    const h = harness({
+      answer: recipients,
+      tokens: { [THEM]: ['ExponentPushToken[them]'], [OTHER]: ['ExponentPushToken[o1]', 'ExponentPushToken[o2]'] },
+      badges: { [THEM]: 3, [OTHER]: 12 },
+    });
+
+    await push(h);
+
+    // One lookup for everyone, not one per recipient.
+    expect(h.push.badgeCounts).toHaveBeenCalledTimes(1);
+    expect(h.push.badgeCounts).toHaveBeenCalledWith([THEM, OTHER]);
+    const sent = h.push.send.mock.calls[0][0] as unknown as { to: string; badge?: number }[];
+    expect(sent.map((m) => [m.to, m.badge])).toEqual([
+      ['ExponentPushToken[them]', 3],
+      ['ExponentPushToken[o1]', 12],
+      ['ExponentPushToken[o2]', 12],
+    ]);
+  });
+
+  it('still sends, without a badge, when the count cannot be read', async () => {
+    const h = harness({
+      answer: recipients,
+      tokens: { [THEM]: ['ExponentPushToken[them]'] },
+      badgeError: new Error('db down'),
+    });
+
+    await push(h);
+
+    const sent = h.push.send.mock.calls[0][0] as unknown as Record<string, unknown>[];
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toHaveProperty('badge');
+  });
+
+  it('asks for no counts when nobody has a device', async () => {
+    const h = harness({ answer: recipients });
+
+    await push(h);
+
+    expect(h.push.badgeCounts).not.toHaveBeenCalled();
+    expect(h.push.send).not.toHaveBeenCalled();
   });
 });

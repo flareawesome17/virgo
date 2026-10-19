@@ -416,10 +416,86 @@ export async function ensurePermissions({ explain = true }: { explain?: boolean 
   if (!existing.canAskAgain) return false;
   if (explain && !(await explainFirst())) return false;
 
-  const asked = await N.requestPermissionsAsync({
-    ios: { allowAlert: true, allowSound: true, allowBadge: false },
-  });
+  const asked = await N.requestPermissionsAsync({ ios: IOS_PERMISSIONS });
   return asked.granted;
+}
+
+/**
+ * What the app asks iOS for.
+ *
+ * Badge included. It was asked for without, and iOS then ignores every badge
+ * — the number a push carries and setBadgeCountAsync alike — so the icon could
+ * never say anything was waiting, whatever the server or the app sent.
+ */
+const IOS_PERMISSIONS = { allowAlert: true, allowSound: true, allowBadge: true } as const;
+
+let badgeAsked = false;
+
+/**
+ * Asks for the badge on a phone that allowed notifications without it.
+ *
+ * Every install before IOS_PERMISSIONS included the badge said yes to alerts
+ * and sounds only. Asking again only ever adds the badge to what is already
+ * allowed. Whether iOS grants it silently or leaves the Badges switch in
+ * Settings for the person to turn on is iOS's decision; either way it never
+ * asks about notifications a second time. Once per launch, and only for a
+ * permission that is already granted — never the first prompt, which keeps
+ * its explanation (ensurePermissions).
+ */
+export async function ensureBadgePermission(): Promise<void> {
+  if (Platform.OS !== 'ios' || badgeAsked) return;
+  badgeAsked = true;
+  const N = loadNotifications();
+  if (!N) return;
+  try {
+    const existing = await N.getPermissionsAsync();
+    if (!existing.granted || existing.ios?.allowsBadge === true) return;
+    await N.requestPermissionsAsync({ ios: IOS_PERMISSIONS });
+  } catch {
+    // The badge is a nicety; nothing else depends on it.
+  }
+}
+
+type SetBadgeCount = NotificationsModule['setBadgeCountAsync'];
+let setBadgeCountFn: SetBadgeCount | null | undefined;
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+/**
+ * setBadgeCountAsync without the package barrel, for the same Expo Go reason
+ * as loadNotifications. Its native half (ExpoBadgeModule) ships inside
+ * expo-notifications, which every build already has: nothing new is native.
+ */
+function loadSetBadgeCount(): SetBadgeCount | null {
+  if (setBadgeCountFn !== undefined) return setBadgeCountFn;
+  try {
+    setBadgeCountFn = require('expo-notifications/build/setBadgeCountAsync').default as SetBadgeCount;
+  } catch {
+    try {
+      setBadgeCountFn = (require('expo-notifications') as NotificationsModule).setBadgeCountAsync;
+    } catch {
+      setBadgeCountFn = null;
+    }
+  }
+  return setBadgeCountFn ?? null;
+}
+/* eslint-enable @typescript-eslint/no-require-imports */
+
+/**
+ * Puts a number on the app's home-screen icon; 0 takes it off.
+ *
+ * iOS only. Android is left exactly as it was: what a launcher does with a
+ * badge varies by maker, and Android's own dot comes from the notifications
+ * in the drawer. Never throws — without the badge permission iOS just says no.
+ */
+export async function setAppBadgeCount(count: number): Promise<void> {
+  if (Platform.OS !== 'ios') return;
+  const set = loadSetBadgeCount();
+  if (!set) return;
+  try {
+    await set(Math.max(0, Math.floor(count)));
+  } catch {
+    // Unavailable or refused: the in-app badges still say it.
+  }
 }
 
 /**

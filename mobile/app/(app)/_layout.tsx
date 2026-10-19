@@ -23,6 +23,7 @@ import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
 import { VideoPlayerProvider } from '@/src/providers/VideoPlayerProvider';
 import { WindowInsetsProvider } from '@/src/lib/window-insets';
 import { AudioDock } from '@/components/AudioDock';
+import { useAppIconBadge } from '@/src/lib/app-badge';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
@@ -233,6 +234,8 @@ function NotificationServices() {
   useNotificationRouting(true);
   useMessageAlerts(true);
   useRealtime(true);
+  // The unread total on the home-screen icon, kept to what the app shows.
+  useAppIconBadge(!!user?.id);
   // Messages written offline, or left unsent when the app closed, go out
   // whenever there is a connection again.
   useOutboxSender(user?.id);

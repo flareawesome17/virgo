@@ -69,3 +69,45 @@ describe('AppUpdatesService announcement push', () => {
     expect(push.send).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('PushService.badgeCounts', () => {
+  const THEM = '22222222-2222-4222-8222-222222222222';
+
+  it('reads every recipient in one query and maps each to their total', async () => {
+    const { db, calls } = dbOver(() => [
+      { user_id: ME, badge: 4 },
+      { user_id: THEM, badge: 0 },
+    ]);
+
+    const badges = await new PushService(db).badgeCounts([ME, THEM, ME]);
+
+    expect(badges).toEqual(new Map([[ME, 4], [THEM, 0]]));
+    expect(calls).toHaveLength(1);
+    // Each user once, however many pushes they are about to get.
+    expect(calls[0].params).toEqual([[ME, THEM]]);
+  });
+
+  it('counts unread notifications plus unread messages by the Messages badge rules', async () => {
+    const { db, calls } = dbOver(() => []);
+
+    await new PushService(db).badgeCounts([ME]);
+
+    const [{ sql }] = calls;
+    expect(sql).toMatch(/unnest\(\$1::uuid\[\]\)/);
+    expect(sql).toMatch(/from notifications n\s+where n\.user_id = r\.id and n\.read_at is null/);
+    // The same rules as MessagesService.unreadCount: muted, cleared, deleted
+    // for me and blocked senders all stay out of it.
+    expect(sql).toMatch(/from messages m/);
+    expect(sql).toMatch(/p\.user_id = r\.id/);
+    expect(sql).toMatch(/p\.muted_until is null or p\.muted_until <= now\(\)/);
+    expect(sql).toMatch(/message_deletions/);
+    expect(sql).toMatch(/ub\.blocked_id = m\.sender_id/);
+  });
+
+  it('asks nothing for nobody', async () => {
+    const { db, calls } = dbOver();
+
+    await expect(new PushService(db).badgeCounts([])).resolves.toEqual(new Map());
+    expect(calls).toHaveLength(0);
+  });
+});

@@ -12,6 +12,7 @@ import { PresenceService } from '../realtime/presence.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { blockedBetween } from '../safety/block-sql';
 import { BlocksService } from '../safety/blocks.service';
+import { unreadMessagesCount } from './unread-sql';
 
 /** The codes a chat refusal carries, which the clients switch on. */
 type ChatRefusalCode = 'YOU_BLOCKED' | 'CHAT_UNAVAILABLE' | 'GROUP_MEMBER_UNAVAILABLE';
@@ -1161,29 +1162,15 @@ export class MessagesService {
     return { read: true };
   }
 
-  /** Total unread across every conversation, for the tab badge. */
+  /**
+   * Total unread across every conversation, for the tab badge.
+   *
+   * The rules live in unread-sql.ts, shared with the app-icon badge a push
+   * sets (PushService.badgeCounts), so the two cannot drift apart.
+   */
   async unreadCount(userId: string): Promise<number> {
     const row = await this.db.queryOne<{ count: string }>(
-      `select count(*)::text as count
-         from messages m
-         join conversation_participants p
-           on p.conversation_id = m.conversation_id and p.user_id = $1
-        where m.sender_id <> $1
-          and m.deleted_at is null
-          and (p.cleared_at is null or m.created_at > p.cleared_at)
-          and (p.last_read_at is null or m.created_at > p.last_read_at)
-          -- Muted conversations are left out. Somebody muting a busy group
-          -- is asking it to stop calling for attention, and a badge that
-          -- never clears is exactly that. Its row in the list still shows
-          -- its own count.
-          and (p.muted_until is null or p.muted_until <= now())
-          and not exists (
-                select 1 from message_deletions d
-                 where d.message_id = m.id and d.user_id = $1
-              )
-          -- A blocked sender, either way, never does — the same rule as the
-          -- per-conversation count, so the tab and the list agree.
-          and not ${blockedBetween('$1', 'm.sender_id')}`,
+      `select ${unreadMessagesCount('$1::uuid')}::text as count`,
       [userId],
     );
     return Number(row?.count ?? 0);
@@ -1308,6 +1295,14 @@ export class MessagesService {
       const tokenLists = await Promise.all(
         recipients.map(async (r) => ({ r, tokens: await this.push.tokensFor(r.user_id) })),
       );
+      const reached = tokenLists.filter(({ tokens }) => tokens.length > 0).map(({ r }) => r.user_id);
+      // The app-icon number, counted now the message is stored so it includes
+      // this one. One query for every recipient. If it cannot be read the push
+      // still goes, and the icon keeps whatever it said.
+      const badges =
+        reached.length > 0
+          ? await this.push.badgeCounts(reached).catch(() => new Map<string, number>())
+          : new Map<string, number>();
       const messages = tokenLists.flatMap(({ r, tokens }) =>
         tokens.map((to) => ({
           to,
@@ -1331,6 +1326,7 @@ export class MessagesService {
           priority: 'high' as const,
           // `conversationId` is what the tap handler routes on.
           data: { type: 'message', conversationId },
+          ...(badges.has(r.user_id) ? { badge: badges.get(r.user_id) } : {}),
         })),
       );
       if (messages.length > 0) await this.push.send(messages);
