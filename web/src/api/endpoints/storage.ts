@@ -3,6 +3,7 @@ import { API_BASE_URL } from '../config';
 import { withConfirmRetry, withUploadRetry } from '../confirm-retry';
 import { ApiError } from '../errors';
 import { type MultipartDeps, UploadCancelled, uploadInParts } from '../multipart-upload';
+import { UPLOAD_CHECK_TIMEOUT_MS, type UploadCheckFile } from '../upload-dedup';
 
 /** How long a confirm may take; see storageApi.confirm. */
 const CONFIRM_TIMEOUT_MS = 120_000;
@@ -394,8 +395,25 @@ export const storageApi = {
     return api.post<UploadTicket>('/storage/upload-url', { body: input });
   },
 
-  /** Step 3: confirm the object actually landed before saving its URL. */
-  confirm(key: string, albumId?: string, originalName?: string): Promise<{
+  /**
+   * Which of these files the album already holds (upload-dedup.ts). At most
+   * 500 at a time; `planUploads` splits a larger drop.
+   */
+  checkUploads(albumId: string, files: UploadCheckFile[]): Promise<unknown> {
+    return api.post('/storage/uploads/check', {
+      body: { albumId, files },
+      timeoutMs: UPLOAD_CHECK_TIMEOUT_MS,
+    });
+  },
+
+  /**
+   * Step 3: confirm the object actually landed before saving its URL.
+   *
+   * `lastModified` is the file's own modified time. Stored so a later
+   * re-upload of the same file is recognised (upload-dedup.ts); an API from
+   * before that ignores it.
+   */
+  confirm(key: string, albumId?: string, originalName?: string, lastModified?: number): Promise<{
     exists: boolean;
     size: number;
     contentType?: string;
@@ -407,7 +425,7 @@ export const storageApi = {
     // poster took longer than twenty seconds, so an upload that had worked was
     // marked failed, and its retry sent every byte again.
     return api.post('/storage/confirm', {
-      body: { key, albumId, originalName },
+      body: { key, albumId, originalName, lastModified },
       timeoutMs: CONFIRM_TIMEOUT_MS,
     });
   },
@@ -522,6 +540,10 @@ export const storageApi = {
 
     const contentType =
       options.contentType || file.type || contentTypeForName(file.name);
+    // What a re-upload of this file is matched by. A browser has it on every
+    // File; one that reports nothing sensible sends nothing.
+    const lastModified =
+      Number.isInteger(file.lastModified) && file.lastModified > 0 ? file.lastModified : undefined;
 
     // A big file goes up as independent parts instead of one PUT: no part has
     // to finish inside a single presigned window, and a dropped connection
@@ -551,7 +573,7 @@ export const storageApi = {
         throw error;
       }
       const stat = await withConfirmRetry(
-        () => this.confirm(done.key, options.albumId, file.name),
+        () => this.confirm(done.key, options.albumId, file.name, lastModified),
         { signal: options.signal },
       );
       if (!stat.exists) {
@@ -615,7 +637,7 @@ export const storageApi = {
     // again rather than failing a file that arrived (confirm-retry.ts).
     const ticketKey = ticket.key;
     const stat = await withConfirmRetry(
-      () => this.confirm(ticketKey, options.albumId, file.name),
+      () => this.confirm(ticketKey, options.albumId, file.name, lastModified),
       { signal: options.signal },
     );
     if (!stat.exists) {
