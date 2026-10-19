@@ -52,6 +52,7 @@ function controllerOver({
     })),
     coverKeyOf: jest.fn(async () => coverInUse),
     wipeAll: jest.fn(async () => ({ deleted: 3, failed: 0, freedBytes: 9_000 })),
+    checkUploads: jest.fn(async () => ({ matches: [{ index: 0, match: 'exact' }] })),
   };
   const thumbs = {
     normaliseCover: jest.fn(async () => cover),
@@ -137,7 +138,21 @@ describe('StorageController.confirm', () => {
 
     expect(thumbs.generateOnce).toHaveBeenCalledWith(PHOTO, 'image/jpeg', 4_000_000);
     expect(thumbs.generate).not.toHaveBeenCalled();
-    expect(storage.statObject).toHaveBeenCalledWith(ME, PHOTO, 'album-1', undefined);
+    expect(storage.statObject).toHaveBeenCalledWith(ME, PHOTO, 'album-1', undefined, undefined);
+  });
+
+  it("passes on the file's name and modified time, which a later re-upload is matched by", async () => {
+    const { controller, storage } = controllerOver();
+    const at = Date.UTC(2026, 9, 18, 14, 30);
+
+    await controller.confirm(ME, {
+      key: PHOTO,
+      albumId: 'album-1',
+      originalName: 'IMG_0001.JPG',
+      lastModified: at,
+    });
+
+    expect(storage.statObject).toHaveBeenCalledWith(ME, PHOTO, 'album-1', 'IMG_0001.JPG', at);
   });
 
   it('answers once the object is verified, without waiting for the thumbnail', async () => {
@@ -220,8 +235,8 @@ describe('StorageController.confirm', () => {
     await controller.confirm(ME, { key: COVER, albumId: 'album-1' });
     await controller.confirm(ME, { key: AVATAR, albumId: 'album-1' });
 
-    expect(storage.statObject).toHaveBeenNthCalledWith(1, ME, COVER, undefined, undefined);
-    expect(storage.statObject).toHaveBeenNthCalledWith(2, ME, AVATAR, undefined, undefined);
+    expect(storage.statObject).toHaveBeenNthCalledWith(1, ME, COVER, undefined, undefined, undefined);
+    expect(storage.statObject).toHaveBeenNthCalledWith(2, ME, AVATAR, undefined, undefined, undefined);
   });
 
   it('does nothing more for an upload that never landed', async () => {
@@ -233,6 +248,19 @@ describe('StorageController.confirm', () => {
     });
     expect(thumbs.normaliseCover).not.toHaveBeenCalled();
     expect(thumbs.generateOnce).not.toHaveBeenCalled();
+  });
+});
+
+describe('StorageController.checkUploads', () => {
+  it('asks the service once for the batch, for the caller and the album named', async () => {
+    const { controller, storage } = controllerOver();
+    const files = [{ name: 'IMG_0001.JPG', size: 4_000_000, lastModified: 1 }];
+
+    await expect(controller.checkUploads(ME, { albumId: 'album-1', files })).resolves.toEqual({
+      matches: [{ index: 0, match: 'exact' }],
+    });
+    expect(storage.checkUploads).toHaveBeenCalledTimes(1);
+    expect(storage.checkUploads).toHaveBeenCalledWith(ME, 'album-1', files);
   });
 });
 
@@ -331,6 +359,8 @@ describe('StorageController rate limits', () => {
     ['completeMultipart', 300],
     ['abortMultipart', 300],
     ['createPartUrl', 1200],
+    // One per batch of up to 500 files, before the batch starts.
+    ['checkUploads', 120],
   ] as const)('%s allows %i a minute per account', (name, limit) => {
     expect(limitOf(name)).toEqual({ limit, ttl: 60_000, tracker: undefined });
   });

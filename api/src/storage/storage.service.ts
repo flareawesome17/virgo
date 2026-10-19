@@ -27,6 +27,12 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MediaLinkService } from './media-link.service';
+import {
+  classifyUploadMatches,
+  normaliseEtag,
+  sourceModifiedAt,
+  type UploadMatch,
+} from './upload-dedup';
 import { sendContentMd5OnBulkDelete } from './bulk-delete-md5';
 import { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import { contentDisposition, safeFileStem, uniqueNames } from './download-names';
@@ -1489,11 +1495,50 @@ export class StorageService {
     };
   }
 
+  /**
+   * Which of a batch about to be uploaded the album already holds
+   * (upload-dedup.ts). One query for the batch, however large.
+   *
+   * Asked of the album, so it needs what uploading into it needs: 'upload'
+   * access. Album ids are guessable, and without the check this would tell a
+   * stranger what an album holds, file name by file name.
+   */
+  async checkUploads(
+    userId: string,
+    albumId: string,
+    files: readonly { name: string; size: number; lastModified?: number }[],
+  ): Promise<{ matches: UploadMatch[] }> {
+    const access = await this.quota.accessForAlbum(userId, albumId);
+    if (!accessAllows(access, 'upload')) {
+      throw new ForbiddenException('You cannot add media to that album');
+    }
+
+    // Compared as confirm stored them, or a name with a stray space or a
+    // folder in it would never match its own earlier upload.
+    const wanted = files
+      .map((file, index) => ({ index, name: cleanOriginalName(file.name), size: file.size }))
+      .filter((file): file is { index: number; name: string; size: number } => !!file.name);
+    if (wanted.length === 0) return { matches: [] };
+
+    const rows = await this.quota.findUploadMatches(albumId, wanted);
+    return {
+      matches: classifyUploadMatches(
+        files.map((file) => ({ lastModified: sourceModifiedAt(file.lastModified)?.getTime() ?? null })),
+        rows.map((row) => ({
+          index: Number(row.idx),
+          sourceModifiedMs: row.source_modified_ms === null ? null : Number(row.source_modified_ms),
+        })),
+      ),
+    };
+  }
+
   async statObject(
     userId: string,
     key: string,
     albumId?: string,
     originalName?: string,
+    /** The file's modified time as the device reported it, epoch ms. */
+    lastModified?: number,
   ): Promise<{ exists: boolean; size: number; contentType?: string }> {
     this.requireClient();
     const client = this.metaClient ?? this.requireClient();
@@ -1532,6 +1577,10 @@ export class StorageService {
         scope: key.split('/')[2],
         albumId,
         originalName: cleanOriginalName(originalName),
+        // What a later re-upload of this file is recognised by. The ETag
+        // comes with the HEAD already made, so it costs nothing.
+        etag: normaliseEtag(head.ETag),
+        sourceModifiedAt: sourceModifiedAt(lastModified),
       });
 
       // Into the workspace's feed as the person who uploaded it, whoever it
