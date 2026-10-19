@@ -20,7 +20,19 @@ import {
   RotateCwIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { contentTypeForAsset, formatBytes, isUploadable, MAX_UPLOAD_BYTES } from '@/src/api';
+import {
+  contentTypeForAsset,
+  formatBytes,
+  isUploadable,
+  MAX_UPLOAD_BYTES,
+  storageApi,
+} from '@/src/api';
+import {
+  planUploads,
+  possibleDuplicatesMessage,
+  possibleDuplicatesTitle,
+  skippedSummary,
+} from '@/src/api/upload-dedup';
 import { useUploadQueue, type UploadTask } from '@/src/providers/UploadProvider';
 import { useHoldUpdates } from '@/src/lib/ota-updates';
 import { useAlbum, useAlbums, useAuth, useUsage, useTheme } from '@/src/hooks';
@@ -423,24 +435,95 @@ export default function UploadScreen() {
    * Invalidating album and usage queries moved with the loop — it belongs
    * wherever the upload finishes, which is no longer here.
    */
-  const startUpload = () => {
-    if (queued.length === 0 || !albumId) return;
-
-    enqueue(
-      queued.map((item) => ({
-        uri: item.uri,
-        name: item.name,
-        mimeType: item.mimeType,
-        sizeBytes: item.sizeBytes,
-        albumId,
-      })),
-    );
+  /** Hands these files to the queue and leaves. */
+  const send = (list: UploadItem[], target: string) => {
+    if (list.length > 0) {
+      enqueue(
+        list.map((item) => ({
+          uri: item.uri,
+          name: item.name,
+          mimeType: item.mimeType,
+          sizeBytes: item.sizeBytes,
+          albumId: target,
+        })),
+      );
+    }
 
     // Cleared rather than left showing 'queued' forever: these rows are now
     // the provider's, and two lists of the same files would disagree the
     // moment one of them progressed.
     setItems([]);
     router.back();
+  };
+
+  /*
+   * The album is asked first which of these it already holds, so picking a
+   * batch again after a bad connection sends only what did not arrive
+   * (src/api/upload-dedup.ts). The phone can only say name and size, so
+   * whatever matches is asked about rather than skipped unseen: two
+   * different photographs can share both. A check that fails, or that the
+   * connection is too poor to answer quickly, sends everything, as before.
+   */
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const onScreen = useRef(true);
+  useEffect(
+    () => () => {
+      onScreen.current = false;
+    },
+    [],
+  );
+
+  const startUpload = async () => {
+    if (queued.length === 0 || !albumId || checkingDuplicates) return;
+    const target = albumId;
+
+    setCheckingDuplicates(true);
+    const plan = await planUploads(
+      queued,
+      (item) => ({ name: item.name, size: item.sizeBytes }),
+      (files) => storageApi.checkUploads(target, files),
+    );
+    // Left while the check ran: the files were never handed over, and
+    // navigating back again from wherever they went would be worse.
+    if (!onScreen.current) return;
+    setCheckingDuplicates(false);
+
+    const { upload, duplicates, possible } = plan;
+    if (duplicates.length === 0 && possible.length === 0) {
+      send(upload, target);
+      return;
+    }
+
+    if (possible.length === 0) {
+      Alert.alert(
+        skippedSummary(duplicates.length),
+        upload.length > 0
+          ? `They're already in ${album?.name ?? 'this album'}. The other ${upload.length} will upload.`
+          : `They're already in ${album?.name ?? 'this album'}. There is nothing else to upload.`,
+        [
+          { text: 'Upload anyway', onPress: () => send([...upload, ...duplicates], target) },
+          { text: 'OK', style: 'cancel', onPress: () => send(upload, target) },
+        ],
+      );
+      return;
+    }
+
+    Alert.alert(
+      possibleDuplicatesTitle(possible.length),
+      `${duplicates.length > 0 ? `${skippedSummary(duplicates.length)}. ` : ''}${possibleDuplicatesMessage(possible.length, album?.name)}`,
+      [
+        ...(duplicates.length > 0
+          ? [
+              {
+                text: 'Upload all',
+                onPress: () => send([...upload, ...possible, ...duplicates], target),
+              },
+            ]
+          : []),
+        { text: 'Upload anyway', onPress: () => send([...upload, ...possible], target) },
+        { text: 'Skip', style: 'cancel' as const, onPress: () => send(upload, target) },
+      ],
+    );
   };
 
   // An album is required. Uploading without one is what produced files that
@@ -456,7 +539,8 @@ export default function UploadScreen() {
 
   // `isUploading` no longer blocks this: the queue runs elsewhere, so picking
   // more files while one batch uploads is a reasonable thing to do.
-  const canUpload = queued.length > 0 && !wouldExceed && !!albumId && !refused;
+  const canUpload =
+    queued.length > 0 && !wouldExceed && !!albumId && !refused && !checkingDuplicates;
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -808,7 +892,9 @@ export default function UploadScreen() {
             <Text className={`text-base font-bold ${canUpload ? 'text-white' : 'text-muted-foreground'}`}>
               {refused
                 ? "You can't add to this album"
-                : queued.length === 0
+                : checkingDuplicates
+                  ? 'Checking the album…'
+                  : queued.length === 0
                   ? 'All uploaded'
                   : !albumId
                     ? 'Choose an album'
