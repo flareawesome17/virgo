@@ -140,6 +140,77 @@ describe('StorageController.confirm', () => {
     expect(storage.statObject).toHaveBeenCalledWith(ME, PHOTO, 'album-1', undefined);
   });
 
+  it('answers once the object is verified, without waiting for the thumbnail', async () => {
+    // A thumbnail can take seconds for a large TIFF or a HEIC; the uploader
+    // only needs to know the bytes landed.
+    const { controller, thumbs } = controllerOver();
+    let finish: (value: string | null) => void = () => undefined;
+    thumbs.generateOnce.mockImplementationOnce(
+      () => new Promise<null>((resolve) => (finish = resolve as typeof finish)),
+    );
+
+    await expect(controller.confirm(ME, { key: PHOTO, albumId: 'album-1' })).resolves.toEqual({
+      exists: true,
+      size: 4_000_000,
+      contentType: 'image/jpeg',
+    });
+    expect(thumbs.generateOnce).toHaveBeenCalledWith(PHOTO, 'image/jpeg', 4_000_000);
+    finish(null);
+  });
+
+  it('logs a background thumbnail that rejects, and still confirms', async () => {
+    const { controller, thumbs } = controllerOver();
+    thumbs.generateOnce.mockImplementationOnce(async () => {
+      throw new Error('decoder crashed');
+    });
+
+    await expect(controller.confirm(ME, { key: PHOTO })).resolves.toEqual(
+      expect.objectContaining({ exists: true }),
+    );
+    // Let the rejected thumbnail settle into its catch.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(Logger.prototype.error).toHaveBeenCalledWith(
+      expect.stringContaining(PHOTO),
+    );
+    expect(Logger.prototype.error).toHaveBeenCalledWith(
+      expect.stringContaining('decoder crashed'),
+    );
+  });
+
+  it('logs a thumbnail that throws before it starts, and still confirms', async () => {
+    const { controller, thumbs } = controllerOver();
+    thumbs.generateOnce.mockImplementationOnce((() => {
+      throw new Error('not a promise');
+    }) as unknown as () => Promise<null>);
+
+    await expect(controller.confirm(ME, { key: PHOTO })).resolves.toEqual(
+      expect.objectContaining({ exists: true }),
+    );
+    expect(Logger.prototype.error).toHaveBeenCalledWith(
+      expect.stringContaining('not a promise'),
+    );
+  });
+
+  it('still waits for an avatar or cover re-encode before answering', async () => {
+    // Those strip EXIF from a public URL, so they stay in the request.
+    const { controller, thumbs } = controllerOver();
+    let finish: (value: { size: number; contentType: string }) => void = () => undefined;
+    thumbs.normaliseAvatar.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+
+    let settled = false;
+    const confirming = controller.confirm(ME, { key: AVATAR }).then((r) => {
+      settled = true;
+      return r;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+
+    finish({ size: 20_000, contentType: 'image/webp' });
+    await expect(confirming).resolves.toEqual(expect.objectContaining({ size: 20_000 }));
+  });
+
   it('files no profile photo into an album, whatever the client sends', async () => {
     // An album can be deleted or swept by retention, and a cover filed into
     // one would go with it. Ignored rather than refused, so no installed app

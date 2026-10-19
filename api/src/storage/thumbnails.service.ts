@@ -321,12 +321,12 @@ export class ThumbnailsService implements OnModuleInit {
   /**
    * `generate` for a confirm, which a client may send more than once.
    *
-   * A confirm waits for the thumbnail, so an app that gives up on a slow one
-   * and sends it again would have the same original read out of B2, decoded
-   * and re-encoded a second time — and the second one is as slow as the
-   * first, which is how a retry loop turns into a queue of decodes. A file
-   * already processed with its thumbnail is left alone, and a second request
-   * for one being made right now waits for that instead of repeating it.
+   * A confirm starts the thumbnail in the background, and a client that
+   * retries its confirm would otherwise have the same original read out of
+   * B2, decoded and re-encoded a second time — which is how a retry loop
+   * turns into a queue of decodes. A file already processed with its
+   * thumbnail is left alone, and a second request for one being made right
+   * now joins that run instead of repeating it.
    *
    * Only the confirm path. The backfill and the portfolio say for themselves
    * what a file already has.

@@ -122,15 +122,15 @@ export class StorageController {
   }
 
   /**
-   * Verifies an upload actually landed before a row is pointed at it, and
-   * makes the thumbnail the client gallery renders from.
+   * Verifies an upload actually landed (a HEAD on the object) before a row is
+   * pointed at it, and starts the thumbnail the client gallery renders from.
    *
-   * Awaited rather than fired and forgotten. It does cost the uploader the
-   * round trip, but "confirm returned" then means the thumbnail exists or was
-   * declined for a reason — where a background job leaves a gallery whose
-   * tiles silently fall back to full-size originals, and loses the work
-   * entirely if the container restarts mid-flight. `generate` never throws, so
-   * a failure here still returns a successful confirm.
+   * The album thumbnail runs in the background. Awaiting it made every
+   * confirm as slow as the slowest decode — seconds for a large TIFF or HEIC
+   * — and clients gave up and marked delivered photographs failed. The cost
+   * is that "confirm returned" no longer means the thumbnail exists: until
+   * it does the gallery falls back to the original, and a restart mid-flight
+   * loses the work until scripts/backfill-thumbnails.mjs runs.
    *
    * Avatars take the other branch. They used to get a thumbnail like anything
    * else, and it was never read once — `avatar_url` points at the original —
@@ -203,11 +203,25 @@ export class StorageController {
       return { ...result, ...resized };
     }
 
-    // Once per file. A client that stopped waiting sends the same confirm
-    // again, and the photograph it names is finished already, or is being
-    // made right now by the first request.
-    await this.thumbs.generateOnce(dto.key, result.contentType ?? null, result.size);
+    this.thumbnailInBackground(dto.key, result.contentType ?? null, result.size);
     return result;
+  }
+
+  /**
+   * Starts the album thumbnail and returns without waiting for it.
+   *
+   * Once per file: a client that sends the same confirm again joins the run
+   * already in flight (`generateOnce`). Every failure, synchronous or not, is
+   * logged here, so nothing becomes an unhandled rejection.
+   */
+  private thumbnailInBackground(key: string, contentType: string | null, size: number): void {
+    const failed = (err: unknown) =>
+      this.logger.error(`Background thumbnail failed for ${key}: ${String(err)}`);
+    try {
+      this.thumbs.generateOnce(key, contentType, size).catch(failed);
+    } catch (err) {
+      failed(err);
+    }
   }
 
   /**
