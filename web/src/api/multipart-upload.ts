@@ -66,6 +66,15 @@ export interface MultipartOptions {
   maxAttempts?: number;
   /** Wait before try `attempt` (1-based). Injected so tests need not sleep. */
   backoff?: (attempt: number) => Promise<void>;
+  /**
+   * Wraps each API call — start, every part URL, complete — so a rate limit
+   * or a busy server is waited out there (withUploadRetry in
+   * confirm-retry.ts) rather than failing the file, or spending a part's own
+   * tries on a request that never reached the bucket. Given the signal to
+   * stop on. Not the part PUTs, which have their own tries, and not abort,
+   * which is best effort. Calls straight through when omitted.
+   */
+  retry?: <T>(call: () => Promise<T>, signal: AbortSignal) => Promise<T>;
 }
 
 /** A cancelled upload. Distinct so the caller can tell it from a failure. */
@@ -104,19 +113,30 @@ export async function uploadInParts(
 
   if (signal?.aborted) throw new UploadCancelled();
 
-  const started = await deps.start({
-    contentType: options.contentType,
-    scope: options.scope,
-    contentLength: file.size,
-    albumId: options.albumId,
-  });
-  const { key, uploadId, partSize, partCount } = started;
-
   // Cancelling or failing one part stops the others, rather than letting them
   // keep sending bytes for an upload that is already lost.
   const stop = new AbortController();
   const onOuterAbort = () => stop.abort();
   signal?.addEventListener('abort', onOuterAbort);
+  const retry = options.retry ?? ((call) => call());
+
+  let started: MultipartStart;
+  try {
+    started = await retry(
+      () =>
+        deps.start({
+          contentType: options.contentType,
+          scope: options.scope,
+          contentLength: file.size,
+          albumId: options.albumId,
+        }),
+      stop.signal,
+    );
+  } catch (error) {
+    signal?.removeEventListener('abort', onOuterAbort);
+    throw signal?.aborted ? new UploadCancelled() : error;
+  }
+  const { key, uploadId, partSize, partCount } = started;
 
   const loaded = new Array<number>(partCount).fill(0);
   const report = () => {
@@ -134,12 +154,16 @@ export async function uploadInParts(
     for (let attempt = 1; ; attempt++) {
       if (stop.signal.aborted) throw new UploadCancelled();
       try {
-        const ticket = await deps.partUrl({
-          key,
-          uploadId,
-          partNumber,
-          contentLength: blob.size,
-        });
+        const ticket = await retry(
+          () =>
+            deps.partUrl({
+              key,
+              uploadId,
+              partNumber,
+              contentLength: blob.size,
+            }),
+          stop.signal,
+        );
         loaded[index] = 0;
         etags[index] = await deps.putPart(
           blob,
@@ -182,12 +206,16 @@ export async function uploadInParts(
 
     if (signal?.aborted) throw new UploadCancelled();
 
-    const done = await deps.complete({
-      key,
-      uploadId,
-      parts: etags.map((etag, i) => ({ partNumber: i + 1, etag })),
-      albumId: options.albumId,
-    });
+    const done = await retry(
+      () =>
+        deps.complete({
+          key,
+          uploadId,
+          parts: etags.map((etag, i) => ({ partNumber: i + 1, etag })),
+          albumId: options.albumId,
+        }),
+      stop.signal,
+    );
     options.onProgress?.(1);
     return done;
   } catch (error) {

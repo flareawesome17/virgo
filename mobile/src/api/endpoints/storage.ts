@@ -13,7 +13,7 @@ import {
 } from '@/src/lib/multipart-resume';
 import { api } from '../client';
 import { API_BASE_URL } from '../config';
-import { withConfirmRetry } from '../confirm-retry';
+import { withConfirmRetry, withUploadRetry } from '../confirm-retry';
 import { ApiError } from '../errors';
 import {
   type MultipartDeps,
@@ -697,6 +697,9 @@ export const storageApi = {
             concurrency: MULTIPART_CONCURRENCY,
             maxAttempts: MULTIPART_PART_ATTEMPTS,
             backoff: (attempt) => sleep(partRetryDelayMs(attempt), signal),
+            // A 429 or a 5xx on start, a part URL or complete is waited out
+            // and asked again, with every other upload held back while it is.
+            retry: (call, stop) => withUploadRetry(call, { signal: stop }),
           },
           session.deps,
         );
@@ -734,12 +737,20 @@ export const storageApi = {
      * every retry, because the dead ticket was minted once and kept.
      */
     const attempt = async () => {
-      const ticket = await this.createUploadUrl({
-        contentType: options.contentType,
-        scope: options.scope,
-        contentLength,
-        albumId: options.albumId,
-      });
+      // A rate limit here is pace, not a verdict on the file: a run of small
+      // photos on a fast line can outrun the account's ticket allowance.
+      // Waited out and asked again, honouring Retry-After (confirm-retry.ts)
+      // — it used to fail the file outright.
+      const ticket = await withUploadRetry<UploadTicket>(
+        () =>
+          this.createUploadUrl({
+            contentType: options.contentType,
+            scope: options.scope,
+            contentLength,
+            albumId: options.albumId,
+          }),
+        { signal: options.signal },
+      );
 
       // Before the bytes, not after: an upload that outlives this process has
       // to be findable, and the key is the only handle on it.

@@ -54,9 +54,22 @@ export class StorageController {
     private readonly config: StorageConfig,
   ) {}
 
-  // Issuing signed URLs is cheap but not free, and each one is a write
-  // capability against the bucket. Tighter than the global limit.
-  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  /**
+   * Per account, like every limit here: CloudflareThrottlerGuard keys an
+   * authenticated request by user id, so one account never spends another's.
+   *
+   * Sized for a real bulk upload. At 60 a minute a 1,167-file album lost 366
+   * files to "Too many attempts": the web app sends six files at once, each a
+   * ticket, a PUT and a confirm, and small photos on a fast line go faster
+   * than one a second. 600 a minute is ten a second. A ticket is still a
+   * write capability against the bucket, but each one is checked against the
+   * quota before it is signed and carries its size in the signature, so a
+   * burst of them buys no storage the account does not have.
+   *
+   * The clients wait and ask again on a 429, honouring Retry-After
+   * (confirm-retry.ts), so this is a ceiling a burst can touch, not a cliff.
+   */
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @HttpCode(200)
   @Post('upload-url')
   createUploadUrl(
@@ -76,8 +89,12 @@ export class StorageController {
    * per part, complete, abort. The client then calls `confirm` as it does after
    * a single PUT. Part URLs are minted per part, so they get a higher limit
    * than a ticket: a 10 GB file is 640 of them.
+   *
+   * Start, complete and abort at 300 a minute: one of each per file of 100 MB
+   * or more, which no connection sends five of a second, and each is a call
+   * to B2 rather than a local signature, so half a single-PUT ticket's limit.
    */
-  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @HttpCode(200)
   @Post('multipart/start')
   startMultipart(@CurrentUser('id') userId: string, @Body() dto: StartMultipartDto) {
@@ -96,14 +113,14 @@ export class StorageController {
     return this.storage.createPartUrl(userId, dto);
   }
 
-  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @HttpCode(200)
   @Post('multipart/complete')
   completeMultipart(@CurrentUser('id') userId: string, @Body() dto: CompleteMultipartDto) {
     return this.storage.completeMultipart(userId, dto);
   }
 
-  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @HttpCode(200)
   @Post('multipart/abort')
   async abortMultipart(@CurrentUser('id') userId: string, @Body() dto: MultipartRefDto) {
@@ -147,7 +164,14 @@ export class StorageController {
    * deleted and the confirm refused. An album upload that cannot be
    * thumbnailed is still a photograph somebody delivered; an original in the
    * public bucket that could not be cleaned is a leak.
+   *
+   * One per uploaded file, so it runs at the ticket's pace: 600 a minute per
+   * account. Under the global 120 it was the next wall a bulk upload hit once
+   * tickets were let through. What it starts is bounded elsewhere: a HEAD, a
+   * row, and a thumbnail that joins one already running and queues behind
+   * the decode semaphore.
    */
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @HttpCode(200)
   @Post('confirm')
   async confirm(

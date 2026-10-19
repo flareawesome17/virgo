@@ -1,6 +1,6 @@
 import { api } from '../client';
 import { API_BASE_URL } from '../config';
-import { withConfirmRetry } from '../confirm-retry';
+import { withConfirmRetry, withUploadRetry } from '../confirm-retry';
 import { ApiError } from '../errors';
 import { type MultipartDeps, UploadCancelled, uploadInParts } from '../multipart-upload';
 
@@ -539,6 +539,9 @@ export const storageApi = {
             albumId: options.albumId,
             onProgress: options.onProgress,
             signal: options.signal,
+            // A 429 or a 5xx on start, a part URL or complete is waited out
+            // and asked again, with every other upload held back while it is.
+            retry: (call, signal) => withUploadRetry(call, { signal }),
           },
           multipartDeps,
         );
@@ -570,12 +573,20 @@ export const storageApi = {
      * was minted once and kept.
      */
     const attempt = async () => {
-      const ticket = await this.createUploadUrl({
-        contentType,
-        scope: options.scope,
-        contentLength,
-        albumId: options.albumId,
-      });
+      // A rate limit here is pace, not a verdict on the file: six uploads at
+      // once can outrun the account's ticket allowance on a fast line. Waited
+      // out and asked again, honouring Retry-After, with the other uploads
+      // held back too (confirm-retry.ts) — it used to fail the file outright.
+      const ticket = await withUploadRetry<UploadTicket>(
+        () =>
+          this.createUploadUrl({
+            contentType,
+            scope: options.scope,
+            contentLength,
+            albumId: options.albumId,
+          }),
+        { signal: options.signal },
+      );
 
       await putToBucket(file, ticket, options.onProgress, options.signal);
       return ticket;

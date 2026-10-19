@@ -82,6 +82,10 @@ export function corsOptions(
   const shared = {
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    // A browser hides every response header CORS does not name. Retry-After
+    // is how a 429 says when to ask again, and the web uploader waits exactly
+    // that long instead of guessing (web/src/api/confirm-retry.ts).
+    exposedHeaders: ['Retry-After'],
   };
 
   // Only reachable outside production, where validateEnv would have refused to

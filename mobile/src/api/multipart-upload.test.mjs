@@ -203,3 +203,54 @@ describe('isRetryablePartError', () => {
     assert.equal(isRetryablePartError(new Error('no status')), true);
   });
 });
+
+describe('uploadInParts and the API calls around the parts', () => {
+  it('passes start, every part URL and complete through `retry`, and nothing else', async () => {
+    const f = fake({ partCount: 2, size: 20 * MB });
+    const wrapped = [];
+    const retry = (call, signal) => {
+      wrapped.push(signal instanceof AbortSignal);
+      return call();
+    };
+    await uploadInParts(file(20 * MB), opts({ retry }), f.deps);
+    // start, part-url 1, part-url 2, complete: each with a signal to stop on.
+    assert.deepEqual(wrapped, [true, true, true, true]);
+    assert.equal(f.log.start.length, 1);
+    assert.equal(f.log.complete.length, 1);
+  });
+
+  it("a rate-limited part URL waited out by `retry` does not spend the part's tries", async () => {
+    const f = fake({ partCount: 1, size: MB });
+    let limitedOnce = false;
+    const partUrl = f.deps.partUrl;
+    f.deps.partUrl = async (body) => {
+      if (!limitedOnce) {
+        limitedOnce = true;
+        throw Object.assign(new Error('Too many attempts.'), { status: 429 });
+      }
+      return partUrl(body);
+    };
+    // A stand-in for withUploadRetry: one more go after a 429.
+    const retry = async (call) => {
+      try {
+        return await call();
+      } catch (error) {
+        if (error.status !== 429) throw error;
+        return call();
+      }
+    };
+    await uploadInParts(file(MB), opts({ retry, maxAttempts: 1 }), f.deps);
+    assert.equal(f.log.complete.length, 1);
+    assert.equal(f.log.abort.length, 0);
+  });
+
+  it('a start that stays rate-limited fails the file without sending anything', async () => {
+    const f = fake({ partCount: 1 });
+    const limited = Object.assign(new Error('Too many attempts.'), { status: 429 });
+    f.deps.start = async () => {
+      throw limited;
+    };
+    await assert.rejects(uploadInParts(file(MB), opts({ retry: (call) => call() }), f.deps), limited);
+    assert.equal(f.log.partUrl.length, 0);
+  });
+});
