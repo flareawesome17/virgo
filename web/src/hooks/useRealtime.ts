@@ -29,7 +29,12 @@ import {
   setPresence,
   setTyping,
 } from '@/lib/presence-store';
-import { buzzForMessage, notifyMessage } from '@/lib/alerts';
+import {
+  buzzForMessage,
+  ensureDesktopNotificationPermission,
+  messageAlertPlan,
+  notifyMessage,
+} from '@/lib/alerts';
 import { playAlert, primeSounds } from '@/lib/sounds';
 import { topicDestination } from '@/lib/notification-routes';
 
@@ -258,6 +263,10 @@ export function useRealtime(enabled: boolean): void {
     // matter.
     const unprime = primeSounds();
 
+    // In the desktop app, system alerts are on from sign-in rather than from
+    // a button in Settings nobody knew to press. Nothing at all in a browser.
+    void ensureDesktopNotificationPermission();
+
     // Which kinds this account wants as desktop alerts, fetched as the socket
     // starts so the first frame is already checked against them.
     void queryClient.prefetchQuery({
@@ -289,19 +298,22 @@ export function useRealtime(enabled: boolean): void {
           const looking = getOpenConversation() === event.conversationId;
           noteLiveMessage();
           // Muting reached push only; in the browser a muted chat chimed and
-          // raised a notification like any other.
-          if (isConversationMuted(queryClient, event.conversationId)) break;
-
+          // raised a notification like any other — so a muted chat gets none.
+          //
           // Sound whenever somebody else writes, including while their thread
-          // is open. It sat inside the `!looking` guard below and was silent
-          // for exactly the case people test first — sitting in a chat waiting
-          // for a reply. A banner for a message you are reading is noise; a
-          // sound for one is how you know it landed without watching for it.
-          // Still nothing for your own message: you know you sent it.
-          if (!mine) playAlert('chat');
-
-          if (!mine && !looking) {
-            buzzForMessage();
+          // is open. It sat inside the `!looking` guard and was silent for
+          // exactly the case people test first — sitting in a chat waiting
+          // for a reply. Still nothing for your own message: you know you
+          // sent it. The system alert, too, now comes for the open chat when
+          // nobody is looking at the window (messageAlertPlan).
+          const plan = messageAlertPlan({
+            mine,
+            looking,
+            muted: isConversationMuted(queryClient, event.conversationId),
+          });
+          if (plan.chime) playAlert('chat');
+          if (plan.buzz) buzzForMessage();
+          if (plan.system) {
             notifyMessage({
               title: event.message.sender_name ?? 'New message',
               body: event.message.body,
@@ -420,7 +432,12 @@ export function useRealtime(enabled: boolean): void {
           // A reconnect — after a deploy, a dropped network or a laptop waking
           // — missed whatever was sent meanwhile. Refetching the chat on screen
           // catches up now rather than on the next poll, up to a minute later.
-          if (connectedBefore) queryClient.invalidateQueries({ queryKey: ['chat'] });
+          // The bell too: a notification sent while the socket was down never
+          // reached the frame handler, and its count waited for the next poll.
+          if (connectedBefore) {
+            queryClient.invalidateQueries({ queryKey: ['chat'] });
+            queryClient.invalidateQueries({ queryKey: queryKeys.notifications.unread });
+          }
           connectedBefore = true;
           // A live socket is a working connection: whatever is queued goes.
           void flushOutbox(queryClient);
