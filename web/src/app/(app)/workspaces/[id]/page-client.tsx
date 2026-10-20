@@ -49,6 +49,7 @@ import { useResendInvitation } from '@/hooks/useCollaborators';
 import { useScheduleEvents } from '@/hooks/useScheduleEvents';
 import { useUsage } from '@/hooks/useUsage';
 import { formatBytes, type Album, type ScheduleEvent, type Workspace } from '@/api';
+import { IS_DESKTOP } from '@/lib/desktop';
 import { formatTime, isEventUpcoming, parseDateKey } from '@/lib/calendar';
 import {
   ACCESS_LABEL,
@@ -213,11 +214,14 @@ function OwnerWorkspace({ workspace }: { workspace: Workspace }) {
       <PageHeader
         title={
           <span className="flex items-center gap-3">
-            <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
-              <Link href="/workspaces" aria-label="Back to workspaces">
-                <ArrowLeft className="size-4" />
-              </Link>
-            </Button>
+            {/* The desktop title bar already has back and forward. */}
+            {!IS_DESKTOP && (
+              <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
+                <Link href="/workspaces" aria-label="Back to workspaces">
+                  <ArrowLeft className="size-4" />
+                </Link>
+              </Button>
+            )}
             <WorkspaceTile name={workspace.name} color={workspace.accent_color} className="size-9 text-sm" />
             <span className="truncate">{workspace.name}</span>
             {workspace.archived_at && <Pill tone="muted">Archived</Pill>}
@@ -507,11 +511,14 @@ function SharedWorkspace({ workspace }: { workspace: Workspace }) {
       <PageHeader
         title={
           <span className="flex items-center gap-3">
-            <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
-              <Link href="/workspaces" aria-label="Back to workspaces">
-                <ArrowLeft className="size-4" />
-              </Link>
-            </Button>
+            {/* The desktop title bar already has back and forward. */}
+            {!IS_DESKTOP && (
+              <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
+                <Link href="/workspaces" aria-label="Back to workspaces">
+                  <ArrowLeft className="size-4" />
+                </Link>
+              </Button>
+            )}
             <WorkspaceTile name={workspace.name} color={workspace.accent_color} className="size-9 text-sm" />
             <span className="truncate">{workspace.name}</span>
           </span>
