@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useHydrated } from '@/lib/hydration';
 
@@ -144,6 +145,26 @@ export function DesktopTitleBar() {
     });
   }, []);
 
+  // Alt+Left / Alt+Right, and the mouse's back and forward buttons, as in a
+  // browser. Only the title bar's own buttons existed before.
+  useEffect(() => {
+    if (!IS_DESKTOP) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        window.history.back();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        window.history.forward();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const minimise = useCallback(() => run('minimize', 'minimise'), [run]);
   const toggle = useCallback(() => run('toggleMaximize', 'resize'), [run]);
   const close = useCallback(() => run('close', 'close'), [run]);
@@ -175,6 +196,30 @@ export function DesktopTitleBar() {
           aria-hidden
         />
         <span className="text-xs font-medium text-muted-foreground">Virgo</span>
+      </div>
+
+      {/* Back and forward for the whole app. The desktop window has no browser
+          chrome, so without these a page with no back button of its own (an
+          album, a settings page) was a dead end. */}
+      <div className="ml-3 flex items-center">
+        <button
+          type="button"
+          onClick={() => window.history.back()}
+          aria-label="Back"
+          title="Back (Alt+Left)"
+          className="grid size-7 place-items-center rounded text-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => window.history.forward()}
+          aria-label="Forward"
+          title="Forward (Alt+Right)"
+          className="grid size-7 place-items-center rounded text-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground"
+        >
+          <ArrowRight className="size-4" />
+        </button>
       </div>
 
       <div data-tauri-drag-region className="flex-1" />

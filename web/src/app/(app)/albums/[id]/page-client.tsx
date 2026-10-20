@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { BackButton } from '@/components/back-button';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -373,6 +374,7 @@ function AlbumWorkspace() {
         {/* ── The album ── */}
         <header className="border-b bg-card/40">
           <div className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+            <BackButton fallback={workspace ? `/workspaces/${workspace.id}` : '/albums'} className="mb-2" />
             <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Link href="/albums" className="hover:text-foreground">Albums</Link>
               {workspace && (

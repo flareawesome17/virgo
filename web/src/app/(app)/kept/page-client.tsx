@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Bookmark, CloudOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader, Screen } from '@/components/app-shell';
+import { BackButton } from '@/components/back-button';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { showcaseActionMessage } from '@/components/showcase/action-message';
@@ -66,6 +67,9 @@ export default function AllKeptPage() {
   return (
     <Screen title="All kept">
       <ShowcaseHost>
+        <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6">
+          <BackButton fallback="/profile" />
+        </div>
         <PageHeader
           title="All kept"
           description={total > 0 ? `${total} kept · Only you see this` : 'Only you see this'}
