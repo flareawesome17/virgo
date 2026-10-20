@@ -379,7 +379,8 @@ function EventDialogForm({
           )}
         </div>
 
-        <DialogFooter>
+        {/* Pinned, so Save is reachable however tall the form grows. */}
+        <DialogFooter className="sticky bottom-0 -mx-4 -mb-4 border-t bg-popover p-4">
           <Button variant="outline" onClick={() => close(false)}>
             Cancel
           </Button>
