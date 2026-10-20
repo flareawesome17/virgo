@@ -90,7 +90,7 @@ function CloseGlyph() {
   );
 }
 
-export function DesktopTitleBar() {
+export function DesktopTitleBar({ embedded = false }: { embedded?: boolean } = {}) {
   const [maximised, setMaximised] = useState(false);
   // The window is absent until the shell's IPC grant reaches the page, and
   // without it the buttons are not rendered at all — a dead close button is
@@ -181,9 +181,13 @@ export function DesktopTitleBar() {
         'flex h-8 shrink-0 select-none items-center border-b bg-background ' +
         // macOS puts its traffic lights at the left, so the mark moves out of
         // their way rather than sitting underneath them.
-        (IS_WINDOWS ? 'pl-3' : 'pl-20')
+        // Embedded: the sidebar runs the full height beside this strip, so the
+        // traffic lights sit over the sidebar and only a narrow window (sidebar
+        // hidden) needs to clear them.
+        (embedded ? (IS_WINDOWS ? 'pl-2' : 'pl-20 lg:pl-2') : IS_WINDOWS ? 'pl-3' : 'pl-20')
       }
     >
+      {!embedded && (
       <div data-tauri-drag-region className="flex items-center gap-2">
         <Image
           src="/logo.png"
@@ -197,11 +201,12 @@ export function DesktopTitleBar() {
         />
         <span className="text-xs font-medium text-muted-foreground">Virgo</span>
       </div>
+      )}
 
       {/* Back and forward for the whole app. The desktop window has no browser
           chrome, so without these a page with no back button of its own (an
           album, a settings page) was a dead end. */}
-      <div className="ml-3 flex items-center">
+      <div className={embedded ? 'flex items-center' : 'ml-3 flex items-center'}>
         <button
           type="button"
           onClick={() => window.history.back()}
