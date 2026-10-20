@@ -29,6 +29,7 @@ export async function streamZip(
   files: readonly { key: string; name: string }[],
   open: (key: string) => Promise<Readable>,
   logger: Logger,
+  retry: { attempts: number; delayMs: number } = { attempts: 3, delayMs: 1500 },
 ): Promise<void> {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', contentDisposition(zipName));
@@ -69,10 +70,23 @@ export async function streamZip(
   // left the link idle between every pair — most of the time for an album of
   // small photographs. Ask for the next one while this one is still sending.
   // One ahead only: an opened stream nobody is reading holds a connection.
+  // One slow handshake to storage is routine on this link and should cost a
+  // second or two, not the file: try again before it counts as a failure.
+  const openWithRetry = async (key: string): Promise<Readable> => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await open(key);
+      } catch (err) {
+        if (attempt >= retry.attempts || res.destroyed) throw err;
+        logger.warn(`Open ${key} failed (try ${attempt}/${retry.attempts}): ${String(err)}`);
+        await new Promise((r) => setTimeout(r, retry.delayMs * attempt));
+      }
+    }
+  };
   const opening = new Map<number, Promise<Readable>>();
   const start = (i: number) => {
     if (i >= files.length || opening.has(i)) return;
-    const p = open(files[i].key);
+    const p = openWithRetry(files[i].key);
     // A rejection nobody has awaited yet must not become an unhandled one.
     p.catch(() => undefined);
     opening.set(i, p);

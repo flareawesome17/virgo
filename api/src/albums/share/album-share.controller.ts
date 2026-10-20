@@ -290,12 +290,22 @@ export class PublicAlbumController {
         this.downloadsPaused(res);
         return;
       }
-      if (await this.serveFromHost(target.key, target.name, target.ownerId, res)) return;
+      const ranged = typeof req.headers.range === 'string';
+      if (
+        await this.serveFromHost(target.key, target.name, target.ownerId, res, ranged)
+      ) {
+        return;
+      }
       // Cache off or failed before any byte: B2's own signed link still works.
       url = await this.share.downloadLocation(token, fileId);
       // Storage serves those bytes, so nothing passes through to be measured;
       // the whole file is charged when the link is handed out.
-      void this.allowance.record(target.ownerId, target.sizeBytes);
+      // A segment that starts past byte 0 is the same download continuing (a
+      // resume, or one of a download manager's parallel pieces), so only the
+      // first piece is charged for the file.
+      if (!isResumedRange(req.headers.range)) {
+        void this.allowance.record(target.ownerId, target.sizeBytes);
+      }
     } catch (err) {
       this.logger.warn(`Single download refused: ${String(err)}`);
       res
@@ -344,6 +354,7 @@ export class PublicAlbumController {
     name: string,
     ownerId: string,
     res: Response,
+    ranged = false,
   ): Promise<boolean> {
     if (!this.cache.enabled) return false;
     const headers = {
@@ -360,6 +371,10 @@ export class PublicAlbumController {
         );
         return true;
       }
+      // A first, uncached download is piped from storage and cannot honour a
+      // Range. Storage's own signed link can, so hand ranged requests to it
+      // rather than answer 200 with the whole file to a resume.
+      if (ranged) return false;
       const { stream, size } = await this.cache.open(key);
       this.allowance.meter(ownerId, res);
       res.set(headers);
