@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Bookmark, BookmarkX, CloudOff, Ellipsis, Eye, EyeOff, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader, Screen } from '@/components/app-shell';
+import { BackButton } from '@/components/back-button';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -118,6 +119,9 @@ function Shelf() {
   return (
     <Screen title={title}>
       <ShowcaseHost>
+        <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6">
+          <BackButton fallback="/kept" />
+        </div>
         <PageHeader
           title={title}
           description={
