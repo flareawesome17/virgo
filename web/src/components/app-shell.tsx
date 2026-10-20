@@ -72,6 +72,7 @@ import { DesktopUpdateBanner } from '@/components/desktop-update-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { UploadDock } from '@/components/upload/upload-dock';
 import { DesktopTitleBar } from '@/components/desktop-title-bar';
+import { IS_DESKTOP, IS_WINDOWS } from '@/lib/desktop';
 import { DesktopAttention } from '@/components/desktop-attention';
 import { DesktopDownloads } from '@/components/desktop-downloads';
 import { CreateMenu } from '@/components/shell/create';
@@ -227,6 +228,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col bg-sidebar">
+      {/* Desktop only: the window drags from here, and on macOS this clears the
+          traffic lights that float over the top-left corner. */}
+      {IS_DESKTOP && !onNavigate && (
+        <div data-tauri-drag-region className={IS_WINDOWS ? 'h-2 shrink-0' : 'h-8 shrink-0'} />
+      )}
       <Link href="/" onClick={onNavigate} className="flex h-14 shrink-0 items-center gap-2.5 px-5">
         {/* The mark is transparent, so it sits on either palette without a
             plate behind it. */}
@@ -535,21 +541,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     // data-app-shell is what globals.css keys `body { overflow: hidden }` off.
     // h-dvh, not h-full: dvh tracks what is actually visible on a phone.
-    <div data-app-shell className="flex h-dvh flex-col">
-      {/* Renders nothing on the web. In the desktop app it is the title bar. */}
-      <DesktopTitleBar />
+    <div data-app-shell className="flex h-dvh">
       {/* Render nothing anywhere. In the desktop app they keep the window's
           title, dock badge and taskbar in step with what is unread, and say
           where a download went. */}
       <DesktopAttention />
       <DesktopDownloads />
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-60 shrink-0 border-r lg:block">
-          <SidebarBody />
-        </aside>
+      {/* The sidebar runs the full height of the window, and the desktop title
+          bar is a strip over the content beside it, so the brand shows once. */}
+      <aside className="hidden w-60 shrink-0 border-r lg:block">
+        <SidebarBody />
+      </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Renders nothing on the web. In the desktop app it is the title bar. */}
+        <DesktopTitleBar embedded />
+        <div className="flex min-h-0 flex-1 flex-col">
           <header className="flex h-14 shrink-0 items-center gap-1.5 border-b bg-background px-2 sm:gap-2 sm:px-4">
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger asChild>
