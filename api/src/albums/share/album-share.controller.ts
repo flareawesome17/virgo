@@ -40,6 +40,7 @@ import {
 } from './album-share.service';
 import { streamZip } from '../../storage/zip';
 import { DownloadCacheService } from '../../storage/download-cache.service';
+import { ZipCacheService } from '../../storage/zip-cache.service';
 import { contentDisposition } from '../../storage/download-names';
 import { VisitsService } from '../../visits/visits.service';
 import {
@@ -50,6 +51,8 @@ import {
   renderClientGallery,
   renderDownloadsPaused,
   renderLinkUnavailable,
+  renderZipFailed,
+  renderZipPreparing,
 } from './client-gallery.template';
 
 /**
@@ -144,6 +147,7 @@ export class PublicAlbumController {
     private readonly share: AlbumShareService,
     private readonly visits: VisitsService,
     private readonly cache: DownloadCacheService,
+    private readonly zips: ZipCacheService,
     private readonly allowance: DownloadAllowanceService,
   ) {}
 
@@ -237,29 +241,86 @@ export class PublicAlbumController {
    * all while the server assembles gigabytes.
    */
   @Public()
-  // Far tighter than the page: this one moves the whole album per call.
-  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  // The page refreshes every few seconds while a zip builds, and a download
+  // manager opens several connections; the expensive part is queued, not this.
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get(':token/download.zip')
-  async downloadAll(@Param('token') token: string, @Res() res: Response) {
+  async downloadAll(
+    @Param('token') token: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     const { albumName, files, ownerId } = await this.share.filesForDownload(token);
 
     if (files.length === 0) {
       res.status(404).json({ message: 'Nothing to download' });
       return;
     }
-    if (!(await this.allowance.allows(ownerId))) {
+    await this.serveZip(req, res, ownerId, `${safeFileStem(albumName)}.zip`, files);
+  }
+
+  /**
+   * One zip, built on this host's disk first and then sent as an ordinary
+   * file, so it has a length and honours Range: Chrome's Resume and download
+   * managers work, and a storage hiccup costs a retry instead of the whole
+   * download. While it is being built the address answers with a page that
+   * refreshes itself (or a 503 with Retry-After to a client that is not a
+   * browser), and the same address answers with the file once it is ready.
+   */
+  private async serveZip(
+    req: Request,
+    res: Response,
+    ownerId: string,
+    zipName: string,
+    files: { key: string; name: string }[],
+  ): Promise<void> {
+    // A resume of a download already under way is never refused.
+    if (!isResumedRange(req.headers.range) && !(await this.allowance.allows(ownerId))) {
       this.downloadsPaused(res);
       return;
     }
+    if (!this.zips.enabled) {
+      this.allowance.meter(ownerId, res);
+      await streamZip(res, zipName, files, (key) => this.cacheStream(key), this.logger);
+      return;
+    }
 
-    this.allowance.meter(ownerId, res);
-    await streamZip(
-      res,
-      `${safeFileStem(albumName)}.zip`,
-      files,
-      (key) => this.cacheStream(key),
-      this.logger,
-    );
+    const entry = this.zips.request(zipName, files, (key) => this.cacheStream(key));
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+
+    if (entry.state === 'ready') {
+      const release = this.zips.hold(entry);
+      res.on('close', release);
+      this.allowance.meter(ownerId, res);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', contentDisposition(zipName));
+      await new Promise<void>((resolve) =>
+        res.sendFile(entry.path, { dotfiles: 'allow', headers: {} }, (err) => {
+          if (err && !res.headersSent) {
+            this.logger.warn(`Zip send failed: ${String(err)}`);
+            res.status(503).type('text/plain').send('Please try again in a moment.');
+          }
+          resolve();
+        }),
+      );
+      return;
+    }
+
+    const wantsPage = String(req.headers.accept ?? '').includes('text/html');
+    if (entry.state === 'failed') {
+      res.status(503).setHeader('Retry-After', '60');
+      if (wantsPage) res.type('html').send(renderZipFailed());
+      else res.type('text/plain').send('Could not prepare this download. Try again in a minute.');
+      return;
+    }
+    res.status(wantsPage ? 200 : 503).setHeader('Retry-After', '3');
+    if (wantsPage) {
+      const queued = entry.state === 'queued' ? this.zips.queued : 0;
+      res.type('html').send(renderZipPreparing(entry.done, entry.total, queued));
+    } else {
+      res.type('text/plain').send(`Preparing ${entry.done}/${entry.total}. Retry shortly.`);
+    }
   }
 
   /**
@@ -396,28 +457,20 @@ export class PublicAlbumController {
    * of gigabytes on mobile data, and the picks are the part they came for.
    */
   @Public()
-  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get(':token/picks.zip')
-  async downloadPicks(@Param('token') token: string, @Res() res: Response) {
+  async downloadPicks(
+    @Param('token') token: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     const { albumName, files, ownerId } = await this.share.picksForDownload(token);
 
     if (files.length === 0) {
       res.status(404).json({ message: 'Nothing picked yet' });
       return;
     }
-    if (!(await this.allowance.allows(ownerId))) {
-      this.downloadsPaused(res);
-      return;
-    }
-
-    this.allowance.meter(ownerId, res);
-    await streamZip(
-      res,
-      `${safeFileStem(albumName)}.zip`,
-      files,
-      (key) => this.cacheStream(key),
-      this.logger,
-    );
+    await this.serveZip(req, res, ownerId, `${safeFileStem(albumName)}.zip`, files);
   }
 
   /**

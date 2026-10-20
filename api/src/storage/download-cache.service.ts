@@ -7,6 +7,9 @@ import { dirname, join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { StorageService } from './storage.service';
 
+/** Built zips live in this subfolder of the cache volume; the object cache skips it. */
+export const ZIPS_SUBDIR = '_zips';
+
 export interface CachedObject {
   /** Bytes to send. Reads from disk on a hit, tees from storage on a miss. */
   stream: Readable;
@@ -179,6 +182,8 @@ export class DownloadCacheService {
     const entries: { path: string; size: number; at: number }[] = [];
     let total = 0;
     for (const sub of await readdir(this.dir).catch(() => [] as string[])) {
+      // Built zips have their own cap and lifetime.
+      if (sub === ZIPS_SUBDIR) continue;
       const subDir = join(this.dir, sub);
       for (const name of await readdir(subDir).catch(() => [] as string[])) {
         const path = join(subDir, name);

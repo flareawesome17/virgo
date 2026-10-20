@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import type { DownloadAllowanceService } from '../../quota/download-allowance.service';
 import type { DownloadCacheService } from '../../storage/download-cache.service';
+import type { ZipCacheService } from '../../storage/zip-cache.service';
 import { streamZip } from '../../storage/zip';
 import type { VisitsService } from '../../visits/visits.service';
 import { PublicAlbumController } from './album-share.controller';
@@ -74,6 +75,9 @@ function routes({ allowed = true, cacheEnabled = true } = {}) {
     lookup: jest.fn(async () => ({ path: '/srv/dlcache/ab/abc', size: 6_000_000 })),
     open: jest.fn(),
   };
+  // Off here: these tests are about metering and the allowance check, which
+  // are the same on the live-stream path. Building is covered by its own spec.
+  const zips = { enabled: false };
   const allowance = {
     allows: jest.fn(async () => allowed),
     meter: jest.fn(),
@@ -83,6 +87,7 @@ function routes({ allowed = true, cacheEnabled = true } = {}) {
     share as unknown as AlbumShareService,
     {} as unknown as VisitsService,
     cache as unknown as DownloadCacheService,
+    zips as unknown as ZipCacheService,
     allowance as unknown as DownloadAllowanceService,
   );
   return { controller, share, cache, allowance };
@@ -110,7 +115,7 @@ describe.each([
     const { controller, allowance } = routes({ allowed: false });
     const res = response();
 
-    await controller[route]('token', res);
+    await controller[route]('token', request(), res);
 
     expectPaused(res);
     expect(allowance.allows).toHaveBeenCalledWith(OWNER);
@@ -122,7 +127,7 @@ describe.each([
     const { controller, allowance } = routes();
     const res = response();
 
-    await controller[route]('token', res);
+    await controller[route]('token', request(), res);
 
     expect(allowance.meter).toHaveBeenCalledWith(OWNER, res);
     expect(streamZip).toHaveBeenCalledTimes(1);

@@ -1,6 +1,7 @@
 import { DownloadCacheService } from '../../storage/download-cache.service';
+import type { ZipCacheService } from '../../storage/zip-cache.service';
 import type { ConfigService } from '@nestjs/config';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import type { DatabaseService } from '../../database/database.service';
 import type { DownloadAllowanceService } from '../../quota/download-allowance.service';
 import type { NotifyService } from '../../notifications/notify.service';
@@ -264,10 +265,11 @@ describe('The zip behind a share link', () => {
       service,
       {} as unknown as VisitsService,
       {} as unknown as DownloadCacheService,
+      {} as unknown as ZipCacheService,
       {} as unknown as DownloadAllowanceService,
     );
     const res = response();
-    await controller.downloadAll('token', res as unknown as Response);
+    await controller.downloadAll('token', { headers: {} } as unknown as Request, res as unknown as Response);
     expect(res.status).toHaveBeenCalledWith(404);
     expect(res.json).toHaveBeenCalledWith({ message: 'Nothing to download' });
   });
