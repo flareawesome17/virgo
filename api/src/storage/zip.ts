@@ -1,7 +1,7 @@
 import { ZipArchive } from 'archiver';
 import type { Logger } from '@nestjs/common';
 import type { Response } from 'express';
-import type { Readable } from 'node:stream';
+import type { Readable, Writable } from 'node:stream';
 import { contentDisposition } from './download-names';
 
 /**
@@ -29,12 +29,35 @@ export async function streamZip(
   files: readonly { key: string; name: string }[],
   open: (key: string) => Promise<Readable>,
   logger: Logger,
+  retry: { attempts: number; delayMs: number } = { attempts: 3, delayMs: 1500 },
 ): Promise<void> {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', contentDisposition(zipName));
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  // Send the headers now. Cloudflare answers 524 when the origin sends no
+  // byte within 100 s; if storage is unreachable every open() waits out its
+  // own timeout first, and the client would see that as a dead page.
+  res.flushHeaders();
+  await zipInto(res, zipName, files, open, logger, retry);
+}
 
+/**
+ * The zip itself, written to any writable: a response (streamed live) or a
+ * file on disk (built ahead so the client can resume). Resolves once every
+ * entry has been handed to the archive; the caller waits for `out` to finish.
+ * `onProgress` is told how many entries are done after each one. Returns how
+ * many entries had to be skipped as unreadable.
+ */
+export async function zipInto(
+  out: Writable,
+  zipName: string,
+  files: readonly { key: string; name: string }[],
+  open: (key: string) => Promise<Readable>,
+  logger: Logger,
+  retry: { attempts: number; delayMs: number } = { attempts: 3, delayMs: 1500 },
+  onProgress?: (done: number) => void,
+): Promise<number> {
   // archiver v8 dropped the callable default in favour of the classes.
   const archive = new ZipArchive({ store: true });
 
@@ -44,35 +67,44 @@ export async function streamZip(
   // a silently incomplete one.
   archive.on('error', (err: Error) => {
     logger.error(`Zip "${zipName}" failed: ${err.message}`);
-    res.destroy(err);
+    out.destroy(err);
   });
   // Someone who cancels mid-download leaves us pulling the rest from storage
   // for nobody.
-  res.on('close', () => {
-    if (!res.writableEnded) archive.abort();
+  out.on('close', () => {
+    if (!out.writableEnded) archive.abort();
   });
 
-  archive.pipe(res);
-
-  // Send the headers now. Cloudflare answers 524 when the origin sends no
-  // byte within 100 s; if storage is unreachable every open() below waits out
-  // its own timeout first, and the client would see that as a dead page.
-  res.flushHeaders();
+  archive.pipe(out);
 
   // A storage outage fails every file. Skipping each one silently would hand
   // the client a near-empty zip that looks complete, so give up instead.
   const MAX_CONSECUTIVE_FAILURES = 3;
   let failures = 0;
+  let skipped = 0;
 
   // Opening an object from storage costs a round trip to another continent
   // before the first byte, and doing it strictly after the previous file ends
   // left the link idle between every pair — most of the time for an album of
   // small photographs. Ask for the next one while this one is still sending.
   // One ahead only: an opened stream nobody is reading holds a connection.
+  // One slow handshake to storage is routine on this link and should cost a
+  // second or two, not the file: try again before it counts as a failure.
+  const openWithRetry = async (key: string): Promise<Readable> => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await open(key);
+      } catch (err) {
+        if (attempt >= retry.attempts || out.destroyed) throw err;
+        logger.warn(`Open ${key} failed (try ${attempt}/${retry.attempts}): ${String(err)}`);
+        await new Promise((r) => setTimeout(r, retry.delayMs * attempt));
+      }
+    }
+  };
   const opening = new Map<number, Promise<Readable>>();
   const start = (i: number) => {
     if (i >= files.length || opening.has(i)) return;
-    const p = open(files[i].key);
+    const p = openWithRetry(files[i].key);
     // A rejection nobody has awaited yet must not become an unhandled one.
     p.catch(() => undefined);
     opening.set(i, p);
@@ -86,24 +118,27 @@ export async function streamZip(
       archive.append(await opening.get(i)!, { name: file.name });
       opening.delete(i);
       failures = 0;
+      onProgress?.(i + 1);
     } catch (err) {
       opening.delete(i);
       // One unreadable object should not cost them the other 199.
       logger.warn(`Skipped ${file.key} in zip: ${String(err)}`);
+      skipped++;
       if (++failures >= MAX_CONSECUTIVE_FAILURES) {
         logger.error(
           `Zip "${zipName}" aborted: storage failed ${failures} files in a row`,
         );
         archive.abort();
-        res.destroy(new Error('Storage unavailable'));
+        out.destroy(new Error('Storage unavailable'));
         // The file already opened ahead will never be read.
         for (const p of opening.values()) {
           p.then((s) => s.destroy()).catch(() => undefined);
         }
-        return;
+        return skipped;
       }
     }
   }
 
   await archive.finalize();
+  return skipped;
 }

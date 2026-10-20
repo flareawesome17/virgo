@@ -79,6 +79,40 @@ export function renderDownloadsPaused(): string {
   );
 }
 
+/**
+ * What a client sees on a download link while the zip is still being put
+ * together on the server. Refreshes itself; when the zip is ready the same
+ * address answers with the file.
+ */
+export function renderZipPreparing(
+  done: number,
+  total: number,
+  position: number,
+  etaSeconds?: number,
+): string {
+  const eta =
+    etaSeconds === undefined
+      ? ''
+      : etaSeconds < 90
+        ? ' About a minute left.'
+        : ` About ${Math.round(etaSeconds / 60)} minutes left.`;
+  const body =
+    position > 0
+      ? `Other downloads are being prepared first. You are number ${position} in line. This page refreshes by itself.`
+      : `${done} of ${total} files so far.${eta} This page refreshes by itself and the download starts when it is ready.`;
+  return renderNotice('Preparing your download', DOWNLOAD_ICON, 'Preparing your download', body)
+    .replace('<head>', '<head><meta http-equiv="refresh" content="3">');
+}
+
+export function renderZipFailed(): string {
+  return renderNotice(
+    'Download unavailable',
+    DOWNLOAD_ICON,
+    'We could not prepare this download',
+    'Storage did not answer in time. Wait a minute and open the link again.',
+  );
+}
+
 function bytesLabel(bytes: number): string {
   if (bytes <= 0) return '0 MB';
   const mb = bytes / 1024 ** 2;

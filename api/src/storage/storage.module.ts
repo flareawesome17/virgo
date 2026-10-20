@@ -3,6 +3,7 @@ import { StorageConfig } from './storage.config';
 import { StorageController } from './storage.controller';
 import { StorageService } from './storage.service';
 import { DownloadCacheService } from './download-cache.service';
+import { ZipCacheService } from './zip-cache.service';
 import { ThumbnailsService } from './thumbnails.service';
 import { HlsService } from './hls.service';
 import { MediaLinkService } from './media-link.service';
@@ -18,6 +19,7 @@ import { ReceiptFilesService } from './receipt-files.service';
     StorageConfig,
     StorageService,
     DownloadCacheService,
+    ZipCacheService,
     ThumbnailsService,
     MediaLinkService,
     MediaProcessingService,
@@ -38,6 +40,7 @@ import { ReceiptFilesService } from './receipt-files.service';
   exports: [
     StorageService,
     DownloadCacheService,
+    ZipCacheService,
     StorageConfig,
     ThumbnailsService,
     MediaLinkService,
