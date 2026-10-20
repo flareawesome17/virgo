@@ -21,6 +21,7 @@ import {
   UploadCancelled,
   uploadInParts,
 } from '../multipart-upload';
+import { UPLOAD_CHECK_TIMEOUT_MS, type UploadCheckFile } from '../upload-dedup';
 
 /** How long a confirm may take; see storageApi.confirm. */
 const CONFIRM_TIMEOUT_MS = 120_000;
@@ -483,6 +484,22 @@ export const storageApi = {
     albumId?: string;
   }): Promise<UploadTicket> {
     return api.post<UploadTicket>('/storage/upload-url', { body: input });
+  },
+
+  /**
+   * Which of these files the album already holds (upload-dedup.ts). At most
+   * 500 at a time; `planUploads` splits a larger pick.
+   *
+   * The phone sends name and size only. Neither picker reports a modified
+   * time it can vouch for — the image picker has none, and the document
+   * picker reports the moment it copied the file when it does not know — so
+   * a match from here is always one to ask about, never one skipped unasked.
+   */
+  checkUploads(albumId: string, files: UploadCheckFile[]): Promise<unknown> {
+    return api.post('/storage/uploads/check', {
+      body: { albumId, files },
+      timeoutMs: UPLOAD_CHECK_TIMEOUT_MS,
+    });
   },
 
   /** Step 3: confirm the object actually landed before saving its URL. */

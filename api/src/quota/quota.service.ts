@@ -405,6 +405,10 @@ export class QuotaService {
       scope?: string;
       albumId?: string | null;
       originalName?: string | null;
+      /** B2's ETag for the object, unquoted. See migration 098. */
+      etag?: string | null;
+      /** The file's modified time as the device reported it. See migration 098. */
+      sourceModifiedAt?: Date | null;
     },
   ): Promise<boolean> {
     const kind = file.contentType?.split('/')[0];
@@ -421,14 +425,16 @@ export class QuotaService {
     const rows = await this.db.query<{ inserted: boolean }>(
       `insert into user_files
          (user_id, key, size_bytes, content_type, scope, album_id,
-          original_name, processing_status, next_processing_at)
+          original_name, processing_status, next_processing_at, etag, source_modified_at)
        values ($1, $2, $3, $4, $5, $6, $7, $8,
-               case when $8 = 'pending' then now() else null end)
+               case when $8 = 'pending' then now() else null end, $9, $10)
        on conflict (key) do update
          set size_bytes = excluded.size_bytes,
              content_type = excluded.content_type,
              album_id = coalesce(excluded.album_id, user_files.album_id),
              original_name = coalesce(excluded.original_name, user_files.original_name),
+             etag = coalesce(excluded.etag, user_files.etag),
+             source_modified_at = coalesce(excluded.source_modified_at, user_files.source_modified_at),
              processing_status = case
                when user_files.content_type is distinct from excluded.content_type
                  then excluded.processing_status
@@ -449,10 +455,53 @@ export class QuotaService {
         file.albumId ?? null,
         file.originalName ?? null,
         processingStatus,
+        file.etag ?? null,
+        file.sourceModifiedAt ?? null,
       ],
     );
     // xmax is 0 on a row this statement inserted and set on one it updated.
     return rows[0]?.inserted ?? false;
+  }
+
+  /**
+   * Files already in an album with the same name (any case) and size as each
+   * of `files`, for the pre-upload check (src/storage/upload-dedup.ts).
+   *
+   * One statement for the whole batch: the batch is unnested into rows and
+   * joined against the album on `user_files_album_dedup_idx` (migration 098),
+   * so five hundred files cost one round trip, not five hundred. A file can
+   * match several rows when the album already holds it more than once; each
+   * comes back, tagged with the batch index it matched.
+   *
+   * **Callers must resolve access to `albumId` first**, as for `listFiles`.
+   * Every row in an album counts, whoever uploaded it: a shared album is one
+   * pile, and a second shooter re-sending what the first already delivered is
+   * as much a duplicate as the owner doing it. Every row is a confirmed upload
+   * — a row is only ever written once the object's HEAD has succeeded, and
+   * deleting a file removes it — so there is no pending or failed state to
+   * leave out. `processing_status = 'failed'` is about thumbnails, and the
+   * file it describes is stored all the same.
+   */
+  async findUploadMatches(
+    albumId: string,
+    files: readonly { index: number; name: string; size: number }[],
+  ): Promise<{ idx: number; source_modified_ms: string | null }[]> {
+    if (files.length === 0) return [];
+    return this.db.query<{ idx: number; source_modified_ms: string | null }>(
+      `select w.idx,
+              (extract(epoch from f.source_modified_at) * 1000)::bigint as source_modified_ms
+         from unnest($2::int[], $3::text[], $4::bigint[]) as w(idx, name, size)
+         join user_files f
+           on f.album_id = $1
+          and f.size_bytes = w.size
+          and lower(f.original_name) = lower(w.name)`,
+      [
+        albumId,
+        files.map((file) => file.index),
+        files.map((file) => file.name),
+        files.map((file) => file.size),
+      ],
+    );
   }
 
   /**

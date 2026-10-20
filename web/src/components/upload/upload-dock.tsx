@@ -1,12 +1,19 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronUp, Loader2, RotateCcw, X, XCircle } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, ChevronDown, ChevronUp, Loader2, Minus, RotateCcw, X, XCircle } from 'lucide-react';
 import { formatBytes } from '@/api';
+import { skippedSummary } from '@/api/upload-dedup';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { MINI_PLAYER_OFFSET_VAR } from '@/components/media/video-surface';
+import { dockFloorCss } from '@/lib/edge-offsets';
+import { useBounce, useGenie } from '@/lib/motion';
+import { cn } from '@/lib/utils';
+import { UploadDockIcon } from './upload-dock-icon';
+import { badge as dockBadge, dockLabel, dockStatus, parseStoredBottom, summarize } from './upload-dock-state';
 import { useUploadQueue, type UploadItem } from './upload-provider';
+
+const BOTTOM_KEY = 'virgo:upload-dock:bottom';
 
 /** Rows drawn at most per group: a wedding is hundreds of files and the dock is a summary. */
 const ROWS = 30;
@@ -29,12 +36,67 @@ function duration(seconds: number): string {
  * per-file bars told you nothing at a glance.
  */
 export function UploadDock() {
-  const { items, active, bytesPerSecond, cancel, retryFailed, clearFinished } = useUploadQueue();
+  const {
+    items,
+    active,
+    bytesPerSecond,
+    cancel,
+    retryFailed,
+    clearFinished,
+    checking,
+    uploadSkipped,
+    minimised,
+    setMinimised,
+  } = useUploadQueue();
   const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+  const iconRef = useRef<HTMLButtonElement>(null);
+  const minimiseRef = useRef<HTMLButtonElement>(null);
+  const genie = useGenie();
+  const { ref: bounceRef, bounce } = useBounce<HTMLButtonElement>();
+  // Only a person's own minimise/expand moves focus; an auto-open must not.
+  const moveFocus = useRef<'icon' | 'panel' | null>(null);
+  const wasMinimised = useRef(minimised);
+  const [bottom, setBottom] = useState<number | null>(null);
+
+  // The saved position is read after mount so server and client render alike.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBottom(parseStoredBottom(window.localStorage.getItem(BOTTOM_KEY)));
+  }, []);
+
+  const minimise = async () => {
+    const panel = panelRef.current;
+    const icon = iconRef.current;
+    if (panel && icon) await genie.play(panel, icon, 'close');
+    moveFocus.current = 'icon';
+    setMinimised(true);
+  };
+  const expand = () => {
+    moveFocus.current = 'panel';
+    setMinimised(false);
+  };
+
+  // Expanding (click or auto-open): spring out of the icon once the panel is mounted.
+  useLayoutEffect(() => {
+    const was = wasMinimised.current;
+    wasMinimised.current = minimised;
+    if (was && !minimised && panelRef.current && iconRef.current) {
+      void genie.play(panelRef.current, iconRef.current, 'open');
+    }
+  }, [minimised, genie]);
+  useEffect(() => {
+    if (moveFocus.current === 'icon' && minimised) iconRef.current?.focus();
+    if (moveFocus.current === 'panel' && !minimised) minimiseRef.current?.focus();
+    moveFocus.current = null;
+  }, [minimised]);
 
   const summary = useMemo(() => {
-    const counted = items.filter((item) => item.status !== 'cancelled');
+    // Skipped files were never part of the transfer, so they are left out of
+    // its count and its bar, and reported on their own.
+    const counted = items.filter((item) => item.status !== 'cancelled' && item.status !== 'skipped');
     const by = (status: UploadItem['status']) => items.filter((item) => item.status === status);
+    const skipped = by('skipped');
     const totalBytes = counted.reduce((sum, item) => sum + item.sizeBytes, 0);
     const doneBytes = counted.reduce((sum, item) => sum + item.sizeBytes * item.progress, 0);
     const albums = new Set(counted.map((item) => item.albumName).filter(Boolean));
@@ -44,21 +106,46 @@ export function UploadDock() {
       failed: by('failed'),
       uploading: by('uploading'),
       queued: by('queued'),
+      duplicates: skipped.filter((item) => item.skipReason === 'duplicate'),
+      possible: skipped.filter((item) => item.skipReason === 'possible'),
       fraction: totalBytes > 0 ? doneBytes / totalBytes : 0,
       remainingBytes: totalBytes - doneBytes,
       album: albums.size === 1 ? [...albums][0] : null,
     };
   }, [items]);
 
-  if (items.length === 0) return null;
+  const batch = useMemo(() => summarize(items), [items]);
+  const status = dockStatus(batch, checking);
 
-  const { total, done, failed, uploading, queued } = summary;
+  // A finished or failed batch bounces its icon once.
+  const previousStatus = useRef(status);
+  useEffect(() => {
+    if (previousStatus.current !== status && (status === 'done' || status === 'failed')) {
+      bounceRef.current = iconRef.current;
+      bounce();
+    }
+    previousStatus.current = status;
+  }, [status, bounce, bounceRef]);
+
+  if (items.length === 0 && checking === 0) return null;
+
+  const { total, done, failed, uploading, queued, duplicates, possible } = summary;
+  const skippedCount = duplicates.length + possible.length;
+  const busy = active || checking > 0;
   const headline = active
     ? `Uploading ${done.length.toLocaleString()} of ${total.toLocaleString()}`
-    : failed.length > 0
-      ? `${done.length.toLocaleString()} uploaded · ${failed.length.toLocaleString()} failed`
-      : `${done.length.toLocaleString()} uploaded`;
-  const detail = active
+    : checking > 0
+      ? `Checking ${checking.toLocaleString()} file${checking === 1 ? '' : 's'}`
+      : [
+          `${done.length.toLocaleString()} uploaded`,
+          failed.length > 0 ? `${failed.length.toLocaleString()} failed` : null,
+          skippedCount > 0 ? `${skippedCount.toLocaleString()} skipped` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+  const detail = !active && checking > 0
+    ? 'Looking for files already in the album'
+    : active
     ? [
         bytesPerSecond ? `${formatBytes(bytesPerSecond)}/s` : null,
         bytesPerSecond && bytesPerSecond > 0
@@ -75,23 +162,54 @@ export function UploadDock() {
   // everything else a screen reader has to say.
   const announcement = active
     ? `Uploading ${total} files`
-    : `${done.length} uploaded${failed.length ? `, ${failed.length} failed` : ''}`;
+    : checking > 0
+      ? 'Checking for files already uploaded'
+      : `${done.length} uploaded${failed.length ? `, ${failed.length} failed` : ''}${
+          skippedCount ? `, ${skippedCount} skipped` : ''
+        }`;
 
   return (
-    <section
-      aria-label="Uploads"
-      className="fixed right-4 z-40 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover shadow-lg transition-[bottom] duration-200 motion-reduce:transition-none"
-      // The minimised film player docks in this same corner at this same width,
-      // one layer up. While one is there, sit above it rather than under it —
-      // otherwise a film minimised during an upload hides the upload entirely.
-      style={{ bottom: `calc(1rem + var(${MINI_PLAYER_OFFSET_VAR}, 0px))` }}
-    >
+    <>
       <p className="sr-only" role="status" aria-live="polite">
         {announcement}
       </p>
+      <p id="upload-dock-hint" className="sr-only">
+        Arrow keys move it along the edge
+      </p>
+      <UploadDockIcon
+        ref={iconRef}
+        status={status}
+        fraction={batch.fraction}
+        badge={dockBadge(status, batch, checking)}
+        label={dockLabel(status, batch, checking)}
+        bottom={bottom}
+        hidden={!minimised}
+        onBottomChange={(value, final) => {
+          setBottom(value);
+          if (final) window.localStorage.setItem(BOTTOM_KEY, String(Math.round(value)));
+        }}
+        onOpen={expand}
+      />
+      {!minimised && (
+    <section
+      id="upload-dock-panel"
+      ref={panelRef}
+      aria-label="Uploads"
+      className={cn(
+        'fixed right-4 z-40 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover shadow-lg',
+        'transition-[bottom] duration-200 motion-reduce:transition-none',
+      )}
+      // The minimised film player docks in this same corner at this same width,
+      // one layer up, and on chat pages the message box sits at the bottom.
+      // Sit above whichever is there rather than under it.
+      style={{ bottom: `calc(1rem + ${dockFloorCss()})` }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') void minimise();
+      }}
+    >
       <div className="flex items-start gap-2.5 px-3.5 pt-3 pb-2.5">
         <span className="mt-0.5">
-          {active ? (
+          {busy ? (
             <Loader2 className="size-4 animate-spin text-primary" aria-hidden />
           ) : failed.length > 0 ? (
             <XCircle className="size-4 text-destructive" aria-hidden />
@@ -105,16 +223,26 @@ export function UploadDock() {
           {active && <Progress value={summary.fraction * 100} className="mt-2 h-1.5" aria-label="Overall upload progress" />}
         </div>
         <Button
+          ref={minimiseRef}
           size="icon"
           variant="ghost"
-          className="size-7"
+          className="motion-icon size-7"
+          onClick={() => void minimise()}
+          aria-label="Minimise uploads"
+        >
+          <Minus className="size-4" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="motion-icon size-7"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
           aria-label={open ? 'Hide upload details' : 'Show upload details'}
         >
           {open ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
         </Button>
-        {!active && (
+        {!busy && (
           <Button size="icon" variant="ghost" className="size-7" onClick={clearFinished} aria-label="Dismiss uploads">
             <X className="size-4" />
           </Button>
@@ -129,6 +257,40 @@ export function UploadDock() {
           <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={retryFailed}>
             <RotateCcw className="size-3.5" />
             Retry
+          </Button>
+        </div>
+      )}
+
+      {/* Skipped, and why, with the way to send them after all. Exact
+          duplicates are skipped without asking; possible ones were asked
+          about, and are here if the answer was "skip". */}
+      {duplicates.length > 0 && (
+        <div className="flex items-center justify-between gap-2 border-t bg-muted/40 px-3.5 py-2">
+          <p className="text-xs text-muted-foreground">{skippedSummary(duplicates.length)}.</p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 text-xs"
+            onClick={() => uploadSkipped('duplicate')}
+          >
+            Upload anyway
+          </Button>
+        </div>
+      )}
+      {possible.length > 0 && (
+        <div className="flex items-center justify-between gap-2 border-t bg-muted/40 px-3.5 py-2">
+          <p className="text-xs text-muted-foreground">
+            {possible.length === 1
+              ? '1 possible duplicate not uploaded.'
+              : `${possible.length.toLocaleString()} possible duplicates not uploaded.`}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 text-xs"
+            onClick={() => uploadSkipped('possible')}
+          >
+            Upload anyway
           </Button>
         </div>
       )}
@@ -178,6 +340,8 @@ export function UploadDock() {
         </ul>
       )}
     </section>
+      )}
+    </>
   );
 }
 

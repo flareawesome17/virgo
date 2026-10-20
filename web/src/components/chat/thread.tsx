@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { usePublishComposerOffset } from '@/lib/edge-offsets';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -177,6 +178,7 @@ export function Thread({
   const [mentioned, setMentioned] = useState<Participant[]>([]);
   const [askUnblock, setAskUnblock] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerRowRef = usePublishComposerOffset<HTMLDivElement>();
   const scrollRef = useRef<HTMLDivElement>(null);
   const olderRef = useRef<HTMLDivElement>(null);
   const meId = user?.id;
@@ -839,7 +841,7 @@ export function Thread({
           </div>
         )
       ) : (
-        <div className="flex shrink-0 items-end gap-2 border-t p-3">
+        <div ref={composerRowRef} className="flex shrink-0 items-end gap-2 border-t p-3">
           <Textarea
             ref={composerRef}
             value={draft}

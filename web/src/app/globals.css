@@ -326,6 +326,67 @@
 
 }
 
+/* Shared motion tokens (mirrors src/lib/motion/tokens.ts) */
+:root {
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --motion-magnify: 1.12;
+  --motion-press: 0.94;
+  --ease-smooth: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-soft: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: linear(0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.067, 1.099 24.3%, 1.108 26%, 1.104, 1.085 31.5%, 1.019 38.3%, 0.999 42.3%, 0.989 46.1%, 0.993 55.5%, 1.001 69%, 1);
+  }
+}
+/* Mac-dock hover magnify for icon buttons: add the class to any button. */
+.motion-icon {
+  transition: transform var(--motion-base) var(--ease-spring);
+}
+@media (hover: hover) {
+  .motion-icon:hover,
+  .motion-icon:focus-visible {
+    transform: scale(var(--motion-magnify));
+  }
+}
+.motion-icon:active {
+  transform: scale(var(--motion-press));
+}
+.motion-pop {
+  animation: motion-pop var(--motion-slow) var(--ease-spring) both;
+}
+@keyframes motion-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-magnify: 1;
+    --motion-press: 1;
+    --ease-spring: linear;
+  }
+  .motion-icon,
+  .motion-icon:hover,
+  .motion-icon:active {
+    transform: none !important;
+    transition: opacity var(--motion-fast) linear, color var(--motion-fast) linear !important;
+  }
+  .motion-pop {
+    animation: motion-fade var(--motion-fast) linear both;
+  }
+}
+@keyframes motion-fade {
+  from {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal {
     opacity: 1 !important;

@@ -21,6 +21,14 @@ import {
   MULTIPART_PART_BYTES,
   UPLOAD_SCOPES,
 } from '../storage.config';
+import { UPLOAD_CHECK_MAX_FILES } from '../upload-dedup';
+
+/**
+ * The largest modified time accepted, in epoch milliseconds: the year 2200.
+ * A sanity bound for validation only; what is believed is narrower
+ * (`sourceModifiedAt`), and anything past it is stored as unknown.
+ */
+const UPLOAD_LAST_MODIFIED_MAX = Date.UTC(2200, 0, 1);
 
 export class CreateUploadUrlDto {
   @IsIn(ALLOWED_CONTENT_TYPES as unknown as string[], {
@@ -146,6 +154,62 @@ export class ConfirmUploadDto extends ObjectKeyDto {
   @IsString()
   @MaxLength(255)
   originalName?: string;
+
+  /**
+   * The file's own modified time, epoch milliseconds, as the device reports it
+   * (File.lastModified). Recorded so a later re-upload of the same file can be
+   * told from a different one of the same name and size (upload-dedup.ts).
+   * Optional: the phone cannot report it, and installed apps do not send it.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(UPLOAD_LAST_MODIFIED_MAX)
+  lastModified?: number;
+}
+
+/** One file of a batch about to be uploaded, as the device describes it. */
+export class UploadCheckFileDto {
+  /** Cleaned to what confirm stores (no folder, no control characters) before comparing. */
+  @IsString()
+  @MaxLength(1024)
+  name!: string;
+
+  /**
+   * Not held to the upload ceiling: a file too large to upload is refused by
+   * the upload, and refusing the check over it would leave the rest of its
+   * batch unchecked. It simply matches nothing.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(Number.MAX_SAFE_INTEGER)
+  size!: number;
+
+  /** Epoch milliseconds, when the device knows it. See ConfirmUploadDto.lastModified. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(UPLOAD_LAST_MODIFIED_MAX)
+  lastModified?: number;
+}
+
+/**
+ * Which of these files the album already holds. Asked once per batch, before
+ * it starts; a larger drop asks in pieces of UPLOAD_CHECK_MAX_FILES.
+ */
+export class CheckUploadsDto {
+  @IsString()
+  @MaxLength(64)
+  albumId!: string;
+
+  @IsArray()
+  @ArrayMaxSize(UPLOAD_CHECK_MAX_FILES)
+  @ValidateNested({ each: true })
+  @Type(() => UploadCheckFileDto)
+  files!: UploadCheckFileDto[];
 }
 
 /** Several objects at once — deleting a selection. */

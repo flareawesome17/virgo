@@ -17,6 +17,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../auth/public.decorator';
 import {
   AttachToAlbumDto,
+  CheckUploadsDto,
   CompleteMultipartDto,
   ConfirmUploadDto,
   CreateUploadUrlDto,
@@ -128,6 +129,23 @@ export class StorageController {
     return { ok: true };
   }
 
+  /**
+   * Which of a batch about to be uploaded the album already holds, so a
+   * re-sent batch skips what arrived the first time (upload-dedup.ts).
+   *
+   * One request per batch of up to 500 files, before the batch starts — a
+   * drop of two thousand is four. 120 a minute leaves room for someone
+   * dropping folder after folder and still stops a script walking an album
+   * by guessing names. Clients upload as before if this fails or is slow, so
+   * its limit can never be what stops an upload.
+   */
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('uploads/check')
+  checkUploads(@CurrentUser('id') userId: string, @Body() dto: CheckUploadsDto) {
+    return this.storage.checkUploads(userId, dto.albumId, dto.files);
+  }
+
   @HttpCode(200)
   @Post('download-url')
   async createDownloadUrl(
@@ -186,6 +204,7 @@ export class StorageController {
       // so no installed client that sends one breaks.
       this.config.isPublicKey(dto.key) ? undefined : dto.albumId,
       dto.originalName,
+      dto.lastModified,
     );
     if (!result.exists) return result;
 
