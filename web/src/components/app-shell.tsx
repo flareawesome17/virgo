@@ -538,6 +538,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   const scroller = useScrollMemory();
 
+  // The shell is pinned to the viewport, so a document scroll (a focused
+  // off-screen control, an anchor, scrollIntoView) cannot move it; put the
+  // document back too so nothing else is left offset behind it.
+  useEffect(() => {
+    const reset = () => {
+      if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+    };
+    window.addEventListener('scroll', reset, { passive: true });
+    reset();
+    return () => window.removeEventListener('scroll', reset);
+  }, []);
+
   return (
     // data-app-shell is what globals.css keys `body { overflow: hidden }` off.
     // h-dvh, not h-full: dvh tracks what is actually visible on a phone.
@@ -546,7 +558,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       // Clipped, and held at the top if anything scrolls it anyway. A banner
       // arriving (the desktop update one) pushed the whole shell up by its own
       // height: the title bar and the top of the sidebar went off the window.
-      className="flex h-dvh overflow-hidden"
+      className="fixed inset-x-0 top-0 flex h-dvh overflow-hidden"
       onScroll={(event) => {
         event.currentTarget.scrollTop = 0;
       }}
