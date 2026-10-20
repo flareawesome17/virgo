@@ -129,6 +129,11 @@ export class DownloadCacheService {
     });
 
     const out = new PassThrough();
+    // B2 can reset mid-download. Without a listener, destroy(err) below would
+    // be an unhandled 'error' event and crash the whole API process.
+    out.on('error', (err) => {
+      this.logger.warn(`Download stream aborted for ${key}: ${String(err)}`);
+    });
     source.on('data', (chunk: Buffer) => {
       if (broken) return;
       written += chunk.length;
