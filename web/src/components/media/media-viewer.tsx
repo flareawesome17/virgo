@@ -18,6 +18,11 @@ const motion = 'transition-[transform,opacity,background-color] duration-300 eas
  */
 const DETAIL_AT = 1.5;
 
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 0.25;
+const clampZoom = (value: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+
 /**
  * The image's `srcset` and `sizes` at a zoom.
  *
@@ -82,12 +87,22 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
   const [showInfo, setShowInfo] = useState(false);
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const file = files[index];
   const kind = file ? kindOf(file.contentType) : 'other';
 
   const resetTransform = useCallback(() => {
     setZoom(1);
     setOffset({ x: 0, y: 0 });
+  }, []);
+  // Zoom by a step, keeping the picture inside the stage: back at 100% it is
+  // centred again, and below the maximum it cannot be left stranded off-screen.
+  const zoomBy = useCallback((delta: number) => {
+    setZoom((current) => {
+      const next = clampZoom(Math.round((current + delta) * 100) / 100);
+      if (next <= ZOOM_MIN) setOffset({ x: 0, y: 0 });
+      return next;
+    });
   }, []);
   const choose = useCallback((nextIndex: number) => {
     resetTransform();
@@ -109,8 +124,8 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
       if (event.key === 'Escape') onClose();
       if (event.key === 'ArrowRight') step(1);
       if (event.key === 'ArrowLeft') step(-1);
-      if (kind === 'image' && (event.key === '+' || event.key === '=')) setZoom((value) => Math.min(4, value + 0.25));
-      if (kind === 'image' && event.key === '-') setZoom((value) => Math.max(1, value - 0.25));
+      if (kind === 'image' && (event.key === '+' || event.key === '=')) zoomBy(ZOOM_STEP);
+      if (kind === 'image' && event.key === '-') zoomBy(-ZOOM_STEP);
       if (kind === 'image' && event.key === '0') resetTransform();
     };
     window.addEventListener('keydown', handle);
@@ -118,7 +133,7 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
       window.removeEventListener('keydown', handle);
       document.body.style.overflow = previous;
     };
-  }, [kind, onClose, resetTransform, step]);
+  }, [kind, onClose, resetTransform, step, zoomBy]);
 
   useEffect(() => {
     for (const near of [files[index - 1], files[index + 1]]) {
@@ -145,7 +160,7 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
   const onWheel = (event: WheelEvent) => {
     if (kind !== 'image') return;
     event.preventDefault();
-    setZoom((value) => Math.max(1, Math.min(4, value + (event.deltaY < 0 ? 0.25 : -0.25))));
+    zoomBy(event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
   };
   const onPointerDown = (event: ReactPointerEvent) => {
     if (zoom <= 1) return;
@@ -155,7 +170,14 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
   };
   const onPointerMove = (event: ReactPointerEvent) => {
     if (!drag.current) return;
-    setOffset({ x: drag.current.ox + event.clientX - drag.current.x, y: drag.current.oy + event.clientY - drag.current.y });
+    // Held to the zoomed picture's edge, so a drag cannot lose it.
+    const box = stageRef.current?.getBoundingClientRect();
+    const limitX = box ? ((zoom - 1) * box.width) / 2 : Infinity;
+    const limitY = box ? ((zoom - 1) * box.height) / 2 : Infinity;
+    setOffset({
+      x: Math.max(-limitX, Math.min(limitX, drag.current.ox + event.clientX - drag.current.x)),
+      y: Math.max(-limitY, Math.min(limitY, drag.current.oy + event.clientY - drag.current.y)),
+    });
   };
 
   return (
@@ -163,7 +185,7 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
       <header className={`relative z-20 flex items-center gap-3 px-4 py-3 ${motion} ${chrome ? 'translate-y-0 opacity-100' : '-translate-y-3 opacity-0'}`}>
         <button onClick={onClose} aria-label="Close viewer" className="grid size-10 place-items-center rounded-full bg-white/[0.08] text-white/80 hover:bg-white/[0.14] hover:text-white"><X size={19} strokeWidth={1.5} /></button>
         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold tracking-[-0.015em]">{file.originalName}</p><p className="mt-0.5 font-mono text-[10px] tabular-nums text-white/40">{index + 1} / {files.length} · {formatBytes(file.sizeBytes)}</p></div>
-        {kind === 'image' && <div className="hidden items-center gap-1 sm:flex"><ViewerButton label="Zoom out" onClick={() => setZoom((value) => Math.max(1, value - 0.25))}><ZoomOut size={18} strokeWidth={1.5} /></ViewerButton><button onClick={resetTransform} className="min-w-14 rounded-full px-3 py-2 font-mono text-[10px] tabular-nums text-white/60 hover:bg-white/[0.08]">{Math.round(zoom * 100)}%</button><ViewerButton label="Zoom in" onClick={() => setZoom((value) => Math.min(4, value + 0.25))}><ZoomIn size={18} strokeWidth={1.5} /></ViewerButton></div>}
+        {kind === 'image' && <div className="hidden items-center gap-1 sm:flex"><ViewerButton label="Zoom out" disabled={zoom <= ZOOM_MIN} onClick={() => zoomBy(-ZOOM_STEP)}><ZoomOut size={18} strokeWidth={1.5} /></ViewerButton><button onClick={resetTransform} aria-label="Reset zoom to fit" title="Reset zoom (0)" className="min-w-14 rounded-full px-3 py-2 font-mono text-[10px] tabular-nums text-white/60 hover:bg-white/[0.08]">{Math.round(zoom * 100)}%</button><ViewerButton label="Zoom in" disabled={zoom >= ZOOM_MAX} onClick={() => zoomBy(ZOOM_STEP)}><ZoomIn size={18} strokeWidth={1.5} /></ViewerButton></div>}
         <ViewerButton label="File information" onClick={() => setShowInfo((value) => !value)}><Info size={18} strokeWidth={1.5} /></ViewerButton>
         {/* Marked as a download, or the desktop app sends it to the browser. */}
         {file.capabilities.download && file.downloadUrl && <a href={downloadHref(file.downloadUrl)} aria-label="Download original" className="grid size-10 place-items-center rounded-full text-white/65 hover:bg-white/[0.08] hover:text-white"><Download size={18} strokeWidth={1.5} /></a>}
@@ -172,7 +194,7 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
 
       <main className="relative min-h-0 flex-1">
         {!file.url ? <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">This media URL has expired. Close the viewer and reload the album.</div> : kind === 'image' ? (
-          <div className={`grid h-full select-none place-items-center overflow-hidden ${zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; setDragging(false); }} onPointerCancel={() => { drag.current = null; setDragging(false); }} onDoubleClick={() => zoom > 1 ? resetTransform() : setZoom(2)} onClick={() => zoom === 1 && setChrome((value) => !value)}>
+          <div ref={stageRef} className={`grid h-full select-none place-items-center overflow-hidden ${zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; setDragging(false); }} onPointerCancel={() => { drag.current = null; setDragging(false); }} onDoubleClick={() => zoom > 1 ? resetTransform() : zoomBy(1)} onClick={() => zoom === 1 && setChrome((value) => !value)}>
             { }
             {/* Display copies when there are any, the original when there are
                 not, and the original as well once zoomed far enough to need
@@ -181,7 +203,7 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
                 it is 20px upscaled, so it only has to fill the frame until
                 the real one paints over it. No extra request — the string
                 arrived with the listing. */}
-            <img src={largestDisplaySource(file) ?? file.url} srcSet={sources.srcSet} sizes={sources.sizes} alt={file.originalName} draggable={false} className="max-h-full max-w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)', backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+            <img src={largestDisplaySource(file) ?? file.url} srcSet={sources.srcSet} sizes={sources.sizes} alt={file.originalName} draggable={false} className="h-full w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)', backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }} />
           </div>
         ) : kind === 'video' ? <VideoPlayer file={file} /> : <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">Open audio from the album track list to use the listening queue.</div>}
 
@@ -195,7 +217,7 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
   );
 }
 
-function ViewerButton({ label, onClick, children, danger = false }: { label: string; onClick: () => void; children: React.ReactNode; danger?: boolean }) {
-  return <button onClick={onClick} aria-label={label} className={`grid size-10 place-items-center rounded-full ${danger ? 'text-white/55 hover:bg-[#9e433c]/20 hover:text-[#efa79e]' : 'text-white/65 hover:bg-white/[0.08] hover:text-white'}`}>{children}</button>;
+function ViewerButton({ label, onClick, children, danger = false, disabled = false }: { label: string; onClick: () => void; children: React.ReactNode; danger?: boolean; disabled?: boolean }) {
+  return <button onClick={onClick} disabled={disabled} aria-label={label} className={`grid size-10 place-items-center rounded-full disabled:pointer-events-none disabled:opacity-30 ${danger ? 'text-white/55 hover:bg-[#9e433c]/20 hover:text-[#efa79e]' : 'text-white/65 hover:bg-white/[0.08] hover:text-white'}`}>{children}</button>;
 }
 
