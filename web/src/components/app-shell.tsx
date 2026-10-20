@@ -541,7 +541,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     // data-app-shell is what globals.css keys `body { overflow: hidden }` off.
     // h-dvh, not h-full: dvh tracks what is actually visible on a phone.
-    <div data-app-shell className="flex h-dvh">
+    <div
+      data-app-shell
+      // Clipped, and held at the top if anything scrolls it anyway. A banner
+      // arriving (the desktop update one) pushed the whole shell up by its own
+      // height: the title bar and the top of the sidebar went off the window.
+      className="flex h-dvh overflow-hidden"
+      onScroll={(event) => {
+        event.currentTarget.scrollTop = 0;
+      }}
+    >
       {/* Render nothing anywhere. In the desktop app they keep the window's
           title, dock badge and taskbar in step with what is unread, and say
           where a download went. */}
@@ -550,11 +559,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* The sidebar runs the full height of the window, and the desktop title
           bar is a strip over the content beside it, so the brand shows once. */}
-      <aside className="hidden w-60 shrink-0 border-r lg:block">
+      <aside className="hidden h-full min-h-0 w-60 shrink-0 overflow-hidden border-r lg:block">
         <SidebarBody />
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Renders nothing on the web. In the desktop app it is the title bar. */}
         <DesktopTitleBar embedded />
         <div className="flex min-h-0 flex-1 flex-col">
@@ -595,9 +604,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               page such as Chat was a banner taller than the room it had, and
               its composer slid off the bottom. Offline first: being offline
               explains most other failures. */}
-          <OfflineBanner />
-          <DesktopUpdateBanner />
-          <VerifyEmailBanner />
+          <div className="shrink-0 empty:hidden">
+            <OfflineBanner />
+            <DesktopUpdateBanner />
+            <VerifyEmailBanner />
+          </div>
 
           <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
             <SlotsContext.Provider value={slots}>{children}</SlotsContext.Provider>
