@@ -6,10 +6,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { INITIAL_DOCK, dockReducer } from './upload-dock-state';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryKeys, storageApi, type UploadScope } from '@/api';
@@ -76,6 +78,11 @@ interface UploadQueue {
   checking: number;
   /** Sends the files skipped for that reason after all. */
   uploadSkipped: (reason: 'duplicate' | 'possible') => void;
+  /** Counts up per batch; the dock's minimised choice belongs to one batch. */
+  batchId: number;
+  minimised: boolean;
+  /** true: minimise (remembers the failures already seen); false: expand. */
+  setMinimised: (value: boolean) => void;
 }
 
 /** How many files go up at once, across the whole app. See upload-concurrency.ts. */
@@ -85,7 +92,7 @@ const CONCURRENCY = UPLOAD_CONCURRENCY;
 const REFRESH_EVERY_MS = 4000;
 
 const noop = () => undefined;
-const UploadContext = createContext<UploadQueue>({
+export const UploadContext = createContext<UploadQueue>({
   items: [],
   active: false,
   bytesPerSecond: null,
@@ -95,6 +102,9 @@ const UploadContext = createContext<UploadQueue>({
   clearFinished: noop,
   checking: 0,
   uploadSkipped: noop,
+  batchId: 0,
+  minimised: false,
+  setMinimised: noop,
 });
 
 /** What the pre-upload check is told about a file (upload-dedup.ts). */
@@ -147,6 +157,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     albumName?: string;
   } | null>(null);
   const stopHoldingClose = useRef<(() => Promise<void>) | null>(null);
+  // The dock's minimised state, kept per batch of uploads.
+  const [dock, dispatchDock] = useReducer(dockReducer, INITIAL_DOCK);
+  const checkingRef = useRef(0);
 
   /** How often progress may re-render the app while bytes are moving. */
   const PROGRESS_EVERY_MS = 200;
@@ -291,12 +304,17 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const enqueue = useCallback(
     (list: File[], target: UploadTarget) => {
       if (list.length === 0) return;
+      // Files added while a batch runs join it; otherwise this starts a new one.
+      if (running.current === 0 && waiting.current.length === 0 && checkingRef.current === 0) {
+        dispatchDock({ type: 'batch-started' });
+      }
       const albumId = target.albumId;
       if (!albumId || target.scope !== 'albums') {
         add(list, target);
         pump();
         return;
       }
+      checkingRef.current += list.length;
       setChecking((n) => n + list.length);
       void planUploads(list, describeFile, (described) =>
         storageApi.checkUploads(albumId, described),
@@ -315,6 +333,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           }
         })
         .finally(() => {
+          checkingRef.current = Math.max(0, checkingRef.current - list.length);
           setChecking((n) => Math.max(0, n - list.length));
           pump();
         });
@@ -378,6 +397,17 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const active = items.some((item) => item.status === 'queued' || item.status === 'uploading');
+
+  // The dock opens itself only when more files fail than the person has seen.
+  const failedCount = items.filter((item) => item.status === 'failed').length;
+  useEffect(() => {
+    dispatchDock({ type: 'failed-changed', failed: failedCount });
+  }, [failedCount]);
+  const setMinimised = useCallback(
+    (value: boolean) =>
+      dispatchDock(value ? { type: 'minimise', failed: failedCount } : { type: 'expand' }),
+    [failedCount],
+  );
 
   // Leaving mid-upload loses what has not been sent. The browser's own dialog
   // is the only one allowed here, and it is enough: it names the risk.
@@ -496,8 +526,24 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       clearFinished,
       checking,
       uploadSkipped,
+      batchId: dock.batchId,
+      minimised: dock.minimised,
+      setMinimised,
     }),
-    [items, active, bytesPerSecond, enqueue, cancel, retryFailed, clearFinished, checking, uploadSkipped],
+    [
+      items,
+      active,
+      bytesPerSecond,
+      enqueue,
+      cancel,
+      retryFailed,
+      clearFinished,
+      checking,
+      uploadSkipped,
+      dock.batchId,
+      dock.minimised,
+      setMinimised,
+    ],
   );
 
   return (

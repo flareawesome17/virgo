@@ -1,13 +1,19 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronUp, Loader2, RotateCcw, X, XCircle } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, ChevronDown, ChevronUp, Loader2, Minus, RotateCcw, X, XCircle } from 'lucide-react';
 import { formatBytes } from '@/api';
 import { skippedSummary } from '@/api/upload-dedup';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { MINI_PLAYER_OFFSET_VAR } from '@/components/media/video-surface';
+import { dockFloorCss } from '@/lib/edge-offsets';
+import { useBounce, useGenie } from '@/lib/motion';
+import { cn } from '@/lib/utils';
+import { UploadDockIcon } from './upload-dock-icon';
+import { badge as dockBadge, dockLabel, dockStatus, parseStoredBottom, summarize } from './upload-dock-state';
 import { useUploadQueue, type UploadItem } from './upload-provider';
+
+const BOTTOM_KEY = 'virgo:upload-dock:bottom';
 
 /** Rows drawn at most per group: a wedding is hundreds of files and the dock is a summary. */
 const ROWS = 30;
@@ -39,8 +45,51 @@ export function UploadDock() {
     clearFinished,
     checking,
     uploadSkipped,
+    minimised,
+    setMinimised,
   } = useUploadQueue();
   const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+  const iconRef = useRef<HTMLButtonElement>(null);
+  const minimiseRef = useRef<HTMLButtonElement>(null);
+  const genie = useGenie();
+  const { ref: bounceRef, bounce } = useBounce<HTMLButtonElement>();
+  // Only a person's own minimise/expand moves focus; an auto-open must not.
+  const moveFocus = useRef<'icon' | 'panel' | null>(null);
+  const wasMinimised = useRef(minimised);
+  const [bottom, setBottom] = useState<number | null>(null);
+
+  // The saved position is read after mount so server and client render alike.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBottom(parseStoredBottom(window.localStorage.getItem(BOTTOM_KEY)));
+  }, []);
+
+  const minimise = async () => {
+    const panel = panelRef.current;
+    const icon = iconRef.current;
+    if (panel && icon) await genie.play(panel, icon, 'close');
+    moveFocus.current = 'icon';
+    setMinimised(true);
+  };
+  const expand = () => {
+    moveFocus.current = 'panel';
+    setMinimised(false);
+  };
+
+  // Expanding (click or auto-open): spring out of the icon once the panel is mounted.
+  useLayoutEffect(() => {
+    const was = wasMinimised.current;
+    wasMinimised.current = minimised;
+    if (was && !minimised && panelRef.current && iconRef.current) {
+      void genie.play(panelRef.current, iconRef.current, 'open');
+    }
+  }, [minimised, genie]);
+  useEffect(() => {
+    if (moveFocus.current === 'icon' && minimised) iconRef.current?.focus();
+    if (moveFocus.current === 'panel' && !minimised) minimiseRef.current?.focus();
+    moveFocus.current = null;
+  }, [minimised]);
 
   const summary = useMemo(() => {
     // Skipped files were never part of the transfer, so they are left out of
@@ -64,6 +113,19 @@ export function UploadDock() {
       album: albums.size === 1 ? [...albums][0] : null,
     };
   }, [items]);
+
+  const batch = useMemo(() => summarize(items), [items]);
+  const status = dockStatus(batch, checking);
+
+  // A finished or failed batch bounces its icon once.
+  const previousStatus = useRef(status);
+  useEffect(() => {
+    if (previousStatus.current !== status && (status === 'done' || status === 'failed')) {
+      bounceRef.current = iconRef.current;
+      bounce();
+    }
+    previousStatus.current = status;
+  }, [status, bounce, bounceRef]);
 
   if (items.length === 0 && checking === 0) return null;
 
@@ -107,17 +169,44 @@ export function UploadDock() {
         }`;
 
   return (
-    <section
-      aria-label="Uploads"
-      className="fixed right-4 z-40 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover shadow-lg transition-[bottom] duration-200 motion-reduce:transition-none"
-      // The minimised film player docks in this same corner at this same width,
-      // one layer up. While one is there, sit above it rather than under it —
-      // otherwise a film minimised during an upload hides the upload entirely.
-      style={{ bottom: `calc(1rem + var(${MINI_PLAYER_OFFSET_VAR}, 0px))` }}
-    >
+    <>
       <p className="sr-only" role="status" aria-live="polite">
         {announcement}
       </p>
+      <p id="upload-dock-hint" className="sr-only">
+        Arrow keys move it along the edge
+      </p>
+      <UploadDockIcon
+        ref={iconRef}
+        status={status}
+        fraction={batch.fraction}
+        badge={dockBadge(status, batch, checking)}
+        label={dockLabel(status, batch, checking)}
+        bottom={bottom}
+        hidden={!minimised}
+        onBottomChange={(value, final) => {
+          setBottom(value);
+          if (final) window.localStorage.setItem(BOTTOM_KEY, String(Math.round(value)));
+        }}
+        onOpen={expand}
+      />
+      {!minimised && (
+    <section
+      id="upload-dock-panel"
+      ref={panelRef}
+      aria-label="Uploads"
+      className={cn(
+        'fixed right-4 z-40 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover shadow-lg',
+        'transition-[bottom] duration-200 motion-reduce:transition-none',
+      )}
+      // The minimised film player docks in this same corner at this same width,
+      // one layer up, and on chat pages the message box sits at the bottom.
+      // Sit above whichever is there rather than under it.
+      style={{ bottom: `calc(1rem + ${dockFloorCss()})` }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') void minimise();
+      }}
+    >
       <div className="flex items-start gap-2.5 px-3.5 pt-3 pb-2.5">
         <span className="mt-0.5">
           {busy ? (
@@ -134,9 +223,19 @@ export function UploadDock() {
           {active && <Progress value={summary.fraction * 100} className="mt-2 h-1.5" aria-label="Overall upload progress" />}
         </div>
         <Button
+          ref={minimiseRef}
           size="icon"
           variant="ghost"
-          className="size-7"
+          className="motion-icon size-7"
+          onClick={() => void minimise()}
+          aria-label="Minimise uploads"
+        >
+          <Minus className="size-4" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="motion-icon size-7"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
           aria-label={open ? 'Hide upload details' : 'Show upload details'}
@@ -241,6 +340,8 @@ export function UploadDock() {
         </ul>
       )}
     </section>
+      )}
+    </>
   );
 }
 
