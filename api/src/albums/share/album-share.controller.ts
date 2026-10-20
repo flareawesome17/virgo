@@ -285,7 +285,7 @@ export class PublicAlbumController {
       return;
     }
 
-    const entry = this.zips.request(zipName, files, (key) => this.cacheStream(key));
+    const entry = this.zips.request(ownerId, zipName, files, (key) => this.cacheStream(key));
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
@@ -316,8 +316,10 @@ export class PublicAlbumController {
     }
     res.status(wantsPage ? 200 : 503).setHeader('Retry-After', '3');
     if (wantsPage) {
-      const queued = entry.state === 'queued' ? this.zips.queued : 0;
-      res.type('html').send(renderZipPreparing(entry.done, entry.total, queued));
+      const position = entry.state === 'queued' ? this.zips.queuePosition(entry) : 0;
+      res
+        .type('html')
+        .send(renderZipPreparing(entry.done, entry.total, position, this.zips.etaSeconds(entry)));
     } else {
       res.type('text/plain').send(`Preparing ${entry.done}/${entry.total}. Retry shortly.`);
     }

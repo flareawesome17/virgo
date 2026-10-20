@@ -84,10 +84,22 @@ export function renderDownloadsPaused(): string {
  * together on the server. Refreshes itself; when the zip is ready the same
  * address answers with the file.
  */
-export function renderZipPreparing(done: number, total: number, queued: number): string {
-  const body = queued > 0
-    ? `Other downloads are being prepared first. You are number ${queued + 1} in line. This page refreshes by itself.`
-    : `${done} of ${total} files so far. This page refreshes by itself and the download starts when it is ready.`;
+export function renderZipPreparing(
+  done: number,
+  total: number,
+  position: number,
+  etaSeconds?: number,
+): string {
+  const eta =
+    etaSeconds === undefined
+      ? ''
+      : etaSeconds < 90
+        ? ' About a minute left.'
+        : ` About ${Math.round(etaSeconds / 60)} minutes left.`;
+  const body =
+    position > 0
+      ? `Other downloads are being prepared first. You are number ${position} in line. This page refreshes by itself.`
+      : `${done} of ${total} files so far.${eta} This page refreshes by itself and the download starts when it is ready.`;
   return renderNotice('Preparing your download', DOWNLOAD_ICON, 'Preparing your download', body)
     .replace('<head>', '<head><meta http-equiv="refresh" content="3">');
 }
