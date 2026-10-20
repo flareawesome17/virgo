@@ -88,6 +88,12 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  // Which picture has painted, and which has had its display copies fail. A
+  // copy that will not load falls back to the original rather than leaving the
+  // 20px preview up, magnified, as if it were the photograph.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [copiesFailedKey, setCopiesFailedKey] = useState<string | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
   const file = files[index];
   const kind = file ? kindOf(file.contentType) : 'other';
 
@@ -156,7 +162,10 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
   }, [files, index]);
 
   if (!file) return null;
-  const sources = zoomedSources(file, zoom);
+  const copiesFailed = copiesFailedKey === file.key;
+  const sources = copiesFailed ? {} : zoomedSources(file, zoom);
+  const imageSrc = (copiesFailed ? file.url : (largestDisplaySource(file) ?? file.url)) ?? undefined;
+  const loaded = loadedKey === file.key;
   const onWheel = (event: WheelEvent) => {
     if (kind !== 'image') return;
     event.preventDefault();
@@ -203,7 +212,8 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
                 it is 20px upscaled, so it only has to fill the frame until
                 the real one paints over it. No extra request — the string
                 arrived with the listing. */}
-            <img src={largestDisplaySource(file) ?? file.url} srcSet={sources.srcSet} sizes={sources.sizes} alt={file.originalName} draggable={false} className="h-full w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)', backgroundImage: file.blurDataUrl ? `url("${file.blurDataUrl}")` : undefined, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }} />
+            <img key={`${file.key}:${copiesFailed}`} src={imageSrc} onLoad={() => setLoadedKey(file.key)} onError={() => (copiesFailed || !file.displaySources.length ? setFailedKey(file.key) : setCopiesFailedKey(file.key))} srcSet={sources.srcSet} sizes={sources.sizes} alt={file.originalName} draggable={false} className="h-full w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)', backgroundImage: file.blurDataUrl && !loaded ? `url("${file.blurDataUrl}")` : undefined, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }} />
+            {failedKey === file.key && <p className="absolute inset-x-0 top-1/2 px-6 text-center text-sm text-white/60">This photo could not be loaded. Try the download button for the original.</p>}
           </div>
         ) : kind === 'video' ? <VideoPlayer file={file} /> : <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">Open audio from the album track list to use the listening queue.</div>}
 
