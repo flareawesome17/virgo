@@ -3,6 +3,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { IS_DESKTOP } from '@/lib/desktop';
 import { cn } from '@/lib/utils';
 
 /**
@@ -22,6 +23,8 @@ export function BackButton({
   className?: string;
 }) {
   const router = useRouter();
+  // The desktop title bar already has back and forward for the whole app.
+  if (IS_DESKTOP) return null;
   return (
     <Button
       type="button"

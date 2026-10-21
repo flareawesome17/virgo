@@ -1,6 +1,7 @@
 {
   "name": "virgo-desktop",
   "version": "1.3.0",
+  "license": "UNLICENSED",
   "private": true,
   "description": "Tauri shell that runs the Virgo web client as a desktop app",
   "scripts": {
