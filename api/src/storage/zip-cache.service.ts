@@ -37,12 +37,17 @@ interface Job {
   out?: Writable;
   abandoned: boolean;
   storageFailed: boolean;
+  /** Last time the build moved: a file finished or bytes were written. */
+  progressAt: number;
+  lastBytes: number;
 }
 
 /** A queued job nobody has asked about for this long is dropped. */
 const QUEUED_ABANDON_MS = 5 * 60_000;
 /** A build nobody has asked about for this long is stopped, saving storage egress. */
 const BUILDING_ABANDON_MS = 10 * 60_000;
+/** A build that has written nothing and finished no file for this long is stuck on storage. */
+const STALL_MS = 3 * 60_000;
 /** After waiting this long a job goes ahead of smaller, newer ones. */
 const AGING_MS = 10 * 60_000;
 
@@ -199,6 +204,8 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
       lastPolled: now,
       abandoned: false,
       storageFailed: false,
+      progressAt: now,
+      lastBytes: 0,
     };
     this.entries.set(id, entry);
     this.jobs.set(id, job);
@@ -284,6 +291,19 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
       }
     }
     for (const job of this.running) {
+      const bytes = (job.out as { bytesWritten?: number } | undefined)?.bytesWritten ?? 0;
+      if (bytes !== job.lastBytes) {
+        job.lastBytes = bytes;
+        job.progressAt = now;
+      }
+      if (!job.abandoned && job.startedAt > 0 && now - job.progressAt > STALL_MS) {
+        // Storage is not answering: free the slot so the queue moves and the
+        // client gets a clear "try again" instead of waiting in line for ever.
+        job.storageFailed = true;
+        job.progressAt = now;
+        job.out?.destroy(new Error('Storage unavailable: build stalled'));
+        this.logger.warn(`Stopped stalled zip "${job.zipName}": no progress for 3 minutes`);
+      }
       if (!job.abandoned && now - job.lastPolled > BUILDING_ABANDON_MS) {
         job.abandoned = true;
         job.out?.destroy(new Error('nobody waiting'));
@@ -357,6 +377,7 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
       job.out = out;
       const guard = (done: number) => {
         entry.done = done;
+        job.progressAt = Date.now();
         // The final size is not known ahead of time, so check as it grows.
         if (this.othersBytes(entry) + out.bytesWritten > this.maxBytes) {
           void this.makeRoom(entry, out.bytesWritten).then((ok) => {
