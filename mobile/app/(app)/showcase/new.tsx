@@ -35,6 +35,7 @@ import { BottomSheet } from '@/components/BottomSheet';
 import { FormHeader } from '@/components/FormHeader';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
+import { VideoThumbnail } from '@/components/VideoThumbnail';
 import { LoadFailed } from '@/components/LoadFailed';
 import { DetailFallback } from '@/components/DetailFallback';
 import {
@@ -220,11 +221,12 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   });
 
   /**
-   * What can go in: photographs, and films that have a poster frame.
+   * What can go in: photographs, and films the media worker has finished with.
    *
-   * A film's poster is written by the media worker a minute or so after the
-   * upload, and the server refuses a film without one. Leaving those out of
-   * the grid is the same rule stated before it is broken rather than after.
+   * Posting a film makes its poster frame, and the server refuses one still
+   * being prepared. Leaving those out of the grid is the same rule stated
+   * before it is broken rather than after. A poster also means finished: it
+   * is how films said so before.
    */
   const available = useMemo(
     () =>
@@ -232,12 +234,12 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         if (PROFILE_PICTURE_KEY.test(f.key)) return false;
         const kind = kindOf(f.contentType);
         if (kind === 'image') return Boolean(f.thumbnailUrl || f.url);
-        return kind === 'video' && Boolean(f.posterUrl);
+        return kind === 'video' && (Boolean(f.posterUrl) || f.processingStatus === 'ready');
       }),
     [files.data],
   );
 
-  /** A tile's still: the thumbnail, never the original. */
+  /** A tile's still: the thumbnail, never the original. None for a film with no poster. */
   const stillOf = (file: StoredFile): string | undefined =>
     (kindOf(file.contentType) === 'video' ? file.posterUrl : (file.thumbnailUrl ?? file.url)) ??
     undefined;
@@ -480,7 +482,13 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                   borderColor: bad ? palette.destructive : 'transparent',
                 }}
               >
-                {stills[key] ? <RemoteImage source={{ uri: stills[key] }} style={{ flex: 1 }} /> : null}
+                {stills[key] ? (
+                  <RemoteImage source={{ uri: stills[key] }} style={{ flex: 1 }} />
+                ) : kinds[key] === 'video' ? (
+                  <View className="flex-1 items-center justify-center bg-secondary">
+                    <VideoThumbnail size={38} />
+                  </View>
+                ) : null}
                 <View className="absolute right-1 top-1 w-5 h-5 rounded-full bg-action items-center justify-center">
                   <Text className="text-action-foreground text-[10px] font-bold">{i + 1}</Text>
                 </View>
@@ -870,17 +878,24 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
               >
                 {still ? (
                   <RemoteImage source={{ uri: still }} style={{ flex: 1 }} recyclingKey={file.key} />
+                ) : film ? (
+                  <View className="flex-1 items-center justify-center bg-secondary">
+                    <VideoThumbnail size={Math.round(tile * 0.5)} />
+                  </View>
                 ) : null}
                 {film && (
                   <>
-                    <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
-                      <View
-                        className="w-9 h-9 rounded-full items-center justify-center"
-                        style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-                      >
-                        <PlayIcon size={15} color="#fff" fill="#fff" />
+                    {/* The icon has a play button of its own. */}
+                    {still ? (
+                      <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
+                        <View
+                          className="w-9 h-9 rounded-full items-center justify-center"
+                          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+                        >
+                          <PlayIcon size={15} color="#fff" fill="#fff" />
+                        </View>
                       </View>
-                    </View>
+                    ) : null}
                     {file.durationMs ? (
                       <View
                         className="absolute right-1.5 bottom-1.5 rounded-full px-1.5 py-0.5"

@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import type { DatabaseService } from '../database/database.service';
+import type { FilmPosterService } from '../storage/film-poster.service';
 import type { HlsService } from '../storage/hls.service';
 import type { MediaLinkService } from '../storage/media-link.service';
 import type { StorageService } from '../storage/storage.service';
@@ -42,6 +43,7 @@ interface FileRow {
   poster_key: string | null;
   display_widths: number[] | null;
   blur_data_url: string | null;
+  processing_status?: string | null;
 }
 
 /** A piece already in the showcase being edited, as the edit reads it. */
@@ -109,6 +111,7 @@ function make(files: FileRow[], opts: { showcaseCount?: number; stored?: StoredR
   const copyShowcase = jest.fn(async () => undefined);
   const eraseShowcase = jest.fn(async () => undefined);
   const erasePieces = jest.fn(async () => undefined);
+  const ensurePoster = jest.fn(async (key: string): Promise<string | null> => `${key}-poster.webp`);
   const service = new ShowcasesService(
     db,
     { mediaUrl: jest.fn(async () => 'https://cdn/x') } as unknown as StorageService,
@@ -116,9 +119,10 @@ function make(files: FileRow[], opts: { showcaseCount?: number; stored?: StoredR
     { generate } as unknown as ThumbnailsService,
     { enqueueKeys } as unknown as HlsService,
     { copyShowcase, eraseShowcase, erasePieces } as unknown as ShowcaseMediaService,
+    { ensure: ensurePoster } as unknown as FilmPosterService,
   );
 
-  return { service, db, inserts, generate, enqueueKeys, copyShowcase, eraseShowcase };
+  return { service, db, inserts, generate, enqueueKeys, copyShowcase, eraseShowcase, ensurePoster };
 }
 
 const film = (key: string, over: Partial<FileRow> = {}): FileRow => ({
@@ -180,14 +184,43 @@ describe('posting a showcase', () => {
     );
   });
 
-  it('refuses a film whose poster frame has not been made yet', async () => {
-    // The poster is the only still a feed has to draw. Posting before the media
-    // worker has written one would put a blank card on everybody's feed, so it
-    // is refused with the one useful thing to say: wait a moment.
-    const { service } = make([film('clip.mp4', { poster_key: null })]);
+  it('refuses a film the media worker has not finished with', async () => {
+    // Its length and playback copy come from the worker, and its poster is
+    // taken from it after that. Posting before then would put a blank card on
+    // everybody's feed, so it is refused with the one useful thing to say:
+    // wait a moment.
+    const { service, ensurePoster } = make([
+      film('clip.mp4', { poster_key: null, processing_status: 'pending' }),
+    ]);
     await expect(service.create(ME, { fileKeys: ['clip.mp4'] })).rejects.toMatchObject({
       response: { code: 'SHOWCASE_FILM_NOT_READY' },
     });
+    expect(ensurePoster).not.toHaveBeenCalled();
+  });
+
+  it('makes the poster of a finished film that has none, then posts it', async () => {
+    // Uploads no longer get a poster; the first post of a film makes it.
+    const { service, inserts, ensurePoster } = make([
+      film('clip.mp4', { poster_key: null, processing_status: 'ready' }),
+    ]);
+
+    await service.create(ME, { fileKeys: ['clip.mp4'] });
+
+    expect(ensurePoster).toHaveBeenCalledWith('clip.mp4');
+    const pieces = inserts.find((i) => i.sql.includes('insert into showcase_items'));
+    expect(pieces?.params[2]).toEqual(['clip.mp4']);
+  });
+
+  it('refuses a finished film whose poster could not be made', async () => {
+    const { service, inserts, ensurePoster } = make([
+      film('clip.mp4', { poster_key: null, processing_status: 'ready' }),
+    ]);
+    ensurePoster.mockResolvedValueOnce(null);
+
+    await expect(service.create(ME, { fileKeys: ['clip.mp4'] })).rejects.toMatchObject({
+      response: { code: 'SHOWCASE_FILM_NOT_READY', fileKey: 'clip.mp4' },
+    });
+    expect(inserts.find((i) => i.sql.includes('insert into showcase_items'))).toBeUndefined();
   });
 
   it('takes a film that has one, and asks for a ladder without waiting for it', async () => {

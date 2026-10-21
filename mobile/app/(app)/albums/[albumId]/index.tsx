@@ -18,6 +18,7 @@ import {
 // expo-image rather than RN Image: it decodes AVIF (and HEIC) on OS
 // versions where the RN one silently renders nothing.
 import { RemoteImage, stableCacheKey } from '@/components/RemoteImage';
+import { VideoThumbnail } from '@/components/VideoThumbnail';
 import { BottomSheet, useShade } from '@/components/BottomSheet';
 import { NameSheet } from '@/components/NameSheet';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
@@ -1528,7 +1529,7 @@ function MediaTile({
           {kind === 'audio' ? (
             <MusicIcon size={22} className="text-muted-foreground" />
           ) : kind === 'video' ? (
-            <VideoIcon size={22} className="text-muted-foreground" />
+            <VideoThumbnail size={Math.min(64, Math.round(size * 0.42))} />
           ) : (
             <FileIcon size={22} className="text-muted-foreground" />
           )}

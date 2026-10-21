@@ -74,6 +74,7 @@ export { ProfileWorkTaste } from './ProfileWorkTaste';
 export { ShowcaseReportSheet } from './ShowcaseReportSheet';
 export { CommentThread } from './CommentThread';
 export { ShowcaseFilm } from './ShowcaseFilm';
+export { VideoThumbnail } from './VideoThumbnail';
 export { ShowcaseCard, type ShowcaseCardActions } from './ShowcaseCard';
 export { useShowcaseCardHost } from './ShowcaseCardHost';
 export { ShowcasePostSheet } from './ShowcasePostSheet';

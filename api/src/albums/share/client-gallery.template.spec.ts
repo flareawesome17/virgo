@@ -40,6 +40,13 @@ const view: PublicAlbumView = {
 };
 
 describe('client gallery template', () => {
+  it('gives a film with no poster the Virgo video icon, inlined so the CSP allows it', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    expect(html).toContain('const filmIcon = "data:image/svg+xml;base64,');
+    expect(html).toContain("const icon = film && !file.posterUrl;");
+    expect(html).toContain('.open img.film-icon{');
+  });
+
   it('points downloads at the permanent route, not a pre-signed storage URL', () => {
     const html = renderClientGallery(view, 'token-value', 'nonce-value');
     expect(html).toContain("'/files/' + encodeURIComponent(file.id) + '/download'");

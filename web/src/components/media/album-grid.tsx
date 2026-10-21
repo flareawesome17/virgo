@@ -2,11 +2,12 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useMemo, type DragEvent, type MouseEvent } from 'react';
-import { Check, FileText, Heart, Music, Play, Video } from 'lucide-react';
+import { Check, FileText, Heart, Music, Play } from 'lucide-react';
 import { kindOf, THUMBNAIL_EDGE, type StoredFile } from '@/api';
 import { daySpan, groupByDay } from '@/lib/media-days';
 import { cn } from '@/lib/utils';
 import type { useSelection } from '@/hooks/useMediaSelection';
+import { VideoThumbnail } from './video-thumbnail';
 
 /** The type a drag of album files carries, so a section can tell it from a drop of new files. */
 export const ALBUM_FILES_DRAG = 'application/x-virgo-files';
@@ -237,7 +238,7 @@ function Tile({
               {kind === 'audio' ? (
                 <Music className="mx-auto size-6 text-muted-foreground" aria-hidden />
               ) : kind === 'video' ? (
-                <Video className="mx-auto size-6 text-muted-foreground" aria-hidden />
+                <VideoThumbnail className="mx-auto block size-14 sm:size-20" />
               ) : (
                 <FileText className="mx-auto size-6 text-muted-foreground" aria-hidden />
               )}

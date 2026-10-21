@@ -1,12 +1,9 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rm } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DatabaseService } from '../database/database.service';
-import { blurDataUrl } from './blur';
 import { takenAtFromVideoTags } from './capture-time';
 import { MediaLinkService, proxyKeyFor } from './media-link.service';
 import { StorageService } from './storage.service';
@@ -95,10 +92,6 @@ interface ProbeResult {
   format?: { duration?: string; tags?: Record<string, string> };
 }
 
-export function posterKeyFor(key: string): string {
-  return `${key.replace(/\.[^./]+$/, '')}-poster.webp`;
-}
-
 /**
  * Proxy dimensions for a source, capped on the LONG edge.
  *
@@ -121,7 +114,14 @@ export function proxyScale(
   return { width: even(width), height: even(height) };
 }
 
-/** Durable, restart-safe metadata extraction for video and audio uploads. */
+/**
+ * Durable, restart-safe metadata extraction for video and audio uploads, and
+ * a film's playback copy.
+ *
+ * It no longer grabs a poster frame from each film. Albums show the Virgo
+ * video icon for a film, and only a film that is posted to a showcase is
+ * given a frame, by FilmPosterService when it is posted.
+ */
 @Injectable()
 export class MediaProcessingService {
   private readonly logger = new Logger(MediaProcessingService.name);
@@ -218,17 +218,15 @@ export class MediaProcessingService {
       // at best, so audio keeps sorting by when it arrived.
       const takenAt = video ? takenAtFromVideoTags(probe.format?.tags) : null;
 
-      let posterKey: string | null = null;
-      let posterBlur: string | null = null;
       let proxyKey: string | null = null;
       /**
        * A photograph is not a film, whatever ffprobe says.
        *
        * A JPEG decodes as one mjpeg frame, and mjpeg's `codec_type` is
        * `video`, so `video` above is truthy for every photograph anyone
-       * uploads. Both calls below used to run on one. Seeking a second into a
-       * single frame is what produced this, three times per image, before the
-       * file was finally marked failed:
+       * uploads. A poster grab and the proxy below used to run on one.
+       * Seeking a second into a single frame is what produced this, three
+       * times per image, before the file was finally marked failed:
        *
        *     Media processing failed for …/avatars/…jpg: Command failed:
        *     ffmpeg -v error -ss 1.00 -i https://…
@@ -253,37 +251,32 @@ export class MediaProcessingService {
         (file.content_type ?? '').toLowerCase().startsWith('image/') ||
         STILL_IMAGE_CODECS.has((video?.codec_name ?? '').toLowerCase());
       if (video && !isStill) {
-        const poster = await this.createPoster(file.key, sourceUrl, durationMs);
-        posterKey = poster?.key ?? null;
-        posterBlur = poster?.blur ?? null;
         proxyKey = await this.createProxy(file.key, sourceUrl, width, height);
       }
 
       await this.db.query(
+        // No poster_key: a poster made for a post must survive this file
+        // being processed again, as migration 065 does to re-proxy films.
         `update user_files
-            set poster_key = $2,
-                proxy_key = $3,
-                width_px = $4,
-                height_px = $5,
-                duration_ms = $6,
-                media_title = $7,
-                media_artist = $8,
-                blur_data_url = coalesce($9, blur_data_url),
-                taken_at = coalesce($10::timestamp, taken_at),
+            set proxy_key = $2,
+                width_px = $3,
+                height_px = $4,
+                duration_ms = $5,
+                media_title = $6,
+                media_artist = $7,
+                taken_at = coalesce($8::timestamp, taken_at),
                 processing_status = 'ready',
                 next_processing_at = null,
                 processed_at = now()
           where key = $1`,
         [
           file.key,
-          posterKey,
           proxyKey,
           width ?? null,
           height ?? null,
           durationMs,
           cleanTag(tags.title),
           cleanTag(tags.artist),
-          posterBlur,
           takenAt,
         ],
       );
@@ -296,55 +289,6 @@ export class MediaProcessingService {
   }
 
   /**
-   * The film tile's still, and the preview painted behind it.
-   *
-   * Returns both because the poster bytes are decoded here and nowhere else —
-   * fetching them back out of B2 to make a twenty-pixel copy would be absurd.
-   * Film tiles are the largest boxes in any gallery, so they are where a grey
-   * rectangle is most visible.
-   */
-  private async createPoster(
-    key: string,
-    sourceUrl: string,
-    durationMs: number | null,
-  ): Promise<{ key: string; blur: string | null } | null> {
-    const folder = await mkdtemp(join(tmpdir(), 'virgo-poster-'));
-    const output = join(folder, 'poster.webp');
-    const atSeconds = Math.max(
-      0,
-      Math.min(1, durationMs ? durationMs / 10_000 : 1),
-    ).toFixed(2);
-    try {
-      await run(
-        'ffmpeg',
-        [
-          '-v',
-          'error',
-          '-ss',
-          atSeconds,
-          '-i',
-          sourceUrl,
-          '-frames:v',
-          '1',
-          '-vf',
-          "scale='min(1280,iw)':-2",
-          '-quality',
-          '78',
-          '-y',
-          output,
-        ],
-        { timeout: 180_000 },
-      );
-      const body = await readFile(output);
-      const posterKey = posterKeyFor(key);
-      await this.storage.putDerived(posterKey, body, 'image/webp');
-      return { key: posterKey, blur: await blurDataUrl(body) };
-    } finally {
-      await rm(folder, { recursive: true, force: true });
-    }
-  }
-
-  /**
    * A web-playable copy of a film, on the media volume.
    *
    * The original is whatever came off the camera: frequently HEVC, 10-bit or
@@ -353,9 +297,9 @@ export class MediaProcessingService {
    * the copy a player actually gets.
    *
    * **Never throws**, on the same reasoning as `ThumbnailsService.generate`:
-   * the metadata and the poster are already computed by the time this runs,
-   * and losing them to a failed encode would cost the gallery its film tile
-   * as well as its playback. A null proxy means the player falls back to the
+   * the metadata is already computed by the time this runs, and losing it to
+   * a failed encode would cost the gallery the film's length and shape as
+   * well as its playback. A null proxy means the player falls back to the
    * original, which is exactly what shipped before this existed.
    *
    * The consequence is that a failure is not retried by the queue — the job

@@ -5,6 +5,7 @@ import request from 'supertest';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { IS_PUBLIC_KEY } from '../auth/public.decorator';
 import type { DatabaseService } from '../database/database.service';
+import type { FilmPosterService } from '../storage/film-poster.service';
 import type { HlsService } from '../storage/hls.service';
 import type { MediaLinkService } from '../storage/media-link.service';
 import type { StorageService } from '../storage/storage.service';
@@ -45,6 +46,7 @@ function service(row: Record<string, unknown> | null, pieces: Record<string, unk
     {} as ThumbnailsService,
     {} as HlsService,
     {} as ShowcaseMediaService,
+    {} as FilmPosterService,
   );
   return { showcases, db };
 }

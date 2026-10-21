@@ -1,4 +1,5 @@
 import { FAVICON_LINK } from './client-favicon';
+import { FILM_ICON_URL } from './client-film-icon';
 import { DOWNLOADS_PAUSED_MESSAGE } from '../../quota/download-allowance.service';
 import type { PublicAlbumView } from './album-share.service';
 import { DELIVERY_PALETTE as P } from './client-palette';
@@ -256,6 +257,7 @@ ${PAGE_STYLE}
   .tile{position:relative;margin:0 0 8px;break-inside:avoid;border-radius:14px;overflow:hidden;background:var(--line) center/cover}
   .open{display:block;width:100%;padding:0;border:0;background:none;cursor:zoom-in}
   .open img{display:block;width:100%;height:auto;min-height:90px;object-fit:cover}
+  .open img.film-icon{box-sizing:border-box;padding:8% 26%;object-fit:contain;background:var(--line)}
   .tile.film .open{cursor:pointer}
   .badge{position:absolute;left:10px;bottom:10px;display:flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;background:rgba(20,18,16,.74);color:#fff;font:11px ui-monospace,monospace;pointer-events:none}
   .heart{position:absolute;top:8px;right:8px;display:grid;width:38px;height:38px;place-items:center;border:0;border-radius:50%;background:rgba(255,255,255,.9);color:#3b322c;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2)}
@@ -323,6 +325,7 @@ ${inAppBrowser && view.downloads ? `<div class="inapp" role="note">${IN_APP_NOTE
   'use strict';
   const initial = ${safeJson(view)};
   const token = ${safeJson(token)};
+  const filmIcon = ${safeJson(FILM_ICON_URL)};
   const base = '/s/' + encodeURIComponent(token);
   const HEART = 'M12 20s-7-4.6-7-9.4A3.9 3.9 0 0 1 12 8a3.9 3.9 0 0 1 7 2.6C19 15.4 12 20 12 20z';
   const el = (id) => document.getElementById(id);
@@ -459,9 +462,15 @@ ${inAppBrowser && view.downloads ? `<div class="inapp" role="note">${IN_APP_NOTE
     const open = node('button', 'open'); open.type = 'button';
     open.setAttribute('aria-label', (film ? 'Play ' : 'View ') + file.originalName);
     const img = document.createElement('img');
-    img.src = (film ? file.posterUrl : file.thumbUrl || file.url) || '';
+    // A film shows its poster if it was posted somewhere, and otherwise the
+    // Virgo video icon: uploads no longer get a frame of their own.
+    const icon = film && !file.posterUrl;
+    img.src = icon ? filmIcon : (film ? file.posterUrl : file.thumbUrl || file.url) || '';
+    if (icon) img.className = 'film-icon';
     img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
-    if (file.width && file.height) img.style.aspectRatio = file.width + '/' + file.height; else if (film) img.style.aspectRatio = '16/9';
+    // An icon tile keeps the film's shape within 9:16 and 16:9, so a panorama
+    // does not shrink the icon to a speck.
+    if (file.width && file.height) img.style.aspectRatio = icon ? String(Math.min(16 / 9, Math.max(9 / 16, file.width / file.height))) : file.width + '/' + file.height; else if (film) img.style.aspectRatio = '16/9';
     open.append(img);
     open.addEventListener('click', () => (film ? openVideo(file) : openPhoto(list.filter((f) => kindOf(f) === 'image'), file)));
     t.append(open);

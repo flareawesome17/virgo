@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { RemoteImage } from '@/components/RemoteImage';
+import { VideoThumbnail } from '@/components/VideoThumbnail';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import {
@@ -134,11 +135,7 @@ export default function VideosScreen() {
               />
             ) : (
               <View className="flex-1 items-center justify-center">
-                <FilmIcon
-                  size={24}
-                  color="rgba(255,255,255,.22)"
-                  strokeWidth={1.5}
-                />
+                <VideoThumbnail size={Math.min(72, Math.round(tile * 0.46))} />
               </View>
             )}
             {/* Duration bottom-right over a scrim, which is where every video
@@ -269,7 +266,7 @@ function Empty({ albumId }: { albumId: string }) {
         No films yet
       </Text>
       <Text className="text-white/40 text-sm text-center mt-2 leading-5">
-        Upload a video and Virgo will prepare its poster and playback details.
+        Upload a video and Virgo will prepare it for playback.
       </Text>
       <Pressable
         onPress={() =>

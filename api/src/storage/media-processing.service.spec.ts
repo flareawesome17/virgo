@@ -1,5 +1,6 @@
 import { proxyKeyFor } from './media-link.service';
-import { posterKeyFor, proxyScale } from './media-processing.service';
+import { posterKeyFor } from './film-poster.service';
+import { proxyScale } from './media-processing.service';
 
 describe('media processing keys', () => {
   it('places posters beside their source without changing the ownership prefix', () => {

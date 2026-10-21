@@ -10,6 +10,7 @@ import { MediaLinkService } from './media-link.service';
 import { MediaProcessingService } from './media-processing.service';
 import { MediaSweepService } from './media-sweep.service';
 import { DisplayBackfillService } from './display-backfill.service';
+import { FilmPosterService } from './film-poster.service';
 import { SupportFilesService } from './support-files.service';
 import { ReceiptFilesService } from './receipt-files.service';
 
@@ -26,6 +27,7 @@ import { ReceiptFilesService } from './receipt-files.service';
     HlsService,
     MediaSweepService,
     DisplayBackfillService,
+    FilmPosterService,
     SupportFilesService,
     ReceiptFilesService,
   ],
@@ -37,6 +39,8 @@ import { ReceiptFilesService } from './receipt-files.service';
   // and that happens in AlbumShareService. SupportFilesService is shared by
   // the support desk and by account deletion, which erases a customer's files;
   // ReceiptFilesService the same way, by the money ledger and account deletion.
+  // FilmPosterService because posting a film to a showcase is what makes its
+  // poster frame.
   exports: [
     StorageService,
     DownloadCacheService,
@@ -45,6 +49,7 @@ import { ReceiptFilesService } from './receipt-files.service';
     ThumbnailsService,
     MediaLinkService,
     HlsService,
+    FilmPosterService,
     SupportFilesService,
     ReceiptFilesService,
   ],
