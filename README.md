@@ -77,3 +77,7 @@ in to it and a console token is refused by the app. Roles and permissions are in
 
 The first owner is seeded from `ADMIN_EMAIL_SEED` on boot with a generated
 password printed once to the API log, and must be changed on first sign-in.
+
+## Licence
+
+Virgo is proprietary software. Copyright (c) 2026 Ernie Saavedra. All rights reserved. See [LICENSE](LICENSE).

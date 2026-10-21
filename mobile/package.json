@@ -2,6 +2,7 @@
   "name": "virgo-mobile",
   "main": "expo-router/entry",
   "version": "1.3.0",
+  "license": "UNLICENSED",
   "description": "RapidNative App - Expo React Native",
   "scripts": {
     "start": "expo start",
