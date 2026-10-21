@@ -31,8 +31,8 @@ const clampZoom = (value: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value
  * DETAIL_AT the original is one of the choices, described by its own width.
  * The browser keeps drawing what it has until the larger one has loaded, so
  * a zoom never blanks the picture. The frame itself stays put: `sizes` also
- * sets the image's natural size, but max-width and max-height hold it to the
- * stage at every zoom.
+ * sets the image's natural size, which is why nothing on the stage is sized
+ * from it — see fittedSize.
  */
 function zoomedSources(file: StoredFile, zoom: number): { srcSet?: string; sizes?: string } {
   const copies = displaySrcSet(file);
@@ -42,6 +42,23 @@ function zoomedSources(file: StoredFile, zoom: number): { srcSet?: string; sizes
     srcSet: original && file.width ? `${copies}, ${original} ${file.width}w` : copies,
     sizes: `${Math.round(Math.max(1, zoom) * 100)}vw`,
   };
+}
+
+/**
+ * The picture's size on a stage at 100%: the whole of it, and never larger
+ * than its own pixels.
+ *
+ * From the dimensions the API recorded, upright, rather than the image's
+ * natural size. With a `srcset` described in widths that is whatever `sizes`
+ * says — 100vw — so every photograph claimed to be as wide as the window, a
+ * 500px logo included, and was drawn that size: a square one in a landscape
+ * window ran off the bottom of the stage. Without the dimensions it fills the
+ * stage, as it always did.
+ */
+function fittedSize(file: StoredFile, stage: { width: number; height: number }): { width: number; height: number } {
+  if (!file.width || !file.height) return { width: stage.width, height: stage.height };
+  const scale = Math.min(1, stage.width / file.width, stage.height / file.height);
+  return { width: file.width * scale, height: file.height * scale };
 }
 
 /**
@@ -179,10 +196,12 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
   };
   const onPointerMove = (event: ReactPointerEvent) => {
     if (!drag.current) return;
-    // Held to the zoomed picture's edge, so a drag cannot lose it.
+    // Held to the zoomed picture's edge, so a drag cannot lose it — the
+    // picture's, not the stage's, which is wider than a portrait photograph.
     const box = stageRef.current?.getBoundingClientRect();
-    const limitX = box ? ((zoom - 1) * box.width) / 2 : Infinity;
-    const limitY = box ? ((zoom - 1) * box.height) / 2 : Infinity;
+    const picture = box ? fittedSize(file, box) : null;
+    const limitX = box && picture ? Math.max(0, (picture.width * zoom - box.width) / 2) : Infinity;
+    const limitY = box && picture ? Math.max(0, (picture.height * zoom - box.height) / 2) : Infinity;
     setOffset({
       x: Math.max(-limitX, Math.min(limitX, drag.current.ox + event.clientX - drag.current.x)),
       y: Math.max(-limitY, Math.min(limitY, drag.current.oy + event.clientY - drag.current.y)),
@@ -203,7 +222,7 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
 
       <main className="relative min-h-0 flex-1">
         {!file.url ? <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">This media URL has expired. Close the viewer and reload the album.</div> : kind === 'image' ? (
-          <div ref={stageRef} className={`grid h-full select-none place-items-center overflow-hidden ${zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; setDragging(false); }} onPointerCancel={() => { drag.current = null; setDragging(false); }} onDoubleClick={() => zoom > 1 ? resetTransform() : zoomBy(1)} onClick={() => zoom === 1 && setChrome((value) => !value)}>
+          <div ref={stageRef} className={`relative h-full select-none overflow-hidden ${zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; setDragging(false); }} onPointerCancel={() => { drag.current = null; setDragging(false); }} onDoubleClick={() => zoom > 1 ? resetTransform() : zoomBy(1)} onClick={() => zoom === 1 && setChrome((value) => !value)}>
             { }
             {/* Display copies when there are any, the original when there are
                 not, and the original as well once zoomed far enough to need
@@ -212,7 +231,12 @@ export function MediaViewer({ files, index, onIndexChange, onClose, onDelete }: 
                 it is 20px upscaled, so it only has to fill the frame until
                 the real one paints over it. No extra request — the string
                 arrived with the listing. */}
-            <img key={`${file.key}:${copiesFailed}`} src={imageSrc} onLoad={() => setLoadedKey(file.key)} onError={() => (copiesFailed || !file.displaySources.length ? setFailedKey(file.key) : setCopiesFailedKey(file.key))} srcSet={sources.srcSet} sizes={sources.sizes} alt={file.originalName} draggable={false} className="h-full w-full object-contain will-change-transform" style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)', backgroundImage: file.blurDataUrl && !loaded ? `url("${file.blurDataUrl}")` : undefined, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }} />
+            {/* Pinned to the stage and centred in it, at most the picture's
+                own size: the frame is set before anything loads, so the
+                preview fills the same box the photograph will. It used to be
+                a grid item, and an auto grid row grows to its item — so
+                h-full measured the image against itself. See fittedSize. */}
+            <img key={`${file.key}:${copiesFailed}`} src={imageSrc} onLoad={() => setLoadedKey(file.key)} onError={() => (copiesFailed || !file.displaySources.length ? setFailedKey(file.key) : setCopiesFailedKey(file.key))} srcSet={sources.srcSet} sizes={sources.sizes} alt={file.originalName} draggable={false} className="absolute inset-0 m-auto size-full object-contain will-change-transform" style={{ ...(file.width && file.height ? { maxWidth: file.width, maxHeight: file.height } : {}), transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`, transition: dragging ? 'none' : 'transform 360ms cubic-bezier(0.16,1,0.3,1)', backgroundImage: file.blurDataUrl && !loaded ? `url("${file.blurDataUrl}")` : undefined, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }} />
             {failedKey === file.key && <p className="absolute inset-x-0 top-1/2 px-6 text-center text-sm text-white/60">This photo could not be loaded. Try the download button for the original.</p>}
           </div>
         ) : kind === 'video' ? <VideoPlayer file={file} /> : <div className="grid h-full place-items-center px-6 text-center text-sm text-white/55">Open audio from the album track list to use the listening queue.</div>}
