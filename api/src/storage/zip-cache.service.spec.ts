@@ -206,10 +206,14 @@ describe('ZipCacheService', () => {
     svc.onModuleDestroy();
   });
 
-  it('leaves the total in bytes unknown when any size is missing', () => {
+  it('leaves the total in bytes unknown when any size is missing', async () => {
     const svc = make();
+    await svc.onModuleInit();
     const e = svc.request('o1', 'partly.zip', [{ key: 'a', name: 'a', size: 10 }, { key: 'b', name: 'b' }], async () => Readable.from(['x']));
     expect(e.totalBytes).toBeUndefined();
+    // request() starts a real build; let it finish before the temp dir is removed.
+    await waitFor(e, 'ready');
+    svc.onModuleDestroy();
   });
 
   it('stops a stalled build without taking the process down', async () => {
