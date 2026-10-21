@@ -38,6 +38,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { VideoThumbnail } from '@/components/media/video-thumbnail';
 import { faultyPiece, showcaseActionMessage } from '@/components/showcase/action-message';
 import { useAlbums } from '@/hooks/useAlbums';
 import { useShowcase, useShowcaseActions } from '@/hooks/useShowcases';
@@ -80,7 +81,10 @@ function clock(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-/** A tile's still: the thumbnail or poster, never the original. */
+/**
+ * A tile's still: the thumbnail or poster, never the original. Null for a
+ * film with no poster, which shows the video icon instead.
+ */
 function stillOf(file: StoredFile): string | null {
   return kindOf(file.contentType) === 'video' ? file.posterUrl : (file.thumbnailUrl ?? file.url);
 }
@@ -193,9 +197,10 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   });
 
   /**
-   * What can go in: photographs, and films that have a poster frame. The
-   * server refuses a film without one, and it is written a minute or so after
-   * the upload, so leaving those out says the rule before it is broken.
+   * What can go in: photographs, and films the media worker has finished
+   * with. Posting a film makes its poster frame, and the server refuses one
+   * still being prepared, so leaving those out says the rule before it is
+   * broken. A poster also means finished: it is how films said so before.
    */
   const available = useMemo(
     () =>
@@ -203,7 +208,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         if (PROFILE_PICTURE_KEY.test(f.key)) return false;
         const kind = kindOf(f.contentType);
         if (kind === 'image') return Boolean(f.thumbnailUrl || f.url);
-        return kind === 'video' && Boolean(f.posterUrl);
+        return kind === 'video' && (Boolean(f.posterUrl) || f.processingStatus === 'ready');
       }),
     [files.data],
   );
@@ -459,9 +464,13 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                           bad && 'ring-2 ring-destructive',
                         )}
                       >
-                        {stills[key] && (
+                        {stills[key] ? (
                           <img src={stills[key]} alt="" className="size-full object-cover" />
-                        )}
+                        ) : kindAt(key) === 'video' ? (
+                          <span className="grid size-full place-items-center bg-secondary">
+                            <VideoThumbnail className="w-3/5" />
+                          </span>
+                        ) : null}
                         <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
                           {i + 1}
                         </span>
@@ -607,7 +616,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                         on && 'ring-3 ring-primary ring-offset-2 ring-offset-background',
                       )}
                     >
-                      {still && (
+                      {still ? (
                         <img
                           src={still}
                           alt=""
@@ -618,14 +627,21 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                             on ? 'scale-[0.94]' : 'group-hover:scale-[1.03]',
                           )}
                         />
-                      )}
+                      ) : film ? (
+                        <span className="grid size-full place-items-center bg-secondary">
+                          <VideoThumbnail className="w-1/2" />
+                        </span>
+                      ) : null}
                       {film && (
                         <>
-                          <span className="pointer-events-none absolute inset-0 grid place-items-center">
-                            <span className="grid size-9 place-items-center rounded-full bg-black/50 text-white">
-                              <Play className="size-4" fill="currentColor" />
+                          {/* The icon has a play button of its own. */}
+                          {still && (
+                            <span className="pointer-events-none absolute inset-0 grid place-items-center">
+                              <span className="grid size-9 place-items-center rounded-full bg-black/50 text-white">
+                                <Play className="size-4" fill="currentColor" />
+                              </span>
                             </span>
-                          </span>
+                          )}
                           {file.durationMs ? (
                             <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-bold text-white">
                               {clock(file.durationMs)}

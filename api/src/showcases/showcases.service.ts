@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { blockedBetween } from '../safety/block-sql';
+import { FilmPosterService } from '../storage/film-poster.service';
 import { HlsService } from '../storage/hls.service';
 import { MediaLinkService } from '../storage/media-link.service';
 import { PUBLISHED_URL_TTL_SECONDS } from '../storage/storage.config';
@@ -273,6 +274,7 @@ export class ShowcasesService {
     private readonly thumbs: ThumbnailsService,
     private readonly hls: HlsService,
     private readonly media: ShowcaseMediaService,
+    private readonly posters: FilmPosterService,
   ) {}
 
   // ── reads ──────────────────────────────────────────────────────────────────
@@ -728,11 +730,12 @@ export class ShowcasesService {
    * feed will not serve and finding that out after posting is what the
    * portfolio got wrong.
    *
-   * The two differ in what "something to draw" means and in who makes it. A
-   * photograph's thumbnail is made here, in the request, from the original. A
-   * film's poster frame is made by the media worker after the upload and
-   * cannot be made here at all, so a film that has not got one yet is refused
-   * rather than waited for.
+   * The two differ in what "something to draw" means. A photograph's
+   * thumbnail is made from the original; a film's poster frame is one frame
+   * of it, taken once the media worker has finished with the upload. Uploads
+   * no longer get a poster, so a film is given one here, the first time it is
+   * posted, and one the worker has not finished with yet is refused rather
+   * than waited for.
    *
    * On an edit, `edit` carries the pieces it keeps, by kind, and the whole set
    * in order: the one-film rule is about the set the save leaves, not only
@@ -764,9 +767,10 @@ export class ShowcasesService {
             poster_key: string | null;
             display_widths: number[] | null;
             blur_data_url: string | null;
+            processing_status: string | null;
           }>(
             `select key, content_type, size_bytes, thumb_key, poster_key,
-                    display_widths, blur_data_url
+                    display_widths, blur_data_url, processing_status
                from user_files where user_id = $1 and key = any($2::text[])`,
             [userId, keys],
           );
@@ -798,11 +802,14 @@ export class ShowcasesService {
       const isVideo = kindOf(file.content_type) === 'video';
 
       if (isVideo) {
-        // A film's poster is made by the media worker a minute or so after the
-        // upload, not in the request. Posting one before it exists would put a
-        // piece on a feed with nothing to draw, so it is refused with the one
-        // thing worth saying about it: wait a moment.
-        if (!file.poster_key) {
+        // A film with no poster gets one now, once the media worker has its
+        // length and its playback copy. Before that it would be a piece on a
+        // feed with nothing to draw and nothing to play, so it is refused with
+        // the one thing worth saying about it: wait a moment.
+        const poster =
+          file.poster_key ??
+          (file.processing_status === 'ready' ? await this.posters.ensure(key) : null);
+        if (!poster) {
           throw new BadRequestException({
             statusCode: 400,
             error: 'Bad Request',
