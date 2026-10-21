@@ -197,6 +197,10 @@ function AlbumWorkspace() {
   // manage collaborator lost Move and Delete in an empty or filtered view.
   const access = album?.my_access;
   const canManage = isOwner || access === 'manage' || files.some((file) => file.capabilities.manage);
+  // The client link, as the API allows it: the owner, or a member granted
+  // 'manage' on this album. Owner-only left a workspace's editors with a
+  // finished album and no way to send it.
+  const canShare = isOwner || access === 'manage';
   const canDownload =
     isOwner ||
     access === 'download' ||
@@ -441,7 +445,7 @@ function AlbumWorkspace() {
               </div>
 
               <div className="flex items-center gap-2">
-                {isOwner && (
+                {canShare && (
                   <Button variant="outline" onClick={() => setSharing(true)}>
                     <Link2 className="size-4" />
                     Client link

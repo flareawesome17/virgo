@@ -17,8 +17,10 @@ import { StorageService } from '../../storage/storage.service';
 import type { ZipFile } from '../../storage/zip-cache.service';
 import { NotifyService } from '../../notifications/notify.service';
 import {
+  accessAllows,
   decodeFileCursor,
   encodeFileCursor,
+  QuotaService,
   SORT_AT_TEXT_SQL,
   TAKEN_AT_TEXT_SQL,
 } from '../../quota/quota.service';
@@ -197,6 +199,7 @@ export class AlbumShareService {
     private readonly config: ConfigService,
     private readonly notify: NotifyService,
     private readonly feed: WorkspaceActivityService,
+    private readonly quota: QuotaService,
   ) {}
 
   /** base64url of 32 random bytes — 256 bits, not enumerable. */
@@ -269,12 +272,39 @@ export class AlbumShareService {
     ].join('; ');
   }
 
-  private async assertOwnsAlbum(userId: string, albumId: string): Promise<void> {
-    const row = await this.db.queryOne<{ id: string }>(
-      'select id from albums where id = $1 and user_id = $2',
-      [albumId, userId],
-    );
-    if (!row) throw new NotFoundException('Album not found');
+  /**
+   * The album's owner, once the caller may handle this kind of link for it.
+   *
+   * A client link is for anyone who can manage the album: its owner, or a
+   * workspace member granted 'manage' on it. Those members already arrange and
+   * deliver the album, and the link is how it is delivered; owner-only left
+   * them with a finished album and no way to send it. A portfolio link stays
+   * the owner's alone, because it puts the album on the owner's public profile.
+   *
+   * The link always belongs to the owner, whoever made it: the gallery reads
+   * the album's files as the owner's rows (a member's uploads are filed under
+   * the owner too) and downloads spend the owner's allowance.
+   */
+  private async linkOwner(
+    userId: string,
+    albumId: string,
+    purpose: SharePurpose,
+  ): Promise<string> {
+    const access = await this.quota.accessForAlbum(userId, albumId);
+    const allowed = purpose === 'client' ? accessAllows(access, 'manage') : access === 'owner';
+    if (!allowed) {
+      // No access at all reads as no album, so an id cannot be probed. A
+      // member who can see the album is told why instead.
+      if (!access) throw new NotFoundException('Album not found');
+      throw new ForbiddenException(
+        purpose === 'client'
+          ? 'Only someone who can manage this album can share it with a client'
+          : "Only the album's owner can show it on their profile",
+      );
+    }
+    const owner = await this.quota.albumOwner(albumId);
+    if (!owner) throw new NotFoundException('Album not found');
+    return owner;
   }
 
   /**
@@ -300,7 +330,7 @@ export class AlbumShareService {
     kinds: MediaKind[];
     picksSentAt: Date | null;
   }> {
-    await this.assertOwnsAlbum(userId, albumId);
+    const ownerId = await this.linkOwner(userId, albumId, purpose);
 
     // Stored in a fixed order so two equivalent selections compare equal.
     const wanted = ALL_MEDIA_KINDS.filter((k) => kinds.includes(k));
@@ -350,7 +380,7 @@ export class AlbumShareService {
       `insert into album_share_links (album_id, user_id, token, media_kinds, purpose)
        values ($1, $2, $3, $4, $5)
        returning *`,
-      [albumId, userId, token, wanted, purpose],
+      [albumId, ownerId, token, wanted, purpose],
     );
 
     // Sharing an album is what pays for its ladders. Deliberately not awaited:
@@ -380,7 +410,7 @@ export class AlbumShareService {
     kinds: MediaKind[];
     picksSentAt: Date | null;
   } | null> {
-    await this.assertOwnsAlbum(userId, albumId);
+    await this.linkOwner(userId, albumId, purpose);
     const row = await this.db.queryOne<ShareLinkRow>(
       `select * from album_share_links
         where album_id = $1 and purpose = $2 and revoked_at is null
@@ -409,14 +439,16 @@ export class AlbumShareService {
     albumId: string,
     purpose: SharePurpose = 'client',
   ): Promise<{ revoked: boolean }> {
-    await this.assertOwnsAlbum(userId, albumId);
+    await this.linkOwner(userId, albumId, purpose);
+    // By album, not by who is asking: a manager turns off the owner's link,
+    // and there is only ever one live link per album and purpose.
     const rows = await this.db.query<{ id: string }>(
       `update album_share_links
           set revoked_at = now()
-        where album_id = $1 and user_id = $2 and purpose = $3
+        where album_id = $1 and purpose = $2
           and revoked_at is null
         returning id`,
-      [albumId, userId, purpose],
+      [albumId, purpose],
     );
     return { revoked: rows.length > 0 };
   }

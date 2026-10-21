@@ -60,7 +60,7 @@ export const ACCESS_HINT: Record<MediaAccess, string> = {
   view: 'Can look through the album',
   download: 'Can also download the originals',
   upload: 'Can also add files',
-  manage: 'Can also delete files and arrange sections',
+  manage: 'Can also delete files, arrange sections and send the client link',
 };
 
 /** "a photographer", "an editor" — or "a Photographer" where a role is a title. */
