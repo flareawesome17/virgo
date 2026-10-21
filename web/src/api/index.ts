@@ -284,6 +284,7 @@ export {
 export {
   albumShareApi,
   ALL_SHARE_KINDS,
+  type PartShareLink,
   type ShareLink,
   type ShareMediaKind,
 } from './endpoints/albumShare';

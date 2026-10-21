@@ -42,3 +42,35 @@ export function useRevokeShareLink(albumId: string) {
     },
   });
 }
+
+export const albumSharePartsKey = (albumId: string) => ['albums', albumId, 'share-parts'] as const;
+
+/** The album's live links to a section or a selection. */
+export function useAlbumShareParts(albumId: string | undefined) {
+  return useQuery({
+    queryKey: albumSharePartsKey(albumId ?? ''),
+    queryFn: () => albumShareApi.parts(albumId!),
+    enabled: !!albumId,
+  });
+}
+
+/**
+ * A link to one section or to a set of files. The same section or the same
+ * set asked for twice comes back as the link already issued.
+ */
+export function useCreatePartLink(albumId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (part: { sectionId: string } | { keys: string[] }) =>
+      albumShareApi.createPart(albumId, part),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: albumSharePartsKey(albumId) }),
+  });
+}
+
+export function useRevokePartLink(albumId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (linkId: string) => albumShareApi.revokePart(albumId, linkId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: albumSharePartsKey(albumId) }),
+  });
+}

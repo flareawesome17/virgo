@@ -81,6 +81,7 @@ import {
   THUMBNAIL_EDGE,
   type ShareMediaKind,
   type ShareLink,
+  type PartShareLink,
   type StoredFile,
   type StoredMediaKind,
 } from '@/src/api';
@@ -554,6 +555,9 @@ export default function AlbumScreen() {
   const menuSectionIndex = menuSection ? sectionsQuery.sections.indexOf(menuSection) : -1;
   const sectionActions = menuSection
     ? [
+        ...(canShare
+          ? [{ label: 'Client link…', onPress: () => void sharePart({ sectionId: menuSection.id }) }]
+          : []),
         { label: 'Rename', onPress: () => setNaming({ id: menuSection.id, initial: menuSection.name }) },
         ...(menuSectionIndex > 0
           ? [{ label: 'Move left', onPress: () => nudgeSection(menuSection.id, -1) }]
@@ -591,9 +595,14 @@ export default function AlbumScreen() {
   const [linking, setLinking] = useState(false);
   // The link already issued, if any: shown until it is turned off.
   const [existingLink, setExistingLink] = useState<ShareLink | null>(null);
+  // Links to a section or a selection, listed in the sheet to copy or turn off.
+  const [parts, setParts] = useState<PartShareLink[]>([]);
+  const [partLinking, setPartLinking] = useState(false);
 
   const openLinkSheet = async () => {
     setExistingLink(null);
+    // On its own: a failure here must not keep the album's own link from showing.
+    void albumShareApi.parts(albumId).then(setParts, () => setParts([]));
     try {
       const existing = await albumShareApi.get(albumId);
       if (existing) {
@@ -668,6 +677,59 @@ export default function AlbumScreen() {
               const { revoked } = await albumShareApi.revoke(albumId);
               setExistingLink(null);
               Alert.alert(revoked ? 'Link turned off' : 'No link to turn off');
+            } catch (error) {
+              Alert.alert('Could not turn it off', problem(error));
+            }
+          },
+        },
+      ],
+    );
+
+  /** "Ceremony · 42 files", or "3 files selected". */
+  const partLabel = (part: PartShareLink) =>
+    part.scope === 'section'
+      ? `${part.sectionName ?? 'A section'} · ${plural(part.fileCount, 'file', 'files')}`
+      : `${plural(part.fileCount, 'file', 'files')} selected`;
+
+  /**
+   * A client link to just a selection or one section, rather than the album.
+   * The same section or the same files asked for again give back the link
+   * already made.
+   */
+  const sharePart = async (part: { sectionId: string } | { keys: string[] }) => {
+    if (partLinking) return;
+    setPartLinking(true);
+    try {
+      const link = await albumShareApi.createPart(albumId, part);
+      Alert.alert(
+        link.scope === 'section' ? `Link to ${link.sectionName ?? 'the section'}` : `Link to ${plural(link.fileCount, 'file', 'files')}`,
+        `${link.url}\n\nOnly these, nothing else in the album. Turn it off any time from Client link.`,
+        [
+          { text: 'Copy link', onPress: () => void copyLink(link.url) },
+          { text: 'Share…', onPress: () => shareLinkUrl(link.url) },
+          { text: 'Done', style: 'cancel' },
+        ],
+      );
+    } catch (error) {
+      Alert.alert('Could not make the link', problem(error));
+    } finally {
+      setPartLinking(false);
+    }
+  };
+
+  const revokePart = (part: PartShareLink) =>
+    Alert.alert(
+      'Turn off this link?',
+      `Anyone opening the link to ${partLabel(part)} loses access straight away. The album’s other links keep working.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Turn off',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await albumShareApi.revokePart(albumId, part.id);
+              setParts((current) => current.filter((p) => p.id !== part.id));
             } catch (error) {
               Alert.alert('Could not turn it off', problem(error));
             }
@@ -1122,6 +1184,14 @@ export default function AlbumScreen() {
             {canDownload && (
               <BulkButton icon={DownloadIcon} label="Save" disabled={busy} onPress={() => void saveSelection()} />
             )}
+            {canShare && (
+              <BulkButton
+                icon={LinkIcon}
+                label="Link"
+                disabled={busy || partLinking}
+                onPress={() => void sharePart({ keys: selection.keys() })}
+              />
+            )}
             {isOwner && onlyOnePhoto && (
               <BulkButton icon={ImageIcon} label="Cover" disabled={busy} onPress={setCover} />
             )}
@@ -1350,6 +1420,43 @@ export default function AlbumScreen() {
             {linking ? 'Saving…' : existingLink ? 'Update what is shared' : 'Make link'}
           </Text>
         </Pressable>
+
+        {/* Links to a section or a selection: each copied or turned off on its own. */}
+        <View className="mt-6">
+          <Text className="text-muted-foreground text-xs mb-2 ml-1">Links to part of the album</Text>
+          {parts.length === 0 ? (
+            <Text className="text-muted-foreground text-xs ml-1 leading-relaxed">
+              To send only part of the album, select files and tap Link, or hold a section and choose Client link.
+            </Text>
+          ) : (
+            <View className="gap-2">
+              {parts.map((part) => (
+                <View key={part.id} className="rounded-2xl border border-border px-4 py-3">
+                  <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                    {partLabel(part)}
+                  </Text>
+                  <View className="flex-row gap-5 mt-2">
+                    <Pressable onPress={() => void copyLink(part.url)} hitSlop={6}>
+                      <Text className="text-primary text-sm font-semibold">Copy link</Text>
+                    </Pressable>
+                    <Pressable onPress={() => shareLinkUrl(part.url)} hitSlop={6}>
+                      <Text className="text-primary text-sm font-semibold">Share…</Text>
+                    </Pressable>
+                    <Pressable
+                      hitSlop={6}
+                      onPress={() => {
+                        setLinkOpen(false);
+                        revokePart(part);
+                      }}
+                    >
+                      <Text className="text-destructive text-sm font-semibold">Turn off</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       </Sheet>
     </SafeAreaView>
   );
