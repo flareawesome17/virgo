@@ -10,6 +10,7 @@ import { MediaLinkService } from '../../storage/media-link.service';
 import type { StorageService } from '../../storage/storage.service';
 import type { VisitsService } from '../../visits/visits.service';
 import type { WorkspaceActivityService } from '../../workspaces/workspace-activity.service';
+import type { QuotaService } from '../../quota/quota.service';
 import { PublicAlbumController } from './album-share.controller';
 import { AlbumShareService, type SharePurpose } from './album-share.service';
 
@@ -131,6 +132,7 @@ function galleryOver(purpose: SharePurpose) {
     config,
     {} as unknown as NotifyService,
     {} as unknown as WorkspaceActivityService,
+    {} as unknown as QuotaService,
   );
   return { service, signed };
 }
@@ -206,6 +208,7 @@ describe('A single download from a client link', () => {
       { get: () => '' } as unknown as ConfigService,
       {} as unknown as NotifyService,
       {} as unknown as WorkspaceActivityService,
+      {} as unknown as QuotaService,
     );
     jest
       .spyOn(service as unknown as { linkFor: () => Promise<unknown> }, 'linkFor')

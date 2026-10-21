@@ -251,6 +251,10 @@ export default function AlbumScreen() {
   // collaborator lost the Section controls in an empty or filtered view.
   const access = album?.my_access;
   const canManage = isOwner || access === 'manage' || files.some((file) => file.capabilities.manage);
+  // The client link, as the API allows it: the owner, or a member granted
+  // 'manage' on this album. Owner-only left a workspace's editors with a
+  // finished album and no way to send it.
+  const canShare = isOwner || access === 'manage';
   const canDownload =
     isOwner ||
     access === 'download' ||
@@ -929,7 +933,7 @@ export default function AlbumScreen() {
           </View>
 
           <View className="flex-row gap-2">
-            {isOwner && (
+            {canShare && (
               <Pressable
                 onPress={openLinkSheet}
                 accessibilityRole="button"
