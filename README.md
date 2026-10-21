@@ -80,4 +80,4 @@ password printed once to the API log, and must be changed on first sign-in.
 
 ## Licence
 
-Virgo is proprietary software. Copyright (c) 2026 Ernie Saavedra Villaroya Jr.. All rights reserved. See [LICENSE](LICENSE).
+Virgo is proprietary software. Copyright (c) 2026 Ernie Saavedra Villaroya Jr. All rights reserved. See [LICENSE](LICENSE).
