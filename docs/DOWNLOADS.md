@@ -11,6 +11,13 @@
 | Downloads do nothing in Messenger/Facebook | In-app browsers cannot save files | Banner telling the client to open in Safari/Chrome |
 | Slow zips | One B2 round trip per file, strictly serial | `streamZip` opens the next object while sending the current one |
 | Dead page (524) on a big zip when storage is slow | No bytes sent for 100 s | `flushHeaders()` (was uncommitted; now committed) |
+| 1 GB+ "Download all" stuck on "Preparing", then "could not prepare" | archiver's `append()` only queues, so `zipInto` opened every file at once (up to the whole 50-socket B2 pool); one connection storage dropped while it waited froze the archive with no error until the 3-minute stall check | `zipInto`: truly one ahead (paced on archiver's `entry` events), a broken read carries on from its byte offset (`reopen`), and an unreadable entry ends the zip at once |
+| API process exits when a zip build is stopped | The stall, abandon and cache-full checks destroy the build's file stream with an error nobody listened for yet: an uncaught exception. The restart also wiped every built zip | `ZipCacheService.build` listens on the stream; `finished(out)` still reports the error |
+| Connections left open after a build stopped | Opened-but-unread streams were never closed | `zipInto` closes every stream it opened when the zip ends |
+| "139 of 139 files, about a minute left" with most of the gigabyte to come | Progress counted opens, not bytes written | Progress and ETA by bytes from `user_files.size_bytes` |
+| Client loses their place after switching to Messenger | Queued zips dropped after 5 min, builds after 10, without a page refresh; phones pause background tabs | 30 min for both |
+| Page frozen on "Preparing" while the zip quietly downloads | The waiting page's refresh turned into the download | The refresh (`?wait`) lands on "Your download is ready" with a Download button; failed builds retry themselves 3 times (`?try`) |
+| Resumed zip downloads stall (206 then no bytes) or reset | A path ending in `.zip` is cache-eligible at Cloudflare (`cf-cache-status: BYPASS`, Cache-Control rewritten), so ranges take its origin-range path; single files (`DYNAMIC`) were fine at the same moment | Zips moved to `/s/:token/zip` and `/s/:token/picks/zip`; the `.zip` addresses redirect there |
 
 ## Long-term plan
 

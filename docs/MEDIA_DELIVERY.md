@@ -600,12 +600,12 @@ instead of once per view. Streaming stops touching B2 entirely.
 
 ---
 
-## Related hazard: `download.zip`
+## Related hazard: the album zip
 
 Worth recording because it shares the uplink and will be the first thing to
 saturate it.
 
-`GET /s/:token/download.zip` ([album-share.controller.ts:206](api/src/albums/share/album-share.controller.ts:206))
+`GET /s/:token/zip` (was `/s/:token/download.zip`; see [DOWNLOADS.md](DOWNLOADS.md) for why it moved)
 streams every original out of B2, through the API, through `cloudflared`, to
 the client. One client downloading a 20 GB wedding album consumes B2 egress,
 inbound bandwidth and outbound bandwidth simultaneously, for as long as it

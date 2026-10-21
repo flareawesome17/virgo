@@ -95,6 +95,17 @@ export class DownloadCacheService {
     return { stream: await this.tee(key, source), size, hit: false };
   }
 
+  /**
+   * The same object from byte `from` on, to carry on a read that broke part
+   * way. Never fills the cache: a copy that starts in the middle is no copy.
+   */
+  async openFrom(key: string, from: number): Promise<Readable> {
+    if (from <= 0) return (await this.open(key)).stream;
+    const hit = await this.lookup(key);
+    if (hit) return createReadStream(hit.path, { start: from });
+    return (await this.storage.readStreamWithSize(key, from)).stream;
+  }
+
   private async hasRoom(incoming: number): Promise<boolean> {
     try {
       await mkdir(this.dir, { recursive: true });

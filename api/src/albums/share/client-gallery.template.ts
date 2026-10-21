@@ -44,15 +44,44 @@ const PAGE_STYLE = `
 const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>';
 
 /**
+ * Why a download does nothing inside Messenger, Facebook and the like, and
+ * what to do instead. Shown on the gallery and on every page of a zip.
+ */
+const IN_APP_NOTE =
+  '<b>To download, open this page in your phone\'s browser.</b> Messenger and Facebook can\'t save files — tap the &#8943; menu and choose <b>Open in Safari</b> or <b>Open in Chrome</b>.';
+
+/**
  * A full page with one message on it, for the routes a client reaches by
  * following a link rather than through the gallery's own script. Arguments
- * are trusted constants, not user input.
+ * are trusted constants, not user input. `extra` goes under the message: a
+ * button, a note.
  */
-function renderNotice(title: string, icon: string, heading: string, body: string): string {
+function renderNotice(
+  title: string,
+  icon: string,
+  heading: string,
+  body: string,
+  extra = '',
+): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">${FAVICON_LINK}<title>${title}</title><style>${PAGE_STYLE}
   main{min-height:100dvh;display:grid;place-items:center;padding:32px}.empty{text-align:center;max-width:34rem}.mark{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 22px;border-radius:22px;background:color-mix(in srgb,var(--line) 72%,transparent)}.mark svg{width:27px;fill:none;stroke:var(--muted);stroke-width:1.5}h1{margin:0;font-size:25px;letter-spacing:-.035em}p{margin:12px auto 0;color:var(--muted);max-width:42ch}footer{margin-top:30px;color:var(--muted);font-size:12px}
-  </style></head><body><main><div class="empty"><div class="mark">${icon}</div><h1>${heading}</h1><p>${body}</p><footer>Shared with Virgo</footer></div></main></body></html>`;
+  .btn{display:inline-flex;align-items:center;gap:8px;min-height:48px;margin-top:22px;padding:0 24px;border-radius:999px;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:600}.btn svg{width:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.btn:hover{filter:brightness(1.06)}
+  .note{margin:20px auto 0;max-width:40ch;padding:10px 14px;border-radius:12px;background:#fff4e5;color:#5c3b00;border:1px solid #f0c987;font-size:14px;line-height:1.4}
+  </style></head><body><main><div class="empty"><div class="mark">${icon}</div><h1>${heading}</h1><p>${body}</p>${extra}<footer>Shared with Virgo</footer></div></main></body></html>`;
 }
+
+/**
+ * Where a zip page sends the client next. Both zip routes end in `/zip` (the
+ * album's at /s/:token/zip, the picks' at /s/:token/picks/zip), so a bare
+ * relative `zip` is always the route the page came from. `wait` tells the
+ * route the page asked by itself, not the client.
+ */
+function zipRefresh(seconds: number, tries: number): string {
+  const url = tries > 0 ? `zip?wait=1&amp;try=${tries}` : 'zip?wait=1';
+  return `<meta http-equiv="refresh" content="${seconds};url=${url}">`;
+}
+
+const inAppNote = (inApp: boolean) => (inApp ? `<div class="note" role="note">${IN_APP_NOTE}</div>` : '');
 
 const LOCK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2z"/></svg>';
 
@@ -79,38 +108,85 @@ export function renderDownloadsPaused(): string {
   );
 }
 
+/** What the waiting page is told about a zip; see ZipCacheService.progress. */
+export interface ZipPageProgress {
+  done: number;
+  total: number;
+  bytes: number;
+  totalBytes?: number;
+  position: number;
+  etaSeconds?: number;
+}
+
 /**
  * What a client sees on a download link while the zip is still being put
- * together on the server. Refreshes itself; when the zip is ready the same
- * address answers with the file.
+ * together on the server. Refreshes itself, and turns into renderZipReady
+ * when the zip is done: the download then starts from a tap, so the client
+ * is never left looking at "Preparing" while the file quietly arrives.
+ * `tries` carries the count of automatic retries through (see renderZipFailed).
  */
 export function renderZipPreparing(
-  done: number,
-  total: number,
-  position: number,
-  etaSeconds?: number,
+  progress: ZipPageProgress,
+  tries = 0,
+  inApp = false,
 ): string {
+  const { done, total, bytes, totalBytes, position, etaSeconds } = progress;
   const eta =
     etaSeconds === undefined
       ? ''
       : etaSeconds < 90
         ? ' About a minute left.'
         : ` About ${Math.round(etaSeconds / 60)} minutes left.`;
-  const body =
+  const status =
     position > 0
-      ? `Other downloads are being prepared first. You are number ${position} in line. This page refreshes by itself.`
-      : `${done} of ${total} files so far.${eta} This page refreshes by itself and the download starts when it is ready.`;
-  return renderNotice('Preparing your download', DOWNLOAD_ICON, 'Preparing your download', body)
-    .replace('<head>', '<head><meta http-equiv="refresh" content="3">');
+      ? `Other downloads are being prepared first. You are number ${position} in line.`
+      : totalBytes
+        ? `${Math.min(99, Math.floor((bytes / totalBytes) * 100))}% done: ${esc(bytesLabel(bytes))} of ${esc(bytesLabel(totalBytes))}.${eta}`
+        : `${done} of ${total} files so far.${eta}`;
+  const body = `${status} This page refreshes by itself and gives you the download button when it is ready. You can switch apps: come back within half an hour and it carries on.`;
+  return renderNotice(
+    'Preparing your download',
+    DOWNLOAD_ICON,
+    'Preparing your download',
+    body,
+    inAppNote(inApp),
+  ).replace('<head>', `<head>${zipRefresh(3, tries)}`);
 }
 
-export function renderZipFailed(): string {
+/**
+ * The zip is ready. Reached by the waiting page's own refresh, so the
+ * download waits for a tap: a refresh that turned straight into a download
+ * left the page frozen on "Preparing", and the client sure nothing happened.
+ */
+export function renderZipReady(sizeBytes: number, inApp = false): string {
   return renderNotice(
+    'Your download is ready',
+    DOWNLOAD_ICON,
+    'Your download is ready',
+    `One zip file, ${esc(bytesLabel(sizeBytes))}. On mobile data a big album takes a while; if it stops part way, resume it from your browser's downloads rather than starting again.`,
+    `<a class="btn" href="zip">${DOWNLOAD_ICON}Download</a>${inAppNote(inApp)}`,
+  );
+}
+
+/**
+ * The zip could not be built (storage stopped answering). Tries again by
+ * itself a few times, a minute apart, so a hiccup costs the client a minute
+ * instead of the download; after that it stops and says to come back later.
+ */
+export function renderZipFailed(tries = 0, inApp = false): string {
+  const again = tries < 3;
+  const page = renderNotice(
     'Download unavailable',
     DOWNLOAD_ICON,
     'We could not prepare this download',
-    'Storage did not answer in time. Wait a minute and open the link again.',
+    again
+      ? 'Storage did not answer in time. This page tries again by itself in a minute.'
+      : 'Storage did not answer in time. Wait a few minutes and open the link again.',
+    inAppNote(inApp),
   );
+  // Past the minute a failure is held for (ZipCacheService.request), so the
+  // retry starts a new build rather than meeting the same failure.
+  return again ? page.replace('<head>', `<head>${zipRefresh(65, tries + 1)}`) : page;
 }
 
 function bytesLabel(bytes: number): string {
@@ -216,7 +292,7 @@ ${PAGE_STYLE}
   @media(max-width:520px){.picks{gap:8px;padding-left:12px}.picks .dl-label{display:none}.picks .sent{display:none}}
   .inapp{background:#fff4e5;color:#5c3b00;border-bottom:1px solid #f0c987;padding:10px 16px;font:14px/1.4 system-ui,sans-serif;text-align:center}
 </style></head><body>
-${inAppBrowser && view.downloads ? '<div class="inapp" role="note"><b>To download, open this page in your phone\'s browser.</b> Messenger and Facebook can\'t save files — tap the &#8943; menu and choose <b>Open in Safari</b> or <b>Open in Chrome</b>.</div>' : ''}
+${inAppBrowser && view.downloads ? `<div class="inapp" role="note">${IN_APP_NOTE}</div>` : ''}
 <div class="shell">
   <header class="hero"><div class="hero-in">
     <p class="eyebrow">${view.downloads ? 'Private delivery' : 'Portfolio'}</p>
@@ -224,7 +300,7 @@ ${inAppBrowser && view.downloads ? '<div class="inapp" role="note"><b>To downloa
     ${view.album.description ? `<p class="desc">${esc(view.album.description)}</p>` : ''}
     <div class="summary">
       <span>${view.total} item${view.total === 1 ? '' : 's'}${view.downloads ? ` · ${bytesLabel(view.totalBytes)}` : ''}</span>
-      <span class="actions">${view.downloads && view.total > 0 ? `<a class="grab" href="/s/${esc(token)}/download.zip">${DOWNLOAD_ICON}Download all</a>` : ''}</span>
+      <span class="actions">${view.downloads && view.total > 0 ? `<a class="grab" href="/s/${esc(token)}/zip">${DOWNLOAD_ICON}Download all</a>` : ''}</span>
     </div>
   </div></header>
   ${hasSections ? '<nav id="chapters" class="chapters" aria-label="Chapters"></nav>' : ''}
@@ -234,7 +310,7 @@ ${inAppBrowser && view.downloads ? '<div class="inapp" role="note"><b>To downloa
   <button id="more" class="more" type="button" hidden>Load more</button>
 </div>
 <p id="live" class="sr" aria-live="polite"></p>
-<div id="picks" class="picks" role="region" aria-label="Your picks"><span class="count"><b id="pickCount">0</b><span>picked</span></span><a id="pickZip" href="/s/${esc(token)}/picks.zip">${DOWNLOAD_ICON.replace('<svg', '<svg width="16"')}<span class="dl-label">&nbsp;Download</span></a><button id="send" class="send" type="button">Send to photographer</button><span id="sent" class="sent"></span></div>
+<div id="picks" class="picks" role="region" aria-label="Your picks"><span class="count"><b id="pickCount">0</b><span>picked</span></span><a id="pickZip" href="/s/${esc(token)}/picks/zip">${DOWNLOAD_ICON.replace('<svg', '<svg width="16"')}<span class="dl-label">&nbsp;Download</span></a><button id="send" class="send" type="button">Send to photographer</button><span id="sent" class="sent"></span></div>
 <div id="viewer" class="overlay" role="dialog" aria-modal="true" aria-label="Photo viewer"><div class="vbar"><button id="viewerClose" class="round" aria-label="Close">&#10005;</button><div class="vtitle"><strong id="viewerName"></strong><small id="viewerCount"></small></div><button id="zoomOut" class="round" aria-label="Zoom out">&#8722;</button><button id="zoomIn" class="round" aria-label="Zoom in">+</button><button id="viewerPick" class="round" aria-pressed="false" aria-label="Pick this photo" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.6-7-9.4A3.9 3.9 0 0 1 12 8a3.9 3.9 0 0 1 7 2.6C19 15.4 12 20 12 20z"/></svg></button><a id="viewerDownload" class="round" aria-label="Download">${DOWNLOAD_ICON}</a></div><div id="photoStage" class="stage"><button id="photoPrev" class="round nav prev" aria-label="Previous">&#8592;</button><img id="viewerImage" alt=""><button id="photoNext" class="round nav next" aria-label="Next">&#8594;</button></div></div>
 <div id="videoViewer" class="overlay" role="dialog" aria-modal="true" aria-label="Video player"><div class="vbar"><button id="videoClose" class="round" aria-label="Close">&#10005;</button><div class="vtitle"><strong id="videoName"></strong><small id="videoMeta"></small></div><a id="videoDownload" class="round" aria-label="Download">${DOWNLOAD_ICON}</a></div><div class="stage"><video id="video" class="video" controls playsinline></video></div></div>
 <div id="dock" class="dock"><div class="dock-in"><button id="audioToggle" class="round" aria-label="Play">&#9654;</button><div class="dock-meta"><strong id="audioName"></strong><small id="audioClock">0:00 / 0:00</small><input id="audioRange" class="range" type="range" min="0" max="0" step=".1" value="0" aria-label="Audio position"></div><button id="audioNext" class="round" aria-label="Next track">&#9197;</button></div><audio id="audio"></audio></div>
