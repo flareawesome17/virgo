@@ -9,18 +9,34 @@ import { finished } from 'node:stream/promises';
 import { ZIPS_SUBDIR } from './download-cache.service';
 import { zipInto } from './zip';
 
-export type ZipFile = { key: string; name: string };
+/** One file for a zip; `size` in bytes, 0 or absent when not known. */
+export type ZipFile = { key: string; name: string; size?: number };
 
 export interface ZipEntry {
   id: string;
   state: 'queued' | 'building' | 'ready' | 'failed';
   path: string;
   size: number;
+  /** Entries fully written. */
   done: number;
   total: number;
+  /** The files' bytes together, when every size is known. */
+  totalBytes?: number;
   lastUsed: number;
   inUse: number;
   failedAt?: number;
+}
+
+/** What the waiting page tells a client about a zip that is not ready yet. */
+export interface ZipProgress {
+  done: number;
+  total: number;
+  /** Bytes written so far; 0 while queued. */
+  bytes: number;
+  totalBytes?: number;
+  /** 1 for the next to start; 0 when the zip is not waiting. */
+  position: number;
+  etaSeconds?: number;
 }
 
 /** What the scheduler tracks beyond what a client is told about a zip. */
@@ -30,6 +46,7 @@ interface Job {
   zipName: string;
   files: readonly ZipFile[];
   open: (key: string) => Promise<Readable>;
+  reopen?: (key: string, from: number) => Promise<Readable>;
   queuedAt: number;
   startedAt: number;
   /** Last time a client asked for this zip; nobody asking means nobody waiting. */
@@ -42,10 +59,15 @@ interface Job {
   lastBytes: number;
 }
 
-/** A queued job nobody has asked about for this long is dropped. */
-const QUEUED_ABANDON_MS = 5 * 60_000;
-/** A build nobody has asked about for this long is stopped, saving storage egress. */
-const BUILDING_ABANDON_MS = 10 * 60_000;
+/**
+ * A queued job nobody has asked about for this long is dropped, and a build
+ * is stopped, saving storage egress. Generous on purpose: the waiting page is
+ * what asks, and a phone stops refreshing a page left in the background, so a
+ * client who goes to Messenger while a big album is prepared must still have
+ * their place when they come back.
+ */
+const QUEUED_ABANDON_MS = 30 * 60_000;
+const BUILDING_ABANDON_MS = 30 * 60_000;
 /** A build that has written nothing and finished no file for this long is stuck on storage. */
 const STALL_MS = 3 * 60_000;
 /** After waiting this long a job goes ahead of smaller, newer ones. */
@@ -76,7 +98,7 @@ const AGING_MS = 10 * 60_000;
  *   drops when storage starts failing or the disk runs low, within
  *   DOWNLOAD_ZIP_BUILDS_MIN..MAX.
  * - No wasted work: a build whose client has gone (nobody has opened the link
- *   for minutes) is dropped, and a running one is stopped.
+ *   for half an hour) is dropped, and a running one is stopped.
  */
 @Injectable()
 export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
@@ -154,25 +176,55 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
     return i + 1;
   }
 
-  /** Rough seconds left for a running build, from its own pace; undefined until known. */
+  /** Bytes of the zip written so far by a running build. */
+  private bytesOf(job: Job): number {
+    return (job.out as { bytesWritten?: number } | undefined)?.bytesWritten ?? 0;
+  }
+
+  /**
+   * Rough seconds left for a running build, from its own pace; undefined until
+   * known. By bytes when the album's sizes are known: one film can be most of
+   * an album, so a count of files says little about the time left.
+   */
   etaSeconds(entry: ZipEntry): number | undefined {
     const job = this.jobs.get(entry.id);
-    if (!job || entry.state !== 'building' || entry.done < 2) return undefined;
+    if (!job || entry.state !== 'building') return undefined;
     const elapsed = (Date.now() - job.startedAt) / 1000;
+    const bytes = this.bytesOf(job);
+    if (entry.totalBytes) {
+      if (elapsed < 5 || bytes < 1024 ** 2) return undefined;
+      return Math.round((elapsed / bytes) * Math.max(0, entry.totalBytes - bytes));
+    }
+    if (entry.done < 2) return undefined;
     return Math.round((elapsed / entry.done) * (entry.total - entry.done));
+  }
+
+  /** Everything the waiting page says about a zip that is not ready. */
+  progress(entry: ZipEntry): ZipProgress {
+    const job = this.jobs.get(entry.id);
+    return {
+      done: entry.done,
+      total: entry.total,
+      bytes: job && entry.state === 'building' ? this.bytesOf(job) : 0,
+      totalBytes: entry.totalBytes,
+      position: entry.state === 'queued' ? this.queuePosition(entry) : 0,
+      etaSeconds: this.etaSeconds(entry),
+    };
   }
 
   /**
    * The entry for this zip, starting a build if there is none. A recent
    * failure is returned as is for a minute so a client's refresh loop does not
    * hammer a broken storage link; after that the next request tries again.
-   * `owner` is whose album it is, for fair scheduling.
+   * `owner` is whose album it is, for fair scheduling. `reopen` reads an
+   * object from a byte offset, so a read that breaks part way carries on.
    */
   request(
     owner: string,
     zipName: string,
     files: readonly ZipFile[],
     open: (key: string) => Promise<Readable>,
+    reopen?: (key: string, from: number) => Promise<Readable>,
   ): ZipEntry {
     const id = ZipCacheService.idFor(zipName, files);
     const now = Date.now();
@@ -190,6 +242,9 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
       size: 0,
       done: 0,
       total: files.length,
+      totalBytes: files.every((f) => (f.size ?? 0) > 0)
+        ? files.reduce((sum, f) => sum + (f.size ?? 0), 0)
+        : undefined,
       lastUsed: now,
       inUse: 0,
     };
@@ -199,6 +254,7 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
       zipName,
       files,
       open,
+      reopen,
       queuedAt: now,
       startedAt: 0,
       lastPolled: now,
@@ -350,7 +406,7 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async build(job: Job): Promise<void> {
-    const { entry, zipName, files, open } = job;
+    const { entry, zipName, files, open, reopen } = job;
     const part = `${entry.path}.${Date.now()}.part`;
     const fail = async (why: string) => {
       await rm(part, { force: true }).catch(() => undefined);
@@ -374,6 +430,13 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
       entry.state = 'building';
       job.startedAt = Date.now();
       const out = createWriteStream(part);
+      // Every way a build is stopped (the stall and abandon checks, a full
+      // cache, a storage failure in zipInto) destroys this stream with an
+      // error, often before finished(out) below is listening. An 'error' event
+      // nobody listens for is an uncaught exception: it ended the whole API,
+      // and every download in flight with it. finished(out) still rejects
+      // with the error, so the failure is handled there as before.
+      out.on('error', () => undefined);
       job.out = out;
       const guard = (done: number) => {
         entry.done = done;
@@ -385,15 +448,11 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
           });
         }
       };
-      const skipped = await zipInto(
-        out,
-        zipName,
-        files,
-        open,
-        this.logger,
-        { attempts: 3, delayMs: this.retryDelayMs },
-        guard,
-      );
+      const skipped = await zipInto(out, zipName, files, open, this.logger, {
+        retry: { attempts: 3, delayMs: this.retryDelayMs },
+        onProgress: guard,
+        reopen,
+      });
       await finished(out);
       if (skipped > 0) {
         job.storageFailed = true;

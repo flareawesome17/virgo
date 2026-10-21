@@ -891,16 +891,27 @@ export class StorageService {
    * the token has already been resolved to this album's files. Adding a user
    * check here would mean inventing a user for an anonymous client.
    */
-  async readStream(key: string): Promise<Readable> {
-    return (await this.readStreamWithSize(key)).stream;
+  async readStream(key: string, from = 0): Promise<Readable> {
+    return (await this.readStreamWithSize(key, from)).stream;
   }
 
-  /** As `readStream`, plus the object's size when storage reports it. */
-  async readStreamWithSize(key: string): Promise<{ stream: Readable; size?: number }> {
+  /**
+   * As `readStream`, plus how many bytes the stream will deliver when storage
+   * reports it. `from` skips that many bytes, so a zip whose read of an
+   * object broke part way can carry on from there.
+   */
+  async readStreamWithSize(
+    key: string,
+    from = 0,
+  ): Promise<{ stream: Readable; size?: number }> {
     const client = this.requireClient();
     this.assertSafeKey(key);
     const res = await client.send(
-      new GetObjectCommand({ Bucket: this.config.bucketForKey(key), Key: key }),
+      new GetObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        ...(from > 0 ? { Range: `bytes=${from}-` } : {}),
+      }),
     );
     return { stream: res.Body as Readable, size: res.ContentLength };
   }

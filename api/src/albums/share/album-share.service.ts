@@ -14,6 +14,7 @@ import {
 import { HlsService } from '../../storage/hls.service';
 import { MediaLinkService } from '../../storage/media-link.service';
 import { StorageService } from '../../storage/storage.service';
+import type { ZipFile } from '../../storage/zip-cache.service';
 import { NotifyService } from '../../notifications/notify.service';
 import {
   decodeFileCursor,
@@ -817,7 +818,7 @@ export class AlbumShareService {
   /** The picked files, named as they are everywhere else in the delivery. */
   async picksForDownload(token: string): Promise<{
     albumName: string;
-    files: { key: string; name: string }[];
+    files: ZipFile[];
     /** Whose download allowance this spends. Never sent to the client. */
     ownerId: string;
   }> {
@@ -825,16 +826,16 @@ export class AlbumShareService {
     if (link.purpose !== 'client') {
       throw new ForbiddenException('Picking is only available on a client link');
     }
-    const files = await this.db.query<{ key: string; position: string }>(
+    const files = await this.db.query<{ key: string; position: string; size_bytes: string | null }>(
       `with scoped as (
-         select key, album_id,
+         select key, album_id, size_bytes,
                 row_number() over (order by ${SORT_AT_SQL}, key) as position,
                 ${SORT_AT_SQL} as sort_ts
            from user_files
           where user_id = $1 and album_id = $2
             and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
        )
-       select s.key, s.position
+       select s.key, s.position, s.size_bytes::text as size_bytes
          from scoped s
          join album_picks p on p.album_id = s.album_id and p.file_key = s.key
         order by s.sort_ts, s.key`,
@@ -846,6 +847,7 @@ export class AlbumShareService {
       files: files.map((f) => ({
         key: f.key,
         name: deliveryName(link.name, Number(f.position) - 1, f.key),
+        size: Number(f.size_bytes ?? 0) || 0,
       })),
     };
   }
@@ -920,9 +922,9 @@ export class AlbumShareService {
     };
   }
 
-  /** Raw bytes of one object, for the zip to append. */
-  streamFor(key: string) {
-    return this.storage.readStream(key);
+  /** Raw bytes of one object, for the zip to append; `from` skips that many. */
+  streamFor(key: string, from = 0) {
+    return this.storage.readStream(key, from);
   }
 
   /**
@@ -935,7 +937,7 @@ export class AlbumShareService {
    */
   async filesForDownload(token: string): Promise<{
     albumName: string;
-    files: { key: string; name: string }[];
+    files: ZipFile[];
     /** Whose download allowance this spends. Never sent to the client. */
     ownerId: string;
   }> {
@@ -945,8 +947,8 @@ export class AlbumShareService {
     if (link.purpose === 'portfolio') {
       return { albumName: link.name, files: [], ownerId: link.user_id };
     }
-    const files = await this.db.query<{ key: string }>(
-      `select key
+    const files = await this.db.query<{ key: string; size_bytes: string | null }>(
+      `select key, size_bytes::text as size_bytes
          from user_files
         where user_id = $1
           and album_id = $2
@@ -961,6 +963,7 @@ export class AlbumShareService {
       files: files.map((f, i) => ({
         key: f.key,
         name: deliveryName(link.name, i, f.key),
+        size: Number(f.size_bytes ?? 0) || 0,
       })),
     };
   }

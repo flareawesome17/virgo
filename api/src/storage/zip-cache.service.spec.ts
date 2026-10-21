@@ -13,7 +13,11 @@ jest.mock('archiver', () => {
       this.pending.push(
         new Promise<void>((resolve) => {
           s.on('data', (c) => this.write(c));
-          s.on('end', () => resolve());
+          s.on('end', () => {
+            // zipInto paces itself on this, as on the real archiver.
+            this.emit('entry', {});
+            resolve();
+          });
         }),
       );
     }
@@ -136,7 +140,7 @@ describe('ZipCacheService', () => {
     svc.onModuleDestroy();
   });
 
-  it('drops a queued zip nobody is waiting for', async () => {
+  it('keeps a queued zip through a phone in the background, then drops it', async () => {
     const svc = make({ DOWNLOAD_ZIP_BUILDS_MIN: '2', DOWNLOAD_ZIP_BUILDS_MAX: '2' });
     await svc.onModuleInit();
     let unblock!: () => void;
@@ -149,8 +153,15 @@ describe('ZipCacheService', () => {
     const filler = svc.request('o1', 'f.zip', [{ key: 'd', name: 'd' }], open);
     const waiting = svc.request('o2', 'b.zip', [{ key: 'c', name: 'c' }], open);
     const realNow = Date.now;
-    Date.now = () => realNow() + 6 * 60_000;
     try {
+      // Ten minutes in Messenger: still in line.
+      Date.now = () => realNow() + 10 * 60_000;
+      svc.dropAbandoned();
+      expect(svc.queuePosition(waiting)).toBe(1);
+      Date.now = () => realNow() + 31 * 60_000;
+      // The running ones are still being asked about; only the queued one is not.
+      svc.request('o1', 'a.zip', files, open);
+      svc.request('o1', 'f.zip', [{ key: 'd', name: 'd' }], open);
       svc.dropAbandoned();
     } finally {
       Date.now = realNow;
@@ -160,6 +171,74 @@ describe('ZipCacheService', () => {
     unblock();
     await waitFor(running, 'ready');
     await waitFor(filler, 'ready');
+    svc.onModuleDestroy();
+  });
+
+  it('counts progress in bytes when the sizes are known, and files only once written', async () => {
+    const svc = make();
+    await svc.onModuleInit();
+    const { PassThrough } = await import('node:stream');
+    const sources: InstanceType<typeof PassThrough>[] = [];
+    const open = async () => {
+      const s = new PassThrough();
+      s.write(Buffer.alloc(2 * 1024 ** 2));
+      sources.push(s);
+      return s;
+    };
+    const sized = [
+      { key: 'a', name: 'a.jpg', size: 2 * 1024 ** 2 },
+      { key: 'b', name: 'b.jpg', size: 2 * 1024 ** 2 },
+    ];
+    const e = svc.request('o1', 'sized.zip', sized, open);
+    expect(e.totalBytes).toBe(4 * 1024 ** 2);
+    await waitFor(e, 'building');
+    for (let i = 0; i < 100 && svc.progress(e).bytes < 2 * 1024 ** 2; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const p = svc.progress(e);
+    expect(p.bytes).toBeGreaterThanOrEqual(2 * 1024 ** 2);
+    expect(p.totalBytes).toBe(4 * 1024 ** 2);
+    // Both files are open, but neither has finished: none is done.
+    expect(p.done).toBe(0);
+    sources.forEach((s) => s.end());
+    await waitFor(e, 'ready');
+    expect(e.done).toBe(2);
+    svc.onModuleDestroy();
+  });
+
+  it('leaves the total in bytes unknown when any size is missing', () => {
+    const svc = make();
+    const e = svc.request('o1', 'partly.zip', [{ key: 'a', name: 'a', size: 10 }, { key: 'b', name: 'b' }], async () => Readable.from(['x']));
+    expect(e.totalBytes).toBeUndefined();
+  });
+
+  it('stops a stalled build without taking the process down', async () => {
+    const svc = make();
+    await svc.onModuleInit();
+    const { PassThrough } = await import('node:stream');
+    // Storage that answers and then sends nothing more.
+    const open = async () => {
+      const s = new PassThrough();
+      s.write('x');
+      return s;
+    };
+    const e = svc.request('o1', 'stuck.zip', files, open);
+    await waitFor(e, 'building');
+    await new Promise((r) => setTimeout(r, 30));
+    const realNow = Date.now;
+    try {
+      // The watchdog runs every minute: the first pass notes the bytes so far,
+      // a pass more than three minutes later finds nothing has moved.
+      Date.now = () => realNow() + 60_000;
+      svc.dropAbandoned();
+      Date.now = () => realNow() + 5 * 60_000;
+      svc.dropAbandoned();
+    } finally {
+      Date.now = realNow;
+    }
+    // Before the fix the watchdog's destroy was an unhandled 'error' event:
+    // an uncaught exception that ended the API, every download with it.
+    await waitFor(e, 'failed');
     svc.onModuleDestroy();
   });
 

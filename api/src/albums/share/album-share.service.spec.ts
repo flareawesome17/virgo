@@ -97,8 +97,8 @@ function galleryOver(purpose: SharePurpose) {
   });
   const query = jest.fn(async (sql: string) => {
     if (/with scoped as/.test(sql)) return FILES;
-    if (/order by .* key\s*$/s.test(sql) && /select key\s+from user_files/.test(sql)) {
-      return FILES.map((f) => ({ key: f.key }));
+    if (/order by .* key\s*$/s.test(sql) && /select key(, size_bytes::text as size_bytes)?\s+from user_files/.test(sql)) {
+      return FILES.map((f) => ({ key: f.key, size_bytes: f.size_bytes }));
     }
     return [];
   });
@@ -284,5 +284,7 @@ describe('The zip behind a share link', () => {
       'Wedding - 002.jpg',
       'Wedding - 003.jpg',
     ]);
+    // So the waiting page can count bytes, not files.
+    expect(zip.files.map((f) => f.size)).toEqual([6_000_000, 6_000_000, 6_000_000]);
   });
 });

@@ -40,7 +40,7 @@ import {
 } from './album-share.service';
 import { streamZip } from '../../storage/zip';
 import { DownloadCacheService } from '../../storage/download-cache.service';
-import { ZipCacheService } from '../../storage/zip-cache.service';
+import { ZipCacheService, type ZipFile } from '../../storage/zip-cache.service';
 import { contentDisposition } from '../../storage/download-names';
 import { VisitsService } from '../../visits/visits.service';
 import {
@@ -53,7 +53,18 @@ import {
   renderLinkUnavailable,
   renderZipFailed,
   renderZipPreparing,
+  renderZipReady,
 } from './client-gallery.template';
+
+/**
+ * Messenger, Facebook, Instagram, Line and Viber open links in their own web
+ * view, which cannot save a download. Clients get this link from chat.
+ */
+function isInAppBrowser(userAgent: string | undefined): boolean {
+  return /FBAN|FBAV|FB_IAB|Messenger|Instagram|Line\/|Viber|MicroMessenger|TikTok/i.test(
+    userAgent ?? '',
+  );
+}
 
 /**
  * Which media the link should expose. Omitted means everything, so a client
@@ -214,12 +225,7 @@ export class PublicAlbumController {
         this.logger.warn(`Visit not recorded: ${String(err)}`),
       );
 
-    // Messenger, Facebook, Instagram, Line and Viber open links in their own
-    // web view, which cannot save a download. Clients get this link from chat.
-    const inAppBrowser = /FBAN|FBAV|FB_IAB|Messenger|Instagram|Line\/|Viber|MicroMessenger|TikTok/i.test(
-      req.headers['user-agent'] ?? '',
-    );
-    res.send(renderClientGallery(view, token, nonce, inAppBrowser));
+    res.send(renderClientGallery(view, token, nonce, isInAppBrowser(req.headers['user-agent'])));
   }
 
   /**
@@ -244,7 +250,12 @@ export class PublicAlbumController {
   // The page refreshes every few seconds while a zip builds, and a download
   // manager opens several connections; the expensive part is queued, not this.
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  @Get(':token/download.zip')
+  // No file extension in the address, on purpose: Cloudflare treats a path
+  // ending in .zip as a static file it may cache, and sends range requests for
+  // it down its origin-range path, which stalled and reset resumed downloads
+  // of a 1 GB album. Like the single-file route, this one passes straight
+  // through; Content-Disposition still saves it as a .zip.
+  @Get(':token/zip')
   async downloadAll(
     @Param('token') token: string,
     @Req() req: Request,
@@ -259,36 +270,66 @@ export class PublicAlbumController {
     await this.serveZip(req, res, ownerId, `${safeFileStem(albumName)}.zip`, files);
   }
 
+  /** The old address of "Download all", still in open galleries and old messages. */
+  @Public()
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Get(':token/download.zip')
+  legacyDownloadAll(@Param('token') token: string, @Req() req: Request, @Res() res: Response) {
+    this.moved(res, req, `/s/${encodeURIComponent(token)}/zip`);
+  }
+
+  /** Sends a client on to a zip's new address, keeping the query. */
+  private moved(res: Response, req: Request, path: string): void {
+    const url = req.url ?? '';
+    const q = url.indexOf('?');
+    res.setHeader('Cache-Control', 'no-store');
+    res.redirect(302, q >= 0 ? `${path}${url.slice(q)}` : path);
+  }
+
   /**
    * One zip, built on this host's disk first and then sent as an ordinary
    * file, so it has a length and honours Range: Chrome's Resume and download
    * managers work, and a storage hiccup costs a retry instead of the whole
    * download. While it is being built the address answers with a page that
    * refreshes itself (or a 503 with Retry-After to a client that is not a
-   * browser), and the same address answers with the file once it is ready.
+   * browser). Once it is ready the same address answers with the file, except
+   * to the waiting page's own refresh (`?wait`), which gets a page with a
+   * Download button instead.
    */
   private async serveZip(
     req: Request,
     res: Response,
     ownerId: string,
     zipName: string,
-    files: { key: string; name: string }[],
+    files: ZipFile[],
   ): Promise<void> {
     // A resume of a download already under way is never refused.
     if (!isResumedRange(req.headers.range) && !(await this.allowance.allows(ownerId))) {
       this.downloadsPaused(res);
       return;
     }
+    const open = (key: string) => this.cacheStream(key);
+    const reopen = (key: string, from: number) => this.cacheStreamFrom(key, from);
     if (!this.zips.enabled) {
       this.allowance.meter(ownerId, res);
-      await streamZip(res, zipName, files, (key) => this.cacheStream(key), this.logger);
+      await streamZip(res, zipName, files, open, this.logger, { reopen });
       return;
     }
 
-    const entry = this.zips.request(ownerId, zipName, files, (key) => this.cacheStream(key));
+    const entry = this.zips.request(ownerId, zipName, files, open, reopen);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    const fromWaitingPage = query.wait !== undefined;
+    const tries = Math.min(9, Math.max(0, Math.floor(Number(query.try)) || 0));
+    const wantsPage = String(req.headers.accept ?? '').includes('text/html');
+    const inApp = isInAppBrowser(req.headers['user-agent']);
+
+    if (entry.state === 'ready' && wantsPage && fromWaitingPage) {
+      res.status(200).type('html').send(renderZipReady(entry.size, inApp));
+      return;
+    }
     if (entry.state === 'ready') {
       const release = this.zips.hold(entry);
       res.on('close', release);
@@ -307,19 +348,15 @@ export class PublicAlbumController {
       return;
     }
 
-    const wantsPage = String(req.headers.accept ?? '').includes('text/html');
     if (entry.state === 'failed') {
       res.status(503).setHeader('Retry-After', '60');
-      if (wantsPage) res.type('html').send(renderZipFailed());
+      if (wantsPage) res.type('html').send(renderZipFailed(tries, inApp));
       else res.type('text/plain').send('Could not prepare this download. Try again in a minute.');
       return;
     }
     res.status(wantsPage ? 200 : 503).setHeader('Retry-After', '3');
     if (wantsPage) {
-      const position = entry.state === 'queued' ? this.zips.queuePosition(entry) : 0;
-      res
-        .type('html')
-        .send(renderZipPreparing(entry.done, entry.total, position, this.zips.etaSeconds(entry)));
+      res.type('html').send(renderZipPreparing(this.zips.progress(entry), tries, inApp));
     } else {
       res.type('text/plain').send(`Preparing ${entry.done}/${entry.total}. Retry shortly.`);
     }
@@ -407,6 +444,15 @@ export class PublicAlbumController {
     }
   }
 
+  /** The rest of a zip entry whose read broke part way, from byte `from`. */
+  private async cacheStreamFrom(key: string, from: number) {
+    try {
+      return await this.cache.openFrom(key, from);
+    } catch {
+      return this.share.streamFor(key, from);
+    }
+  }
+
   /**
    * Sends one file from this host's disk (filling the cache from B2 on the
    * first request). Returns false, with nothing written, if it could not.
@@ -460,7 +506,8 @@ export class PublicAlbumController {
    */
   @Public()
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  @Get(':token/picks.zip')
+  // No .zip at the end, for the same reason as downloadAll.
+  @Get(':token/picks/zip')
   async downloadPicks(
     @Param('token') token: string,
     @Req() req: Request,
@@ -473,6 +520,14 @@ export class PublicAlbumController {
       return;
     }
     await this.serveZip(req, res, ownerId, `${safeFileStem(albumName)}.zip`, files);
+  }
+
+  /** The old address of the picks' zip. */
+  @Public()
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Get(':token/picks.zip')
+  legacyDownloadPicks(@Param('token') token: string, @Req() req: Request, @Res() res: Response) {
+    this.moved(res, req, `/s/${encodeURIComponent(token)}/picks/zip`);
   }
 
   /**

@@ -91,13 +91,16 @@ describe('client gallery template', () => {
     const html = renderClientGallery(view, 'token-value', 'nonce-value');
     expect(html).toContain("base + '/picks'");
     expect(html).toContain("base + '/picks/send'");
-    expect(html).toContain('href="/s/token-value/picks.zip"');
+    expect(html).toContain('href="/s/token-value/picks/zip"');
   });
 
   it('offers the whole delivery, and says how big it is, on a client link', () => {
     const html = renderClientGallery(view, 'token-value', 'nonce-value');
     expect(html).toContain('Private delivery');
-    expect(html).toContain('href="/s/token-value/download.zip"');
+    // No .zip at the end of the address: Cloudflare would treat it as a
+    // static file (see PublicAlbumController.downloadAll).
+    expect(html).toContain('href="/s/token-value/zip"');
+    expect(html).not.toMatch(/href="[^"]*\.zip"/);
     expect(html).toContain('250 MB');
   });
 
@@ -114,7 +117,7 @@ describe('client gallery template', () => {
     const html = renderClientGallery(portfolio, 'token-value', 'nonce-value');
     expect(html).toContain('<p class="eyebrow">Portfolio</p>');
     expect(html).not.toContain('Private delivery');
-    expect(html).not.toContain('download.zip');
+    expect(html).not.toContain('/s/token-value/zip');
     expect(html).not.toMatch(/\d+ MB|<1 MB|\d+\.\d GB/);
     // The viewers hide their download buttons for a file with no download
     // link, and the page makes `hidden` win over the buttons' own display.

@@ -428,6 +428,7 @@ export class StorageController {
       download.files,
       (key) => this.storage.readStream(key),
       this.logger,
+      { reopen: (key, from) => this.storage.readStream(key, from) },
     );
   }
 }
