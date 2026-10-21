@@ -1,6 +1,7 @@
 {
   "name": "virgo-api",
   "version": "1.0.0",
+  "license": "UNLICENSED",
   "private": true,
   "description": "Virgo REST API — NestJS + PostgreSQL",
   "scripts": {
