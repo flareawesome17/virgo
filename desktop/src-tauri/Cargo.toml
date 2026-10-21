@@ -23,10 +23,16 @@ default-features = false
 features = ["system"]
 
 # Job objects, so the Node child cannot outlive this process even if this
-# process is killed rather than closed.
+# process is killed rather than closed. The window features are for one
+# message in the window's frame — see `fill_screen_when_fullscreen`.
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.61"
-features = ["Win32_Foundation", "Win32_System_JobObjects"]
+features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
 
 [dependencies]
 tauri = { version = "2", features = [] }

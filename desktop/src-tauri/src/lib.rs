@@ -716,6 +716,73 @@ fn on_download<R: tauri::Runtime>(webview: tauri::Webview<R>, event: DownloadEve
     }
 }
 
+/// Lets a fullscreen film fill the screen when the window was maximized.
+///
+/// A film's fullscreen button asks WebView2 for fullscreen, and Tauri answers
+/// by making the window cover the monitor. It does, but the page stopped 48px
+/// short — the height of the taskbar — leaving a band of bare frame along the
+/// bottom. That is tao, under Tauri: with the system title bar off it computes
+/// the window's client area itself, and for a maximized window it trims that
+/// area to the monitor's work area so the window does not cover the taskbar.
+/// It does not ask whether the window is fullscreen, and a window that was
+/// maximized stays maximized through fullscreen. (tao 0.37.1, `WM_NCCALCSIZE`
+/// in `platform_impl/windows/event_loop.rs`; its dev branch is the same.)
+///
+/// So this answers that one message first, for that one case, and leaves the
+/// whole window to the page. Everything else goes on to tao. The window is not
+/// un-maximized instead: it would flash its restored size on the way in and
+/// out, and the window-state plugin records the size of any window that is not
+/// maximized — it would remember the monitor as the window's normal size.
+///
+/// tao's fullscreen is recognised by its missing caption: tao gives every
+/// window `WS_CAPTION`, title bar or not, and takes it away only for
+/// fullscreen. Drop this once tao checks for fullscreen itself.
+#[cfg(windows)]
+fn fill_screen_when_fullscreen(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::Shell::SetWindowSubclass;
+
+    let Ok(hwnd) = window.hwnd() else {
+        log("no window handle — a maximized window will not fill the screen in fullscreen");
+        return;
+    };
+    if unsafe { SetWindowSubclass(hwnd.0 as _, Some(fullscreen_frame), FULLSCREEN_FRAME_ID, 0) } == 0 {
+        log("could not hook the window frame — a maximized window will not fill the screen in fullscreen");
+    }
+}
+
+/// Our subclass's id, beside tao's and wry's on the same window.
+#[cfg(windows)]
+const FULLSCREEN_FRAME_ID: usize = 0x5649_5247;
+
+#[cfg(windows)]
+unsafe extern "system" fn fullscreen_frame(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    message: u32,
+    wparam: windows_sys::Win32::Foundation::WPARAM,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+    _id: usize,
+    _data: usize,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongW, GWL_STYLE, WM_NCCALCSIZE, WM_NCDESTROY, WS_CAPTION, WS_MAXIMIZE,
+    };
+
+    if message == WM_NCCALCSIZE && wparam != 0 {
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        if style & WS_CAPTION == 0 && style & WS_MAXIMIZE != 0 {
+            // Zero with the proposed rectangle untouched: the client area is
+            // the whole window. What tao returns for a fullscreen window that
+            // was not maximized.
+            return 0;
+        }
+    }
+    if message == WM_NCDESTROY {
+        RemoveWindowSubclass(hwnd, Some(fullscreen_frame), FULLSCREEN_FRAME_ID);
+    }
+    DefSubclassProc(hwnd, message, wparam, lparam)
+}
+
 /// Reload, Back and Forward in the macOS menu bar, and a Quit that asks.
 ///
 /// The default menu has none of them, so on a Mac there was no way to reload
@@ -881,6 +948,15 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 #[cfg(target_os = "windows")]
                 let _ = window.set_decorations(false);
+                // Which leaves tao drawing the frame, and short of the screen
+                // in fullscreen when the window was maximized. On the main
+                // thread because a window can only be subclassed from the
+                // thread that owns it.
+                #[cfg(target_os = "windows")]
+                {
+                    let target = window.clone();
+                    let _ = window.run_on_main_thread(move || fill_screen_when_fullscreen(&target));
+                }
 
                 // The window is created hidden so the frame above is never
                 // painted and then removed, which reads as a flicker on launch.
