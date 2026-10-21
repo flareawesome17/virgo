@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type DragEvent } from 'react';
-import { ArrowDown, ArrowUp, Heart, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Heart, Link2, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AlbumSection } from '@/api';
 import { Button } from '@/components/ui/button';
@@ -95,6 +95,7 @@ export function AlbumSections({
   onChange,
   canManage,
   onDropFiles,
+  onShareSection,
 }: {
   albumId: string;
   layout: 'rail' | 'chips';
@@ -103,6 +104,8 @@ export function AlbumSections({
   onChange: (value: SectionFilter) => void;
   canManage: boolean;
   onDropFiles: (keys: string[], sectionId: string | null) => void;
+  /** A client link to just this section; absent for someone who cannot share. */
+  onShareSection?: (section: AlbumSection) => void;
 }) {
   const [naming, setNaming] = useState<{ id?: string; initial: string } | null>(null);
   const [deleting, setDeleting] = useState<AlbumSection | null>(null);
@@ -179,6 +182,15 @@ export function AlbumSections({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {onShareSection && (
+          <>
+            <DropdownMenuItem onSelect={() => onShareSection(section)}>
+              <Link2 className="size-4" />
+              Client link
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem onSelect={() => setNaming({ id: section.id, initial: section.name })}>
           <Pencil className="size-4" />
           Rename

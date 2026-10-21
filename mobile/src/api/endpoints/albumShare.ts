@@ -19,6 +19,19 @@ export interface ShareLink {
   picksSentAt: string | null;
 }
 
+/** A client link to part of an album: one section, or a chosen set of files. */
+export interface PartShareLink {
+  id: string;
+  scope: 'section' | 'files';
+  url: string;
+  createdAt: string;
+  sectionId: string | null;
+  sectionName: string | null;
+  /** What it shows now: files deleted or moved out of the album drop out. */
+  fileCount: number;
+  picksSentAt: string | null;
+}
+
 /**
  * Public client links for an album.
  *
@@ -46,5 +59,26 @@ export const albumShareApi = {
 
   revoke(albumId: string): Promise<{ revoked: boolean }> {
     return api.delete<{ revoked: boolean }>(`/albums/${albumId}/share`);
+  },
+
+  /** Live links to a section or a selection of the album, newest first. */
+  parts(albumId: string): Promise<PartShareLink[]> {
+    return api.get<PartShareLink[]>(`/albums/${albumId}/share/parts`);
+  },
+
+  /**
+   * A link to one section, or to a chosen set of files (one file is a set of
+   * one). Asking again for the same section or the same set hands back the
+   * link already issued; a different set is a new link.
+   */
+  createPart(
+    albumId: string,
+    part: { sectionId: string } | { keys: string[] },
+  ): Promise<PartShareLink> {
+    return api.post<PartShareLink>(`/albums/${albumId}/share/parts`, { body: part });
+  },
+
+  revokePart(albumId: string, linkId: string): Promise<{ revoked: boolean }> {
+    return api.delete<{ revoked: boolean }>(`/albums/${albumId}/share/parts/${linkId}`);
   },
 };

@@ -216,9 +216,13 @@ export function renderClientGallery(
    */
   inAppBrowser = false,
 ): string {
-  const hasSections = view.sections.length > 0;
+  // A link to one section is that chapter alone, so it gets no chapter row.
+  const hasSections = view.sections.length > 0 && view.part?.kind !== 'section';
+  // What part of the album this is, said in the eyebrow and the tab's title.
+  const partLabel =
+    view.part?.kind === 'section' ? view.part.name : view.part?.kind === 'files' ? 'A selection' : '';
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">${FAVICON_LINK}<title>${esc(view.album.name)}</title><style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">${FAVICON_LINK}<title>${esc(partLabel ? `${view.album.name} · ${partLabel}` : view.album.name)}</title><style>
 ${PAGE_STYLE}
   .shell{max-width:1440px;margin:0 auto;padding:16px 16px 120px}
   .hero{padding:6px;border-radius:30px;background:var(--panel);box-shadow:0 28px 80px -48px rgba(62,39,26,.72)}
@@ -295,7 +299,7 @@ ${PAGE_STYLE}
 ${inAppBrowser && view.downloads ? `<div class="inapp" role="note">${IN_APP_NOTE}</div>` : ''}
 <div class="shell">
   <header class="hero"><div class="hero-in">
-    <p class="eyebrow">${view.downloads ? 'Private delivery' : 'Portfolio'}</p>
+    <p class="eyebrow">${view.downloads ? 'Private delivery' : 'Portfolio'}${partLabel ? ` · ${esc(partLabel)}` : ''}</p>
     <h1>${esc(view.album.name)}</h1>
     ${view.album.description ? `<p class="desc">${esc(view.album.description)}</p>` : ''}
     <div class="summary">

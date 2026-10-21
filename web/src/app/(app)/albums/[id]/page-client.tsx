@@ -56,6 +56,8 @@ import { MediaViewer } from '@/components/media/media-viewer';
 import { useVideoPlayback } from '@/components/media/video-playback';
 import { AlbumAudioPlayer } from '@/components/media/album-audio-player';
 import { ShareDialog } from '@/components/media/share-dialog';
+import { PartLinkDialog } from '@/components/media/part-links';
+import { useCreatePartLink } from '@/hooks/useAlbumShare';
 import { RetentionDialog } from '@/components/media/retention-dialog';
 import { AlbumDetailsDialog } from '@/components/media/album-details-dialog';
 import { AlbumGrid, type Density } from '@/components/media/album-grid';
@@ -72,6 +74,7 @@ import {
   retentionOf,
   storageApi,
   type AlbumStatus,
+  type PartShareLink,
   type StoredFile,
 } from '@/api';
 import { cn } from '@/lib/utils';
@@ -182,6 +185,9 @@ function AlbumWorkspace() {
   const [confirmingDelete, setConfirmingDelete] = useState<string[] | null>(null);
   const [namingForMove, setNamingForMove] = useState(false);
   const [zipping, setZipping] = useState(false);
+  // A link just made to a selection or a section, shown with its URL.
+  const [partLink, setPartLink] = useState<PartShareLink | null>(null);
+  const createPartLink = useCreatePartLink(id);
 
   const updateAlbum = useUpdateAlbum();
   const removeAlbum = useDeleteAlbum();
@@ -311,6 +317,13 @@ function AlbumWorkspace() {
       },
     );
   };
+
+  /** A client link to just a selection or one section, rather than the album. */
+  const sharePart = (part: { sectionId: string } | { keys: string[] }) =>
+    createPartLink.mutate(part, {
+      onSuccess: setPartLink,
+      onError: (error) => toast.error('Could not make the link', { description: problem(error) }),
+    });
 
   const downloadSelection = async () => {
     setZipping(true);
@@ -534,6 +547,7 @@ function AlbumWorkspace() {
                 onChange={setSection}
                 canManage={canManage}
                 onDropFiles={(keys, sectionId) => moveTo(sectionId, keys)}
+                onShareSection={canShare ? (section) => sharePart({ sectionId: section.id }) : undefined}
               />
             </div>
           </aside>
@@ -548,6 +562,7 @@ function AlbumWorkspace() {
                 onChange={setSection}
                 canManage={canManage}
                 onDropFiles={(keys, sectionId) => moveTo(sectionId, keys)}
+                onShareSection={canShare ? (section) => sharePart({ sectionId: section.id }) : undefined}
               />
             </div>
 
@@ -605,6 +620,17 @@ function AlbumWorkspace() {
                         <Button variant="outline" size="sm" disabled={busy} onClick={() => void downloadSelection()}>
                           {zipping ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                           Download
+                        </Button>
+                      )}
+                      {canShare && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy || createPartLink.isPending}
+                          onClick={() => sharePart({ keys: selection.keys() })}
+                        >
+                          {createPartLink.isPending ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+                          Link
                         </Button>
                       )}
                       {isOwner && oneImage && (
@@ -749,6 +775,11 @@ function AlbumWorkspace() {
       )}
 
       <ShareDialog albumId={id} albumName={album?.name ?? 'this album'} open={sharing} onOpenChange={setSharing} />
+      <PartLinkDialog
+        link={partLink}
+        albumName={album?.name ?? 'this album'}
+        onOpenChange={(open) => !open && setPartLink(null)}
+      />
       {album && isOwner && <RetentionDialog album={album} open={keeping} onOpenChange={setKeeping} />}
       {album && isOwner && (
         <AlbumDetailsDialog

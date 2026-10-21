@@ -31,6 +31,7 @@ import {
   useRevokeShareLink,
 } from '@/hooks/useAlbumShare';
 import { ALL_SHARE_KINDS, type ShareMediaKind } from '@/api';
+import { PartLinksList } from './part-links';
 
 const KIND_LABELS: Record<ShareMediaKind, string> = {
   image: 'Photos',
@@ -163,6 +164,11 @@ export function ShareDialog({
                 </p>
               </div>
             ) : null}
+
+            <div className="grid gap-2 border-t pt-4">
+              <Label>Links to part of the album</Label>
+              <PartLinksList albumId={albumId} />
+            </div>
           </div>
 
           <DialogFooter className="sm:justify-between">

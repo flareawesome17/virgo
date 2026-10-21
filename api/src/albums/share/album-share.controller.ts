@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -20,6 +21,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { Public } from '../../auth/public.decorator';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
@@ -35,6 +37,7 @@ import {
 import {
   ALL_MEDIA_KINDS,
   AlbumShareService,
+  MAX_LINK_FILES,
   type MediaKind,
   safeFileStem,
 } from './album-share.service';
@@ -77,6 +80,25 @@ export class CreateShareLinkDto {
   @ArrayMaxSize(3)
   @IsIn(ALL_MEDIA_KINDS, { each: true })
   kinds?: MediaKind[];
+}
+
+/**
+ * A link to part of an album: one section, or a set of its files by key (the
+ * signed-in apps select by key). Exactly one of the two.
+ */
+export class CreatePartLinkDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  sectionId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_LINK_FILES)
+  @IsString({ each: true })
+  @MaxLength(1024, { each: true })
+  keys?: string[];
 }
 
 export class PublicGalleryQueryDto {
@@ -141,6 +163,36 @@ export class AlbumShareController {
   @Delete()
   revoke(@CurrentUser('id') userId: string, @Param('albumId') albumId: string) {
     return this.share.revoke(userId, albumId);
+  }
+
+  /** Live links to a section or a selection of this album. */
+  @Get('parts')
+  parts(@CurrentUser('id') userId: string, @Param('albumId') albumId: string) {
+    return this.share.listParts(userId, albumId);
+  }
+
+  @HttpCode(200)
+  @Post('parts')
+  createPart(
+    @CurrentUser('id') userId: string,
+    @Param('albumId') albumId: string,
+    @Body() dto: CreatePartLinkDto,
+  ) {
+    if (!dto.sectionId === !dto.keys) {
+      throw new BadRequestException('Send a section or a list of files, not both');
+    }
+    return dto.sectionId
+      ? this.share.createSectionLink(userId, albumId, dto.sectionId)
+      : this.share.createFilesLink(userId, albumId, dto.keys!);
+  }
+
+  @Delete('parts/:linkId')
+  revokePart(
+    @CurrentUser('id') userId: string,
+    @Param('albumId') albumId: string,
+    @Param('linkId') linkId: string,
+  ) {
+    return this.share.revokePart(userId, albumId, linkId);
   }
 }
 

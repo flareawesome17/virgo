@@ -3,6 +3,7 @@ import type { PublicAlbumView } from './album-share.service';
 
 const view: PublicAlbumView = {
   album: { name: 'Reyes <script>alert(1)</script>', description: 'Private & ready' },
+  part: null,
   kinds: ['image', 'video', 'audio'],
   sections: [{ id: 'sec-1', name: 'Ceremony <b>', count: 1 }],
   picks: { enabled: true, count: 0, sentAt: null },
@@ -146,5 +147,25 @@ describe('video player layout', () => {
     const html = renderClientGallery(view, 'token-value', 'nonce-value');
     expect(html).toContain('grid-template:minmax(0,1fr)/minmax(0,1fr)');
     expect(html).toMatch(/\.video\{width:100%;height:100%;[^}]*object-fit:contain/);
+  });
+});
+
+describe('a link to part of the album', () => {
+  it('says which section it is, and offers no chapter row', () => {
+    const html = renderClientGallery({ ...view, part: { kind: 'section', name: 'Ceremony <b>' } }, 'token-value', 'nonce-value');
+    expect(html).toContain('Private delivery · Ceremony &lt;b&gt;</p>');
+    expect(html).toContain('<title>Reyes &lt;script&gt;alert(1)&lt;/script&gt; · Ceremony &lt;b&gt;</title>');
+    expect(html).not.toContain('id="chapters"');
+  });
+
+  it('says it is a selection, and keeps the chapters its files are in', () => {
+    const html = renderClientGallery({ ...view, part: { kind: 'files' } }, 'token-value', 'nonce-value');
+    expect(html).toContain('Private delivery · A selection</p>');
+    expect(html).toContain('id="chapters"');
+  });
+
+  it('says nothing extra on a whole-album link', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    expect(html).toContain('<p class="eyebrow">Private delivery</p>');
   });
 });

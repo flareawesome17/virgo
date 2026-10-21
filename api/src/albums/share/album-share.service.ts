@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service';
 import {
   DOWNLOAD_URL_TTL_SECONDS,
@@ -36,8 +36,53 @@ export interface ShareLinkRow {
   expires_at: Date | null;
   revoked_at: Date | null;
   purpose: SharePurpose;
+  scope: LinkScope;
+  section_id: string | null;
+  files_hash: string | null;
   created_at: Date;
   picks_sent_at: Date | null;
+}
+
+/**
+ * How much of its album a link shows: all of it, one section, or a chosen set
+ * of files (album_share_link_files). Part links are always client links.
+ */
+export type LinkScope = 'album' | 'section' | 'files';
+
+/** A client link to part of an album, as the album's managers see it. */
+export interface PartLink {
+  id: string;
+  scope: 'section' | 'files';
+  url: string;
+  createdAt: Date;
+  sectionId: string | null;
+  sectionName: string | null;
+  /** What it shows now: files deleted or moved out of the album since drop out. */
+  fileCount: number;
+  picksSentAt: Date | null;
+}
+
+/** The most files one selection link may name. A bigger set is the album link's job. */
+export const MAX_LINK_FILES = 2000;
+
+/** A live link as the public routes read it: the link, its album, and its part. */
+interface LinkRef {
+  id: string;
+  album_id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  media_kinds: MediaKind[];
+  purpose: SharePurpose;
+  picks_sent_at: Date | null;
+  scope: LinkScope;
+  section_id: string | null;
+  section_name: string | null;
+}
+
+/** Postgres refusing a row a unique index already holds. */
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === '23505';
 }
 
 /**
@@ -56,6 +101,11 @@ export const ALL_MEDIA_KINDS: MediaKind[] = ['image', 'video', 'audio'];
 
 export interface PublicAlbumView {
   album: { name: string; description: string | null };
+  /**
+   * What part of the album the link shows, for the page to say so: one
+   * section by name, or a selection. Null on a whole-album link.
+   */
+  part: { kind: 'section'; name: string } | { kind: 'files' } | null;
   files: {
     /**
      * An opaque id for the file, for picking it. Deliberately not the object
@@ -340,7 +390,7 @@ export class AlbumShareService {
 
     const existing = await this.db.queryOne<ShareLinkRow>(
       `select * from album_share_links
-        where album_id = $1 and purpose = $2 and revoked_at is null
+        where album_id = $1 and purpose = $2 and scope = 'album' and revoked_at is null
         limit 1`,
       [albumId, purpose],
     );
@@ -413,7 +463,7 @@ export class AlbumShareService {
     await this.linkOwner(userId, albumId, purpose);
     const row = await this.db.queryOne<ShareLinkRow>(
       `select * from album_share_links
-        where album_id = $1 and purpose = $2 and revoked_at is null
+        where album_id = $1 and purpose = $2 and scope = 'album' and revoked_at is null
         limit 1`,
       [albumId, purpose],
     );
@@ -432,7 +482,9 @@ export class AlbumShareService {
    * Revokes the active link. The token is kept so it can never be reissued.
    *
    * Scoped to one purpose, so "stop sharing with the client" does not also
-   * silently empty the album out of a public portfolio.
+   * silently empty the album out of a public portfolio. The whole-album link
+   * only: links to a section or a selection are turned off one by one
+   * (revokePart), since each may have gone to someone else.
    */
   async revoke(
     userId: string,
@@ -445,12 +497,184 @@ export class AlbumShareService {
     const rows = await this.db.query<{ id: string }>(
       `update album_share_links
           set revoked_at = now()
-        where album_id = $1 and purpose = $2
+        where album_id = $1 and purpose = $2 and scope = 'album'
           and revoked_at is null
         returning id`,
       [albumId, purpose],
     );
     return { revoked: rows.length > 0 };
+  }
+
+  /** The album's live links to a section or a selection, newest first. */
+  async listParts(userId: string, albumId: string): Promise<PartLink[]> {
+    await this.linkOwner(userId, albumId, 'client');
+    return this.partsWhere('l.album_id = $1', [albumId]);
+  }
+
+  /**
+   * A link to one section of the album. Like the album's own link, asking
+   * again hands back the same one: a link already sent keeps working.
+   */
+  async createSectionLink(userId: string, albumId: string, sectionId: string): Promise<PartLink> {
+    const ownerId = await this.linkOwner(userId, albumId, 'client');
+    const section = await this.db.queryOne<{ id: string }>(
+      'select id from album_sections where id = $1 and album_id = $2',
+      [sectionId, albumId],
+    );
+    if (!section) throw new NotFoundException('That section is not in this album');
+
+    const live = () =>
+      this.partsWhere(`l.scope = 'section' and l.section_id = $1`, [sectionId]).then((r) => r[0]);
+    const existing = await live();
+    if (existing) return existing;
+    try {
+      await this.db.query(
+        `insert into album_share_links (album_id, user_id, token, media_kinds, purpose, scope, section_id)
+         values ($1, $2, $3, $4, 'client', 'section', $5)`,
+        [albumId, ownerId, this.newToken(), ALL_MEDIA_KINDS, sectionId],
+      );
+    } catch (err) {
+      // Two taps at once: the other one made it, and that is the link.
+      if (!isUniqueViolation(err)) throw err;
+    }
+    void this.hls.enqueueAlbum(albumId);
+    return (await live())!;
+  }
+
+  /**
+   * A link to a chosen set of the album's files — one file is a set of one.
+   * The same set asked for twice is the same link; a different set is a new
+   * one, since each selection may go to someone else.
+   */
+  async createFilesLink(userId: string, albumId: string, keys: readonly string[]): Promise<PartLink> {
+    const ownerId = await this.linkOwner(userId, albumId, 'client');
+    const wanted = [...new Set(keys)].sort();
+    if (wanted.length === 0) throw new BadRequestException('Select at least one file');
+    if (wanted.length > MAX_LINK_FILES) {
+      throw new BadRequestException(`A link can name up to ${MAX_LINK_FILES} files; share the album instead`);
+    }
+    // The owner's rows, as the gallery reads them (a member's uploads are filed
+    // under the owner). Anything else would be in the link and never shown.
+    const found = await this.db.queryOne<{ count: string }>(
+      `select count(*)::text as count from user_files
+        where user_id = $1 and album_id = $2 and key = any($3::text[])`,
+      [ownerId, albumId, wanted],
+    );
+    if (Number(found?.count ?? 0) !== wanted.length) {
+      throw new BadRequestException('Some of those files are not in this album');
+    }
+
+    const hash = createHash('sha256').update(wanted.join('\0')).digest('hex');
+    const live = () =>
+      this.partsWhere(`l.album_id = $1 and l.scope = 'files' and l.files_hash = $2`, [
+        albumId,
+        hash,
+      ]).then((r) => r[0]);
+    const existing = await live();
+    if (existing) return existing;
+    try {
+      // One statement, so a link never exists without its files.
+      await this.db.query(
+        `with link as (
+           insert into album_share_links (album_id, user_id, token, media_kinds, purpose, scope, files_hash)
+           values ($1, $2, $3, $4, 'client', 'files', $5)
+           returning id
+         )
+         insert into album_share_link_files (link_id, file_key)
+         select link.id, k from link, unnest($6::text[]) as k`,
+        [albumId, ownerId, this.newToken(), ALL_MEDIA_KINDS, hash, wanted],
+      );
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+    }
+    void this.hls.enqueueAlbum(albumId);
+    return (await live())!;
+  }
+
+  /** Turns off one link to a section or a selection of this album. */
+  async revokePart(userId: string, albumId: string, linkId: string): Promise<{ revoked: boolean }> {
+    await this.linkOwner(userId, albumId, 'client');
+    const rows = await this.db.query<{ id: string }>(
+      `update album_share_links
+          set revoked_at = now()
+        where id::text = $1 and album_id = $2 and scope <> 'album' and revoked_at is null
+        returning id`,
+      [linkId, albumId],
+    );
+    return { revoked: rows.length > 0 };
+  }
+
+  /** Live part links matching `where` (on `l`), with what each shows now. */
+  private async partsWhere(where: string, params: unknown[]): Promise<PartLink[]> {
+    const rows = await this.db.query<{
+      id: string;
+      token: string;
+      scope: 'section' | 'files';
+      created_at: Date;
+      section_id: string | null;
+      section_name: string | null;
+      file_count: string;
+      picks_sent_at: Date | null;
+    }>(
+      `select l.id, l.token, l.scope, l.created_at, l.section_id, s.name as section_name,
+              l.picks_sent_at,
+              case l.scope
+                when 'section' then (
+                  select count(*) from user_files f
+                   where f.user_id = l.user_id and f.album_id = l.album_id
+                     and f.section_id = l.section_id)
+                else (
+                  select count(*) from album_share_link_files lf
+                    join user_files f on f.key = lf.file_key
+                   where lf.link_id = l.id and f.user_id = l.user_id and f.album_id = l.album_id)
+              end::text as file_count
+         from album_share_links l
+         left join album_sections s on s.id = l.section_id
+        where ${where} and l.scope <> 'album' and l.revoked_at is null
+        order by l.created_at desc`,
+      params,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      scope: r.scope,
+      url: this.urlFor(r.token),
+      createdAt: r.created_at,
+      sectionId: r.section_id,
+      sectionName: r.section_name,
+      fileCount: Number(r.file_count),
+      picksSentAt: r.picks_sent_at,
+    }));
+  }
+
+  /**
+   * The condition that keeps a query to the part of the album a link shows,
+   * for user_files (or a select from it) aliased `f`. Appends what it needs to
+   * `params`. Nothing for a whole-album link.
+   *
+   * Every query that reads files through a link takes it — the page, picks,
+   * single downloads and the zip — so a part link cannot be widened through
+   * any of them. Positions are still counted across the album before it
+   * applies, so a file has one name in every link: frame 57 is "- 057" in
+   * the album's link and in a link to its section.
+   */
+  private partSql(link: LinkRef, f: string, params: unknown[]): string {
+    if (link.scope === 'section') {
+      params.push(link.section_id);
+      return ` and ${f}.section_id = $${params.length}`;
+    }
+    if (link.scope === 'files') {
+      params.push(link.id);
+      return ` and exists (select 1 from album_share_link_files lf
+                            where lf.link_id = $${params.length} and lf.file_key = ${f}.key)`;
+    }
+    return '';
+  }
+
+  /** What the page and the zip call what a link shows. */
+  private titleOf(link: LinkRef): string {
+    if (link.scope === 'section' && link.section_name) return `${link.name} - ${link.section_name}`;
+    if (link.scope === 'files') return `${link.name} - selection`;
+    return link.name;
   }
 
   /**
@@ -467,30 +691,14 @@ export class AlbumShareService {
    * downloadable through the other route — two copies of this query is two
    * chances for the expiry rule to drift.
    */
-  private async linkFor(token: string): Promise<{
-    id: string;
-    album_id: string;
-    user_id: string;
-    name: string;
-    description: string | null;
-    media_kinds: MediaKind[];
-    purpose: SharePurpose;
-    picks_sent_at: Date | null;
-  }> {
-    const link = await this.db.queryOne<{
-      id: string;
-      album_id: string;
-      user_id: string;
-      name: string;
-      description: string | null;
-      media_kinds: MediaKind[];
-      purpose: SharePurpose;
-      picks_sent_at: Date | null;
-    }>(
+  private async linkFor(token: string): Promise<LinkRef> {
+    const link = await this.db.queryOne<LinkRef>(
       `select l.id, l.album_id, l.user_id, l.media_kinds, l.purpose, l.picks_sent_at,
+              l.scope, l.section_id, s.name as section_name,
               a.name, a.description
          from album_share_links l
          join albums a on a.id = l.album_id
+         left join album_sections s on s.id = l.section_id
         where l.token = $1
           and l.revoked_at is null
           and (l.expires_at is null or l.expires_at > now())`,
@@ -536,7 +744,8 @@ export class AlbumShareService {
     // last, which put the album in the order it came off the photographer's
     // laptop rather than the order it happened in.
     const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
-    let where = 'true';
+    // Outside the numbering below, so a part link keeps the album's numbers.
+    let where = `true${this.partSql(link, 'scoped', params)}`;
     if (filter.kind) {
       params.push(filter.kind);
       where += ` and split_part(coalesce(content_type, ''), '/', 1) = $${params.length}`;
@@ -628,6 +837,7 @@ export class AlbumShareService {
     // counts what is on screen. The totals are the whole link: they are what
     // "Download all" is about to hand over.
     const scope: unknown[] = [link.user_id, link.album_id, link.media_kinds];
+    const part = this.partSql(link, 'f', scope);
     let inScope = '';
     if (filter.section) {
       scope.push(filter.section);
@@ -651,21 +861,23 @@ export class AlbumShareService {
          from user_files f
          left join album_picks p on p.album_id = f.album_id and p.file_key = f.key
         where f.user_id = $1 and f.album_id = $2
-          and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])`,
+          and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])${part}`,
       scope,
     );
 
     // Only chapters with something in them for THIS link: a photos-only link
-    // must not offer a "Speeches" chapter that opens on nothing.
+    // must not offer a "Speeches" chapter that opens on nothing, and a link to
+    // a selection offers only the chapters its files are in.
+    const chapterScope: unknown[] = [link.user_id, link.album_id, link.media_kinds];
     const sections = await this.db.query<{ id: string; name: string; count: string }>(
       `select s.id, s.name, count(*)::text as count
          from album_sections s
          join user_files f on f.section_id = s.id and f.album_id = s.album_id
         where s.album_id = $2 and f.user_id = $1
-          and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])
+          and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])${this.partSql(link, 'f', chapterScope)}
         group by s.id
         order by s.position, s.created_at`,
-      [link.user_id, link.album_id, link.media_kinds],
+      chapterScope,
     );
 
     // The share token is the authorisation, so the URLs handed back are
@@ -703,6 +915,12 @@ export class AlbumShareService {
 
     return {
       album: { name: link.name, description: link.description },
+      part:
+        link.scope === 'section'
+          ? { kind: 'section', name: link.section_name ?? '' }
+          : link.scope === 'files'
+            ? { kind: 'files' }
+            : null,
       kinds: link.media_kinds,
       sections: sections.map((s) => ({ id: s.id, name: s.name, count: Number(s.count) })),
       picks: {
@@ -784,11 +1002,12 @@ export class AlbumShareService {
     if (link.purpose !== 'client') {
       throw new ForbiddenException('Picking is only available on a client link');
     }
+    const params: unknown[] = [fileId, link.user_id, link.album_id, link.media_kinds];
     const file = await this.db.queryOne<{ key: string }>(
-      `select key from user_files
+      `select key from user_files f
         where id = $1 and user_id = $2 and album_id = $3
-          and split_part(coalesce(content_type, ''), '/', 1) = any($4::text[])`,
-      [fileId, link.user_id, link.album_id, link.media_kinds],
+          and split_part(coalesce(content_type, ''), '/', 1) = any($4::text[])${this.partSql(link, 'f', params)}`,
+      params,
     );
     if (!file) throw new NotFoundException('That file is not in this delivery');
     const key = file.key;
@@ -836,7 +1055,7 @@ export class AlbumShareService {
       .notify([link.user_id], {
         topic: 'client-picks',
         title: 'Your client sent their picks',
-        body: `${count} file${count === 1 ? '' : 's'} chosen from “${link.name}”.`,
+        body: `${count} file${count === 1 ? '' : 's'} chosen from “${this.titleOf(link)}”.`,
         data: { type: 'client_picks', albumId: link.album_id },
       })
       .catch(() => {
@@ -858,9 +1077,10 @@ export class AlbumShareService {
     if (link.purpose !== 'client') {
       throw new ForbiddenException('Picking is only available on a client link');
     }
+    const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
     const files = await this.db.query<{ key: string; position: string; size_bytes: string | null }>(
       `with scoped as (
-         select key, album_id, size_bytes,
+         select key, album_id, size_bytes, section_id,
                 row_number() over (order by ${SORT_AT_SQL}, key) as position,
                 ${SORT_AT_SQL} as sort_ts
            from user_files
@@ -870,11 +1090,12 @@ export class AlbumShareService {
        select s.key, s.position, s.size_bytes::text as size_bytes
          from scoped s
          join album_picks p on p.album_id = s.album_id and p.file_key = s.key
+        where true${this.partSql(link, 's', params)}
         order by s.sort_ts, s.key`,
-      [link.user_id, link.album_id, link.media_kinds],
+      params,
     );
     return {
-      albumName: `${link.name} - picks`,
+      albumName: `${this.titleOf(link)} - picks`,
       ownerId: link.user_id,
       files: files.map((f) => ({
         key: f.key,
@@ -884,18 +1105,15 @@ export class AlbumShareService {
     };
   }
 
-  private async pickCount(link: {
-    user_id: string;
-    album_id: string;
-    media_kinds: MediaKind[];
-  }): Promise<number> {
+  private async pickCount(link: LinkRef): Promise<number> {
+    const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
     const row = await this.db.queryOne<{ count: string }>(
       `select count(*)::text as count
          from album_picks p
          join user_files f on f.key = p.file_key and f.album_id = p.album_id
         where p.album_id = $2 and f.user_id = $1
-          and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])`,
-      [link.user_id, link.album_id, link.media_kinds],
+          and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])${this.partSql(link, 'f', params)}`,
+      params,
     );
     return Number(row?.count ?? 0);
   }
@@ -934,16 +1152,18 @@ export class AlbumShareService {
     }
     // Numbered exactly as the page and the zip number them, so the file saves
     // under the same name everywhere.
+    const params: unknown[] = [link.user_id, link.album_id, link.media_kinds, fileId];
     const row = await this.db.queryOne<{ key: string; position: string; size_bytes: string | null }>(
       `with scoped as (
-         select id, key, size_bytes,
+         select id, key, size_bytes, section_id,
                 row_number() over (order by ${SORT_AT_SQL}, key) as position
            from user_files
           where user_id = $1 and album_id = $2
             and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
        )
-       select key, position, size_bytes::text as size_bytes from scoped where id::text = $4`,
-      [link.user_id, link.album_id, link.media_kinds, fileId],
+       select key, position, size_bytes::text as size_bytes from scoped
+        where id::text = $4${this.partSql(link, 'scoped', params)}`,
+      params,
     );
     if (!row) throw new NotFoundException('That file is not in this delivery');
     return {
@@ -979,22 +1199,32 @@ export class AlbumShareService {
     if (link.purpose === 'portfolio') {
       return { albumName: link.name, files: [], ownerId: link.user_id };
     }
-    const files = await this.db.query<{ key: string; size_bytes: string | null }>(
-      `select key, size_bytes::text as size_bytes
-         from user_files
-        where user_id = $1
-          and album_id = $2
-          and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
-        order by ${SORT_AT_SQL}, key`,
-      [link.user_id, link.album_id, link.media_kinds],
+    // Numbered across the album, then cut to what the link shows, so each file
+    // is named in the zip as it is on the page and in every other link.
+    const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
+    const files = await this.db.query<{ key: string; position: string; size_bytes: string | null }>(
+      `with scoped as (
+         select key, size_bytes, section_id,
+                row_number() over (order by ${SORT_AT_SQL}, key) as position,
+                ${SORT_AT_SQL} as sort_ts
+           from user_files
+          where user_id = $1
+            and album_id = $2
+            and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
+       )
+       select key, position, size_bytes::text as size_bytes
+         from scoped
+        where true${this.partSql(link, 'scoped', params)}
+        order by sort_ts, key`,
+      params,
     );
 
     return {
-      albumName: link.name,
+      albumName: this.titleOf(link),
       ownerId: link.user_id,
-      files: files.map((f, i) => ({
+      files: files.map((f) => ({
         key: f.key,
-        name: deliveryName(link.name, i, f.key),
+        name: deliveryName(link.name, Number(f.position) - 1, f.key),
         size: Number(f.size_bytes ?? 0) || 0,
       })),
     };
