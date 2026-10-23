@@ -16,7 +16,7 @@ export const HERO = {
   titleLead: 'Where creatives find',
   /** Line 2, in the gold gradient. Its full stop is the star (StarStop), with a real "." for readers. */
   titleTail: 'each other, and get paid',
-  lead: 'For photographers, videographers, editors and HMUAs. Find the crew, run the job, hand over the work.',
+  lead: 'For photographers, videographers, editors and other creatives. Find the crew, run the job, hand over the work.',
   join: 'Join the community',
   cue: 'Scroll to play',
 } as const;
@@ -56,7 +56,7 @@ export const MIKA_CARD = {
   work: 'Her work',
 } as const;
 
-/** The sky behind the hero: sr-only in motion, visible under the lens in the static page. */
+/** The sky behind the hero: sr-only in motion, visible under the lens in the static page. Kept out of search snippets (data-nosnippet). */
 export const SKY_CAPTION =
   'A night sky over the Philippines. Each star stands for a creative somewhere in the country. Illustrative; the stars are not members.';
 

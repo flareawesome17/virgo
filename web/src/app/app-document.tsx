@@ -33,10 +33,14 @@ export const appMetadata: Metadata = {
     'A private workspace for photographers — shoots, albums, client delivery, and the people you work with.',
   // The app is a signed-in tool; there is nothing here for a crawler.
   robots: { index: false, follow: false },
+  // Sizes are the files' own: favicon.png is 64px, and `any` means an SVG.
+  // The 192px one is for Google, which wants more than 48px for a search
+  // result; favicon.ico is where Bing and older browsers look unprompted.
   icons: {
     icon: [
-      { url: '/favicon.png', sizes: '48x48', type: 'image/png' },
-      { url: '/logo.png', sizes: 'any', type: 'image/png' },
+      { url: '/favicon.png', sizes: '64x64', type: 'image/png' },
+      { url: '/favicon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/favicon.ico', sizes: '16x16 32x32 48x48', type: 'image/x-icon' },
     ],
     apple: '/icon.png',
   },

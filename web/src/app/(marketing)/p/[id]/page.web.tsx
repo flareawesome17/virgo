@@ -186,7 +186,7 @@ export default async function SharedShowcasePage({ params }: Params) {
             See more of {name}’s work, and find the people you shoot with.
           </h2>
           <p className="mt-3 max-w-[52ch] text-pretty text-[15px] leading-relaxed text-[#BCADA3]">
-            Photographers, videographers, editors and HMUAs in the Philippines show their work on Virgo, get
+            Photographers, videographers, editors and other creatives in the Philippines show their work on Virgo, get
             hired, and run the whole job in one place.
           </p>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">

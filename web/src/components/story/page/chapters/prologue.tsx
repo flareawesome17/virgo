@@ -76,7 +76,9 @@ export function Prologue() {
                 <ArrowDown aria-hidden size={14} className="hidden text-[#D18A5A] motion-reduce:block" />
               </a>
             </div>
-            <p className="motion-only sr-only">{SKY_CAPTION}</p>
+            {/* data-nosnippet: Google quoted this caption as the site's search
+                snippet. It only honours the attribute on div, span and section. */}
+            <div data-nosnippet className="motion-only sr-only">{SKY_CAPTION}</div>
           </div>
         </div>
 
@@ -102,7 +104,7 @@ export function Prologue() {
           <figcaption className="mx-auto mt-10 max-w-[44ch] text-center">
             <span className="block text-2xl font-semibold tracking-[-0.02em] text-[#F2EDE8]">{DESCENT[0]}</span>
             <span className="mt-2 block text-lg leading-relaxed text-[#BCADA3]">{DESCENT[1]}</span>
-            <span className="mt-4 block text-xs leading-relaxed text-[#A08E84]">{LENS.footnote}</span>
+            <span data-nosnippet className="mt-4 block text-xs leading-relaxed text-[#A08E84]">{LENS.footnote}</span>
           </figcaption>
         </figure>
       </PrologueStage>
