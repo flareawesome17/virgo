@@ -1,7 +1,7 @@
 # Virgo
 
-A network and workspace for photographers, videographers, editors, HMUAs and
-coordinators in the Philippines. Find people near you, run the shoot together,
+A network and workspace for photographers, videographers, editors and other
+creatives in the Philippines. Find people near you, run the shoot together,
 and deliver to clients with links that open without an account.
 
 ```

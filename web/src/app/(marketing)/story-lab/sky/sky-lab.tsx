@@ -272,7 +272,7 @@ export function SkyLab({ levels }: { levels: MapLayerLevel[] }) {
             </Line>
             <Line progress={p1} at={0.04} i={2}>
               <p className="mt-4 max-w-[52ch] text-[1.0625rem] leading-[1.55] text-[#BCADA3]">
-                Virgo is a network of photographers, videographers, editors and HMUAs, and the workspace they run the job from.
+                Virgo is a network of photographers, videographers, editors and other creatives, and the workspace they run the job from.
               </p>
             </Line>
           </Card>

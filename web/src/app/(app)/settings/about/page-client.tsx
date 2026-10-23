@@ -144,7 +144,7 @@ export default function AboutPage() {
             <div className="min-w-0">
               <p className="text-lg font-bold tracking-tight">Virgo</p>
               <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
-                A network of photographers, videographers, editors and HMUAs, and the
+                A network of photographers, videographers, editors and other creatives, and the
                 workspace they run the job from.
               </p>
             </div>

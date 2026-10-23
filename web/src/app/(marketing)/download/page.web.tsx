@@ -18,9 +18,14 @@ import {
 import { API_BASE_URL } from '@/api';
 
 export const metadata: Metadata = {
-  title: 'Download',
+  // In full, like every page under the marketing layout: it has no "%s · Virgo"
+  // template, so a bare 'Download' reached search results as just that.
+  title: { absolute: 'Download Virgo for Windows, macOS and Android' },
   description:
     'Virgo for Windows, macOS and Android — your shoots, albums and client delivery, in an app.',
+  // Its own, or it inherits the layout's — the home page — and Google folds
+  // this page into that one as a duplicate.
+  alternates: { canonical: 'https://virgo.ph/download' },
 };
 
 /** How long a fetched release listing stays good for. */

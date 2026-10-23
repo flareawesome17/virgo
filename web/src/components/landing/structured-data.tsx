@@ -24,7 +24,7 @@ export function StructuredData() {
     url: SITE,
     logo: `${SITE}/icon.png`,
     description:
-      'A network and workspace for photographers, videographers, editors and HMUAs in the Philippines.',
+      'A network and workspace for photographers, videographers, editors and other creatives in the Philippines.',
     areaServed: { '@type': 'Country', name: 'Philippines' },
     email: CONTACT_EMAIL,
     contactPoint: {

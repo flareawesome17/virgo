@@ -24,10 +24,14 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_ORIGIN || 'https://virgo.ph',
   ),
+  // Sizes are the files' own: favicon.png is 64px, and `any` means an SVG.
+  // The 192px one is for Google, which wants more than 48px for a search
+  // result; favicon.ico is where Bing and older browsers look unprompted.
   icons: {
     icon: [
-      { url: '/favicon.png', sizes: '48x48', type: 'image/png' },
-      { url: '/logo.png', sizes: 'any', type: 'image/png' },
+      { url: '/favicon.png', sizes: '64x64', type: 'image/png' },
+      { url: '/favicon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/favicon.ico', sizes: '16x16 32x32 48x48', type: 'image/x-icon' },
     ],
     apple: '/icon.png',
   },
@@ -39,12 +43,16 @@ export const metadata: Metadata = {
   // two different products, and neither line contained a phrase anyone types
   // into a search box.
   title: {
-    absolute: 'Virgo — Hire Photographers, Editors & HMUAs in the Philippines',
+    absolute: 'Virgo — Hire Photographers & Other Creatives in the Philippines',
   },
   // Kept under ~155 characters. The old one ran to 240 and was cut mid-sentence,
   // losing the part that actually distinguishes the product.
+  //
+  // It names Virgo and the Philippines because a search for "virgo ph" found
+  // neither word here, so Google passed over it and quoted the sky's
+  // screen-reader caption instead.
   description:
-    'Find and hire photographers, videographers, editors and HMUAs near you, then run the whole job in one place. Client links that open without an account.',
+    'Virgo is where photographers, videographers, editors and other creatives in the Philippines get hired, run the job, and deliver to clients.',
   // This site is the front door; the app is the part marked noindex.
   robots: { index: true, follow: true },
   alternates: { canonical: 'https://virgo.ph' },
@@ -52,9 +60,9 @@ export const metadata: Metadata = {
     type: 'website',
     url: 'https://virgo.ph',
     siteName: 'Virgo',
-    title: 'Virgo — Hire Photographers, Editors & HMUAs in the Philippines',
+    title: 'Virgo — Hire Photographers & Other Creatives in the Philippines',
     description:
-      'A network of photographers, videographers, editors and HMUAs — and the workspace they run the job from. Free to start, 15 GB included.',
+      'A network of photographers, videographers, editors and other creatives — and the workspace they run the job from. Free to start, 15 GB included.',
     // `images` is deliberately absent: opengraph-image.jpg in this folder is
     // the 1200×630 card (with its alt in opengraph-image.alt.txt), and naming
     // a file here would override it with the 512×512 app icon all over again.
@@ -73,7 +81,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Virgo — Hire Photographers, Editors & HMUAs in the Philippines',
+    title: 'Virgo — Hire Photographers & Other Creatives in the Philippines',
     description:
       'Hire a second shooter near you, run the shoot together, and hand the client a link that cleans itself up when the job is done.',
   },
