@@ -112,12 +112,17 @@ describe('ZipCacheService', () => {
   it('queues beyond the limit, runs small zips first and spreads owners', async () => {
     const svc = make({ DOWNLOAD_ZIP_BUILDS_MIN: '2', DOWNLOAD_ZIP_BUILDS_MAX: '2' });
     await svc.onModuleInit();
-    let unblock!: () => void;
-    const gate = new Promise<void>((r) => (unblock = r));
+    // One gate per zip, by the first letter of its keys, so the workers free
+    // one at a time. Freed together, the two next builds start together, and
+    // which one reaches its first open() is down to the disk checks each
+    // awaits before it: the order they were picked in is all the scheduler
+    // decides.
+    const release: Record<string, () => void> = {};
+    const gate = Object.fromEntries([...'fhgsx'].map((p) => [p, new Promise<void>((r) => (release[p] = r))]));
     const started: string[] = [];
     const open = async (k: string) => {
       started.push(k);
-      await gate;
+      await gate[k[0]];
       return Readable.from([Buffer.from(k)]);
     };
     const many = (p: string, n: number) => Array.from({ length: n }, (_, i) => ({ key: `${p}${i}`, name: `${p}${i}` }));
@@ -129,9 +134,17 @@ describe('ZipCacheService', () => {
     await waitFor(first, 'building');
     await waitFor(second, 'building');
     expect(svc.queued).toBe(3);
-    // Both workers belong to o1, so the other owner's zip goes first, then the smallest.
     expect(svc.queuePosition(other)).toBeGreaterThan(0);
-    unblock();
+    // o1 still has a worker, so the other owner's zip goes first, biggest as it is.
+    release.f();
+    await waitFor(other, 'building');
+    expect(smallSame.state).toBe('queued');
+    expect(bigSame.state).toBe('queued');
+    // Now the other owner holds a worker: o1's smallest goes next, ahead of its big one.
+    release.h();
+    await waitFor(smallSame, 'building');
+    expect(bigSame.state).toBe('queued');
+    Object.values(release).forEach((r) => r());
     await waitFor(other, 'ready');
     await waitFor(bigSame, 'ready');
     await waitFor(smallSame, 'ready');
