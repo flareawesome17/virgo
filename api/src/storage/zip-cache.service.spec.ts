@@ -153,6 +153,54 @@ describe('ZipCacheService', () => {
     svc.onModuleDestroy();
   });
 
+  it('tells a waiting client the place the scheduler will start their zip in', async () => {
+    const svc = make({ DOWNLOAD_ZIP_BUILDS_MIN: '2', DOWNLOAD_ZIP_BUILDS_MAX: '2' });
+    await svc.onModuleInit();
+    let unblock!: () => void;
+    const gate = new Promise<void>((r) => (unblock = r));
+    const open = async (k: string) => {
+      await gate;
+      return Readable.from([Buffer.from(k)]);
+    };
+    const many = (p: string, n: number) => Array.from({ length: n }, (_, i) => ({ key: `${p}${i}`, name: `${p}${i}` }));
+    const first = svc.request('o1', 'first.zip', many('f', 1), open);
+    const second = svc.request('o1', 'second.zip', many('h', 1), open);
+    const big = svc.request('o1', 'big.zip', many('g', 5), open);
+    const small = svc.request('o1', 'small.zip', many('s', 2), open);
+    const other = svc.request('o2', 'other.zip', many('x', 8), open);
+    // o1 keeps a worker whichever of its builds finishes, so the other
+    // owner's zip is next, biggest as it is; then o1's, smallest first.
+    expect([other, small, big].map((e) => svc.queuePosition(e))).toEqual([1, 2, 3]);
+    unblock();
+    for (const e of [first, second, other, small, big]) await waitFor(e, 'ready');
+    svc.onModuleDestroy();
+  });
+
+  it('places a waiting zip as if running builds finish in the order they started', async () => {
+    const svc = make({ DOWNLOAD_ZIP_BUILDS_MIN: '2', DOWNLOAD_ZIP_BUILDS_MAX: '2' });
+    await svc.onModuleInit();
+    let unblock!: () => void;
+    const gate = new Promise<void>((r) => (unblock = r));
+    const open = async (k: string) => {
+      await gate;
+      return Readable.from([Buffer.from(k)]);
+    };
+    const many = (p: string, n: number) => Array.from({ length: n }, (_, i) => ({ key: `${p}${i}`, name: `${p}${i}` }));
+    const older = svc.request('o1', 'older.zip', many('a', 1), open);
+    const newer = svc.request('o2', 'newer.zip', many('b', 1), open);
+    const o2Small = svc.request('o2', 'o2-small.zip', many('m', 1), open);
+    const o1Bigger = svc.request('o1', 'o1-bigger.zip', many('t', 2), open);
+    const o3Big = svc.request('o3', 'o3-big.zip', many('u', 10), open);
+    // o1's build is taken to finish first. That frees o1 while o2 still has a
+    // worker, so o1's zip goes ahead of o2's smaller one. o3 has nothing
+    // running but stays last: fairness holds back a busy owner, it does not
+    // put an idle one ahead of smaller zips.
+    expect([o1Bigger, o2Small, o3Big].map((e) => svc.queuePosition(e))).toEqual([1, 2, 3]);
+    unblock();
+    for (const e of [older, newer, o2Small, o1Bigger, o3Big]) await waitFor(e, 'ready');
+    svc.onModuleDestroy();
+  });
+
   it('keeps a queued zip through a phone in the background, then drops it', async () => {
     const svc = make({ DOWNLOAD_ZIP_BUILDS_MIN: '2', DOWNLOAD_ZIP_BUILDS_MAX: '2' });
     await svc.onModuleInit();
