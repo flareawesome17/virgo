@@ -74,6 +74,16 @@ const STALL_MS = 3 * 60_000;
 const AGING_MS = 10 * 60_000;
 
 /**
+ * Where in `order` the next build to start is. An owner who already has a
+ * build running waits for others first; if nobody else is waiting they are
+ * free to use every worker.
+ */
+function nextIndex(order: readonly Job[], busy: (owner: string) => boolean): number {
+  const i = order.findIndex((j) => !busy(j.owner));
+  return i < 0 ? 0 : i;
+}
+
+/**
  * Zips built ahead of the download, on this host's disk.
  *
  * A zip streamed live has no size and cannot be resumed, so one storage
@@ -170,10 +180,30 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
     return this.pending.length;
   }
 
-  /** 1 for the next to start; 0 when the zip is not waiting. */
+  /**
+   * 1 for the next to start; 0 when the zip is not waiting.
+   *
+   * Replays the scheduler's picks rather than reading the sort order, since
+   * fairness reorders it: while o1 has a build running, o2's zip goes ahead of
+   * o1's smaller ones. Each pick waits for a build to finish, and which one
+   * finishes first decides whose builds are still running. That is not known
+   * (sizes are often missing, and the storage link's pace varies), so this
+   * assumes builds finish in the order they started: the oldest has had the
+   * longest to work. When the guess is wrong the place shown changes on the
+   * page's next refresh, as it does when a smaller zip joins the queue.
+   */
   queuePosition(entry: ZipEntry): number {
-    const i = this.ordered(this.pending, Date.now()).findIndex((j) => j.entry === entry);
-    return i + 1;
+    if (!this.pending.some((j) => j.entry === entry)) return 0;
+    const order = this.ordered(this.pending, Date.now());
+    // Owners of the running builds, oldest first.
+    const running = [...this.running].map((j) => j.owner);
+    for (let position = 1; ; position++) {
+      // Wait for a worker: the oldest builds finish until one is free.
+      while (running.length >= this.limit) running.shift();
+      const [job] = order.splice(nextIndex(order, (owner) => running.includes(owner)), 1);
+      if (job.entry === entry) return position;
+      running.push(job.owner);
+    }
   }
 
   /** Bytes of the zip written so far by a running build. */
@@ -294,9 +324,7 @@ export class ZipCacheService implements OnModuleInit, OnModuleDestroy {
   private pickNext(now: number): Job | undefined {
     const order = this.ordered(this.pending, now);
     const busyOwners = new Set([...this.running].map((j) => j.owner));
-    // An owner who already has a build running waits for others first; if
-    // nobody else is waiting they are free to use every worker.
-    return order.find((j) => !busyOwners.has(j.owner)) ?? order[0];
+    return order[nextIndex(order, (owner) => busyOwners.has(owner))];
   }
 
   private schedule(): void {
