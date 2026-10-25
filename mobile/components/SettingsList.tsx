@@ -1,11 +1,9 @@
-import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, Alert, Linking } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { View, Text, Pressable, Alert, Linking } from 'react-native';
+import { router } from 'expo-router';
 import Constants from 'expo-constants';
 import * as StoreReview from 'expo-store-review';
 import {
   BellIcon,
-  BriefcaseIcon,
   ChevronRightIcon,
   CloudIcon,
   FileTextIcon,
@@ -20,16 +18,12 @@ import {
   PaletteIcon,
   PencilIcon,
   ShieldIcon,
-  SlidersHorizontalIcon,
   StarIcon,
   UserCogIcon,
-  UserIcon,
   UserXIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { SegmentedTabs, TabScreen, useTabBottomInset } from '@/components';
-import { RemoteImage } from '@/components/RemoteImage';
 import {
   useAuth,
   useOffline,
@@ -45,15 +39,12 @@ import { CHART_COLORS, PALETTES } from '@/theme';
 // its colour rather than failing, so the omission shows up as a grey icon
 // nobody traces back to this list.
 for (const Icon of [
-  BellIcon, BriefcaseIcon, ChevronRightIcon, CloudIcon, FileTextIcon, GiftIcon,
-  GlobeIcon, HardDriveIcon, HelpCircleIcon, InfoIcon, LifeBuoyIcon, LockIcon,
-  LogOutIcon, PaletteIcon, PencilIcon, ShieldIcon, SlidersHorizontalIcon,
-  StarIcon, UserCogIcon, UserIcon, UserXIcon,
+  BellIcon, ChevronRightIcon, CloudIcon, FileTextIcon, GiftIcon, GlobeIcon,
+  HardDriveIcon, HelpCircleIcon, InfoIcon, LifeBuoyIcon, LockIcon, LogOutIcon,
+  PaletteIcon, PencilIcon, ShieldIcon, StarIcon, UserCogIcon, UserXIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
-
-type SettingsView = 'account' | 'app';
 
 interface SettingsRow {
   icon: LucideIcon;
@@ -70,70 +61,25 @@ interface SettingsRow {
 const APPEARANCE: Record<string, string> = { light: 'Light', dark: 'Dark', system: 'System' };
 
 /**
- * Settings, as a tab of its own, in two halves.
+ * Every setting, in one list: the Settings tab of the Dashboard.
  *
- * This replaces two screens that each held half of it. The Profile tab had
- * the account — identity, security, storage, signing out — and a gear that
- * pushed a separate Settings screen with the app's preferences, plus rows
- * that belonged to neither (Public profile, Jobs, Hire enquiries). Here the
- * split is by what a row is about: you and your account, or how this app
- * behaves. The Jobs row is gone; Jobs is a tab in the top bar.
+ * It was a tab of its own, behind your photo in the top bar, split into
+ * "Profile & account" and "App" halves. The Dashboard is your profile now, so
+ * the photo left the bar and the halves became one list under it — a second
+ * row of tabs inside a tab would have been one switch too many. The card that
+ * opened "Your profile" went with it: the profile is the page this sits on.
  *
- * `?view=app` opens the second half, so links and the old /settings deep
- * link land on the right one.
+ * It draws no scroll view; the Dashboard's carries it.
  */
-export default function SettingsScreen() {
-  const bottomInset = useTabBottomInset();
-  const params = useLocalSearchParams<{ view?: string }>();
-  const requestedView: SettingsView = params.view === 'app' ? 'app' : 'account';
-  const [view, setView] = useState<SettingsView>(requestedView);
-
-  useEffect(() => {
-    setView(requestedView);
-  }, [requestedView]);
-
-  // Kept in the address as well as in state: otherwise, having switched to
-  // App by hand, a link asking for the account half would carry the same
-  // param as before, change nothing, and leave you on App.
-  const show = (next: SettingsView) => {
-    setView(next);
-    router.setParams({ view: next });
-  };
-
-  const { user } = useAuth();
-  const { offers: rewards } = usePromoOffers(!!user?.id);
-
-  return (
-    <TabScreen title="Settings">
-      <ScrollView
-        className="flex-1"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: bottomInset }}
-      >
-        <View className="mx-5 mt-2 mb-1">
-          <SegmentedTabs<typeof view>
-            segments={[
-              { key: 'account', label: 'Profile & account', icon: UserIcon, badge: rewards.length },
-              { key: 'app', label: 'App', icon: SlidersHorizontalIcon },
-            ]}
-            value={view}
-            onChange={show}
-          />
-        </View>
-
-        {view === 'account' ? <AccountHalf rewards={rewards.length} /> : <AppHalf />}
-      </ScrollView>
-    </TabScreen>
-  );
-}
-
-/** You, your public presence, and the account behind it. */
-function AccountHalf({ rewards }: { rewards: number }) {
+export function SettingsList() {
   const { user, profile, signOut } = useAuth();
-  const { isDark } = useTheme();
+  const { preference, isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { settings } = useProfileSettings();
   const { usage } = useUsage({ enabled: !!user?.id });
+  const { offers: rewards } = usePromoOffers(!!user?.id);
+  const { isOffline } = useOffline();
+  const version = Constants.expoConfig?.version ?? '1.0';
 
   // The auth guard in (app)/_layout.tsx handles the redirect once the session
   // clears, so no manual navigation is needed here.
@@ -146,6 +92,29 @@ function AccountHalf({ rewards }: { rewards: number }) {
         onPress: () => signOut.mutate(),
       },
     ]);
+  };
+
+  const rateVirgo = async () => {
+    try {
+      const storeUrl = StoreReview.storeUrl();
+      // Tried, not asked about: see help.tsx — canOpenURL says no on Android
+      // 11+ for anything the manifest does not declare.
+      if (storeUrl) {
+        try {
+          await Linking.openURL(storeUrl);
+          return;
+        } catch {
+          // Fall through to the in-app review.
+        }
+      }
+      if (await StoreReview.isAvailableAsync()) {
+        await StoreReview.requestReview();
+        return;
+      }
+      Alert.alert('Rate Virgo', 'Store ratings are available in the installed iOS or Android app.');
+    } catch {
+      Alert.alert('Could not open the store', 'Please try again from the installed app.');
+    }
   };
 
   const sections: { title: string; rows: SettingsRow[] }[] = [
@@ -207,118 +176,10 @@ function AccountHalf({ rewards }: { rewards: number }) {
           detail: 'Offers waiting for you, and your invite code',
           route: '/rewards',
           color: palette.accent,
-          badge: rewards,
+          badge: rewards.length,
         },
       ],
     },
-  ];
-
-  return (
-    <View className="px-5 mt-5 gap-5">
-      {/* Two sibling buttons rather than one inside the other: a Pressable is
-          a single accessibility element on iOS, so a button nested in the
-          card could never be reached with VoiceOver.
-
-          The card edits; View profile opens "Your profile", which exists
-          whether or not the profile is published — unpublished is exactly
-          when somebody most needs to see what publishing would show. */}
-      <View className="bg-card rounded-2xl border border-border/40 p-4 flex-row items-center gap-3">
-        <Pressable
-          onPress={() => router.push('/settings/profile')}
-          accessibilityRole="button"
-          accessibilityLabel={`${profile?.displayName || 'Your profile'}, edit profile`}
-          className="flex-1 min-w-0 flex-row items-center gap-3 active:opacity-80"
-        >
-          {profile?.avatarUrl ? (
-            <RemoteImage
-              source={{ uri: profile.avatarUrl }}
-              style={{ width: 56, height: 56, borderRadius: 28 }}
-            />
-          ) : (
-            // Initial-letter placeholder rather than a stock photo, so an
-            // unset avatar reads as "not set yet" instead of someone else's face.
-            <View
-              style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: `${palette.primary}18`, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Text style={{ color: palette.primary, fontSize: 22, fontWeight: '700' }}>
-                {(profile?.displayName || user?.email || '?').charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
-          <View className="flex-1 min-w-0">
-            <Text className="text-foreground text-base font-bold" numberOfLines={1}>
-              {profile?.displayName || 'Add your name'}
-            </Text>
-            {profile?.title ? (
-              <Text className="text-muted-foreground text-xs font-semibold mt-0.5" numberOfLines={1}>
-                {profile.title}
-              </Text>
-            ) : null}
-            <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-              {user?.email ?? ''}
-            </Text>
-          </View>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push('/profile')}
-          accessibilityRole="button"
-          accessibilityLabel="View your profile"
-          className="min-h-11 justify-center rounded-full bg-muted px-3.5 active:opacity-70"
-        >
-          <Text className="text-foreground text-xs font-bold">View profile</Text>
-        </Pressable>
-      </View>
-
-      {sections.map((section) => (
-        <Section key={section.title} title={section.title} rows={section.rows} />
-      ))}
-
-      <Pressable
-        onPress={handleSignOut}
-        disabled={signOut.isPending}
-        accessibilityRole="button"
-        className="bg-card rounded-2xl border border-border/30 p-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
-      >
-        <LogOutIcon size={17} className="text-destructive" />
-        <Text className="text-destructive text-sm font-semibold">
-          {signOut.isPending ? 'Signing out…' : 'Sign out'}
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
-
-/** How the app behaves on this device — nothing about who you are. */
-function AppHalf() {
-  const { preference, isDark } = useTheme();
-  const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { isOffline } = useOffline();
-  const version = Constants.expoConfig?.version ?? '1.0';
-
-  const rateVirgo = async () => {
-    try {
-      const storeUrl = StoreReview.storeUrl();
-      // Tried, not asked about: see help.tsx — canOpenURL says no on Android
-      // 11+ for anything the manifest does not declare.
-      if (storeUrl) {
-        try {
-          await Linking.openURL(storeUrl);
-          return;
-        } catch {
-          // Fall through to the in-app review.
-        }
-      }
-      if (await StoreReview.isAvailableAsync()) {
-        await StoreReview.requestReview();
-        return;
-      }
-      Alert.alert('Rate Virgo', 'Store ratings are available in the installed iOS or Android app.');
-    } catch {
-      Alert.alert('Could not open the store', 'Please try again from the installed app.');
-    }
-  };
-
-  const sections: { title: string; rows: SettingsRow[] }[] = [
     {
       title: 'Preferences',
       rows: [
@@ -365,8 +226,6 @@ function AppHalf() {
           icon: CloudIcon,
           label: 'Offline sync',
           detail: 'What works without a connection',
-          // Was a hardcoded green "Synced" chip on the Profile tab that said
-          // the same thing with the network off.
           value: isOffline ? 'Offline' : 'Synced',
           route: '/settings/offline',
           color: palette.accent,
@@ -411,8 +270,6 @@ function AppHalf() {
         {
           icon: InfoIcon,
           label: 'About Virgo',
-          // Was a literal 'Version 1.0', which would have kept saying 1.0
-          // through every release.
           value: `v${version}`,
           route: '/settings/about',
           color: CHART_COLORS.brown,
@@ -424,13 +281,20 @@ function AppHalf() {
   return (
     <View className="px-5 mt-5 gap-5">
       {sections.map((section) => (
-        <Section
-          key={section.title}
-          title={section.title}
-          rows={section.rows}
-          onRate={rateVirgo}
-        />
+        <Section key={section.title} title={section.title} rows={section.rows} onRate={rateVirgo} />
       ))}
+
+      <Pressable
+        onPress={handleSignOut}
+        disabled={signOut.isPending}
+        accessibilityRole="button"
+        className="bg-card rounded-2xl border border-border/30 p-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
+      >
+        <LogOutIcon size={17} className="text-destructive" />
+        <Text className="text-destructive text-sm font-semibold">
+          {signOut.isPending ? 'Signing out…' : 'Sign out'}
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -516,4 +380,3 @@ function Section({
     </View>
   );
 }
-

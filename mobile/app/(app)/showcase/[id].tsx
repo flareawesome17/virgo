@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams, type ErrorBoundaryProps } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
+import { goToTab } from '@/src/lib/navigation';
 import {
   ArrowLeftIcon,
   BookmarkIcon,
@@ -161,9 +162,10 @@ export default function ShowcaseScreen() {
   const status = showcase ? showcaseStatus(showcase) : 'live';
 
   const openMaker = () => {
-    // Your own avatar goes to your own profile, which needs no published
-    // handle; somebody else's only has somewhere to go if they published one.
-    if (mine) router.push('/profile');
+    // Your own avatar goes to your own profile — the Dashboard's Work tab —
+    // which needs no published handle; somebody else's only has somewhere to
+    // go if they published one.
+    if (mine) goToTab('/?tab=work');
     else if (maker.handle) router.push(`/u/${maker.handle}`);
   };
   const { width } = useWindowDimensions();

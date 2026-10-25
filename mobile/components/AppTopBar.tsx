@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 // expo-image rather than RN Image, as everywhere else in this app.
 import { Image } from 'expo-image';
@@ -8,13 +8,7 @@ import { MessageCircleIcon, PlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { CreateSheet, type CreateKind } from '@/components/CreateSheet';
 import { NotificationBell } from '@/components/NotificationBell';
-import { RemoteImage } from '@/components/RemoteImage';
-import {
-  useAuth,
-  usePeopleUnseen,
-  usePromoOffers,
-  useUnreadCount,
-} from '@/src/hooks';
+import { usePeopleUnseen, useUnreadCount } from '@/src/hooks';
 
 for (const Icon of [MessageCircleIcon, PlusIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -29,20 +23,19 @@ for (const Icon of [MessageCircleIcon, PlusIcon]) {
  */
 const LOGO = require('@/assets/splash-icon.png');
 
-const AVATAR = 32;
-
 /**
  * The bar every tab screen wears, and the only header a tab has.
  *
- * Left, who and where: your photo, which opens your profile and settings, and
- * the screen's name — or, on the Dashboard, the mark. Right, the things you
- * reach for from anywhere: + to make something, your messages, and what is
- * new. Each tab used to put its own big title under this bar, so every
+ * Left, where: the screen's name — or, on the Dashboard, the mark. Right, the
+ * things you reach for from anywhere: + to make something, your messages, and
+ * what is new. Each tab used to put its own big title under this bar, so every
  * screen started with two headers; and four of them had their own + in four
  * different places and shapes.
  *
- * Settings moved behind the photo. Three icons is as many as a bar this size
- * holds before they start to read as a row of tabs.
+ * Your photo sat at the left and opened your profile and settings. Both are
+ * tabs of the Dashboard now, under your profile, so the photo went. Three
+ * icons is as many as a bar this size holds before they start to read as a
+ * row of tabs.
  *
  * It has no motion of its own. TabScreen draws it and slides it away and back
  * by transform; it used to collapse its own height, which the native driver
@@ -51,18 +44,23 @@ const AVATAR = 32;
 export function AppTopBar({
   title,
   create,
+  leading,
 }: {
   /** The screen's name. Without one the bar shows the mark, as on the Dashboard. */
   title?: string;
   /** What this screen makes, marked in the Create sheet. */
   create?: CreateKind;
+  /**
+   * In place of the mark, when there is no title. The Dashboard passes one
+   * that turns into your name once your profile has scrolled away.
+   */
+  leading?: ReactNode;
 }) {
   const unread = useUnreadCount();
   // Requests and hire enquiries that arrived since People was last opened.
   // Enquiries are paid work and counted nowhere before; requests counted
   // until answered, so an ignored one kept the dot lit for good.
   const { count: people } = usePeopleUnseen();
-  const { offers: rewards } = usePromoOffers();
   // One dot for both: a message and a request are each somebody waiting on
   // you, and two badges on one icon would be a puzzle rather than a count.
   const connectAlerts = unread + people;
@@ -80,30 +78,17 @@ export function AppTopBar({
   };
 
   return (
-    <View className="min-h-12 flex-row items-center bg-background pl-3 pr-1">
-      <Avatar rewards={rewards.length} />
-
+    <View className="min-h-12 flex-row items-center bg-background pl-5 pr-1">
       {title ? (
         <Text
           accessibilityRole="header"
           numberOfLines={1}
-          className="flex-1 ml-3 text-foreground text-[20px] font-bold tracking-tight"
+          className="flex-1 text-foreground text-[20px] font-bold tracking-tight"
         >
           {title}
         </Text>
       ) : (
-        <View className="flex-1 ml-2.5 flex-row">
-          <Pressable
-            onPress={() => router.navigate('/')}
-            accessibilityRole="button"
-            accessibilityLabel="Virgo, go to Dashboard"
-            hitSlop={8}
-            className="min-h-11 flex-row items-center gap-2 active:opacity-70"
-          >
-            <Image source={LOGO} style={{ width: 26, height: 26 }} contentFit="contain" />
-            <Text className="text-foreground text-[20px] font-bold tracking-tight">Virgo</Text>
-          </Pressable>
-        </View>
+        <View className="flex-1 flex-row">{leading ?? <VirgoMark />}</View>
       )}
 
       <View className="flex-row items-center">
@@ -139,40 +124,18 @@ export function AppTopBar({
   );
 }
 
-/**
- * Your photo, or your initial: the way to your profile and settings.
- *
- * The waiting-offer count moved here from the Settings cog it used to sit on,
- * since this is now the way to the screen the offer is on.
- */
-function Avatar({ rewards }: { rewards: number }) {
-  const { user, profile } = useAuth();
-  const initial = (profile?.displayName || user?.email || '?').charAt(0).toUpperCase();
-
+/** The mark and the name, which go to the Dashboard. */
+export function VirgoMark() {
   return (
     <Pressable
-      onPress={() => router.navigate('/settings')}
+      onPress={() => router.navigate('/')}
       accessibilityRole="button"
-      accessibilityLabel={
-        rewards > 0 ? 'Your profile and settings, an offer is waiting' : 'Your profile and settings'
-      }
-      hitSlop={6}
-      className="w-11 h-11 items-center justify-center active:opacity-70"
+      accessibilityLabel="Virgo, go to Dashboard"
+      hitSlop={8}
+      className="min-h-11 flex-row items-center gap-2 active:opacity-70"
     >
-      {profile?.avatarUrl ? (
-        <RemoteImage
-          source={{ uri: profile.avatarUrl }}
-          style={{ width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 }}
-        />
-      ) : (
-        <View
-          className="items-center justify-center rounded-full bg-primary/15"
-          style={{ width: AVATAR, height: AVATAR }}
-        >
-          <Text className="text-primary text-[14px] font-bold">{initial}</Text>
-        </View>
-      )}
-      {rewards > 0 && <Dot count={rewards} />}
+      <Image source={LOGO} style={{ width: 26, height: 26 }} contentFit="contain" />
+      <Text className="text-foreground text-[20px] font-bold tracking-tight">Virgo</Text>
     </Pressable>
   );
 }

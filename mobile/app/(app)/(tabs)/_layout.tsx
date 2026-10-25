@@ -98,8 +98,8 @@ function TabsLayoutInner() {
   return (
     <Tabs
       // Back goes to the tab you came from. The default is the first tab, so
-      // Schedule → your photo → Settings → back landed on the Dashboard, and
-      // Settings and Connect have no back button of their own.
+      // Schedule → Messages → back landed on the Dashboard, and Connect has no
+      // back button of its own.
       backBehavior="history"
       // iOS gets the floating capsule. Android — and the web preview, which
       // reports its own platform — keep the stock bar with the options below,
@@ -108,8 +108,8 @@ function TabsLayoutInner() {
         Platform.OS === 'ios' ? <AppTabBar {...props} /> : <SlidingBar {...props} />
       }
       // Both bars come back whenever a tab comes into focus — switched to,
-      // opened from a tile, or returned to from a pushed screen. Connect, Chat,
-      // Network and Settings never report their scrolling, so a Dashboard
+      // opened from a tile, or returned to from a pushed screen. Connect, Chat
+      // and Network never report their scrolling, so a Dashboard
       // scrolled far enough to hide the bars used to open Connect with no
       // navigation at all, and nothing on it could bring them back.
       screenListeners={{ focus: reveal }}
@@ -139,8 +139,9 @@ function TabsLayoutInner() {
     >
       {/* The five places the work happens, in the order a day runs through
           them: what is on today, what other people are making, what is going,
-          what you are delivering, and when. Connect and Settings are in the
-          top bar instead — they are things you dip into, not places you live. */}
+          what you are delivering, and when. Connect is in the top bar instead
+          — somewhere you dip into, not a place you live. Settings is a tab of
+          the Dashboard, under your profile. */}
       <Tabs.Screen
         name="index"
         options={{
@@ -206,7 +207,6 @@ function TabsLayoutInner() {
       {/* Reached from the top bar. Tab routes rather than pushed screens, so
           the bar stays put and going back lands where you were. */}
       <Tabs.Screen name="connect" options={{ href: null }} />
-      <Tabs.Screen name="settings" options={{ href: null }} />
       {/* Kept for deep links and existing calls. Connect owns their UI. */}
       <Tabs.Screen name="network" options={{ href: null }} />
       <Tabs.Screen name="chat" options={{ href: null }} />

@@ -32,12 +32,15 @@ const FALLBACK_BOTTOM = 120;
 export function TabScreen({
   title,
   create,
+  leading,
   children,
 }: {
   /** The screen's name, in the bar. Without one the bar shows the mark. */
   title?: string;
   /** What this screen makes, marked when + is pressed. */
   create?: CreateKind;
+  /** In place of the mark, when there is no title. */
+  leading?: ReactNode;
   children: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -69,7 +72,7 @@ export function TabScreen({
         ]}
       >
         <Animated.View onLayout={onBarLayout} style={fade}>
-          <AppTopBar title={title} create={create} />
+          <AppTopBar title={title} create={create} leading={leading} />
         </Animated.View>
         {/* Under the bar, not in it: the bar is a fixed set of destinations,
             and this is news. It stays when the bar goes — it slides up into

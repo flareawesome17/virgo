@@ -18,6 +18,7 @@ import {
   useUnassignedFiles,
 } from '@/src/hooks';
 import { formatBytes } from '@/src/api';
+import { plural } from '@/src/lib/workspaces';
 
 for (const Icon of [CheckIcon, FileIcon, FolderInputIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -132,7 +133,7 @@ export default function UnfiledScreen() {
             >
               <Tick on={allPicked} />
               <Text className="text-muted-foreground text-xs font-semibold">
-                {picked.size > 0 ? `${picked.size} selected` : `${files.length} files`}
+                {picked.size > 0 ? `${picked.size} selected` : plural(files.length, 'file')}
               </Text>
             </Pressable>
           </View>
