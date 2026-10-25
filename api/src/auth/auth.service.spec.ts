@@ -5,6 +5,7 @@ import type { PromosService } from '../promos/promos.service';
 import type { StorageService } from '../storage/storage.service';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import type { SessionsService } from './sessions.service';
 import type { TwoFactorService } from './two-factor.service';
 import type { UserRow, UsersRepository } from './users.repository';
 
@@ -61,6 +62,8 @@ function serviceFor(user: UserRow) {
     })),
   };
 
+  const sessions = { alertNewSignIn: jest.fn(async () => undefined) };
+
   const service = new AuthService(
     users as unknown as UsersRepository,
     jwt as unknown as JwtService,
@@ -68,8 +71,9 @@ function serviceFor(user: UserRow) {
     {} as unknown as StorageService,
     {} as unknown as PromosService,
     twoFactor as unknown as TwoFactorService,
+    sessions as unknown as SessionsService,
   );
-  return { service, users, jwt, twoFactor };
+  return { service, users, jwt, twoFactor, sessions };
 }
 
 const suspendedRefusal = expect.objectContaining({
@@ -185,7 +189,7 @@ describe('AuthService and the device a session belongs to', () => {
       'user-1',
       expect.any(String),
       expect.any(Date),
-      { familyId: expect.stringMatching(UUID), userAgent: 'Virgo/1 CFNetwork Darwin' },
+      { familyId: expect.stringMatching(UUID), userAgent: 'Virgo/1 CFNetwork Darwin', client: 'ios' },
     );
   });
 
@@ -243,7 +247,7 @@ describe('AuthService and the device a session belongs to', () => {
       'user-1',
       expect.any(String),
       expect.any(Date),
-      { familyId: 'family-1', userAgent: 'okhttp/4.12' },
+      { familyId: 'family-1', userAgent: 'okhttp/4.12', client: 'android' },
     );
   });
 
@@ -254,7 +258,88 @@ describe('AuthService and the device a session belongs to', () => {
       'user-1',
       expect.any(String),
       expect.any(Date),
-      { familyId: expect.stringMatching(UUID), userAgent: 'Mozilla/5.0 Chrome' },
+      { familyId: expect.stringMatching(UUID), userAgent: 'Mozilla/5.0 Chrome', client: 'web' },
     );
+  });
+
+  it('keeps the client a session recorded, whatever the next request says', async () => {
+    const { service, users } = serviceFor(userWith());
+    users.findActiveRefreshToken.mockResolvedValueOnce({
+      id: 't1',
+      user_id: 'user-1',
+      family_id: 'family-1',
+      user_agent: 'Mozilla/5.0 Edg/155',
+      client: 'desktop',
+    } as never);
+    await service.refresh('refresh-token', 'Mozilla/5.0 Edg/155');
+    expect(users.storeRefreshToken).toHaveBeenCalledWith(
+      'user-1',
+      expect.any(String),
+      expect.any(Date),
+      expect.objectContaining({ client: 'desktop' }),
+    );
+  });
+
+  it('tells the desktop app from Edge by its origin', async () => {
+    const { service, users } = serviceFor(userWith());
+    await service.login('mika@example.com', PASSWORD, {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0) Chrome/155 Edg/155',
+      origin: 'http://127.0.0.1:41730',
+    });
+    expect(users.storeRefreshToken).toHaveBeenCalledWith(
+      'user-1',
+      expect.any(String),
+      expect.any(Date),
+      expect.objectContaining({ client: 'desktop' }),
+    );
+  });
+});
+
+/**
+ * A new device signing in emails the owner; nothing else does.
+ *
+ * On 2026-10-25 a stranger signed in with an owner's password and deleted a
+ * workspace two minutes later, and nobody was told.
+ */
+describe('AuthService and sign-in alerts', () => {
+  it('alerts about a password sign-in, naming the session it made', async () => {
+    const { service, users, sessions } = serviceFor(userWith());
+    const context = { userAgent: 'Virgo/9 CFNetwork Darwin/27.0.0', country: 'US' };
+    await service.login('mika@example.com', PASSWORD, context);
+
+    const [, , , device] = users.storeRefreshToken.mock.calls[0] as unknown as [
+      string,
+      string,
+      Date,
+      { familyId: string },
+    ];
+    expect(sessions.alertNewSignIn).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-1' }),
+      device.familyId,
+      context,
+    );
+  });
+
+  it('alerts once the second factor is in, not when the code is sent', async () => {
+    const { service, sessions } = serviceFor(
+      userWith({ two_factor_enabled_at: new Date('2026-02-01T00:00:00Z') }),
+    );
+    await service.login('mika@example.com', PASSWORD, { userAgent: 'okhttp/4.12' });
+    expect(sessions.alertNewSignIn).not.toHaveBeenCalled();
+
+    await service.completeTwoFactorLogin('challenge', '123456', { userAgent: 'okhttp/4.12' });
+    expect(sessions.alertNewSignIn).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays quiet for a refresh, which is the same device again', async () => {
+    const { service, sessions } = serviceFor(userWith());
+    await service.refresh('refresh-token', 'okhttp/4.12');
+    expect(sessions.alertNewSignIn).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet for a wrong password', async () => {
+    const { service, sessions } = serviceFor(userWith());
+    await expect(service.login('mika@example.com', 'wrong')).rejects.toThrow();
+    expect(sessions.alertNewSignIn).not.toHaveBeenCalled();
   });
 });

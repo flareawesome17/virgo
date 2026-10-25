@@ -252,6 +252,68 @@ export function passwordChanged(options: { when: string }): RenderedEmail {
   };
 }
 
+/**
+ * Sent when a new device signs in.
+ *
+ * So that somebody else holding the password is noticed while they are still
+ * signed in, not afterwards. On 2026-10-25 a stranger signed in and deleted a
+ * workspace two minutes later; this email, and its button, are how the owner
+ * gets there first.
+ */
+export function newSignIn(options: {
+  /** "iPhone or iPad", "Windows". */
+  device: string;
+  /** "Virgo app", "Chrome, on the web". */
+  app: string;
+  when: string;
+  /** Where the sign-in came from, by country only. Absent when unknown. */
+  country?: string | null;
+  /** Signs that device out and sends a reset link. */
+  notMeUrl: string;
+  /** Settings → Devices, in the web app. */
+  devicesUrl: string;
+  twoFactorOn: boolean;
+}): RenderedEmail {
+  const intro =
+    'Someone just signed in to your Virgo account. If it was you, there is nothing to do.';
+  const details = [
+    `${options.app} · ${options.device}`,
+    options.when,
+    ...(options.country ? [`From ${options.country}`] : []),
+  ].join('\n');
+  const fineprint = [
+    'Not you? The button signs that device out and emails you a link to choose a new password. Choosing one signs out every device.',
+    `Every device signed in to your account: ${options.devicesUrl}`,
+  ];
+  const outro = options.twoFactorOn
+    ? undefined
+    : 'Turn on two-factor authentication in Settings → Account & security, so a password alone is not enough to sign in.';
+
+  return {
+    subject: `New sign-in to your Virgo account on ${options.device}`,
+    html: layout({
+      heading: `New sign-in on ${options.device}`,
+      intro,
+      quote: details,
+      cta: { label: 'This wasn’t me', url: options.notMeUrl },
+      fineprint,
+      outro,
+    }),
+    text: [
+      `New sign-in on ${options.device}`,
+      '',
+      intro,
+      '',
+      details,
+      '',
+      `This wasn't me: ${options.notMeUrl}`,
+      '',
+      ...fineprint,
+      ...(outro ? ['', outro] : []),
+    ].join('\n'),
+  };
+}
+
 /** Sent to the address somebody asked to move their account to. */
 export function confirmEmailChange(options: {
   name: string;

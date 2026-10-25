@@ -5,6 +5,7 @@ import type { PromosService } from '../promos/promos.service';
 import type { StorageService } from '../storage/storage.service';
 import { AuthService } from './auth.service';
 import { UpdateProfileDto } from './dto/auth.dto';
+import type { SessionsService } from './sessions.service';
 import type { TwoFactorService } from './two-factor.service';
 import { toPublicUser, type UserRow, type UsersRepository } from './users.repository';
 
@@ -65,6 +66,7 @@ describe('AuthService.updateProfile and the switches', () => {
       {} as unknown as StorageService,
       {} as unknown as PromosService,
       {} as unknown as TwoFactorService,
+      {} as unknown as SessionsService,
     );
     return { service, users };
   }

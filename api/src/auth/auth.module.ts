@@ -14,6 +14,9 @@ import { BillingModule } from '../billing/billing.module';
 import { UsersRepository } from './users.repository';
 import { TwoFactorService } from './two-factor.service';
 import { ReauthService } from './reauth.service';
+import { SessionsController } from './sessions.controller';
+import { SessionsRepository } from './sessions.repository';
+import { SessionsService } from './sessions.service';
 
 @Module({
   imports: [
@@ -32,7 +35,7 @@ import { ReauthService } from './reauth.service';
     // keeps charging a card with no account left to stop it from.
     BillingModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, SessionsController],
   providers: [
     AuthService,
     AccountService,
@@ -42,6 +45,8 @@ import { ReauthService } from './reauth.service';
     UsersRepository,
     TwoFactorService,
     ReauthService,
+    SessionsRepository,
+    SessionsService,
   ],
   // The console reuses these rather than keeping copies: a reset email, a
   // verification link and a deletion from the console must be exactly the

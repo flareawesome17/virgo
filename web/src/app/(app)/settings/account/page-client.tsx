@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   Mail,
+  MonitorSmartphone,
   PauseCircle,
   ShieldCheck,
   UserX,
@@ -138,6 +139,21 @@ export default function AccountSettingsPage({
                   On
                 </span>
               )}
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            </Link>
+            <Link
+              href="/settings/devices"
+              className="flex items-center gap-4 border-t px-5 py-4 transition-colors hover:bg-accent/50"
+            >
+              <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+                <MonitorSmartphone className="size-4 text-muted-foreground" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Devices</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Where you are signed in, and signing one out
+                </p>
+              </div>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             </Link>
           </CardContent>

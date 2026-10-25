@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { authApi, ApiError, queryKeys } from '@/api';
+import { authApi, ApiError, queryKeys, sessionsApi } from '@/api';
 
 function message(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
@@ -428,6 +428,130 @@ export function ConfirmEmailChangeView() {
           </>
         ) : (
           <Loader2 className="mx-auto size-9 animate-spin text-primary" />
+        )}
+      </div>
+    </AuthShell>
+  );
+}
+
+function signedInWhen(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/**
+ * Where the "This wasn't me" button in a new-sign-in email lands.
+ *
+ * It asks before it acts. Mail scanners open every link in an email to check
+ * it, so a page that signed the device out on load would do it the moment the
+ * email arrived, for whoever's scanner it was. Looking it up changes nothing;
+ * only the button does.
+ */
+export function SignInReportView() {
+  const searchParams = useSearchParams();
+  const token = searchParams.get('token') ?? '';
+
+  const lookup = useMutation({ mutationFn: () => sessionsApi.lookupSignInAlert(token) });
+  const report = useMutation({ mutationFn: () => sessionsApi.reportSignInAlert(token) });
+  const { mutate: look } = lookup;
+
+  useEffect(() => {
+    if (token) look();
+  }, [token, look]);
+
+  const footer = (
+    <p className="mt-6 text-center text-sm text-muted-foreground">
+      <Link href="/sign-in" className="font-semibold text-primary hover:underline">
+        Sign in to Virgo
+      </Link>
+    </p>
+  );
+
+  if (!token || lookup.isError) {
+    return (
+      <AuthShell
+        heading={!token ? 'Link is incomplete' : 'That link did not work'}
+        intro="If you think someone else is signed in, change your password."
+        footer={
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            <Link href="/forgot-password" className="font-semibold text-primary hover:underline">
+              Choose a new password
+            </Link>
+          </p>
+        }
+      >
+        <div className="py-2 text-center">
+          <XCircle className="mx-auto size-9 text-destructive" />
+          <p className="mt-4 text-sm text-muted-foreground">
+            {!token
+              ? 'That link is missing its token. Copy the whole thing out of the email.'
+              : message(lookup.error, 'The link may have expired.')}
+          </p>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  if (report.isSuccess) {
+    return (
+      <AuthShell heading="Signed out" intro={`${report.data.app} on ${report.data.device} is signed out.`} footer={footer}>
+        <div className="py-2 text-center">
+          <MailCheck className="mx-auto size-9 text-success" />
+          <p className="mt-4 text-sm text-muted-foreground">
+            We have emailed you a link to choose a new password. Use it now: whoever signed in knows
+            the old one, and a new password signs out every device.
+          </p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Then turn on two-factor authentication in Settings → Account &amp; security.
+          </p>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  const alert = lookup.data;
+  if (!alert) {
+    return (
+      <AuthShell heading="Checking the link…" intro="One moment.">
+        <div className="py-2 text-center">
+          <Loader2 className="mx-auto size-9 animate-spin text-primary" />
+        </div>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell
+      heading={alert.signedOut ? 'Already signed out' : 'Wasn’t you?'}
+      intro={`${alert.app} on ${alert.device}, signed in ${signedInWhen(alert.signedInAt)}.`}
+      footer={footer}
+    >
+      <div className="py-2 text-center">
+        <p className="text-sm text-muted-foreground">
+          {alert.signedOut
+            ? 'That device can no longer use your account. If you have not yet, choose a new password: whoever signed in knows the old one.'
+            : 'Sign that device out now. We will also email you a link to choose a new password, which signs out every device.'}
+        </p>
+        {report.isError && (
+          <p className="mt-3 text-sm text-destructive">
+            {message(report.error, 'That did not go through. Try again.')}
+          </p>
+        )}
+        {alert.signedOut ? (
+          <Button asChild className="mt-5 w-full">
+            <Link href="/forgot-password">Choose a new password</Link>
+          </Button>
+        ) : (
+          <Button
+            className="mt-5 w-full"
+            variant="destructive"
+            disabled={report.isPending}
+            onClick={() => report.mutate()}
+          >
+            {report.isPending && <Loader2 className="size-4 animate-spin" />}
+            Sign it out
+          </Button>
         )}
       </div>
     </AuthShell>

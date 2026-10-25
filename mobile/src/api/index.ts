@@ -189,6 +189,12 @@ export {
   type UserReportReason,
 } from './endpoints/blocks';
 export {
+  sessionsApi,
+  type DeviceSession,
+  type SessionClient,
+  type SignInAlert,
+} from './endpoints/sessions';
+export {
   profilesApi,
   portfolioApi,
   profileUrl,

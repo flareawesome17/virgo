@@ -38,7 +38,7 @@ const GROUPS: { title: string; items: SettingsItem[] }[] = [
         href: '/settings/account',
         label: 'Account & security',
         icon: ShieldCheck,
-        also: ['/settings/two-factor'],
+        also: ['/settings/two-factor', '/settings/devices'],
       },
       { href: '/settings/blocked', label: 'Blocked people', icon: UserX },
       {

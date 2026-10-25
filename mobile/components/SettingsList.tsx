@@ -15,6 +15,7 @@ import {
   LifeBuoyIcon,
   LockIcon,
   LogOutIcon,
+  MonitorSmartphoneIcon,
   PaletteIcon,
   ShieldIcon,
   StarIcon,
@@ -41,7 +42,8 @@ import { CHART_COLORS, PALETTES } from '@/theme';
 for (const Icon of [
   BellIcon, ChevronRightIcon, CloudIcon, FileTextIcon, GiftIcon, GlobeIcon,
   HardDriveIcon, HelpCircleIcon, InfoIcon, LifeBuoyIcon, LockIcon, LogOutIcon,
-  PaletteIcon, ShieldIcon, StarIcon, Trash2Icon, UserCogIcon, UserXIcon,
+  MonitorSmartphoneIcon, PaletteIcon, ShieldIcon, StarIcon, Trash2Icon, UserCogIcon,
+  UserXIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -149,6 +151,13 @@ export function SettingsList() {
           value: profile?.twoFactorEnabled ? 'On' : 'Off',
           route: '/settings/two-factor',
           color: CHART_COLORS.green,
+        },
+        {
+          icon: MonitorSmartphoneIcon,
+          label: 'Devices',
+          detail: 'Where you are signed in, and signing one out',
+          route: '/settings/devices',
+          color: palette.primary,
         },
         {
           icon: HardDriveIcon,
