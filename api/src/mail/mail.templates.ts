@@ -116,7 +116,7 @@ function layout(options: {
 /** A short-lived second factor sent only after the password has been checked. */
 export function twoFactorCode(options: {
   code: string;
-  purpose: 'setup' | 'login' | 'disable' | 'recovery';
+  purpose: 'setup' | 'login' | 'disable' | 'recovery' | 'delete';
   expiresInMinutes: number;
 }): RenderedEmail {
   const descriptions = {
@@ -124,6 +124,7 @@ export function twoFactorCode(options: {
     login: 'signing in',
     disable: 'turning off two-factor authentication',
     recovery: 'replacing your recovery codes',
+    delete: 'deleting a workspace or an album',
   } as const;
   const action = descriptions[options.purpose];
   const intro = `Use this six-digit code to finish ${action} for your Virgo account.`;

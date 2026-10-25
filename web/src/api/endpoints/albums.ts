@@ -1,5 +1,5 @@
 import { api } from '../client';
-import type { Album, AlbumStatus, ListParams, ListResponse } from '../types';
+import type { Album, AlbumStatus, DeleteProof, ListParams, ListResponse } from '../types';
 
 export interface ListAlbumsParams extends ListParams {
   workspace_id?: string;
@@ -165,7 +165,8 @@ export const albumsApi = {
     return api.patch<Album>(`/albums/${id}`, { body: input });
   },
 
-  remove(id: string): Promise<void> {
-    return api.delete<void>(`/albums/${id}`);
+  /** Gone at once. Only with the password or the emailed code (see DeleteProof). */
+  remove(id: string, proof: DeleteProof): Promise<void> {
+    return api.delete<void>(`/albums/${id}`, { body: proof });
   },
 };

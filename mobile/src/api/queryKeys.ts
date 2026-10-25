@@ -22,6 +22,8 @@ export const queryKeys = {
     detail: (id: string) => ['workspaces', 'detail', id] as const,
     members: (id: string) => ['workspaces', 'members', id] as const,
     activity: (id: string) => ['workspaces', 'activity', id] as const,
+    /** The owner's Recently deleted. Under `all`, so every workspace change refreshes it. */
+    deleted: ['workspaces', 'deleted'] as const,
   },
   albums: {
     all: ['albums'] as const,

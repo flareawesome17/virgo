@@ -585,6 +585,8 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
          left join workspaces w on w.id = c.workspace_id
          left join users u on u.id = c.user_id
         where c.collaborator_user_id = $1 and c.status = 'pending'
+          -- An invitation to a deleted workspace waits with it.
+          and w.deleted_at is null
           and not ${blockedBetween('$1', 'c.user_id')}
         order by c.created_at desc`,
       [userId],
@@ -611,8 +613,11 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     id: string,
     accept: boolean,
   ): Promise<CollaboratorRow> {
+    // Not to a deleted workspace, which would let them into Recently deleted.
     const row = await this.db.queryOne<CollaboratorRow>(
-      'select * from collaborators where id = $1 and collaborator_user_id = $2',
+      `select c.* from collaborators c
+         join workspaces w on w.id = c.workspace_id and w.deleted_at is null
+        where c.id = $1 and c.collaborator_user_id = $2`,
       [id, userId],
     );
     if (!row) throw new NotFoundException('Invitation not found');

@@ -408,7 +408,7 @@ export class AuthService {
   beginTwoFactorSecurityAction(
     userId: string,
     password: string,
-    action: 'disable' | 'recovery',
+    action: 'disable' | 'recovery' | 'delete',
   ) {
     return this.twoFactor.beginSecurityAction(userId, password, action);
   }

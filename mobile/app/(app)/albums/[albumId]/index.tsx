@@ -21,6 +21,7 @@ import { RemoteImage, stableCacheKey } from '@/components/RemoteImage';
 import { VideoThumbnail } from '@/components/VideoThumbnail';
 import { BottomSheet, useShade } from '@/components/BottomSheet';
 import { NameSheet } from '@/components/NameSheet';
+import { DeleteConfirmSheet } from '@/components/DeleteConfirmSheet';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useWindowInsets } from '@/src/lib/window-insets';
@@ -240,6 +241,7 @@ export default function AlbumScreen() {
   // album menu had six: Set status, Delete album and Cancel were unreachable,
   // and the dialog could not be dismissed. The section menu lost its middle.
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deletingAlbum, setDeletingAlbum] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
   const [sectionMenuFor, setSectionMenuFor] = useState<string | null>(null);
@@ -745,27 +747,8 @@ export default function AlbumScreen() {
       { onError: (error) => Alert.alert('Could not update the album', problem(error)) },
     );
 
-  const confirmDeleteAlbum = () =>
-    Alert.alert(
-      'Delete album',
-      // Say what survives: the files are billed either way, so implying the
-      // delete frees space would be misleading.
-      `“${album?.name ?? 'This album'}” will be removed. Its files stay in your storage — find them under Settings › Storage › Not in an album, to file or delete.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () =>
-            deleteAlbum.mutate(albumId, {
-              // Back where it was opened from — a workspace, usually. It
-              // always landed on the list of every album.
-              onSuccess: () => (router.canGoBack() ? router.back() : router.dismissTo('/albums')),
-              onError: (error) => Alert.alert('Could not delete the album', problem(error)),
-            }),
-        },
-      ],
-    );
+  // Asks for the password (and the emailed code with two-factor on) first.
+  const confirmDeleteAlbum = () => setDeletingAlbum(true);
 
   const albumMenu = () => setMenuOpen(true);
 
@@ -1293,6 +1276,22 @@ export default function AlbumScreen() {
         title={album?.name ?? 'Album'}
         actions={albumActions}
         onClose={() => setMenuOpen(false)}
+      />
+      <DeleteConfirmSheet
+        visible={deletingAlbum}
+        title={`Delete “${album?.name ?? 'this album'}”?`}
+        // Say what survives: the files are billed either way, so implying the
+        // delete frees space would be misleading.
+        message="It is deleted straight away. Its files stay in your storage — find them under Settings › Storage › Not in an album, to file or delete."
+        onCancel={() => setDeletingAlbum(false)}
+        onConfirm={(proof) => deleteAlbum.mutateAsync({ id: albumId, proof })}
+        onDone={() => {
+          setDeletingAlbum(false);
+          // Back where it was opened from — a workspace, usually. It always
+          // landed on the list of every album.
+          if (router.canGoBack()) router.back();
+          else router.dismissTo('/albums');
+        }}
       />
       <ChoiceSheet
         visible={statusOpen}

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
 import { MAX_RETENTION_DAYS } from './dto/album.dto';
+import { type DeleteProof, ReauthService } from '../auth/reauth.service';
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { DatabaseService } from '../database/database.service';
 import { QuotaService } from '../quota/quota.service';
@@ -97,8 +98,20 @@ export class AlbumsService extends OwnedResourceService<AlbumRow> {
     private readonly quota: QuotaService,
     private readonly db: DatabaseService,
     private readonly feed: WorkspaceActivityService,
+    private readonly reauth: ReauthService,
   ) {
     super(albums, 'Album');
+  }
+
+  /**
+   * Deleting an album asks for the password, or the emailed code with
+   * two-factor on, as deleting a workspace does (ReauthService). It is gone at
+   * once — only workspaces wait in Recently deleted — so the question is the
+   * whole of the protection, and it is asked before anything is looked up.
+   */
+  async remove(userId: string, id: string, proof: DeleteProof = {}): Promise<void> {
+    await this.reauth.confirmDelete(userId, proof);
+    await super.remove(userId, id);
   }
 
   /**

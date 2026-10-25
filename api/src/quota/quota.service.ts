@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { SORT_AT_SQL } from '../storage/capture-time';
+import { IN_LIVE_WORKSPACE } from '../workspaces/live-workspace';
 import { limitsFor, toJsonLimit, type PlanLimits } from './quota.config';
 
 export interface StoredFile {
@@ -134,6 +135,9 @@ export class QuotaService {
     }>(
       `select (a.user_id = $1) as owner, ca.media_access
          from albums a
+         -- In Recently deleted, an album is nobody's, owner included, until
+         -- its workspace is restored.
+         join workspaces w on w.id = a.workspace_id and w.deleted_at is null
          left join collaborators c
            on c.workspace_id = a.workspace_id
           and c.collaborator_user_id = $1
@@ -263,9 +267,18 @@ export class QuotaService {
     return Number(row?.total ?? 0);
   }
 
+  /**
+   * What counts toward the plan. Nothing in Recently deleted does: deleting is
+   * how someone at their limit makes room, and the room has to be there
+   * straight away, not in 30 days. Restoring asks the same question as
+   * creating (assertCanCreateWorkspace).
+   */
   private async countRows(table: 'workspaces' | 'albums', userId: string) {
     const row = await this.db.queryOne<{ count: string }>(
-      `select count(*)::text as count from ${table} where user_id = $1`,
+      table === 'workspaces'
+        ? 'select count(*)::text as count from workspaces where user_id = $1 and deleted_at is null'
+        : `select count(*)::text as count from albums a
+            where a.user_id = $1 and ${IN_LIVE_WORKSPACE('a')}`,
       [userId],
     );
     return Number(row?.count ?? 0);
@@ -308,8 +321,11 @@ export class QuotaService {
     };
   }
 
-  /** Throws 403 when creating another workspace would exceed the plan. */
-  async assertCanCreateWorkspace(userId: string): Promise<void> {
+  /** Throws 403 when creating, or restoring, another workspace would exceed the plan. */
+  async assertCanCreateWorkspace(
+    userId: string,
+    purpose: 'create' | 'restore' = 'create',
+  ): Promise<void> {
     const limits = await this.limits(userId);
     if (!Number.isFinite(limits.workspaces)) return;
     const used = await this.countRows('workspaces', userId);
@@ -317,8 +333,11 @@ export class QuotaService {
       // No "upgrade": there is nothing to upgrade to while launch is free. And
       // countRows counts archived workspaces, so archiving one frees nothing;
       // deleting is the only way back under the limit.
+      const plan = `Your plan includes ${limits.workspaces} workspace${limits.workspaces === 1 ? '' : 's'}.`;
       throw new ForbiddenException(
-        `Your plan includes ${limits.workspaces} workspace${limits.workspaces === 1 ? '' : 's'}. Archived ones count too, so delete one you have finished with to add another.`,
+        purpose === 'restore'
+          ? `${plan} Archived ones count too, so delete one you have finished with to restore this one.`
+          : `${plan} Archived ones count too, so delete one you have finished with to add another.`,
       );
     }
   }
@@ -338,7 +357,8 @@ export class QuotaService {
       workspaceId
         ? `select count(*)::text as count from albums
             where user_id = $1 and workspace_id = $2`
-        : 'select count(*)::text as count from albums where user_id = $1',
+        : `select count(*)::text as count from albums a
+            where a.user_id = $1 and ${IN_LIVE_WORKSPACE('a')}`,
       workspaceId ? [userId, workspaceId] : [userId],
     );
     const used = Number(row?.count ?? 0);
@@ -663,7 +683,7 @@ export class QuotaService {
     if (keys.length === 0) return 0;
 
     const album = await this.db.queryOne<{ id: string }>(
-      'select id from albums where id = $1 and user_id = $2',
+      `select id from albums a where a.id = $1 and a.user_id = $2 and ${IN_LIVE_WORKSPACE('a')}`,
       [albumId, userId],
     );
     if (!album) {

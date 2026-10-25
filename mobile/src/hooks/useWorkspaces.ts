@@ -9,6 +9,7 @@ import {
   workspacesApi,
   type Album,
   type CreateWorkspaceInput,
+  type DeleteProof,
   type UpdateWorkspaceInput,
   type Workspace,
   type WorkspaceListParams,
@@ -112,12 +113,17 @@ export function useUpdateWorkspace() {
 /** Marks this device's own deletes, so the live event each one causes is known for it. */
 const deleteWorkspaceKey = ['delete-workspace'] as const;
 
+/**
+ * Moves a workspace to Recently deleted. Asks for the password or the emailed
+ * code: see useDeleteProof.
+ */
 export function useDeleteWorkspace() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: deleteWorkspaceKey,
-    mutationFn: (id: string) => workspacesApi.remove(id),
-    onSuccess: (_void, id) => {
+    mutationFn: ({ id, proof }: { id: string; proof: DeleteProof }) =>
+      workspacesApi.remove(id, proof),
+    onSuccess: (_void, { id }) => {
       // Removed rather than reset: the screen that asked is on its way out,
       // and a reset would show it loading as it went.
       queryClient.removeQueries({ queryKey: queryKeys.workspaces.detail(id) });
@@ -151,7 +157,7 @@ export function useDeleteWorkspace() {
 export function applyWorkspaceDeleted(queryClient: QueryClient, id: string): void {
   const deletingHere = queryClient.isMutating({
     mutationKey: deleteWorkspaceKey,
-    predicate: (mutation) => mutation.state.variables === id,
+    predicate: (mutation) => (mutation.state.variables as { id?: string } | undefined)?.id === id,
   });
   if (deletingHere > 0) return;
 
@@ -164,6 +170,45 @@ export function applyWorkspaceDeleted(queryClient: QueryClient, id: string): voi
       (query.state.data as Partial<Album> | undefined)?.workspace_id === id,
   });
 
+  queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.collaborators.all });
+  queryClient.invalidateQueries({ queryKey: usageQueryKey });
+}
+
+/** The owner's Recently deleted: what they deleted in the last 30 days. */
+export function useDeletedWorkspaces(options: QueryOptions = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.workspaces.deleted,
+    queryFn: () => workspacesApi.deleted(),
+    enabled: options.enabled ?? true,
+  });
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    workspaces: query.data?.data ?? [],
+  };
+}
+
+/** Brings a workspace back from Recently deleted, with everything in it. */
+export function useRestoreWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => workspacesApi.restore(id),
+    onSuccess: (_workspace, id) => applyWorkspaceRestored(queryClient, id),
+  });
+}
+
+/**
+ * A workspace came back: restored here, on another of the owner's devices, or
+ * by the owner of one this account is a member of. Its albums, members and
+ * place in every list return with it, and it counts toward the plan again.
+ */
+export function applyWorkspaceRestored(queryClient: QueryClient, id: string): void {
+  // Anything cached from before it was deleted, or the "not available" a
+  // screen got meanwhile, is out of date either way.
+  queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.detail(id) });
   queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
   queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
   queryClient.invalidateQueries({ queryKey: queryKeys.collaborators.all });

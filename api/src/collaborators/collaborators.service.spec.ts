@@ -97,7 +97,10 @@ describe('CollaboratorsService invitations', () => {
 
     const queryOne = jest.fn(async (sql: string, _params?: unknown[]) => {
       if (/^\s*update collaborators/.test(sql)) return updated;
-      if (/from collaborators where id = \$1/.test(sql)) return invitation;
+      // The invitee's lookup (through a live workspace) and the inviter's.
+      if (/from collaborators(?: c\s+join workspaces w[\s\S]*where c\.id| where id) = \$1/.test(sql)) {
+        return invitation;
+      }
       if (/from users where id = \$1/.test(sql)) {
         return { display_name: 'Someone', email: 'someone@example.com' };
       }
@@ -146,6 +149,15 @@ describe('CollaboratorsService invitations', () => {
       expect(h.notifier.notify).not.toHaveBeenCalled();
     },
   );
+
+  it('finds no invitation to a workspace in Recently deleted', async () => {
+    const h = invitationHarness();
+
+    await h.service.respondToInvitation(INVITEE, 'collab-1', true);
+
+    const lookup = h.queryOne.mock.calls.find(([sql]) => /join workspaces w/.test(sql));
+    expect(lookup?.[0]).toMatch(/join workspaces w on w\.id = c\.workspace_id and w\.deleted_at is null/);
+  });
 
   it('only answers an invitation that is still pending, and only as the invitee', async () => {
     const h = invitationHarness();

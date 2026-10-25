@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
-import { Archive, ArrowLeft, FolderOpen, Plus, Search } from 'lucide-react';
+import { Archive, ArrowLeft, FolderOpen, Plus, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader, Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState } from '@/components/states';
@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useWorkspaces } from '@/hooks/useWorkspaces';
+import { useDeletedWorkspaces, useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAlbums } from '@/hooks/useAlbums';
 import { useUsage } from '@/hooks/useUsage';
 import { plural } from '@/lib/workspaces';
@@ -52,6 +52,8 @@ function WorkspacesContent() {
   });
   // For covers, and for what a member can do in the albums shared with them.
   const { albums } = useAlbums({ limit: 100 });
+  // Beside the archive, so a workspace deleted by mistake is found where it was.
+  const { workspaces: deleted } = useDeletedWorkspaces();
   const { atWorkspaceLimit, usage, loadFailed: usageFailed } = useUsage();
 
   const limitReached = useCallback(() => {
@@ -194,15 +196,29 @@ function WorkspacesContent() {
             />
           </div>
 
-          {!showArchived && archivedCount > 0 && (
-            <Button
-              variant="ghost"
-              className="ml-auto text-secondary-foreground"
-              onClick={() => router.push('/workspaces?archived=1')}
-            >
-              <Archive className="size-4" />
-              Archived · {archivedCount}
-            </Button>
+          {!showArchived && (archivedCount > 0 || deleted.length > 0) && (
+            <div className="ml-auto flex items-center gap-1">
+              {archivedCount > 0 && (
+                <Button
+                  variant="ghost"
+                  className="text-secondary-foreground"
+                  onClick={() => router.push('/workspaces?archived=1')}
+                >
+                  <Archive className="size-4" />
+                  Archived · {archivedCount}
+                </Button>
+              )}
+              {deleted.length > 0 && (
+                <Button
+                  variant="ghost"
+                  className="text-secondary-foreground"
+                  onClick={() => router.push('/workspaces/deleted')}
+                >
+                  <Trash2 className="size-4" />
+                  Recently deleted · {deleted.length}
+                </Button>
+              )}
+            </div>
           )}
         </div>
 

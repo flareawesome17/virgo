@@ -4,6 +4,7 @@ import { DatabaseService } from '../database/database.service';
 import type { ResolvedAccess } from '../quota/quota.service';
 import { DISPLAY_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
+import { IN_LIVE_WORKSPACE } from '../workspaces/live-workspace';
 
 export type AlbumStatus = 'draft' | 'review' | 'delivered';
 
@@ -247,7 +248,8 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     // The collaborator row has to be in the album's own workspace. A grant
     // from elsewhere is one left behind by a move, and was listing the album
     // to people who could no longer open anything in it.
-    return `(
+    // Nobody's while its workspace is in Recently deleted, owner included.
+    return `${IN_LIVE_WORKSPACE('albums')} and (
       user_id = $${paramIndex}
       or exists (
         select 1
@@ -341,8 +343,34 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     id: string,
     data: Record<string, unknown>,
   ): Promise<AlbumRow | null> {
+    // The base update is the owner's, but knows nothing of Recently deleted.
+    if (!(await this.existsForUser(userId, id))) return null;
     const updated = await super.update(userId, id, data);
     return updated && (await this.withDerivedFields([updated], userId))[0];
+  }
+
+  /** The owner's album, and not in a deleted workspace. */
+  async existsForUser(userId: string, id: string): Promise<boolean> {
+    const row = await this.db.queryOne<{ one: number }>(
+      `select 1 as one from albums
+        where id = $1 and user_id = $2 and ${IN_LIVE_WORKSPACE('albums')}`,
+      [id, userId],
+    );
+    return row !== null;
+  }
+
+  /**
+   * Not from a deleted workspace: restoring it brings back what it held when
+   * it was deleted, and an album taken out of it meanwhile would not be.
+   */
+  async remove(userId: string, id: string): Promise<boolean> {
+    const rows = await this.db.query<{ id: string }>(
+      `delete from albums
+        where id = $1 and user_id = $2 and ${IN_LIVE_WORKSPACE('albums')}
+        returning id`,
+      [id, userId],
+    );
+    return rows.length > 0;
   }
 
   /**

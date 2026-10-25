@@ -99,6 +99,8 @@ export type ServerEvent =
    * told about something they just did.
    */
   | { type: 'workspace-deleted'; workspaceId: string; at: string }
+  /** The owner brought a deleted workspace back: the same people, told the same way. */
+  | { type: 'workspace-restored'; workspaceId: string; at: string }
   | {
       type: 'notification';
       /**

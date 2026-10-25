@@ -26,6 +26,7 @@ import {
 } from '../../quota/quota.service';
 import { SORT_AT_SQL } from '../../storage/capture-time';
 import { WorkspaceActivityService } from '../../workspaces/workspace-activity.service';
+import { IN_LIVE_WORKSPACE } from '../../workspaces/live-workspace';
 
 export interface ShareLinkRow {
   id: string;
@@ -701,7 +702,9 @@ export class AlbumShareService {
          left join album_sections s on s.id = l.section_id
         where l.token = $1
           and l.revoked_at is null
-          and (l.expires_at is null or l.expires_at > now())`,
+          and (l.expires_at is null or l.expires_at > now())
+          -- Off while its workspace is in Recently deleted, back on restore.
+          and ${IN_LIVE_WORKSPACE('a')}`,
       [token],
     );
 

@@ -46,7 +46,7 @@ export function useBeginTwoFactorSecurityAction() {
       action,
     }: {
       password: string;
-      action: 'disable' | 'recovery';
+      action: 'disable' | 'recovery' | 'delete';
     }) => authApi.beginTwoFactorSecurityAction(password, action),
   });
 }

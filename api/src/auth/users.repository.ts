@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import type { SessionClient } from './device-label';
 
-export type TwoFactorPurpose = 'setup' | 'login' | 'disable' | 'recovery';
+export type TwoFactorPurpose = 'setup' | 'login' | 'disable' | 'recovery' | 'delete';
 
 export interface UserRow {
   id: string;
