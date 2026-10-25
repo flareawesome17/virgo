@@ -166,7 +166,9 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // v10: Nearby places people by their address's city. A saved list said
 // "turn on sharing" to almost everyone, and a saved status had no idea what
 // placed them; both would show for a moment on the first launch after.
-const CACHE_VERSION = 'v13-money-insights'
+// v14: Nearby names the town, not only the province, and says how closely it
+// knows where you are. A saved list showed "about 1 km" for a whole province.
+const CACHE_VERSION = 'v14-nearby-towns'
 
 /**
  * Never written to disk, whatever their staleTime says.

@@ -72,7 +72,12 @@ describe('AuthService.register and the address', () => {
 
     const details = (users.create.mock.calls[0] as unknown as unknown[])[4];
     expect(details).toMatchObject({
-      addressPlace: { place: 'Mandaue', latitude: 10.3237, longitude: 123.9227 },
+      addressPlace: {
+        place: 'Mandaue, Cebu',
+        latitude: 10.3237,
+        longitude: 123.9227,
+        precision: 'city',
+      },
       location: 'Mandaue, Cebu',
     });
   });
@@ -110,7 +115,8 @@ describe('AuthService.updateProfile and the address', () => {
 
     expect(fieldsWritten(users)).toMatchObject({
       location: 'Cebu City, Cebu',
-      address_place: 'Cebu City',
+      address_place: 'Cebu City, Cebu',
+      address_precision: 'city',
       address_latitude: 10.3157,
       address_longitude: 123.8854,
       address_geocoded_at: expect.any(Date),
@@ -131,7 +137,7 @@ describe('AuthService.updateProfile and the address', () => {
 
     expect(fieldsWritten(users)).toMatchObject({
       location: 'Visayas and Mindanao',
-      address_place: 'Cebu City',
+      address_place: 'Cebu City, Cebu',
       address_line2: 'Unit 4B',
     });
   });
@@ -149,7 +155,10 @@ describe('AuthService.updateProfile and the address', () => {
 
     expect(fieldsWritten(users)).toMatchObject({
       location: 'Plaridel, Misamis Occidental',
-      address_place: 'Misamis Occidental',
+      // Named for the town, placed at the province's capital.
+      address_place: 'Plaridel, Misamis Occidental',
+      address_precision: 'province',
+      address_latitude: 8.4859,
     });
   });
 

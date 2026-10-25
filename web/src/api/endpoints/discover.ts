@@ -4,7 +4,14 @@ export interface NearbyPerson {
   id: string;
   name: string;
   avatarUrl: string | null;
-  /** Kilometres. The API never returns anyone else's coordinates. */
+  /**
+   * Kilometres, stated only as finely as both positions allow: whole
+   * kilometres for a device or a town, tens of kilometres when either end is
+   * only known by its province. 0 when the two are too close to tell apart —
+   * "In Plaridel, Misamis Occidental" for a town, "under 1 km away" for a
+   * device. Never metres: the finest anybody is placed is a 1.1 km cell, on
+   * purpose. The API never returns anyone else's coordinates.
+   */
   distanceKm: number;
   /**
    * True when the distance is to a city centre — their address's city, or
@@ -15,7 +22,11 @@ export interface NearbyPerson {
    * neither, and reads as a device distance, which is what it was.
    */
   approximate?: boolean;
-  /** The city or province an approximate position is; null for a device one. */
+  /**
+   * Where an approximate position is: "Plaridel, Misamis Occidental", a city
+   * picked by hand, or a province alone. Null for a device position. An older
+   * API sends the city table's name or the province only.
+   */
   place?: string | null;
   relationship: 'none' | 'pending_out' | 'pending_in' | 'accepted';
   /**
@@ -37,6 +48,12 @@ export interface NearbyPerson {
 
 /** What places somebody in Nearby: their device, a city they picked, or their address. */
 export type NearbySource = 'gps' | 'place' | 'address';
+
+/**
+ * How closely that places them: a device's 1.1 km cell, a town's centre, or
+ * a province's capital standing in for a town the API has no centre for.
+ */
+export type NearbyPrecision = 'gps' | 'city' | 'province';
 
 export interface LocationStatus {
   /**
@@ -61,6 +78,12 @@ export interface LocationStatus {
    */
   /** What places you, hidden or not; null when nothing does. */
   source?: NearbySource | null;
+  /**
+   * How closely that places you. 'province' means the town on your address
+   * has no centre on the API's map, so you stand at your province's capital
+   * and the distances you see are rough. Absent from an older API.
+   */
+  precision?: NearbyPrecision | null;
   /** Left out of everyone else's Nearby by your own choice. */
   hidden?: boolean;
   /** Where the address on your profile resolved to, if it did. */
@@ -77,6 +100,8 @@ export interface NearbyOrigin {
   source: NearbySource | 'search';
   /** Null for a device position, which has no name. */
   place: string | null;
+  /** How closely the search is placed; null for a typed city. Absent from an older API. */
+  precision?: NearbyPrecision | null;
 }
 
 export interface NearbyResult {

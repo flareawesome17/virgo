@@ -137,6 +137,7 @@ export const NEVER_PUBLIC = [
   'address_latitude',
   'address_longitude',
   'address_place',
+  'address_precision',
   'address_geocoded_at',
   'nearby_hidden',
   'studio_name',

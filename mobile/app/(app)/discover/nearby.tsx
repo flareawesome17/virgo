@@ -64,10 +64,13 @@ const RADII = [5, 25, 50, 100, 200];
 /**
  * Where somebody is, said as honestly as the server knows it.
  *
- * A city centre is the same point for everybody in that city, so "3 km away"
- * from one would be precise-looking and wrong: it says "In Cebu City", with
- * the rough distance only once they are in a different town. A device
- * position is a real distance, rounded to the kilometre.
+ * A town's centre is the same point for everybody in that town, so "3 km
+ * away" from one would be precise-looking and wrong: it says "In Ozamiz City,
+ * Misamis Occidental", with a rough distance only once they are clearly
+ * somewhere else. The server decides that: it sends 0 for anyone too close to
+ * their point to measure, and never a figure finer than both positions allow.
+ * Somebody whose town it has no centre for stands at the province's capital,
+ * so inside the province they read as just their town.
  */
 function whereLabel(person: NearbyPerson): string {
   if (person.approximate && person.place) {
@@ -116,6 +119,7 @@ export default function NearbyScreen() {
     place: myPlace,
     updatedAt: myUpdatedAt,
     source,
+    precision: myPrecision,
     hidden,
     exactLocation,
     exactLocationStale,
@@ -271,7 +275,10 @@ export default function NearbyScreen() {
           : placedBy === 'address'
             ? {
                 title: `You're shown in ${myPlace}`,
-                detail: 'From the city in your address — never your street.',
+                detail:
+                  myPrecision === 'province'
+                    ? "From the town in your address — never your street. It isn't on our map yet, so distances are measured from your province's capital and are rough."
+                    : 'From the city in your address — never your street.',
               }
             : {
                 title: "You're not in Nearby yet",

@@ -10,6 +10,7 @@ import { DatabaseService } from '../database/database.service';
 import { relationshipCase } from '../friends/friend-sql';
 import { canonicalLocation, coordsFor } from '../hiring/locations';
 import { blockedBetween } from '../safety/block-sql';
+import { statedDistanceKm, type PositionPrecision } from './distance';
 import { addressPlace } from './places';
 import { positionOf } from './position-sql';
 
@@ -19,7 +20,11 @@ export interface NearbyPerson {
   avatarUrl: string | null;
   /** Only when their profile is published, so the link cannot 404. */
   handle: string | null;
-  /** Whole kilometres, 0 meaning under one. Deliberately not coordinates. */
+  /**
+   * Kilometres, stated no more finely than the two positions allow, and 0
+   * when they are too close to tell apart (see discover/distance.ts).
+   * Deliberately not coordinates.
+   */
   distanceKm: number;
   /**
    * True unless the distance is to a device position. A city centre is the
@@ -27,7 +32,10 @@ export interface NearbyPerson {
    * rather than a precise-looking number of kilometres.
    */
   approximate: boolean;
-  /** The city or province an approximate position is; null for a device one. */
+  /**
+   * Where an approximate position is: "Plaridel, Misamis Occidental", a city
+   * picked by hand, or a province alone. Null for a device position.
+   */
   place: string | null;
   relationship: 'none' | 'pending_out' | 'pending_in' | 'accepted';
   /** What they do on a shoot. The point of the whole screen. */
@@ -42,6 +50,8 @@ export interface NearbyOrigin {
   source: PositionSource | 'search';
   /** Null for a device position, which has no name. */
   place: string | null;
+  /** How closely the search is placed; null for a typed city, an exact centre. */
+  precision: PositionPrecision | null;
 }
 
 export interface NearbyStatus {
@@ -64,6 +74,12 @@ export interface NearbyStatus {
   place: string | null;
   /** What places you, hidden or not. Null when nothing does. */
   source: PositionSource | null;
+  /**
+   * How closely that places you. 'province' means the town on your address
+   * is not on the API's map, so you stand at your province's capital and
+   * every distance you see is rough. Null when nothing places you.
+   */
+  precision: PositionPrecision | null;
   /** Left out of everyone's Nearby by choice. */
   hidden: boolean;
   /** Where the address on the profile resolved to, if it did. */
@@ -120,7 +136,9 @@ const NEARBY_CANDIDATES = `
                 ${relationshipCase('f', 'theirs')} as relationship,
                 pos.approximate,
                 pos.place,
-                -- Whole kilometres. See POSITION_DECIMALS.
+                pos.precision,
+                -- To ten metres, for the order and the radius. What is shown
+                -- is rounded again in TypeScript: see discover/distance.ts.
                 round((
                   6371 * acos(
                     least(1, greatest(-1,
@@ -129,7 +147,7 @@ const NEARBY_CANDIDATES = `
                       + sin(radians($2)) * sin(radians(pos.lat))
                     ))
                   )
-                )::numeric) as distance_km
+                )::numeric, 2) as distance_km
            from users u
            -- Their shared position while it counts, otherwise their
            -- address's city. See position-sql.ts for what "counts" means.
@@ -162,6 +180,7 @@ interface OwnPosition {
   lon: number | null;
   place: string | null;
   source: PositionSource | null;
+  precision: PositionPrecision | null;
   hidden: boolean;
   shared: 'gps' | 'place' | null;
   updatedAt: Date | null;
@@ -215,14 +234,20 @@ export class DiscoverService implements OnModuleInit {
   }
 
   /**
-   * Works out address_place and its coordinates for every row that has a
-   * city and has never been looked at, a batch at a time. Returns how many
-   * rows it looked at.
+   * Works out address_place, its coordinates and their precision for every
+   * row that has a city and has never been looked at, a batch at a time.
+   * Returns how many rows it looked at.
    *
    * address_geocoded_at is set whether or not the city could be placed, so a
    * town the tables do not know is tried once, not on every boot. It is also
    * the guard on the write: a profile saved between the read and the write
    * has already placed its own address and is left alone.
+   *
+   * A row placed but with no precision was written by an API from before
+   * migration 103 — during a deploy, or after a rollback — and is placed
+   * again too. Not covered by the partial index, which only knows
+   * address_geocoded_at; at the size of the users table that is a scan the
+   * nightly run can afford.
    */
   async placeAddresses(batchSize = BACKFILL_BATCH): Promise<number> {
     let seen = 0;
@@ -234,7 +259,9 @@ export class DiscoverService implements OnModuleInit {
       }>(
         `select id, address_city, address_province
            from users
-          where address_city is not null and address_geocoded_at is null
+          where address_city is not null
+            and (address_geocoded_at is null
+                 or (address_latitude is not null and address_precision is null))
           order by id
           limit $1`,
         [batchSize],
@@ -247,16 +274,20 @@ export class DiscoverService implements OnModuleInit {
             set address_latitude = v.lat,
                 address_longitude = v.lon,
                 address_place = v.place,
+                address_precision = v.precision,
                 address_geocoded_at = now()
-           from unnest($1::uuid[], $2::float8[], $3::float8[], $4::text[])
-                  as v(id, lat, lon, place)
-          where u.id = v.id and u.address_geocoded_at is null
+           from unnest($1::uuid[], $2::float8[], $3::float8[], $4::text[], $5::text[])
+                  as v(id, lat, lon, place, precision)
+          where u.id = v.id
+            and (u.address_geocoded_at is null
+                 or (u.address_latitude is not null and u.address_precision is null))
           returning u.id`,
         [
           rows.map((r) => r.id),
           placed.map((p) => p?.latitude ?? null),
           placed.map((p) => p?.longitude ?? null),
           placed.map((p) => p?.place ?? null),
+          placed.map((p) => p?.precision ?? null),
         ],
       );
       seen += rows.length;
@@ -300,6 +331,7 @@ export class DiscoverService implements OnModuleInit {
       lon: number | null;
       place: string | null;
       source: PositionSource | null;
+      precision: PositionPrecision | null;
       nearby_hidden: boolean | null;
       shares_location: boolean | null;
       latitude: number | null;
@@ -307,7 +339,7 @@ export class DiscoverService implements OnModuleInit {
       location_updated_at: Date | null;
       address_place: string | null;
     }>(
-      `select pos.lat, pos.lon, pos.place, pos.source,
+      `select pos.lat, pos.lon, pos.place, pos.source, pos.precision,
               u.nearby_hidden, u.shares_location, u.latitude, u.location_place,
               u.location_updated_at, u.address_place
          from users u
@@ -321,6 +353,7 @@ export class DiscoverService implements OnModuleInit {
       lon: placed ? row.lon : null,
       place: placed ? row.place : null,
       source: placed ? (row.source ?? null) : null,
+      precision: placed ? (row.precision ?? null) : null,
       hidden: row?.nearby_hidden ?? false,
       shared:
         row?.shares_location && row.latitude != null
@@ -431,6 +464,7 @@ export class DiscoverService implements OnModuleInit {
       updatedAt: me.updatedAt,
       place: me.place,
       source: me.source,
+      precision: me.precision,
       hidden: me.hidden,
       addressPlace: me.addressPlace,
       shared: me.shared,
@@ -447,11 +481,23 @@ export class DiscoverService implements OnModuleInit {
   ): Promise<(NearbyOrigin & { lat: number; lon: number }) | null> {
     if (place?.trim()) {
       const from = this.resolvePlace(place);
-      return { source: 'search', place: from.name, lat: from.lat, lon: from.lon };
+      return {
+        source: 'search',
+        place: from.name,
+        precision: null,
+        lat: from.lat,
+        lon: from.lon,
+      };
     }
     const me = await this.ownPosition(userId);
     if (me.source === null || me.lat == null || me.lon == null) return null;
-    return { source: me.source, place: me.place, lat: me.lat, lon: me.lon };
+    return {
+      source: me.source,
+      place: me.place,
+      precision: me.precision,
+      lat: me.lat,
+      lon: me.lon,
+    };
   }
 
   /**
@@ -500,6 +546,7 @@ export class DiscoverService implements OnModuleInit {
       distance_km: string | number;
       approximate: boolean | null;
       place: string | null;
+      precision: PositionPrecision | null;
       relationship: NearbyPerson['relationship'];
     }>(
       // Haversine, computed in a subquery so the radius can be filtered on the
@@ -523,13 +570,17 @@ export class DiscoverService implements OnModuleInit {
     return {
       sharing: true,
       ...(origin.source === 'search' && origin.place ? { place: origin.place } : {}),
-      origin: { source: origin.source, place: origin.place },
+      origin: { source: origin.source, place: origin.place, precision: origin.precision },
       // The email is selected only for the name fallback and never leaves.
       people: rows.map((r) => ({
         id: r.id,
         name: r.display_name?.trim() || r.email.split('@')[0],
         avatarUrl: r.avatar_url,
-        distanceKm: Number(r.distance_km),
+        distanceKm: statedDistanceKm(
+          Number(r.distance_km),
+          r.precision ?? (r.approximate ? 'province' : 'gps'),
+          origin.precision,
+        ),
         approximate: r.approximate ?? false,
         place: r.place ?? null,
         roles: r.roles ?? [],

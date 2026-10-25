@@ -16,11 +16,26 @@ import { canonicalLocation, CITY_NAMES, coordsFor, locationKey } from '../hiring
  * position at all rather than a guess, and the profile says so.
  */
 
+/**
+ * How closely a place's coordinates put somebody.
+ *
+ * `city` is the town's own centre. `province` is the province's capital
+ * standing in for a town the table does not have: everyone in that province's
+ * other towns shares the point, so a distance to it says which province they
+ * are in, not how far away they are.
+ */
+export type PlacePrecision = 'city' | 'province';
+
 export interface AddressPlace {
-  /** A city from the job board's table, or a province. What Nearby shows. */
+  /**
+   * What Nearby shows: "Ozamiz City, Misamis Occidental", "Plaridel, Misamis
+   * Occidental". The town and its province where both are known, the
+   * province alone where the town box holds something we would not repeat.
+   */
   place: string;
   latitude: number;
   longitude: number;
+  precision: PlacePrecision;
 }
 
 /**
@@ -289,7 +304,8 @@ function provinceNamed(
  * Tried in turn: as written ("cebu" is Cebu City through the aliases), with
  * "City of" or "City" taken off ("Mandaue City", "City of Naga"), with the
  * province put after it ("Talisay" in Cebu is the table's "Talisay, Cebu"),
- * and up to a comma ("Cebu City, Cebu" typed into the one box).
+ * and each part between commas ("Cebu City, Cebu" typed into the one box,
+ * or "Purok 3, Ozamiz City" with the purok first).
  *
  * "City" is only ever removed, never added. Adding it would turn the
  * municipality of Quezon, Bukidnon, into Quezon City.
@@ -305,14 +321,21 @@ function cityNamed(
     .replace(/^(city|municipality|municipio)\s+of\s+/i, '')
     .replace(/\s+city$/i, '')
     .trim();
-  const beforeComma = city.split(',')[0].trim();
+  // Not a part that names a province: in "Dalaguete, Cebu" the Cebu is the
+  // province, and the alias would make it Cebu City, 80 km away.
+  const parts = city.includes(',')
+    ? city
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => !provinceNamed(part))
+    : [];
   const prov = tidy(province);
 
   const candidates = [
     city,
     bare,
     ...(prov ? [`${city}, ${prov}`, `${bare}, ${prov}`] : []),
-    beforeComma,
+    ...parts,
   ];
   for (const candidate of candidates) {
     if (candidate && coordsFor(candidate)) return canonicalLocation(candidate);
@@ -326,6 +349,58 @@ interface Resolved {
   /** The canonical province, when the province box named one. */
   province: string | null;
   at: AddressPlace | null;
+}
+
+/** The province a table city is in, when there is only one answer. */
+function homeProvince(city: string): string | null {
+  const homes = provincesOfCity(city);
+  return homes.length === 1 ? homes[0] : null;
+}
+
+/** "Talisay, Cebu" → "Talisay": the label says the province its own way. */
+function townOf(city: string): string {
+  return city.split(',')[0].trim();
+}
+
+/** "Town, Province", or whichever of the two there is. */
+function placeLabel(town: string | null, province: string | null): string | null {
+  if (!town) return province;
+  if (!province || locationKey(province) === locationKey(town)) return town;
+  return `${town}, ${province}`;
+}
+
+/**
+ * What marks a street, a barangay or a lot rather than a town: a house or
+ * lot number, or one of the words an address line uses.
+ *
+ * The city box is free text, and people put all of these in it. Nearby
+ * shows the town to strangers, and the promise at sign-up was the city and
+ * province — never the street — so anything that looks like more than a
+ * town is left out and the province is shown alone.
+ */
+const NOT_A_TOWN =
+  /\d|\b(st|street|road|rd|ave|avenue|hwy|highway|purok|prk|brgy|bgy|barangay|sitio|zone|blk|block|lot|phase|subd|subdivision|village|compound|poblacion)\b/i;
+
+/**
+ * The town in the city box as written, when it reads as the name of a town.
+ *
+ * For the municipalities the city table does not have — most of them — this
+ * is what lets Nearby say "Plaridel, Misamis Occidental" rather than only the
+ * province. The first comma-separated part that reads as a town, so
+ * "Plaridel, Misamis Occidental" and "Purok 3, Clarin" are Plaridel and
+ * Clarin. A part that names the province is the province again — "Cebu
+ * Province" in the town box — not a town in it.
+ */
+function typedTown(input: string | null | undefined, province: string): string | null {
+  for (const part of tidy(input).split(',')) {
+    const town = tidy(part);
+    if (!town || town.length > 40 || town.split(' ').length > 4 || NOT_A_TOWN.test(town)) {
+      continue;
+    }
+    if (provinceNamed(town)?.name === province) continue;
+    return capitalised(town);
+  }
+  return null;
 }
 
 function resolve(
@@ -349,33 +424,63 @@ function resolve(
       return {
         city,
         province: province?.name ?? null,
-        at: { place: city, latitude: coords.lat, longitude: coords.lon },
+        at: {
+          place: placeLabel(townOf(city), province?.name ?? homeProvince(city)) ?? city,
+          latitude: coords.lat,
+          longitude: coords.lon,
+          precision: 'city',
+        },
       };
     }
   }
 
-  const fallback =
-    province ??
-    // The province box left empty or unrecognised, and the city box holding
-    // a province — "Bohol" is a reasonable answer to "where do you live".
-    provinceNamed(cityInput);
-  if (fallback) {
+  if (province) {
+    // Placed at the capital, but named for the town on the address: the
+    // label is the one thing here that can be exact.
+    const town = typedTown(cityInput, province.name);
     return {
       city: null,
-      province: province?.name ?? null,
-      at: { place: fallback.name, latitude: fallback.lat, longitude: fallback.lon },
+      province: province.name,
+      at: {
+        place: placeLabel(town, province.name) ?? province.name,
+        latitude: province.lat,
+        longitude: province.lon,
+        precision: 'province',
+      },
+    };
+  }
+
+  // The province box left empty or unrecognised, and the city box holding a
+  // province — "Bohol" is a reasonable answer to "where do you live".
+  const cityAsProvince = provinceNamed(cityInput);
+  if (cityAsProvince) {
+    return {
+      city: null,
+      province: null,
+      at: {
+        place: cityAsProvince.name,
+        latitude: cityAsProvince.lat,
+        longitude: cityAsProvince.lon,
+        precision: 'province',
+      },
     };
   }
 
   // Last, a known city typed in the province box under a barangay or a
-  // district in the city box: "Lahug", "Cebu City".
+  // district in the city box: "Lahug", "Cebu City". The city is named, not
+  // the barangay, which is finer than anything Nearby promised to show.
   const provinceAsCity = cityNamed(provinceInput);
   const coords = provinceAsCity ? coordsFor(provinceAsCity) : null;
   if (provinceAsCity && coords) {
     return {
       city: null,
       province: null,
-      at: { place: provinceAsCity, latitude: coords.lat, longitude: coords.lon },
+      at: {
+        place: placeLabel(townOf(provinceAsCity), homeProvince(provinceAsCity)) ?? provinceAsCity,
+        latitude: coords.lat,
+        longitude: coords.lon,
+        precision: 'city',
+      },
     };
   }
 
