@@ -6,13 +6,14 @@
 -- by comparing nightly dumps with refresh-token rotations; which device did it
 -- could not be found at all. This is the row that answers both.
 --
---   workspace_id    No foreign key: the workspace is gone by the time this row
---                   exists, and a key would have the cascade delete it too.
---   workspace_name  As it was named when it went.
+--   workspace_id    No foreign key: the workspace is deleted for real in the
+--                   end (see 101), and a key would have the cascade take this
+--                   row with it.
+--   workspace_name  As it was named when it was deleted.
 --   user_id         Who deleted it, which can only be its owner. Goes with
 --                   their account, like everything else about them.
---   album_count     Albums in it when it went. Its files outlive it, out of
---                   any album.
+--   album_count     Albums in it when it was deleted. Its files outlive it,
+--                   out of any album.
 --   member_count    Accepted members who lost it.
 --   session_id      The refresh-token family (refresh_tokens.family_id) of the
 --                   session that asked, which the console lists as a device.

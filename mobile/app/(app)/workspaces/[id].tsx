@@ -44,6 +44,7 @@ import {
   roleInSentence,
 } from '@/src/lib/workspaces';
 import { RemoteImage } from '@/components/RemoteImage';
+import { DeleteConfirmSheet } from '@/components/DeleteConfirmSheet';
 import { LoadFailed } from '@/components/LoadFailed';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { WorkspaceActivity } from '@/components/WorkspaceActivity';
@@ -292,19 +293,9 @@ function OwnerView({
     );
   };
 
-  const confirmDelete = () =>
-    Alert.alert(`Delete ${workspace.name}?`, `${deleteConsequence(workspace)} This cannot be undone.`, [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () =>
-          remove.mutate(id, {
-            onSuccess: () => router.dismissTo('/(app)/(tabs)/workspaces'),
-            onError: (err: Error) => Alert.alert('Could not delete', err.message),
-          }),
-      },
-    ]);
+  // Asks for the password (and the emailed code with two-factor on) first.
+  const [deleting, setDeleting] = useState(false);
+  const confirmDelete = () => setDeleting(true);
 
   return (
     <ScrollView
@@ -624,6 +615,17 @@ function OwnerView({
           { label: workspace.archived_at ? 'Bring back from archive' : 'Archive', onPress: toggleArchive },
           { label: 'Delete workspace…', destructive: true, onPress: confirmDelete },
         ]}
+      />
+      <DeleteConfirmSheet
+        visible={deleting}
+        title={`Delete ${workspace.name}?`}
+        message={deleteConsequence(workspace)}
+        onCancel={() => setDeleting(false)}
+        onConfirm={(proof) => remove.mutateAsync({ id, proof })}
+        onDone={() => {
+          setDeleting(false);
+          router.dismissTo('/(app)/(tabs)/workspaces');
+        }}
       />
     </ScrollView>
   );

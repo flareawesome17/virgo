@@ -22,7 +22,7 @@ import {
   noteLiveMessage,
 } from '@/hooks/useChat';
 import { removeFromOutbox } from '@/lib/outbox';
-import { applyWorkspaceDeleted } from '@/hooks/useWorkspaces';
+import { applyWorkspaceDeleted, applyWorkspaceRestored } from '@/hooks/useWorkspaces';
 import { useAuth } from '@/hooks/useAuth';
 import {
   registerTypingSender,
@@ -63,6 +63,7 @@ type ServerEvent =
   // A workspace this account owned or was in is gone. Silent like the one
   // above: it only lets go of what the cache still holds of it.
   | { type: 'workspace-deleted'; workspaceId: string; at: string }
+  | { type: 'workspace-restored'; workspaceId: string; at: string }
   | { type: 'presence'; userId: string; online: boolean; lastSeenAt: string | null }
   | {
       type: 'typing';
@@ -365,6 +366,9 @@ export function useRealtime(enabled: boolean): void {
           break;
         case 'workspace-deleted':
           applyWorkspaceDeleted(queryClient, event.workspaceId);
+          break;
+        case 'workspace-restored':
+          applyWorkspaceRestored(queryClient, event.workspaceId);
           break;
         case 'job-posted':
           // Silent on purpose. Somebody else posted a job; that is not an

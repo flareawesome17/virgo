@@ -64,6 +64,20 @@ export interface Workspace {
   last_activity_at: string;
 }
 
+/** A workspace in its owner's Recently deleted. */
+export interface DeletedWorkspace extends Workspace {
+  deleted_at: string;
+  /** When it is deleted for good: 30 days after it was deleted. */
+  purge_at: string;
+}
+
+/**
+ * What deleting a workspace or an album has to carry: the password, or, with
+ * two-factor on, the challenge from `beginTwoFactorSecurityAction(…, 'delete')`
+ * and the code that was emailed for it. useDeleteProof asks for whichever.
+ */
+export type DeleteProof = { password: string } | { challengeToken: string; code: string };
+
 export type AlbumStatus = 'draft' | 'review' | 'delivered';
 
 export interface Album {

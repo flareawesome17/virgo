@@ -7,11 +7,18 @@ import {
   TabScreen,
   useTabBottomInset,
 } from '@/components';
-import { useAuth, useCollaboratorInvitations, useTheme, useWorkspaces, usePlanLimits } from '@/src/hooks';
+import {
+  useAuth,
+  useCollaboratorInvitations,
+  useDeletedWorkspaces,
+  useTheme,
+  useWorkspaces,
+  usePlanLimits,
+} from '@/src/hooks';
 import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { useCallback, useMemo, useState } from 'react';
 import { router } from 'expo-router';
-import { ArchiveIcon, ChevronRightIcon, FolderPlusIcon, SearchIcon } from 'lucide-react-native';
+import { ArchiveIcon, ChevronRightIcon, FolderPlusIcon, SearchIcon, Trash2Icon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { WorkspaceInvitations } from '@/components/WorkspaceInvitations';
@@ -23,6 +30,7 @@ cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { colo
 cssInterop(FolderPlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ArchiveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(Trash2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 type Scope = 'all' | 'yours' | 'shared';
 
@@ -56,6 +64,9 @@ export default function WorkspacesScreen() {
     { enabled: !!user?.id },
   );
   const { refetch: refetchInvitations } = useCollaboratorInvitations();
+  // Under the list, like the archive, so a workspace deleted by mistake is
+  // found where it was rather than in Settings.
+  const { workspaces: deleted } = useDeletedWorkspaces({ enabled: !!user?.id });
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -149,18 +160,35 @@ export default function WorkspacesScreen() {
           </View>
         }
         ListFooterComponent={
-          archivedCount > 0 ? (
-            <Pressable
-              onPress={() => router.push('/workspaces/archived')}
-              accessibilityRole="button"
-              className="mx-5 mt-1 flex-row items-center gap-2 px-4 py-3 rounded-2xl bg-secondary active:scale-[0.98]"
-            >
-              <ArchiveIcon size={16} className="text-secondary-foreground" />
-              <Text className="text-secondary-foreground text-sm font-semibold flex-1">
-                Archived · {archivedCount}
-              </Text>
-              <ChevronRightIcon size={16} className="text-muted-foreground" />
-            </Pressable>
+          archivedCount > 0 || deleted.length > 0 ? (
+            <View className="gap-2">
+              {archivedCount > 0 ? (
+                <Pressable
+                  onPress={() => router.push('/workspaces/archived')}
+                  accessibilityRole="button"
+                  className="mx-5 mt-1 flex-row items-center gap-2 px-4 py-3 rounded-2xl bg-secondary active:scale-[0.98]"
+                >
+                  <ArchiveIcon size={16} className="text-secondary-foreground" />
+                  <Text className="text-secondary-foreground text-sm font-semibold flex-1">
+                    Archived · {archivedCount}
+                  </Text>
+                  <ChevronRightIcon size={16} className="text-muted-foreground" />
+                </Pressable>
+              ) : null}
+              {deleted.length > 0 ? (
+                <Pressable
+                  onPress={() => router.push('/workspaces/deleted')}
+                  accessibilityRole="button"
+                  className="mx-5 mt-1 flex-row items-center gap-2 px-4 py-3 rounded-2xl bg-secondary active:scale-[0.98]"
+                >
+                  <Trash2Icon size={16} className="text-secondary-foreground" />
+                  <Text className="text-secondary-foreground text-sm font-semibold flex-1">
+                    Recently deleted · {deleted.length}
+                  </Text>
+                  <ChevronRightIcon size={16} className="text-muted-foreground" />
+                </Pressable>
+              ) : null}
+            </View>
           ) : null
         }
         ListEmptyComponent={

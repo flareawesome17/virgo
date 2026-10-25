@@ -18,6 +18,7 @@ import {
   PaletteIcon,
   ShieldIcon,
   StarIcon,
+  Trash2Icon,
   UserCogIcon,
   UserXIcon,
   type LucideIcon,
@@ -40,7 +41,7 @@ import { CHART_COLORS, PALETTES } from '@/theme';
 for (const Icon of [
   BellIcon, ChevronRightIcon, CloudIcon, FileTextIcon, GiftIcon, GlobeIcon,
   HardDriveIcon, HelpCircleIcon, InfoIcon, LifeBuoyIcon, LockIcon, LogOutIcon,
-  PaletteIcon, ShieldIcon, StarIcon, UserCogIcon, UserXIcon,
+  PaletteIcon, ShieldIcon, StarIcon, Trash2Icon, UserCogIcon, UserXIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -159,6 +160,13 @@ export function SettingsList() {
             ? `${formatBytes(usage.storage.usedBytes)}${usage.plan ? ` · ${usage.plan}` : ''}`
             : undefined,
           route: '/settings/storage',
+          color: CHART_COLORS.brown,
+        },
+        {
+          icon: Trash2Icon,
+          label: 'Recently deleted',
+          detail: 'Workspaces you deleted, for 30 days',
+          route: '/workspaces/deleted',
           color: CHART_COLORS.brown,
         },
         // Here because a promo is quota: what it gives is storage, workspaces

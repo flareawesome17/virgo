@@ -47,6 +47,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { DeleteConfirmDialog } from '@/components/delete-confirm-dialog';
 import {
   UploadDropzone,
   openFilePicker,
@@ -822,36 +823,22 @@ function AlbumWorkspace() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={confirmingAlbumDelete} onOpenChange={setConfirmingAlbumDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this album?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {album?.name} will be removed. Its uploaded files stay in your storage and can be filed into another album.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() =>
-                removeAlbum.mutate(id, {
-                  // Back where it was opened from: a workspace, the albums
-                  // list, the dashboard. It always landed on one workspace.
-                  // A tab opened straight onto the album has nowhere to go
-                  // back to, so that lands on the list.
-                  onSuccess: () => {
-                    if (window.history.length > 1) router.back();
-                    else router.replace('/albums');
-                  },
-                  onError: (error: Error) => toast.error('Could not delete the album', { description: problem(error) }),
-                })
-              }
-            >
-              Delete album
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={confirmingAlbumDelete}
+        onOpenChange={setConfirmingAlbumDelete}
+        title="Delete this album?"
+        description={`${album?.name ?? 'It'} is deleted straight away. Its uploaded files stay in your storage and can be filed into another album.`}
+        confirmLabel="Delete album"
+        onConfirm={(proof) => removeAlbum.mutateAsync({ id, proof })}
+        onDone={() => {
+          // Back where it was opened from: a workspace, the albums list, the
+          // dashboard. It always landed on one workspace. A tab opened
+          // straight onto the album has nowhere to go back to, so that lands
+          // on the list.
+          if (window.history.length > 1) router.back();
+          else router.replace('/albums');
+        }}
+      />
     </Screen>
   );
 }

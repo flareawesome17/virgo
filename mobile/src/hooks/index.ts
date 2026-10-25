@@ -20,7 +20,10 @@ export {
   useWorkspaceMembers,
   useWorkspaceActivity,
   useLeaveWorkspace,
+  useDeletedWorkspaces,
+  useRestoreWorkspace,
 } from '@/src/hooks/useWorkspaces'
+export { useDeleteProof, type DeleteProofForm } from '@/src/hooks/useDeleteProof'
 
 export {
   useAlbums,

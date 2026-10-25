@@ -33,7 +33,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useDeleteWorkspace, useUpdateWorkspace } from '@/hooks/useWorkspaces';
+import { useDeleteWorkspace, useRestoreWorkspace, useUpdateWorkspace } from '@/hooks/useWorkspaces';
+import { DeleteConfirmDialog } from '@/components/delete-confirm-dialog';
 import type { Album, Workspace } from '@/api';
 import { ACCENT_COLORS, deleteConsequence } from '@/lib/workspaces';
 import {
@@ -75,6 +76,7 @@ function WorkspaceSettingsForm({ workspace, albums, open, onOpenChange }: Worksp
   const router = useRouter();
   const update = useUpdateWorkspace();
   const remove = useDeleteWorkspace();
+  const restore = useRestoreWorkspace();
 
   const [name, setName] = useState(workspace.name);
   const [description, setDescription] = useState(workspace.description ?? '');
@@ -286,33 +288,33 @@ function WorkspaceSettingsForm({ workspace, albums, open, onOpenChange }: Worksp
         </AlertDialog>
       </Dialog>
 
-      <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {workspace.name}?</AlertDialogTitle>
-            <AlertDialogDescription>{deleteConsequence(workspace)} This cannot be undone.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() =>
-                remove.mutate(workspace.id, {
-                  onSuccess: () => {
-                    toast.success(`${workspace.name} is deleted`, {
-                      description: 'Its files stay in your library and still count toward your storage.',
-                    });
-                    router.replace('/workspaces');
+      <DeleteConfirmDialog
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+        title={`Delete ${workspace.name}?`}
+        description={deleteConsequence(workspace)}
+        confirmLabel="Delete workspace"
+        onConfirm={(proof) => remove.mutateAsync({ id: workspace.id, proof })}
+        onDone={() => {
+          toast.success(`${workspace.name} is in Recently deleted`, {
+            description: 'You can restore it there for 30 days.',
+            // The page that would show it is gone by the time this is
+            // clicked, so the answer comes back as a toast too.
+            action: {
+              label: 'Undo',
+              onClick: () =>
+                restore.mutateAsync(workspace.id).then(
+                  () => {
+                    toast.success(`${workspace.name} is back`);
+                    router.push(`/workspaces/${workspace.id}`);
                   },
-                  onError: (err: Error) => toast.error('Could not delete', { description: err.message }),
-                })
-              }
-            >
-              Delete workspace
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+                  (err: Error) => toast.error('Could not restore it', { description: err.message }),
+                ),
+            },
+          });
+          router.replace('/workspaces');
+        }}
+      />
     </>
   );
 }

@@ -10,6 +10,7 @@ import {
   Info,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
   UserRound,
   UserX,
 } from 'lucide-react';
@@ -46,6 +47,8 @@ const GROUPS: { title: string; items: SettingsItem[] }[] = [
         icon: HardDrive,
         also: ['/settings/plans'],
       },
+      // Outside /settings: it lives beside the workspace list, as on the phone.
+      { href: '/workspaces/deleted', label: 'Recently deleted', icon: Trash2 },
     ],
   },
   {

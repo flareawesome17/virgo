@@ -177,9 +177,10 @@ export const authApi = {
     });
   },
 
+  /** 'delete': the code a workspace or album delete asks for with two-factor on. */
   beginTwoFactorSecurityAction(
     password: string,
-    action: 'disable' | 'recovery',
+    action: 'disable' | 'recovery' | 'delete',
   ): Promise<TwoFactorSetup> {
     return api.post('/auth/2fa/security-code', {
       body: { password, action },

@@ -4,6 +4,7 @@ import { DatabaseService } from '../database/database.service';
 import { NotifyService } from '../notifications/notify.service';
 import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
 import { StorageService } from '../storage/storage.service';
+import { IN_LIVE_WORKSPACE } from '../workspaces/live-workspace';
 
 interface ExpiringFile {
   owner_id: string;
@@ -83,14 +84,18 @@ export class AlbumRetentionService {
       `select a.user_id as owner_id, f.album_id, a.name as album_name, f.key
          from user_files f
          join albums a on a.id = f.album_id
-        where (a.retention_days is not null
+        -- Not while its workspace is in Recently deleted: restoring it has to
+        -- bring back what it held. The clock is not paused, so a restored album
+        -- past its date is cleared on the next run.
+        where ${IN_LIVE_WORKSPACE('a')}
+          and ((a.retention_days is not null
                 -- 0 would mean "delete immediately", which is a mis-set value
                 -- rather than an intent. Treated as off.
                 and a.retention_days > 0
                 and f.created_at < now() - make_interval(days => a.retention_days))
            -- Kept through the day itself, in Manila, whatever the server's zone.
            or (a.retention_until is not null
-               and a.retention_until < (now() at time zone $1)::date)
+               and a.retention_until < (now() at time zone $1)::date))
         limit 5000`,
       [MEDIA_LOCAL_ZONE],
     );
@@ -179,6 +184,7 @@ export class AlbumRetentionService {
          from user_files f
          join albums a on a.id = f.album_id
         where a.user_id = $1
+          and ${IN_LIVE_WORKSPACE('a')}
           and ((a.retention_days is not null and a.retention_days > 0)
                or a.retention_until is not null)
         group by a.id, a.name
