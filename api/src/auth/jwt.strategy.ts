@@ -7,6 +7,8 @@ import type { JwtPayload } from './auth.service';
 export interface AuthenticatedUser {
   id: string;
   email: string;
+  /** The refresh-token family the token came from; see JwtPayload.sid. */
+  sessionId?: string;
 }
 
 @Injectable()
@@ -27,6 +29,6 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    * expires — bounded by JWT_ACCESS_TTL, 15 minutes by default.
    */
   validate(payload: JwtPayload): AuthenticatedUser {
-    return { id: payload.sub, email: payload.email };
+    return { id: payload.sub, email: payload.email, sessionId: payload.sid };
   }
 }

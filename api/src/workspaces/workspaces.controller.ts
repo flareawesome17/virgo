@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   Param,
   Patch,
@@ -77,12 +78,15 @@ export class WorkspacesController {
     return this.workspaces.update(userId, id, { ...dto });
   }
 
+  /** Owner-only. Recorded with the session that asked; see WorkspacesService.remove. */
   @HttpCode(204)
   @Delete(':id')
   async remove(
     @CurrentUser('id') userId: string,
+    @CurrentUser('sessionId') sessionId: string | undefined,
     @Param('id') id: string,
+    @Headers('user-agent') userAgent?: string,
   ): Promise<void> {
-    await this.workspaces.remove(userId, id);
+    await this.workspaces.remove(userId, id, { sessionId, userAgent });
   }
 }

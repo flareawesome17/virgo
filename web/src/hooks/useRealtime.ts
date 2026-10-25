@@ -22,6 +22,7 @@ import {
   noteLiveMessage,
 } from '@/hooks/useChat';
 import { removeFromOutbox } from '@/lib/outbox';
+import { applyWorkspaceDeleted } from '@/hooks/useWorkspaces';
 import { useAuth } from '@/hooks/useAuth';
 import {
   registerTypingSender,
@@ -59,6 +60,9 @@ type ServerEvent =
   // Ambient board change. Not a notification: nothing is addressed to you, so
   // it must not toast or buzz — it only marks the list and the badge stale.
   | { type: 'job-posted'; slug: string; at: string }
+  // A workspace this account owned or was in is gone. Silent like the one
+  // above: it only lets go of what the cache still holds of it.
+  | { type: 'workspace-deleted'; workspaceId: string; at: string }
   | { type: 'presence'; userId: string; online: boolean; lastSeenAt: string | null }
   | {
       type: 'typing';
@@ -358,6 +362,9 @@ export function useRealtime(enabled: boolean): void {
           queryClient.invalidateQueries({ queryKey: chatKeys.participants(event.conversationId) });
           queryClient.invalidateQueries({ queryKey: chatKeys.thread(event.conversationId) });
           queryClient.invalidateQueries({ queryKey: chatKeys.unread });
+          break;
+        case 'workspace-deleted':
+          applyWorkspaceDeleted(queryClient, event.workspaceId);
           break;
         case 'job-posted':
           // Silent on purpose. Somebody else posted a job; that is not an

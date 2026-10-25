@@ -85,6 +85,20 @@ export interface WorkspaceMemberRow {
   };
 }
 
+/** Which session asked for a delete, as far as the request can say. */
+export interface DeleteOrigin {
+  /** The refresh-token family the access token was issued with. */
+  sessionId?: string;
+  userAgent?: string;
+}
+
+/** A workspace that has just been deleted. */
+export interface DeletedWorkspace {
+  name: string;
+  /** Its accepted members, who lost it along with the owner. */
+  member_ids: string[];
+}
+
 /** How a list treats archived workspaces. */
 export type ArchivedFilter = 'exclude' | 'only' | 'include';
 
@@ -385,6 +399,61 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
         },
       };
     });
+  }
+
+  /**
+   * Deletes one of the owner's workspaces and records that it went, in one
+   * statement.
+   *
+   * The cascade takes the albums, the members and the activity feed with it,
+   * so what the record needs is read in the same snapshot as the delete, and
+   * the record is written only for a row the delete actually removed: two
+   * deletes racing each other leave one record, and a member's attempt — the
+   * `user_id` predicate finds nothing — leaves none. One statement, so there
+   * is no delete without its record and no record without its delete.
+   *
+   * Null when there was nothing of theirs to delete.
+   */
+  async removeRecorded(
+    userId: string,
+    id: string,
+    origin: DeleteOrigin = {},
+  ): Promise<DeletedWorkspace | null> {
+    return this.db.queryOne<DeletedWorkspace>(
+      `with target as (
+         select w.id, w.name,
+                (select count(*)::int from albums a where a.workspace_id = w.id) as album_count,
+                coalesce(
+                  (select array_agg(c.collaborator_user_id)
+                     from collaborators c
+                    where c.workspace_id = w.id
+                      and c.status = 'accepted'
+                      and c.collaborator_user_id is not null),
+                  '{}'::uuid[]
+                ) as member_ids
+           from workspaces w
+          where w.id = $1 and w.user_id = $2::uuid
+       ),
+       gone as (
+         delete from workspaces w
+          using target t
+          where w.id = t.id
+          returning w.id
+       ),
+       recorded as (
+         insert into workspace_deletions
+           (workspace_id, workspace_name, user_id, album_count, member_count,
+            session_id, user_agent)
+         select t.id, t.name, $2::uuid, t.album_count, cardinality(t.member_ids),
+                $3::uuid, $4::text
+           from target t
+           join gone g on g.id = t.id
+       )
+       select t.name, t.member_ids
+         from target t
+         join gone g on g.id = t.id`,
+      [id, userId, origin.sessionId ?? null, origin.userAgent?.slice(0, 300) ?? null],
+    );
   }
 
   /**

@@ -4,6 +4,7 @@ import * as bcrypt from 'bcryptjs';
 import type { PromosService } from '../promos/promos.service';
 import type { StorageService } from '../storage/storage.service';
 import { AuthService } from './auth.service';
+import { JwtStrategy } from './jwt.strategy';
 import type { TwoFactorService } from './two-factor.service';
 import type { UserRow, UsersRepository } from './users.repository';
 
@@ -32,6 +33,8 @@ function userWith(overrides: Partial<UserRow> = {}): UserRow {
 }
 
 const SUSPENDED = { suspended_at: new Date('2026-09-01T00:00:00Z') };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function serviceFor(user: UserRow) {
   const users = {
@@ -182,8 +185,49 @@ describe('AuthService and the device a session belongs to', () => {
       'user-1',
       expect.any(String),
       expect.any(Date),
-      { userAgent: 'Virgo/1 CFNetwork Darwin' },
+      { familyId: expect.stringMatching(UUID), userAgent: 'Virgo/1 CFNetwork Darwin' },
     );
+  });
+
+  it('names the device in the access token, so a request can say where it came from', async () => {
+    const { service, users, jwt } = serviceFor(userWith());
+    await service.login('mika@example.com', PASSWORD, { userAgent: 'okhttp/4.12' });
+    const [, , , device] = users.storeRefreshToken.mock.calls[0] as unknown as [
+      string,
+      string,
+      Date,
+      { familyId: string },
+    ];
+    expect(jwt.signAsync).toHaveBeenCalledWith(
+      { sub: 'user-1', email: 'mika@example.com', sid: device.familyId },
+      expect.anything(),
+    );
+
+    // And it stays the same device across a refresh.
+    users.findActiveRefreshToken.mockResolvedValueOnce({
+      id: 't1',
+      user_id: 'user-1',
+      family_id: 'family-1',
+      user_agent: 'okhttp/4.12',
+    } as never);
+    await service.refresh('refresh-token');
+    expect(jwt.signAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sid: 'family-1' }),
+      expect.anything(),
+    );
+  });
+
+  it('hands the session on to the request', () => {
+    const strategy = new JwtStrategy({
+      getOrThrow: () => 'a-test-secret-that-is-long-enough-to-sign-with',
+    } as unknown as ConfigService);
+    expect(strategy.validate({ sub: 'user-1', email: 'mika@example.com', sid: 'family-1' })).toEqual({
+      id: 'user-1',
+      email: 'mika@example.com',
+      sessionId: 'family-1',
+    });
+    // A token from before tokens named their session still signs in.
+    expect(strategy.validate({ sub: 'user-1', email: 'mika@example.com' }).sessionId).toBeUndefined();
   });
 
   it('keeps the device across a refresh', async () => {
@@ -210,7 +254,7 @@ describe('AuthService and the device a session belongs to', () => {
       'user-1',
       expect.any(String),
       expect.any(Date),
-      { familyId: undefined, userAgent: 'Mozilla/5.0 Chrome' },
+      { familyId: expect.stringMatching(UUID), userAgent: 'Mozilla/5.0 Chrome' },
     );
   });
 });

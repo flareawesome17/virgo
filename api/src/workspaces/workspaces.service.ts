@@ -3,12 +3,14 @@ import { type ListOptions } from '../common/owned.repository';
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { NotifyService } from '../notifications/notify.service';
 import { QuotaService } from '../quota/quota.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import {
   type WorkspaceActivityItem,
   WorkspaceActivityService,
 } from './workspace-activity.service';
 import {
   type ArchivedFilter,
+  type DeleteOrigin,
   type WorkspaceMemberRow,
   WorkspaceRow,
   WorkspacesRepository,
@@ -21,6 +23,7 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
     private readonly quota: QuotaService,
     private readonly feed: WorkspaceActivityService,
     private readonly notifier: NotifyService,
+    private readonly realtime: RealtimeGateway,
   ) {
     super(workspaces, 'Workspace');
   }
@@ -75,6 +78,28 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
       }
     }
     return super.update(userId, id, changes);
+  }
+
+  /**
+   * Owner-only: the repository scopes the delete to `user_id`, so a member's
+   * attempt finds nothing and reads as not found.
+   *
+   * Recorded, with the session that asked (see 100_workspace_deletions.sql):
+   * the cascade leaves nothing else to say the workspace existed. Then the
+   * owner's devices and every member are told at once, so a list or a screen
+   * still showing it lets go of it instead of waiting for a refetch. The
+   * device that asked is told too, which costs it one more refetch and keeps
+   * its other tabs right.
+   */
+  async remove(userId: string, id: string, origin: DeleteOrigin = {}): Promise<void> {
+    const gone = await this.workspaces.removeRecorded(userId, id, origin);
+    if (!gone) throw new NotFoundException('Workspace not found');
+
+    this.realtime.emitToUsers([userId, ...gone.member_ids], {
+      type: 'workspace-deleted',
+      workspaceId: id,
+      at: new Date().toISOString(),
+    });
   }
 
   /**
