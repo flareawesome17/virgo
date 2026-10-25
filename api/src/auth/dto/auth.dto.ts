@@ -194,8 +194,10 @@ export class ResendTwoFactorCodeDto {
 }
 
 export class BeginTwoFactorSecurityActionDto extends BeginTwoFactorSetupDto {
-  @IsIn(['disable', 'recovery'])
-  action!: 'disable' | 'recovery';
+  // 'delete': deleting a workspace or an album, which asks for a code when
+  // two-factor is on (see ReauthService).
+  @IsIn(['disable', 'recovery', 'delete'])
+  action!: 'disable' | 'recovery' | 'delete';
 }
 
 export class TwoFactorSecurityActionDto extends ResendTwoFactorCodeDto {

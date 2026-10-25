@@ -1,14 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { type DeleteProof, ReauthService } from '../auth/reauth.service';
 import { type ListOptions } from '../common/owned.repository';
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { NotifyService } from '../notifications/notify.service';
 import { QuotaService } from '../quota/quota.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import {
   type WorkspaceActivityItem,
   WorkspaceActivityService,
 } from './workspace-activity.service';
 import {
   type ArchivedFilter,
+  type DeleteOrigin,
+  type DeletedWorkspaceRow,
   type WorkspaceMemberRow,
   WorkspaceRow,
   WorkspacesRepository,
@@ -21,6 +25,8 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
     private readonly quota: QuotaService,
     private readonly feed: WorkspaceActivityService,
     private readonly notifier: NotifyService,
+    private readonly realtime: RealtimeGateway,
+    private readonly reauth: ReauthService,
   ) {
     super(workspaces, 'Workspace');
   }
@@ -75,6 +81,67 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
       }
     }
     return super.update(userId, id, changes);
+  }
+
+  /**
+   * Moves a workspace to Recently deleted. Owner-only: the repository scopes
+   * it to `user_id`, so a member's attempt finds nothing and reads as not
+   * found.
+   *
+   * The password first, or the emailed code with two-factor on (see
+   * ReauthService): on 2026-10-25 a workspace went with one tap from a session
+   * someone else had signed in to. Then it is recorded with the session that
+   * asked (100_workspace_deletions.sql), and the owner's devices and every
+   * member are told at once, so a list or a screen still showing it lets go of
+   * it instead of waiting for a refetch. The device that asked is told too,
+   * which costs it one more refetch and keeps its other tabs right.
+   *
+   * Nothing in it is deleted for 30 days; WorkspaceTrashService does that.
+   */
+  async remove(
+    userId: string,
+    id: string,
+    proof: DeleteProof = {},
+    origin: DeleteOrigin = {},
+  ): Promise<void> {
+    await this.reauth.confirmDelete(userId, proof);
+
+    const gone = await this.workspaces.trash(userId, id, origin);
+    if (!gone) throw new NotFoundException('Workspace not found');
+
+    this.realtime.emitToUsers([userId, ...gone.member_ids], {
+      type: 'workspace-deleted',
+      workspaceId: id,
+      at: new Date().toISOString(),
+    });
+  }
+
+  /** The owner's Recently deleted. */
+  async deleted(userId: string): Promise<DeletedWorkspaceRow[]> {
+    return this.workspaces.deleted(userId);
+  }
+
+  /**
+   * Puts a deleted workspace back, with its albums, members, links and files
+   * where they were, and tells everyone who had it.
+   *
+   * Recently deleted does not count toward the plan's workspaces — deleting
+   * is how someone at their limit makes room, and the room has to be there
+   * straight away — so bringing one back is the same question as making one.
+   * No password: restoring loses nothing.
+   */
+  async restore(userId: string, id: string, origin: DeleteOrigin = {}): Promise<WorkspaceRow> {
+    await this.quota.assertCanCreateWorkspace(userId, 'restore');
+
+    const back = await this.workspaces.restore(userId, id, origin);
+    if (!back) throw new NotFoundException('That workspace is not in Recently deleted');
+
+    this.realtime.emitToUsers([userId, ...back.member_ids], {
+      type: 'workspace-restored',
+      workspaceId: id,
+      at: new Date().toISOString(),
+    });
+    return this.get(userId, id);
   }
 
   /**

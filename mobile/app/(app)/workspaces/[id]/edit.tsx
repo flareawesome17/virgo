@@ -19,6 +19,7 @@ import { ACCENT_COLORS, deleteConsequence } from '@/src/lib/workspaces';
 import { DetailFallback } from '@/components/DetailFallback';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ChoiceSheet } from '@/components/WorkspaceBits';
+import { DeleteConfirmSheet } from '@/components/DeleteConfirmSheet';
 import { PALETTES } from '@/theme';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -54,6 +55,7 @@ export default function EditWorkspaceScreen() {
   const [color, setColor] = useState<string | null>(null);
   const [cover, setCover] = useState<string | null>(null);
   const [choosingCover, setChoosingCover] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // With a header and a way back in every state: "isn't available" used to
   // sit alone on the screen, and offline read as the workspace being gone.
@@ -119,19 +121,8 @@ export default function EditWorkspaceScreen() {
       },
     );
 
-  const confirmDelete = () =>
-    Alert.alert(`Delete ${workspace.name}?`, `${deleteConsequence(workspace)} This cannot be undone.`, [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () =>
-          remove.mutate(workspace.id, {
-            onSuccess: () => router.dismissTo('/(app)/(tabs)/workspaces'),
-            onError: (err: Error) => Alert.alert('Could not delete', err.message),
-          }),
-      },
-    ]);
+  // Asks for the password (and the emailed code with two-factor on) first.
+  const confirmDelete = () => setDeleting(true);
 
   const field = 'bg-card rounded-2xl px-4 py-3.5 text-foreground text-base border border-border/40';
 
@@ -293,6 +284,17 @@ export default function EditWorkspaceScreen() {
         value={coverNow}
         onChoose={setCover}
         onClose={() => setChoosingCover(false)}
+      />
+      <DeleteConfirmSheet
+        visible={deleting}
+        title={`Delete ${workspace.name}?`}
+        message={deleteConsequence(workspace)}
+        onCancel={() => setDeleting(false)}
+        onConfirm={(proof) => remove.mutateAsync({ id: workspace.id, proof })}
+        onDone={() => {
+          setDeleting(false);
+          router.dismissTo('/(app)/(tabs)/workspaces');
+        }}
       />
     </SafeAreaView>
   );

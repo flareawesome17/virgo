@@ -143,7 +143,7 @@ export class TwoFactorService {
   async beginSecurityAction(
     userId: string,
     password: string,
-    purpose: 'disable' | 'recovery',
+    purpose: 'disable' | 'recovery' | 'delete',
   ) {
     const user = await this.requireUserAndPassword(userId, password);
     if (!user.two_factor_enabled_at) {
@@ -162,6 +162,14 @@ export class TwoFactorService {
     const updated = await this.users.disableTwoFactor(user.id);
     await this.users.revokeAllForUser(user.id);
     return updated;
+  }
+
+  /**
+   * Checks the emailed code for a delete, and spends it. Throws the same
+   * refusals as turning two-factor off does.
+   */
+  async confirmDelete(userId: string, challengeToken: string, code: string): Promise<void> {
+    await this.verifyEmailChallenge(challengeToken, code, 'delete', userId);
   }
 
   async regenerateRecoveryCodes(

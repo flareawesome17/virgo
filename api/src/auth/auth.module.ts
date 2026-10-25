@@ -13,6 +13,7 @@ import { PromosModule } from '../promos/promos.module';
 import { BillingModule } from '../billing/billing.module';
 import { UsersRepository } from './users.repository';
 import { TwoFactorService } from './two-factor.service';
+import { ReauthService } from './reauth.service';
 
 @Module({
   imports: [
@@ -40,10 +41,12 @@ import { TwoFactorService } from './two-factor.service';
     JwtStrategy,
     UsersRepository,
     TwoFactorService,
+    ReauthService,
   ],
   // The console reuses these rather than keeping copies: a reset email, a
   // verification link and a deletion from the console must be exactly the
   // ones the app sends and does.
-  exports: [AuthService, AccountService, AccountFlowsService, UsersRepository],
+  // ReauthService: deleting a workspace or an album asks for the password again.
+  exports: [AuthService, AccountService, AccountFlowsService, UsersRepository, ReauthService],
 })
 export class AuthModule {}

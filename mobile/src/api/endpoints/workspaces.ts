@@ -1,6 +1,8 @@
 import { api } from '../client';
 import type {
   CollaboratorRole,
+  DeletedWorkspace,
+  DeleteProof,
   ListParams,
   ListResponse,
   Workspace,
@@ -139,7 +141,22 @@ export const workspacesApi = {
     return api.patch<Workspace>(`/workspaces/${id}`, { body: input });
   },
 
-  remove(id: string): Promise<void> {
-    return api.delete<void>(`/workspaces/${id}`);
+  /**
+   * Moves it to Recently deleted for 30 days. Owner-only, and only with the
+   * password or the emailed code (see DeleteProof); without either the server
+   * answers 403 REAUTH_REQUIRED.
+   */
+  remove(id: string, proof: DeleteProof): Promise<void> {
+    return api.delete<void>(`/workspaces/${id}`, { body: proof });
+  },
+
+  /** The owner's Recently deleted, newest first. */
+  deleted(): Promise<ListResponse<DeletedWorkspace>> {
+    return api.get('/workspaces/deleted');
+  },
+
+  /** Brings one back with everything that was in it. Refused at the plan's workspace limit. */
+  restore(id: string): Promise<Workspace> {
+    return api.post<Workspace>(`/workspaces/${id}/restore`);
   },
 };

@@ -88,6 +88,19 @@ export type ServerEvent =
    * without waiting for a poll.
    */
   | { type: 'job-posted'; slug: string; at: string }
+  /**
+   * A workspace was deleted, to the owner's devices and everyone who was a
+   * member. Without it, a phone went on showing a workspace deleted from the
+   * desktop until something happened to refetch, and that looked like the
+   * desktop had lost it.
+   *
+   * Not a notification either: it is how open clients let go of the
+   * workspace's cached screens, and the owner's own devices would otherwise be
+   * told about something they just did.
+   */
+  | { type: 'workspace-deleted'; workspaceId: string; at: string }
+  /** The owner brought a deleted workspace back: the same people, told the same way. */
+  | { type: 'workspace-restored'; workspaceId: string; at: string }
   | {
       type: 'notification';
       /**

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   ConflictException,
   ForbiddenException,
@@ -55,6 +55,12 @@ export interface RegisterResult {
 export interface JwtPayload {
   sub: string;
   email: string;
+  /**
+   * The session: the refresh-token family this token was issued with, which
+   * the console lists as one device. Lets a request say which device made it
+   * — a workspace delete records it. Absent from tokens issued before it was.
+   */
+  sid?: string;
 }
 
 @Injectable()
@@ -128,7 +134,11 @@ export class AuthService {
     const accessTtl = this.config.get<string>('JWT_ACCESS_TTL', '15m');
     const refreshTtl = this.config.get<string>('JWT_REFRESH_TTL', '30d');
 
-    const payload: JwtPayload = { sub: user.id, email: user.email };
+    // A new device's family is made here rather than by the column default,
+    // so the access token can carry it too.
+    const familyId = device.familyId ?? randomUUID();
+
+    const payload: JwtPayload = { sub: user.id, email: user.email, sid: familyId };
     const accessToken = await this.jwt.signAsync(payload, {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
       expiresIn: this.resolveTtl(accessTtl),
@@ -142,7 +152,7 @@ export class AuthService {
       user.id,
       this.hashRefreshToken(refreshToken),
       expiresAt,
-      device,
+      { ...device, familyId },
     );
 
     return { accessToken, refreshToken, expiresIn: accessTtl };
@@ -379,7 +389,7 @@ export class AuthService {
   beginTwoFactorSecurityAction(
     userId: string,
     password: string,
-    action: 'disable' | 'recovery',
+    action: 'disable' | 'recovery' | 'delete',
   ) {
     return this.twoFactor.beginSecurityAction(userId, password, action);
   }

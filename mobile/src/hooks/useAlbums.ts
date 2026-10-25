@@ -5,6 +5,7 @@ import {
   retryUnlessGone,
   type Album,
   type CreateAlbumInput,
+  type DeleteProof,
   type ListAlbumsParams,
   type UpdateAlbumInput,
 } from '@/src/api';
@@ -105,10 +106,11 @@ export function useUpdateAlbum() {
   });
 }
 
+/** Asks for the password or the emailed code: see useDeleteProof. */
 export function useDeleteAlbum() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => albumsApi.remove(id),
+    mutationFn: ({ id, proof }: { id: string; proof: DeleteProof }) => albumsApi.remove(id, proof),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });

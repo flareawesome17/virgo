@@ -9,7 +9,9 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { DeleteProofDto } from '../auth/dto/delete-proof.dto';
 import { AlbumRetentionService } from './album-retention.service';
 import { AlbumsService } from './albums.service';
 import { CreateAlbumDto, ListAlbumsDto, UpdateAlbumDto } from './dto/album.dto';
@@ -69,12 +71,19 @@ export class AlbumsController {
     return this.albums.update(userId, id, { ...dto });
   }
 
+  /**
+   * Only with the password or the emailed code in the body. Throttled less
+   * tightly than a workspace delete, since clearing out a few albums in a row
+   * is ordinary, but enough that a stolen session cannot guess a password.
+   */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(204)
   @Delete(':id')
   async remove(
     @CurrentUser('id') userId: string,
     @Param('id') id: string,
+    @Body() proof: DeleteProofDto,
   ): Promise<void> {
-    await this.albums.remove(userId, id);
+    await this.albums.remove(userId, id, { ...proof });
   }
 }

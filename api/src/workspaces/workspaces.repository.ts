@@ -85,12 +85,46 @@ export interface WorkspaceMemberRow {
   };
 }
 
+/** Which session asked for a delete, as far as the request can say. */
+export interface DeleteOrigin {
+  /** The refresh-token family the access token was issued with. */
+  sessionId?: string;
+  userAgent?: string;
+}
+
+/** A workspace that has just been deleted, or restored. */
+export interface DeletedWorkspace {
+  name: string;
+  /** Its accepted members, who lose it (or get it back) along with the owner. */
+  member_ids: string[];
+}
+
+/** How long a deleted workspace waits in Recently deleted. */
+export const TRASH_DAYS = 30;
+
+/** A card in Recently deleted. */
+export interface DeletedWorkspaceRow extends WorkspaceRow {
+  deleted_at: Date;
+  /** When the sweep deletes it for real. */
+  purge_at: Date;
+}
+
 /** How a list treats archived workspaces. */
 export type ArchivedFilter = 'exclude' | 'only' | 'include';
 
 /** An account's name as everyone else sees it: display name, else the email's local part. */
 const NAME_OF = (alias: string) =>
   `coalesce(nullif(trim(${alias}.display_name), ''), split_part(${alias}.email, '@', 1))`;
+
+/** The accepted members of the workspace whose id is `${alias}.id`, as a uuid[]. */
+const MEMBER_IDS = (alias: string) => `coalesce(
+  (select array_agg(c.collaborator_user_id)
+     from collaborators c
+    where c.workspace_id = ${alias}.id
+      and c.status = 'accepted'
+      and c.collaborator_user_id is not null),
+  '{}'::uuid[]
+)`;
 
 /** Sort keys a client may ask for, and what each one sorts by. */
 const ORDER_BY: Record<string, string> = {
@@ -214,8 +248,11 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
   /**
    * Only accepted invitations count. A pending one must not grant access, or
    * inviting someone would be the same as adding them.
+   *
+   * A deleted workspace is nobody's, owner included, until it is restored:
+   * it lives in Recently deleted (`deleted`), not in any list or behind any id.
    */
-  private readonly visible = `(w.user_id = $1 or me.id is not null)`;
+  private readonly visible = `(w.deleted_at is null and (w.user_id = $1 or me.id is not null))`;
 
   private archivedClause(filter: ArchivedFilter): string {
     if (filter === 'only') return ' and w.archived_at is not null';
@@ -294,8 +331,25 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
     id: string,
     data: Record<string, unknown>,
   ): Promise<WorkspaceRow | null> {
+    // The base update is scoped to the owner but knows nothing of deletes, so
+    // a deleted workspace would take the edit and answer 404.
+    if (!(await this.existsForUser(userId, id))) return null;
     const updated = await super.update(userId, id, data);
     return updated ? await this.findOne(userId, id) : null;
+  }
+
+  /**
+   * Whether this owner has this workspace, and it is not deleted. What albums,
+   * events and invitations check before attaching to one (assertOwned), so
+   * nothing new lands in Recently deleted.
+   */
+  async existsForUser(userId: string, id: string): Promise<boolean> {
+    const row = await this.db.queryOne<{ one: number }>(
+      `select 1 as one from workspaces
+        where id = $1 and user_id = $2 and deleted_at is null`,
+      [id, userId],
+    );
+    return row !== null;
   }
 
   /** Whether an album is one of this owner's, in this workspace — the only thing a cover can come from. */
@@ -388,11 +442,161 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
   }
 
   /**
+   * Moves one of the owner's workspaces to Recently deleted, and records it,
+   * in one statement.
+   *
+   * Nothing else is touched: its albums, members, grants, links and files stay
+   * exactly as they were, and only `deleted_at` hides them (see `visible`,
+   * QuotaService.accessForAlbum, AlbumShareService.linkFor). That is what lets
+   * restore put everything back where it was.
+   *
+   * The record is written here rather than when the sweep deletes it for real,
+   * because this is when the session that asked is known. It is written only
+   * for a row this statement moved: two deletes racing each other leave one
+   * record, and a member's attempt — the `user_id` predicate finds nothing —
+   * leaves none.
+   *
+   * Null when there was nothing of theirs to delete.
+   */
+  async trash(
+    userId: string,
+    id: string,
+    origin: DeleteOrigin = {},
+  ): Promise<DeletedWorkspace | null> {
+    return this.db.queryOne<DeletedWorkspace>(
+      `with target as (
+         select w.id, w.name,
+                (select count(*)::int from albums a where a.workspace_id = w.id) as album_count,
+                ${MEMBER_IDS('w')} as member_ids
+           from workspaces w
+          where w.id = $1 and w.user_id = $2::uuid and w.deleted_at is null
+       ),
+       trashed as (
+         update workspaces w
+            set deleted_at = now()
+           from target t
+          where w.id = t.id and w.deleted_at is null
+          returning w.id
+       ),
+       recorded as (
+         insert into workspace_deletions
+           (workspace_id, workspace_name, user_id, album_count, member_count,
+            session_id, user_agent)
+         select t.id, t.name, $2::uuid, t.album_count, cardinality(t.member_ids),
+                $3::uuid, $4::text
+           from target t
+           join trashed x on x.id = t.id
+       )
+       select t.name, t.member_ids
+         from target t
+         join trashed x on x.id = t.id`,
+      [id, userId, origin.sessionId ?? null, origin.userAgent?.slice(0, 300) ?? null],
+    );
+  }
+
+  /**
+   * The owner's Recently deleted, newest first, each as a card draws it, with
+   * when it was deleted and when the sweep will delete it for real.
+   *
+   * Read through the same select as everything else, so the counts on a
+   * deleted card are the ones it showed before. Only the owner's: a member
+   * lost it the moment it was deleted and has nothing to restore.
+   */
+  async deleted(userId: string): Promise<DeletedWorkspaceRow[]> {
+    return this.db.query<DeletedWorkspaceRow>(
+      `select x.*, x.deleted_at + interval '${TRASH_DAYS} days' as purge_at
+         from (
+           ${this.select}
+            where w.user_id = $1 and w.deleted_at is not null
+         ) x
+        order by x.deleted_at desc, x.id`,
+      [userId],
+    );
+  }
+
+  /**
+   * Brings a deleted workspace back, with everything that was in it, and
+   * notes on its record who restored it.
+   *
+   * Allowed for as long as it is still there, even a little past 30 days if
+   * the sweep has not reached it: refusing someone a workspace that still
+   * exists would be the rule for its own sake.
+   *
+   * Null when there is nothing of theirs to restore.
+   */
+  async restore(
+    userId: string,
+    id: string,
+    origin: DeleteOrigin = {},
+  ): Promise<DeletedWorkspace | null> {
+    return this.db.queryOne<DeletedWorkspace>(
+      `with restored as (
+         update workspaces w
+            set deleted_at = null
+          where w.id = $1 and w.user_id = $2::uuid and w.deleted_at is not null
+          returning w.id, w.name
+       ),
+       noted as (
+         update workspace_deletions d
+            set restored_at = now(), restored_session_id = $3::uuid
+           from restored r
+          where d.workspace_id = r.id
+            and d.restored_at is null
+            and d.purged_at is null
+       )
+       select r.name, ${MEMBER_IDS('r')} as member_ids
+         from restored r`,
+      [id, userId, origin.sessionId ?? null],
+    );
+  }
+
+  /**
+   * Deletes for real what has been in Recently deleted for 30 days, a batch
+   * at a time, and notes it on each record. The cascade does what deleting
+   * always did: albums, members, grants and links go, and the files stay in
+   * the owner's library, out of any album.
+   *
+   * SKIP LOCKED, so two API instances sweeping at once share the work rather
+   * than queueing on each other's rows.
+   */
+  async purgeExpired(limit = 100): Promise<string[]> {
+    const rows = await this.db.query<{ id: string }>(
+      `with doomed as (
+         select id from workspaces
+          where deleted_at < now() - interval '${TRASH_DAYS} days'
+          order by deleted_at
+          limit $1
+          for update skip locked
+       ),
+       gone as (
+         delete from workspaces w
+          using doomed d
+          where w.id = d.id
+          returning w.id
+       ),
+       noted as (
+         update workspace_deletions r
+            set purged_at = now()
+           from gone g
+          where r.workspace_id = g.id
+            and r.purged_at is null
+            and r.restored_at is null
+       )
+       select id from gone`,
+      [limit],
+    );
+    return rows.map((r) => r.id);
+  }
+
+  /**
    * Takes the caller off a workspace they were a member of.
    *
    * Only an accepted membership: an invitation is answered, not left. Their
    * grants go with the row (`on delete cascade`); anything they uploaded
    * stays, because it was always the owner's.
+   *
+   * Not from a deleted workspace, which they can no longer see: leaving it
+   * would quietly take them out of it if the owner restored it.
    */
   async leave(
     userId: string,
@@ -404,6 +608,8 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
           where workspace_id = $2
             and collaborator_user_id = $1
             and status = 'accepted'
+            and exists (select 1 from workspaces lw
+                         where lw.id = $2 and lw.deleted_at is null)
           returning workspace_id, name
        )
        select w.user_id as owner_id, w.name as workspace_name,

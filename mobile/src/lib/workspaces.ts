@@ -1,6 +1,7 @@
 import type {
   CollaboratorInvitation,
   CollaboratorRole,
+  DeletedWorkspace,
   MediaAccess,
   Workspace,
   WorkspaceActivityItem,
@@ -175,25 +176,53 @@ export function invitationOffer(invitation: CollaboratorInvitation): string {
 }
 
 /**
- * What deleting a workspace takes, and what it leaves: the albums and
- * everyone's access go; the files stay in the owner's library, unsorted, and
- * still count. It used to say the media went too, which was never true — and
- * someone could keep a workspace they wanted gone for fear of losing work that
- * was never at risk.
+ * What deleting a workspace does, and what it leaves.
+ *
+ * It waits in Recently deleted for 30 days, albums and all, and everyone else
+ * loses it meanwhile; then it goes for good, and its files stay in the
+ * owner's library, unsorted. It used to say the media went too, which was
+ * never true — and someone could keep a workspace they wanted gone for fear
+ * of losing work that was never at risk.
  */
 export function deleteConsequence(
   workspace: Pick<Workspace, 'album_total' | 'media_count' | 'collaborator_count' | 'pending_count'>,
 ): string {
   const albums = workspace.album_total;
   const files = workspace.media_count;
-  const what = albums === 0 ? 'Deletes it' : `Deletes its ${plural(albums, 'album')}`;
+  const what =
+    albums === 0
+      ? 'It moves to Recently deleted'
+      : `It moves to Recently deleted with its ${plural(albums, 'album')}`;
   const access =
-    workspace.collaborator_count + workspace.pending_count > 0 ? ' and everyone’s access to them' : '';
+    workspace.collaborator_count + workspace.pending_count > 0 ? ', and everyone else in it loses it' : '';
   const kept =
     files === 0
       ? ''
-      : ` The ${plural(files, 'file')} stay in your library, unsorted, and still count toward your storage.`;
-  return `${what}${access}.${kept}`;
+      : ` Its ${plural(files, 'file')} stay in your library either way.`;
+  return `${what}${access}. You can restore it there for 30 days, then it is deleted for good.${kept}`;
+}
+
+/** What Recently deleted says about itself, above the list and when it is empty. */
+export const TRASH_EXPLAINER =
+  'Deleted workspaces wait here for 30 days, then they are deleted for good. Restoring one brings back its albums, members, links and files, and everyone it was shared with gets it back.';
+
+/**
+ * A Recently deleted card's line: what is in it, and how long it has left.
+ * Days round up, so a workspace deleted a minute ago has the 30 it was
+ * promised; "in under a day" rather than a time, since the sweep runs hourly.
+ */
+export function trashLine(
+  workspace: Pick<DeletedWorkspace, 'album_total' | 'purge_at'>,
+  now: Date = new Date(),
+): string {
+  const DAY = 86_400_000;
+  const left = new Date(workspace.purge_at).getTime() - now.getTime();
+  const when =
+    left < DAY
+      ? 'deleted for good in under a day'
+      : `deleted for good in ${plural(Math.ceil(left / DAY), 'day')}`;
+  const albums = workspace.album_total === 0 ? 'No albums' : plural(workspace.album_total, 'album');
+  return `${albums} · ${when}`;
 }
 
 /** A piece of an activity line: plain words, or a name set in bold. */
