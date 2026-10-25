@@ -80,10 +80,18 @@ export function ProfileWorkTaste({
   handle,
   isSelf,
   firstName,
+  workLabel = 'Work',
+  className = 'mt-6',
 }: {
   handle: string | undefined;
   isSelf: boolean;
   firstName: string;
+  /**
+   * The first half's name. The Dashboard calls it Posts: it sits under a tab
+   * already called Work, and two "Work"s one above the other read as a fault.
+   */
+  workLabel?: string;
+  className?: string;
 }) {
   const [tab, setTab] = useState<'work' | 'taste'>('work');
   const [openWork, setOpenWork] = useState<string | null>(null);
@@ -108,11 +116,11 @@ export function ProfileWorkTaste({
   const showAllKept = isSelf && allKept.total > 0;
 
   return (
-    <View className="mt-6">
+    <View className={className}>
       <View className="mx-5">
         <SegmentedTabs<typeof tab>
           segments={[
-            { key: 'work', label: 'Work' },
+            { key: 'work', label: workLabel },
             { key: 'taste', label: 'Taste' },
           ]}
           value={tab}

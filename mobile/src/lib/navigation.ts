@@ -19,7 +19,7 @@ export function goToTab(href: Href): void {
 }
 
 /** The routes that are tabs, by path, without groups or a query. */
-const TAB_PATHS = new Set(['/', '/feed', '/jobs', '/workspaces', '/schedule', '/connect', '/settings', '/network', '/chat']);
+const TAB_PATHS = new Set(['/', '/feed', '/jobs', '/workspaces', '/schedule', '/connect', '/network', '/chat']);
 
 /** Whether an in-app href is one of the tabs rather than a screen pushed over them. */
 export function isTabHref(href: string): boolean {

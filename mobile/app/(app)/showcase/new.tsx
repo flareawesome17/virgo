@@ -360,10 +360,11 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
       {
         // Back to where it now lives: the Feed, at the top, where a new post
         // of yours comes first — there is no post screen to land on any more.
-        // A private one is in no feed, so it goes to your profile instead.
+        // A private one is in no feed, so it goes to your profile instead:
+        // the Work tab of the Dashboard.
         onSuccess: () => {
           allowLeave();
-          if (visibility === 'private') router.replace('/profile');
+          if (visibility === 'private') goToTab('/?tab=work');
           else goToTab('/(app)/(tabs)/feed');
         },
         onError: (error) => failed(error, 'showcase'),
