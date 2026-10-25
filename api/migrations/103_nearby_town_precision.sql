@@ -7,13 +7,18 @@
 -- seven people in Misamis Occidental, all "about 1 km" from a viewer near
 -- Oroquieta.
 --
---   address_place      Now the town and its province for every town the
---                      address names: "Plaridel, Misamis Occidental". Only
---                      the coordinates fall back to the capital.
+-- The API now knows every city and municipality in the country
+-- (discover/ph-towns.ts, from Wikidata), so an address stands at its own
+-- town's centre.
+--
+--   address_place      The town and its province: "Plaridel, Misamis
+--                      Occidental". The province alone when the town box
+--                      names no town the API knows.
 --   address_precision  'city' when the coordinates are the town's own centre,
 --                      'province' when they are the capital standing in for
---                      it. The API states a distance no more finely than the
---                      position allows (discover/distance.ts).
+--                      a town box that could not be matched. The API states
+--                      a distance no more finely than the position allows
+--                      (discover/distance.ts).
 --
 -- The labels and the precision come from the API's tables, so every address
 -- is placed again by its backfill at boot: address_geocoded_at is cleared
@@ -32,7 +37,7 @@ alter table users
 comment on column users.address_place is
   'What Nearby shows for this account from its address: "Town, Province", or the province alone. Never the street. Null when the address could not be placed.';
 comment on column users.address_precision is
-  'How closely address_latitude/longitude place this account: city (the town''s centre) or province (the province''s capital standing in for a town the API''s table does not have).';
+  'How closely address_latitude/longitude place this account: city (the town''s centre) or province (the province''s capital standing in for a town box the API could not match).';
 
 update users
    set address_geocoded_at = null

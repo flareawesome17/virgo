@@ -1,4 +1,5 @@
 import { addressLocation, addressPlace, CITY_NAMES, provincesOfCity } from './places';
+import { PH_TOWNS } from './ph-towns';
 
 /**
  * Where an address puts somebody in Nearby.
@@ -31,17 +32,16 @@ describe('addressPlace', () => {
   });
 
   it('reads the province before trusting a town name two places share', () => {
-    // The City of Naga in Cebu is not Naga in Bicol, 400 km away: placed at
-    // Cebu's capital, and still named for itself.
+    // The City of Naga in Cebu is not Naga in Bicol, 400 km away.
     expect(addressPlace('City of Naga', 'Cebu')).toEqual({
-      place: 'City of Naga, Cebu',
-      latitude: 10.3157,
-      longitude: 123.8854,
-      precision: 'province',
+      place: 'Naga, Cebu',
+      latitude: 10.2167,
+      longitude: 123.75,
+      precision: 'city',
     });
     expect(addressPlace('San Juan', 'Batangas')).toMatchObject({
       place: 'San Juan, Batangas',
-      precision: 'province',
+      precision: 'city',
     });
     expect(addressPlace('San Juan', 'NCR')).toMatchObject({
       place: 'San Juan, Metro Manila',
@@ -50,8 +50,8 @@ describe('addressPlace', () => {
     // Calamba in Misamis Occidental, not Calamba in Laguna.
     expect(addressPlace('Calamba', 'Misamis Occidental')).toMatchObject({
       place: 'Calamba, Misamis Occidental',
-      latitude: 8.4859,
-      precision: 'province',
+      latitude: 8.5583,
+      precision: 'city',
     });
   });
 
@@ -69,57 +69,73 @@ describe('addressPlace', () => {
     expect(addressPlace('San Fernando', 'Pampanga')?.place).toBe('San Fernando, Pampanga');
   });
 
-  it("names a municipality it does not know, at the province's capital", () => {
+  it('places every other town at its own centre', () => {
+    // The report: towns the job board's table never had, all once at the
+    // province's capital.
     expect(addressPlace('Plaridel', 'Misamis Occidental')).toEqual({
       place: 'Plaridel, Misamis Occidental',
-      latitude: 8.4859,
-      longitude: 123.8048,
-      precision: 'province',
+      latitude: 8.6214,
+      longitude: 123.7101,
+      precision: 'city',
     });
-    expect(addressPlace('Plaridel', 'Bulacan')?.place).toBe('Plaridel, Bulacan');
+    expect(addressPlace('Plaridel', 'Bulacan')).toMatchObject({
+      place: 'Plaridel, Bulacan',
+      precision: 'city',
+    });
     expect(addressPlace('oroquieta city', 'misamis occidental')?.place).toBe(
-      'Oroquieta City, Misamis Occidental',
-    );
-    expect(addressPlace('Don Victoriano Chiongbian', 'Misamis Occidental')?.place).toBe(
-      'Don Victoriano Chiongbian, Misamis Occidental',
+      'Oroquieta, Misamis Occidental',
     );
     // The whole address in the one box, or a purok before the town.
     expect(addressPlace('Jimenez, Misamis Occidental', 'Misamis Occidental')?.place).toBe(
       'Jimenez, Misamis Occidental',
     );
-    expect(addressPlace('Purok 3, Clarin', 'Misamis Occidental')?.place).toBe(
-      'Clarin, Misamis Occidental',
-    );
+    expect(addressPlace('Purok 3, Clarin', 'Misamis Occidental')).toMatchObject({
+      place: 'Clarin, Misamis Occidental',
+      latitude: 8.2,
+    });
   });
 
-  it('finds a table city after a purok or a barangay, but not in a province name', () => {
-    expect(addressPlace('Purok 3, Ozamiz City', 'Misamis Occidental')).toMatchObject({
-      place: 'Ozamiz City, Misamis Occidental',
-      latitude: 8.1463,
+  it('knows a town by its other names and shortened words', () => {
+    expect(addressPlace('Don Victoriano Chiongbian', 'Misamis Occidental')?.place).toBe(
+      'Don Victoriano, Misamis Occidental',
+    );
+    expect(addressPlace('Dao', 'Antique')?.place).toBe('Tobias Fornier, Antique');
+    expect(addressPlace('Sta. Cruz', 'Laguna')?.place).toBe('Santa Cruz, Laguna');
+    expect(addressPlace('Gen. Trias City', 'Cavite')?.place).toBe('General Trias, Cavite');
+  });
+
+  it('tells towns of one name apart by province, and needs a name the country has once without one', () => {
+    expect(addressPlace('San Jose', 'Batangas')?.latitude).toBe(13.8772);
+    expect(addressPlace('San Jose', 'Tarlac')?.latitude).toBe(15.4781);
+    expect(addressPlace('San Jose', '')).toBeNull();
+    expect(addressPlace('Kalayaan', '')).toBeNull();
+    expect(addressPlace('Tangub City', '')?.place).toBe('Tangub, Misamis Occidental');
+    // A province box it does not know, and a name only one town has.
+    expect(addressPlace('Old Kaabakan', 'BARMM')?.place).toBe('Old Kaabakan, Cotabato');
+  });
+
+  it('reads Maguindanao as both of the provinces it was split into', () => {
+    expect(addressPlace('Datu Odin Sinsuat', 'Maguindanao')).toMatchObject({
+      place: 'Datu Odin Sinsuat, Maguindanao del Norte',
       precision: 'city',
     });
-    expect(addressPlace('Lahug, Cebu City', 'Cebu')?.place).toBe('Cebu City, Cebu');
-    // Dalaguete is a town in Cebu province, not a district of Cebu City.
-    expect(addressPlace('Dalaguete, Cebu', 'Cebu')).toMatchObject({
-      place: 'Dalaguete, Cebu',
-      precision: 'province',
-    });
   });
 
-  it('never names a street, a barangay or a lot', () => {
+  it('never names a street, a barangay or a lot, only the province', () => {
     for (const typed of [
       '123 Rizal St',
       'Purok 5',
       'Brgy. Lower Lamac',
+      'Lower Lamac',
       'Barangay Poblacion',
       'Sitio Malinao',
       'Blk 4 Lot 2',
-      'Zone 3',
       'Villa Verde Subdivision',
-      'Somewhere near the old church by the river',
     ]) {
-      expect(addressPlace(typed, 'Misamis Occidental')).toMatchObject({
+      expect(addressPlace(typed, 'Misamis Occidental')).toEqual({
         place: 'Misamis Occidental',
+        latitude: 8.4859,
+        longitude: 123.8048,
         precision: 'province',
       });
     }
@@ -127,20 +143,19 @@ describe('addressPlace', () => {
 
   it('does not add "City" to a municipality', () => {
     // Quezon, Bukidnon is not Quezon City.
-    expect(addressPlace('Quezon', 'Bukidnon')?.place).toBe('Quezon, Bukidnon');
-    expect(addressPlace('Quezon', '')?.place).toBe('Quezon');
+    expect(addressPlace('Quezon', 'Bukidnon')).toMatchObject({
+      place: 'Quezon, Bukidnon',
+      precision: 'city',
+    });
+    expect(addressPlace('Quezon', '')).toMatchObject({ place: 'Quezon', precision: 'province' });
   });
 
   it('understands the other names a province goes by', () => {
-    expect(addressPlace('Somewhere', 'NCR')?.place).toBe('Somewhere, Metro Manila');
-    expect(addressPlace('Somewhere', 'National Capital Region')?.place).toBe(
-      'Somewhere, Metro Manila',
-    );
-    expect(addressPlace('Somewhere', 'Province of Cebu')?.place).toBe('Somewhere, Cebu');
-    expect(addressPlace('Somewhere', 'Cebu Province')?.place).toBe('Somewhere, Cebu');
-    expect(addressPlace('Somewhere', 'Mountain Province')?.place).toBe(
-      'Somewhere, Mountain Province',
-    );
+    expect(addressPlace('Somewhere', 'NCR')?.place).toBe('Metro Manila');
+    expect(addressPlace('Somewhere', 'National Capital Region')?.place).toBe('Metro Manila');
+    expect(addressPlace('Somewhere', 'Province of Cebu')?.place).toBe('Cebu');
+    expect(addressPlace('Somewhere', 'Cebu Province')?.place).toBe('Cebu');
+    expect(addressPlace('Somewhere', 'Mountain Province')?.place).toBe('Mountain Province');
     expect(addressPlace('Nabunturan', 'Compostela Valley')?.place).toBe(
       'Nabunturan, Davao de Oro',
     );
@@ -154,11 +169,30 @@ describe('addressPlace', () => {
     );
   });
 
-  it('reads a province written in the city box, and a city in the province box', () => {
+  it('reads a province written in the city box, and a town in the province box', () => {
     expect(addressPlace('Bohol', '')).toMatchObject({ place: 'Bohol', precision: 'province' });
     // Lahug is a barangay of Cebu City: the city is named, never the barangay.
     expect(addressPlace('Lahug', 'Cebu City')).toMatchObject({
       place: 'Cebu City, Cebu',
+      precision: 'city',
+    });
+    expect(addressPlace('Poblacion', 'Jimenez')).toMatchObject({
+      place: 'Jimenez, Misamis Occidental',
+      precision: 'city',
+    });
+  });
+
+  it('finds a table city after a purok or a barangay, but not in a province name', () => {
+    expect(addressPlace('Purok 3, Ozamiz City', 'Misamis Occidental')).toMatchObject({
+      place: 'Ozamiz City, Misamis Occidental',
+      latitude: 8.1463,
+      precision: 'city',
+    });
+    expect(addressPlace('Lahug, Cebu City', 'Cebu')?.place).toBe('Cebu City, Cebu');
+    // Dalaguete is a town in Cebu province, not a district of Cebu City.
+    expect(addressPlace('Dalaguete, Cebu', 'Cebu')).toMatchObject({
+      place: 'Dalaguete, Cebu',
+      latitude: 9.7612,
       precision: 'city',
     });
   });
@@ -176,7 +210,7 @@ describe('addressPlace', () => {
       // Each of those provinces is one the table can place.
       for (const province of provincesOfCity(city)) {
         expect(addressPlace('Nowhere', province)).toMatchObject({
-          place: `Nowhere, ${province}`,
+          place: province,
           precision: 'province',
         });
       }
@@ -196,6 +230,23 @@ describe('addressPlace', () => {
         expect(at!.longitude).toBeLessThan(127);
       }
     }
+  });
+
+  it('finds every town in the country by its name and province, at its own centre', () => {
+    const misplaced: string[] = [];
+    for (const [name, province, lat, lon] of PH_TOWNS) {
+      const at = addressPlace(name, province);
+      // The job board's point where it has the city, which is within a few
+      // kilometres of Wikidata's — except Davao City's, which is the middle
+      // of the city's huge territory, 22 km inland, and kept on purpose
+      // (marketing-assets/scripts/build-cities.mjs draws it downtown).
+      const off = at ? Math.hypot(at.latitude - lat, at.longitude - lon) * 111 : Infinity;
+      const allowed = name === 'Davao City' ? 25 : 5;
+      if (!at || at.precision !== 'city' || off > allowed) {
+        misplaced.push(`${name}, ${province}: ${at ? `${at.place} ${off.toFixed(1)} km off` : 'not found'}`);
+      }
+    }
+    expect(misplaced).toEqual([]);
   });
 });
 

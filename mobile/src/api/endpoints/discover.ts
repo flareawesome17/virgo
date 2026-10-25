@@ -51,7 +51,7 @@ export type NearbySource = 'gps' | 'place' | 'address';
 
 /**
  * How closely that places them: a device's 1.1 km cell, a town's centre, or
- * a province's capital standing in for a town the API has no centre for.
+ * a province's capital standing in for a town box the API could not match.
  */
 export type NearbyPrecision = 'gps' | 'city' | 'province';
 
@@ -79,9 +79,9 @@ export interface LocationStatus {
   /** What places you, hidden or not; null when nothing does. */
   source?: NearbySource | null;
   /**
-   * How closely that places you. 'province' means the town on your address
-   * has no centre on the API's map, so you stand at your province's capital
-   * and the distances you see are rough. Absent from an older API.
+   * How closely that places you. 'province' means the API could not match
+   * the town on your address, so you stand at your province's capital and
+   * the distances you see are rough. Absent from an older API.
    */
   precision?: NearbyPrecision | null;
   /** Left out of everyone else's Nearby by your own choice. */

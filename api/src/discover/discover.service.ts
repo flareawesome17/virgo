@@ -76,8 +76,8 @@ export interface NearbyStatus {
   source: PositionSource | null;
   /**
    * How closely that places you. 'province' means the town on your address
-   * is not on the API's map, so you stand at your province's capital and
-   * every distance you see is rough. Null when nothing places you.
+   * matched no town in ph-towns.ts, so you stand at your province's capital
+   * and every distance you see is rough. Null when nothing places you.
    */
   precision: PositionPrecision | null;
   /** Left out of everyone's Nearby by choice. */

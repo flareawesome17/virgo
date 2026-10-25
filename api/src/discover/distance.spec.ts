@@ -3,9 +3,10 @@ import { statedDistanceKm } from './distance';
 /**
  * How far away somebody is said to be, given how closely each end is placed.
  *
- * The case that started this: seven people in towns the table does not have,
- * all at Misamis Occidental's capital, and a viewer whose device cell is
- * 0.8 km from it. Every one of them read "about 1 km".
+ * The case that started this: seven people in towns the old table did not
+ * have, all at Misamis Occidental's capital, and a viewer whose device cell
+ * is 0.8 km from it. Every one of them read "about 1 km". Every town has its
+ * own centre now; a province stand-in is left for a town box that names none.
  */
 
 describe('statedDistanceKm', () => {

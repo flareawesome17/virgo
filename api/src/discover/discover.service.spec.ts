@@ -104,16 +104,18 @@ describe('DiscoverService.nearby', () => {
   });
 
   it('says nothing about a distance inside a province it only knows by its capital', async () => {
-    // The report: seven people in towns the table does not have, all at
-    // Misamis Occidental's capital, 0.84 km from the viewer's device cell.
-    // Each read "In Misamis Occidental · about 1 km".
-    const inPlaridel = {
+    // The report: seven people whose towns the old table did not have, all
+    // at Misamis Occidental's capital, 0.84 km from the viewer's device
+    // cell, each "In Misamis Occidental · about 1 km". Every town has its
+    // own centre now; a town box that names no town still stands at the
+    // capital, and is still not 1 km away.
+    const unplacedTown = {
       ...person,
       distance_km: '0.84',
-      place: 'Plaridel, Misamis Occidental',
+      place: 'Misamis Occidental',
       precision: 'province',
     };
-    const { service } = serviceOver([inPlaridel], {
+    const { service } = serviceOver([unplacedTown], {
       ...placedByAddress,
       place: null,
       source: 'gps',
@@ -125,8 +127,25 @@ describe('DiscoverService.nearby', () => {
     expect(shown).toMatchObject({
       distanceKm: 0,
       approximate: true,
-      place: 'Plaridel, Misamis Occidental',
+      place: 'Misamis Occidental',
     });
+  });
+
+  it('measures to a town of its own in whole kilometres', async () => {
+    const inPlaridel = {
+      ...person,
+      distance_km: '16.32',
+      place: 'Plaridel, Misamis Occidental',
+      precision: 'city',
+    };
+    const { service } = serviceOver([inPlaridel], {
+      ...placedByAddress,
+      place: null,
+      source: 'gps',
+      precision: 'gps',
+    });
+
+    expect((await service.nearby(ME)).people[0].distanceKm).toBe(16);
   });
 
   it('reads an address placed before migration 103 as a province until it is placed again', async () => {

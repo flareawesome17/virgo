@@ -49,8 +49,8 @@ const RADII = [5, 25, 50, 100, 200];
  * Misamis Occidental", with a rough distance only once they are clearly
  * somewhere else. The server decides that: it sends 0 for anyone too close to
  * their point to measure, and never a figure finer than both positions allow.
- * Somebody whose town it has no centre for stands at the province's capital,
- * so inside the province they read as just their town.
+ * Somebody whose town box names no town it knows stands at the province's
+ * capital, so inside the province they read as just the province.
  */
 function whereLabel(person: NearbyPerson): string {
   if (person.approximate && person.place) {
@@ -239,7 +239,7 @@ export function NearbyTab() {
                 title: `You're shown in ${myPlace}`,
                 detail:
                   myPrecision === 'province'
-                    ? "From the town in your address — never your street. It isn't on our map yet, so distances are measured from your province's capital and are rough."
+                    ? "From your address — never your street. We couldn't find its town, so distances are measured from your province's capital and are rough. Check the spelling in your profile."
                     : 'From the city in your address — never your street.',
               }
             : {

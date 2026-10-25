@@ -37,8 +37,9 @@ export function useLocationSharing() {
      */
     source: data?.source,
     /**
-     * How closely that places them; 'province' when their town has no centre
-     * on the API's map. Null from an older API, which said nothing about it.
+     * How closely that places them; 'province' when the API could not match
+     * the town on their address. Null from an older API, which said nothing
+     * about it.
      */
     precision: data?.precision ?? null,
     /** Left out of everyone else's Nearby by their own choice. */

@@ -42,8 +42,9 @@ export interface UserRow {
   address_place: string | null;
   /**
    * 'city' when the coordinates are the town's centre, 'province' when they
-   * are the province's capital standing in for it. Null when unplaced, and on
-   * a row placed by an API from before migration 103.
+   * are the province's capital standing in for a town box we could not
+   * match. Null when unplaced, and on a row placed by an API from before
+   * migration 103.
    */
   address_precision: 'city' | 'province' | null;
   /** When the four above were last worked out, placed or not. */

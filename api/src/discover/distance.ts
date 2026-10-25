@@ -16,9 +16,9 @@ export type PositionPrecision = 'gps' | PlacePrecision;
  *   to about half a kilometre: whole kilometres, and "under 1 km" inside one.
  * - city: a town's centre. People live around it, not on it, so within a few
  *   kilometres of it somebody is "in" the town rather than a distance away.
- * - province: the capital standing in for every other town in the province.
- *   Within 50 km of it they could be anywhere in the province. Beyond that the
- *   figure is good to tens of kilometres, not to one.
+ * - province: the capital standing in for a town box that named no town we
+ *   know. Within 50 km of it they could be anywhere in the province. Beyond
+ *   that the figure is good to tens of kilometres, not to one.
  */
 const STATED: Record<PositionPrecision, { below: number; step: number }> = {
   gps: { below: 1, step: 1 },

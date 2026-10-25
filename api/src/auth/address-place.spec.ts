@@ -155,10 +155,10 @@ describe('AuthService.updateProfile and the address', () => {
 
     expect(fieldsWritten(users)).toMatchObject({
       location: 'Plaridel, Misamis Occidental',
-      // Named for the town, placed at the province's capital.
+      // At Plaridel itself, not at the province's capital.
       address_place: 'Plaridel, Misamis Occidental',
-      address_precision: 'province',
-      address_latitude: 8.4859,
+      address_precision: 'city',
+      address_latitude: 8.6214,
     });
   });
 
