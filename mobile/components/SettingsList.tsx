@@ -16,7 +16,6 @@ import {
   LockIcon,
   LogOutIcon,
   PaletteIcon,
-  PencilIcon,
   ShieldIcon,
   StarIcon,
   UserCogIcon,
@@ -41,7 +40,7 @@ import { CHART_COLORS, PALETTES } from '@/theme';
 for (const Icon of [
   BellIcon, ChevronRightIcon, CloudIcon, FileTextIcon, GiftIcon, GlobeIcon,
   HardDriveIcon, HelpCircleIcon, InfoIcon, LifeBuoyIcon, LockIcon, LogOutIcon,
-  PaletteIcon, PencilIcon, ShieldIcon, StarIcon, UserCogIcon, UserXIcon,
+  PaletteIcon, ShieldIcon, StarIcon, UserCogIcon, UserXIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -119,15 +118,9 @@ export function SettingsList() {
 
   const sections: { title: string; rows: SettingsRow[] }[] = [
     {
+      // No "Edit profile" row: About, the tab beside this one, opens with it.
       title: 'Your profile',
       rows: [
-        {
-          icon: PencilIcon,
-          label: 'Edit profile',
-          detail: 'Name, photo, bio and contact',
-          route: '/settings/profile',
-          color: palette.primary,
-        },
         {
           icon: GlobeIcon,
           label: 'Public profile',
