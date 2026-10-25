@@ -17,7 +17,7 @@ export interface Clause {
 }
 
 export const CONTACT_EMAIL = 'support@virgo.ph';
-export const LAST_UPDATED = '8 October 2026';
+export const LAST_UPDATED = '25 October 2026';
 
 export const TERMS: Clause[] = [
   {
@@ -126,7 +126,7 @@ export const PRIVACY: Clause[] = [
       'Content: the photos, videos and audio you upload; the albums, workspaces, events, reminders and messages you create; and the showcases, comments, likes, shelves, job posts, applications, enquiries and bookings you make.',
       'Safety: reports you make or that are made about you, and the people you have blocked.',
       'Device: a push notification token and the app version, so notifications reach the right phone.',
-      'Sign-ins: the kind of device and browser each session signed in from, such as "iPhone app" or "Chrome on Windows" — never your IP address — so our support team can help you sign out a device you no longer have.',
+      'Sign-ins: the kind of device and the Virgo app or browser each session signed in from, such as "iPhone app" or "Chrome on Windows" — never your IP address — so you can see your devices and sign one out in Settings, and our support team can help you with it. When a new device signs in we email you, and that email says which country the sign-in came from; the country is read at that moment and not kept.',
       'Support: what you write to us when you ask for help, the screenshots and files you attach, and how you rated our answer. Our support team reads these to help you; the files you attach are deleted with your account.',
       'Location: the city in your address, and your device’s position only if you turn on your exact location. See below.',
     ],

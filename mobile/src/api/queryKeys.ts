@@ -57,6 +57,11 @@ export const queryKeys = {
     /** Under `all`, so a block or a request refreshes the relationship shown. */
     search: (q: string) => ['friends', 'search', q] as const,
   },
+  /** The devices signed in to your account. */
+  sessions: {
+    all: ['sessions'] as const,
+    list: ['sessions', 'list'] as const,
+  },
   /** People you have blocked. */
   blocks: {
     all: ['blocks'] as const,

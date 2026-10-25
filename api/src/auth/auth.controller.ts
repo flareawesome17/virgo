@@ -197,10 +197,20 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(200)
   @Post('login')
-  login(@Body() dto: LoginDto, @Headers('user-agent') userAgent?: string) {
+  login(
+    @Body() dto: LoginDto,
+    @Headers('user-agent') userAgent?: string,
+    // Origin tells the desktop app from Edge, and CF-IPCountry goes into the
+    // sign-in alert only — neither is stored with the session beyond the
+    // client it implies. See SessionsService.alertNewSignIn.
+    @Headers('origin') origin?: string,
+    @Headers('cf-ipcountry') country?: string,
+  ) {
     return this.auth.login(dto.email, dto.password, {
       unpause: dto.unpause === true,
       userAgent,
+      origin,
+      country,
     });
   }
 
@@ -211,8 +221,14 @@ export class AuthController {
   completeTwoFactorLogin(
     @Body() dto: CompleteTwoFactorLoginDto,
     @Headers('user-agent') userAgent?: string,
+    @Headers('origin') origin?: string,
+    @Headers('cf-ipcountry') country?: string,
   ) {
-    return this.auth.completeTwoFactorLogin(dto.challengeToken, dto.code, userAgent);
+    return this.auth.completeTwoFactorLogin(dto.challengeToken, dto.code, {
+      userAgent,
+      origin,
+      country,
+    });
   }
 
   @Public()
@@ -275,8 +291,12 @@ export class AuthController {
   @Public()
   @HttpCode(200)
   @Post('refresh')
-  refresh(@Body() dto: RefreshDto, @Headers('user-agent') userAgent?: string) {
-    return this.auth.refresh(dto.refreshToken, userAgent);
+  refresh(
+    @Body() dto: RefreshDto,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('origin') origin?: string,
+  ) {
+    return this.auth.refresh(dto.refreshToken, userAgent, origin);
   }
 
   @Public()

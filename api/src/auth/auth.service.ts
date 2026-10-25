@@ -21,7 +21,9 @@ import { StorageService } from '../storage/storage.service';
 import { addressLocation, addressPlace } from '../discover/places';
 import { PromosService } from '../promos/promos.service';
 import { accountRefusal } from './account-state';
+import { sessionClient, type SessionClient } from './device-label';
 import { normalizeRoles } from './roles';
+import { SessionsService, type SignInContext } from './sessions.service';
 import { TwoFactorService } from './two-factor.service';
 
 export interface AuthTokens {
@@ -74,6 +76,7 @@ export class AuthService {
     private readonly storage: StorageService,
     private readonly promos: PromosService,
     private readonly twoFactor: TwoFactorService,
+    private readonly sessions: SessionsService,
   ) {}
 
   private normalizeEmail(email: string): string {
@@ -126,7 +129,7 @@ export class AuthService {
    */
   private async issueTokens(
     user: UserRow,
-    device: { familyId?: string; userAgent?: string } = {},
+    device: { familyId?: string; userAgent?: string; client?: SessionClient | null } = {},
   ): Promise<AuthTokens> {
     this.assertVerified(user);
     this.assertNotDisabled(user);
@@ -290,7 +293,7 @@ export class AuthService {
   async login(
     email: string,
     password: string,
-    options: { unpause?: boolean; userAgent?: string } = {},
+    options: { unpause?: boolean } & SignInContext = {},
   ): Promise<AuthResult | TwoFactorLoginRequired> {
     const normalized = this.normalizeEmail(email);
     let user = await this.users.findByEmail(normalized);
@@ -338,21 +341,37 @@ export class AuthService {
       };
     }
 
-    return {
-      user: toPublicUser(user),
-      ...(await this.issueTokens(user, { userAgent: options.userAgent })),
-    };
+    return { user: toPublicUser(user), ...(await this.signIn(user, options)) };
   }
 
   async completeTwoFactorLogin(
     challengeToken: string,
     code: string,
-    userAgent?: string,
+    context: SignInContext = {},
   ): Promise<AuthResult> {
     // Refused by issueTokens if the account was suspended or paused while
     // the code was on its way.
     const user = await this.twoFactor.completeLoginChallenge(challengeToken, code);
-    return { user: toPublicUser(user), ...(await this.issueTokens(user, { userAgent })) };
+    return { user: toPublicUser(user), ...(await this.signIn(user, context)) };
+  }
+
+  /**
+   * A new device's session, from a sign-in: the password, or the password
+   * and its second factor.
+   *
+   * The owner is emailed about it, and not waited on. Only here: a refresh is
+   * the same device again, and the pair a password change or finishing 2FA
+   * setup issues is for the device that just did it.
+   */
+  private async signIn(user: UserRow, context: SignInContext): Promise<AuthTokens> {
+    const familyId = randomUUID();
+    const tokens = await this.issueTokens(user, {
+      familyId,
+      userAgent: context.userAgent,
+      client: sessionClient(context.userAgent, context.origin),
+    });
+    void this.sessions.alertNewSignIn(user, familyId, context);
+    return tokens;
   }
 
   async twoFactorStatus(userId: string) {
@@ -421,7 +440,11 @@ export class AuthService {
    * a stolen token is usable at most once and the theft surfaces when the
    * legitimate client's next refresh fails.
    */
-  async refresh(refreshToken: string, userAgent?: string): Promise<AuthResult> {
+  async refresh(
+    refreshToken: string,
+    userAgent?: string,
+    origin?: string,
+  ): Promise<AuthResult> {
     const tokenHash = this.hashRefreshToken(refreshToken);
     const stored = await this.users.findActiveRefreshToken(tokenHash);
     if (!stored) throw new UnauthorizedException('Invalid refresh token');
@@ -440,6 +463,10 @@ export class AuthService {
       ...(await this.issueTokens(user, {
         familyId: stored.family_id ?? undefined,
         userAgent: userAgent ?? stored.user_agent ?? undefined,
+        // Carried over like the family. A session from before clients were
+        // recorded gets one on its first refresh, which is within 15 minutes
+        // for anything in use.
+        client: stored.client ?? sessionClient(userAgent ?? stored.user_agent, origin),
       })),
     };
   }

@@ -13,6 +13,9 @@ import { PromosModule } from '../promos/promos.module';
 import { BillingModule } from '../billing/billing.module';
 import { UsersRepository } from './users.repository';
 import { TwoFactorService } from './two-factor.service';
+import { SessionsController } from './sessions.controller';
+import { SessionsRepository } from './sessions.repository';
+import { SessionsService } from './sessions.service';
 
 @Module({
   imports: [
@@ -31,7 +34,7 @@ import { TwoFactorService } from './two-factor.service';
     // keeps charging a card with no account left to stop it from.
     BillingModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, SessionsController],
   providers: [
     AuthService,
     AccountService,
@@ -40,6 +43,8 @@ import { TwoFactorService } from './two-factor.service';
     JwtStrategy,
     UsersRepository,
     TwoFactorService,
+    SessionsRepository,
+    SessionsService,
   ],
   // The console reuses these rather than keeping copies: a reset email, a
   // verification link and a deletion from the console must be exactly the
