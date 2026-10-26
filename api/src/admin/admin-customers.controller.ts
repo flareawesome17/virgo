@@ -23,8 +23,11 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsInt,
   IsUUID,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import { Public } from '../auth/public.decorator';
@@ -32,6 +35,7 @@ import { AccountFlowsService } from '../auth/account-flows.service';
 import { AccountService } from '../auth/account.service';
 import { UsersRepository } from '../auth/users.repository';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { DownloadAllowanceService } from '../quota/download-allowance.service';
 import type { AdminIdentity } from './admin-auth.service';
 import { AdminCustomersService, TAG_COLORS } from './admin-customers.service';
 import { AdminGuard, CurrentAdmin, RequirePermission } from './admin.guard';
@@ -70,6 +74,10 @@ class ViewDto {
 class DeleteDto {
   @IsString() @MinLength(3) confirmEmail!: string;
 }
+/** Whole gigabytes, so a slip of the finger cannot grant a terabyte. */
+class DownloadExtraDto {
+  @IsInt() @Min(0) @Max(1000) gigabytes!: number;
+}
 
 /**
  * Customer 360: the tabs of one account beyond its profile, what staff may do
@@ -89,6 +97,7 @@ export class AdminCustomersController {
     private readonly accounts: AccountService,
     private readonly flows: AccountFlowsService,
     private readonly realtime: RealtimeGateway,
+    private readonly downloads: DownloadAllowanceService,
   ) {}
 
   private async account(id: string) {
@@ -128,6 +137,17 @@ export class AdminCustomersController {
     return this.customers.safety(id);
   }
 
+  /**
+   * This month's client downloads: what the account's links delivered, the
+   * allowance with any extra staff gave, and whether downloads are paused.
+   */
+  @RequirePermission('billing.read')
+  @Get('users/:id/downloads')
+  async downloadUsage(@Param('id', ParseUUIDPipe) id: string) {
+    await this.account(id);
+    return this.downloads.usage(id);
+  }
+
   @RequirePermission('users.read')
   @Get('users/:id/devices')
   devices(@Param('id', ParseUUIDPipe) id: string) {
@@ -135,6 +155,30 @@ export class AdminCustomersController {
   }
 
   // --------------------------------------------------------------- actions
+
+  /**
+   * Extra client downloads for this month only: the way out for a paused
+   * photographer while no plan can be bought. Replaces what was there, 0
+   * takes it away, and it lapses when the month does.
+   */
+  @RequirePermission('billing.manage')
+  @HttpCode(200)
+  @Post('users/:id/downloads/extra')
+  async setDownloadExtra(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DownloadExtraDto,
+    @CurrentAdmin() admin: AdminIdentity,
+  ) {
+    await this.account(id);
+    const usage = await this.downloads.setExtra(id, dto.gigabytes * 1024 ** 3, admin.id);
+    await this.audit.record(admin, {
+      action: 'user.downloadExtra',
+      targetType: 'user',
+      targetId: id,
+      detail: { gigabytes: dto.gigabytes, month: usage.resetsAt },
+    });
+    return usage;
+  }
 
   /** The reset email the customer could have asked for themselves. */
   @RequirePermission('users.assist')

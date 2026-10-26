@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Gauge } from 'lucide-react';
-import { formatBytes, type UsageSummary } from '@/api';
+import { downloadsPaused, formatBytes, type UsageSummary } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -63,7 +63,7 @@ export function PlanCard({
   const downloads = usage?.downloads ?? null;
   const downloadLimit = downloads?.limitBytes ?? null;
   const downloadFraction = downloads && downloadLimit ? downloads.usedBytes / downloadLimit : 0;
-  const paused = !!downloads && downloadLimit != null && downloads.usedBytes >= downloadLimit;
+  const paused = !!downloads && downloadsPaused(downloads);
   // In UTC: the count starts again at midnight UTC on the 1st, which reads as
   // the 31st anywhere west of Greenwich in the browser's own zone.
   const resets = downloads
@@ -145,7 +145,7 @@ export function PlanCard({
           ) : null}
         </div>
 
-        {/* What clients downloaded through share links this month. Over the
+        {/* What share links delivered this month, each file once. Over the
             allowance the gallery still opens; new downloads wait for the
             reset, so say when that is. Absent when the server could not count. */}
         {downloads && (
@@ -177,6 +177,7 @@ export function PlanCard({
               )}
             >
               {paused ? `Paused until ${resets}` : `Resets ${resets}`}
+              {!!downloads.extraBytes && ` · includes ${formatBytes(downloads.extraBytes)} extra`}
             </p>
           </div>
         )}

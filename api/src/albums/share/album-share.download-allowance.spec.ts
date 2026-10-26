@@ -21,7 +21,7 @@ jest.mock('../../storage/zip', () => ({ streamZip: jest.fn(async () => undefined
  */
 
 const OWNER = '11111111-1111-4111-8111-111111111111';
-const FILES = [{ key: `users/${OWNER}/albums/a.jpg`, name: 'Wedding - 001.jpg' }];
+const FILES = [{ key: `users/${OWNER}/albums/a.jpg`, name: 'Wedding - 001.jpg', size: 6_000_000 }];
 
 /** Enough of an Express response to see which answer a route gave. */
 function response() {
@@ -81,7 +81,8 @@ function routes({ allowed = true, cacheEnabled = true } = {}) {
   const allowance = {
     allows: jest.fn(async () => allowed),
     meter: jest.fn(),
-    record: jest.fn(async () => undefined),
+    recordSent: jest.fn(async () => undefined),
+    recordDelivered: jest.fn(async () => undefined),
   };
   const controller = new PublicAlbumController(
     share as unknown as AlbumShareService,
@@ -95,6 +96,12 @@ function routes({ allowed = true, cacheEnabled = true } = {}) {
 
 function request(headers: Record<string, string> = {}) {
   return { headers } as unknown as Request;
+}
+
+/** What the route's meter would count as delivered once `sent` bytes went out. */
+function deliveredAfter(allowance: ReturnType<typeof routes>['allowance'], sent: number) {
+  const reached = allowance.meter.mock.calls[0][2] as (n: number) => { key: string }[];
+  return reached(sent).map((f) => f.key);
 }
 
 function expectPaused(res: ReturnType<typeof response>) {
@@ -129,7 +136,10 @@ describe.each([
 
     await controller[route]('token', request(), res);
 
-    expect(allowance.meter).toHaveBeenCalledWith(OWNER, res);
+    expect(allowance.meter).toHaveBeenCalledWith(OWNER, res, expect.any(Function));
+    // The file counts as delivered once its bytes start going out.
+    expect(deliveredAfter(allowance, 0)).toEqual([]);
+    expect(deliveredAfter(allowance, 1_000)).toEqual([FILES[0].key]);
     expect(streamZip).toHaveBeenCalledTimes(1);
   });
 });
@@ -153,7 +163,9 @@ describe('a single file', () => {
     await controller.downloadOne('token', 'file-id', request(), res);
 
     expect(res.sendFile).toHaveBeenCalledTimes(1);
-    expect(allowance.meter).toHaveBeenCalledWith(OWNER, res);
+    expect(allowance.meter).toHaveBeenCalledWith(OWNER, res, expect.any(Function));
+    expect(deliveredAfter(allowance, 0)).toEqual([]);
+    expect(deliveredAfter(allowance, 1)).toEqual([FILES[0].key]);
   });
 
   it('still resumes a download that was already under way', async () => {
@@ -164,7 +176,7 @@ describe('a single file', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.sendFile).toHaveBeenCalledTimes(1);
-    expect(allowance.meter).toHaveBeenCalledWith(OWNER, res);
+    expect(allowance.meter).toHaveBeenCalledWith(OWNER, res, expect.any(Function));
   });
 
   it('does not treat a fresh ranged request as a resume', async () => {
@@ -183,7 +195,21 @@ describe('a single file', () => {
     await controller.downloadOne('token', 'file-id', request(), res);
 
     expect(res.redirectedTo).toBe('https://b2.test/signed');
-    expect(allowance.record).toHaveBeenCalledWith(OWNER, 6_000_000);
+    expect(allowance.recordSent).toHaveBeenCalledWith(OWNER, 6_000_000);
+    expect(allowance.recordDelivered).toHaveBeenCalledWith(OWNER, [
+      { key: FILES[0].key, bytes: 6_000_000 },
+    ]);
     expect(allowance.meter).not.toHaveBeenCalled();
+  });
+
+  it('counts a resumed piece from storage as delivered, not as sent again', async () => {
+    const { controller, allowance } = routes({ cacheEnabled: false });
+    const res = response();
+
+    await controller.downloadOne('token', 'file-id', request({ range: 'bytes=3000000-' }), res);
+
+    expect(res.redirectedTo).toBe('https://b2.test/signed');
+    expect(allowance.recordSent).not.toHaveBeenCalled();
+    expect(allowance.recordDelivered).toHaveBeenCalledTimes(1);
   });
 });

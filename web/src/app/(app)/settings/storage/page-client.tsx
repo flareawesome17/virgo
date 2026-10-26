@@ -60,7 +60,7 @@ import { useDeleteFiles } from '@/hooks/useMediaSelection';
 import { useWipeStorage } from '@/hooks/useStorageAdmin';
 import { useAlbums } from '@/hooks/useAlbums';
 import { fileNameFromKey } from '@/hooks/useAlbumFiles';
-import { formatBytes } from '@/api';
+import { downloadsPaused, formatBytes } from '@/api';
 
 /** Typed into the box before a wipe is allowed to run. */
 const CONFIRM_WORD = 'DELETE';
@@ -367,7 +367,7 @@ export default function StorageSettingsPage() {
                 </p>
                 <p className="text-xs text-muted-foreground">Albums</p>
               </div>
-              {/* What clients have downloaded through share links this month.
+              {/* What share links delivered this month, each file once.
                   Over the allowance the gallery still opens; new downloads
                   wait for the reset, so say when that is. */}
               {usage?.downloads ? (
@@ -379,8 +379,7 @@ export default function StorageSettingsPage() {
                       : ''}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {usage.downloads.limitBytes != null &&
-                    usage.downloads.usedBytes >= usage.downloads.limitBytes
+                    {downloadsPaused(usage.downloads)
                       ? 'Client downloads paused until '
                       : 'Client downloads this month · resets '}
                     {new Date(usage.downloads.resetsAt).toLocaleDateString(undefined, {
@@ -388,6 +387,12 @@ export default function StorageSettingsPage() {
                       day: 'numeric',
                       timeZone: 'UTC',
                     })}
+                    {usage.downloads.extraBytes
+                      ? ` · includes ${formatBytes(usage.downloads.extraBytes)} extra`
+                      : ''}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Each file counts once a month, however many times your clients download it.
                   </p>
                 </div>
               ) : null}

@@ -258,7 +258,9 @@ export {
   planPrice,
   planCurrency,
   toGB,
+  downloadsPaused,
   type UsageSummary,
+  type DownloadUsage,
   type PlanInfo,
 } from './endpoints/usage';
 export {

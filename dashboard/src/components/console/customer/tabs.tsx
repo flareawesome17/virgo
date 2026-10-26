@@ -17,6 +17,7 @@ import {
   useSignOutCustomer,
   useSignOutCustomerDevice,
 } from '@/hooks/useConsole';
+import { DownloadsPanel } from '@/components/console/customer/downloads';
 import { RESOLUTION_LABEL } from '@/components/console/moderation';
 import { DataTable, type Column } from '@/components/console/data-table';
 import {
@@ -208,18 +209,21 @@ const PROMO_COLUMNS: Column<CustomerBilling['promos'][number]>[] = [
 export function BillingTab({ id }: { id: string }) {
   const { data, isLoading, isError, refetch } = useCustomerBilling(id);
   return (
-    <DataState isLoading={isLoading} isError={isError} isEmpty={false} onRetry={() => void refetch()}>
-      {data && (
-        <div className="space-y-5">
-          <Section title="Subscriptions">
-            <DataTable id="customer-subscriptions" columns={SUB_COLUMNS} rows={data.subscriptions} rowKey={(s) => s.id} isLoading={false} isError={false} empty="Never subscribed. Virgo is free for now." />
-          </Section>
-          <Section title="Promos">
-            <DataTable id="customer-promos" columns={PROMO_COLUMNS} rows={data.promos} rowKey={(p) => p.id} isLoading={false} isError={false} empty="No promos offered" />
-          </Section>
-        </div>
-      )}
-    </DataState>
+    <div className="space-y-5">
+      <DownloadsPanel id={id} />
+      <DataState isLoading={isLoading} isError={isError} isEmpty={false} onRetry={() => void refetch()}>
+        {data && (
+          <div className="space-y-5">
+            <Section title="Subscriptions">
+              <DataTable id="customer-subscriptions" columns={SUB_COLUMNS} rows={data.subscriptions} rowKey={(s) => s.id} isLoading={false} isError={false} empty="Never subscribed. Virgo is free for now." />
+            </Section>
+            <Section title="Promos">
+              <DataTable id="customer-promos" columns={PROMO_COLUMNS} rows={data.promos} rowKey={(p) => p.id} isLoading={false} isError={false} empty="No promos offered" />
+            </Section>
+          </div>
+        )}
+      </DataState>
+    </div>
   );
 }
 

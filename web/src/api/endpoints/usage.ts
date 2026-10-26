@@ -32,11 +32,29 @@ export interface UsageSummary {
 }
 
 export interface DownloadUsage {
+  /**
+   * What client links delivered this month: each file once, the first time
+   * any of it went out, however many times clients download it after.
+   */
   usedBytes: number;
-  /** null means unlimited. */
+  /** The plan's allowance plus any extra for this month. null means unlimited. */
   limitBytes: number | null;
   /** ISO timestamp: the first instant of next month, UTC. */
   resetsAt: string;
+  /**
+   * New downloads are paused. Usually because the month is delivered, but also
+   * when links sent far more than delivering takes (the fair-use ceiling), so
+   * it can be true below the limit. Absent from an older API: read it with
+   * `downloadsPaused()`.
+   */
+  paused?: boolean;
+  /** Allowance added for this month only, already in `limitBytes`. */
+  extraBytes?: number;
+}
+
+/** Whether new client downloads are paused, from any API version. */
+export function downloadsPaused(d: DownloadUsage): boolean {
+  return d.paused ?? (d.limitBytes != null && d.usedBytes >= d.limitBytes);
 }
 
 export interface PlanInfo {

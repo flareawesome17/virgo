@@ -6,7 +6,7 @@ import {
   MusicIcon, ChevronRightIcon, ShieldIcon, ZapIcon, FileIcon, DownloadIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { formatBytes, type UsageSummary } from '@/src/api';
+import { downloadsPaused, formatBytes, type UsageSummary } from '@/src/api';
 import { useStorageBreakdown, useUnassignedFiles, useUsage, useTheme } from '@/src/hooks';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 import { LoadFailed } from '@/components/LoadFailed';
@@ -263,8 +263,8 @@ export default function StorageOverviewScreen() {
 }
 
 /**
- * What clients have downloaded through your client links this month, against
- * the plan's allowance.
+ * What your client links delivered this month, against the plan's allowance:
+ * each file once, however many times clients download it.
  *
  * It was on the web's Storage page only, so on a phone the first sign of the
  * allowance was a client's screenshot of "Downloads are paused". Past the
@@ -272,8 +272,8 @@ export default function StorageOverviewScreen() {
  * when that is.
  */
 function ClientDownloads({ downloads }: { downloads: NonNullable<UsageSummary['downloads']> }) {
-  const { usedBytes, limitBytes, resetsAt } = downloads;
-  const paused = limitBytes != null && usedBytes >= limitBytes;
+  const { usedBytes, limitBytes, resetsAt, extraBytes } = downloads;
+  const paused = downloadsPaused(downloads);
   const pct = limitBytes ? Math.min(100, Math.round((usedBytes / limitBytes) * 100)) : 0;
   // The reset is midnight UTC on the 1st; named in UTC so it reads "Nov 1"
   // everywhere rather than "Oct 31" west of Greenwich.
@@ -316,8 +316,13 @@ function ClientDownloads({ downloads }: { downloads: NonNullable<UsageSummary['d
       <Text className="text-muted-foreground text-xs mt-3 leading-[18px]">
         {paused
           ? 'Your galleries still open, and downloads already under way finish. New downloads from your client links start again when the month resets.'
-          : 'What your clients have downloaded from your client links this month. At the limit, new downloads pause until it resets.'}
+          : 'Each file counts once a month, however many times your clients download it. At the limit, new downloads pause until it resets.'}
       </Text>
+      {!!extraBytes && (
+        <Text className="text-muted-foreground text-xs mt-1.5">
+          Includes {formatBytes(extraBytes)} extra from Virgo for this month.
+        </Text>
+      )}
     </View>
   );
 }

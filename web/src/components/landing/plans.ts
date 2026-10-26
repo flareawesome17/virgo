@@ -30,7 +30,7 @@ export const LAUNCH_PLANS: PlanInfo[] = [
     downloadBytesPerMonth: 30 * 1024 ** 3,
     features: [
       '15 GB cloud storage',
-      '30 GB of client downloads a month',
+      '45 GB of client downloads a month',
       '3 workspaces',
       '10 albums per workspace',
       'Client share links',

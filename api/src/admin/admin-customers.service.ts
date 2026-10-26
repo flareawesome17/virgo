@@ -23,6 +23,7 @@ const CONSOLE_ACTION: Record<string, string> = {
   'user.signOut': 'Signed out everywhere by staff',
   'user.signOutDevice': 'A device signed out by staff',
   'user.tags': 'Tags changed',
+  'user.downloadExtra': 'Extra client downloads set by staff',
   'promo.grant': 'Offered a promo',
 };
 
