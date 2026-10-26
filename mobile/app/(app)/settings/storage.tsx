@@ -3,10 +3,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
   ArrowLeftIcon, HardDriveIcon, CloudIcon, ImageIcon, VideoIcon,
-  MusicIcon, ChevronRightIcon, ShieldIcon, ZapIcon, FileIcon,
+  MusicIcon, ChevronRightIcon, ShieldIcon, ZapIcon, FileIcon, DownloadIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { formatBytes } from '@/src/api';
+import { formatBytes, type UsageSummary } from '@/src/api';
 import { useStorageBreakdown, useUnassignedFiles, useUsage, useTheme } from '@/src/hooks';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 import { LoadFailed } from '@/components/LoadFailed';
@@ -21,6 +21,7 @@ cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: 
 cssInterop(ShieldIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ZapIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(FileIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(DownloadIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /** Presentation for each media kind the API reports. */
 const TYPE_META: Record<string, { label: string; icon: typeof ImageIcon; color: string }> = {
@@ -132,6 +133,7 @@ export default function StorageOverviewScreen() {
               )}
             </View>
 
+            {usage.downloads ? <ClientDownloads downloads={usage.downloads} /> : null}
           </>
         ) : null}
 
@@ -257,5 +259,65 @@ export default function StorageOverviewScreen() {
         </Pressable>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * What clients have downloaded through your client links this month, against
+ * the plan's allowance.
+ *
+ * It was on the web's Storage page only, so on a phone the first sign of the
+ * allowance was a client's screenshot of "Downloads are paused". Past the
+ * limit, galleries still open; new downloads wait for the reset, so it says
+ * when that is.
+ */
+function ClientDownloads({ downloads }: { downloads: NonNullable<UsageSummary['downloads']> }) {
+  const { usedBytes, limitBytes, resetsAt } = downloads;
+  const paused = limitBytes != null && usedBytes >= limitBytes;
+  const pct = limitBytes ? Math.min(100, Math.round((usedBytes / limitBytes) * 100)) : 0;
+  // The reset is midnight UTC on the 1st; named in UTC so it reads "Nov 1"
+  // everywhere rather than "Oct 31" west of Greenwich.
+  const reset = new Date(resetsAt).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+
+  return (
+    <View
+      className="mx-5 mt-4 bg-card rounded-2xl p-4"
+      style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+    >
+      <View className="flex-row items-center gap-3">
+        <View className={`w-9 h-9 rounded-xl items-center justify-center ${paused ? 'bg-destructive/10' : 'bg-primary/10'}`}>
+          <DownloadIcon size={17} className={paused ? 'text-destructive' : 'text-primary'} />
+        </View>
+        <View className="flex-1 min-w-0">
+          <Text className="text-foreground text-sm font-semibold">Client downloads</Text>
+          <Text className={`text-xs mt-0.5 ${paused ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}>
+            {paused ? `Paused until ${reset}` : `Resets ${reset}`}
+          </Text>
+        </View>
+        <Text className="text-foreground text-sm font-bold">
+          {formatBytes(usedBytes)}
+          {limitBytes != null && (
+            <Text className="text-muted-foreground text-xs font-medium"> of {formatBytes(limitBytes)}</Text>
+          )}
+        </Text>
+      </View>
+      {limitBytes != null && (
+        <View className="w-full h-2 bg-muted rounded-full mt-3 overflow-hidden">
+          <View
+            className="h-full rounded-full"
+            style={{ width: `${pct}%`, backgroundColor: pct >= 80 ? '#C76B4A' : '#B66A40' }}
+          />
+        </View>
+      )}
+      <Text className="text-muted-foreground text-xs mt-3 leading-[18px]">
+        {paused
+          ? 'Your galleries still open, and downloads already under way finish. New downloads from your client links start again when the month resets.'
+          : 'What your clients have downloaded from your client links this month. At the limit, new downloads pause until it resets.'}
+      </Text>
+    </View>
   );
 }

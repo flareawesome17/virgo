@@ -96,7 +96,12 @@ const TOPICS: Record<
       typeof d.reminderId === 'string' ? `/schedule/reminders/${d.reminderId}` : '/schedule/reminders',
   },
   // There is no /settings/billing; plans and what you are paying live here.
-  billing: { icon: CreditCardIcon, href: '/settings/storage/plans' },
+  // A client-downloads alert travels as billing too, and opens Storage, where
+  // the month's downloads are counted.
+  billing: {
+    icon: CreditCardIcon,
+    href: (d) => (d.type === 'downloads' ? '/settings/storage' : '/settings/storage/plans'),
+  },
   retention: { icon: Trash2Icon, href: '/albums' },
   'client-picks': {
     icon: HeartIcon,

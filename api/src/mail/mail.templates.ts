@@ -938,3 +938,39 @@ export function adminPasswordReset(options: {
     ].join('\n'),
   };
 }
+
+/**
+ * The photographer's clients have used most of the month's downloads, or all
+ * of them.
+ *
+ * Without it the first anybody heard of the allowance was a client sending the
+ * photographer a screenshot of "Downloads are paused". Sent at most twice a
+ * month: once at 80% (`warning`), once when downloads pause (`paused`).
+ */
+export function clientDownloadsAlert(options: {
+  state: 'warning' | 'paused';
+  name: string;
+  /** "24 GB": downloaded through the photographer's client links this month. */
+  used: string;
+  /** "30 GB": the month's allowance. */
+  limit: string;
+  /** "November 1": when the count starts again. */
+  resetsOn: string;
+  /** Settings → Storage, in the web app. */
+  url: string;
+}): RenderedEmail {
+  const paused = options.state === 'paused';
+  const heading = paused ? 'Client downloads are paused' : 'Most of this month’s client downloads are used';
+  const intro = paused
+    ? `Hi ${options.name}, your clients have downloaded your ${options.limit} for this month, so new downloads from your client links are paused until ${options.resetsOn}.`
+    : `Hi ${options.name}, your clients have downloaded ${options.used} of your ${options.limit} this month. At ${options.limit}, new downloads from your client links pause until ${options.resetsOn}.`;
+  const outro = paused
+    ? 'Your galleries still open, and downloads already under way will finish. A client who starts a new one is asked to try again later. Nothing has been deleted.'
+    : 'Downloads already under way always finish, even past the limit.';
+
+  return {
+    subject: heading,
+    html: layout({ heading, intro, cta: { label: 'See your usage', url: options.url }, outro }),
+    text: [heading, '', intro, '', outro, '', `See your usage: ${options.url}`].join('\n'),
+  };
+}

@@ -51,7 +51,9 @@ const ROUTES: Record<NotificationTopic, string | ((d: Data) => string)> = {
         : '/money',
   reminder: '/schedule?tab=reminders',
   // There is no /settings/billing; plans and what you are paying live here.
-  billing: '/settings/plans',
+  // A client-downloads alert travels as billing too, and opens Storage, where
+  // the month's downloads are counted.
+  billing: (d) => (d?.type === 'downloads' ? '/settings/storage' : '/settings/plans'),
   retention: '/albums',
   'client-picks': (d) =>
     typeof d?.albumId === 'string' ? `/albums/${d.albumId}?picked=1` : '/albums',

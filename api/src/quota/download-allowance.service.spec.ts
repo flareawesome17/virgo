@@ -1,12 +1,16 @@
 import { EventEmitter } from 'node:events';
 import type { Response } from 'express';
 import type { DatabaseService } from '../database/database.service';
+import type { MailConfig } from '../mail/mail.config';
+import type { NotifyService } from '../notifications/notify.service';
 import {
   DOWNLOADS_PAUSED_MESSAGE,
   DownloadAllowanceService,
+  formatGb,
   isResumedRange,
   monthKey,
   nextMonthStart,
+  resetsOn,
 } from './download-allowance.service';
 import { PLAN_CATALOGUE, PLAN_LIMITS } from './quota.config';
 
@@ -23,10 +27,21 @@ const TB = 1024 ** 4;
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-10-17T08:30:00Z');
 
+const MAIL = { appUrl: 'https://app.virgo.test' } as MailConfig;
+
+function quietNotifier() {
+  const notify = jest.fn(async (_userIds: readonly string[], _n: unknown) => undefined);
+  return { notify, notifier: { notify } as unknown as NotifyService };
+}
+
 function allowanceOver(row: { plan: string | null; used: string } | null) {
   const queryOne = jest.fn(async (_sql: string, _params: unknown[]) => row);
   const query = jest.fn(async (_sql: string, _params: unknown[]) => []);
-  const service = new DownloadAllowanceService({ queryOne, query } as unknown as DatabaseService);
+  const service = new DownloadAllowanceService(
+    { queryOne, query } as unknown as DatabaseService,
+    quietNotifier().notifier,
+    MAIL,
+  );
   return { service, queryOne, query };
 }
 
@@ -34,10 +49,11 @@ function failingDb() {
   const boom = jest.fn(async () => {
     throw new Error('relation "download_usage" does not exist');
   });
-  const service = new DownloadAllowanceService({
-    queryOne: boom,
-    query: boom,
-  } as unknown as DatabaseService);
+  const service = new DownloadAllowanceService(
+    { queryOne: boom, query: boom } as unknown as DatabaseService,
+    quietNotifier().notifier,
+    MAIL,
+  );
   // The warning is the point of failing open; keep it out of the test output.
   jest
     .spyOn((service as unknown as { logger: { warn: () => void } }).logger, 'warn')
@@ -143,6 +159,127 @@ describe('DownloadAllowanceService.record', () => {
 
   it('never throws, so a counter failure cannot fail a download', async () => {
     await expect(failingDb().record(OWNER, 10, NOW)).resolves.toBeUndefined();
+  });
+});
+
+describe('telling the photographer', () => {
+  /**
+   * A month that stands at `total` once this download is added. `claimed`
+   * is whether this download wins the alert's stamp, which it loses to one
+   * that crossed the line a moment earlier.
+   */
+  function month(options: {
+    total: number;
+    paused?: boolean;
+    plan?: string;
+    claimed?: boolean;
+    notifyFails?: boolean;
+  }) {
+    const query = jest.fn(async (sql: string, _params: unknown[]) => {
+      if (/insert into download_usage/.test(sql)) {
+        return [{ bytes: String(options.total), paused: options.paused ?? false }];
+      }
+      return options.claimed === false ? [] : [{ '?column?': 1 }];
+    });
+    const queryOne = jest.fn(async (_sql: string, _params: unknown[]) => ({
+      plan: options.plan ?? 'free',
+      name: 'Andrea Santos',
+    }));
+    const notify = jest.fn(async (_userIds: readonly string[], _n: unknown) => {
+      if (options.notifyFails) throw new Error('mail server down');
+    });
+    const service = new DownloadAllowanceService(
+      { query, queryOne } as unknown as DatabaseService,
+      { notify } as unknown as NotifyService,
+      MAIL,
+    );
+    jest
+      .spyOn((service as unknown as { logger: { warn: () => void } }).logger, 'warn')
+      .mockImplementation(() => undefined);
+    const claims = () => query.mock.calls.filter(([sql]) => /^\s*update download_usage/.test(sql));
+    return { service, query, queryOne, notify, claims };
+  }
+
+  type Sent = { topic: string; title: string; body: string; data: Record<string, unknown>; email: { subject: string; text: string } };
+  const sent = (notify: jest.Mock) => notify.mock.calls[0][1] as Sent;
+
+  it('says nothing, and looks nothing up, while the month is far from any line', async () => {
+    const m = month({ total: 5 * GB });
+    await m.service.record(OWNER, 1_000_000, NOW);
+    expect(m.queryOne).not.toHaveBeenCalled();
+    expect(m.notify).not.toHaveBeenCalled();
+  });
+
+  it('says nothing between the lines on a bigger plan', async () => {
+    const m = month({ total: 25 * GB, plan: 'freelance' });
+    await m.service.record(OWNER, 1_000_000, NOW);
+    expect(m.claims()).toHaveLength(0);
+    expect(m.notify).not.toHaveBeenCalled();
+  });
+
+  it('warns the owner once 80% of the month is used', async () => {
+    const m = month({ total: 25 * GB });
+    await m.service.record(OWNER, 1_000_000, NOW);
+
+    expect(m.claims()).toHaveLength(1);
+    expect(m.claims()[0][0]).toMatch(/set warned_at = now\(\)/);
+    expect(m.claims()[0][0]).toMatch(/warned_at is null and paused_at is null/);
+    expect(m.claims()[0][1]).toEqual([OWNER, '2026-10-01']);
+
+    expect(m.notify).toHaveBeenCalledTimes(1);
+    expect(m.notify.mock.calls[0][0]).toEqual([OWNER]);
+    const n = sent(m.notify);
+    expect(n.topic).toBe('billing');
+    expect(n.data).toEqual({ type: 'downloads', state: 'warning', month: '2026-10-01' });
+    expect(n.body).toBe(
+      'Your clients have downloaded 25 GB of your 30 GB this month. At 30 GB, new downloads from your client links pause until November 1.',
+    );
+    expect(n.email.subject).toBe('Most of this month’s client downloads are used');
+    expect(n.email.text).toContain('Hi Andrea Santos');
+    expect(n.email.text).toContain('https://app.virgo.test/settings/storage');
+  });
+
+  it('tells the owner when downloads pause, stamping the warning too', async () => {
+    const m = month({ total: 30 * GB });
+    await m.service.record(OWNER, 1_000_000, NOW);
+
+    expect(m.claims()).toHaveLength(1);
+    expect(m.claims()[0][0]).toMatch(/set paused_at = now\(\), warned_at = coalesce\(warned_at, now\(\)\)/);
+    const n = sent(m.notify);
+    expect(n.title).toBe('Client downloads are paused');
+    expect(n.data).toEqual({ type: 'downloads', state: 'paused', month: '2026-10-01' });
+    expect(n.body).toContain('paused until November 1');
+    expect(n.email.text).toContain('Nothing has been deleted.');
+  });
+
+  it('sends nothing when another download already claimed the alert', async () => {
+    const m = month({ total: 26 * GB, claimed: false });
+    await m.service.record(OWNER, 1_000_000, NOW);
+    expect(m.claims()).toHaveLength(1);
+    expect(m.notify).not.toHaveBeenCalled();
+  });
+
+  it('has nothing more to say once the month is paused', async () => {
+    const m = month({ total: 40 * GB, paused: true });
+    await m.service.record(OWNER, 1_000_000, NOW);
+    expect(m.queryOne).not.toHaveBeenCalled();
+    expect(m.notify).not.toHaveBeenCalled();
+  });
+
+  it('never lets a failed alert fail the download', async () => {
+    const m = month({ total: 30 * GB, notifyFails: true });
+    await expect(m.service.record(OWNER, 1_000_000, NOW)).resolves.toBeUndefined();
+    expect(m.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes sizes and the reset day the way the apps do', () => {
+    expect(formatGb(30 * GB)).toBe('30 GB');
+    expect(formatGb(24.4 * GB)).toBe('24 GB');
+    expect(formatGb(7.46 * GB)).toBe('7.5 GB');
+    // 04:00 on November 1 in Manila is still October in UTC, so the count
+    // starts again later that same morning.
+    expect(resetsOn(new Date('2026-10-31T20:00:00Z'))).toBe('November 1');
+    expect(resetsOn(new Date('2026-12-15T00:00:00Z'))).toBe('January 1');
   });
 });
 

@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Response } from 'express';
 import { DatabaseService } from '../database/database.service';
-import { limitsFor, toJsonLimit } from './quota.config';
+import { MailConfig } from '../mail/mail.config';
+import { clientDownloadsAlert } from '../mail/mail.templates';
+import { NotifyService } from '../notifications/notify.service';
+import { limitsFor, PLAN_LIMITS, toJsonLimit } from './quota.config';
 
 /** What the owner's usage screen shows for client downloads. */
 export interface DownloadUsage {
@@ -26,6 +29,38 @@ export const DOWNLOADS_PAUSED_MESSAGE =
 
 /** How often a long download reports what it has sent so far. */
 const FLUSH_EVERY_MS = 30_000;
+
+/** The share of the allowance at which the photographer is warned. */
+export const WARN_AT = 0.8;
+
+/**
+ * Below this no plan is near its line, so a download is recorded without
+ * looking the owner's plan up: WARN_AT of the smallest allowance there is.
+ */
+const NO_ALERT_BELOW =
+  WARN_AT *
+  Math.min(
+    ...Object.values(PLAN_LIMITS)
+      .map((limits) => limits.downloadBytesPerMonth)
+      .filter((bytes) => Number.isFinite(bytes) && bytes > 0),
+  );
+
+const GB = 1024 ** 3;
+
+/** "24 GB", or "7.5 GB" under ten. Binary, like the apps' own figures. */
+export function formatGb(bytes: number): string {
+  const gb = bytes / GB;
+  return `${gb < 10 ? Math.round(gb * 10) / 10 : Math.round(gb)} GB`;
+}
+
+/** "November 1": the day the count starts again, in the Philippines. */
+export function resetsOn(now: Date): string {
+  return nextMonthStart(now).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'Asia/Manila',
+  });
+}
 
 /** `2026-10-01` for any instant in October 2026, UTC. */
 export function monthKey(now: Date): string {
@@ -70,7 +105,11 @@ export function isResumedRange(range: string | undefined): boolean {
 export class DownloadAllowanceService {
   private readonly logger = new Logger(DownloadAllowanceService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly notifier: NotifyService,
+    private readonly mailConfig: MailConfig,
+  ) {}
 
   /**
    * This month's downloads against the plan's allowance. Throws on a database
@@ -114,25 +153,102 @@ export class DownloadAllowanceService {
   }
 
   /**
-   * Adds `bytes` to the owner's month. Never throws.
+   * Adds `bytes` to the owner's month, and tells the owner when that takes
+   * the month past 80% of the allowance or to all of it. Never throws.
    *
    * An upsert, so concurrent downloads add to the same row rather than each
-   * reading a total and writing back their own.
+   * reading a total and writing back their own. It hands back the new total,
+   * so the alert check costs nothing until the month is close to the line.
    */
   async record(ownerId: string, bytes: number, now = new Date()): Promise<void> {
     const amount = Math.floor(bytes);
     if (!Number.isFinite(amount) || amount <= 0) return;
+    let month: { bytes: string; paused: boolean } | undefined;
     try {
-      await this.db.query(
+      const rows = await this.db.query<{ bytes: string; paused: boolean }>(
         `insert into download_usage (user_id, month, bytes)
          values ($1, $2::date, $3)
          on conflict (user_id, month)
          do update set bytes = download_usage.bytes + excluded.bytes,
-                       updated_at = now()`,
+                       updated_at = now()
+         returning bytes::text, paused_at is not null as paused`,
         [ownerId, monthKey(now), amount],
       );
+      month = rows[0];
     } catch (err) {
       this.logger.warn(`Download of ${amount} bytes not metered: ${String(err)}`);
+      return;
+    }
+    // Once paused there is nothing left to say this month, and far from any
+    // line there is nothing to say yet.
+    const used = Number(month?.bytes ?? 0);
+    if (month && !month.paused && used >= NO_ALERT_BELOW) await this.alertIfCrossed(ownerId, used, now);
+  }
+
+  /**
+   * Tells the owner their clients have used most of the month's downloads,
+   * or all of them. Never throws.
+   *
+   * Each alert is claimed before it is sent, by stamping the month's row where
+   * the stamp is still empty: whichever download crosses the line first sends
+   * it, and one arriving a moment later finds the stamp set and sends nothing.
+   * Reaching the limit stamps both, so a jump from under 80% to past the limit
+   * sends only the pause.
+   *
+   * The owner is the photographer — the album's owner, whose plan pays for
+   * the egress — never the client, who is told nothing about any of this.
+   */
+  private async alertIfCrossed(ownerId: string, usedBytes: number, now: Date): Promise<void> {
+    try {
+      const owner = await this.db.queryOne<{ plan: string | null; name: string | null }>(
+        `select plan, display_name as name from users where id = $1`,
+        [ownerId],
+      );
+      const limit = limitsFor(owner?.plan ?? 'free').downloadBytesPerMonth;
+      if (!Number.isFinite(limit) || limit <= 0) return;
+
+      const state = usedBytes >= limit ? 'paused' : usedBytes >= limit * WARN_AT ? 'warning' : null;
+      if (!state) return;
+
+      const claimed = await this.db.query(
+        state === 'paused'
+          ? `update download_usage
+                set paused_at = now(), warned_at = coalesce(warned_at, now())
+              where user_id = $1 and month = $2::date and paused_at is null
+              returning 1`
+          : `update download_usage
+                set warned_at = now()
+              where user_id = $1 and month = $2::date and warned_at is null and paused_at is null
+              returning 1`,
+        [ownerId, monthKey(now)],
+      );
+      if (claimed.length === 0) return;
+
+      const used = formatGb(usedBytes);
+      const allowance = formatGb(limit);
+      const reset = resetsOn(now);
+      const paused = state === 'paused';
+      await this.notifier.notify([ownerId], {
+        topic: 'billing',
+        title: paused ? 'Client downloads are paused' : 'Most of this month’s client downloads are used',
+        body: paused
+          ? `Your clients have downloaded your ${allowance} for this month, so new downloads from your client links are paused until ${reset}. Downloads already under way will finish.`
+          : `Your clients have downloaded ${used} of your ${allowance} this month. At ${allowance}, new downloads from your client links pause until ${reset}.`,
+        // `billing` rather than a topic of its own: phones still on an older
+        // bundle know it, and open their plan screen for it. Newer ones read
+        // `type` and open Storage, where the month's downloads are.
+        data: { type: 'downloads', state, month: monthKey(now) },
+        email: clientDownloadsAlert({
+          state,
+          name: owner?.name?.trim() || 'there',
+          used,
+          limit: allowance,
+          resetsOn: reset,
+          url: `${this.mailConfig.appUrl}/settings/storage`,
+        }),
+      });
+    } catch (err) {
+      this.logger.warn(`Client download alert not sent: ${String(err)}`);
     }
   }
 
