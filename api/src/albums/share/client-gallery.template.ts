@@ -63,12 +63,14 @@ function renderNotice(
   heading: string,
   body: string,
   extra = '',
+  /** Drawn instead of the icon's tile: the zip pages' progress ring. */
+  mark?: string,
 ): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">${FAVICON_LINK}<title>${title}</title><style>${PAGE_STYLE}
   main{min-height:100dvh;display:grid;place-items:center;padding:32px}.empty{text-align:center;max-width:34rem}.mark{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 22px;border-radius:22px;background:color-mix(in srgb,var(--line) 72%,transparent)}.mark svg{width:27px;fill:none;stroke:var(--muted);stroke-width:1.5}h1{margin:0;font-size:25px;letter-spacing:-.035em}p{margin:12px auto 0;color:var(--muted);max-width:42ch}footer{margin-top:30px;color:var(--muted);font-size:12px}
   .btn{display:inline-flex;align-items:center;gap:8px;min-height:48px;margin-top:22px;padding:0 24px;border-radius:999px;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:600}.btn svg{width:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.btn:hover{filter:brightness(1.06)}
-  .note{margin:20px auto 0;max-width:40ch;padding:10px 14px;border-radius:12px;background:#fff4e5;color:#5c3b00;border:1px solid #f0c987;font-size:14px;line-height:1.4}
-  </style></head><body><main><div class="empty"><div class="mark">${icon}</div><h1>${heading}</h1><p>${body}</p>${extra}<footer>Shared with Virgo</footer></div></main></body></html>`;
+  .note{margin:20px auto 0;max-width:40ch;padding:10px 14px;border-radius:12px;background:#fff4e5;color:#5c3b00;border:1px solid #f0c987;font-size:14px;line-height:1.4}${mark ? RING_STYLE : ''}
+  </style></head><body><main><div class="empty">${mark ?? `<div class="mark">${icon}</div>`}<h1>${heading}</h1><p>${body}</p>${extra}<footer>Shared with Virgo</footer></div></main></body></html>`;
 }
 
 /**
@@ -77,10 +79,73 @@ function renderNotice(
  * relative `zip` is always the route the page came from. `wait` tells the
  * route the page asked by itself, not the client.
  */
-function zipRefresh(seconds: number, tries: number): string {
-  const url = tries > 0 ? `zip?wait=1&amp;try=${tries}` : 'zip?wait=1';
+function zipRefresh(seconds: number, tries: number, shown?: number): string {
+  let url = tries > 0 ? `zip?wait=1&amp;try=${tries}` : 'zip?wait=1';
+  if (shown !== undefined) url += `&amp;p=${shown}`;
   return `<meta http-equiv="refresh" content="${seconds};url=${url}">`;
 }
+
+/** How often the waiting page asks again, in seconds. */
+const ZIP_REFRESH_SECONDS = 3;
+
+/** The ring: an 88 px circle drawn with a 6 px stroke, inside the viewBox. */
+const RING_R = 40;
+const RING_LENGTH = 2 * Math.PI * RING_R;
+
+/** One turn of the waiting spinner. */
+const SPIN_MS = 1400;
+
+/** Where the ring's arc stops for `pct`: the dash offset that leaves it showing. */
+const ringOffset = (pct: number) => (RING_LENGTH * (1 - pct / 100)).toFixed(2);
+
+/**
+ * The waiting page's progress ring, which carries on across its refreshes.
+ *
+ * The page reloads every few seconds, so an animation inside it starts again
+ * from nothing each time. Instead each refresh says how far the last page's
+ * ring had got (`?p=`), and this page fills from there to where the build is
+ * now, linearly, over the time until the next refresh: page after page, it
+ * reads as one ring filling up. No script, so it works wherever the meta
+ * refresh does, and reduced motion (PAGE_STYLE) shows it standing still.
+ *
+ * `pct` null is "no figure yet" — queued behind other downloads, or nothing
+ * written — and draws an arc going round instead. Its turn is phased off the
+ * server's clock (a negative delay), so it does not jump back to twelve
+ * o'clock on every refresh. The percentage in the middle is plain text: it
+ * changes once per page rather than counting, since numbers moving at a
+ * different speed from the ring read as the screen shaking.
+ */
+function progressRing(options: {
+  pct: number | null;
+  /** Where the previous page left it; the ring fills from here. */
+  from?: number;
+  /** How long this page shows it, so the fill ends as the next one loads. */
+  durationMs: number;
+  label: string;
+  /** In the middle instead of the percentage. */
+  center?: string;
+  now?: number;
+}): string {
+  const { pct, durationMs, label, center } = options;
+  const geometry = `<circle class="track" cx="44" cy="44" r="${RING_R}"/>`;
+  if (pct === null) {
+    const delay = ((options.now ?? Date.now()) % SPIN_MS) / 1000;
+    return `<div class="ring" role="progressbar" aria-label="${esc(label)}"><svg class="spin" viewBox="0 0 88 88" aria-hidden="true">${geometry}<circle class="arc" cx="44" cy="44" r="${RING_R}"/></svg><span class="mid">${center ?? DOWNLOAD_ICON}</span></div>
+  <style>.ring .spin{animation:ring-spin ${SPIN_MS}ms linear -${delay.toFixed(3)}s infinite}.ring .arc{stroke-dasharray:${(RING_LENGTH / 4).toFixed(2)} ${RING_LENGTH.toFixed(2)}}@keyframes ring-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>`;
+  }
+  const from = Math.min(options.from ?? pct, pct);
+  return `<div class="ring" role="progressbar" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><svg viewBox="0 0 88 88" aria-hidden="true">${geometry}<circle class="arc fill" cx="44" cy="44" r="${RING_R}"/></svg><span class="mid">${center ?? `<b>${pct}%</b>`}</span></div>
+  <style>.ring .fill{stroke-dasharray:${RING_LENGTH.toFixed(2)};stroke-dashoffset:${ringOffset(pct)};animation:ring-fill ${durationMs}ms linear both}@keyframes ring-fill{from{stroke-dashoffset:${ringOffset(from)}}to{stroke-dashoffset:${ringOffset(pct)}}}</style>`;
+}
+
+/** The ring's look; the motion is in each ring's own style. */
+const RING_STYLE = `
+  .ring{position:relative;width:96px;height:96px;margin:0 auto 22px}.ring svg{display:block;width:96px;height:96px;transform:rotate(-90deg)}
+  .ring circle{fill:none;stroke-width:6}.ring .track{stroke:color-mix(in srgb,var(--line) 85%,transparent)}.ring .arc{stroke:var(--accent);stroke-linecap:round}
+  .ring .spin{transform-origin:50% 50%}
+  .ring .mid{position:absolute;inset:0;display:grid;place-items:center}.ring .mid b{font-size:19px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .ring .mid svg{width:26px;height:26px;transform:none;fill:none;stroke:var(--muted);stroke-width:1.5}.ring .done{display:grid}.ring .done svg{stroke:var(--accent);stroke-width:1.8}
+`;
 
 const inAppNote = (inApp: boolean) => (inApp ? `<div class="note" role="note">${IN_APP_NOTE}</div>` : '');
 
@@ -130,8 +195,15 @@ export function renderZipPreparing(
   progress: ZipPageProgress,
   tries = 0,
   inApp = false,
+  /** The percentage the previous page's ring showed (`?p=`), if it showed one. */
+  shown?: number,
+  now = Date.now(),
 ): string {
   const { done, total, bytes, totalBytes, position, etaSeconds } = progress;
+  // Never 100 here: the last percent is the ready page's to show. Nothing
+  // yet, or waiting in line, spins rather than drawing an empty ring.
+  const fraction = totalBytes ? bytes / totalBytes : total > 0 ? done / total : 0;
+  const pct = position > 0 ? null : Math.min(99, Math.floor(fraction * 100)) || null;
   const eta =
     etaSeconds === undefined
       ? ''
@@ -145,13 +217,23 @@ export function renderZipPreparing(
         ? `${Math.min(99, Math.floor((bytes / totalBytes) * 100))}% done: ${esc(bytesLabel(bytes))} of ${esc(bytesLabel(totalBytes))}.${eta}`
         : `${done} of ${total} files so far.${eta}`;
   const body = `${status} This page refreshes by itself and gives you the download button when it is ready. You can switch apps: come back within half an hour and it carries on.`;
+  const ring = progressRing({
+    pct,
+    from: shown,
+    // A little short of the refresh, so it is still before the next page
+    // paints and the hand-over has nothing left to catch up.
+    durationMs: ZIP_REFRESH_SECONDS * 1000 - 200,
+    label: 'Preparing your download',
+    now,
+  });
   return renderNotice(
     'Preparing your download',
     DOWNLOAD_ICON,
     'Preparing your download',
     body,
     inAppNote(inApp),
-  ).replace('<head>', `<head>${zipRefresh(3, tries)}`);
+    ring,
+  ).replace('<head>', `<head>${zipRefresh(ZIP_REFRESH_SECONDS, tries, pct ?? undefined)}`);
 }
 
 /**
@@ -159,13 +241,23 @@ export function renderZipPreparing(
  * download waits for a tap: a refresh that turned straight into a download
  * left the page frozen on "Preparing", and the client sure nothing happened.
  */
-export function renderZipReady(sizeBytes: number, inApp = false): string {
+export function renderZipReady(sizeBytes: number, inApp = false, shown?: number): string {
+  // The waiting page's ring closes, from wherever it had got to. Quickly: the
+  // wait is over, and the button under it is the point now.
+  const ring = progressRing({
+    pct: 100,
+    from: shown,
+    durationMs: 600,
+    label: 'Your download is ready',
+    center: `<span class="done">${DOWNLOAD_ICON}</span>`,
+  });
   return renderNotice(
     'Your download is ready',
     DOWNLOAD_ICON,
     'Your download is ready',
     `One zip file, ${esc(bytesLabel(sizeBytes))}. On mobile data a big album takes a while; if it stops part way, resume it from your browser's downloads rather than starting again.`,
     `<a class="btn" href="zip">${DOWNLOAD_ICON}Download</a>${inAppNote(inApp)}`,
+    ring,
   );
 }
 

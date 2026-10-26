@@ -99,8 +99,73 @@ describe('the zip waiting page', () => {
     const html = String(res.body);
     expect(res.statusCode).toBe(200);
     expect(html).toContain('58% done: 600 MB of 1.0 GB. About 5 minutes left.');
-    expect(html).toContain('<meta http-equiv="refresh" content="3;url=zip?wait=1">');
+    // The next page is told how far this one's ring got.
+    expect(html).toContain('<meta http-equiv="refresh" content="3;url=zip?wait=1&amp;p=58">');
     expect(html).not.toContain('class="note"');
+  });
+
+  describe('its progress ring', () => {
+    /** The dash offset that leaves `pct` of the ring showing. */
+    const offset = (pct: number) => (2 * Math.PI * 40 * (1 - pct / 100)).toFixed(2);
+    const halfway = { bytes: 600 * 1024 ** 2, totalBytes: 1024 ** 3 };
+
+    it('fills on from where the last page left it, by the next refresh', async () => {
+      const { controller } = routes({ state: 'building' }, halfway);
+      const res = response();
+      await controller.downloadAll('token', request({ wait: '1', p: '40' }), res);
+      const html = String(res.body);
+      expect(html).toContain('role="progressbar"');
+      expect(html).toContain('aria-valuenow="58"');
+      expect(html).toContain('<b>58%</b>');
+      expect(html).toContain(`@keyframes ring-fill{from{stroke-dashoffset:${offset(40)}}to{stroke-dashoffset:${offset(58)}}}`);
+      // Linear, and done a little before the 3 s refresh.
+      expect(html).toContain('animation:ring-fill 2800ms linear both');
+    });
+
+    it('starts where it stands when there was no page before, or a p that is not a percentage', async () => {
+      for (const p of [undefined, '999', 'abc', '-5']) {
+        const { controller } = routes({ state: 'building' }, halfway);
+        const res = response();
+        await controller.downloadAll('token', request(p === undefined ? {} : { wait: '1', p }), res);
+        expect(String(res.body)).toContain(`from{stroke-dashoffset:${offset(58)}}`);
+      }
+    });
+
+    it('never runs backwards', async () => {
+      const { controller } = routes({ state: 'building' }, halfway);
+      const res = response();
+      await controller.downloadAll('token', request({ wait: '1', p: '70' }), res);
+      expect(String(res.body)).toContain(`from{stroke-dashoffset:${offset(58)}}`);
+    });
+
+    it('goes round instead while the download waits in line, or nothing is written yet', async () => {
+      const cases: [Partial<ZipEntry>, Partial<ZipProgress>][] = [
+        [{ state: 'queued' }, { position: 2, bytes: 0, totalBytes: 1024 ** 3 }],
+        [{ state: 'building' }, { bytes: 0, totalBytes: 3 * 1024 ** 2 }],
+      ];
+      for (const [entry, progress] of cases) {
+        const { controller } = routes(entry, progress);
+        const res = response();
+        await controller.downloadAll('token', request({ wait: '1', p: '30' }), res);
+        const html = String(res.body);
+        expect(html).toContain('class="spin"');
+        expect(html).not.toContain('aria-valuenow');
+        // Phased off the clock, so a refresh does not send it back to the top.
+        expect(html).toMatch(/animation:ring-spin 1400ms linear -\d\.\d{3}s infinite/);
+        // A spinner has no figure for the next page to carry on from.
+        expect(html).toContain('content="3;url=zip?wait=1"');
+      }
+    });
+
+    it('closes the ring on the ready page, from where the last page left it', async () => {
+      const { controller } = routes({ state: 'ready', size: 1_073_818_239 });
+      const res = response();
+      await controller.downloadAll('token', request({ wait: '1', p: '99' }), res);
+      const html = String(res.body);
+      expect(html).toContain('aria-valuenow="100"');
+      expect(html).toContain(`@keyframes ring-fill{from{stroke-dashoffset:${offset(99)}}to{stroke-dashoffset:${offset(100)}}}`);
+      expect(html).toContain('class="done"');
+    });
   });
 
   it('says where the client is in line', async () => {
