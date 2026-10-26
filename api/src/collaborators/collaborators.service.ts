@@ -403,6 +403,8 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
       name: string;
       /** Every file in the album, counted. */
       item_count: number;
+      /** The bytes those files take up, so the picker can say "48 files · 2.4 GB". */
+      size_bytes: number;
       shared: boolean;
       media_access: MediaAccess | null;
     }[]
@@ -418,10 +420,14 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     // showed 0 beside every album made since August 2026. By album alone:
     // these are the owner's albums, and an album's files are billed to its
     // owner, whoever uploaded them.
+    // The size the same way, float8 so it arrives as a number: a bigint sum
+    // would come back as a string.
     return this.db.query(
       `select a.id, a.name,
               (select count(*) from user_files f where f.album_id = a.id)::int
                 as item_count,
+              (select coalesce(sum(f.size_bytes), 0) from user_files f where f.album_id = a.id)::float8
+                as size_bytes,
               (ca.album_id is not null) as shared,
               ca.media_access
          from albums a

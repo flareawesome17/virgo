@@ -77,6 +77,8 @@ export const collaboratorsApi = {
       id: string;
       name: string;
       item_count: number;
+      /** Bytes its files take up. Absent from an API that predates it. */
+      size_bytes?: number;
       shared: boolean;
       media_access: MediaAccess | null;
     }[];

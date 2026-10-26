@@ -45,6 +45,11 @@ export interface AlbumRow {
   item_count: number;
   /** Derived: what the album holds, by kind, so a card can say "312 · 2 films". */
   counts?: { image: number; video: number; audio: number };
+  /**
+   * Derived: the bytes its files take up, whoever uploaded them — what the
+   * album costs its owner's storage. Summed with the counts, in the same query.
+   */
+  size_bytes?: number;
   /** Derived: members of its workspace who can open it. 0 is "Private". */
   shared_with?: number;
   /** Derived: invitations not yet answered that would give it. */
@@ -118,11 +123,13 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
       image: string;
       video: string;
       audio: string;
+      bytes: string;
     }>(
       `select album_id, count(*)::text as count,
               count(*) filter (where content_type like 'image/%')::text as image,
               count(*) filter (where content_type like 'video/%')::text as video,
-              count(*) filter (where content_type like 'audio/%')::text as audio
+              count(*) filter (where content_type like 'audio/%')::text as audio,
+              coalesce(sum(size_bytes), 0)::text as bytes
          from user_files
         where album_id = any($1::text[])
         group by album_id`,
@@ -207,6 +214,7 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
         video: Number(countById.get(row.id)?.video ?? 0),
         audio: Number(countById.get(row.id)?.audio ?? 0),
       },
+      size_bytes: Number(countById.get(row.id)?.bytes ?? 0),
       // An explicitly chosen cover always wins over the derived one.
       cover_url: chosenUrls[i] ?? row.cover_url ?? coverUrls[i],
       shared_with: Number(grantsById.get(row.id)?.shared_with ?? 0),

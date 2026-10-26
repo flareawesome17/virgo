@@ -32,7 +32,7 @@ import {
   useTheme,
   useWorkspaces,
 } from '@/src/hooks';
-import type { Album, AlbumStatus } from '@/src/api';
+import { formatBytes, type Album, type AlbumStatus } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { FilterChip } from '@/components/FilterChip';
 import { PALETTES } from '@/theme';
@@ -349,7 +349,7 @@ function AlbumCard({ album }: { album: Album }) {
     <Pressable
       onPress={() => router.push(`/albums/${album.id}`)}
       accessibilityRole="button"
-      accessibilityLabel={`${album.name}, ${pill.label}, ${parts.map((p) => `${p.n} ${p.label}`).join(', ') || 'empty'}`}
+      accessibilityLabel={`${album.name}, ${pill.label}, ${parts.map((p) => `${p.n} ${p.label}`).join(', ') || 'empty'}${album.size_bytes ? `, ${formatBytes(album.size_bytes)}` : ''}`}
       className="flex-1 bg-card rounded-2xl overflow-hidden border border-border active:opacity-85"
     >
       <View style={{ width: '100%', aspectRatio: 4 / 3 }} className="bg-muted">
@@ -379,6 +379,10 @@ function AlbumCard({ album }: { album: Album }) {
           ) : (
             <Text className="text-muted-foreground text-[11px]">Empty</Text>
           )}
+          {/* The storage it takes; absent from an API older than it. */}
+          {album.size_bytes ? (
+            <Text className="text-muted-foreground text-[11px] font-medium">{formatBytes(album.size_bytes)}</Text>
+          ) : null}
           <Text className="text-muted-foreground text-[11px] ml-auto">{timeAgo(album.updated_at)}</Text>
         </View>
       </View>

@@ -93,6 +93,8 @@ export interface Album {
   item_count: number;
   /** What it holds by kind. Absent from an API older than the album list redesign. */
   counts?: { image: number; video: number; audio: number };
+  /** Bytes its files take up, whoever uploaded them. Absent from an API that predates it. */
+  size_bytes?: number;
   /** Members of its workspace who can open it; 0 is private. Absent before the workspaces redesign. */
   shared_with?: number;
   /** Unanswered invitations that would give it. */
