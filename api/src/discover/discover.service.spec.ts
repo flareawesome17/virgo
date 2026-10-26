@@ -16,14 +16,15 @@ const ME = '11111111-1111-4111-8111-111111111111';
 const placedByAddress = {
   lat: 10.3157,
   lon: 123.8854,
-  place: 'Cebu City',
+  place: 'Cebu City, Cebu',
   source: 'address',
+  precision: 'city',
   nearby_hidden: false,
   shares_location: false,
   latitude: null,
   location_place: null,
   location_updated_at: null,
-  address_place: 'Cebu City',
+  address_place: 'Cebu City, Cebu',
 };
 
 function serviceOver(
@@ -43,9 +44,10 @@ const person = {
   avatar_url: null,
   roles: ['Photographer'],
   handle: 'ana',
-  distance_km: '3',
+  distance_km: '3.41',
   approximate: true,
-  place: 'Mandaue',
+  place: 'Mandaue, Cebu',
+  precision: 'city',
   relationship: 'pending_out',
 };
 
@@ -92,13 +94,78 @@ describe('DiscoverService.nearby', () => {
         avatarUrl: null,
         distanceKm: 3,
         approximate: true,
-        place: 'Mandaue',
+        place: 'Mandaue, Cebu',
         roles: ['Photographer'],
         handle: 'ana',
         relationship: 'pending_out',
       },
     ]);
     expect(JSON.stringify(result.people)).not.toContain('ana@example.com');
+  });
+
+  it('says nothing about a distance inside a province it only knows by its capital', async () => {
+    // The report: seven people whose towns the old table did not have, all
+    // at Misamis Occidental's capital, 0.84 km from the viewer's device
+    // cell, each "In Misamis Occidental · about 1 km". Every town has its
+    // own centre now; a town box that names no town still stands at the
+    // capital, and is still not 1 km away.
+    const unplacedTown = {
+      ...person,
+      distance_km: '0.84',
+      place: 'Misamis Occidental',
+      precision: 'province',
+    };
+    const { service } = serviceOver([unplacedTown], {
+      ...placedByAddress,
+      place: null,
+      source: 'gps',
+      precision: 'gps',
+    });
+
+    const [shown] = (await service.nearby(ME)).people;
+
+    expect(shown).toMatchObject({
+      distanceKm: 0,
+      approximate: true,
+      place: 'Misamis Occidental',
+    });
+  });
+
+  it('measures to a town of its own in whole kilometres', async () => {
+    const inPlaridel = {
+      ...person,
+      distance_km: '16.32',
+      place: 'Plaridel, Misamis Occidental',
+      precision: 'city',
+    };
+    const { service } = serviceOver([inPlaridel], {
+      ...placedByAddress,
+      place: null,
+      source: 'gps',
+      precision: 'gps',
+    });
+
+    expect((await service.nearby(ME)).people[0].distanceKm).toBe(16);
+  });
+
+  it('reads an address placed before migration 103 as a province until it is placed again', async () => {
+    const { service } = serviceOver([
+      { ...person, distance_km: '12.3', place: 'Misamis Occidental', precision: null },
+    ]);
+
+    expect((await service.nearby(ME)).people[0].distanceKm).toBe(0);
+  });
+
+  it('works the precision out in SQL, from the address when nothing is shared', async () => {
+    const { service, query } = serviceOver([person]);
+
+    await service.nearby(ME);
+
+    const [sql] = query.mock.calls[0];
+    expect(sql).toMatch(/coalesce\(u\.address_precision, 'province'\)/);
+    expect(sql).toMatch(/pos\.precision/);
+    // Kept to ten metres for the order and the radius, not to the kilometre.
+    expect(sql).toMatch(/::numeric, 2\) as distance_km/);
   });
 
   it('searches from the address without the caller sharing anything', async () => {
@@ -108,7 +175,11 @@ describe('DiscoverService.nearby', () => {
 
     // `sharing` is what the installed apps show the list on.
     expect(result.sharing).toBe(true);
-    expect(result.origin).toEqual({ source: 'address', place: 'Cebu City' });
+    expect(result.origin).toEqual({
+      source: 'address',
+      place: 'Cebu City, Cebu',
+      precision: 'city',
+    });
     expect(result).not.toHaveProperty('place');
     const [, params] = query.mock.calls[0];
     expect(params).toEqual([ME, 10.3157, 123.8854, 25, []]);
@@ -145,7 +216,11 @@ describe('DiscoverService.nearby', () => {
     const result = await service.nearby(ME, 50, [], 'cdo');
 
     expect(result.place).toBe('Cagayan de Oro');
-    expect(result.origin).toEqual({ source: 'search', place: 'Cagayan de Oro' });
+    expect(result.origin).toEqual({
+      source: 'search',
+      place: 'Cagayan de Oro',
+      precision: null,
+    });
     expect(queryOne).not.toHaveBeenCalled();
     const [, params] = query.mock.calls[0];
     expect(params?.slice(1, 3)).toEqual([8.4542, 124.6319]);
@@ -203,10 +278,11 @@ describe('DiscoverService.sharingStatus', () => {
     expect(await service.sharingStatus(ME)).toEqual({
       sharing: true,
       updatedAt: null,
-      place: 'Cebu City',
+      place: 'Cebu City, Cebu',
       source: 'address',
+      precision: 'city',
       hidden: false,
-      addressPlace: 'Cebu City',
+      addressPlace: 'Cebu City, Cebu',
       shared: null,
     });
   });
@@ -257,6 +333,9 @@ describe('DiscoverService.placeAddresses', () => {
     const query = jest.fn(async (sql: string, params?: unknown[]) => {
       if (/^\s*select id, address_city/.test(sql)) {
         // One batch, smaller than the limit, so the loop stops after it.
+        // Rows nobody has looked at, and rows an older API placed with no
+        // precision.
+        expect(sql).toMatch(/address_latitude is not null and address_precision is null/);
         return [
           { id: 'a', address_city: 'Mandaue City', address_province: 'Cebu' },
           { id: 'b', address_city: 'Atlantis', address_province: 'Narnia' },
@@ -274,12 +353,13 @@ describe('DiscoverService.placeAddresses', () => {
     expect(seen).toBe(2);
     const [sql, params] = query.mock.calls[1];
     expect(sql).toMatch(/address_geocoded_at = now\(\)/);
-    expect(sql).toMatch(/where u\.id = v\.id and u\.address_geocoded_at is null/);
+    expect(sql).toMatch(/where u\.id = v\.id\s+and \(u\.address_geocoded_at is null/);
     expect(params).toEqual([
       ['a', 'b'],
       [10.3237, null],
       [123.9227, null],
-      ['Mandaue', null],
+      ['Mandaue, Cebu', null],
+      ['city', null],
     ]);
     expect(query).toHaveBeenCalledTimes(2);
   });

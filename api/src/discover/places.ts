@@ -1,26 +1,45 @@
 import { canonicalLocation, CITY_NAMES, coordsFor, locationKey } from '../hiring/locations';
+import { PH_TOWNS } from './ph-towns';
 
 /**
  * Where an address puts somebody, for Nearby and for ranking jobs.
  *
- * The city and the province only — never the street. The answer is a city
- * centre from the job board's own table, so a city means the same point in
- * both features, or failing that the province's capital. Both are public
- * places that thousands of people share, which is what makes it safe to put
- * everyone with an address in Nearby without asking: the most anyone can
- * learn from it is the town, and the profile already says that.
+ * The town and the province only — never the street. The answer is the
+ * town's centre: the job board's own point for the seventy cities its table
+ * has, so a city means the same point in both features, and otherwise the
+ * town's from ph-towns.ts, every city and municipality in the country. Failing
+ * both, the province's capital. All of them are public places that thousands
+ * of people share, which is what makes it safe to put everyone with an
+ * address in Nearby without asking: the most anyone can learn from it is the
+ * town, and the profile already says that.
  *
  * No geocoder, for the same reasons the job board has none: the list is
- * closed, it does not change, and a network round trip inside sign-up would
- * be a dependency to no purpose. An address the tables cannot place gets no
+ * closed, it hardly changes, and a network round trip inside sign-up would be
+ * a dependency to no purpose. An address the tables cannot place gets no
  * position at all rather than a guess, and the profile says so.
  */
 
+/**
+ * How closely a place's coordinates put somebody.
+ *
+ * `city` is the town's own centre. `province` is the province's capital
+ * standing in for a town box we could not match to a town: everyone placed
+ * that way in a province shares the point, so a distance to it says which
+ * province they are in, not how far away they are.
+ */
+export type PlacePrecision = 'city' | 'province';
+
 export interface AddressPlace {
-  /** A city from the job board's table, or a province. What Nearby shows. */
+  /**
+   * What Nearby shows: "Ozamiz City, Misamis Occidental", "Plaridel, Misamis
+   * Occidental". The town and its province, or the province alone when the
+   * town box names no town we know — never the box's own words, which can
+   * be a barangay or a street.
+   */
   place: string;
   latitude: number;
   longitude: number;
+  precision: PlacePrecision;
 }
 
 /**
@@ -289,7 +308,8 @@ function provinceNamed(
  * Tried in turn: as written ("cebu" is Cebu City through the aliases), with
  * "City of" or "City" taken off ("Mandaue City", "City of Naga"), with the
  * province put after it ("Talisay" in Cebu is the table's "Talisay, Cebu"),
- * and up to a comma ("Cebu City, Cebu" typed into the one box).
+ * and each part between commas ("Cebu City, Cebu" typed into the one box,
+ * or "Purok 3, Ozamiz City" with the purok first).
  *
  * "City" is only ever removed, never added. Adding it would turn the
  * municipality of Quezon, Bukidnon, into Quezon City.
@@ -305,14 +325,21 @@ function cityNamed(
     .replace(/^(city|municipality|municipio)\s+of\s+/i, '')
     .replace(/\s+city$/i, '')
     .trim();
-  const beforeComma = city.split(',')[0].trim();
+  // Not a part that names a province: in "Dalaguete, Cebu" the Cebu is the
+  // province, and the alias would make it Cebu City, 80 km away.
+  const parts = city.includes(',')
+    ? city
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => !provinceNamed(part))
+    : [];
   const prov = tidy(province);
 
   const candidates = [
     city,
     bare,
     ...(prov ? [`${city}, ${prov}`, `${bare}, ${prov}`] : []),
-    beforeComma,
+    ...parts,
   ];
   for (const candidate of candidates) {
     if (candidate && coordsFor(candidate)) return canonicalLocation(candidate);
@@ -326,6 +353,122 @@ interface Resolved {
   /** The canonical province, when the province box named one. */
   province: string | null;
   at: AddressPlace | null;
+}
+
+/** The province a table city is in, when there is only one answer. */
+function homeProvince(city: string): string | null {
+  const homes = provincesOfCity(city);
+  return homes.length === 1 ? homes[0] : null;
+}
+
+/** "Talisay, Cebu" → "Talisay": the label says the province its own way. */
+function townOf(city: string): string {
+  return city.split(',')[0].trim();
+}
+
+/** "Town, Province", or whichever of the two there is. */
+function placeLabel(town: string | null, province: string | null): string | null {
+  if (!town) return province;
+  if (!province || locationKey(province) === locationKey(town)) return town;
+  return `${town}, ${province}`;
+}
+
+interface Town {
+  name: string;
+  province: string;
+  lat: number;
+  lon: number;
+}
+
+/**
+ * A town name folded for looking up: the shortened words addresses use
+ * written out ("Sta. Cruz" is Santa Cruz, "Gen. Trias" General Trias, "Pres.
+ * Roxas" President Roxas), then locationKey.
+ */
+function townKey(input: string): string {
+  return locationKey(
+    input
+      .replace(/\bsta\b\.?/gi, 'santa ')
+      .replace(/\bsto\b\.?/gi, 'santo ')
+      .replace(/\bgen\b\.?/gi, 'general ')
+      .replace(/\bpres\b\.?/gi, 'president '),
+  );
+}
+
+function indexTowns(keysOf: (row: (typeof PH_TOWNS)[number]) => readonly string[]) {
+  const index = new Map<string, Town[]>();
+  for (const row of PH_TOWNS) {
+    const [name, province, lat, lon] = row;
+    for (const key of new Set(keysOf(row).map(townKey))) {
+      if (!key) continue;
+      index.set(key, [...(index.get(key) ?? []), { name, province, lat, lon }]);
+    }
+  }
+  return index;
+}
+
+/** By name, with and without "City": "Oroquieta City" is Oroquieta. */
+const TOWNS_BY_NAME = indexTowns(([name]) => [name, name.replace(/\s+city$/i, '')]);
+/** By the other names Wikidata knows: former names, long official names. */
+const TOWNS_BY_ALIAS = indexTowns((row) => row[4] ?? []);
+
+/**
+ * Whether a town filed under `filed` is in the province an address named.
+ * Maguindanao, split in two in 2022, still covers both halves.
+ */
+function inProvince(named: string, filed: string): boolean {
+  return named === filed || (named === 'Maguindanao' && filed.startsWith('Maguindanao del'));
+}
+
+/**
+ * The town a piece of text names, from every city and municipality in the
+ * country, or null.
+ *
+ * Within the province on the address when there is one: there are nine San
+ * Joses, and only the province says which. Without one, only a name the
+ * whole country has once. Tried as written, without "City of" or "City",
+ * and each part between commas but one naming a province — "Purok 3,
+ * Clarin" is Clarin — by name first and then by the other names a town goes
+ * by.
+ */
+function townNamed(input: string | null | undefined, province: string | null): Town | null {
+  const typed = tidy(input);
+  if (!typed) return null;
+  const parts = typed.includes(',')
+    ? typed
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part && !provinceNamed(part))
+    : [];
+  for (const index of [TOWNS_BY_NAME, TOWNS_BY_ALIAS]) {
+    for (const candidate of [typed, ...parts]) {
+      const bare = candidate
+        .replace(/^(city|municipality|municipio)\s+of\s+/i, '')
+        .replace(/\s+city$/i, '')
+        .trim();
+      for (const key of new Set([townKey(candidate), townKey(bare)])) {
+        const found = (index.get(key) ?? []).filter(
+          (town) => !province || inProvince(province, town.province),
+        );
+        // One place, even when it is filed under two provinces, as
+        // Cotabato City is.
+        if (found.length > 0 && found.every((t) => t.lat === found[0].lat && t.lon === found[0].lon)) {
+          return found[0];
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** A town from the table, as an answer. */
+function atTown(town: Town): AddressPlace {
+  return {
+    place: placeLabel(town.name, town.province) ?? town.name,
+    latitude: town.lat,
+    longitude: town.lon,
+    precision: 'city',
+  };
 }
 
 function resolve(
@@ -349,35 +492,70 @@ function resolve(
       return {
         city,
         province: province?.name ?? null,
-        at: { place: city, latitude: coords.lat, longitude: coords.lon },
+        at: {
+          place: placeLabel(townOf(city), province?.name ?? homeProvince(city)) ?? city,
+          latitude: coords.lat,
+          longitude: coords.lon,
+          precision: 'city',
+        },
       };
     }
   }
 
-  const fallback =
-    province ??
-    // The province box left empty or unrecognised, and the city box holding
-    // a province — "Bohol" is a reasonable answer to "where do you live".
-    provinceNamed(cityInput);
-  if (fallback) {
+  // Every other town in the country. Not the job board's `city`: that one
+  // also sets the profile's spelling, and the profile keeps the address's
+  // own words for anything else.
+  const town = townNamed(cityInput, province?.name ?? null);
+  if (town) return { city: null, province: province?.name ?? null, at: atTown(town) };
+
+  if (province) {
     return {
       city: null,
-      province: province?.name ?? null,
-      at: { place: fallback.name, latitude: fallback.lat, longitude: fallback.lon },
+      province: province.name,
+      at: {
+        place: province.name,
+        latitude: province.lat,
+        longitude: province.lon,
+        precision: 'province',
+      },
     };
   }
 
-  // Last, a known city typed in the province box under a barangay or a
-  // district in the city box: "Lahug", "Cebu City".
+  // The province box left empty or unrecognised, and the city box holding a
+  // province — "Bohol" is a reasonable answer to "where do you live".
+  const cityAsProvince = provinceNamed(cityInput);
+  if (cityAsProvince) {
+    return {
+      city: null,
+      province: null,
+      at: {
+        place: cityAsProvince.name,
+        latitude: cityAsProvince.lat,
+        longitude: cityAsProvince.lon,
+        precision: 'province',
+      },
+    };
+  }
+
+  // Last, a known town typed in the province box under a barangay or a
+  // district in the city box: "Lahug", "Cebu City". The town is named, not
+  // the barangay, which is finer than anything Nearby promised to show.
   const provinceAsCity = cityNamed(provinceInput);
   const coords = provinceAsCity ? coordsFor(provinceAsCity) : null;
   if (provinceAsCity && coords) {
     return {
       city: null,
       province: null,
-      at: { place: provinceAsCity, latitude: coords.lat, longitude: coords.lon },
+      at: {
+        place: placeLabel(townOf(provinceAsCity), homeProvince(provinceAsCity)) ?? provinceAsCity,
+        latitude: coords.lat,
+        longitude: coords.lon,
+        precision: 'city',
+      },
     };
   }
+  const provinceAsTown = townNamed(provinceInput, null);
+  if (provinceAsTown) return { city: null, province: null, at: atTown(provinceAsTown) };
 
   return { city: null, province: null, at: null };
 }

@@ -21,13 +21,19 @@ export function liveSharedPosition(u: string): string {
 }
 
 /**
- * Where somebody is, as `lat`, `lon`, `place` and `approximate` columns, for
- * a LATERAL join after `u`: their shared position while it counts, otherwise
- * their address's city, otherwise nulls.
+ * Where somebody is, as `lat`, `lon`, `place`, `approximate`, `source` and
+ * `precision` columns, for a LATERAL join after `u`: their shared position
+ * while it counts, otherwise their address's town, otherwise nulls.
  *
  * `approximate` is true for anything but a device fix. A city centre is the
  * same point for everyone in that city, so a distance to it says "in Cebu
  * City", not "3 km from you", and the apps word it that way.
+ *
+ * `precision` is how closely the point places them (discover/distance.ts):
+ * 'gps' for a device, 'city' for a town's centre, 'province' for a capital
+ * standing in for a town. An address placed by an API from before migration
+ * 103 has none and counts as a province, the coarser reading, until the
+ * backfill places it again.
  */
 export function positionOf(u: string): string {
   const live = liveSharedPosition(u);
@@ -40,5 +46,11 @@ export function positionOf(u: string): string {
                 then case when ${u}.location_place is null then 'gps' else 'place' end
                 when ${u}.address_latitude is not null
                  and ${u}.address_longitude is not null then 'address'
-           end as source`;
+           end as source,
+           case when ${live}
+                then case when ${u}.location_place is null then 'gps' else 'city' end
+                when ${u}.address_latitude is not null
+                 and ${u}.address_longitude is not null
+                then coalesce(${u}.address_precision, 'province')
+           end as precision`;
 }

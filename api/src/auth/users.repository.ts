@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import type { AddressPlace } from '../discover/places';
 import type { SessionClient } from './device-label';
 
 export type TwoFactorPurpose = 'setup' | 'login' | 'disable' | 'recovery' | 'delete';
@@ -39,7 +40,14 @@ export interface UserRow {
   address_latitude: number | null;
   address_longitude: number | null;
   address_place: string | null;
-  /** When the three above were last worked out, placed or not. */
+  /**
+   * 'city' when the coordinates are the town's centre, 'province' when they
+   * are the province's capital standing in for a town box we could not
+   * match. Null when unplaced, and on a row placed by an API from before
+   * migration 103.
+   */
+  address_precision: 'city' | 'province' | null;
+  /** When the four above were last worked out, placed or not. */
   address_geocoded_at: Date | null;
   /** Left out of everyone else's Nearby by their own choice. */
   nearby_hidden: boolean;
@@ -190,6 +198,7 @@ export type ProfileFields = Partial<
     | 'address_latitude'
     | 'address_longitude'
     | 'address_place'
+    | 'address_precision'
     | 'address_geocoded_at'
     | 'studio_name'
     | 'social_handle'
@@ -217,7 +226,7 @@ export interface SignupDetails {
    * Where the address puts them, worked out by the service before the insert
    * (discover/places.ts). Absent, or null, when the city could not be placed.
    */
-  addressPlace?: { place: string; latitude: number; longitude: number } | null;
+  addressPlace?: AddressPlace | null;
   /** The "City, Province" the profile shows, from the same address. */
   location?: string | null;
   studioName?: string;
@@ -261,10 +270,11 @@ export class UsersRepository {
          address_line1, address_line2, address_city, address_province,
          address_postal, address_country, studio_name, social_handle,
          referred_by_user_id, location,
-         address_latitude, address_longitude, address_place, address_geocoded_at
+         address_latitude, address_longitude, address_place, address_precision,
+         address_geocoded_at
        )
        values ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10, $11, $12, $13,
-               $14, $15, $16, $17,
+               $14, $15, $16, $17, $18,
                -- Looked at whenever there is a city, placed or not, so the
                -- backfill does not try it again.
                case when $7::text is not null then now() end)
@@ -287,6 +297,7 @@ export class UsersRepository {
         details.addressPlace?.latitude ?? null,
         details.addressPlace?.longitude ?? null,
         details.addressPlace?.place ?? null,
+        details.addressPlace?.precision ?? null,
       ],
     );
     return row as UserRow;

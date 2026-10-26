@@ -317,6 +317,7 @@ export {
   type NearbyPerson,
   type LocationStatus,
   type NearbySource,
+  type NearbyPrecision,
   type NearbyOrigin,
   type NearbyResult,
 } from './endpoints/discover';

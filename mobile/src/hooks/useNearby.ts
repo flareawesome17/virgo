@@ -37,6 +37,12 @@ export function useLocationSharing() {
      * their address; the screens fall back to `sharing` for that.
      */
     source: data?.source,
+    /**
+     * How closely that places them; 'province' when the API could not match
+     * the town on their address. Null from an older API, which said nothing
+     * about it.
+     */
+    precision: data?.precision ?? null,
     /** Left out of everyone else's Nearby by their own choice. */
     hidden: data?.hidden ?? false,
     /** Where the address on the profile resolved to, if it did. */

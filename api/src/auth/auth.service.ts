@@ -604,6 +604,7 @@ export class AuthService {
       address_latitude: placed?.latitude ?? null,
       address_longitude: placed?.longitude ?? null,
       address_place: placed?.place ?? null,
+      address_precision: placed?.precision ?? null,
       address_geocoded_at: new Date(),
     };
 
