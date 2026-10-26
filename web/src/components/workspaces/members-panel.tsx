@@ -38,9 +38,9 @@ import {
   INVITE_ROLES,
   ROLE_LABEL,
   accessSummary,
+  albumContents,
   firstName,
   invitedWhen,
-  plural,
   roleInSentence,
 } from '@/lib/workspaces';
 import { cn } from '@/lib/utils';
@@ -359,7 +359,7 @@ function AccessEditor({
                 <li key={album.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t py-2.5 first:border-t-0">
                   <div className="min-w-0 flex-1 basis-28">
                     <p className="truncate text-[13px] font-semibold">{album.name}</p>
-                    <p className="text-xs text-muted-foreground">{plural(album.item_count, 'file')}</p>
+                    <p className="text-xs text-muted-foreground">{albumContents(album)}</p>
                   </div>
                   <div
                     role="radiogroup"

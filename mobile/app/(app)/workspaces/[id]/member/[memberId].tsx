@@ -20,8 +20,8 @@ import {
   ACCESS_LEVELS,
   INVITE_ROLES,
   ROLE_LABEL,
+  albumContents,
   firstName,
-  plural,
 } from '@/src/lib/workspaces';
 import { LoadFailed } from '@/components/LoadFailed';
 import { ChoiceSheet, PersonAvatar } from '@/components/WorkspaceBits';
@@ -248,7 +248,7 @@ export default function MemberAccessScreen() {
                       <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
                         {album.name}
                       </Text>
-                      <Text className="text-muted-foreground text-xs mt-0.5">{plural(album.item_count, 'file')}</Text>
+                      <Text className="text-muted-foreground text-xs mt-0.5">{albumContents(album)}</Text>
                     </View>
                     <Text className={`text-[13px] font-semibold ${value === 'none' ? 'text-muted-foreground' : 'text-foreground'}`}>
                       {value === 'none' ? 'Can’t see' : ACCESS_LABEL[value]}

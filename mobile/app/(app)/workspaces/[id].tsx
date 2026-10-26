@@ -37,10 +37,10 @@ import {
   ACCESS_LABEL,
   ROLE_LABEL,
   accessPhrase,
+  albumContents,
   deleteConsequence,
   firstName,
   invitedWhen,
-  plural,
   roleInSentence,
 } from '@/src/lib/workspaces';
 import { RemoteImage } from '@/components/RemoteImage';
@@ -180,7 +180,7 @@ function AlbumRow({ album, showSharing, divider }: { album: Album; showSharing: 
         <View className="flex-row items-center gap-1 mt-0.5">
           {isPrivate && <LockIcon size={11} className="text-warning" />}
           <Text className={`text-xs ${isPrivate ? 'text-warning' : 'text-muted-foreground'}`} numberOfLines={1}>
-            {plural(album.item_count, 'file')}
+            {albumContents(album)}
             {showSharing ? ` · ${label}` : ''}
           </Text>
         </View>
@@ -745,7 +745,7 @@ function SharedView({ workspace }: { workspace: Workspace }) {
                     <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
                       {album.name}
                     </Text>
-                    <Text className="text-muted-foreground text-xs mt-0.5">{plural(album.item_count, 'file')}</Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">{albumContents(album)}</Text>
                   </View>
                   {album.my_access && album.my_access !== 'owner' ? (
                     <Pill tone="info">You can {ACCESS_LABEL[album.my_access].toLowerCase()}</Pill>

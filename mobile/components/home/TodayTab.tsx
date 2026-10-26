@@ -13,7 +13,6 @@ import {
   MailIcon,
   ReceiptIcon,
   UsersIcon,
-  WalletIcon,
   type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -26,16 +25,18 @@ import {
   useEventInvitations,
   useHireEnquiries,
   useMarkJobsSeen,
+  useMoneyInsights,
   useMoneySuggestions,
   useMoneySummary,
   usePlanLimits,
   useScheduleEventRange,
+  useStorageBreakdown,
   useTheme,
   useUnseenJobs,
   useUsage,
   useWorkspaces,
 } from '@/src/hooks';
-import { formatMoney, monthLabel, monthOf, monthRange, todayIso } from '@/src/api';
+import { formatBytes, formatMoney, monthOf, monthRange, todayIso } from '@/src/api';
 import type { ScheduleEvent } from '@/src/api';
 import {
   combineDateAndTime,
@@ -51,15 +52,26 @@ import { goToTab } from '@/src/lib/navigation';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 import { plural } from '@/src/lib/workspaces';
 import { PALETTES } from '@/theme';
+import { LargestAlbums, type AlbumSize } from './LargestAlbums';
+import { MoneyTrendCard, type MoneyMonth } from './MoneyTrendCard';
+import { PlanCard } from './PlanCard';
 
 for (const Icon of [
   ArrowUpRightIcon, BriefcaseIcon, CalendarIcon, CalendarPlusIcon, ChevronRightIcon,
-  FolderPlusIcon, HandCoinsIcon, HardDriveIcon, MailIcon, ReceiptIcon, UsersIcon, WalletIcon,
+  FolderPlusIcon, HandCoinsIcon, HardDriveIcon, MailIcon, ReceiptIcon, UsersIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
 const LABEL = 'text-muted-foreground text-[13px] font-semibold';
+
+/** The last `n` months up to this one, oldest first, as "2026-10" keys. */
+function lastMonths(n: number, now = new Date()): string[] {
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (n - 1 - i), 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+}
 
 /**
  * "Today", "Tomorrow", a weekday this week, or a date.
@@ -131,9 +143,35 @@ export function TodayTab() {
   } = useWorkspaces({ orderBy: 'updated_at', direction: 'desc', limit: 3 }, enabled);
   const { guardWorkspaceCreate } = usePlanLimits();
 
-  const moneyMonth = monthOf(todayIso());
-  const moneyRange = monthRange(moneyMonth);
-  const { summary: money } = useMoneySummary(moneyRange.from, moneyRange.to, enabled);
+  // What the plan allows and what is using it.
+  const { usage } = useUsage(enabled);
+  const { breakdown } = useStorageBreakdown(enabled);
+  const largest: AlbumSize[] = breakdown.byAlbum
+    .filter((a) => a.albumId && a.bytes > 0)
+    .slice(0, 4)
+    .map((a) => ({ albumId: a.albumId as string, name: a.name ?? 'Untitled album', bytes: a.bytes }));
+
+  // The last six months, which reach back into last year until June: the
+  // insights come a calendar year at a time, so then it takes two.
+  const [lastSix] = useState(() => lastMonths(6));
+  const thisYear = Number(lastSix[lastSix.length - 1].slice(0, 4));
+  const spansYears = Number(lastSix[0].slice(0, 4)) !== thisYear;
+  const { insights: thisYearMoney, loadFailed: moneyFailed, refetch: refetchMoney } =
+    useMoneyInsights(thisYear, enabled);
+  const { insights: lastYearMoney } = useMoneyInsights(thisYear - 1, {
+    enabled: !!user?.id && spansYears,
+  });
+  const moneyMonths: MoneyMonth[] | null =
+    thisYearMoney && (!spansYears || lastYearMoney)
+      ? lastSix.map(
+          (key) =>
+            [...(lastYearMoney?.months ?? []), ...thisYearMoney.months].find((m) => m.month === key) ?? {
+              month: key,
+              incomeMinor: 0,
+              expenseMinor: 0,
+            },
+        )
+      : null;
 
   const upcoming = events.filter((e) => isEventUpcoming(e.event_date, e.event_time)).slice(0, 4);
   const nextEvent = upcoming[0] ?? null;
@@ -248,50 +286,49 @@ export function TodayTab() {
         </View>
       )}
 
-      {/* ── Money ── */}
-      {/* One line: what the month kept. What clients still owe is in Needs
-          you, where it can be acted on, not repeated here. */}
-      <PressableScale
-        onPress={() => router.push('/money')}
-        accessibilityRole="button"
-        accessibilityLabel={
-          money && money.entries > 0
-            ? `Money in ${monthLabel(moneyMonth)}: ${formatMoney(money.incomeMinor - money.expenseMinor)} kept`
-            : 'Money. Track what you earn and spend'
-        }
-        scaleTo={0.98}
-        className="bg-card rounded-2xl border border-border/40 px-4 py-3.5 flex-row items-center gap-3"
-      >
-        <View className="w-9 h-9 rounded-xl bg-success/15 items-center justify-center">
-          <WalletIcon size={17} className="text-success" />
+      {/* ── Your plan ── */}
+      {/* Nothing until the figures arrive: "0 B of 15 GB" before they do
+          would be a claim about the account, not a placeholder. */}
+      {usage ? (
+        <View>
+          <Text className={`${LABEL} mb-2`}>Your plan</Text>
+          <PlanCard usage={usage} byKind={breakdown.byType} />
         </View>
-        {money && money.entries > 0 ? (
-          <>
-            <View className="flex-1 min-w-0">
-              <Text className="text-foreground text-sm font-semibold">Money · {monthLabel(moneyMonth)}</Text>
-              <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-                In {formatMoney(money.incomeMinor)} · Out {formatMoney(money.expenseMinor)}
-              </Text>
-            </View>
-            <View className="items-end">
-              <Text
-                className={`text-[16px] font-bold ${money.incomeMinor - money.expenseMinor < 0 ? 'text-destructive' : 'text-foreground'}`}
-              >
-                {formatMoney(money.incomeMinor - money.expenseMinor)}
-              </Text>
-              <Text className="text-muted-foreground text-xs">kept</Text>
-            </View>
-          </>
-        ) : (
-          <View className="flex-1 min-w-0">
-            <Text className="text-foreground text-sm font-semibold">Track your money</Text>
-            <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-              What each shoot earned, what it cost, who still owes
-            </Text>
+      ) : null}
+
+      {/* ── Money ── */}
+      {/* Six months of it. What clients still owe is in Needs you, where it
+          can be acted on, not repeated here. */}
+      <View>
+        <Text className={`${LABEL} mb-2`}>Money · last 6 months</Text>
+        {moneyMonths ? (
+          <MoneyTrendCard months={moneyMonths} />
+        ) : moneyFailed ? (
+          <View className="bg-card rounded-2xl border border-border/40">
+            <LoadFailed what="your money" onRetry={() => refetchMoney()} compact />
           </View>
+        ) : (
+          <Skeleton className="rounded-2xl" style={{ height: 132 }} />
         )}
-        <ChevronRightIcon size={16} className="text-muted-foreground" />
-      </PressableScale>
+      </View>
+
+      {/* ── Largest albums ── */}
+      {largest.length > 0 && (
+        <View>
+          <View className="flex-row items-center justify-between mb-1">
+            <Text className={LABEL}>Largest albums</Text>
+            <Pressable
+              onPress={() => router.push('/settings/storage')}
+              accessibilityRole="button"
+              className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60"
+            >
+              <Text className="text-primary text-sm font-semibold">Storage</Text>
+              <ChevronRightIcon size={14} className="text-primary" />
+            </Pressable>
+          </View>
+          <LargestAlbums albums={largest} />
+        </View>
+      )}
 
       {/* ── Recent work ── */}
       <View>
@@ -361,7 +398,14 @@ export function TodayTab() {
                   {ws.name}
                 </Text>
                 <Text className="text-muted-foreground text-[11px] mt-1" numberOfLines={1}>
-                  {ws.album_count > 0 ? plural(ws.album_count, 'album') : 'No albums yet'}
+                  {/* Its size only for the owner: the API keeps a member's
+                      share of somebody else's storage to itself. */}
+                  {[
+                    ws.album_count > 0 ? plural(ws.album_count, 'album') : 'No albums yet',
+                    ws.storage_bytes ? formatBytes(ws.storage_bytes) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </Text>
               </PressableScale>
             ))}

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useInfiniteAlbums } from '@/hooks/useAlbums';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
-import type { Album, AlbumStatus } from '@/api';
+import { formatBytes, type Album, type AlbumStatus } from '@/api';
 import { cn } from '@/lib/utils';
 
 const STATUSES: { key: AlbumStatus | 'all'; label: string }[] = [
@@ -248,7 +248,16 @@ function AlbumCard({ album }: { album: Album }) {
         </span>
       </div>
       <div className="space-y-1.5 p-3">
-        <p className="truncate text-sm font-semibold">{album.name}</p>
+        {/* The size beside the name rather than in the row below, which has
+            no room left once an album holds photos, films and recordings. */}
+        <div className="flex items-baseline gap-2">
+          <p className="min-w-0 flex-1 truncate text-sm font-semibold">{album.name}</p>
+          {album.size_bytes ? (
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {formatBytes(album.size_bytes)}
+            </span>
+          ) : null}
+        </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           {parts.length > 0 ? (
             parts.map(({ n, Icon, label }) => (

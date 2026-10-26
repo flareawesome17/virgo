@@ -53,6 +53,7 @@ import { IS_DESKTOP } from '@/lib/desktop';
 import { formatTime, isEventUpcoming, parseDateKey } from '@/lib/calendar';
 import {
   ACCESS_LABEL,
+  albumContents,
   firstName,
   invitedWhen,
   joinNames,
@@ -96,13 +97,18 @@ function AlbumTile({ album, showSharing }: { album: Album; showSharing: boolean 
         )}
       </span>
       <span className="truncate text-[13px] font-semibold">{album.name}</span>
-      <span
-        className={`flex items-center gap-1 truncate text-xs ${isPrivate && showSharing ? 'text-warning' : 'text-muted-foreground'}`}
-      >
-        {isPrivate && showSharing && <Lock className="size-3 shrink-0" aria-hidden />}
-        {plural(album.item_count, 'file')}
-        {showSharing ? ` · ${label}` : ''}
-      </span>
+      {/* Who can open it on a line of its own: a tile is too narrow for the
+          count, the size and "Shared with 2" together, and it was the
+          sharing — the part that asks for something — that got cut off. */}
+      <span className="truncate text-xs text-muted-foreground">{albumContents(album)}</span>
+      {showSharing && (
+        <span
+          className={`-mt-1 flex items-center gap-1 truncate text-xs ${isPrivate ? 'text-warning' : 'text-muted-foreground'}`}
+        >
+          {isPrivate && <Lock className="size-3 shrink-0" aria-hidden />}
+          {label}
+        </span>
+      )}
     </Link>
   );
 }
@@ -563,7 +569,7 @@ function SharedWorkspace({ workspace }: { workspace: Workspace }) {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-semibold">{album.name}</span>
-                        <span className="block text-xs text-muted-foreground">{plural(album.item_count, 'file')}</span>
+                        <span className="block text-xs text-muted-foreground">{albumContents(album)}</span>
                       </span>
                       {album.my_access && album.my_access !== 'owner' && (
                         <Pill tone="info">You can {ACCESS_LABEL[album.my_access].toLowerCase()}</Pill>

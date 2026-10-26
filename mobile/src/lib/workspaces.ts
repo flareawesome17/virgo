@@ -7,6 +7,7 @@ import type {
   WorkspaceActivityItem,
   WorkspaceMember,
 } from '@/src/api';
+import { formatBytes } from '@/src/api';
 
 /**
  * Words for workspaces, members and access, in one place, so the list, the
@@ -94,6 +95,16 @@ export function joinNames(names: string[]): string {
 
 export function plural(count: number, one: string, many = `${one}s`): string {
   return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+}
+
+/**
+ * "48 files · 2.4 GB": what an album holds and the storage it takes. The size
+ * only when there is one — an API older than it sends none, and an empty
+ * album's 0 B says nothing "0 files" has not.
+ */
+export function albumContents(album: { item_count: number; size_bytes?: number }): string {
+  const files = plural(album.item_count, 'file');
+  return album.size_bytes ? `${files} · ${formatBytes(album.size_bytes)}` : files;
 }
 
 /**

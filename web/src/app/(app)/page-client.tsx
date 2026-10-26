@@ -4,27 +4,29 @@ import Link from 'next/link';
 import { useState } from 'react';
 import {
   CalendarDays,
+  Download,
   FolderOpen,
   HardDrive,
   Images,
   MessageCircle,
   UserPlus,
-  Users,
 } from 'lucide-react';
 import { Screen } from '@/components/app-shell';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAlbums } from '@/hooks/useAlbums';
-import { useScheduleEventRange, useScheduleEvents } from '@/hooks/useScheduleEvents';
-import { useCollaborators } from '@/hooks/useCollaborators';
+import { useScheduleEventRange } from '@/hooks/useScheduleEvents';
 import { useUsage } from '@/hooks/useUsage';
+import { useStorageBreakdown } from '@/hooks/useStorageAdmin';
 import { formatBytes } from '@/api';
 import { MoneyCard } from '@/components/money/money-card';
+import { PlanCard } from '@/components/dashboard/plan-card';
+import { LargestAlbums } from '@/components/dashboard/largest-albums';
+import { albumContents } from '@/lib/workspaces';
 import {
   dateToKey,
   eventTypeLabel,
@@ -67,12 +69,8 @@ export default function HomePage() {
     loadFailed: eventsFailed,
     refetch: refetchEvents,
   } = useScheduleEventRange(soonWindow.from, soonWindow.to);
-  const { total: eventTotal, data: eventsData } = useScheduleEvents({ limit: 1 });
-  const {
-    total: collaboratorTotal,
-    data: collaboratorsData,
-  } = useCollaborators({ limit: 100 });
-  const { storageUsedBytes, storageLimitBytes, storageFraction, usage } = useUsage();
+  const { usage } = useUsage();
+  const { breakdown } = useStorageBreakdown();
 
   const name = profile?.displayName?.split(' ')[0] || user?.email?.split('@')[0] || '';
 
@@ -87,15 +85,26 @@ export default function HomePage() {
     .slice(0, 5);
 
   const recentAlbums = albums.slice(0, 6);
+  // Albums only, largest first as the server sorts them: files in no album
+  // are a row of Storage's own, not an album to open.
+  const largestAlbums = breakdown.byAlbum
+    .flatMap((row) =>
+      row.albumId && row.bytes > 0
+        ? [{ albumId: row.albumId, name: row.name ?? 'Untitled album', bytes: row.bytes }]
+        : [],
+    )
+    .slice(0, 5);
 
   // Null until each list has arrived, and drawn as a dash: a 0 read as "you
   // have none" for the second or two before the real number came in.
-  // The server's totals, not the length of a list capped at 100.
+  // The server's totals, not the length of a list capped at 100. Downloaded
+  // is what clients took through share links this month, and a dash too
+  // while the server cannot count it (`downloads` null or absent).
   const stats = [
-    { label: 'Workspaces', value: workspacesData ? workspaceTotal : null, icon: FolderOpen, href: '/workspaces' },
-    { label: 'Albums', value: albumsData ? albumTotal : null, icon: Images, href: '/albums' },
-    { label: 'Collaborators', value: collaboratorsData ? collaboratorTotal : null, icon: Users, href: '/people' },
-    { label: 'Events', value: eventsData ? eventTotal : null, icon: CalendarDays, href: '/schedule' },
+    { label: 'Workspaces', value: workspacesData ? workspaceTotal.toLocaleString() : null, icon: FolderOpen, href: '/workspaces' },
+    { label: 'Albums', value: albumsData ? albumTotal.toLocaleString() : null, icon: Images, href: '/albums' },
+    { label: 'Stored', value: usage ? formatBytes(usage.storage.usedBytes) : null, icon: HardDrive, href: '/settings/storage' },
+    { label: 'Downloaded', value: usage?.downloads ? formatBytes(usage.downloads.usedBytes) : null, icon: Download, href: '/settings/storage' },
   ];
 
   return (
@@ -123,7 +132,7 @@ export default function HomePage() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-xl font-bold leading-none tabular-nums">
-                        {stat.value === null ? '—' : stat.value.toLocaleString()}
+                        {stat.value ?? '—'}
                       </p>
                       <p className="mt-1 truncate text-xs text-muted-foreground">
                         {stat.label}
@@ -138,7 +147,7 @@ export default function HomePage() {
 
         <div className="mt-6 grid gap-6 lg:grid-cols-3">
           {/* Upcoming */}
-          <section className="lg:col-span-2">
+          <section className="min-w-0 lg:col-span-2">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-muted-foreground">
                 Upcoming
@@ -242,8 +251,7 @@ export default function HomePage() {
                       <div className="p-3">
                         <p className="truncate text-sm font-semibold">{album.name}</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          {album.item_count ?? 0} item
-                          {(album.item_count ?? 0) === 1 ? '' : 's'}
+                          {albumContents(album)}
                         </p>
                       </div>
                     </Card>
@@ -251,42 +259,28 @@ export default function HomePage() {
                 ))}
               </div>
             )}
+
+            {/* Largest albums. Nothing to say until something is stored. */}
+            {largestAlbums.length > 0 && (
+              <>
+                <div className="mb-3 mt-8 flex items-center justify-between">
+                  <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                    Largest albums
+                  </h2>
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href="/settings/storage">See all</Link>
+                  </Button>
+                </div>
+                <LargestAlbums albums={largestAlbums} />
+              </>
+            )}
           </section>
 
           {/* Side rail */}
-          <aside className="flex flex-col gap-6">
+          <aside className="flex min-w-0 flex-col gap-6">
             <MoneyCard />
 
-            <Card>
-              <CardContent className="py-5">
-                <div className="flex items-center gap-2">
-                  <HardDrive className="size-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold">Storage</h3>
-                </div>
-                {/* A dash until the reading arrives. "0 B used" is a real
-                    answer, and it was being given before there was one. */}
-                <p className="mt-3 text-2xl font-bold tabular-nums">
-                  {usage ? formatBytes(storageUsedBytes) : '—'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {storageLimitBytes
-                    ? // Not "on free" once a reward has raised the ceiling above
-                      // what the plan gives — see the storage screen.
-                      `of ${formatBytes(storageLimitBytes)}${
-                        usage?.bonus?.storageBytes
-                          ? ' with rewards'
-                          : ` on ${usage?.plan ?? 'free'}`
-                      }`
-                    : 'used'}
-                </p>
-                {storageLimitBytes ? (
-                  <Progress value={storageFraction * 100} className="mt-3 h-1.5" />
-                ) : null}
-                <Button asChild variant="outline" size="sm" className="mt-4 w-full">
-                  <Link href="/settings/storage">Manage storage</Link>
-                </Button>
-              </CardContent>
-            </Card>
+            <PlanCard usage={usage} byKind={breakdown.byType} />
 
             <Card>
               <CardContent className="py-5">

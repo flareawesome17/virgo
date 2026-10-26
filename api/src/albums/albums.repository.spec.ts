@@ -25,6 +25,7 @@ interface FileRow {
   key: string;
   thumb_key: string | null;
   content_type: string;
+  size_bytes: number;
 }
 
 function photo(albumId: string, name: string, { thumbnail = true } = {}): FileRow {
@@ -34,6 +35,7 @@ function photo(albumId: string, name: string, { thumbnail = true } = {}): FileRo
     key: `${stem}.jpg`,
     thumb_key: thumbnail ? `${stem}-thumb.webp` : null,
     content_type: 'image/jpeg',
+    size_bytes: 6_000_000,
   };
 }
 
@@ -44,6 +46,7 @@ function media(albumId: string, key: string, contentType: string): FileRow {
     key: `users/${OWNER}/albums/2026/09/${key}`,
     thumb_key: null,
     content_type: contentType,
+    size_bytes: 50_000_000,
   };
 }
 
@@ -93,6 +96,7 @@ function repositoryOf(albums: AlbumRow[], files: FileRow[]) {
                 image: of('image'),
                 video: of('video'),
                 audio: of('audio'),
+                bytes: String(held.reduce((sum, file) => sum + file.size_bytes, 0)),
               },
             ];
       });
@@ -215,6 +219,15 @@ describe('AlbumsRepository item_count', () => {
 
     expect(albums.map((a) => a.item_count)).toEqual([5, 0]);
     expect(albums[0].counts).toEqual({ image: 3, video: 1, audio: 1 });
+  });
+
+  it('says how much storage each album takes, an empty one included', async () => {
+    const { repository } = repositoryOf([DRIFTED, album('empty')], FIVE_FILES);
+
+    const albums = await repository.findAll(OWNER);
+
+    // Three 6 MB photographs, a film and a track of 50 MB each.
+    expect(albums.map((a) => a.size_bytes)).toEqual([118_000_000, 0]);
   });
 
   it('answers an edit with the count, not the row as stored', async () => {
