@@ -375,11 +375,15 @@ export class PublicAlbumController {
     const query = (req.query ?? {}) as Record<string, unknown>;
     const fromWaitingPage = query.wait !== undefined;
     const tries = Math.min(9, Math.max(0, Math.floor(Number(query.try)) || 0));
+    // How far the last waiting page's ring had filled, so this one fills on
+    // from there. Anything that is not 0–100 is ignored.
+    const p = Math.floor(Number(query.p));
+    const shown = Number.isFinite(p) && p >= 0 && p <= 100 ? p : undefined;
     const wantsPage = String(req.headers.accept ?? '').includes('text/html');
     const inApp = isInAppBrowser(req.headers['user-agent']);
 
     if (entry.state === 'ready' && wantsPage && fromWaitingPage) {
-      res.status(200).type('html').send(renderZipReady(entry.size, inApp));
+      res.status(200).type('html').send(renderZipReady(entry.size, inApp, shown));
       return;
     }
     if (entry.state === 'ready') {
@@ -408,7 +412,7 @@ export class PublicAlbumController {
     }
     res.status(wantsPage ? 200 : 503).setHeader('Retry-After', '3');
     if (wantsPage) {
-      res.type('html').send(renderZipPreparing(this.zips.progress(entry), tries, inApp));
+      res.type('html').send(renderZipPreparing(this.zips.progress(entry), tries, inApp, shown));
     } else {
       res.type('text/plain').send(`Preparing ${entry.done}/${entry.total}. Retry shortly.`);
     }
