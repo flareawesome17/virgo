@@ -721,6 +721,20 @@ export interface CustomerBilling {
   }[];
 }
 
+/** This month's client downloads for one account, as the allowance counts them. */
+export interface CustomerDownloads {
+  /** What the account's client links delivered this month, each file once. */
+  usedBytes: number;
+  /** The plan's allowance plus this month's extra. null is unlimited. */
+  limitBytes: number | null;
+  /** Midnight UTC on the 1st of next month. */
+  resetsAt: string;
+  /** New client downloads are refused. */
+  paused: boolean;
+  /** What staff added for this month, inside limitBytes. 0 when nothing. */
+  extraBytes: number;
+}
+
 export interface CustomerMarketplace {
   posts: {
     id: string;
@@ -1111,6 +1125,10 @@ export const console_ = {
       `/admin/users/${id}/timeline${qs({ before, limit: 40 })}`,
     ),
   customerBilling: (id: string) => api.get<CustomerBilling>(`/admin/users/${id}/billing`),
+  customerDownloads: (id: string) => api.get<CustomerDownloads>(`/admin/users/${id}/downloads`),
+  /** Replaces this month's extra with `gigabytes`; 0 removes it. */
+  setDownloadExtra: (id: string, gigabytes: number) =>
+    api.post<CustomerDownloads>(`/admin/users/${id}/downloads/extra`, { gigabytes }),
   customerMarketplace: (id: string) =>
     api.get<CustomerMarketplace>(`/admin/users/${id}/marketplace`),
   customerSafety: (id: string) => api.get<CustomerSafety>(`/admin/users/${id}/safety`),

@@ -758,6 +758,33 @@ export function useCustomerBilling(id: string, enabled = true) {
   });
 }
 
+export function useCustomerDownloads(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ['customerDownloads', id],
+    queryFn: () => console_.customerDownloads(id),
+    enabled: !!id && enabled,
+  });
+}
+
+/**
+ * Sets this month's extra client downloads. The answer is the new standing,
+ * so the card takes it as-is rather than asking again.
+ */
+export function useSetDownloadExtra(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (gigabytes: number) => console_.setDownloadExtra(id, gigabytes),
+    onSuccess: (usage, gigabytes) => {
+      qc.setQueryData(['customerDownloads', id], usage);
+      toast.success(gigabytes === 0 ? 'Extra removed' : `Extra set to ${gigabytes} GB`, {
+        description: usage.paused ? 'Their client downloads are still paused.' : undefined,
+      });
+      for (const key of [['timeline', id], ['audit']]) void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'That did not work'),
+  });
+}
+
 export function useCustomerMarketplace(id: string) {
   return useQuery({
     queryKey: ['customerMarketplace', id],

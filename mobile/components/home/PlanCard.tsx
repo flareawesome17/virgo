@@ -2,7 +2,7 @@ import { Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { ChevronRightIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { formatBytes, type UsageSummary } from '@/src/api';
+import { downloadsPaused, formatBytes, type UsageSummary } from '@/src/api';
 import { useTheme } from '@/src/hooks';
 import { CHART_COLORS, PALETTES } from '@/theme';
 
@@ -65,7 +65,7 @@ export function PlanCard({
   const downloads = usage.downloads ?? null;
   const dlLimit = downloads?.limitBytes ?? null;
   const dlFraction = downloads && dlLimit ? downloads.usedBytes / dlLimit : 0;
-  const paused = dlLimit != null && !!downloads && downloads.usedBytes >= dlLimit;
+  const paused = !!downloads && downloadsPaused(downloads);
   // Named in UTC: the count starts again at midnight UTC on the 1st, which
   // read as "Oct 31" west of Greenwich in the phone's own zone.
   const reset = downloads
@@ -153,6 +153,11 @@ export function PlanCard({
           <Text className={`text-xs mt-1.5 ${paused ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}>
             {paused ? `Paused until ${reset}` : `This month · resets ${reset}`}
           </Text>
+          {!!downloads.extraBytes && (
+            <Text className="text-muted-foreground text-xs mt-1">
+              Includes {formatBytes(downloads.extraBytes)} extra this month
+            </Text>
+          )}
         </View>
       )}
 

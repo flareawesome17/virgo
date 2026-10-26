@@ -940,8 +940,9 @@ export function adminPasswordReset(options: {
 }
 
 /**
- * The photographer's clients have used most of the month's downloads, or all
- * of them.
+ * The photographer's client links have delivered most of the month's
+ * allowance, or all of it, or sent so much more than delivering takes that
+ * the fair-use ceiling was reached.
  *
  * Without it the first anybody heard of the allowance was a client sending the
  * photographer a screenshot of "Downloads are paused". Sent at most twice a
@@ -949,24 +950,33 @@ export function adminPasswordReset(options: {
  */
 export function clientDownloadsAlert(options: {
   state: 'warning' | 'paused';
+  /** Why it paused: the allowance delivered, or the fair-use ceiling sent. */
+  reason?: 'allowance' | 'fair-use';
   name: string;
-  /** "24 GB": downloaded through the photographer's client links this month. */
+  /** "24 GB": delivered through the photographer's client links this month. */
   used: string;
   /** "30 GB": the month's allowance. */
   limit: string;
+  /** "450 GB": everything the client links sent this month, deliveries and repeats. */
+  sent?: string;
   /** "November 1": when the count starts again. */
   resetsOn: string;
   /** Settings → Storage, in the web app. */
   url: string;
 }): RenderedEmail {
   const paused = options.state === 'paused';
+  const fairUse = paused && options.reason === 'fair-use';
   const heading = paused ? 'Client downloads are paused' : 'Most of this month’s client downloads are used';
-  const intro = paused
-    ? `Hi ${options.name}, your clients have downloaded your ${options.limit} for this month, so new downloads from your client links are paused until ${options.resetsOn}.`
-    : `Hi ${options.name}, your clients have downloaded ${options.used} of your ${options.limit} this month. At ${options.limit}, new downloads from your client links pause until ${options.resetsOn}.`;
-  const outro = paused
-    ? 'Your galleries still open, and downloads already under way will finish. A client who starts a new one is asked to try again later. Nothing has been deleted.'
-    : 'Downloads already under way always finish, even past the limit.';
+  const intro = fairUse
+    ? `Hi ${options.name}, your client links have sent ${options.sent ?? 'far more than usual'} this month — far more than delivering your galleries takes — so new downloads from them are paused until ${options.resetsOn}.`
+    : paused
+      ? `Hi ${options.name}, your client links have delivered your ${options.limit} for this month, so new downloads from them are paused until ${options.resetsOn}.`
+      : `Hi ${options.name}, your client links have delivered ${options.used} of your ${options.limit} this month. At ${options.limit}, new downloads from them pause until ${options.resetsOn}.`;
+  const outro = fairUse
+    ? 'A file counts once a month however often it is downloaded, so this usually means a link was shared beyond your clients. If that is expected, reply to this email and we will look at it.'
+    : paused
+      ? 'Your galleries still open, and downloads already under way will finish. A client who starts a new one is asked to try again later. Nothing has been deleted.'
+      : 'Each file counts once a month, however many times your clients download it, and downloads already under way always finish.';
 
   return {
     subject: heading,

@@ -48,7 +48,9 @@ import { contentDisposition } from '../../storage/download-names';
 import { VisitsService } from '../../visits/visits.service';
 import {
   DownloadAllowanceService,
+  filesReached,
   isResumedRange,
+  rangeStart,
 } from '../../quota/download-allowance.service';
 import {
   renderClientGallery,
@@ -363,7 +365,9 @@ export class PublicAlbumController {
     const open = (key: string) => this.cacheStream(key);
     const reopen = (key: string, from: number) => this.cacheStreamFrom(key, from);
     if (!this.zips.enabled) {
-      this.allowance.meter(ownerId, res);
+      // Streamed from the start, so what has gone out is the files from the
+      // first one on.
+      this.allowance.meter(ownerId, res, (sent) => filesReached(files, 0, sent));
       await streamZip(res, zipName, files, open, this.logger, { reopen });
       return;
     }
@@ -389,7 +393,10 @@ export class PublicAlbumController {
     if (entry.state === 'ready') {
       const release = this.zips.hold(entry);
       res.on('close', release);
-      this.allowance.meter(ownerId, res);
+      // A resume starts part way in; the files it reaches are counted from
+      // there, and any already counted this month cost nothing again.
+      const from = rangeStart(req.headers.range, entry.size);
+      this.allowance.meter(ownerId, res, (sent) => filesReached(files, from, sent));
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Disposition', contentDisposition(zipName));
       await new Promise<void>((resolve) =>
@@ -448,7 +455,14 @@ export class PublicAlbumController {
       }
       const ranged = typeof req.headers.range === 'string';
       if (
-        await this.serveFromHost(target.key, target.name, target.ownerId, res, ranged)
+        await this.serveFromHost(
+          target.key,
+          target.name,
+          target.sizeBytes,
+          target.ownerId,
+          res,
+          ranged,
+        )
       ) {
         return;
       }
@@ -458,10 +472,14 @@ export class PublicAlbumController {
       // the whole file is charged when the link is handed out.
       // A segment that starts past byte 0 is the same download continuing (a
       // resume, or one of a download manager's parallel pieces), so only the
-      // first piece is charged for the file.
+      // first piece is charged for the file. Delivered either way: counting
+      // it again this month adds nothing.
       if (!isResumedRange(req.headers.range)) {
-        void this.allowance.record(target.ownerId, target.sizeBytes);
+        void this.allowance.recordSent(target.ownerId, target.sizeBytes);
       }
+      void this.allowance.recordDelivered(target.ownerId, [
+        { key: target.key, bytes: target.sizeBytes },
+      ]);
     } catch (err) {
       this.logger.warn(`Single download refused: ${String(err)}`);
       res
@@ -517,11 +535,14 @@ export class PublicAlbumController {
   private async serveFromHost(
     key: string,
     name: string,
+    sizeBytes: number,
     ownerId: string,
     res: Response,
     ranged = false,
   ): Promise<boolean> {
     if (!this.cache.enabled) return false;
+    // Any of it going out delivers the file.
+    const delivered = (sent: number) => (sent > 0 ? [{ key, bytes: sizeBytes }] : []);
     const headers = {
       'Content-Disposition': contentDisposition(name),
       'Cache-Control': 'private, no-store',
@@ -530,7 +551,7 @@ export class PublicAlbumController {
     try {
       const hit = await this.cache.lookup(key);
       if (hit) {
-        this.allowance.meter(ownerId, res);
+        this.allowance.meter(ownerId, res, delivered);
         await new Promise<void>((resolve) =>
           res.sendFile(hit.path, { headers, dotfiles: 'allow' }, () => resolve()),
         );
@@ -541,7 +562,7 @@ export class PublicAlbumController {
       // rather than answer 200 with the whole file to a resume.
       if (ranged) return false;
       const { stream, size } = await this.cache.open(key);
-      this.allowance.meter(ownerId, res);
+      this.allowance.meter(ownerId, res, delivered);
       res.set(headers);
       res.type('application/octet-stream');
       if (size !== undefined) res.setHeader('Content-Length', String(size));

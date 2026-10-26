@@ -53,15 +53,20 @@ const GB = 1024 ** 3;
 
 const TB = 1024 ** 4;
 
-/** Monthly client downloads, as a multiple of the plan's storage. */
-const FREE_DOWNLOAD_MULTIPLE = 2;
-const PAID_DOWNLOAD_MULTIPLE = 3;
+/**
+ * Monthly client downloads, as a multiple of the plan's storage: the same
+ * three times on every plan, Free included. Free was twice, which one wedding
+ * downloaded by a couple and a parent used up while every byte sent counted.
+ * Deliveries count each file once now (DownloadAllowanceService), and three
+ * times makes the rule one sentence.
+ */
+const DOWNLOAD_MULTIPLE = 3;
 
 const FREELANCE: PlanLimits = {
   storageBytes: 100 * GB,
   workspaces: 3,
   albumsPerWorkspace: 10,
-  downloadBytesPerMonth: PAID_DOWNLOAD_MULTIPLE * 100 * GB,
+  downloadBytesPerMonth: DOWNLOAD_MULTIPLE * 100 * GB,
 };
 
 /**
@@ -81,7 +86,7 @@ export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
     storageBytes: 15 * GB,
     workspaces: 3,
     albumsPerWorkspace: 10,
-    downloadBytesPerMonth: FREE_DOWNLOAD_MULTIPLE * 15 * GB,
+    downloadBytesPerMonth: DOWNLOAD_MULTIPLE * 15 * GB,
   },
   freelance: FREELANCE,
   // An alias, not a separate tier — same limits.
@@ -90,13 +95,13 @@ export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
     storageBytes: 500 * GB,
     workspaces: 10,
     albumsPerWorkspace: Infinity,
-    downloadBytesPerMonth: PAID_DOWNLOAD_MULTIPLE * 500 * GB,
+    downloadBytesPerMonth: DOWNLOAD_MULTIPLE * 500 * GB,
   },
   business: {
     storageBytes: 2 * TB,
     workspaces: Infinity,
     albumsPerWorkspace: Infinity,
-    downloadBytesPerMonth: PAID_DOWNLOAD_MULTIPLE * 2 * TB,
+    downloadBytesPerMonth: DOWNLOAD_MULTIPLE * 2 * TB,
   },
 };
 
@@ -126,7 +131,7 @@ export const PLAN_CATALOGUE: PlanInfo[] = [
     ...PLAN_LIMITS.free,
     features: [
       '15 GB cloud storage',
-      '30 GB of client downloads a month',
+      '45 GB of client downloads a month',
       '3 workspaces',
       '10 albums per workspace',
       'Client share links',
