@@ -205,12 +205,14 @@ export class AuthController {
     // client it implies. See SessionsService.alertNewSignIn.
     @Headers('origin') origin?: string,
     @Headers('cf-ipcountry') country?: string,
+    @Headers('cf-connecting-ip') ip?: string,
   ) {
     return this.auth.login(dto.email, dto.password, {
       unpause: dto.unpause === true,
       userAgent,
       origin,
       country,
+      ip,
     });
   }
 
@@ -223,11 +225,13 @@ export class AuthController {
     @Headers('user-agent') userAgent?: string,
     @Headers('origin') origin?: string,
     @Headers('cf-ipcountry') country?: string,
+    @Headers('cf-connecting-ip') ip?: string,
   ) {
     return this.auth.completeTwoFactorLogin(dto.challengeToken, dto.code, {
       userAgent,
       origin,
       country,
+      ip,
     });
   }
 
