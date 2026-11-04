@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { SORT_AT_SQL } from '../storage/capture-time';
-import { IN_LIVE_WORKSPACE } from '../workspaces/live-workspace';
+import { LIVE_ALBUM, NOT_IN_TRASH } from '../workspaces/live-workspace';
 import { limitsFor, toJsonLimit, type PlanLimits } from './quota.config';
 
 export interface StoredFile {
@@ -136,7 +136,7 @@ export class QuotaService {
       `select (a.user_id = $1) as owner, ca.media_access
          from albums a
          -- In Recently deleted, an album is nobody's, owner included, until
-         -- its workspace is restored.
+         -- it, or its workspace, is restored.
          join workspaces w on w.id = a.workspace_id and w.deleted_at is null
          left join collaborators c
            on c.workspace_id = a.workspace_id
@@ -146,6 +146,7 @@ export class QuotaService {
            on ca.collaborator_id = c.id
           and ca.album_id = a.id
         where a.id = $2
+          and a.deleted_at is null
         limit 1`,
       [userId, albumId],
     );
@@ -257,11 +258,16 @@ export class QuotaService {
     };
   }
 
-  /** Bytes currently stored, summed from the recorded file rows. */
+  /**
+   * Bytes stored, summed from the recorded file rows, leaving out what is in
+   * Recently deleted (NOT_IN_TRASH): deleting an album or a workspace is how
+   * someone at their limit makes room, so the room is there at once.
+   */
   async storageUsed(userId: string): Promise<number> {
     const row = await this.db.queryOne<{ total: string }>(
-      `select coalesce(sum(size_bytes), 0)::text as total
-         from user_files where user_id = $1`,
+      `select coalesce(sum(f.size_bytes), 0)::text as total
+         from user_files f
+        where f.user_id = $1 and ${NOT_IN_TRASH('f')}`,
       [userId],
     );
     return Number(row?.total ?? 0);
@@ -278,7 +284,7 @@ export class QuotaService {
       table === 'workspaces'
         ? 'select count(*)::text as count from workspaces where user_id = $1 and deleted_at is null'
         : `select count(*)::text as count from albums a
-            where a.user_id = $1 and ${IN_LIVE_WORKSPACE('a')}`,
+            where a.user_id = $1 and ${LIVE_ALBUM('a')}`,
       [userId],
     );
     return Number(row?.count ?? 0);
@@ -296,7 +302,8 @@ export class QuotaService {
       this.storageUsed(userId),
       this.db
         .queryOne<{ count: string }>(
-          'select count(*)::text as count from user_files where user_id = $1',
+          `select count(*)::text as count from user_files f
+            where f.user_id = $1 and ${NOT_IN_TRASH('f')}`,
           [userId],
         )
         .then((r) => Number(r?.count ?? 0)),
@@ -343,6 +350,38 @@ export class QuotaService {
   }
 
   /**
+   * Throws 403 when bringing something back from Recently deleted would take
+   * storage past the plan.
+   *
+   * Nothing there counts (NOT_IN_TRASH), so restoring adds its files back,
+   * which is the same question as uploading them. Left unasked, deleting an
+   * album, filling the room it made and restoring it would be a way past any
+   * limit.
+   */
+  async assertCanRestore(
+    userId: string,
+    bytes: number,
+    what: 'album' | 'workspace',
+  ): Promise<void> {
+    if (bytes <= 0) return;
+    const limits = await this.limits(userId);
+    if (!Number.isFinite(limits.storageBytes)) return;
+
+    const used = await this.storageUsed(userId);
+    if (used + bytes > limits.storageBytes) {
+      const gb = (limits.storageBytes / 1024 ** 3).toFixed(0);
+      const remaining = Math.max(limits.storageBytes - used, 0);
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'Forbidden',
+        // Not STORAGE_FULL, which a client may answer with upload copy.
+        code: 'RESTORE_NEEDS_ROOM',
+        message: `Restoring this ${what} needs ${formatBytes(bytes)}, and ${formatBytes(remaining)} of your ${gb} GB is free. Delete something to make room, then restore it.`,
+      });
+    }
+  }
+
+  /**
    * Album limits are per workspace, not global.
    *
    * "2 workspaces with 5 albums each" is how the plan is sold, and a global cap
@@ -355,10 +394,10 @@ export class QuotaService {
 
     const row = await this.db.queryOne<{ count: string }>(
       workspaceId
-        ? `select count(*)::text as count from albums
-            where user_id = $1 and workspace_id = $2`
+        ? `select count(*)::text as count from albums a
+            where a.user_id = $1 and a.workspace_id = $2 and a.deleted_at is null`
         : `select count(*)::text as count from albums a
-            where a.user_id = $1 and ${IN_LIVE_WORKSPACE('a')}`,
+            where a.user_id = $1 and ${LIVE_ALBUM('a')}`,
       workspaceId ? [userId, workspaceId] : [userId],
     );
     const used = Number(row?.count ?? 0);
@@ -563,8 +602,9 @@ export class QuotaService {
       params.push(filter.albumId);
       where = `album_id = $${params.length}`;
     } else {
+      // The library leaves out what is in Recently deleted, as the meter does.
       params.push(userId);
-      where = `user_id = $${params.length}`;
+      where = `user_id = $${params.length} and ${NOT_IN_TRASH('user_files')}`;
     }
 
     // Section and picks narrow the scope the kind counts are taken over, so
@@ -683,7 +723,7 @@ export class QuotaService {
     if (keys.length === 0) return 0;
 
     const album = await this.db.queryOne<{ id: string }>(
-      `select id from albums a where a.id = $1 and a.user_id = $2 and ${IN_LIVE_WORKSPACE('a')}`,
+      `select id from albums a where a.id = $1 and a.user_id = $2 and ${LIVE_ALBUM('a')}`,
       [albumId, userId],
     );
     if (!album) {
@@ -723,7 +763,7 @@ export class QuotaService {
               count(*)::text as files
          from user_files f
          left join albums a on a.id = f.album_id and a.user_id = f.user_id
-        where f.user_id = $1
+        where f.user_id = $1 and ${NOT_IN_TRASH('f')}
         group by f.album_id, a.name
         order by sum(f.size_bytes) desc`,
       [userId],
@@ -742,10 +782,10 @@ export class QuotaService {
                   then split_part(content_type, '/', 1)
                 else 'other'
               end as kind,
-              coalesce(sum(size_bytes), 0)::text as bytes,
+              coalesce(sum(f.size_bytes), 0)::text as bytes,
               count(*)::text as files
-         from user_files
-        where user_id = $1
+         from user_files f
+        where f.user_id = $1 and ${NOT_IN_TRASH('f')}
         group by 1
         order by sum(size_bytes) desc`,
       [userId],
@@ -852,6 +892,26 @@ export class QuotaService {
         order by ${SORT_AT_SQL}, key`,
       [albumId, keys],
     );
+  }
+
+  /**
+   * A page of the keys of every file in these albums, in key order, after
+   * `after`: what emptying Recently deleted works through.
+   */
+  async albumFileKeys(
+    albumIds: readonly string[],
+    after: string,
+    limit: number,
+  ): Promise<string[]> {
+    if (albumIds.length === 0) return [];
+    const rows = await this.db.query<{ key: string }>(
+      `select key from user_files
+        where album_id = any($1::text[]) and key > $2
+        order by key
+        limit $3`,
+      [albumIds, after, limit],
+    );
+    return rows.map((r) => r.key);
   }
 
   /** Original keys plus any thumbnail/poster objects stored beside them. */

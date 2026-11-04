@@ -245,6 +245,8 @@ export class WorkspaceActivityService {
           and subject_c.collaborator_user_id = wa.subject_id
          left join albums a on a.id = wa.album_id
         where wa.workspace_id = $2
+          -- Nothing about an album in Recently deleted, back when it is restored.
+          and (wa.album_id is null or a.deleted_at is null)
           and (
             $3::boolean
             or (wa.album_id is null and wa.kind = any($4::text[]))

@@ -4,6 +4,7 @@ import type { DatabaseService } from '../database/database.service';
 import type { NotifyService } from '../notifications/notify.service';
 import type { QuotaService } from '../quota/quota.service';
 import type { RealtimeGateway } from '../realtime/realtime.gateway';
+import type { StorageService } from '../storage/storage.service';
 import type { WorkspaceActivityService } from './workspace-activity.service';
 import { WorkspaceTrashService } from './workspace-trash.service';
 import { WorkspacesController } from './workspaces.controller';
@@ -28,10 +29,11 @@ const WORKSPACE = 'workspace-1';
 
 function serviceOver(
   gone: DeletedWorkspace | null,
-  options: { refuse?: Error; full?: Error } = {},
+  options: { refuse?: Error; full?: Error; noRoom?: Error } = {},
 ) {
   const workspaces = {
     trash: jest.fn(async () => gone),
+    restorableBytes: jest.fn(async () => (gone ? 4096 : null)),
     restore: jest.fn(async () => gone),
     findOne: jest.fn(async () => ({ id: WORKSPACE, name: 'Corepath Projects' })),
   };
@@ -44,6 +46,9 @@ function serviceOver(
   const quota = {
     assertCanCreateWorkspace: jest.fn(async () => {
       if (options.full) throw options.full;
+    }),
+    assertCanRestore: jest.fn(async () => {
+      if (options.noRoom) throw options.noRoom;
     }),
   };
   const service = new WorkspacesService(
@@ -116,6 +121,9 @@ describe('WorkspacesService.restore', () => {
     const back = await service.restore(OWNER, WORKSPACE, { sessionId: 'family-2' });
 
     expect(quota.assertCanCreateWorkspace).toHaveBeenCalledWith(OWNER, 'restore');
+    // Its files count again once it is back, so there has to be room for them.
+    expect(workspaces.restorableBytes).toHaveBeenCalledWith(OWNER, WORKSPACE);
+    expect(quota.assertCanRestore).toHaveBeenCalledWith(OWNER, 4096, 'workspace');
     expect(workspaces.restore).toHaveBeenCalledWith(OWNER, WORKSPACE, { sessionId: 'family-2' });
     expect(reauth.confirmDelete).not.toHaveBeenCalled();
     expect(realtime.emitToUsers).toHaveBeenCalledWith(['owner-1', 'member-1'], {
@@ -138,10 +146,24 @@ describe('WorkspacesService.restore', () => {
     expect(realtime.emitToUsers).not.toHaveBeenCalled();
   });
 
+  it('is refused when its files no longer fit, before anything changes', async () => {
+    const noRoom = new ForbiddenException('Restoring this workspace needs 4 KB.');
+    const { service, workspaces, realtime } = serviceOver(
+      { name: 'Corepath Projects', member_ids: [] },
+      { noRoom },
+    );
+
+    await expect(service.restore(OWNER, WORKSPACE)).rejects.toBe(noRoom);
+    expect(workspaces.restore).not.toHaveBeenCalled();
+    expect(realtime.emitToUsers).not.toHaveBeenCalled();
+  });
+
   it('answers 404 for anything not in their Recently deleted', async () => {
-    const { service, realtime } = serviceOver(null);
+    const { service, workspaces, quota, realtime } = serviceOver(null);
 
     await expect(service.restore(OWNER, WORKSPACE)).rejects.toBeInstanceOf(NotFoundException);
+    expect(quota.assertCanRestore).not.toHaveBeenCalled();
+    expect(workspaces.restore).not.toHaveBeenCalled();
     expect(realtime.emitToUsers).not.toHaveBeenCalled();
   });
 });
@@ -218,30 +240,122 @@ describe('WorkspacesRepository statements', () => {
     await repository.restore(OWNER, WORKSPACE, { sessionId: 'family-2' });
 
     const sql = sqlOf(queryOne);
-    expect(sql).toMatch(/set deleted_at = null where w\.id = \$1 and w\.user_id = \$2::uuid and w\.deleted_at is not null/);
+    // Only inside its 30 days: past them the sweep may be deleting its files.
+    expect(sql).toMatch(/set deleted_at = null where w\.id = \$1 and w\.user_id = \$2::uuid and w\.deleted_at > now\(\) - interval '30 days'/);
     expect(sql).toMatch(/set restored_at = now\(\), restored_session_id = \$3::uuid/);
     expect(queryOne.mock.calls[0][1]).toEqual([WORKSPACE, OWNER, 'family-2']);
   });
 
-  it('purges only what has waited 30 days, without queueing on another sweep', async () => {
+  it('lists for the sweep only what has waited 30 days, leaving out what it tried', async () => {
     const { repository, query } = repositoryOver(null);
 
-    await repository.purgeExpired();
+    await repository.expired(100, ['w-held']);
 
     const sql = sqlOf(query);
-    expect(sql).toMatch(/where deleted_at < now\(\) - interval '30 days'/);
-    expect(sql).toMatch(/for update skip locked/);
+    expect(sql).toMatch(/where w\.deleted_at < now\(\) - interval '30 days' and w\.id <> all\(\$2::text\[\]\)/);
+    expect(sql).toMatch(/w\.purge_keeps_files/);
+    expect(query.mock.calls[0][1]).toEqual([100, ['w-held']]);
+  });
+
+  it('purges a workspace only once its files are gone, unless it keeps them', async () => {
+    const { repository, query } = repositoryOver(null);
+
+    await expect(repository.purge([])).resolves.toEqual([]);
+    expect(query).not.toHaveBeenCalled();
+
+    await repository.purge([WORKSPACE]);
+
+    const sql = sqlOf(query);
+    expect(sql).toMatch(/where w\.id = any\(\$1::text\[\]\) and w\.deleted_at < now\(\) - interval '30 days'/);
+    expect(sql).toMatch(/and \(w\.purge_keeps_files or not exists \(select 1 from albums a join user_files f on f\.album_id = a\.id where a\.workspace_id = w\.id\)\)/);
     expect(sql).toMatch(/set purged_at = now\(\)/);
+    expect(query.mock.calls[0][1]).toEqual([[WORKSPACE]]);
+  });
+
+  it('leaves an album deleted on its own out of what restoring would bring back', async () => {
+    const { repository, queryOne } = repositoryOver({ bytes: '0' });
+
+    await expect(repository.restorableBytes(OWNER, WORKSPACE)).resolves.toBe(0);
+
+    const sql = sqlOf(queryOne);
+    expect(sql).toMatch(/where a\.workspace_id = w\.id and a\.deleted_at is null/);
+    expect(sql).toMatch(/w\.deleted_at > now\(\) - interval '30 days'/);
   });
 });
 
 describe('WorkspaceTrashService', () => {
-  it('works through a backlog a batch at a time', async () => {
-    const batches = [Array.from({ length: 100 }, (_, i) => `w${i}`), ['w100', 'w101']];
-    const workspaces = { purgeExpired: jest.fn(async () => batches.shift() ?? []) };
-    const sweep = new WorkspaceTrashService(workspaces as unknown as WorkspacesRepository);
+  type Expired = { id: string; purge_keeps_files: boolean; album_ids: string[] };
 
-    await expect(sweep.run()).resolves.toBe(102);
-    expect(workspaces.purgeExpired).toHaveBeenCalledTimes(2);
+  function sweepOver(options: { albums?: { id: string }[][]; workspaces?: Expired[][] }) {
+    const albumBatches = [...(options.albums ?? [])];
+    const workspaceBatches = [...(options.workspaces ?? [])];
+    // A select hands out the next batch of expired albums; the delete that
+    // follows takes every one, as if the bucket had taken all their files.
+    const db = {
+      query: jest.fn(async (sql: string, params: unknown[]) =>
+        /^\s*select/.test(sql)
+          ? (albumBatches.shift() ?? [])
+          : (params[0] as string[]).map((id) => ({ id })),
+      ),
+    };
+    const workspaces = {
+      expired: jest.fn(async (_limit: number, _except: string[]) => workspaceBatches.shift() ?? []),
+      purge: jest.fn(async (ids: string[]) => ids),
+    };
+    const storage = { purgeAlbumFiles: jest.fn(async (_ids: string[]) => ({ deleted: 0, failed: 0 })) };
+    const sweep = new WorkspaceTrashService(
+      workspaces as unknown as WorkspacesRepository,
+      db as unknown as DatabaseService,
+      storage as unknown as StorageService,
+    );
+    return { sweep, db, workspaces, storage };
+  }
+
+  it('works through a backlog a batch at a time, never trying one twice in a run', async () => {
+    const { sweep, db, workspaces } = sweepOver({
+      albums: [Array.from({ length: 100 }, (_, i) => ({ id: `a${i}` })), [{ id: 'a100' }]],
+      workspaces: [
+        Array.from({ length: 100 }, (_, i) => ({ id: `w${i}`, purge_keeps_files: false, album_ids: [] })),
+        [{ id: 'w100', purge_keeps_files: false, album_ids: [] }],
+      ],
+    });
+
+    await expect(sweep.run()).resolves.toEqual({ albums: 101, workspaces: 101 });
+    // The second batch of each is asked for without the hundred already tried.
+    const selects = db.query.mock.calls.filter(([sql]) => /^\s*select/.test(sql));
+    expect((selects[1][1] as unknown[])[1]).toHaveLength(100);
+    expect(workspaces.expired).toHaveBeenCalledTimes(2);
+    expect(workspaces.expired.mock.calls[1][1]).toHaveLength(100);
+  });
+
+  it('deletes the files first, and the album only once none are left', async () => {
+    const { sweep, db, storage } = sweepOver({ albums: [[{ id: 'a1' }, { id: 'a2' }]] });
+
+    await sweep.run();
+
+    expect(storage.purgeAlbumFiles).toHaveBeenCalledWith(['a1', 'a2']);
+    const at = db.query.mock.calls.findIndex(([sql]) => /delete from albums/.test(sql));
+    expect(String(db.query.mock.calls[at][0]).replace(/\s+/g, ' ')).toMatch(
+      /and a\.deleted_at < now\(\) - interval '30 days' and not exists \(select 1 from user_files f where f\.album_id = a\.id\)/,
+    );
+    expect(storage.purgeAlbumFiles.mock.invocationCallOrder[0]).toBeLessThan(
+      db.query.mock.invocationCallOrder[at],
+    );
+  });
+
+  it('empties the albums of a workspace first, unless it was deleted keeping its files', async () => {
+    const { sweep, storage, workspaces } = sweepOver({
+      workspaces: [
+        [
+          { id: 'w-new', purge_keeps_files: false, album_ids: ['a1', 'a2'] },
+          { id: 'w-old', purge_keeps_files: true, album_ids: ['a3'] },
+        ],
+      ],
+    });
+
+    await sweep.run();
+
+    expect(storage.purgeAlbumFiles).toHaveBeenLastCalledWith(['a1', 'a2']);
+    expect(workspaces.purge).toHaveBeenCalledWith(['w-new', 'w-old']);
   });
 });

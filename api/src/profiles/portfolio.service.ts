@@ -9,7 +9,7 @@ import { PUBLISHED_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
 import { MAX_SOURCE_BYTES, ThumbnailsService } from '../storage/thumbnails.service';
 import { AlbumShareService } from '../albums/share/album-share.service';
-import { IN_LIVE_WORKSPACE } from '../workspaces/live-workspace';
+import { LIVE_ALBUM } from '../workspaces/live-workspace';
 
 /**
  * How much work a profile can show.
@@ -193,8 +193,8 @@ export class PortfolioService {
                 on p.kind = 'album'
                and a.id = p.album_id
                and a.user_id = p.user_id
-               -- Off the page while its workspace is in Recently deleted.
-               and ${IN_LIVE_WORKSPACE('a')}
+               -- Off the page while it or its workspace is in Recently deleted.
+               and ${LIVE_ALBUM('a')}
          left join album_share_links l
                 on l.album_id = a.id
                and l.purpose = 'portfolio'
@@ -429,7 +429,7 @@ export class PortfolioService {
     caption?: string,
   ): Promise<PortfolioItem[]> {
     const album = await this.db.queryOne<{ id: string }>(
-      'select id from albums where id = $1 and user_id = $2',
+      'select id from albums where id = $1 and user_id = $2 and deleted_at is null',
       [albumId, userId],
     );
     if (!album) throw new NotFoundException('Album not found');

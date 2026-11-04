@@ -125,13 +125,17 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
    * Puts a deleted workspace back, with its albums, members, links and files
    * where they were, and tells everyone who had it.
    *
-   * Recently deleted does not count toward the plan's workspaces — deleting
-   * is how someone at their limit makes room, and the room has to be there
-   * straight away — so bringing one back is the same question as making one.
-   * No password: restoring loses nothing.
+   * Recently deleted does not count toward the plan's workspaces or its
+   * storage — deleting is how someone at their limit makes room, and the room
+   * has to be there straight away — so bringing one back is the same question
+   * as making one and uploading its files. No password: restoring loses
+   * nothing.
    */
   async restore(userId: string, id: string, origin: DeleteOrigin = {}): Promise<WorkspaceRow> {
     await this.quota.assertCanCreateWorkspace(userId, 'restore');
+    const bytes = await this.workspaces.restorableBytes(userId, id);
+    if (bytes === null) throw new NotFoundException('That workspace is not in Recently deleted');
+    await this.quota.assertCanRestore(userId, bytes, 'workspace');
 
     const back = await this.workspaces.restore(userId, id, origin);
     if (!back) throw new NotFoundException('That workspace is not in Recently deleted');

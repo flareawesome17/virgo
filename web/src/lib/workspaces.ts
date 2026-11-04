@@ -1,6 +1,8 @@
 import type {
+  Album,
   CollaboratorInvitation,
   CollaboratorRole,
+  DeletedAlbum,
   DeletedWorkspace,
   MediaAccess,
   Workspace,
@@ -187,13 +189,13 @@ export function invitationOffer(invitation: CollaboratorInvitation): string {
 }
 
 /**
- * What deleting a workspace does, and what it leaves.
+ * What deleting a workspace does.
  *
  * It waits in Recently deleted for 30 days, albums and all, and everyone else
- * loses it meanwhile; then it goes for good, and its files stay in the
- * owner's library, unsorted. It used to say the media went too, which was
- * never true — and someone could keep a workspace they wanted gone for fear
- * of losing work that was never at risk.
+ * loses it meanwhile. Its files go with it: they stop counting toward storage
+ * at once, and are deleted with it after the 30 days. They used to stay in
+ * the library, out of any album, still counting — so deleting a workspace to
+ * make room made none.
  */
 export function deleteConsequence(
   workspace: Pick<Workspace, 'album_total' | 'media_count' | 'collaborator_count' | 'pending_count'>,
@@ -206,34 +208,70 @@ export function deleteConsequence(
       : `It moves to Recently deleted with its ${plural(albums, 'album')}`;
   const access =
     workspace.collaborator_count + workspace.pending_count > 0 ? ', and everyone else in it loses it' : '';
-  const kept =
+  const room = files === 0 ? '' : ` Its ${plural(files, 'file')} stop counting toward your storage now.`;
+  const end = files === 0 ? 'it is deleted for good' : 'it is deleted for good, files and all';
+  return `${what}${access}.${room} You can restore it there for 30 days, then ${end}.`;
+}
+
+/**
+ * What deleting an album does: the same 30 days as a workspace, and the room
+ * its files took is free at once. It used to say the files stayed in storage,
+ * because they did — and someone deleting an album to make room found the
+ * meter still full and nothing in Recently deleted.
+ */
+export function albumDeleteConsequence(album: Pick<Album, 'item_count' | 'size_bytes'>): string {
+  const files = album.item_count;
+  const room =
     files === 0
       ? ''
-      : ` Its ${plural(files, 'file')} stay in your library either way.`;
-  return `${what}${access}. You can restore it there for 30 days, then it is deleted for good.${kept}`;
+      : album.size_bytes
+        ? ` Its ${plural(files, 'file')} go with it, and the ${formatBytes(album.size_bytes)} they take up is free straight away.`
+        : ` Its ${plural(files, 'file')} go with it, and stop counting toward your storage straight away.`;
+  const end = files === 0 ? 'it is deleted for good' : 'it is deleted for good, files and all';
+  return `It moves to Recently deleted.${room} You can restore it there for 30 days, then ${end}.`;
 }
 
 /** What Recently deleted says about itself, above the list and when it is empty. */
 export const TRASH_EXPLAINER =
-  'Deleted workspaces wait here for 30 days, then they are deleted for good. Restoring one brings back its albums, members, links and files, and everyone it was shared with gets it back.';
+  'Deleted albums and workspaces wait here for 30 days, then they are deleted for good with their files. Nothing here counts toward your storage. Restoring one brings back everything that was in it, and everyone it was shared with gets it back.';
 
 /**
- * A Recently deleted card's line: what is in it, and how long it has left.
- * Days round up, so a workspace deleted a minute ago has the 30 it was
- * promised; "in under a day" rather than a time, since the sweep runs hourly.
+ * How long a Recently deleted card has left. Days round up, so one deleted a
+ * minute ago has the 30 it was promised; "in under a day" rather than a time,
+ * since the sweep runs hourly.
  */
+function purgeWhen(purgeAt: string, now: Date): string {
+  const DAY = 86_400_000;
+  const left = new Date(purgeAt).getTime() - now.getTime();
+  return left < DAY
+    ? 'deleted for good in under a day'
+    : `deleted for good in ${plural(Math.ceil(left / DAY), 'day')}`;
+}
+
+/** A deleted workspace's line: what is in it, and how long it has left. */
 export function trashLine(
   workspace: Pick<DeletedWorkspace, 'album_total' | 'purge_at'>,
   now: Date = new Date(),
 ): string {
-  const DAY = 86_400_000;
-  const left = new Date(workspace.purge_at).getTime() - now.getTime();
-  const when =
-    left < DAY
-      ? 'deleted for good in under a day'
-      : `deleted for good in ${plural(Math.ceil(left / DAY), 'day')}`;
   const albums = workspace.album_total === 0 ? 'No albums' : plural(workspace.album_total, 'album');
-  return `${albums} · ${when}`;
+  return `${albums} · ${purgeWhen(workspace.purge_at, now)}`;
+}
+
+/**
+ * A deleted album's line: where it was, what it holds, and how long it has
+ * left. The size is there because it is what deleting it gave back.
+ */
+export function albumTrashLine(
+  album: Pick<DeletedAlbum, 'workspace_name' | 'item_count' | 'size_bytes' | 'purge_at'>,
+  now: Date = new Date(),
+): string {
+  const files =
+    album.item_count === 0
+      ? 'No files'
+      : album.size_bytes
+        ? `${plural(album.item_count, 'file')}, ${formatBytes(album.size_bytes)}`
+        : plural(album.item_count, 'file');
+  return `${album.workspace_name} · ${files} · ${purgeWhen(album.purge_at, now)}`;
 }
 
 /** A piece of an activity line: plain words, or a name set in bold. */

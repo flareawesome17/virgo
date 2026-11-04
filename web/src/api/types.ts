@@ -113,6 +113,15 @@ export interface Album {
   updated_at: string;
 }
 
+/** An album in Recently deleted, as its card draws it. */
+export interface DeletedAlbum extends Album {
+  deleted_at: string;
+  /** Its workspace's name, since the card is not inside one. */
+  workspace_name: string;
+  /** When it and its files are deleted for good: 30 days after it was deleted. */
+  purge_at: string;
+}
+
 /**
  * `other` carries its name in `event_type_other` rather than here, so the set
  * stays closed and colours, icons and filters can keep keying off it.

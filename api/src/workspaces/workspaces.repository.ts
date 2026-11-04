@@ -179,7 +179,8 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
              'id', o.id, 'name', ${NAME_OF('o')}, 'avatar_url', o.avatar_url
            ) as owner,
            coalesce(v.album_count, 0) as album_count,
-           (select count(*)::int from albums t where t.workspace_id = w.id) as album_total,
+           (select count(*)::int from albums t
+             where t.workspace_id = w.id and t.deleted_at is null) as album_total,
            coalesce(v.media_count, 0) as media_count,
            coalesce(v.files_this_week, 0) as files_this_week,
            case when w.user_id = $1 then coalesce(v.storage_bytes, 0) end as storage_bytes,
@@ -204,6 +205,8 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
           from albums a
           left join user_files f on f.album_id = a.id
          where a.workspace_id = w.id
+           -- An album in Recently deleted is in no count, its files neither.
+           and a.deleted_at is null
            and (a.user_id = $1
                 or a.id in (select ca.album_id from collaborator_albums ca
                              where ca.collaborator_id = me.id))
@@ -356,7 +359,7 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
   async isOwnAlbumIn(userId: string, workspaceId: string, albumId: string): Promise<boolean> {
     const row = await this.db.queryOne<{ one: number }>(
       `select 1 as one from albums
-        where id = $1 and workspace_id = $2 and user_id = $3`,
+        where id = $1 and workspace_id = $2 and user_id = $3 and deleted_at is null`,
       [albumId, workspaceId, userId],
     );
     return row !== null;
@@ -417,7 +420,7 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
                   count(distinct ca.media_access)::int as levels,
                   case when count(*) = 1 then max(a.name) end as only_album
              from collaborator_albums ca
-             join albums a on a.id = ca.album_id
+             join albums a on a.id = ca.album_id and a.deleted_at is null
             where ca.collaborator_id = c.id
          ) g on true
         where c.workspace_id = $2
@@ -466,7 +469,8 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
     return this.db.queryOne<DeletedWorkspace>(
       `with target as (
          select w.id, w.name,
-                (select count(*)::int from albums a where a.workspace_id = w.id) as album_count,
+                (select count(*)::int from albums a
+                  where a.workspace_id = w.id and a.deleted_at is null) as album_count,
                 ${MEMBER_IDS('w')} as member_ids
            from workspaces w
           where w.id = $1 and w.user_id = $2::uuid and w.deleted_at is null
@@ -500,14 +504,16 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
    *
    * Read through the same select as everything else, so the counts on a
    * deleted card are the ones it showed before. Only the owner's: a member
-   * lost it the moment it was deleted and has nothing to restore.
+   * lost it the moment it was deleted and has nothing to restore. Only those
+   * still inside their 30 days, the window `restore` allows.
    */
   async deleted(userId: string): Promise<DeletedWorkspaceRow[]> {
     return this.db.query<DeletedWorkspaceRow>(
       `select x.*, x.deleted_at + interval '${TRASH_DAYS} days' as purge_at
          from (
            ${this.select}
-            where w.user_id = $1 and w.deleted_at is not null
+            where w.user_id = $1
+              and w.deleted_at > now() - interval '${TRASH_DAYS} days'
          ) x
         order by x.deleted_at desc, x.id`,
       [userId],
@@ -515,12 +521,33 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
   }
 
   /**
+   * The bytes restoring this deleted workspace would put back in its owner's
+   * storage: the files of its albums, leaving out any album deleted on its
+   * own, which stays in Recently deleted. Null when it is not theirs to
+   * restore now.
+   */
+  async restorableBytes(userId: string, id: string): Promise<number | null> {
+    const row = await this.db.queryOne<{ bytes: string }>(
+      `select (select coalesce(sum(f.size_bytes), 0)
+                 from albums a
+                 join user_files f on f.album_id = a.id and f.user_id = w.user_id
+                where a.workspace_id = w.id and a.deleted_at is null)::text as bytes
+         from workspaces w
+        where w.id = $1 and w.user_id = $2::uuid
+          and w.deleted_at > now() - interval '${TRASH_DAYS} days'`,
+      [id, userId],
+    );
+    return row ? Number(row.bytes) : null;
+  }
+
+  /**
    * Brings a deleted workspace back, with everything that was in it, and
    * notes on its record who restored it.
    *
-   * Allowed for as long as it is still there, even a little past 30 days if
-   * the sweep has not reached it: refusing someone a workspace that still
-   * exists would be the rule for its own sake.
+   * Only inside its 30 days. It used to be allowed for as long as the
+   * workspace was still there, but past them the sweep may be part way
+   * through deleting its files, and a workspace restored then would come back
+   * with some of them missing.
    *
    * Null when there is nothing of theirs to restore.
    */
@@ -533,7 +560,8 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
       `with restored as (
          update workspaces w
             set deleted_at = null
-          where w.id = $1 and w.user_id = $2::uuid and w.deleted_at is not null
+          where w.id = $1 and w.user_id = $2::uuid
+            and w.deleted_at > now() - interval '${TRASH_DAYS} days'
           returning w.id, w.name
        ),
        noted as (
@@ -551,27 +579,53 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
   }
 
   /**
-   * Deletes for real what has been in Recently deleted for 30 days, a batch
-   * at a time, and notes it on each record. The cascade does what deleting
-   * always did: albums, members, grants and links go, and the files stay in
-   * the owner's library, out of any album.
-   *
-   * SKIP LOCKED, so two API instances sweeping at once share the work rather
-   * than queueing on each other's rows.
+   * What has been in Recently deleted for 30 days, oldest first, a batch at a
+   * time: the sweep's list. Each comes with whether it keeps its files
+   * (106_album_trash.sql) and, when it does not, the albums to empty first.
    */
-  async purgeExpired(limit = 100): Promise<string[]> {
+  async expired(
+    limit = 100,
+    /** Already tried this run, so one the bucket held on to does not come round again. */
+    except: readonly string[] = [],
+  ): Promise<{ id: string; purge_keeps_files: boolean; album_ids: string[] }[]> {
+    return this.db.query(
+      `select w.id, w.purge_keeps_files,
+              coalesce((select array_agg(a.id) from albums a where a.workspace_id = w.id),
+                       '{}') as album_ids
+         from workspaces w
+        where w.deleted_at < now() - interval '${TRASH_DAYS} days'
+          and w.id <> all($2::text[])
+        order by w.deleted_at
+        limit $1`,
+      [limit, except],
+    );
+  }
+
+  /**
+   * Deletes for real the workspaces among `ids` that have been in Recently
+   * deleted for 30 days, and notes it on each record. The cascade takes their
+   * albums, members, grants and links.
+   *
+   * Only once their files are gone, which the sweep sees to first: one whose
+   * files the bucket would not all take waits for the next run, so a file
+   * that still exists is never left out of every album. A workspace deleted
+   * before 106 keeps its files, as its owner was told then, and they stay in
+   * the owner's library out of any album.
+   *
+   * Two API instances sweeping at once would at worst delete the same
+   * objects twice, which the bucket answers as it does the first time.
+   */
+  async purge(ids: readonly string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
     const rows = await this.db.query<{ id: string }>(
-      `with doomed as (
-         select id from workspaces
-          where deleted_at < now() - interval '${TRASH_DAYS} days'
-          order by deleted_at
-          limit $1
-          for update skip locked
-       ),
-       gone as (
+      `with gone as (
          delete from workspaces w
-          using doomed d
-          where w.id = d.id
+          where w.id = any($1::text[])
+            and w.deleted_at < now() - interval '${TRASH_DAYS} days'
+            and (w.purge_keeps_files
+                 or not exists (select 1 from albums a
+                                  join user_files f on f.album_id = a.id
+                                 where a.workspace_id = w.id))
           returning w.id
        ),
        noted as (
@@ -583,7 +637,7 @@ export class WorkspacesRepository extends OwnedRepository<WorkspaceRow> {
             and r.restored_at is null
        )
        select id from gone`,
-      [limit],
+      [ids],
     );
     return rows.map((r) => r.id);
   }

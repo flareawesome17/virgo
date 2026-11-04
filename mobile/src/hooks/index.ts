@@ -32,6 +32,8 @@ export {
   useCreateAlbum,
   useUpdateAlbum,
   useDeleteAlbum,
+  useDeletedAlbums,
+  useRestoreAlbum,
 } from '@/src/hooks/useAlbums'
 
 export {

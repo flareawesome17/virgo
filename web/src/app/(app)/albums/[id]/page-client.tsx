@@ -80,6 +80,7 @@ import {
 } from '@/api';
 import { cn } from '@/lib/utils';
 import { IS_DESKTOP, downloadHref } from '@/lib/desktop';
+import { albumDeleteConsequence } from '@/lib/workspaces';
 
 type KindFilter = 'all' | 'image' | 'video' | 'audio';
 
@@ -826,8 +827,13 @@ function AlbumWorkspace() {
       <DeleteConfirmDialog
         open={confirmingAlbumDelete}
         onOpenChange={setConfirmingAlbumDelete}
-        title="Delete this album?"
-        description={`${album?.name ?? 'It'} is deleted straight away. Its uploaded files stay in your storage and can be filed into another album.`}
+        title={`Delete ${album?.name ?? 'this album'}?`}
+        // Say what deleting gives back: room, at once, which is why someone
+        // at their limit deletes an album at all.
+        description={albumDeleteConsequence({
+          item_count: album?.item_count ?? 0,
+          size_bytes: album?.size_bytes,
+        })}
         confirmLabel="Delete album"
         onConfirm={(proof) => removeAlbum.mutateAsync({ id, proof })}
         onDone={() => {

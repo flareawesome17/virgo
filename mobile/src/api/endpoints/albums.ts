@@ -1,5 +1,12 @@
 import { api } from '../client';
-import type { Album, AlbumStatus, DeleteProof, ListParams, ListResponse } from '../types';
+import type {
+  Album,
+  AlbumStatus,
+  DeletedAlbum,
+  DeleteProof,
+  ListParams,
+  ListResponse,
+} from '../types';
 
 export interface ListAlbumsParams extends ListParams {
   workspace_id?: string;
@@ -165,8 +172,25 @@ export const albumsApi = {
     return api.patch<Album>(`/albums/${id}`, { body: input });
   },
 
-  /** Gone at once. Only with the password or the emailed code (see DeleteProof). */
+  /**
+   * Moves it to Recently deleted for 30 days, with its files, which stop
+   * counting toward storage at once. Only with the password or the emailed
+   * code (see DeleteProof).
+   */
   remove(id: string, proof: DeleteProof): Promise<void> {
     return api.delete<void>(`/albums/${id}`, { body: proof });
+  },
+
+  /** The owner's Recently deleted albums, newest first. */
+  deleted(): Promise<ListResponse<DeletedAlbum>> {
+    return api.get('/albums/deleted');
+  },
+
+  /**
+   * Brings one back. Refused with a sentence to show when the plan has no
+   * room for another album in its workspace, or for its files.
+   */
+  restore(id: string): Promise<Album> {
+    return api.post<Album>(`/albums/${id}/restore`);
   },
 };

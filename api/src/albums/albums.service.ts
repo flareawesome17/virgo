@@ -7,7 +7,7 @@ import { DatabaseService } from '../database/database.service';
 import { QuotaService } from '../quota/quota.service';
 import { WorkspaceActivityService } from '../workspaces/workspace-activity.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
-import { AlbumRow, AlbumsRepository } from './albums.repository';
+import { AlbumRow, AlbumsRepository, type DeletedAlbumRow } from './albums.repository';
 
 /** Today in Manila, `YYYY-MM-DD`: the day a retention date is counted in. */
 export function manilaToday(now = new Date()): string {
@@ -104,14 +104,44 @@ export class AlbumsService extends OwnedResourceService<AlbumRow> {
   }
 
   /**
-   * Deleting an album asks for the password, or the emailed code with
-   * two-factor on, as deleting a workspace does (ReauthService). It is gone at
-   * once — only workspaces wait in Recently deleted — so the question is the
-   * whole of the protection, and it is asked before anything is looked up.
+   * Moves an album to Recently deleted with its files, which stop counting
+   * toward storage at once. Deleting is how someone at their limit makes
+   * room: an album that went while its files stayed behind and went on
+   * counting left them with a full meter and nothing to show where it went.
+   *
+   * Asks for the password, or the emailed code with two-factor on, as
+   * deleting a workspace does (ReauthService), before anything is looked up.
+   * Nothing is deleted for 30 days; WorkspaceTrashService does that.
    */
   async remove(userId: string, id: string, proof: DeleteProof = {}): Promise<void> {
     await this.reauth.confirmDelete(userId, proof);
     await super.remove(userId, id);
+  }
+
+  /** The owner's Recently deleted albums. */
+  async deleted(userId: string): Promise<DeletedAlbumRow[]> {
+    return this.albums.deleted(userId);
+  }
+
+  /**
+   * Puts a deleted album back where it was, with its files, sections, links
+   * and the people it was shared with.
+   *
+   * Nothing in Recently deleted counts toward the plan, so bringing an album
+   * back asks what making it and uploading its files would: room for another
+   * album in that workspace, and room for the files. No password: restoring
+   * loses nothing.
+   */
+  async restore(userId: string, id: string): Promise<AlbumRow> {
+    const album = await this.albums.restorable(userId, id);
+    if (!album) throw new NotFoundException('That album is not in Recently deleted');
+
+    await this.quota.assertCanCreateAlbum(userId, album.workspace_id);
+    await this.quota.assertCanRestore(userId, album.bytes, 'album');
+
+    const back = await this.albums.restore(userId, id);
+    if (!back) throw new NotFoundException('That album is not in Recently deleted');
+    return back;
   }
 
   /**
@@ -164,7 +194,7 @@ export class AlbumsService extends OwnedResourceService<AlbumRow> {
     let movedFrom: string | null = null;
     if (target !== undefined) {
       const current = await this.db.queryOne<{ workspace_id: string }>(
-        'select workspace_id from albums where id = $1 and user_id = $2',
+        'select workspace_id from albums where id = $1 and user_id = $2 and deleted_at is null',
         [id, userId],
       );
       if (!current) throw new NotFoundException('Album not found');

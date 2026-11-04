@@ -100,6 +100,7 @@ import {
   type MediaSection,
 } from '@/src/lib/media-grid';
 import { daySpan } from '@/src/lib/media-days';
+import { albumDeleteConsequence } from '@/src/lib/workspaces';
 import { PALETTES } from '@/theme';
 import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
 
@@ -1280,9 +1281,12 @@ export default function AlbumScreen() {
       <DeleteConfirmSheet
         visible={deletingAlbum}
         title={`Delete “${album?.name ?? 'this album'}”?`}
-        // Say what survives: the files are billed either way, so implying the
-        // delete frees space would be misleading.
-        message="It is deleted straight away. Its files stay in your storage — find them under Settings › Storage › Not in an album, to file or delete."
+        // Say what deleting gives back: room, at once, which is why someone
+        // at their limit deletes an album at all.
+        message={albumDeleteConsequence({
+          item_count: album?.item_count ?? 0,
+          size_bytes: album?.size_bytes,
+        })}
         onCancel={() => setDeletingAlbum(false)}
         onConfirm={(proof) => deleteAlbum.mutateAsync({ id: albumId, proof })}
         onDone={() => {
