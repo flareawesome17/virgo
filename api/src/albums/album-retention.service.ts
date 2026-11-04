@@ -4,7 +4,7 @@ import { DatabaseService } from '../database/database.service';
 import { NotifyService } from '../notifications/notify.service';
 import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
 import { StorageService } from '../storage/storage.service';
-import { IN_LIVE_WORKSPACE } from '../workspaces/live-workspace';
+import { LIVE_ALBUM } from '../workspaces/live-workspace';
 
 interface ExpiringFile {
   owner_id: string;
@@ -84,10 +84,10 @@ export class AlbumRetentionService {
       `select a.user_id as owner_id, f.album_id, a.name as album_name, f.key
          from user_files f
          join albums a on a.id = f.album_id
-        -- Not while its workspace is in Recently deleted: restoring it has to
-        -- bring back what it held. The clock is not paused, so a restored album
+        -- Not while it, or its workspace, is in Recently deleted: restoring it
+        -- has to bring back what it held. The clock is not paused, so a restored album
         -- past its date is cleared on the next run.
-        where ${IN_LIVE_WORKSPACE('a')}
+        where ${LIVE_ALBUM('a')}
           and ((a.retention_days is not null
                 -- 0 would mean "delete immediately", which is a mis-set value
                 -- rather than an intent. Treated as off.
@@ -184,7 +184,7 @@ export class AlbumRetentionService {
          from user_files f
          join albums a on a.id = f.album_id
         where a.user_id = $1
-          and ${IN_LIVE_WORKSPACE('a')}
+          and ${LIVE_ALBUM('a')}
           and ((a.retention_days is not null and a.retention_days > 0)
                or a.retention_until is not null)
         group by a.id, a.name

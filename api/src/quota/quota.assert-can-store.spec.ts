@@ -20,7 +20,10 @@ function quotaHolding(usedBytes: number) {
     if (/from promo_grants/.test(sql)) {
       return { storage_bytes: '0', extra_workspaces: '0', extra_albums: '0' };
     }
-    if (/sum\(size_bytes\)/.test(sql)) return { total: String(usedBytes) };
+    // What counts: nothing in Recently deleted (NOT_IN_TRASH).
+    if (/sum\(f\.size_bytes\)[\s\S]*deleted_at is not null/.test(sql)) {
+      return { total: String(usedBytes) };
+    }
     throw new Error(`Unexpected queryOne: ${sql}`);
   });
   return new QuotaService({ queryOne } as unknown as DatabaseService);

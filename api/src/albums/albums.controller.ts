@@ -38,6 +38,22 @@ export class AlbumsController {
     return { data, total: data.length };
   }
 
+  /**
+   * The owner's Recently deleted albums: what they deleted in the last 30
+   * days, with when each goes for good. Declared before `:id` too.
+   */
+  @Get('deleted')
+  async deleted(@CurrentUser('id') userId: string) {
+    const data = await this.albums.deleted(userId);
+    return { data, total: data.length };
+  }
+
+  /** Brings one back from Recently deleted, with everything that was in it. */
+  @Post(':id/restore')
+  restore(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.albums.restore(userId, id);
+  }
+
   @Get()
   async list(@CurrentUser('id') userId: string, @Query() query: ListAlbumsDto) {
     const filters = {

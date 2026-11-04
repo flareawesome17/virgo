@@ -184,7 +184,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
         requested ??
         (
           await this.db.query<{ id: string }>(
-            'select id from albums where workspace_id = $1 and user_id = $2',
+            'select id from albums where workspace_id = $1 and user_id = $2 and deleted_at is null',
             [workspaceId, userId],
           )
         ).map((a) => ({ albumId: a.id, mediaAccess: defaultAccessFor(data.role) }));
@@ -326,7 +326,8 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
   }> {
     // Only albums the caller actually owns in this workspace, so a forged id
     // cannot grant access to somebody else's album. Read with the current
-    // grants, so the result can say what changed.
+    // grants, so the result can say what changed. Not one in Recently
+    // deleted, which nobody can be given until it is back.
     const albums = await this.db.query<{
       id: string;
       name: string;
@@ -336,7 +337,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
          from albums a
          left join collaborator_albums ca
            on ca.album_id = a.id and ca.collaborator_id = $3
-        where a.workspace_id = $1 and a.user_id = $2
+        where a.workspace_id = $1 and a.user_id = $2 and a.deleted_at is null
         order by a.created_at`,
       [workspaceId, userId, collaboratorId],
     );
@@ -351,8 +352,13 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     ];
 
     await this.db.transaction(async (client) => {
+      // The grants to albums in Recently deleted stay, so restoring one gives
+      // it back to whoever had it. The screen sending this never lists them.
       await client.query(
-        'delete from collaborator_albums where collaborator_id = $1',
+        `delete from collaborator_albums ca
+          where ca.collaborator_id = $1
+            and not exists (select 1 from albums a
+                             where a.id = ca.album_id and a.deleted_at is not null)`,
         [collaboratorId],
       );
       if (wanted.length > 0) {
@@ -433,7 +439,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
          from albums a
          left join collaborator_albums ca
            on ca.album_id = a.id and ca.collaborator_id = $2
-        where a.workspace_id = $3 and a.user_id = $1
+        where a.workspace_id = $3 and a.user_id = $1 and a.deleted_at is null
         order by a.created_at desc`,
       [userId, collaboratorId, row.workspace_id],
     );
@@ -584,7 +590,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
                          'id', a.id, 'name', a.name, 'media_access', ca.media_access
                        ) order by a.created_at)
                   from collaborator_albums ca
-                  join albums a on a.id = ca.album_id
+                  join albums a on a.id = ca.album_id and a.deleted_at is null
                  where ca.collaborator_id = c.id
               ), '[]'::json) as albums
          from collaborators c
@@ -685,7 +691,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     albumId: string,
   ): Promise<(CollaboratorRow & { excluded: boolean })[]> {
     const album = await this.db.queryOne<{ workspace_id: string }>(
-      'select workspace_id from albums where id = $1 and user_id = $2',
+      'select workspace_id from albums where id = $1 and user_id = $2 and deleted_at is null',
       [albumId, userId],
     );
     if (!album) throw new NotFoundException('Album not found');
@@ -709,7 +715,7 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     const row = await this.db.queryOne<{ id: string }>(
       `select c.id
          from collaborators c
-         join albums a on a.id = $2 and a.user_id = $1
+         join albums a on a.id = $2 and a.user_id = $1 and a.deleted_at is null
         where c.id = $3 and c.user_id = $1 and c.workspace_id = a.workspace_id`,
       [userId, albumId, collaboratorId],
     );

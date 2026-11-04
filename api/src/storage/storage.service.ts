@@ -1187,17 +1187,56 @@ export class StorageService {
     let deletedCount = 0;
     for (let i = 0; i < known.length; i += DELETE_CHUNK_FILES) {
       const chunk = known.slice(i, i + DELETE_CHUNK_FILES);
-      const targets = await this.quota.objectAndDerivedKeys(chunk);
-      const gone = await this.deleteFromBuckets(targets, `deleteMany for ${userId}`);
-
-      const deleted = chunk.filter((key) => gone.has(key));
-      await this.quota.forgetKeys(deleted);
-      // Renditions are not bucket objects; see deleteObject. Only for what
-      // went: a file still in the bucket keeps its display copies.
-      await this.mediaLink.removeFor(deleted);
-      deletedCount += deleted.length;
+      deletedCount += await this.deleteFiles(chunk, `deleteMany for ${userId}`);
     }
     return { deleted: deletedCount, failed: keys.length - deletedCount };
+  }
+
+  /**
+   * Deletes every file in these albums for good, as emptying Recently deleted
+   * does (WorkspaceTrashService), and says how many went and how many the
+   * bucket held on to.
+   *
+   * No access check: nobody is asking but the sweep, 30 days after the owner
+   * did. Only what the bucket confirms gone is forgotten, as in deleteMany,
+   * so a file it held on to keeps its row and its album, for the next run.
+   * Paged by key rather than by offset, since every page deletes the rows
+   * the next one would have counted past.
+   */
+  async purgeAlbumFiles(albumIds: readonly string[]): Promise<{ deleted: number; failed: number }> {
+    if (albumIds.length === 0 || !this.client) return { deleted: 0, failed: 0 };
+    let deleted = 0;
+    let failed = 0;
+    let after = '';
+    for (;;) {
+      const chunk = await this.quota.albumFileKeys(albumIds, after, DELETE_CHUNK_FILES);
+      if (chunk.length === 0) break;
+      after = chunk[chunk.length - 1];
+      const went = await this.deleteFiles(chunk, `purge of ${albumIds.length} album(s)`);
+      deleted += went;
+      failed += chunk.length - went;
+    }
+    if (failed > 0) {
+      this.logger.warn(`purge: the bucket held on to ${failed} file(s); they wait for the next run`);
+    }
+    return { deleted, failed };
+  }
+
+  /**
+   * One chunk of a delete whose access was settled already: the originals
+   * and what is stored beside them, then the rows of what went, then their
+   * renditions. Returns how many originals went.
+   */
+  private async deleteFiles(chunk: readonly string[], context: string): Promise<number> {
+    const targets = await this.quota.objectAndDerivedKeys(chunk);
+    const gone = await this.deleteFromBuckets(targets, context);
+
+    const deleted = chunk.filter((key) => gone.has(key));
+    await this.quota.forgetKeys(deleted);
+    // Renditions are not bucket objects; see deleteObject. Only for what
+    // went: a file still in the bucket keeps its display copies.
+    await this.mediaLink.removeFor(deleted);
+    return deleted.length;
   }
 
   /**

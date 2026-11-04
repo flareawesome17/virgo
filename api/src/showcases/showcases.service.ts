@@ -11,6 +11,7 @@ import { MediaLinkService } from '../storage/media-link.service';
 import { PUBLISHED_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
 import { MAX_SOURCE_BYTES, ThumbnailsService } from '../storage/thumbnails.service';
+import { NOT_IN_TRASH } from '../workspaces/live-workspace';
 import { pieceBase, ShowcaseMediaService } from './showcase-media.service';
 import type {
   CreateShowcaseDto,
@@ -771,7 +772,10 @@ export class ShowcasesService {
           }>(
             `select key, content_type, size_bytes, thumb_key, poster_key,
                     display_widths, blur_data_url, processing_status
-               from user_files where user_id = $1 and key = any($2::text[])`,
+               from user_files
+              where user_id = $1 and key = any($2::text[])
+                -- Not from an album in Recently deleted, which nobody can open.
+                and ${NOT_IN_TRASH('user_files')}`,
             [userId, keys],
           );
 

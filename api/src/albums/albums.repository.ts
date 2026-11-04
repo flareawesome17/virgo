@@ -4,7 +4,8 @@ import { DatabaseService } from '../database/database.service';
 import type { ResolvedAccess } from '../quota/quota.service';
 import { DISPLAY_URL_TTL_SECONDS } from '../storage/storage.config';
 import { StorageService } from '../storage/storage.service';
-import { IN_LIVE_WORKSPACE } from '../workspaces/live-workspace';
+import { IN_LIVE_WORKSPACE, LIVE_ALBUM } from '../workspaces/live-workspace';
+import { TRASH_DAYS } from '../workspaces/workspaces.repository';
 
 export type AlbumStatus = 'draft' | 'review' | 'delivered';
 
@@ -65,6 +66,17 @@ export interface AlbumRow {
   retention_until: string | null;
   created_at: Date;
   updated_at: Date;
+  /** When it went to Recently deleted; null for every album anyone can open. */
+  deleted_at?: Date | null;
+}
+
+/** A card in Recently deleted. */
+export interface DeletedAlbumRow extends AlbumRow {
+  deleted_at: Date;
+  /** Its workspace's name, since the card is not inside one. */
+  workspace_name: string;
+  /** When the sweep deletes it, and its files, for good. */
+  purge_at: Date;
 }
 
 @Injectable()
@@ -256,8 +268,8 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     // The collaborator row has to be in the album's own workspace. A grant
     // from elsewhere is one left behind by a move, and was listing the album
     // to people who could no longer open anything in it.
-    // Nobody's while its workspace is in Recently deleted, owner included.
-    return `${IN_LIVE_WORKSPACE('albums')} and (
+    // Nobody's while it or its workspace is in Recently deleted, owner included.
+    return `${LIVE_ALBUM('albums')} and (
       user_id = $${paramIndex}
       or exists (
         select 1
@@ -357,28 +369,110 @@ export class AlbumsRepository extends OwnedRepository<AlbumRow> {
     return updated && (await this.withDerivedFields([updated], userId))[0];
   }
 
-  /** The owner's album, and not in a deleted workspace. */
+  /** The owner's album, and not in Recently deleted, on its own or with its workspace. */
   async existsForUser(userId: string, id: string): Promise<boolean> {
     const row = await this.db.queryOne<{ one: number }>(
       `select 1 as one from albums
-        where id = $1 and user_id = $2 and ${IN_LIVE_WORKSPACE('albums')}`,
+        where id = $1 and user_id = $2 and ${LIVE_ALBUM('albums')}`,
       [id, userId],
     );
     return row !== null;
   }
 
   /**
-   * Not from a deleted workspace: restoring it brings back what it held when
-   * it was deleted, and an album taken out of it meanwhile would not be.
+   * Moves the owner's album to Recently deleted, with its files
+   * (106_album_trash.sql).
+   *
+   * Its grants, links, sections, picks and files stay exactly as they were,
+   * and only `deleted_at` hides them (LIVE_ALBUM, NOT_IN_TRASH), which is what
+   * lets restore put everything back. The one thing let go is its place as
+   * its workspace's cover, which would otherwise draw an album nobody can open.
+   *
+   * Not from a deleted workspace: restoring that brings back what it held
+   * when it was deleted, and an album taken out of it meanwhile would not be.
    */
   async remove(userId: string, id: string): Promise<boolean> {
     const rows = await this.db.query<{ id: string }>(
-      `delete from albums
-        where id = $1 and user_id = $2 and ${IN_LIVE_WORKSPACE('albums')}
-        returning id`,
+      `with trashed as (
+         update albums
+            set deleted_at = now()
+          where id = $1 and user_id = $2 and ${LIVE_ALBUM('albums')}
+          returning id, workspace_id
+       ),
+       uncovered as (
+         update workspaces w
+            set cover_album_id = null
+           from trashed t
+          where w.id = t.workspace_id and w.cover_album_id = t.id
+       )
+       select id from trashed`,
       [id, userId],
     );
     return rows.length > 0;
+  }
+
+  /**
+   * The owner's Recently deleted albums, newest first, each as a card draws
+   * it, with when it was deleted and when the sweep deletes it for good.
+   *
+   * Only those in a workspace that is not deleted too: one that is comes back
+   * with its workspace or not at all. Only those still inside their 30 days,
+   * since past them the sweep may already be deleting the files.
+   */
+  async deleted(userId: string): Promise<DeletedAlbumRow[]> {
+    const rows = await this.db.query<DeletedAlbumRow>(
+      `select a.*, w.name as workspace_name,
+              a.deleted_at + interval '${TRASH_DAYS} days' as purge_at
+         from albums a
+         join workspaces w on w.id = a.workspace_id and w.deleted_at is null
+        where a.user_id = $1
+          and a.deleted_at > now() - interval '${TRASH_DAYS} days'
+        order by a.deleted_at desc, a.id`,
+      [userId],
+    );
+    return (await this.withDerivedFields(rows, userId)) as DeletedAlbumRow[];
+  }
+
+  /**
+   * What restoring one of the owner's deleted albums would bring back: its
+   * workspace, for the album limit, and the bytes of its files, for storage.
+   * Null when it is not in their Recently deleted, or not restorable now.
+   */
+  async restorable(
+    userId: string,
+    id: string,
+  ): Promise<{ workspace_id: string; bytes: number } | null> {
+    const row = await this.db.queryOne<{ workspace_id: string; bytes: string }>(
+      `select a.workspace_id,
+              (select coalesce(sum(f.size_bytes), 0) from user_files f
+                where f.album_id = a.id and f.user_id = a.user_id)::text as bytes
+         from albums a
+        where a.id = $1 and a.user_id = $2
+          and a.deleted_at > now() - interval '${TRASH_DAYS} days'
+          and ${IN_LIVE_WORKSPACE('a')}`,
+      [id, userId],
+    );
+    return row ? { workspace_id: row.workspace_id, bytes: Number(row.bytes) } : null;
+  }
+
+  /**
+   * Brings a deleted album back, with everything that was in it.
+   *
+   * Only inside its 30 days, the same window `deleted` lists: past them the
+   * sweep may be part way through deleting its files, and an album restored
+   * then would come back with some of them missing.
+   */
+  async restore(userId: string, id: string): Promise<AlbumRow | null> {
+    const row = await this.db.queryOne<AlbumRow>(
+      `update albums a
+          set deleted_at = null
+        where a.id = $1 and a.user_id = $2
+          and a.deleted_at > now() - interval '${TRASH_DAYS} days'
+          and ${IN_LIVE_WORKSPACE('a')}
+        returning a.*`,
+      [id, userId],
+    );
+    return row && (await this.withDerivedFields([row], userId))[0];
   }
 
   /**

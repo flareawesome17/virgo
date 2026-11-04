@@ -5,6 +5,7 @@ import {
   retryUnlessGone,
   type Album,
   type CreateAlbumInput,
+  type DeletedAlbum,
   type DeleteProof,
   type ListAlbumsParams,
   type UpdateAlbumInput,
@@ -106,13 +107,47 @@ export function useUpdateAlbum() {
   });
 }
 
-/** Asks for the password or the emailed code: see useDeleteProof. */
+/**
+ * Moves it to Recently deleted. Asks for the password or the emailed code:
+ * see useDeleteProof. Its files stop counting at once, so the meter moves.
+ */
 export function useDeleteAlbum() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, proof }: { id: string; proof: DeleteProof }) => albumsApi.remove(id, proof),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
+      queryClient.invalidateQueries({ queryKey: usageQueryKey });
+    },
+  });
+}
+
+/** The owner's Recently deleted albums. */
+export function useDeletedAlbums(options: QueryOptions = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.albums.deleted,
+    queryFn: () => albumsApi.deleted(),
+    enabled: options.enabled ?? true,
+  });
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    albums: query.data?.data ?? ([] as DeletedAlbum[]),
+  };
+}
+
+/** Brings an album back from Recently deleted, with everything in it. */
+export function useRestoreAlbum() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => albumsApi.restore(id),
+    onSuccess: (album) => {
+      // Over whatever "not found" a screen cached while it was gone.
+      queryClient.setQueryData(queryKeys.albums.detail(album.id), album);
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
+      // Its workspace counts it again, and its files count toward storage.
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
       queryClient.invalidateQueries({ queryKey: usageQueryKey });
     },
