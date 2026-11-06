@@ -55,7 +55,9 @@ function dateLabel(iso: string | null): string {
 }
 
 /**
- * Subscription tiers, and paying for one.
+ * Subscription tiers, and paying for one — or, on a phone, "Your plan": only
+ * the plan the account is on, with no other tier, price or "Coming soon" on
+ * the screen. See SELLS_PLANS_HERE for why.
  *
  * The plans come from the API, which serves the same table the quota service
  * enforces — a screen with its own copy of the limits eventually advertises
@@ -95,6 +97,13 @@ export default function PlansScreen() {
   const rawPlan = billing?.plan ?? usage?.plan ?? 'free';
   const currentPlan = rawPlan === 'pro' ? 'freelance' : rawPlan;
   const subscription = billing?.subscription ?? null;
+
+  // The catalogue entry the account is on. A plan name the catalogue does not
+  // know gets Free's limits from the server (limitsFor), so it reads as Free.
+  const yourPlan =
+    plans.find((p) => p.name === currentPlan) ?? plans.find((p) => p.name === 'free');
+  // A phone lists only that one: nothing it cannot sell, nothing "coming soon".
+  const shownPlans = SELLS_PLANS_HERE ? plans : yourPlan ? [yourPlan] : [];
 
   const upgrade = (plan: PlanInfo) => {
     setStarting(plan.name);
@@ -165,9 +174,11 @@ export default function PlansScreen() {
             <ArrowLeftIcon size={18} className="text-foreground" />
           </Pressable>
           <View className="flex-1">
-            <Text className="text-foreground text-[22px] font-bold tracking-tight">Plans</Text>
+            <Text className="text-foreground text-[22px] font-bold tracking-tight">
+              {SELLS_PLANS_HERE ? 'Plans' : 'Your plan'}
+            </Text>
             <Text className="text-muted-foreground text-sm mt-0.5">
-              {SELLS_PLANS_HERE ? 'Billed monthly. Cancel any time.' : 'What each plan includes.'}
+              {SELLS_PLANS_HERE ? 'Billed monthly. Cancel any time.' : 'What your plan includes.'}
             </Text>
           </View>
         </View>
@@ -217,11 +228,15 @@ export default function PlansScreen() {
           </View>
         ) : plansFailed && plans.length === 0 ? (
           // Not an empty screen with only the footnote on it.
-          <LoadFailed what="the plans" onRetry={() => void refetchPlans()} compact />
+          <LoadFailed
+            what={SELLS_PLANS_HERE ? 'the plans' : 'your plan'}
+            onRetry={() => void refetchPlans()}
+            compact
+          />
         ) : (
           <View className="px-5 mt-5 gap-4">
-            {plans.map((plan) => {
-              const isCurrent = plan.name === currentPlan;
+            {shownPlans.map((plan) => {
+              const isCurrent = plan === yourPlan;
               // Freelance is the paid tier on offer; free is the floor and
               // studio is not purchasable yet.
               const highlight = plan.name === 'freelance' && !isCurrent;
@@ -251,7 +266,9 @@ export default function PlansScreen() {
                             </Text>
                           </View>
                         )}
-                        {plan.comingSoon && (
+                        {/* Never on your own plan: one granted ahead of its
+                            launch is yours now, not "coming soon". */}
+                        {plan.comingSoon && !isCurrent && (
                           <View className="rounded-full px-2 py-0.5 bg-muted">
                             <Text className="text-muted-foreground text-[10px] font-bold">
                               COMING SOON
@@ -289,7 +306,8 @@ export default function PlansScreen() {
                     ))}
                   </View>
 
-                  {isCurrent ? (
+                  {/* The phone's screen is titled "Your plan" already. */}
+                  {isCurrent && !SELLS_PLANS_HERE ? null : isCurrent ? (
                     <View className="mt-4 rounded-xl py-3 items-center bg-muted">
                       <Text className="text-muted-foreground text-sm font-bold">
                         Your plan

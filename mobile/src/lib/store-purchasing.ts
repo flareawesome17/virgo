@@ -9,9 +9,12 @@ import { Platform } from 'react-native';
  * at review, or a removal after it. Neither may the app send people elsewhere
  * to buy one: a link or a "buy it on the web" counts as the same thing.
  *
- * So on a phone the plans are information — what each includes and which one
- * you are on — and a plan bought on the web still shows, and can still be
- * cancelled, here. The web build of this app is a development preview, which
- * is the only place this is true.
+ * So on a phone there is no plan list at all: the Plans screen becomes "Your
+ * plan", the one the account is on and what it includes, and a plan bought on
+ * the web still shows, and can still be cancelled, there. Listing tiers that
+ * cannot be had in the app — with "Coming soon" on them — is what App Review
+ * rejected on 2026-11-04 under 2.2 ("premium plans that users aren't able to
+ * use"). The web build of this app is a development preview, which is the only
+ * place that compares them.
  */
 export const SELLS_PLANS_HERE = Platform.OS === 'web';
