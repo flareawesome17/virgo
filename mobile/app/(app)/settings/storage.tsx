@@ -137,8 +137,7 @@ export default function StorageOverviewScreen() {
           </>
         ) : null}
 
-        {/* Upgrade CTA. Only where a plan can be bought: see SELLS_PLANS_HERE.
-            The Plans row further down still compares them. */}
+        {/* Upgrade CTA. Only where a plan can be bought: see SELLS_PLANS_HERE. */}
         {SELLS_PLANS_HERE && (
           <Pressable onPress={() => router.push('/settings/storage/plans')}
             className="mx-5 mt-4 bg-action rounded-2xl p-4 flex-row items-center justify-center gap-2 active:scale-[0.97]"
@@ -244,7 +243,8 @@ export default function StorageOverviewScreen() {
 
         {/* Was "Billing History", a screen of invented paid invoices against a
             card nobody had entered. Plans is the real destination until there
-            is a billing backend with history to read. */}
+            is a billing backend with history to read. On a phone it is "Your
+            plan" and compares nothing: see SELLS_PLANS_HERE. */}
         <Pressable onPress={() => router.push('/settings/storage/plans')}
           className="mx-5 mt-6 bg-card rounded-2xl p-4 flex-row items-center gap-4 active:scale-[0.98]"
           style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
@@ -252,8 +252,14 @@ export default function StorageOverviewScreen() {
             <ShieldIcon size={18} className="text-primary" />
           </View>
           <View className="flex-1">
-            <Text className="text-foreground text-sm font-semibold">Plans</Text>
-            <Text className="text-muted-foreground text-xs mt-0.5">Compare storage and workspace limits</Text>
+            <Text className="text-foreground text-sm font-semibold">
+              {SELLS_PLANS_HERE ? 'Plans' : 'Your plan'}
+            </Text>
+            <Text className="text-muted-foreground text-xs mt-0.5">
+              {SELLS_PLANS_HERE
+                ? 'Compare storage and workspace limits'
+                : 'What your plan includes'}
+            </Text>
           </View>
           <ChevronRightIcon size={14} className="text-muted-foreground" />
         </Pressable>
