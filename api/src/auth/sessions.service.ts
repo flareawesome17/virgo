@@ -43,6 +43,8 @@ export interface SignInContext {
   origin?: string;
   /** Cloudflare's CF-IPCountry: an ISO country code, or XX / T1. */
   country?: string;
+  /** Cloudflare's CF-Connecting-IP. Written to the audit log only, never stored on a session. */
+  ip?: string;
 }
 
 /** A week: long enough to read the email late, short enough to not linger. */

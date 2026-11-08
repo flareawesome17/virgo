@@ -2,6 +2,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -305,6 +307,7 @@ export class AuthService {
     const valid = await bcrypt.compare(password, hash);
 
     if (!user || !valid) {
+      this.auditLogin('bad-password', normalized, options);
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -335,6 +338,9 @@ export class AuthService {
     this.assertNotDisabled(user);
 
     if (user.two_factor_enabled_at) {
+      // Password was right: a code is about to be emailed. Record who asked.
+      this.auditLogin('password-ok-code-sent', normalized, options);
+      this.limitLoginCodes(user.id);
       return {
         twoFactorRequired: true,
         ...(await this.twoFactor.createLoginChallenge(user)),
@@ -344,6 +350,32 @@ export class AuthService {
     return { user: toPublicUser(user), ...(await this.signIn(user, options)) };
   }
 
+  private readonly loginCodeAsks = new Map<string, number[]>();
+
+  /** At most 3 login-code emails per account per 10 minutes, whatever the IP. */
+  private limitLoginCodes(userId: string): void {
+    const now = Date.now();
+    const recent = (this.loginCodeAsks.get(userId) ?? []).filter((t) => now - t < 600_000);
+    if (recent.length >= 3) {
+      this.loginCodeAsks.set(userId, recent);
+      throw new HttpException(
+        { statusCode: HttpStatus.TOO_MANY_REQUESTS, message: 'Too many sign-in attempts. Try again in a few minutes.' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    recent.push(now);
+    this.loginCodeAsks.set(userId, recent);
+  }
+
+  /** One audit line per sign-in step, with the origin of the request. */
+  private auditLogin(outcome: string, email: string, ctx: SignInContext): void {
+    const clean = (v?: string) => (v ?? '-').replace(/[^\x20-\x7e]/g, '?').slice(0, 120);
+    this.logger.warn(
+      `login-audit outcome=${outcome} email=${clean(email)} ip=${clean(ctx.ip)} ` +
+        `country=${clean(ctx.country)} ua="${clean(ctx.userAgent)}"`,
+    );
+  }
+
   async completeTwoFactorLogin(
     challengeToken: string,
     code: string,
@@ -351,7 +383,14 @@ export class AuthService {
   ): Promise<AuthResult> {
     // Refused by issueTokens if the account was suspended or paused while
     // the code was on its way.
-    const user = await this.twoFactor.completeLoginChallenge(challengeToken, code);
+    let user: UserRow;
+    try {
+      user = await this.twoFactor.completeLoginChallenge(challengeToken, code);
+    } catch (err) {
+      this.auditLogin('code-rejected', '-', context);
+      throw err;
+    }
+    this.auditLogin('signed-in', user.email, context);
     return { user: toPublicUser(user), ...(await this.signIn(user, context)) };
   }
 
