@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   MessageCircleIcon,
   UsersIcon,
-  PlusIcon,
+  SquarePenIcon,
   SearchIcon,
   XIcon,
   BellOffIcon,
@@ -43,7 +43,7 @@ function TypingOrPreview({ conversation }: { conversation: Conversation }) {
 
   if (names.length > 0) {
     return (
-      <Text className="text-primary text-xs font-medium flex-1" numberOfLines={1}>
+      <Text className="text-primary text-[14px] leading-5 font-medium flex-1" numberOfLines={1}>
         {conversation.isGroup ? typingLabel(names) : 'typing…'}
       </Text>
     );
@@ -51,7 +51,7 @@ function TypingOrPreview({ conversation }: { conversation: Conversation }) {
 
   return (
     <Text
-      className={`text-xs flex-1 ${
+      className={`text-[14px] leading-5 flex-1 ${
         conversation.unread > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'
       }`}
       numberOfLines={1}
@@ -69,7 +69,7 @@ function TypingOrPreview({ conversation }: { conversation: Conversation }) {
 
 cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(SquarePenIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(XIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -152,17 +152,17 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
           with one conversation no way at all to start another. The empty state
           has its own button, so the gap opened the moment a first chat
           existed. */}
-      <View className="px-5 pt-3 pb-2 flex-row items-center gap-3">
+      <View className="px-5 pt-4 pb-2 flex-row items-center gap-2">
         <View
-          className="flex-1 flex-row items-center bg-secondary rounded-xl px-4 h-12 gap-3"
+          className="flex-1 flex-row items-center bg-muted rounded-[14px] px-3.5 h-11 gap-2.5"
         >
-          <SearchIcon size={16} className="text-muted-foreground" />
+          <SearchIcon size={18} className="text-muted-foreground" />
           <TextInput
             value={search}
             onChangeText={setSearch}
             placeholder="Search names and messages"
             placeholderTextColor={palette.mutedForeground}
-            className="text-foreground text-sm flex-1"
+            className="text-foreground text-[15px] flex-1"
             returnKeyType="search"
             autoCorrect={false}
           />
@@ -185,9 +185,11 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
           onPress={() => router.push('/chat/new')}
           accessibilityRole="button"
           accessibilityLabel="Start a new chat"
-          className="w-12 h-12 rounded-xl bg-action items-center justify-center active:scale-[0.96]"
+          // A pen, and quiet: the + in the bar above makes things, and two
+          // terracotta pluses a thumb apart read as the same button twice.
+          className="w-11 h-11 rounded-[14px] bg-muted items-center justify-center active:scale-[0.96]"
         >
-          <PlusIcon size={20} className="text-action-foreground" />
+          <SquarePenIcon size={19} className="text-foreground" />
         </Pressable>
       </View>
 
@@ -232,11 +234,11 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
             ]
               .filter(Boolean)
               .join(', ')}
-            className="px-5 py-3 flex-row items-center gap-3 active:bg-muted/30"
+            className="min-h-[72px] px-5 py-2.5 flex-row items-center gap-3 active:bg-muted/40"
           >
             {item.isGroup ? (
-              <View className="w-12 h-12 rounded-full items-center justify-center" style={{ backgroundColor: '#5B7B9A18' }}>
-                <UsersIcon size={20} color="#5B7B9A" />
+              <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
+                <UsersIcon size={20} className="text-secondary-foreground" />
               </View>
             ) : (
               // Wrapped so the presence dot has something to anchor to.
@@ -263,15 +265,20 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
             <View className="flex-1 min-w-0">
               <View className="flex-row items-center gap-2">
                 <Text
-                  className={`text-foreground text-sm ${item.unread > 0 ? 'font-bold' : 'font-semibold'}`}
+                  // Unread is the only thing in the list that gets weight.
+                  className={`text-foreground text-[16px] leading-[22px] ${item.unread > 0 ? 'font-bold' : 'font-medium'}`}
                   numberOfLines={1}
                   style={{ flexShrink: 1 }}
                 >
                   {item.title}
                 </Text>
-                {item.muted && <BellOffIcon size={11} className="text-muted-foreground" />}
+                {item.muted && <BellOffIcon size={13} className="text-muted-foreground" />}
                 <View className="flex-1" />
-                <Text className="text-muted-foreground text-xs">
+                <Text
+                  className={`text-[12px] ${
+                    item.unread > 0 && !item.muted ? 'text-primary font-semibold' : 'text-muted-foreground'
+                  }`}
+                >
                   {whenLabel(item.lastAt)}
                 </Text>
               </View>
@@ -285,12 +292,13 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
                     greyed: it waits for you without calling for you. */}
                 {item.unread > 0 ? (
                   <View
-                    className={`rounded-full px-2 py-0.5 min-w-[20px] items-center ${
+                    className={`rounded-full px-1.5 h-5 min-w-[20px] items-center justify-center ${
                       item.muted ? 'bg-muted' : 'bg-action'
                     }`}
                   >
                     <Text
-                      className={`text-[11px] font-bold ${
+                      allowFontScaling={false}
+                      className={`text-[12px] font-bold ${
                         item.muted ? 'text-muted-foreground' : 'text-action-foreground'
                       }`}
                     >
@@ -304,8 +312,8 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
                   the thread rather than in its name. */}
               {item.matchSnippet && (
                 <View className="flex-row items-center gap-1.5 mt-1">
-                  <SearchIcon size={10} className="text-primary" />
-                  <Text className="text-primary text-xs flex-1" numberOfLines={1}>
+                  <SearchIcon size={12} className="text-primary" />
+                  <Text className="text-primary text-[13px] flex-1" numberOfLines={1}>
                     {item.matchSnippet}
                   </Text>
                 </View>
@@ -343,7 +351,7 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
               <Pressable
                 onPress={() => router.push('/chat/new')}
                 accessibilityRole="button"
-                className="mt-7 min-h-11 bg-action rounded-xl px-7 py-3 items-center justify-center active:scale-[0.98]"
+                className="mt-7 min-h-11 bg-action rounded-[14px] px-7 py-3 items-center justify-center active:scale-[0.98]"
               >
                 <Text className="text-action-foreground text-sm font-bold">New chat</Text>
               </Pressable>

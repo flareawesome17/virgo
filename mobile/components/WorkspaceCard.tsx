@@ -1,9 +1,10 @@
 import { Text, View } from 'react-native';
 import { router } from 'expo-router';
-import type { Workspace } from '@/src/api';
+import { formatBytes, type Workspace } from '@/src/api';
 import { ROLE_LABEL, plural, relativeTime } from '@/src/lib/workspaces';
-import { PeopleStack, Pill, WorkspaceTile } from '@/components/WorkspaceBits';
+import { PeopleStack, Pill } from '@/components/WorkspaceBits';
 import { PressableScale } from '@/components/PressableScale';
+import { WorkspaceCover } from '@/components/WorkspaceCover';
 
 /**
  * Whose a workspace is and who else is in it, in one line:
@@ -22,43 +23,58 @@ export function ownerLine(workspace: Workspace): string {
 }
 
 /**
- * One workspace in the list: its mark, whose it is, how much it holds, who
- * else is in it, and when something last happened there.
+ * One workspace in the list, led by a photograph from it: its name and when
+ * something last happened there, how much it holds, then whose it is and who
+ * else is in it.
+ *
+ * Three lines, each a step quieter than the one above: the name is what you
+ * look for, the size is what you check, the people are what you already know.
  */
 export function WorkspaceCard({ workspace, ring }: { workspace: Workspace; ring: string }) {
+  const holds = [
+    workspace.album_count > 0 ? plural(workspace.album_count, 'album') : 'No albums yet',
+    workspace.media_count > 0 ? plural(workspace.media_count, 'file') : null,
+    // Its size only for the owner: the API keeps a member's share of
+    // somebody else's storage to itself.
+    workspace.storage_bytes ? formatBytes(workspace.storage_bytes) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
-    // Gives under the finger and springs back (PressableScale), where it used
-    // to snap to 98% and back. Where it sits is a plain style; how it looks
-    // is the class.
+    // Gives under the finger and springs back (PressableScale). Where it sits
+    // is a plain style; how it looks is the class.
     <PressableScale
       onPress={() => router.push(`/workspaces/${workspace.id}`)}
       accessibilityRole="button"
-      accessibilityLabel={`${workspace.name}, ${ownerLine(workspace)}`}
+      accessibilityLabel={`${workspace.name}, ${holds}, ${ownerLine(workspace)}`}
       scaleTo={0.98}
       style={{ marginHorizontal: 20, marginBottom: 12 }}
-      className="bg-card rounded-2xl p-3.5 flex-row gap-3 border border-border/40"
+      className="bg-card rounded-[20px] p-3 flex-row gap-3 border border-border/40"
     >
-      <WorkspaceTile name={workspace.name} color={workspace.accent_color} size={48} />
-      <View className="flex-1 min-w-0 gap-1">
-        <View className="flex-row items-center gap-2">
-          <Text className="text-foreground text-[15px] font-semibold flex-shrink" numberOfLines={1}>
+      <WorkspaceCover workspace={workspace} width={76} height={76} />
+      <View className="flex-1 min-w-0 justify-center">
+        <View className="flex-row items-baseline gap-2">
+          <Text
+            className="text-foreground text-[16px] leading-[22px] font-semibold flex-shrink"
+            numberOfLines={1}
+          >
             {workspace.name}
           </Text>
           {workspace.archived_at ? <Pill tone="muted">Archived</Pill> : null}
-        </View>
-        <Text className="text-secondary-foreground text-xs" numberOfLines={1}>
-          {ownerLine(workspace)}
-        </Text>
-        <View className="flex-row items-center justify-between mt-1.5 gap-2">
-          <Text className="text-muted-foreground text-xs flex-shrink" numberOfLines={1}>
-            {plural(workspace.album_count, 'album')} · {plural(workspace.media_count, 'file')}
+          <View className="flex-1" />
+          <Text className="text-muted-foreground text-[12px]">
+            {relativeTime(workspace.last_activity_at)}
           </Text>
-          <View className="flex-row items-center gap-2">
-            <PeopleStack people={workspace.people} ring={ring} size={22} />
-            <Text className="text-muted-foreground text-xs">
-              {relativeTime(workspace.last_activity_at)}
-            </Text>
-          </View>
+        </View>
+        <Text className="text-secondary-foreground text-[14px] leading-5 mt-0.5" numberOfLines={1}>
+          {holds}
+        </Text>
+        <View className="flex-row items-center gap-2 mt-1.5">
+          <PeopleStack people={workspace.people} ring={ring} size={20} />
+          <Text className="flex-1 text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+            {ownerLine(workspace)}
+          </Text>
         </View>
       </View>
     </PressableScale>

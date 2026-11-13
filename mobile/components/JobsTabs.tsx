@@ -29,7 +29,7 @@ import {
 } from '@/src/api';
 import { APPLICATION_LABEL } from '@/src/lib/jobs-format';
 import { JobsFeed } from '@/components/JobsFeed';
-import { SegmentedTabs } from '@/components/SegmentedTabs';
+import { PageTabs } from '@/components/PageTabs';
 import { EmptyState } from '@/components/EmptyState';
 import { CardListSkeleton } from '@/components/Skeleton';
 import { useTabObstruction } from '@/components/TabScreen';
@@ -119,24 +119,25 @@ export function JobsTabs({
 
   return (
     <View className="flex-1">
-      <View className="px-5 pt-2 pb-1">
-        <SegmentedTabs<JobsTab>
-          segments={[
-            { key: 'browse', label: 'Browse' },
-            {
-              key: 'posted',
-              label: 'Posted',
-              dot: waiting > 0,
-              accessibilityLabel: waiting > 0 ? `Posted, ${waiting} waiting on you` : `Posted, ${jobs.length}`,
-            },
-            { key: 'applied', label: 'Applied', accessibilityLabel: 'Your applications' },
-            // Beside the jobs, as on the web: a booking is where one ends up.
-            { key: 'bookings', label: 'Bookings' },
-          ]}
-          value={tab}
-          onChange={onTabChange}
-        />
-      </View>
+      {/* The screen's pages, as the Dashboard's are: words with a line under
+          the one you are on. Posted carries how many applicants are waiting,
+          which was a dot that said only that somebody was. */}
+      <PageTabs<JobsTab>
+        tabs={[
+          { key: 'browse', label: 'Browse' },
+          {
+            key: 'posted',
+            label: 'Posted',
+            badge: waiting,
+            accessibilityLabel: waiting > 0 ? 'Posted' : `Posted, ${jobs.length}`,
+          },
+          { key: 'applied', label: 'Applied', accessibilityLabel: 'Your applications' },
+          // Beside the jobs, as on the web: a booking is where one ends up.
+          { key: 'bookings', label: 'Bookings' },
+        ]}
+        value={tab}
+        onChange={onTabChange}
+      />
 
       {pane('browse', <JobsFeed bottomPadding={bottomPadding} />)}
       {pane('posted', <Posted bottom={bottomPadding} focusPostId={focusPostId} />)}

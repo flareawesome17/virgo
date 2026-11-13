@@ -10,10 +10,9 @@ import { PALETTES } from '@/theme';
 import Animated from 'react-native-reanimated';
 import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { budgetLabel, distanceLabel, isRoleFilled, type JobPost, type MyApplication } from '@/src/api';
-import { jobDate, postedAgo } from '@/src/lib/jobs-format';
+import { postedAgo } from '@/src/lib/jobs-format';
 import {
-  BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon,
-  UsersIcon, SearchIcon, XIcon,
+  BriefcaseIcon, MapPinIcon, XIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
@@ -22,11 +21,10 @@ import { FilterChip } from '@/components/FilterChip';
 import { EmptyState } from '@/components/EmptyState';
 import { PressableScale } from '@/components/PressableScale';
 import { CardListSkeleton } from '@/components/Skeleton';
+import { DateTile } from '@/components/DateTile';
 import { useTabObstruction } from '@/components/TabScreen';
 
-for (const Icon of [
-  BriefcaseIcon, CalendarIcon, MapPinIcon, BanknoteIcon, UsersIcon, SearchIcon, XIcon,
-]) {
+for (const Icon of [BriefcaseIcon, MapPinIcon, XIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -86,9 +84,11 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
 
   return (
     <View className="flex-1">
-      <View className="px-5 pt-3 pb-2 gap-2.5">
-        <View className="bg-card rounded-xl pl-3.5 min-h-[44px] flex-row items-center gap-2">
-          <SearchIcon size={15} className="text-muted-foreground" />
+      <View className="px-5 pt-4 pb-2 gap-3">
+        {/* It narrows the board by place, so it wears a pin. It wore a
+            magnifier, which promised a search of the jobs themselves. */}
+        <View className="bg-muted rounded-[14px] pl-3.5 min-h-[44px] flex-row items-center gap-2.5">
+          <MapPinIcon size={18} className="text-muted-foreground" />
           <TextInput
             value={place}
             onChangeText={setPlace}
@@ -176,11 +176,11 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
           // rather than only closing the keyboard.
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: bottomPadding, gap: 10 }}
+          contentContainerStyle={{ padding: 20, paddingTop: 4, paddingBottom: bottomPadding, gap: 12 }}
           refreshControl={refresher}
         >
           <View className="flex-row items-center justify-between min-h-[28px]">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
+            <Text className="text-muted-foreground text-[13px] font-semibold">
               {total} open {total === 1 ? 'job' : 'jobs'}
             </Text>
             {filtered && (
@@ -200,7 +200,7 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
               onPress={() => void fetchNextPage()}
               disabled={isFetchingNextPage}
               accessibilityRole="button"
-              className="min-h-11 rounded-xl bg-secondary items-center justify-center active:opacity-80"
+              className="min-h-11 rounded-[14px] bg-secondary items-center justify-center active:opacity-80"
             >
               {isFetchingNextPage ? (
                 <ActivityIndicator color={palette.primary} />
@@ -232,63 +232,107 @@ function standing(job: JobPost): MyApplication['status'] | null {
   return STANDING.find((st) => mine.some((a) => a.status === st)) ?? null;
 }
 
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+/**
+ * "NOV" and 26 from a job's date. Read off the string, not through Date: a
+ * date-only value parses as UTC midnight, which is the day before anywhere
+ * west of Greenwich.
+ */
+function jobDay(eventDate: string): { month: string; day: number } | null {
+  const [, month, day] = eventDate.slice(0, 10).split('-').map(Number);
+  if (!month || !day) return null;
+  return { month: MONTHS[month - 1] ?? '', day };
+}
+
+/**
+ * One job on the board, read in the order somebody decides by: when it is,
+ * what it is, what it pays. Then the brief, who it wants, and where.
+ *
+ * The date leads as a tile, as dated rows do everywhere else. The pay was a
+ * 12pt terracotta line among the small print at the foot; it is the second
+ * thing anybody looks for, so it has a line of its own.
+ */
 function JobCard({ job }: { job: JobPost }) {
   const budget = budgetLabel(job.budgetMin, job.budgetMax);
   // The board never said which posts you had already applied to, so the
   // only way to find out was to open each one.
   const mine = standing(job);
+  const when = job.eventDate ? jobDay(job.eventDate) : null;
+  const distance = distanceLabel(job.distanceKm, job.location);
+  const where = [job.location, distance].filter(Boolean).join(' · ');
+
   return (
-    // It had no press feedback at all. It gives a little now.
     <PressableScale
-      className="bg-card rounded-2xl p-4 gap-2.5"
+      className="bg-card rounded-[20px] border border-border/40 p-4 gap-3"
       onPress={() => router.push(`/jobs/${job.slug}`)}
       accessibilityRole="button"
-      accessibilityLabel={mine ? `${job.title}, ${APPLICATION_LABEL[mine]}` : job.title}
+      accessibilityLabel={[job.title, budget, mine ? APPLICATION_LABEL[mine] : null].filter(Boolean).join(', ')}
       scaleTo={0.98}
     >
-      <View className="flex-row items-start gap-2.5">
-        <RemoteImage
-          source={{ uri: job.postedBy.avatarUrl ?? PLACEHOLDER_IMAGE }}
-          style={{ width: 32, height: 32, borderRadius: 16 }}
-        />
+      <View className="flex-row items-start gap-3">
+        {/* With no date set, the person who posted it stands in. */}
+        {when ? (
+          <DateTile small={when.month} large={when.day} />
+        ) : (
+          <RemoteImage
+            source={{ uri: job.postedBy.avatarUrl ?? PLACEHOLDER_IMAGE }}
+            style={{ width: 44, height: 44, borderRadius: 22 }}
+          />
+        )}
         <View className="flex-1 min-w-0">
-          <Text className="text-foreground text-[15px] font-bold leading-snug">
+          <Text className="text-foreground text-[16px] leading-[22px] font-semibold" numberOfLines={2}>
             {job.title}
           </Text>
-          <Text className="text-muted-foreground text-[12px] mt-0.5">
+          <Text className="text-muted-foreground text-[13px] leading-[18px] mt-0.5" numberOfLines={1}>
             {job.isMine ? 'Your post' : job.postedBy.displayName} · posted{' '}
             {postedAgo(job.createdAt)}
           </Text>
         </View>
-        {mine && (
-          <View className={`rounded-full px-2.5 py-1 ${mine === 'accepted' ? 'bg-success/15' : 'bg-muted'}`}>
-            <Text
-              className={`text-[11px] font-bold ${mine === 'accepted' ? 'text-success' : 'text-muted-foreground'}`}
-            >
-              {APPLICATION_LABEL[mine]}
-            </Text>
-          </View>
-        )}
       </View>
 
-      <Text className="text-muted-foreground text-[13px] leading-5" numberOfLines={3}>
+      {(budget || mine) && (
+        <View className="flex-row items-center justify-between gap-3">
+          <Text
+            className="flex-1 text-foreground text-[17px] leading-6 font-bold tracking-tight"
+            style={{ fontVariant: ['tabular-nums'] }}
+            numberOfLines={1}
+          >
+            {budget ?? ''}
+          </Text>
+          {mine && (
+            <View className={`rounded-full px-2.5 py-1 ${mine === 'accepted' ? 'bg-success/15' : 'bg-muted'}`}>
+              <Text
+                className={`text-[13px] leading-[18px] font-semibold ${
+                  mine === 'accepted' ? 'text-success' : 'text-secondary-foreground'
+                }`}
+              >
+                {APPLICATION_LABEL[mine]}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      <Text className="text-secondary-foreground text-[14px] leading-5" numberOfLines={2}>
         {job.description}
       </Text>
 
       {/* A filled role stays on the card, struck through, rather than
           disappearing: a post that wanted three people and has two left is a
           different thing from one that only ever wanted one, and the card
-          should not make those look identical. */}
-      <View className="flex-row flex-wrap gap-1.5">
+          should not make those look identical.
+
+          Plain chips: terracotta is kept for what can be pressed. */}
+      <View className="flex-row flex-wrap gap-2">
         {job.rolesWanted.map((r) => {
           const filled = isRoleFilled(job, r);
           return (
-            <View
-              key={r}
-              className={`rounded-full px-2.5 py-0.5 ${filled ? 'bg-muted' : 'bg-primary/10'}`}
-            >
+            <View key={r} className="rounded-full px-2.5 py-1 bg-muted">
               <Text
-                className={`text-[11px] font-bold ${filled ? 'text-muted-foreground line-through' : 'text-primary'}`}
+                className={`text-[13px] leading-[18px] font-medium ${
+                  filled ? 'text-muted-foreground line-through' : 'text-secondary-foreground'
+                }`}
                 accessibilityLabel={filled ? `${r}, filled` : r}
               >
                 {r}
@@ -298,38 +342,25 @@ function JobCard({ job }: { job: JobPost }) {
         })}
       </View>
 
-      <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">
-        {job.eventDate && (
-          <View className="flex-row items-center gap-1">
-            <CalendarIcon size={12} className="text-muted-foreground" />
-            <Text className="text-muted-foreground text-[12px]">{jobDate(job.eventDate)}</Text>
-          </View>
-        )}
-        {job.location && (
-          <View className="flex-row items-center gap-1">
-            <MapPinIcon size={12} className="text-muted-foreground" />
-            <Text className="text-muted-foreground text-[12px]">{job.location}</Text>
-          </View>
-        )}
-        {budget && (
-          <View className="flex-row items-center gap-1">
-            <BanknoteIcon size={12} className="text-primary" />
-            <Text className="text-primary text-[12px] font-semibold">{budget}</Text>
-          </View>
-        )}
-        {/* What makes a job feel takeable. Only when we actually know. */}
-        {distanceLabel(job.distanceKm, job.location) && (
-          <Text className="text-primary text-[12px] font-semibold">
-            {distanceLabel(job.distanceKm, job.location)}
-          </Text>
-        )}
-        {job.applicantCount > 0 && (
-          <View className="flex-row items-center gap-1 ml-auto">
-            <UsersIcon size={12} className="text-muted-foreground" />
-            <Text className="text-muted-foreground text-[12px]">{job.applicantCount} applied</Text>
-          </View>
-        )}
-      </View>
+      {(where || job.applicantCount > 0) && (
+        <View className="flex-row items-center gap-3 border-t border-border/30 pt-3">
+          {where ? (
+            <View className="flex-1 min-w-0 flex-row items-center gap-1.5">
+              <MapPinIcon size={14} className="text-muted-foreground" />
+              <Text className="flex-1 text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+                {where}
+              </Text>
+            </View>
+          ) : (
+            <View className="flex-1" />
+          )}
+          {job.applicantCount > 0 && (
+            <Text className="text-muted-foreground text-[13px] leading-[18px]">
+              {job.applicantCount} applied
+            </Text>
+          )}
+        </View>
+      )}
     </PressableScale>
   );
 }
