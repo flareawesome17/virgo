@@ -2,15 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import { MessageCircleIcon, UsersIcon } from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
-import { SegmentedTabs, TabScreen } from '@/components';
+import { TabScreen } from '@/components';
+import { PageTabs } from '@/components/PageTabs';
 import { PeopleView } from '@/components/connect/PeopleView';
 import { useMarkPeopleSeen, usePeopleUnseen, useUnreadCount } from '@/src/hooks';
 import ChatScreen from './chat';
 
-cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 type ConnectView = 'messages' | 'people';
 
@@ -62,16 +59,16 @@ export default function ConnectScreen() {
 
   return (
     <TabScreen title="Connect">
-      <View className="mx-5 mt-2 mb-1">
-        <SegmentedTabs<ConnectView>
-          segments={[
-            { key: 'messages', label: 'Messages', icon: MessageCircleIcon, badge: unread },
-            { key: 'people', label: 'People', icon: UsersIcon, badge: lookingAtPeople ? 0 : unseen.count },
-          ]}
-          value={view}
-          onChange={setView}
-        />
-      </View>
+      {/* The screen's two pages, as the Dashboard's and Jobs' are: words
+          with a line under the one you are on, each with what is waiting. */}
+      <PageTabs<ConnectView>
+        tabs={[
+          { key: 'messages', label: 'Messages', badge: unread },
+          { key: 'people', label: 'People', badge: lookingAtPeople ? 0 : unseen.count },
+        ]}
+        value={view}
+        onChange={setView}
+      />
 
       <View className="flex-1" style={view === 'messages' ? undefined : { display: 'none' }}>
         <ChatScreen embedded />

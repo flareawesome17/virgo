@@ -119,15 +119,15 @@ export default function WorkspacesScreen() {
             <WorkspaceInvitations />
 
             {workspaces.length > 0 && (
-              <View className="px-5 pt-3 pb-1">
-                <View className="flex-row items-center bg-secondary rounded-xl px-4 h-11 gap-3">
-                  <SearchIcon size={16} className="text-muted-foreground" />
+              <View className="px-5 pt-2 pb-1">
+                <View className="flex-row items-center bg-muted rounded-[14px] px-3.5 h-11 gap-2.5">
+                  <SearchIcon size={18} className="text-muted-foreground" />
                   <TextInput
                     value={query}
                     onChangeText={setQuery}
                     placeholder="Search workspaces"
                     placeholderTextColor={palette.mutedForeground}
-                    className="flex-1 text-foreground text-sm"
+                    className="flex-1 text-foreground text-[15px]"
                     autoCapitalize="none"
                     autoCorrect={false}
                     returnKeyType="search"
@@ -149,7 +149,11 @@ export default function WorkspacesScreen() {
                 {SCOPES.map((s) => (
                   <FilterChip
                     key={s.key}
-                    label={s.label}
+                    // With how many each holds, so the choice is not a guess.
+                    label={`${s.label} ${
+                      s.key === 'all' ? workspaces.length : s.key === 'yours' ? yours.length : shared.length
+                    }`}
+                    accessibilityLabel={s.label}
                     on={s.key === scope}
                     onPress={() => setScope(s.key)}
                   />
@@ -161,17 +165,19 @@ export default function WorkspacesScreen() {
         }
         ListFooterComponent={
           archivedCount > 0 || deleted.length > 0 ? (
-            <View className="gap-2">
+            // One quiet group, in the rows Settings uses: these are places
+            // to go, not work, so they do not look like workspaces.
+            <View className="mx-5 mt-2 bg-card rounded-[20px] border border-border/40 overflow-hidden">
               {archivedCount > 0 ? (
                 <Pressable
                   onPress={() => router.push('/workspaces/archived')}
                   accessibilityRole="button"
-                  className="mx-5 mt-1 flex-row items-center gap-2 px-4 py-3 rounded-2xl bg-secondary active:scale-[0.98]"
+                  accessibilityLabel={`Archived, ${archivedCount}`}
+                  className="min-h-[52px] flex-row items-center gap-3 pl-4 pr-3 active:bg-muted/40"
                 >
-                  <ArchiveIcon size={16} className="text-secondary-foreground" />
-                  <Text className="text-secondary-foreground text-sm font-semibold flex-1">
-                    Archived · {archivedCount}
-                  </Text>
+                  <ArchiveIcon size={20} className="text-secondary-foreground" />
+                  <Text className="text-foreground text-[15px] font-medium flex-1">Archived</Text>
+                  <Text className="text-muted-foreground text-[14px]">{archivedCount}</Text>
                   <ChevronRightIcon size={16} className="text-muted-foreground" />
                 </Pressable>
               ) : null}
@@ -179,12 +185,14 @@ export default function WorkspacesScreen() {
                 <Pressable
                   onPress={() => router.push('/workspaces/deleted')}
                   accessibilityRole="button"
-                  className="mx-5 mt-1 flex-row items-center gap-2 px-4 py-3 rounded-2xl bg-secondary active:scale-[0.98]"
+                  accessibilityLabel={`Recently deleted, ${deleted.length}`}
+                  className={`min-h-[52px] flex-row items-center gap-3 pl-4 pr-3 active:bg-muted/40 ${
+                    archivedCount > 0 ? 'border-t border-border/30' : ''
+                  }`}
                 >
-                  <Trash2Icon size={16} className="text-secondary-foreground" />
-                  <Text className="text-secondary-foreground text-sm font-semibold flex-1">
-                    Recently deleted · {deleted.length}
-                  </Text>
+                  <Trash2Icon size={20} className="text-secondary-foreground" />
+                  <Text className="text-foreground text-[15px] font-medium flex-1">Recently deleted</Text>
+                  <Text className="text-muted-foreground text-[14px]">{deleted.length}</Text>
                   <ChevronRightIcon size={16} className="text-muted-foreground" />
                 </Pressable>
               ) : null}

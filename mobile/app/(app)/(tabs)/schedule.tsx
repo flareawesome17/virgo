@@ -6,29 +6,16 @@ import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
 import {
   CalendarDaysIcon,
-  ClockIcon,
-  TagIcon,
-  ScissorsIcon,
-  EyeIcon,
-  PackageIcon,
-  PresentationIcon,
-  PlusIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   BellIcon,
   BellOffIcon,
   CheckCircleIcon,
   CircleIcon,
-  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import {
-  AttendeeSummary,
-  EventInvitationsCard,
-  PressableScale,
-  TabScreen,
-  useTabBottomInset,
-} from '@/components';
+import { AttendeeSummary, EventInvitationsCard, TabScreen, useTabBottomInset } from '@/components';
+import { DateTile, timeParts } from '@/components/DateTile';
 import { LoadFailed } from '@/components/LoadFailed';
 import {
   DAY_DOT_SIZE,
@@ -39,28 +26,20 @@ import {
   formatTime,
   getMonthWeeks,
   labelForDateKey,
+  parseDateKey,
   todayKey, isEventUpcoming, eventTypeLabel, dateToKey } from '@/src/lib/calendar';
 import { PALETTES } from '@/theme';
 
-cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ChevronLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CheckCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+for (const Icon of [
+  CalendarDaysIcon, ChevronLeftIcon, ChevronRightIcon, BellIcon, BellOffIcon, CheckCircleIcon, CircleIcon,
+]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
-const EVENT_ICONS: Record<string, LucideIcon> = {
-  event: CalendarDaysIcon, editing: ScissorsIcon, review: EyeIcon,
-  delivery: PackageIcon, meeting: PresentationIcon, other: TagIcon,
-};
+/** The one card on this screen, the same one the Dashboard uses. */
+const CARD = 'bg-card rounded-[20px] border border-border/40 overflow-hidden';
+const TITLE = 'text-foreground text-[17px] leading-6 font-bold tracking-tight';
+const LINK = 'text-primary text-[14px] font-semibold';
 // Date helpers and the event colour table live in src/lib/calendar.ts — both
 // were duplicated across these screens. The date copies mishandled month/year
 // rollover; the colour table had drifted into five copies.
@@ -139,7 +118,7 @@ export default function ScheduleScreen() {
   // Compared against the moment, not the date: a 9am event was still listed as
   // upcoming that same evening.
   const upcomingEvents = soonEvents
-    .filter((e) => isEventUpcoming(e.event_date, e.event_time))
+    .filter((e) => isEventUpcoming(e.event_date, e.event_time) && e.event_date !== selectedDate)
     .slice(0, 3);
   const [now] = useState(() => Date.now());
   const overdueReminders = reminders.filter((r) => !r.is_completed && Date.parse(r.reminder_time) < now);
@@ -169,30 +148,24 @@ export default function ScheduleScreen() {
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: bottomInset }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}>
-        
+
         {/* A failed load drew "No upcoming events" and "No active reminders" —
             a confident empty day, from requests that never arrived. */}
         {(monthFailed || soonFailed || remindersFailed) &&
           events.length === 0 && soonEvents.length === 0 && reminders.length === 0 && (
-          <View className="mx-5 mt-3 bg-card rounded-2xl">
+          <View className={`mx-5 mt-3 ${CARD}`}>
             <LoadFailed what="your schedule" onRetry={() => void onRefresh()} compact />
           </View>
         )}
 
-        {/* No title row: the screen's name is in the top bar, and a new event
-            or reminder is its +. The month comes first. */}
-        {/* Month Calendar */}
-        <View className="mx-5 mt-4 bg-secondary rounded-2xl p-4">
-          {/* Month navigator: the month, a way home when you have wandered
-              off it, and the arrows together on the right where the thumb
-              is. The arrows were the ‹ and › characters at text size, and a
-              "Full" link sat squeezed against the second one — the full
-              calendar is still a tap away, under Upcoming. */}
-          <View className="flex-row items-center gap-2 mb-3">
-            <Text
-              accessibilityRole="header"
-              className="flex-1 text-foreground text-[17px] font-bold tracking-tight"
-            >
+        {/* The month, on the page itself. It sat in a tinted panel with white
+            discs for arrows, which made the calendar the heaviest thing on a
+            screen whose point is the day under it. */}
+        <View className="px-5 pt-2">
+          {/* The month, a way home when you have wandered off it, and the
+              arrows together on the right where the thumb is. */}
+          <View className="flex-row items-center">
+            <Text accessibilityRole="header" className={`flex-1 ${TITLE}`}>
               {MONTHS[viewMonth]} {viewYear}
             </Text>
             {awayFromToday && (
@@ -200,35 +173,34 @@ export default function ScheduleScreen() {
                 onPress={goToday}
                 accessibilityRole="button"
                 accessibilityLabel="Go to today"
-                className="h-9 px-3.5 rounded-full bg-card items-center justify-center active:opacity-70"
+                hitSlop={6}
+                className="h-8 px-3 rounded-full bg-muted items-center justify-center active:opacity-70"
               >
-                <Text className="text-primary text-[13px] font-semibold">Today</Text>
+                <Text className="text-secondary-foreground text-[13px] font-semibold">Today</Text>
               </Pressable>
             )}
             <Pressable
               onPress={goPrevMonth}
               accessibilityRole="button"
               accessibilityLabel="Previous month"
-              hitSlop={4}
-              className="w-10 h-10 rounded-full bg-card items-center justify-center active:opacity-70"
+              className="w-11 h-11 items-center justify-center active:opacity-60"
             >
-              <ChevronLeftIcon size={18} className="text-foreground" />
+              <ChevronLeftIcon size={20} className="text-foreground" />
             </Pressable>
             <Pressable
               onPress={goNextMonth}
               accessibilityRole="button"
               accessibilityLabel="Next month"
-              hitSlop={4}
-              className="w-10 h-10 rounded-full bg-card items-center justify-center active:opacity-70"
+              className="w-11 h-11 -mr-3 items-center justify-center active:opacity-60"
             >
-              <ChevronRightIcon size={18} className="text-foreground" />
+              <ChevronRightIcon size={20} className="text-foreground" />
             </Pressable>
           </View>
           {/* Day labels — flex-1 so the columns line up exactly with the grid */}
-          <View className="flex-row mb-1">
-            {DAYS.map(d => (
-              <View key={d} style={{ flex: 1 }} className="items-center py-1">
-                <Text className="text-muted-foreground text-[11px] font-bold">{d.slice(0,2)}</Text>
+          <View className="flex-row mt-1 mb-1">
+            {DAYS.map((d, i) => (
+              <View key={`${d}-${i}`} style={{ flex: 1 }} className="items-center py-1">
+                <Text className="text-muted-foreground text-[12px] font-semibold">{d.slice(0, 1)}</Text>
               </View>
             ))}
           </View>
@@ -239,12 +211,12 @@ export default function ScheduleScreen() {
             {week.map((cell) => {
               const dayEvents = eventsByDate[cell.key] ?? [];
               const isSel = cell.key === selectedDate;
+              const dots = dayEvents.length > 0 ? dayDots(dayEvents) : null;
               return (
                 <Pressable
                   key={cell.key}
                   // Outside days are selectable and page the view to their
-                  // month — standard calendar behaviour. Previously they were
-                  // inert, and the month-switch branch was unreachable.
+                  // month — standard calendar behaviour.
                   onPress={() => {
                     setSelectedDate(cell.key);
                     if (cell.month !== viewMonth || cell.year !== viewYear) {
@@ -256,34 +228,49 @@ export default function ScheduleScreen() {
                   accessibilityLabel={`${labelForDateKey(cell.key)}, ${dayEvents.length} event${dayEvents.length === 1 ? '' : 's'}`}
                   accessibilityState={{ selected: isSel }}
                   style={{ flex: 1 }}
-                  className="items-center py-1.5"
+                  className="items-center min-h-[46px] pt-0.5"
                 >
-                  <View className={`w-8 h-8 rounded-full items-center justify-center ${cell.isToday ? 'bg-action' : isSel ? 'bg-primary/15' : ''}`}>
-                    <Text className={`text-xs font-bold ${cell.isOutside ? 'text-muted-foreground/70' : cell.isToday ? 'text-action-foreground' : isSel ? 'text-primary' : 'text-foreground'}`}>
+                  {/* Today is the one filled day. A day you picked gets a
+                      ring, so the two can never be mistaken for each other. */}
+                  <View
+                    className={`w-9 h-9 rounded-full items-center justify-center ${
+                      cell.isToday ? 'bg-action' : isSel ? 'border-2 border-foreground' : ''
+                    }`}
+                  >
+                    <Text
+                      allowFontScaling={false}
+                      className={`text-[15px] ${
+                        cell.isToday
+                          ? 'text-action-foreground font-bold'
+                          : cell.isOutside
+                            ? 'text-muted-foreground/60 font-medium'
+                            : isSel
+                              ? 'text-foreground font-bold'
+                              : 'text-foreground font-medium'
+                      }`}
+                      style={{ fontVariant: ['tabular-nums'] }}
+                    >
                       {cell.day}
                     </Text>
                   </View>
-                  {dayEvents.length > 0 && (() => {
-                    const dots = dayDots(dayEvents);
-                    return (
-                      <View className="flex-row items-center gap-[3px] mt-0.5" style={{ opacity: cell.isOutside ? 0.35 : 1 }}>
-                        {dots.colors.map((color, i) => (
-                          <View
-                            key={i}
-                            style={{
-                              width: DAY_DOT_SIZE,
-                              height: DAY_DOT_SIZE,
-                              borderRadius: DAY_DOT_SIZE / 2,
-                              backgroundColor: color,
-                            }}
-                          />
-                        ))}
-                        {dots.overflow > 0 && (
-                          <Text className="text-muted-foreground text-[11px] font-bold">+{dots.overflow}</Text>
-                        )}
-                      </View>
-                    );
-                  })()}
+                  {dots && (
+                    <View className="flex-row items-center gap-[3px] mt-0.5" style={{ opacity: cell.isOutside ? 0.35 : 1 }}>
+                      {dots.colors.map((color, i) => (
+                        <View
+                          key={i}
+                          style={{
+                            width: DAY_DOT_SIZE,
+                            height: DAY_DOT_SIZE,
+                            borderRadius: DAY_DOT_SIZE / 2,
+                            backgroundColor: color,
+                          }}
+                        />
+                      ))}
+                      {dots.overflow > 0 && (
+                        <Text className="text-muted-foreground text-[11px] font-bold">+{dots.overflow}</Text>
+                      )}
+                    </View>
+                  )}
                 </Pressable>
               );
             })}
@@ -295,54 +282,54 @@ export default function ScheduleScreen() {
             day is unchanged. Above the agenda because it needs a decision. */}
         <EventInvitationsCard />
 
-        {/* Selected Day Agenda */}
-        <View className="px-5 mt-5">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-lg font-bold tracking-tight">{labelForDateKey(selectedDate)}</Text>
-            <Pressable onPress={() => router.push(`/schedule/agenda?date=${selectedDate}`)} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
-              <Text className="text-primary text-sm font-semibold">Agenda</Text>
-              <ChevronRightIcon size={14} className="text-primary" />
+        {/* The chosen day. Its rows lead with the hour, because the day is
+            already in the title. */}
+        <View className="px-5 mt-7">
+          <View className="flex-row items-center justify-between mb-2.5">
+            <Text accessibilityRole="header" className={TITLE}>{labelForDateKey(selectedDate)}</Text>
+            <Pressable onPress={() => router.push(`/schedule/agenda?date=${selectedDate}`)} accessibilityRole="button" hitSlop={12} className="active:opacity-60">
+              <Text className={LINK}>Agenda</Text>
             </Pressable>
           </View>
           {selectedEvents.length === 0 ? (
-            <View className="bg-card rounded-2xl p-6 items-center gap-3">
-              <View className="w-12 h-12 rounded-full bg-muted items-center justify-center"><CalendarDaysIcon size={22} className="text-muted-foreground" /></View>
-              <Text className="text-muted-foreground text-sm font-medium">No events on this day</Text>
-              <Pressable
-                onPress={() => router.push(`/schedule/create?date=${selectedDate}`)}
-                accessibilityRole="button"
-                className="min-h-11 bg-action rounded-xl px-5 py-2.5 flex-row items-center gap-2 active:scale-[0.98]"
-              >
-                <PlusIcon size={15} className="text-action-foreground" />
-                <Text className="text-action-foreground text-sm font-semibold">Add event</Text>
-              </Pressable>
-            </View>
+            // One row, not a block: an empty day is the usual day.
+            <Pressable
+              onPress={() => router.push(`/schedule/create?date=${selectedDate}`)}
+              accessibilityRole="button"
+              accessibilityLabel="Nothing on this day. Add an event"
+              className={`${CARD} min-h-[60px] flex-row items-center gap-3 px-4 active:bg-muted/40`}
+            >
+              <View className="w-9 h-9 rounded-xl bg-muted items-center justify-center">
+                <CalendarDaysIcon size={18} className="text-secondary-foreground" />
+              </View>
+              <Text className="flex-1 text-muted-foreground text-[15px]">Nothing on this day</Text>
+              <Text className={LINK}>Add event</Text>
+            </Pressable>
           ) : (
-            <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
+            <View className={CARD}>
               {selectedEvents.map((ev, i) => {
-                const IconComp = EVENT_ICONS[ev.event_type] || CalendarDaysIcon;
-                const color = eventColor(ev.event_type);
                 const evReminders = reminders.filter(r => r.schedule_event_id === ev.id);
+                const time = ev.event_time ? timeParts(ev.event_time) : null;
                 return (
                   <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
-                    className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
-                    style={i < selectedEvents.length - 1 ? { borderBottomWidth: 1, borderBottomColor: palette.border } : undefined}>
-                    <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: `${color}18`, alignItems: 'center', justifyContent: 'center' }}>
-                      <IconComp size={16} color={color} />
-                    </View>
+                    accessibilityRole="button"
+                    accessibilityLabel={`${ev.title}${ev.event_time ? `, ${formatTime(ev.event_time)}` : ''}`}
+                    className={`min-h-16 flex-row items-center gap-3 pl-2.5 pr-4 py-2.5 active:bg-muted/40 ${i > 0 ? 'border-t border-border/30' : ''}`}>
+                    <DateTile small={time ? time.half : 'DAY'} large={time ? time.clock : 'All'} largeFirst wide />
                     <View className="flex-1 min-w-0">
-                      <Text className="text-foreground text-sm font-bold" numberOfLines={1}>{ev.title}</Text>
-                      <Text className="text-muted-foreground text-xs mt-0.5">
-                        {eventTypeLabel(ev)}
-                        {ev.is_owner === false ? ' · Guest' : ''}
-                      </Text>
+                      <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>{ev.title}</Text>
+                      <View className="flex-row items-center gap-1.5 mt-0.5">
+                        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: eventColor(ev.event_type) }} />
+                        <Text className="flex-1 text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+                          {eventTypeLabel(ev)}
+                          {ev.location?.trim() ? ` · ${ev.location.trim()}` : ''}
+                          {ev.is_owner === false ? ' · Guest' : ''}
+                        </Text>
+                      </View>
                       {/* Renders nothing unless somebody was invited. */}
                       {ev.is_owner !== false && <AttendeeSummary eventId={ev.id} />}
                     </View>
-                    <View className="items-end gap-1">
-                      {ev.event_time && <Text className="text-foreground text-sm font-bold">{formatTime(ev.event_time)}</Text>}
-                      {evReminders.length > 0 && <BellIcon size={11} className="text-primary" />}
-                    </View>
+                    {evReminders.length > 0 && <BellIcon size={15} className="text-secondary-foreground" />}
                   </Pressable>
                 );
               })}
@@ -350,39 +337,47 @@ export default function ScheduleScreen() {
           )}
         </View>
 
-        {/* Upcoming */}
-        <View className="px-5 mt-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-lg font-bold tracking-tight">Upcoming</Text>
-            <Pressable onPress={() => router.push('/schedule/calendar')} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
-              <Text className="text-primary text-sm font-semibold">Calendar</Text>
-              <ChevronRightIcon size={14} className="text-primary" />
+        {/* What follows, in the Dashboard's rows, led by the date. The chosen
+            day is left out: it is the list above, and it showed in both. */}
+        <View className="px-5 mt-7">
+          <View className="flex-row items-center justify-between mb-2.5">
+            <Text accessibilityRole="header" className={TITLE}>Coming up</Text>
+            <Pressable onPress={() => router.push('/schedule/calendar')} accessibilityRole="button" hitSlop={12} className="active:opacity-60">
+              <Text className={LINK}>Calendar</Text>
             </Pressable>
           </View>
           {upcomingEvents.length === 0 ? (
-            <View className="bg-card rounded-2xl p-6 items-center gap-2">
-              <CalendarDaysIcon size={20} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-sm">No upcoming events</Text>
+            <View className={`${CARD} min-h-[60px] justify-center px-4`}>
+              <Text className="text-muted-foreground text-[15px]">Nothing else in the next 60 days</Text>
             </View>
           ) : (
-            <View className="gap-2">
-              {upcomingEvents.map(ev => {
-                const color = eventColor(ev.event_type);
+            <View className={CARD}>
+              {upcomingEvents.map((ev, i) => {
+                const d = parseDateKey(ev.event_date.slice(0, 10));
                 return (
-                  <PressableScale key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
+                  <Pressable key={ev.id} onPress={() => router.push(`/schedule/${ev.id}`)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Open ${ev.title}`}
-                    scaleTo={0.98}
-                    className="bg-card rounded-2xl px-4 py-3 flex-row items-center gap-3 border border-border/30">
-                    <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: color }} />
+                    accessibilityLabel={`${ev.title}, ${labelForDateKey(ev.event_date)}`}
+                    className={`min-h-16 flex-row items-center gap-3 pl-2.5 pr-4 py-2.5 active:bg-muted/40 ${i > 0 ? 'border-t border-border/30' : ''}`}>
+                    <DateTile
+                      small={d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+                      large={d.getDate()}
+                      wide
+                    />
                     <View className="flex-1 min-w-0">
-                      <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>{ev.title}</Text>
-                      <Text className="text-muted-foreground text-xs mt-0.5">{labelForDateKey(ev.event_date)}{ev.event_time ? ` · ${formatTime(ev.event_time)}` : ''}</Text>
+                      <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>{ev.title}</Text>
+                      <View className="flex-row items-center gap-1.5 mt-0.5">
+                        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: eventColor(ev.event_type) }} />
+                        <Text className="flex-1 text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+                          {eventTypeLabel(ev)}
+                          {ev.location?.trim() ? ` · ${ev.location.trim()}` : ''}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: `${color}14` }}>
-                      <Text numberOfLines={1} style={{ color, fontSize: 11, fontWeight: '700' }}>{eventTypeLabel(ev)}</Text>
-                    </View>
-                  </PressableScale>
+                    {ev.event_time ? (
+                      <Text className="text-secondary-foreground text-[13px] font-semibold">{formatTime(ev.event_time)}</Text>
+                    ) : null}
+                  </Pressable>
                 );
               })}
             </View>
@@ -391,27 +386,29 @@ export default function ScheduleScreen() {
 
         {/* Reminders. Their own, not only from inside an event: a reminder
             to back up a card or send an invoice belongs to no event. */}
-        <View className="px-5 mt-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-lg font-bold tracking-tight">Reminders</Text>
-            <View className="flex-row items-center gap-1">
+        <View className="px-5 mt-7">
+          <View className="flex-row items-center justify-between mb-2.5">
+            <Text accessibilityRole="header" className={TITLE}>Reminders</Text>
+            <View className="flex-row items-center gap-5">
               {/* Only four show here; the rest were unreachable. */}
               {(activeReminders.length > 4 || overdueReminders.length > 0) && (
                 <Pressable
                   onPress={() => router.push('/schedule/reminders')}
                   accessibilityRole="button"
-                  className="min-h-11 justify-center px-2 active:opacity-60"
+                  hitSlop={10}
+                  className="active:opacity-60"
                 >
-                  <Text className="text-primary text-sm font-semibold">See all</Text>
+                  <Text className={LINK}>See all</Text>
                 </Pressable>
               )}
               <Pressable
                 onPress={() => router.push('/schedule/reminders/create')}
                 accessibilityRole="button"
                 accessibilityLabel="New reminder"
-                className="min-h-11 justify-center px-2 active:opacity-60"
+                hitSlop={10}
+                className="active:opacity-60"
               >
-                <Text className="text-primary text-sm font-bold">+ New</Text>
+                <Text className={LINK}>New</Text>
               </Pressable>
             </View>
           </View>
@@ -419,42 +416,36 @@ export default function ScheduleScreen() {
             <Pressable
               onPress={() => router.push('/schedule/reminders')}
               accessibilityRole="button"
-              className="flex-row items-center gap-2 rounded-2xl bg-destructive/10 px-4 min-h-[44px] mb-2 active:opacity-70"
+              className="flex-row items-center gap-2.5 rounded-[14px] bg-destructive/10 px-4 min-h-[44px] mb-2.5 active:opacity-70"
             >
-              <BellIcon size={14} className="text-destructive" />
-              <Text className="text-destructive text-sm font-semibold flex-1">
+              <BellIcon size={16} className="text-destructive" />
+              <Text className="text-destructive text-[14px] font-semibold flex-1">
                 {overdueReminders.length} overdue — tick {overdueReminders.length === 1 ? 'it' : 'them'} off or move {overdueReminders.length === 1 ? 'it' : 'them'}
               </Text>
             </Pressable>
           )}
           {activeReminders.length === 0 ? (
-            <View className="bg-card rounded-2xl p-6 items-center gap-2">
-              <BellIcon size={20} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-sm">No active reminders</Text>
+            <View className={`${CARD} min-h-[60px] justify-center px-4`}>
+              <Text className="text-muted-foreground text-[15px]">No reminders set</Text>
             </View>
           ) : (
-            <View className="bg-card rounded-2xl overflow-hidden border border-border/30">
+            <View className={CARD}>
               {activeReminders.slice(0, 4).map((rem, i) => (
                 <Pressable key={rem.id} onPress={() => router.push(`/schedule/reminders/${rem.id}`)}
-                  className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
-                  style={i < Math.min(activeReminders.length, 4) - 1 ? { borderBottomWidth: 1, borderBottomColor: palette.border } : undefined}>
-                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: rem.is_alarm_enabled ? `${palette.primary}18` : '#A8948920', alignItems: 'center', justifyContent: 'center' }}>
-                    {rem.is_alarm_enabled ? <BellIcon size={14} className="text-primary" /> : <BellOffIcon size={14} className="text-muted-foreground" />}
+                  accessibilityRole="button"
+                  accessibilityLabel={rem.title}
+                  className={`min-h-[60px] flex-row items-center gap-3 pl-4 pr-1 active:bg-muted/40 ${i > 0 ? 'border-t border-border/30' : ''}`}>
+                  <View className="w-9 h-9 rounded-xl bg-muted items-center justify-center">
+                    {rem.is_alarm_enabled ? <BellIcon size={18} className="text-secondary-foreground" /> : <BellOffIcon size={18} className="text-muted-foreground" />}
                   </View>
                   <View className="flex-1 min-w-0">
-                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>{rem.title}</Text>
-                    <View className="flex-row items-center gap-2 mt-0.5">
-                      <Text className="text-muted-foreground text-xs">
-                        {new Date(rem.reminder_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        {' · '}
-                        {new Date(rem.reminder_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                      </Text>
-                      {rem.has_push_notification && (
-                        <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: '#5B7B9A18' }}>
-                          <Text style={{ color: '#5B7B9A', fontSize: 11, fontWeight: '700' }}>Push</Text>
-                        </View>
-                      )}
-                    </View>
+                    <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>{rem.title}</Text>
+                    <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+                      {new Date(rem.reminder_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {' · '}
+                      {new Date(rem.reminder_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      {rem.has_push_notification ? ' · Push' : ''}
+                    </Text>
                   </View>
                   <Pressable
                     onPress={(event) => {
@@ -466,7 +457,7 @@ export default function ScheduleScreen() {
                     accessibilityState={{ checked: rem.is_completed }}
                     className="w-11 h-11 items-center justify-center active:scale-[0.96]"
                   >
-                    {rem.is_completed ? <CheckCircleIcon size={18} className="text-[#6B8E4E]" /> : <CircleIcon size={18} className="text-muted-foreground" />}
+                    {rem.is_completed ? <CheckCircleIcon size={20} className="text-success" /> : <CircleIcon size={20} className="text-muted-foreground" />}
                   </Pressable>
                 </Pressable>
               ))}

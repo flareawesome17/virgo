@@ -20,11 +20,10 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PressableScale } from '@/components/PressableScale';
-import { RemoteImage } from '@/components/RemoteImage';
 import { Skeleton } from '@/components/Skeleton';
+import { WorkspaceCover } from '@/components/WorkspaceCover';
 import { LoadFailed } from '@/components/LoadFailed';
 import {
-  useAlbums,
   useAuth,
   useCollaboratorInvitations,
   useEventInvitations,
@@ -864,27 +863,9 @@ const RECENT_WIDTH = 148;
 const RECENT_COVER = 100;
 
 /**
- * A workspace you touched lately, under a photograph from it.
- *
- * The cover is the workspace's chosen album's, or failing that the newest
- * album that has one. It asks for the workspace's albums to find it — the
- * same request the workspace makes when opened, so the tap after this lands
- * on a list already loaded. With no photograph yet it is the workspace's own
- * colour, which is still its colour everywhere else.
+ * A workspace you touched lately, under a photograph from it (WorkspaceCover).
  */
 function RecentWork({ workspace: ws }: { workspace: Workspace }) {
-  const { isDark } = useTheme();
-  const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { albums } = useAlbums(
-    { workspace_id: ws.id, orderBy: 'created_at', direction: 'desc', limit: 100 },
-    { enabled: ws.album_count > 0 },
-  );
-  const cover =
-    albums.find((a) => a.id === ws.cover_album_id)?.cover_url ??
-    albums.find((a) => a.cover_url)?.cover_url ??
-    null;
-  const accent = ws.accent_color || palette.primary;
-
   return (
     <PressableScale
       onPress={() => router.push(`/workspaces/${ws.id}`)}
@@ -893,20 +874,7 @@ function RecentWork({ workspace: ws }: { workspace: Workspace }) {
       scaleTo={0.97}
       style={{ width: RECENT_WIDTH }}
     >
-      <View
-        className="rounded-2xl overflow-hidden items-center justify-center"
-        style={{ width: RECENT_WIDTH, height: RECENT_COVER, backgroundColor: `${accent}26` }}
-      >
-        {cover ? (
-          <RemoteImage
-            source={{ uri: cover }}
-            style={{ width: RECENT_WIDTH, height: RECENT_COVER }}
-            contentFit="cover"
-          />
-        ) : (
-          <FolderIcon size={26} color={accent} />
-        )}
-      </View>
+      <WorkspaceCover workspace={ws} width={RECENT_WIDTH} height={RECENT_COVER} radius={16} />
       <Text className="text-foreground text-[14px] leading-5 font-semibold mt-2" numberOfLines={1}>
         {ws.name}
       </Text>
