@@ -16,7 +16,7 @@ import { useChromeScroll } from '@/src/providers/ChromeProvider';
 import { TabScreen, useTabBottomInset } from '@/components';
 import { ProfileWorkTaste } from '@/components/ProfileWorkTaste';
 import { SettingsList } from '@/components/SettingsList';
-import { ProfileHero } from '@/components/home/ProfileHero';
+import { HomeHeader } from '@/components/home/HomeHeader';
 import { ProfileAbout } from '@/components/home/ProfileAbout';
 import { TodayTab } from '@/components/home/TodayTab';
 import { HOME_TABS, HomeTabBar, type HomeTab } from '@/components/home/HomeTabBar';
@@ -25,10 +25,11 @@ import { PALETTES } from '@/theme';
 
 /**
  * Where the top bar's mark turns into your name, counted back from where the
- * tabs reach the top: about when the name on the profile has gone under the
- * bar, so one name hands over to the other.
+ * tabs reach the top: over the last of the greeting going under the bar, so
+ * one name hands over to the other. The row above the tabs is about 76pt
+ * tall, so this has to be well inside that.
  */
-const NAME_FADE = { from: 120, to: 60 };
+const NAME_FADE = { from: 36, to: 4 };
 
 const isHomeTab = (value: string | undefined): value is HomeTab =>
   !!value && (HOME_TABS as readonly string[]).includes(value);
@@ -36,11 +37,15 @@ const isHomeTab = (value: string | undefined): value is HomeTab =>
 /**
  * The Dashboard, which is also your profile.
  *
- * Your cover, photo, name and counts at the top, then four tabs: Home (your
- * day), Work (what you posted and kept), About, and Settings. The profile
- * scrolls away and the tabs stay under the top bar. Your photo left the top
- * bar for this — it opened your profile and settings, and both are here —
- * and "Your profile" and the Settings tab became these tabs.
+ * The day, a greeting and your photo in one row, then four tabs: Home (your
+ * day), Work (what you posted and kept), About (your profile, as a card),
+ * and Settings. The row scrolls away and the tabs stay under the top bar.
+ * Your photo left the top bar for this — it opened your profile and
+ * settings, and both are here — and "Your profile" and the Settings tab
+ * became these tabs.
+ *
+ * The top was the whole profile at first: cover, a large photo and three
+ * counts, which left the day starting two thirds of the way down the screen.
  *
  * `?tab=work|about|settings` opens a tab, so the old /profile and /settings
  * addresses land on theirs.
@@ -128,7 +133,8 @@ export default function DashboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />
         }
       >
-        <ProfileHero
+        <HomeHeader
+          onPressPhoto={() => show('about')}
           onLayout={(event) => {
             const height = event.nativeEvent.layout.height;
             heroHeight.value = height;
@@ -149,7 +155,7 @@ export default function DashboardScreen() {
               isSelf
               firstName="You"
               workLabel="Posts"
-              className="mt-3"
+              className="mt-5"
             />
           ) : tab === 'about' ? (
             <ProfileAbout />

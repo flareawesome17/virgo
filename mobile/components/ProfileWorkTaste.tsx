@@ -36,8 +36,13 @@ for (const Icon of [BookmarkIcon, ImageIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
-/** A work card's height, in points. */
-const CARD_HEIGHT = 132;
+/**
+ * A work card is 4:5, upright. It was 132pt tall whatever its width, which
+ * cut a portrait photograph down to a strip across its middle.
+ */
+const CARD_ASPECT = 5 / 4;
+/** Between two cards side by side; rows sit a little further apart. */
+const GRID_GAP = 12;
 /** Between the tiles of a shelf's mosaic cover. */
 const MOSAIC_GAP = 2;
 
@@ -52,7 +57,7 @@ const MOSAIC_GAP = 2;
 function cardStill(piece: ShowcasePiece | undefined, cardWidth: number): string | undefined {
   if (!piece) return undefined;
   const ratio = PixelRatio.get();
-  const need = longEdgeToCover(piece, cardWidth * ratio, CARD_HEIGHT * ratio);
+  const need = longEdgeToCover(piece, cardWidth * ratio, cardWidth * CARD_ASPECT * ratio);
   return need > THUMBNAIL_EDGE ? pieceSource(piece, need) : piece.url;
 }
 
@@ -96,9 +101,9 @@ export function ProfileWorkTaste({
   const [tab, setTab] = useState<'work' | 'taste'>('work');
   const [openWork, setOpenWork] = useState<string | null>(null);
   const { width: screenWidth } = useWindowDimensions();
-  // Two across, inside the 20 pt margins and the 8 pt gap.
-  const cardWidth = (screenWidth - 40) * 0.48;
-  const shelfSize = Math.floor((screenWidth - 40 - 8) / 2);
+  // Two across, inside the 20 pt margins and the gap between them.
+  const cardWidth = Math.floor((screenWidth - 40 - GRID_GAP) / 2);
+  const shelfSize = cardWidth;
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
 
@@ -147,35 +152,42 @@ export function ProfileWorkTaste({
             action={isSelf ? { label: 'Post a showcase', to: '/showcase/new' } : undefined}
           />
         ) : (
-          <View className="flex-row flex-wrap gap-2 px-5 pt-4">
+          <View className="flex-row flex-wrap px-5 pt-4" style={{ columnGap: GRID_GAP, rowGap: 16 }}>
             {work.showcases.map((showcase) => (
               <Pressable
                 key={showcase.id}
                 onPress={() => setOpenWork(showcase.id)}
                 accessibilityRole="button"
                 accessibilityLabel={showcase.title ?? 'Open this showcase'}
-                style={{ width: '48%' }}
+                className="active:opacity-80"
+                style={{ width: cardWidth }}
               >
-                <View className="rounded-xl overflow-hidden bg-muted" style={{ height: CARD_HEIGHT }}>
+                <View
+                  className="rounded-2xl overflow-hidden bg-muted"
+                  style={{ height: Math.round(cardWidth * CARD_ASPECT) }}
+                >
                   <WorkCardStill piece={showcase.pieces[0]} width={cardWidth} />
                   {isSelf && <StatusBadge status={showcaseStatus(showcase)} />}
                   {showcase.pieces.length > 1 && (
                     <View
-                      className="absolute right-1.5 top-1.5 rounded-full px-2 py-0.5"
-                      style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+                      className="absolute right-2 top-2 rounded-full px-2 py-0.5"
+                      style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
                     >
-                      <Text className="text-[10px] font-bold" style={{ color: '#FFFFFF' }}>
+                      <Text className="text-[11px] font-bold" style={{ color: '#FFFFFF' }}>
                         {showcase.pieces.length}
                       </Text>
                     </View>
                   )}
                 </View>
                 {showcase.title ? (
-                  <Text className="text-foreground text-[12px] font-bold mt-1.5" numberOfLines={1}>
+                  <Text className="text-foreground text-[14px] leading-5 font-semibold mt-2" numberOfLines={1}>
                     {showcase.title}
                   </Text>
                 ) : null}
-                <Text className="text-muted-foreground text-[10.5px]" numberOfLines={1}>
+                <Text
+                  className={`text-muted-foreground text-[12px] leading-4 ${showcase.title ? '' : 'mt-2'}`}
+                  numberOfLines={1}
+                >
                   {[showcase.category, showcase.keptCount > 0 ? `${showcase.keptCount} kept` : null]
                     .filter(Boolean)
                     .join(' · ') || 'Showcase'}
@@ -188,7 +200,7 @@ export function ProfileWorkTaste({
                 onPress={() => void visitorWork.fetchNextPage()}
                 disabled={visitorWork.isFetchingNextPage}
                 accessibilityRole="button"
-                className="w-full mt-2 min-h-11 rounded-xl bg-secondary items-center justify-center active:opacity-80"
+                className="w-full min-h-11 rounded-[14px] bg-secondary items-center justify-center active:opacity-80"
               >
                 {visitorWork.isFetchingNextPage ? (
                   <ActivityIndicator color={palette.primary} />
@@ -217,7 +229,7 @@ export function ProfileWorkTaste({
           action={isSelf ? { label: 'Open the feed', to: '/feed' } : undefined}
         />
       ) : (
-        <View className="flex-row flex-wrap gap-2 px-5 pt-4">
+        <View className="flex-row flex-wrap px-5 pt-4" style={{ columnGap: GRID_GAP, rowGap: 16 }}>
           {showAllKept ? (
             <CollectionCard
               name="All kept"
@@ -286,10 +298,10 @@ function CollectionCard({
       style={{ width: size }}
     >
       <ShelfMosaic urls={urls} size={size} />
-      <Text className="text-foreground text-[12px] font-bold mt-1.5" numberOfLines={1}>
+      <Text className="text-foreground text-[14px] leading-5 font-semibold mt-2" numberOfLines={1}>
         {name}
       </Text>
-      <Text className="text-muted-foreground text-[10.5px]">
+      <Text className="text-muted-foreground text-[12px] leading-4">
         {count} kept{isPrivate ? ' · Private' : ''}
       </Text>
     </Pressable>
@@ -403,10 +415,10 @@ function StatusBadge({ status }: { status: ShowcaseStatus }) {
   const label = status === 'removed' ? 'Removed by Virgo' : 'Private';
   return (
     <View
-      className={`absolute left-1.5 bottom-1.5 rounded-full px-2 py-0.5 ${status === 'removed' ? 'bg-destructive' : 'bg-foreground/70'}`}
+      className={`absolute left-2 top-2 rounded-full px-2 py-0.5 ${status === 'removed' ? 'bg-destructive' : 'bg-foreground/70'}`}
     >
       <Text
-        className={`text-[10px] font-bold ${status === 'removed' ? 'text-destructive-foreground' : 'text-background'}`}
+        className={`text-[11px] font-bold ${status === 'removed' ? 'text-destructive-foreground' : 'text-background'}`}
       >
         {label}
       </Text>
@@ -427,7 +439,7 @@ function WorkCardStill({ piece, width }: { piece: ShowcasePiece | undefined; wid
           : undefined
       }
       placeholderContentFit="cover"
-      style={{ width: '100%', height: CARD_HEIGHT }}
+      style={{ width, height: Math.round(width * CARD_ASPECT) }}
       contentFit="cover"
     />
   );
