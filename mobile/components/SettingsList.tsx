@@ -34,7 +34,6 @@ import {
   useUsage,
 } from '@/src/hooks';
 import { formatBytes } from '@/src/api';
-import { CHART_COLORS, PALETTES } from '@/theme';
 
 // Every icon used below has to appear here too. One left out renders without
 // its colour rather than failing, so the omission shows up as a grey icon
@@ -56,7 +55,6 @@ interface SettingsRow {
   value?: string;
   route?: string;
   action?: 'rate';
-  color: string;
   badge?: number;
 }
 
@@ -75,8 +73,7 @@ const APPEARANCE: Record<string, string> = { light: 'Light', dark: 'Dark', syste
  */
 export function SettingsList() {
   const { user, profile, signOut } = useAuth();
-  const { preference, isDark } = useTheme();
-  const palette = isDark ? PALETTES.dark : PALETTES.light;
+  const { preference } = useTheme();
   const { settings } = useProfileSettings();
   const { usage } = useUsage({ enabled: !!user?.id });
   const { offers: rewards } = usePromoOffers(!!user?.id);
@@ -121,20 +118,6 @@ export function SettingsList() {
 
   const sections: { title: string; rows: SettingsRow[] }[] = [
     {
-      // No "Edit profile" row: About, the tab beside this one, opens with it.
-      title: 'Your profile',
-      rows: [
-        {
-          icon: GlobeIcon,
-          label: 'Public profile',
-          detail: 'Your virgo.ph address, and the work you show on it',
-          value: settings ? (settings.published ? 'On' : 'Off') : undefined,
-          route: '/settings/public-profile',
-          color: palette.primary,
-        },
-      ],
-    },
-    {
       title: 'Account',
       rows: [
         {
@@ -142,7 +125,6 @@ export function SettingsList() {
           label: 'Account & security',
           detail: 'Email, password, pause or delete',
           route: '/settings/account',
-          color: palette.primary,
         },
         {
           icon: ShieldIcon,
@@ -150,15 +132,35 @@ export function SettingsList() {
           detail: 'A code sent to your email when signing in',
           value: profile?.twoFactorEnabled ? 'On' : 'Off',
           route: '/settings/two-factor',
-          color: CHART_COLORS.green,
         },
         {
           icon: MonitorSmartphoneIcon,
           label: 'Devices',
           detail: 'Where you are signed in, and signing one out',
           route: '/settings/devices',
-          color: palette.primary,
         },
+        // No "Edit profile" row: About, two tabs along, opens with it.
+        {
+          icon: GlobeIcon,
+          label: 'Public profile',
+          detail: 'Your virgo.ph address, and the work you show on it',
+          value: settings ? (settings.published ? 'On' : 'Off') : undefined,
+          route: '/settings/public-profile',
+        },
+        {
+          icon: GiftIcon,
+          label: 'Rewards',
+          detail: 'Offers waiting for you, and your invite code',
+          route: '/rewards',
+          badge: rewards.length,
+        },
+      ],
+    },
+    {
+      // Everything about what you keep here and what it takes up. It was
+      // split between Account and a section of one row.
+      title: 'Your files',
+      rows: [
         {
           icon: HardDriveIcon,
           label: 'Storage & plan',
@@ -166,27 +168,24 @@ export function SettingsList() {
           // Nothing until usage has loaded: the hook's fallback is 0, and
           // "0 MB" while offline would read as an empty account.
           value: usage
-            ? `${formatBytes(usage.storage.usedBytes)}${usage.plan ? ` · ${usage.plan}` : ''}`
+            ? `${formatBytes(usage.storage.usedBytes)}${
+                usage.storage.limitBytes != null ? ` of ${formatBytes(usage.storage.limitBytes)}` : ''
+              }`
             : undefined,
           route: '/settings/storage',
-          color: CHART_COLORS.brown,
         },
         {
           icon: Trash2Icon,
           label: 'Recently deleted',
           detail: 'Workspaces you deleted, for 30 days',
           route: '/workspaces/deleted',
-          color: CHART_COLORS.brown,
         },
-        // Here because a promo is quota: what it gives is storage, workspaces
-        // and albums, which is what the row above is about.
         {
-          icon: GiftIcon,
-          label: 'Rewards',
-          detail: 'Offers waiting for you, and your invite code',
-          route: '/rewards',
-          color: palette.accent,
-          badge: rewards.length,
+          icon: CloudIcon,
+          label: 'Offline sync',
+          detail: 'What works without a connection',
+          value: isOffline ? 'Offline' : 'Synced',
+          route: '/settings/offline',
         },
       ],
     },
@@ -199,14 +198,12 @@ export function SettingsList() {
           detail: 'Light, dark, or follow your device',
           value: APPEARANCE[preference],
           route: '/settings/theme',
-          color: palette.accent,
         },
         {
           icon: BellIcon,
           label: 'Notifications',
           detail: 'Sounds for messages, events and everything else',
           route: '/settings/notifications',
-          color: palette.primary,
         },
       ],
     },
@@ -218,90 +215,66 @@ export function SettingsList() {
           label: 'Privacy',
           detail: 'Who can find you, and what leaves your device',
           route: '/settings/privacy',
-          color: CHART_COLORS.blue,
         },
         {
           icon: UserXIcon,
           label: 'Blocked people',
           detail: 'People you’ve blocked, and how to unblock them',
           route: '/settings/blocked',
-          color: palette.destructive,
         },
       ],
     },
     {
-      title: 'Storage & sync',
-      rows: [
-        {
-          icon: CloudIcon,
-          label: 'Offline sync',
-          detail: 'What works without a connection',
-          value: isOffline ? 'Offline' : 'Synced',
-          route: '/settings/offline',
-          color: palette.accent,
-        },
-      ],
-    },
-    {
-      title: 'Support',
+      title: 'Help',
       rows: [
         {
           icon: LifeBuoyIcon,
           label: 'Contact support',
           detail: 'Ask us anything — we answer in the app',
           route: '/support',
-          color: palette.primary,
         },
         {
           icon: HelpCircleIcon,
           label: 'Help center',
           detail: 'Answers to common questions',
           route: '/settings/help',
-          color: palette.primary,
         },
         {
           icon: FileTextIcon,
           label: 'Terms & Privacy Policy',
           route: '/legal',
-          color: palette.secondaryForeground,
         },
         {
           icon: StarIcon,
           label: 'Rate Virgo',
           detail: 'Leave a review in your app store',
-          color: palette.accent,
           action: 'rate',
         },
-      ],
-    },
-    {
-      title: 'About',
-      rows: [
         {
           icon: InfoIcon,
           label: 'About Virgo',
           value: `v${version}`,
           route: '/settings/about',
-          color: CHART_COLORS.brown,
         },
       ],
     },
   ];
 
   return (
-    <View className="px-5 mt-5 gap-5">
+    <View className="px-5 pt-5 gap-6">
       {sections.map((section) => (
         <Section key={section.title} title={section.title} rows={section.rows} onRate={rateVirgo} />
       ))}
 
+      {/* On its own, and plain: it is the one row here that takes you out. */}
       <Pressable
         onPress={handleSignOut}
         disabled={signOut.isPending}
         accessibilityRole="button"
-        className="bg-card rounded-2xl border border-border/30 p-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
+        className="min-h-12 flex-row items-center justify-center gap-2 active:opacity-60"
       >
         <LogOutIcon size={17} className="text-destructive" />
-        <Text className="text-destructive text-sm font-semibold">
+        <Text className="text-destructive text-[15px] font-semibold">
           {signOut.isPending ? 'Signing out…' : 'Sign out'}
         </Text>
       </Pressable>
@@ -309,6 +282,14 @@ export function SettingsList() {
   );
 }
 
+/**
+ * One group of settings: a quiet title and a card of rows.
+ *
+ * A row is one line — icon, name, what it is set to — at 52pt. Each used to
+ * carry a sentence under its name and an icon in its own colour, which made
+ * seventeen rows read as seventeen different things. The sentence is still
+ * what a screen reader hears.
+ */
 function Section({
   title,
   rows,
@@ -318,18 +299,15 @@ function Section({
   rows: SettingsRow[];
   onRate?: () => void;
 }) {
-  const { isDark } = useTheme();
-  const border = (isDark ? PALETTES.dark : PALETTES.light).muted;
-
   return (
     <View>
-      <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 px-1">
+      <Text
+        accessibilityRole="header"
+        className="text-muted-foreground text-[13px] leading-[18px] font-semibold mb-2 px-1"
+      >
         {title}
       </Text>
-      <View
-        className="bg-card rounded-2xl overflow-hidden"
-        style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-      >
+      <View className="bg-card rounded-[20px] border border-border/40 overflow-hidden">
         {rows.map((row, i) => {
           const IconComp = row.icon;
           return (
@@ -344,45 +322,32 @@ function Section({
               }
               accessibilityRole="button"
               accessibilityLabel={
-                row.badge ? `${row.label}, ${row.badge} waiting` : row.label
+                [row.label, row.value, row.badge ? `${row.badge} waiting` : null]
+                  .filter(Boolean)
+                  .join(', ')
               }
-              className="flex-row items-center gap-3 px-4 py-3.5 active:bg-muted/30"
-              style={
-                i < rows.length - 1
-                  ? { borderBottomWidth: 1, borderBottomColor: border }
-                  : undefined
-              }
+              accessibilityHint={row.detail}
+              className={`min-h-[52px] flex-row items-center gap-3 pl-4 pr-3 active:bg-muted/40 ${
+                i > 0 ? 'border-t border-border/30' : ''
+              }`}
             >
-              <View
-                style={{
-                  width: 32, height: 32, borderRadius: 10,
-                  backgroundColor: `${row.color}14`,
-                  alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <IconComp size={15} color={row.color} />
-              </View>
-              <View className="flex-1 min-w-0">
-                <Text className="text-foreground text-sm font-semibold">{row.label}</Text>
-                {row.detail ? (
-                  <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-                    {row.detail}
-                  </Text>
-                ) : null}
-              </View>
+              <IconComp size={20} className="text-secondary-foreground" />
+              <Text className="flex-1 text-foreground text-[15px] leading-5 font-medium" numberOfLines={1}>
+                {row.label}
+              </Text>
               {row.value ? (
-                <Text className="text-muted-foreground text-xs mr-1" numberOfLines={1}>
+                <Text className="text-muted-foreground text-[14px]" numberOfLines={1}>
                   {row.value}
                 </Text>
               ) : null}
               {row.badge ? (
-                <View className="min-w-[18px] h-[18px] rounded-full items-center justify-center mr-1 px-[5px] bg-action">
-                  <Text className="text-action-foreground text-[10px] font-bold">
+                <View className="min-w-[20px] h-5 rounded-full items-center justify-center px-1.5 bg-action">
+                  <Text allowFontScaling={false} className="text-action-foreground text-[12px] font-bold">
                     {row.badge > 99 ? '99+' : row.badge}
                   </Text>
                 </View>
               ) : null}
-              <ChevronRightIcon size={14} className="text-muted-foreground" />
+              <ChevronRightIcon size={16} className="text-muted-foreground" />
             </Pressable>
           );
         })}

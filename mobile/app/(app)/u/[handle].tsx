@@ -27,7 +27,7 @@ import {
   useTheme,
 } from '@/src/hooks';
 import {
-  ArrowLeftIcon, BriefcaseIcon, Building2Icon, CalendarCheckIcon, CalendarIcon,
+  ArrowLeftIcon, BriefcaseIcon, Building2Icon, CalendarIcon,
   CheckIcon, ClockIcon, EllipsisIcon, GlobeIcon, MapPinIcon, MessageCircleIcon,
   PencilIcon, Share2Icon, UserCheckIcon, UserPlusIcon, UserSearchIcon,
 } from 'lucide-react-native';
@@ -48,7 +48,7 @@ import { PALETTES } from '@/theme';
 // Every icon drawn here, including those handed to ProfileDetails, which
 // draws them by class. One left out renders without its colour.
 for (const Icon of [
-  ArrowLeftIcon, BriefcaseIcon, Building2Icon, CalendarCheckIcon, CalendarIcon,
+  ArrowLeftIcon, BriefcaseIcon, Building2Icon, CalendarIcon,
   CheckIcon, ClockIcon, EllipsisIcon, GlobeIcon, MapPinIcon, MessageCircleIcon,
   PencilIcon, Share2Icon, UserCheckIcon, UserPlusIcon, UserSearchIcon,
 ]) {
@@ -127,18 +127,27 @@ export default function ProfileScreen() {
       onPress: () => Linking.openURL(/^https?:\/\//i.test(site) ? site : `https://${site}`),
     });
   }
-  if (person.availableForBookings) {
-    rows.push({ icon: CalendarCheckIcon, text: 'Available for bookings', tone: 'success' });
-  }
   rows.push({ icon: CalendarIcon, text: `On Virgo since ${person.memberSince}` });
+
+  // One button from where you stand with them (Connect, or Requested) leaves
+  // room for Hire beside it. Two already fill the row, so Hire goes under.
+  const connection = person.viewer?.connection;
+  const oneConnectButton = connection === 'none' || connection === 'pending_out';
+  const showHire = !isSelf && (person.availableForBookings || !person.viewer);
+  const sideBySide = !!person.viewer && oneConnectButton && showHire;
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
-      <View className="flex-row items-center gap-3 px-5 py-3">
-        <Pressable onPress={back} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back">
-          <ArrowLeftIcon size={20} className="text-foreground" />
+      <View className="h-12 flex-row items-center pl-2 pr-1">
+        <Pressable
+          onPress={back}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          className="w-11 h-11 items-center justify-center active:opacity-60"
+        >
+          <ArrowLeftIcon size={22} className="text-foreground" />
         </Pressable>
-        <Text className="text-foreground text-lg font-bold flex-1" numberOfLines={1}>
+        <Text className="text-foreground text-[17px] font-semibold flex-1" numberOfLines={1}>
           @{person.handle}
         </Text>
         <Pressable
@@ -149,18 +158,18 @@ export default function ProfileScreen() {
               message: `${person.displayName} on Virgo — ${profileUrl(person.handle, SITE)}`,
             })
           }
-          className="w-11 h-11 -my-2 items-center justify-center active:opacity-60"
+          className="w-11 h-11 items-center justify-center active:opacity-60"
         >
-          <Share2Icon size={19} className="text-muted-foreground" />
+          <Share2Icon size={20} className="text-foreground" />
         </Pressable>
         {!isSelf && (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="More options"
             onPress={() => setSafetyOpen(true)}
-            className="w-11 h-11 -my-2 -mr-3 items-center justify-center active:opacity-60"
+            className="w-11 h-11 items-center justify-center active:opacity-60"
           >
-            <EllipsisIcon size={19} className="text-muted-foreground" />
+            <EllipsisIcon size={20} className="text-foreground" />
           </Pressable>
         )}
       </View>
@@ -169,44 +178,47 @@ export default function ProfileScreen() {
         <ProfileCover banner={profileBanner(person)} width={width} />
 
         <View className="px-5">
-          <View style={{ marginTop: -48 }}>
-            <ProfileAvatar url={person.avatarUrl} name={person.displayName} size={96} />
+          <View className="flex-row items-end justify-between" style={{ marginTop: -44 }}>
+            <ProfileAvatar url={person.avatarUrl} name={person.displayName} size={88} />
+            {/* Up here, beside the photo: it is what somebody deciding
+                whether to hire wants to know first, and it was the fourth
+                row of a list under the bio. */}
+            {person.availableForBookings && (
+              <View className="flex-row items-center gap-1.5 rounded-full bg-success/15 px-3 py-1.5 mb-1">
+                <View className="w-[7px] h-[7px] rounded-full bg-success" />
+                <Text className="text-success text-[13px] leading-[18px] font-semibold">
+                  Available for bookings
+                </Text>
+              </View>
+            )}
           </View>
 
-          <Text className="text-foreground text-[22px] font-extrabold mt-3" numberOfLines={2}>
+          <Text
+            accessibilityRole="header"
+            className="text-foreground text-[24px] leading-[30px] font-bold tracking-tight mt-3"
+            numberOfLines={2}
+          >
             {person.displayName}
           </Text>
           {person.title ? (
-            <Text className="text-muted-foreground text-[15px] font-medium mt-0.5">
-              {person.title}
-            </Text>
+            <Text className="text-muted-foreground text-[15px] leading-[22px]">{person.title}</Text>
           ) : null}
-
-          {person.roles.length > 0 && (
-            <View className="flex-row flex-wrap gap-1.5 mt-2.5">
-              {person.roles.map((role) => (
-                <View key={role} className="rounded-full px-3 py-1 bg-primary/10">
-                  <Text className="text-primary text-[11px] font-bold">{role}</Text>
-                </View>
-              ))}
-            </View>
-          )}
 
           <ProfileStatsLine
             stats={person.stats}
             mutual={isSelf ? 0 : person.mutualConnections}
-            className="mt-3"
+            className="mt-2.5"
           />
 
-          <View className="mt-4 gap-2">
+          <View className={`mt-4 gap-3 ${sideBySide ? 'flex-row' : ''}`}>
             {isSelf ? (
               <Pressable
-                className="rounded-2xl py-3.5 flex-row items-center justify-center gap-2 bg-muted active:opacity-80"
+                className="rounded-[14px] min-h-[48px] flex-row items-center justify-center gap-2 bg-foreground active:opacity-80"
                 onPress={() => router.push('/settings/profile')}
                 accessibilityRole="button"
               >
-                <PencilIcon size={16} className="text-foreground" />
-                <Text className="text-foreground text-[15px] font-bold">Edit profile</Text>
+                <PencilIcon size={16} className="text-background" />
+                <Text className="text-background text-[15px] font-semibold">Edit profile</Text>
               </Pressable>
             ) : (
               <>
@@ -218,33 +230,39 @@ export default function ProfileScreen() {
                     Only when the API said where the viewer stands: guessing
                     would offer Connect to somebody already connected. */}
                 {person.viewer && handle && (
-                  <ConnectionActions
-                    person={person}
-                    cacheHandle={handle}
-                    connection={person.viewer.connection}
-                    friendId={person.viewer.friendId}
-                    first={first}
-                    onStale={() => q.refetch()}
-                  />
+                  <View className={sideBySide ? 'flex-1' : ''}>
+                    <ConnectionActions
+                      person={person}
+                      cacheHandle={handle}
+                      connection={person.viewer.connection}
+                      friendId={person.viewer.friendId}
+                      first={first}
+                      onStale={() => q.refetch()}
+                    />
+                  </View>
                 )}
                 {/* Or when the API sent no viewer block (one from before it):
-                    then Hire is the only action there is, as it always was. */}
-                {(person.availableForBookings || !person.viewer) && (
+                    then Hire is the only action there is, as it always was.
+
+                    One filled button to a row: beside Connect it is an
+                    outline, and only fills when it is the only one. */}
+                {showHire && (
                   <Pressable
-                    className={`rounded-2xl min-h-[48px] flex-row items-center justify-center gap-2 active:opacity-80 ${
-                      person.viewer ? 'border border-primary' : 'bg-action'
-                    }`}
+                    className={`rounded-[14px] min-h-[48px] flex-row items-center justify-center gap-2 active:opacity-80 ${
+                      sideBySide ? 'flex-1' : ''
+                    } ${person.viewer ? 'bg-card border border-border' : 'bg-action'}`}
                     onPress={() => router.push(`/hire/${person.handle}`)}
                     accessibilityRole="button"
                     accessibilityLabel={`Hire ${first}`}
                   >
                     <BriefcaseIcon
                       size={16}
-                      className={person.viewer ? 'text-primary' : 'text-action-foreground'}
+                      className={person.viewer ? 'text-foreground' : 'text-action-foreground'}
                     />
                     <Text
-                      className={`text-[15px] font-bold ${
-                        person.viewer ? 'text-primary' : 'text-action-foreground'
+                      numberOfLines={1}
+                      className={`text-[15px] font-semibold ${
+                        person.viewer ? 'text-foreground' : 'text-action-foreground'
                       }`}
                     >
                       Hire {first}
@@ -255,12 +273,26 @@ export default function ProfileScreen() {
             )}
           </View>
 
+          {/* The pitch, at reading size and full contrast: it was 13pt grey. */}
           {person.bio ? (
-            <Text className="text-muted-foreground text-[13px] leading-5 mt-4">{person.bio}</Text>
+            <Text className="text-foreground text-[15px] leading-[22px] mt-5">{person.bio}</Text>
           ) : null}
 
+          {/* Plain chips: terracotta is kept for what can be pressed. */}
+          {person.roles.length > 0 && (
+            <View className="flex-row flex-wrap gap-2 mt-3">
+              {person.roles.map((role) => (
+                <View key={role} className="rounded-full px-3 py-1.5 bg-muted">
+                  <Text className="text-secondary-foreground text-[13px] leading-[18px] font-medium">
+                    {role}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           <View className="mt-4">
-            <ProfileDetails rows={rows} />
+            <ProfileDetails rows={rows} plain />
           </View>
         </View>
 
@@ -432,7 +464,7 @@ function ConnectionActions({
         accessibilityRole="button"
         accessibilityLabel={`Connect with ${first}`}
         accessibilityState={{ busy: send.isPending, disabled: send.isPending }}
-        className="rounded-2xl min-h-[48px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
+        className="rounded-[14px] min-h-[48px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
       >
         {send.isPending ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
@@ -453,7 +485,7 @@ function ConnectionActions({
         accessibilityLabel="Requested"
         accessibilityHint="Withdraws your request"
         accessibilityState={{ busy: remove.isPending }}
-        className="rounded-2xl min-h-[48px] bg-muted flex-row items-center justify-center gap-2 active:opacity-80"
+        className="rounded-[14px] min-h-[48px] bg-muted flex-row items-center justify-center gap-2 active:opacity-80"
       >
         {remove.isPending ? (
           <ActivityIndicator size="small" color={palette.mutedForeground} />
@@ -475,7 +507,7 @@ function ConnectionActions({
           disabled={respond.isPending || !friendId}
           accessibilityRole="button"
           accessibilityLabel={`Ignore ${first}'s connection request`}
-          className="flex-1 rounded-2xl min-h-[48px] bg-muted flex-row items-center justify-center active:opacity-80"
+          className="flex-1 rounded-[14px] min-h-[48px] bg-muted flex-row items-center justify-center active:opacity-80"
         >
           <Text className="text-foreground text-[15px] font-bold">Ignore</Text>
         </Pressable>
@@ -485,7 +517,7 @@ function ConnectionActions({
           accessibilityRole="button"
           accessibilityLabel={`Accept ${first}'s connection request`}
           accessibilityState={{ busy: respond.isPending, disabled: respond.isPending || !friendId }}
-          className="flex-[2] rounded-2xl min-h-[48px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
+          className="flex-[2] rounded-[14px] min-h-[48px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
         >
           {respond.isPending ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
@@ -506,7 +538,7 @@ function ConnectionActions({
         accessibilityRole="button"
         accessibilityLabel={`Message ${first}`}
         accessibilityState={{ busy: opening, disabled: opening || !friendId }}
-        className="flex-[2] rounded-2xl min-h-[48px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
+        className="flex-[2] rounded-[14px] min-h-[48px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
       >
         {opening ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
@@ -516,7 +548,7 @@ function ConnectionActions({
         <Text className="text-action-foreground text-[15px] font-bold">Message</Text>
       </Pressable>
       <View
-        className="flex-1 rounded-2xl min-h-[48px] bg-success/15 flex-row items-center justify-center gap-1.5"
+        className="flex-1 rounded-[14px] min-h-[48px] bg-success/15 flex-row items-center justify-center gap-1.5"
         accessible
         accessibilityLabel={`Connected with ${first}`}
       >

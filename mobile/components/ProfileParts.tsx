@@ -25,9 +25,6 @@ for (const Icon of [CameraIcon, UsersIcon]) {
  * owner's screen only adds the edit controls on top.
  */
 
-/** The label style every section heading on a profile uses. */
-const LABEL = 'text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]';
-
 /**
  * The banner across the top, at the cover's own shape.
  *
@@ -210,31 +207,44 @@ const TONE_ICON = {
   link: 'text-primary',
 } as const;
 
-/** The facts about somebody, one row each, only the rows that apply. */
-export function ProfileDetails({ rows }: { rows: ProfileDetailRow[] }) {
+/**
+ * The facts about somebody, one row each, only the rows that apply.
+ *
+ * A card of rows on your own About, where some of them have something to
+ * press. `plain` on a visitor's view of a profile: the same rows with no card
+ * and no rules, because there they are a few lines to read on the way to the
+ * work, and a card would give them the weight of something to act on.
+ *
+ * It carries no title of its own; the screen it sits on gives it one.
+ */
+export function ProfileDetails({ rows, plain = false }: { rows: ProfileDetailRow[]; plain?: boolean }) {
   if (rows.length === 0) return null;
   return (
-    <View className="bg-card rounded-2xl border border-border/40 px-4">
-      <Text className={`${LABEL} pt-3.5 pb-1`}>Details</Text>
+    <View className={plain ? '' : 'bg-card rounded-[20px] border border-border/40 px-4'}>
       {rows.map((row, i) => {
         const tone = row.tone ?? 'default';
         const Icon = row.icon;
         const body = (
           <>
-            <Icon size={16} className={TONE_ICON[tone]} />
+            <Icon size={plain ? 16 : 18} className={TONE_ICON[tone]} />
             <View className="flex-1 min-w-0">
-              <Text className={`${TONE_TEXT[tone]} text-[14px]`} numberOfLines={1}>
+              <Text
+                className={`${TONE_TEXT[tone]} ${plain ? 'text-[14px] leading-5' : 'text-[15px] leading-5'} ${
+                  tone === 'success' ? 'font-semibold' : ''
+                }`}
+                numberOfLines={1}
+              >
                 {row.text}
               </Text>
               {row.sub ? (
-                <Text className="text-muted-foreground text-[12px] mt-0.5">{row.sub}</Text>
+                <Text className="text-muted-foreground text-[13px] leading-[18px]">{row.sub}</Text>
               ) : null}
             </View>
           </>
         );
-        const rowClass = `min-h-11 flex-row items-center gap-3 py-2.5 ${
-          i < rows.length - 1 ? 'border-b border-border/30' : ''
-        }`;
+        const rowClass = plain
+          ? 'min-h-8 flex-row items-center gap-2.5'
+          : `min-h-[52px] flex-row items-center gap-3 py-2 ${i > 0 ? 'border-t border-border/30' : ''}`;
         // The trailing action sits beside the row, not inside it: a button
         // nested in a pressable row is one accessibility element on iOS and
         // could never be reached on its own.
