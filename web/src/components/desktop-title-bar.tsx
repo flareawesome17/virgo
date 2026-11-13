@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -90,7 +90,21 @@ function CloseGlyph() {
   );
 }
 
-export function DesktopTitleBar({ embedded = false }: { embedded?: boolean } = {}) {
+export function DesktopTitleBar({
+  embedded = false,
+  frame = false,
+  center,
+}: {
+  embedded?: boolean;
+  /**
+   * The signed-in window's bar: full width, in the window's dark frame, with
+   * the mark, back and forward, and whatever `center` is in the middle. The
+   * plain strip is still what the sign-in and error screens wear.
+   */
+  frame?: boolean;
+  /** What sits in the middle of the framed bar: the jump-to field. */
+  center?: ReactNode;
+} = {}) {
   const [maximised, setMaximised] = useState(false);
   // The window is absent until the shell's IPC grant reaches the page, and
   // without it the buttons are not rendered at all — a dead close button is
@@ -178,7 +192,11 @@ export function DesktopTitleBar({ embedded = false }: { embedded?: boolean } = {
       data-tauri-drag-region
       onDoubleClick={IS_WINDOWS ? toggle : undefined}
       className={
-        'flex h-8 shrink-0 select-none items-center border-b bg-background ' +
+        (frame
+          ? // Drawn on the window's dark frame in either theme, so it takes
+            // the dark palette's colours and has no ground or rule of its own.
+            'dark flex h-10 shrink-0 select-none items-center text-foreground '
+          : 'flex h-8 shrink-0 select-none items-center border-b bg-background ') +
         // macOS puts its traffic lights at the left, so the mark moves out of
         // their way rather than sitting underneath them.
         // Embedded: the sidebar runs the full height beside this strip, so the
@@ -192,14 +210,20 @@ export function DesktopTitleBar({ embedded = false }: { embedded?: boolean } = {
         <Image
           src="/logo.png"
           alt=""
-          width={14}
-          height={14}
-          className="size-3.5 object-contain"
+          width={frame ? 18 : 14}
+          height={frame ? 18 : 14}
+          className={frame ? 'size-[18px] object-contain' : 'size-3.5 object-contain'}
           // Decorative: the window is already named in the taskbar and the
           // sidebar says Virgo underneath.
           aria-hidden
         />
-        <span className="text-xs font-medium text-muted-foreground">Virgo</span>
+        <span
+          className={
+            frame ? 'text-[13px] font-semibold text-foreground' : 'text-xs font-medium text-muted-foreground'
+          }
+        >
+          Virgo
+        </span>
       </div>
       )}
 
@@ -227,7 +251,11 @@ export function DesktopTitleBar({ embedded = false }: { embedded?: boolean } = {
         </button>
       </div>
 
-      <div data-tauri-drag-region className="flex-1" />
+      {/* The middle still drags the window around whatever sits in it: the
+          field stops the event, the space beside it does not. */}
+      <div data-tauri-drag-region className="flex min-w-0 flex-1 justify-center px-3">
+        {center}
+      </div>
 
       {IS_WINDOWS && ready && (
         <div className="flex h-full">

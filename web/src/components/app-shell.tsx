@@ -12,20 +12,13 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type ComponentType,
   type ReactNode,
   type RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from 'next-themes';
 import {
-  BriefcaseBusiness,
-  CalendarDays,
-  FolderOpen,
   Gift,
-  Home,
-  Images,
-  LayoutGrid,
   LifeBuoy,
   LogOut,
   Menu,
@@ -36,8 +29,6 @@ import {
   Settings,
   Sun,
   UserRound,
-  Users,
-  Wallet,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { APP_COMMIT, RELEASE_LABEL } from '@/lib/version';
@@ -60,11 +51,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/useAuth';
 import { useUnreadCount } from '@/hooks/useChat';
-import { useCollaboratorInvitations } from '@/hooks/useCollaborators';
-import { usePeopleUnseen } from '@/hooks/useFriends';
 import { SidebarFriends } from '@/components/sidebar-friends';
-import { useEventInvitations } from '@/hooks/useScheduleEvents';
-import { useUnseenJobs } from '@/hooks/useJobs';
 import { usePromoOffers } from '@/hooks/usePromos';
 import { NotificationBell } from '@/components/notification-bell';
 import { VerifyEmailBanner } from '@/components/verify-email-banner';
@@ -72,89 +59,22 @@ import { DesktopUpdateBanner } from '@/components/desktop-update-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { UploadDock } from '@/components/upload/upload-dock';
 import { DesktopTitleBar } from '@/components/desktop-title-bar';
-import { IS_DESKTOP, IS_WINDOWS } from '@/lib/desktop';
+import { IS_DESKTOP } from '@/lib/desktop';
 import { DesktopAttention } from '@/components/desktop-attention';
 import { DesktopDownloads } from '@/components/desktop-downloads';
 import { CreateMenu } from '@/components/shell/create';
+import { NAV, isActive, useNavCounts } from '@/components/shell/nav';
+import { SidebarStorage } from '@/components/shell/sidebar-storage';
+import { DesktopRail } from '@/components/desktop/rail';
+import { DesktopStatusBar } from '@/components/desktop/status-bar';
+import { JumpTo } from '@/components/desktop/jump-to';
 import { useHydrated } from '@/lib/hydration';
-
-type BadgeKind = 'unread' | 'invitations' | 'friendRequests' | 'eventInvites' | 'newJobs';
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-  /** Other routes that belong to this item, so it stays lit on them. */
-  also?: string[];
-  /** Which live count fills this item's badge slot, if any. */
-  badge?: BadgeKind;
-}
-
-/*
- * Nine places, grouped as the phone groups them: its tabs first, then the
- * work, then the people. Notifications live behind the bell, and Rewards,
- * Support and Settings behind your picture, as they do on the phone; they
- * were thirteen rows here, competing with the places you actually go.
- *
- * Bookings is a tab of Jobs and Nearby a tab of People, as on the phone.
- */
-const NAV: { heading?: string; items: NavItem[] }[] = [
-  {
-    items: [
-      { href: '/', label: 'Dashboard', icon: Home },
-      // A post opened from the feed is still the feed.
-      { href: '/feed', label: 'Feed', icon: LayoutGrid, also: ['/showcase'] },
-      // A booking is where a job ends up.
-      {
-        href: '/jobs',
-        label: 'Jobs',
-        icon: BriefcaseBusiness,
-        // A booking opened from the Bookings tab is still Jobs.
-        also: ['/bookings', '/hire'],
-        badge: 'newJobs',
-      },
-    ],
-  },
-  {
-    heading: 'Work',
-    items: [
-      { href: '/workspaces', label: 'Workspaces', icon: FolderOpen, badge: 'invitations' },
-      // Every album across every workspace.
-      { href: '/albums', label: 'Albums', icon: Images },
-      { href: '/schedule', label: 'Schedule', icon: CalendarDays, badge: 'eventInvites' },
-      // What the work earned and cost. Only the account's own.
-      { href: '/money', label: 'Money', icon: Wallet },
-    ],
-  },
-  {
-    heading: 'Connect',
-    items: [
-      { href: '/chat', label: 'Messages', icon: MessageCircle, badge: 'unread' },
-      {
-        href: '/people',
-        label: 'People',
-        icon: Users,
-        also: ['/u'],
-        badge: 'friendRequests',
-      },
-    ],
-  },
-];
 
 function initials(name: string | null | undefined, email: string | undefined): string {
   const source = name?.trim() || email || '?';
   const parts = source.split(/[\s@.]+/).filter(Boolean);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return source.slice(0, 2).toUpperCase();
-}
-
-function isActive(item: NavItem, pathname: string): boolean {
-  // Exact match for the root, prefix for everything else, so /workspaces/abc
-  // still lights up Workspaces.
-  if (item.href === '/') return pathname === '/';
-  return [item.href, ...(item.also ?? [])].some(
-    (href) => pathname === href || pathname.startsWith(`${href}/`),
-  );
 }
 
 function CountBadge({ count, className }: { count: number; className?: string }) {
@@ -168,32 +88,14 @@ function CountBadge({ count, className }: { count: number; className?: string })
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const unread = useUnreadCount();
-  // An invitation is invisible until answered — the workspace does not
-  // appear anywhere else — so the count has to live on the nav itself.
-  const { invitations } = useCollaboratorInvitations();
-  // Connection requests and hire enquiries that arrived since People was last
-  // opened. Opening People clears it; the requests stay listed there.
-  const { count: friendRequests } = usePeopleUnseen();
-  // Invitations to somebody else's shoot, waiting on an answer.
-  const { invitations: eventInvites } = useEventInvitations();
-  // Open postings not yet looked at, plus unanswered applications on your own.
-  const { total: newJobs } = useUnseenJobs();
-
-  const counts: Record<BadgeKind, number> = {
-    unread,
-    invitations: invitations.length,
-    friendRequests,
-    eventInvites: eventInvites.length,
-    newJobs,
-  };
+  const counts = useNavCounts();
 
   return (
     <nav className="flex flex-col gap-5 px-3 py-2">
       {NAV.map((group, i) => (
         <div key={group.heading ?? i} className="flex flex-col gap-0.5">
           {group.heading && (
-            <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            <p className="px-2.5 pb-1.5 text-xs font-semibold text-muted-foreground">
               {group.heading}
             </p>
           )}
@@ -207,13 +109,15 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 onClick={onNavigate}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  'group flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-sm transition-colors',
+                  // The one filled row in the sidebar is where you are: a
+                  // white pill on the cream, as a card sits on a page.
                   active
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground',
+                    ? 'bg-card font-semibold text-foreground ring-1 ring-border/60'
+                    : 'font-medium text-secondary-foreground hover:bg-sidebar-accent hover:text-foreground',
                 )}
               >
-                <Icon className={cn('size-4 shrink-0', active && 'text-primary')} />
+                <Icon className={cn('size-[17px] shrink-0', active && 'text-primary')} />
                 <span className="flex-1 truncate">{item.label}</span>
                 {item.badge && <CountBadge count={counts[item.badge]} />}
               </Link>
@@ -228,32 +132,22 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col bg-sidebar">
-      {/* Desktop only: the window drags from here, and on macOS this clears the
-          traffic lights that float over the top-left corner. */}
-      {IS_DESKTOP && !onNavigate && (
-        <div data-tauri-drag-region className={IS_WINDOWS ? 'h-2 shrink-0' : 'h-8 shrink-0'} />
-      )}
       <Link href="/" onClick={onNavigate} className="flex h-14 shrink-0 items-center gap-2.5 px-5">
         {/* The mark is transparent, so it sits on either palette without a
             plate behind it. */}
         <Image
           src="/logo.png"
           alt=""
-          width={32}
-          height={32}
-          className="size-8 shrink-0 object-contain"
+          width={28}
+          height={28}
+          className="size-7 shrink-0 object-contain"
           priority
         />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-bold leading-none">Virgo</p>
-          <p className="mt-1 truncate text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-            Creative OS
-          </p>
-        </div>
+        <span className="truncate text-[17px] font-bold tracking-tight">Virgo</span>
       </Link>
 
       {/* min-h-0 is what makes this scroll instead of grow; the native bar is
-          hidden by `.no-scrollbar`. */}
+          hidden by the no-scrollbar class. */}
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <NavLinks onNavigate={onNavigate} />
       </div>
@@ -262,6 +156,11 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           own scroller, and gives height back to the nav on a short window. */}
       <div className="min-h-0 px-3 pb-3">
         <SidebarFriends />
+      </div>
+
+      {/* How full storage is, in view from every page. */}
+      <div className="shrink-0 px-3 pb-3">
+        <SidebarStorage onNavigate={onNavigate} />
       </div>
     </div>
   );
@@ -550,82 +449,122 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('scroll', reset);
   }, []);
 
+  // The bar every page shares: its name, its buttons, then Create, Messages
+  // (where the sidebar is folded away), the bell and your picture.
+  const bar = (
+    <>
+      {/* The page's own heading when it has one, its plain name when
+          not: the second shows only while the first is empty. */}
+      <div className="flex min-w-0 flex-1 items-center">
+        <div ref={setTitleEl} className="peer flex min-w-0 flex-1 items-center gap-2 empty:hidden" />
+        <div
+          ref={setFallbackEl}
+          className="hidden min-w-0 flex-1 items-center text-[15px] font-semibold peer-empty:flex"
+        />
+      </div>
+
+      <div ref={setActionsEl} className="flex shrink-0 items-center gap-2 empty:hidden" />
+      <CreateMenu />
+      {!IS_DESKTOP && <MessagesButton />}
+      <NotificationBell />
+      <AccountMenu />
+    </>
+  );
+
+  // Banners above the scroller rather than inside it: a full-height page such
+  // as Chat was a banner taller than the room it had, and its composer slid
+  // off the bottom. Offline first: being offline explains most other failures.
+  const page = (
+    <>
+      <div className="shrink-0 empty:hidden">
+        <OfflineBanner />
+        <DesktopUpdateBanner />
+        <VerifyEmailBanner />
+      </div>
+
+      <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
+        <SlotsContext.Provider value={slots}>{children}</SlotsContext.Provider>
+      </main>
+    </>
+  );
+
+  /*
+   * The desktop app: its own frame, not the website's in a window.
+   *
+   * A dark frame in either theme — the title bar across the top with a field
+   * to jump anywhere, a rail of icons down the side, a status bar along the
+   * foot — and the page as one sheet set into it. The web's sidebar spends a
+   * quarter of the window naming nine places; somebody who opens this every
+   * day knows them, and wants the width for the work.
+   */
+  if (IS_DESKTOP) {
+    return (
+      <div
+        data-app-shell
+        className="fixed inset-x-0 top-0 flex h-dvh flex-col overflow-hidden bg-[var(--frame)]"
+        onScroll={(event) => {
+          event.currentTarget.scrollTop = 0;
+        }}
+      >
+        {/* Render nothing anywhere. They keep the window's title, dock badge
+            and taskbar in step with what is unread, and say where a download
+            went. */}
+        <DesktopAttention />
+        <DesktopDownloads />
+
+        <DesktopTitleBar frame center={<JumpTo />} />
+
+        <div className="flex min-h-0 flex-1">
+          <DesktopRail />
+          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-tl-xl bg-background">
+            <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/60 px-4">
+              {bar}
+            </header>
+            {page}
+          </div>
+        </div>
+
+        <DesktopStatusBar />
+        {/* On every signed-in page: uploads keep reporting wherever you go. */}
+        <UploadDock />
+      </div>
+    );
+  }
+
   return (
-    // data-app-shell is what globals.css keys `body { overflow: hidden }` off.
+    // data-app-shell is what globals.css keys the body's hidden overflow off.
     // h-dvh, not h-full: dvh tracks what is actually visible on a phone.
     <div
       data-app-shell
       // Clipped, and held at the top if anything scrolls it anyway. A banner
-      // arriving (the desktop update one) pushed the whole shell up by its own
-      // height: the title bar and the top of the sidebar went off the window.
+      // arriving pushed the whole shell up by its own height: the top of the
+      // sidebar went off the window.
       className="fixed inset-x-0 top-0 flex h-dvh overflow-hidden"
       onScroll={(event) => {
         event.currentTarget.scrollTop = 0;
       }}
     >
-      {/* Render nothing anywhere. In the desktop app they keep the window's
-          title, dock badge and taskbar in step with what is unread, and say
-          where a download went. */}
-      <DesktopAttention />
-      <DesktopDownloads />
-
-      {/* The sidebar runs the full height of the window, and the desktop title
-          bar is a strip over the content beside it, so the brand shows once. */}
-      <aside className="hidden h-full min-h-0 w-60 shrink-0 overflow-hidden border-r lg:block">
+      {/* The sidebar runs the full height of the window. */}
+      <aside className="hidden h-full min-h-0 w-60 shrink-0 overflow-hidden border-r border-border/60 lg:block">
         <SidebarBody />
       </aside>
 
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Renders nothing on the web. In the desktop app it is the title bar. */}
-        <DesktopTitleBar embedded />
-        <div className="flex min-h-0 flex-1 flex-col">
-          <header className="flex h-14 shrink-0 items-center gap-1.5 border-b bg-background px-2 sm:gap-2 sm:px-4">
-            <Sheet open={open} onOpenChange={setOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation">
-                  <Menu className="size-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-72 p-0">
-                <SheetTitle className="sr-only">Navigation</SheetTitle>
-                <SidebarBody onNavigate={() => setOpen(false)} />
-              </SheetContent>
-            </Sheet>
-
-            {/* The page's own heading when it has one, its plain name when
-                not: the second shows only while the first is empty. */}
-            <div className="flex min-w-0 flex-1 items-center">
-              <div
-                ref={setTitleEl}
-                className="peer flex min-w-0 flex-1 items-center gap-2 empty:hidden"
-              />
-              <div
-                ref={setFallbackEl}
-                className="hidden min-w-0 flex-1 items-center text-[15px] font-semibold peer-empty:flex"
-              />
-            </div>
-
-            <div ref={setActionsEl} className="flex shrink-0 items-center gap-2 empty:hidden" />
-            <CreateMenu />
-            <MessagesButton />
-            <NotificationBell />
-            <AccountMenu />
-          </header>
-
-          {/* Banners above the scroller rather than inside it: a full-height
-              page such as Chat was a banner taller than the room it had, and
-              its composer slid off the bottom. Offline first: being offline
-              explains most other failures. */}
-          <div className="shrink-0 empty:hidden">
-            <OfflineBanner />
-            <DesktopUpdateBanner />
-            <VerifyEmailBanner />
-          </div>
-
-          <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-            <SlotsContext.Provider value={slots}>{children}</SlotsContext.Provider>
-          </main>
-        </div>
+        <header className="flex h-14 shrink-0 items-center gap-1.5 border-b border-border/60 bg-background px-2 sm:gap-2 sm:px-6">
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation">
+                <Menu className="size-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-72 p-0">
+              <SheetTitle className="sr-only">Navigation</SheetTitle>
+              <SidebarBody onNavigate={() => setOpen(false)} />
+            </SheetContent>
+          </Sheet>
+          {bar}
+        </header>
+        {page}
       </div>
       {/* On every signed-in page: uploads keep reporting wherever you go. */}
       <UploadDock />
