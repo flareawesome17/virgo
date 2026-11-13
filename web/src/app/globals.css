@@ -84,6 +84,20 @@
     color-scheme: dark;
   }
 
+  /* The desktop window's frame: the title bar, the rail and the status bar.
+     Dark in both themes, so the page reads as one sheet set into it; a step
+     darker than the dark theme's own ground, so it still does there.
+
+     On html, not on .dark: the frame's parts wear .dark themselves to take
+     the dark palette, and must still see the page's frame colour. */
+  html {
+    --frame: #161311;
+  }
+
+  html.dark {
+    --frame: #0d0b0a;
+  }
+
   /* The app shell owns scrolling; a scrolling body would take the sidebar
      with it.
 
