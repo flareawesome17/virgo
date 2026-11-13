@@ -1,4 +1,6 @@
-import { View, Text, ScrollView, RefreshControl, Pressable, Alert, ActivityIndicator } from 'react-native';
+import {
+  View, Text, ScrollView, RefreshControl, Pressable, Alert, ActivityIndicator, useWindowDimensions,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { goToTab } from '@/src/lib/navigation';
@@ -42,13 +44,16 @@ import {
   firstName,
   invitedWhen,
   roleInSentence,
+  plural,
 } from '@/src/lib/workspaces';
 import { RemoteImage } from '@/components/RemoteImage';
 import { DeleteConfirmSheet } from '@/components/DeleteConfirmSheet';
 import { LoadFailed } from '@/components/LoadFailed';
-import { SegmentedTabs } from '@/components/SegmentedTabs';
+import { PageTabs } from '@/components/PageTabs';
+import { DateTile } from '@/components/DateTile';
+import { WorkspaceCover } from '@/components/WorkspaceCover';
 import { WorkspaceActivity } from '@/components/WorkspaceActivity';
-import { ActionSheet, PersonAvatar, Pill, WorkspaceTile } from '@/components/WorkspaceBits';
+import { ActionSheet, PersonAvatar, Pill } from '@/components/WorkspaceBits';
 import { ownerLine } from '@/components/WorkspaceCard';
 import { PALETTES } from '@/theme';
 
@@ -93,38 +98,125 @@ function BackButton() {
   );
 }
 
-function Chip({ icon: Icon, label, onPress }: { icon: LucideIcon; label: string; onPress: () => void }) {
+/** A quiet square button for the actions beside Upload. */
+function IconAction({ icon: Icon, label, onPress }: { icon: LucideIcon; label: string; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      className="h-10 px-3.5 rounded-full bg-card border border-border flex-row items-center gap-1.5 active:scale-[0.96]"
+      accessibilityLabel={label}
+      className="w-11 h-11 rounded-[14px] bg-muted items-center justify-center active:scale-[0.96]"
     >
-      <Icon size={16} className="text-foreground" />
-      <Text className="text-foreground text-[13px] font-semibold">{label}</Text>
+      <Icon size={19} className="text-foreground" />
+    </Pressable>
+  );
+}
+
+/** The screen's one filled button: putting files in is what a workspace is for. */
+function UploadAction({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      className="flex-1 h-11 rounded-[14px] bg-action flex-row items-center justify-center gap-2 active:opacity-90"
+    >
+      <UploadIcon size={17} className="text-action-foreground" />
+      <Text className="text-action-foreground text-[15px] font-semibold">Upload</Text>
     </Pressable>
   );
 }
 
 function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <View className={`bg-card rounded-2xl border border-border/40 ${className}`}>{children}</View>;
+  return <View className={`bg-card rounded-[20px] border border-border/40 ${className}`}>{children}</View>;
 }
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[1.5px] mx-1 mb-2">
+    <Text accessibilityRole="header" className="text-foreground text-[17px] leading-6 font-bold tracking-tight mb-2.5">
       {children}
     </Text>
   );
 }
 
+/** A round button that sits on the cover photograph. */
+function OnCover({ icon: Icon, label, onPress }: { icon: LucideIcon; label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={4}
+      className="w-10 h-10 rounded-full bg-background/90 items-center justify-center active:opacity-70"
+    >
+      <Icon size={20} className="text-foreground" />
+    </Pressable>
+  );
+}
+
+/**
+ * The top of a workspace: a photograph from it, then its name, what it holds
+ * and whose it is.
+ *
+ * It was a band tinted with the workspace's colour, a letter on a square, and
+ * three tiles of counts. A workspace is a client's photographs; the one thing
+ * its own page did not show was any of them.
+ */
+function Hero({
+  workspace,
+  whose,
+  onMore,
+}: {
+  workspace: Workspace;
+  /** "Yours · 3 members", or who shared it and as what. */
+  whose: string;
+  onMore?: () => void;
+}) {
+  const { width } = useWindowDimensions();
+  const holds = [
+    workspace.album_count > 0 ? plural(workspace.album_count, 'album') : 'No albums yet',
+    workspace.media_count > 0 ? plural(workspace.media_count, 'file') : null,
+    // Its size only for the owner: the API keeps a member's share of
+    // somebody else's storage to itself.
+    workspace.storage_bytes ? formatBytes(workspace.storage_bytes) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <View>
+      <View>
+        <WorkspaceCover workspace={workspace} width={width} height={Math.round(width * 0.5)} radius={0} />
+        <View className="absolute left-2 right-2 top-2 flex-row justify-between">
+          <OnCover icon={ArrowLeftIcon} label="Back" onPress={() => router.back()} />
+          {onMore ? <OnCover icon={MoreHorizontalIcon} label="Workspace options" onPress={onMore} /> : null}
+        </View>
+      </View>
+      <View className="px-5 pt-4">
+        <Text
+          accessibilityRole="header"
+          className="text-foreground text-[24px] leading-[30px] font-bold tracking-tight"
+          numberOfLines={2}
+        >
+          {workspace.name}
+        </Text>
+        <Text className="text-secondary-foreground text-[14px] leading-5 mt-1">{holds}</Text>
+        <Text className="text-muted-foreground text-[13px] leading-[18px] mt-0.5">
+          {workspace.archived_at ? 'Archived · ' : ''}
+          {whose}
+        </Text>
+        {workspace.description ? (
+          <Text className="text-secondary-foreground text-[14px] leading-5 mt-2.5" numberOfLines={3}>
+            {workspace.description}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 function EventRow({ event }: { event: ScheduleEvent }) {
   const date = new Date(`${event.event_date}T00:00:00`);
-  const when = [
-    date.toLocaleDateString('en-US', { weekday: 'short' }),
-    event.event_time ? formatClock(event.event_time) : 'All day',
-    event.location,
-  ]
+  const when = [event.event_time ? formatClock(event.event_time) : 'All day', event.location]
     .filter(Boolean)
     .join(' · ');
   return (
@@ -133,17 +225,17 @@ function EventRow({ event }: { event: ScheduleEvent }) {
       accessibilityRole="button"
       className="flex-row items-center gap-3 active:opacity-70"
     >
-      <View className="w-12 h-[52px] rounded-xl bg-primary/10 items-center justify-center">
-        <Text className="text-primary text-[11px] font-bold tracking-[1px]">
-          {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
-        </Text>
-        <Text className="text-primary text-xl font-bold">{date.getDate()}</Text>
-      </View>
+      {/* The tile every dated row starts with, so dates line up here as they
+          do on the Dashboard and the Schedule. */}
+      <DateTile
+        small={date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+        large={date.getDate()}
+      />
       <View className="flex-1 min-w-0">
-        <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+        <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>
           {event.title}
         </Text>
-        <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+        <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
           {when}
         </Text>
       </View>
@@ -158,35 +250,76 @@ function formatClock(time: string): string {
   return `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
 }
 
-function AlbumRow({ album, showSharing, divider }: { album: Album; showSharing: boolean; divider?: string }) {
-  const label = sharingLabel(album);
-  const isPrivate = showSharing && label === 'Private';
+/**
+ * A workspace's albums as pictures, two across.
+ *
+ * They were rows with a 56pt thumbnail and a chevron: a list of names in the
+ * one place where the covers are what tell the albums apart. A private album
+ * wears a lock on its cover; who it is shared with, or what you may do in it,
+ * follows its size.
+ */
+function AlbumGrid({
+  albums,
+  showSharing = false,
+  showAccess = false,
+}: {
+  albums: Album[];
+  /** The owner's view: say which albums nobody else can open. */
+  showSharing?: boolean;
+  /** A member's view: say what they may do in each. */
+  showAccess?: boolean;
+}) {
+  const { width } = useWindowDimensions();
+  // Two across, inside the 20pt margins and the gap between them.
+  const tile = Math.floor((width - 40 - 12) / 2);
+  const height = Math.round(tile * 0.75);
+
   return (
-    <Pressable
-      onPress={() => router.push(`/albums/${album.id}`)}
-      accessibilityRole="button"
-      className="flex-row items-center gap-3 px-3.5 py-3 active:opacity-70"
-      style={divider ? { borderTopWidth: 1, borderTopColor: divider } : undefined}
-    >
-      <View className="w-14 h-14 rounded-xl overflow-hidden bg-muted">
-        {album.cover_url ? (
-          <RemoteImage source={{ uri: album.cover_url }} style={{ width: 56, height: 56 }} />
-        ) : null}
-      </View>
-      <View className="flex-1 min-w-0">
-        <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-          {album.name}
-        </Text>
-        <View className="flex-row items-center gap-1 mt-0.5">
-          {isPrivate && <LockIcon size={11} className="text-warning" />}
-          <Text className={`text-xs ${isPrivate ? 'text-warning' : 'text-muted-foreground'}`} numberOfLines={1}>
-            {albumContents(album)}
-            {showSharing ? ` · ${label}` : ''}
-          </Text>
-        </View>
-      </View>
-      <ChevronRightIcon size={16} className="text-muted-foreground" />
-    </Pressable>
+    <View className="flex-row flex-wrap" style={{ columnGap: 12, rowGap: 16 }}>
+      {albums.map((album) => {
+        const label = sharingLabel(album);
+        const isPrivate = showSharing && label === 'Private';
+        const detail = [
+          albumContents(album),
+          showSharing && !isPrivate ? label : null,
+          showAccess && album.my_access && album.my_access !== 'owner'
+            ? `can ${ACCESS_LABEL[album.my_access].toLowerCase()}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        return (
+          <Pressable
+            key={album.id}
+            onPress={() => router.push(`/albums/${album.id}`)}
+            accessibilityRole="button"
+            accessibilityLabel={`${album.name}, ${detail}${isPrivate ? ', private' : ''}`}
+            className="active:opacity-80"
+            style={{ width: tile }}
+          >
+            <View className="rounded-2xl overflow-hidden bg-muted" style={{ height }}>
+              {album.cover_url ? (
+                <RemoteImage source={{ uri: album.cover_url }} style={{ width: tile, height }} contentFit="cover" />
+              ) : null}
+              {isPrivate && (
+                <View
+                  className="absolute right-2 top-2 w-6 h-6 rounded-full items-center justify-center"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                >
+                  <LockIcon size={12} color="#FFFFFF" />
+                </View>
+              )}
+            </View>
+            <Text className="text-foreground text-[14px] leading-5 font-semibold mt-2" numberOfLines={1}>
+              {album.name}
+            </Text>
+            <Text className="text-muted-foreground text-[12px] leading-4" numberOfLines={1}>
+              {detail}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -241,7 +374,6 @@ function OwnerView({
     .filter((e) => isEventUpcoming(e.event_date, e.event_time))
     .sort((a, b) => `${a.event_date} ${a.event_time ?? ''}`.localeCompare(`${b.event_date} ${b.event_time ?? ''}`))
     .slice(0, 2);
-  const accent = workspace.accent_color;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -304,88 +436,51 @@ function OwnerView({
       contentContainerStyle={{ paddingBottom: 120 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}
     >
-      <View style={{ backgroundColor: `${accent}1A` }} className="pb-4">
-        <View className="px-2 pt-1 flex-row items-center justify-between">
-          <BackButton />
-          <Pressable
-            onPress={() => setOptions(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Workspace options"
-            className="w-11 h-11 items-center justify-center active:opacity-60"
-          >
-            <MoreHorizontalIcon size={22} className="text-secondary-foreground" />
-          </Pressable>
-        </View>
-        <View className="px-5 gap-3">
-          <View className="flex-row items-center gap-3">
-            <WorkspaceTile name={workspace.name} color={accent} size={52} />
-            <View className="flex-1 min-w-0">
-              <Text className="text-foreground text-[22px] font-bold tracking-tight" numberOfLines={2}>
-                {workspace.name}
-              </Text>
-              <Text className="text-secondary-foreground text-xs mt-0.5">
-                {workspace.archived_at ? 'Archived · ' : ''}
-                {ownerLine(workspace)}
-              </Text>
-            </View>
-          </View>
-          {workspace.description ? (
-            <Text className="text-secondary-foreground text-sm" numberOfLines={3}>
-              {workspace.description}
-            </Text>
-          ) : null}
-          <View className="flex-row gap-2">
-            {[
-              [workspace.album_count.toLocaleString(), workspace.album_count === 1 ? 'album' : 'albums'],
-              [workspace.media_count.toLocaleString(), workspace.media_count === 1 ? 'file' : 'files'],
-              [formatBytes(workspace.storage_bytes ?? 0), 'storage'],
-            ].map(([value, label]) => (
-              <View key={label} className="flex-1 px-3 py-2.5 rounded-xl bg-card">
-                <Text className="text-foreground text-lg font-bold">{value}</Text>
-                <Text className="text-muted-foreground text-[11px]">{label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      </View>
+      <Hero workspace={workspace} whose={ownerLine(workspace)} onMore={() => setOptions(true)} />
 
-      <View className="px-5 pt-3.5 gap-3.5">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          <Chip icon={PlusIcon} label="New album" onPress={newAlbum} />
-          <Chip icon={UploadIcon} label="Upload" onPress={() => router.push('/albums/upload')} />
-          <Chip icon={UserPlusIcon} label="Invite" onPress={() => router.push(`/workspaces/${id}/invite`)} />
-          <Chip
+      <View className="px-5 pt-4 gap-4">
+        {/* One filled button, and the rest quiet beside it. They were four
+            equal chips, so nothing said which one the screen is for. */}
+        <View className="flex-row gap-2">
+          <UploadAction onPress={() => router.push('/albums/upload')} />
+          <IconAction icon={PlusIcon} label="New album" onPress={newAlbum} />
+          <IconAction icon={UserPlusIcon} label="Invite someone" onPress={() => router.push(`/workspaces/${id}/invite`)} />
+          <IconAction
             icon={CalendarPlusIcon}
-            label="Schedule"
+            label="Add to the schedule"
             onPress={() => router.push(`/schedule/create?workspaceId=${id}`)}
           />
-        </ScrollView>
+        </View>
 
-        <SegmentedTabs<typeof segment> segments={SEGMENTS} value={segment} onChange={setSegment} />
+        {/* The workspace's pages, as the Dashboard's and Jobs' are. Out to
+            the screen edges, so the rule under them runs the full width. */}
+        <View className="-mx-5">
+          <PageTabs<Segment> tabs={SEGMENTS} value={segment} onChange={setSegment} />
+        </View>
 
         {segment === 'overview' && (
           <>
             {unshared.length > 0 && (
-              <View className="flex-row items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-warning/15">
+              <View className="flex-row items-center gap-3 px-4 py-3 rounded-2xl bg-card border border-border/40">
                 <LockIcon size={18} className="text-warning" />
                 <View className="flex-1">
-                  <Text className="text-foreground text-[13px] font-semibold">
+                  <Text className="text-foreground text-[14px] leading-5 font-semibold">
                     {unshared.length === 1
                       ? `${unshared[0].name} isn’t shared yet`
                       : `${unshared.length} albums aren’t shared yet`}
                   </Text>
-                  <Text className="text-secondary-foreground text-xs mt-0.5">New albums start private.</Text>
+                  <Text className="text-muted-foreground text-[13px] leading-[18px]">New albums start private.</Text>
                 </View>
                 <Pressable onPress={() => setSegment('members')} accessibilityRole="button" hitSlop={8}>
-                  <Text className="text-primary text-[13px] font-bold">Share</Text>
+                  <Text className="text-primary text-[14px] font-semibold">Share</Text>
                 </Pressable>
               </View>
             )}
             {waiting.length > 0 && (
-              <View className="flex-row items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-secondary">
+              <View className="flex-row items-center gap-3 px-4 py-3 rounded-2xl bg-card border border-border/40">
                 <RefreshCwIcon size={16} className="text-secondary-foreground" />
                 <View className="flex-1">
-                  <Text className="text-foreground text-[13px] font-semibold">
+                  <Text className="text-foreground text-[14px] leading-5 font-semibold">
                     {waiting.length === 1
                       ? `${firstName(waiting[0].name)} hasn’t answered yet`
                       : `${waiting.length} invitations waiting`}
@@ -402,21 +497,21 @@ function OwnerView({
                   hitSlop={8}
                   disabled={resend.isPending}
                 >
-                  <Text className="text-primary text-[13px] font-bold">{waiting.length === 1 ? 'Resend' : 'See'}</Text>
+                  <Text className="text-primary text-[14px] font-semibold">{waiting.length === 1 ? 'Resend' : 'See'}</Text>
                 </Pressable>
               </View>
             )}
 
             <Card className="px-3.5 pt-3">
-              <Text className="text-foreground text-sm font-semibold">What’s been happening</Text>
+              <Text className="text-foreground text-[15px] font-semibold">What’s been happening</Text>
               <WorkspaceActivity workspaceId={id} waiting={waitingIds} limit={6} divider={palette.border} />
             </Card>
 
             <Card className="p-3.5 gap-3">
               <View className="flex-row items-center justify-between">
-                <Text className="text-foreground text-sm font-semibold">Coming up</Text>
+                <Text className="text-foreground text-[15px] font-semibold">Coming up</Text>
                 <Pressable onPress={() => router.push(`/schedule/create?workspaceId=${id}`)} hitSlop={8}>
-                  <Text className="text-primary text-[13px] font-bold">Add</Text>
+                  <Text className="text-primary text-[14px] font-semibold">Add</Text>
                 </Pressable>
               </View>
               {upcoming.length === 0 ? (
@@ -445,16 +540,7 @@ function OwnerView({
               </Pressable>
             </Card>
           ) : (
-            <Card className="overflow-hidden">
-              {albums.map((album, i) => (
-                <AlbumRow
-                  key={album.id}
-                  album={album}
-                  showSharing={hasPeople}
-                  divider={i > 0 ? palette.border : undefined}
-                />
-              ))}
-            </Card>
+            <AlbumGrid albums={albums} showSharing={hasPeople} />
           ))}
 
         {segment === 'members' && (
@@ -681,35 +767,21 @@ function SharedView({ workspace }: { workspace: Workspace }) {
       contentContainerStyle={{ paddingBottom: 120 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}
     >
-      <View style={{ backgroundColor: `${workspace.accent_color}1A` }} className="pb-4">
-        <View className="px-2 pt-1">
-          <BackButton />
-        </View>
-        <View className="px-5 flex-row items-center gap-3">
-          <WorkspaceTile name={workspace.name} color={workspace.accent_color} size={52} />
-          <View className="flex-1 min-w-0">
-            <Text className="text-foreground text-[22px] font-bold tracking-tight" numberOfLines={2}>
-              {workspace.name}
-            </Text>
-            <Text className="text-secondary-foreground text-xs mt-0.5">
-              Shared by {workspace.owner.name} · you’re {roleInSentence(workspace.my_role, true)}
-            </Text>
-          </View>
-        </View>
-      </View>
+      <Hero
+        workspace={workspace}
+        whose={`Shared by ${workspace.owner.name} · you’re ${roleInSentence(workspace.my_role, true)}`}
+      />
 
-      <View className="px-4 pt-3.5 gap-4">
+      <View className="px-5 pt-4 gap-7">
         <View className="flex-row gap-2">
           {uploadable.length > 0 && (
-            <Chip
-              icon={UploadIcon}
-              label="Upload"
+            <UploadAction
               onPress={() =>
                 router.push(uploadable.length === 1 ? `/albums/upload?albumId=${uploadable[0].id}` : '/albums/upload')
               }
             />
           )}
-          <Chip icon={CalendarPlusIcon} label="Schedule" onPress={() => goToTab('/(app)/(tabs)/schedule')} />
+          <IconAction icon={CalendarPlusIcon} label="Open the schedule" onPress={() => goToTab('/(app)/(tabs)/schedule')} />
         </View>
 
         <View>
@@ -727,32 +799,7 @@ function SharedView({ workspace }: { workspace: Workspace }) {
               </Text>
             </Card>
           ) : (
-            <Card className="overflow-hidden">
-              {albums.map((album, i) => (
-                <Pressable
-                  key={album.id}
-                  onPress={() => router.push(`/albums/${album.id}`)}
-                  accessibilityRole="button"
-                  className="flex-row items-center gap-3 px-3.5 py-3 active:opacity-70"
-                  style={i > 0 ? { borderTopWidth: 1, borderTopColor: palette.border } : undefined}
-                >
-                  <View className="w-11 h-11 rounded-xl overflow-hidden bg-muted">
-                    {album.cover_url ? (
-                      <RemoteImage source={{ uri: album.cover_url }} style={{ width: 44, height: 44 }} />
-                    ) : null}
-                  </View>
-                  <View className="flex-1 min-w-0">
-                    <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
-                      {album.name}
-                    </Text>
-                    <Text className="text-muted-foreground text-xs mt-0.5">{albumContents(album)}</Text>
-                  </View>
-                  {album.my_access && album.my_access !== 'owner' ? (
-                    <Pill tone="info">You can {ACCESS_LABEL[album.my_access].toLowerCase()}</Pill>
-                  ) : null}
-                </Pressable>
-              ))}
-            </Card>
+            <AlbumGrid albums={albums} showAccess />
           )}
           {hidden > 0 && (
             <Text className="text-muted-foreground text-xs mt-2 mx-1">
@@ -764,7 +811,7 @@ function SharedView({ workspace }: { workspace: Workspace }) {
         </View>
 
         <Card className="px-3.5 pt-3">
-          <Text className="text-foreground text-sm font-semibold">What’s been happening</Text>
+          <Text className="text-foreground text-[15px] font-semibold">What’s been happening</Text>
           <WorkspaceActivity workspaceId={id} limit={6} divider={palette.border} />
         </Card>
 
