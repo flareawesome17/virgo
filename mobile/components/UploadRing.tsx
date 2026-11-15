@@ -20,12 +20,14 @@ import Animated, {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
-import { router, usePathname } from 'expo-router';
+import { usePathname } from 'expo-router';
 import { AlertCircleIcon, CheckIcon } from 'lucide-react-native';
 import { useUploadQueue } from '@/src/providers/UploadProvider';
 import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
 import { useTheme } from '@/src/providers/ThemeProvider';
 import { PALETTES, type Palette } from '@/theme';
+import { UploadsSheet } from '@/components/upload/UploadsSheet';
+import { uploadsSheet, useUploadBarShowing } from '@/src/lib/uploads-sheet';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -125,8 +127,13 @@ export function UploadRing({ children }: { children: ReactNode }) {
       : justFinished
         ? 'done'
         : null;
+  // One indicator, two shapes: in the album the files are going into it is a
+  // bar along the bottom (UploadBar), and the ring is not drawn as well.
+  // Everywhere else it is this, which can be dragged out of the way of a
+  // chat's message box, the reason it was made a ring.
+  const barShowing = useUploadBarShowing();
   const hidden =
-    pathname === '/albums/upload' || (Boolean(film) && filmMode === 'full');
+    barShowing || pathname === '/albums/upload' || (Boolean(film) && filmMode === 'full');
   const showing = state !== null && !hidden;
 
   // Where the ring may go, from the size of the area it floats over. Measured
@@ -172,8 +179,9 @@ export function UploadRing({ children }: { children: ReactNode }) {
     placed.current = true;
   }, [limits, x, y, onLeft]);
 
+  // The list, over whatever screen this is. It went to a screen of its own.
   const openUploads = useCallback(() => {
-    router.push('/albums/upload');
+    uploadsSheet.open();
   }, []);
 
   // Built once per size, not per render: this renders on every percent of an
@@ -259,6 +267,8 @@ export function UploadRing({ children }: { children: ReactNode }) {
           </GestureDetector>
         )}
       </View>
+
+      <UploadsSheet />
     </View>
   );
 }
