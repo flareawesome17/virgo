@@ -82,6 +82,8 @@ const IOS_ALSO_DRAWS = ['image/heic', 'image/heif'];
 /** Vertical travel that commits to closing. Below it, the photo springs back. */
 const DISMISS_AT = 130;
 const THUMB = 46;
+/** How far a finger may move and still be tapping, not swiping. */
+const TAP_SLOP = 12;
 /** Upward travel that opens Info. Shorter than closing: it undoes with a flick. */
 const INFO_AT = 56;
 /** A client's pick, and Remove, on black: the brand colours are too dark there. */
@@ -304,6 +306,7 @@ function ZoomablePhoto({
    */
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
+    .maxDistance(TAP_SLOP)
     .onEnd((event) => {
       if (scale.value > 1.01) {
         reset();
@@ -330,8 +333,14 @@ function ZoomablePhoto({
       runOnJS(onHold)();
     });
 
+  /*
+   * A tap stays where it lands. With no limit on how far the finger may
+   * travel, a quick flick was a tap as well: swiping up opened Info and the
+   * tap that came with it closed it again a moment later.
+   */
   const singleTap = Gesture.Tap()
     .numberOfTaps(1)
+    .maxDistance(TAP_SLOP)
     .onEnd(() => runOnJS(onTap)());
 
   const gesture = Gesture.Simultaneous(
@@ -485,7 +494,8 @@ export default function PhotoViewerScreen() {
     // With Info open a tap on the photo puts Info away, as a tap outside any
     // sheet does; it took the whole chrome with it.
     if (showInfoRef.current) {
-      setShowInfo(false);
+      // Not the tap that arrives with the swipe which opened it.
+      if (Date.now() - infoOpenedAt.current > 450) setShowInfo(false);
       return;
     }
     const next = chrome.value > 0.5 ? 0 : 1;
@@ -501,7 +511,10 @@ export default function PhotoViewerScreen() {
   }, [showInfo]);
 
   /** Swiped up: Info, and the bars with it if a tap had hidden them. */
+  const infoOpenedAt = useRef(0);
   const openInfo = useCallback(() => {
+    infoOpenedAt.current = Date.now();
+    showInfoRef.current = true;
     chrome.value = withTiming(1, { duration: 180 });
     setChromeShown(true);
     setShowInfo(true);
