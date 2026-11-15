@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, RefreshControl, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Linking from 'expo-linking';
 import {
   useDeleteScheduleEvent,
   useRespondToEventInvitation,
@@ -15,50 +16,62 @@ import { goBackOr } from '@/components/ScreenHeader';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
 import {
-  ArrowLeftIcon, ClockIcon, CalendarDaysIcon, MapPinIcon, BellIcon, BellOffIcon,
-  TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
-  CheckCircleIcon, CircleIcon, PlusIcon, Trash2Icon, PencilIcon,
-  type LucideIcon,
+  ArrowLeftIcon, ClockIcon, MapPinIcon, BellIcon, BellOffIcon, FolderIcon,
+  CheckCircleIcon, CircleIcon, ChevronRightIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { eventColor, eventTypeLabel, parseDateKey } from '@/src/lib/calendar';
+import {
+  combineDateAndTime,
+  eventColor,
+  eventTypeLabel,
+  formatTime,
+  parseDateKey,
+} from '@/src/lib/calendar';
+import { PALETTES } from '@/theme';
 
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(BellIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(TagIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ScissorsIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CheckCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PlusIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(Trash2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(PencilIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-
-const EVENT_ICONS: Record<string, LucideIcon> = {
-  event: CalendarDaysIcon, editing: ScissorsIcon, review: EyeIcon,
-  delivery: PackageIcon, meeting: PresentationIcon, other: TagIcon,
-};
-function formatTime(timeStr: string | null): string {
-  if (!timeStr) return '';
-  const [h, m] = timeStr.split(':');
-  const hour = parseInt(h), ampm = hour >= 12 ? 'PM' : 'AM', h12 = hour % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
+for (const Icon of [
+  ArrowLeftIcon, ClockIcon, MapPinIcon, BellIcon, BellOffIcon, FolderIcon,
+  CheckCircleIcon, CircleIcon, ChevronRightIcon,
+]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
+
+/** The one card, as on the Dashboard and the Schedule. */
+const CARD = 'bg-card rounded-[20px] border border-border/40 overflow-hidden';
+const TITLE = 'text-foreground text-[17px] leading-6 font-bold tracking-tight';
+const LINK = 'text-primary text-[14px] font-semibold';
+
 // As a local calendar day: new Date('2027-01-10') is UTC midnight, which is
 // the day before anywhere west of Greenwich.
 function formatDateFull(dateStr: string): string {
   return parseDateKey(dateStr.slice(0, 10)).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+/** "in 40 min", "in 14 h" — only inside the next day, and only with a time. */
+function startsIn(date: string, time: string | null, now = new Date()): string | null {
+  if (!time) return null;
+  const minutes = Math.round((combineDateAndTime(date, time).getTime() - now.getTime()) / 60000);
+  if (minutes <= 0 || minutes >= 24 * 60) return null;
+  if (minutes < 60) return `in ${minutes} min`;
+  return `in ${Math.round(minutes / 60)} h`;
+}
+
+/**
+ * One event.
+ *
+ * The day leads, as a tile, beside what it is. Then the facts in one card, a
+ * row each: when, where, which workspace. Then the notes at reading size, who
+ * is coming, and the reminders.
+ *
+ * It opened on a band tinted with the event type's colour, an icon tile, and
+ * three shadowed cards with 10pt capitals for labels. The colour said the
+ * type three times and the date, which is the reason anybody opens an event,
+ * was 14pt text in the second card.
+ */
 export default function EventDetailScreen() {
   const { eventId } = useLocalSearchParams<{ eventId: string }>();
   const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
 
   // A 404 here now means "not yours or not there" — the API does not
@@ -138,9 +151,6 @@ export default function EventDetailScreen() {
     );
   }
 
-  const color = eventColor(event.event_type);
-  const IconComp = EVENT_ICONS[event.event_type] || CalendarDaysIcon;
-  const wsAccent = workspace?.accent_color || color;
   // Undefined on a just-created event, which is always yours.
   const isOwner = event.is_owner !== false;
   /*
@@ -166,84 +176,131 @@ export default function EventDetailScreen() {
       },
     ]);
 
+  const day = parseDateKey(event.event_date.slice(0, 10));
+  const countdown = startsIn(event.event_date, event.event_time);
+  const location = event.location?.trim() || null;
+  // The place as typed, handed to whichever maps app the phone opens links
+  // with. It is a search, not a pin: an event has no coordinates.
+  const openMap = () => {
+    if (!location) return;
+    Linking.openURL(
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`,
+    ).catch(() => Alert.alert('Could not open Maps', 'Please try again.'));
+  };
+
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={isDark ? '#C17745' : '#B66A40'} />}>
+      {/* Back, and Edit where the thumb expects it. Edit is open to anyone on
+          the event: if this screen loaded at all you either own it or accepted
+          an invitation to it, which is exactly who the API lets write. It
+          reuses the create form, which carries the fields a PATCH accepts. */}
+      <View className="h-12 flex-row items-center justify-between px-1">
+        {/* goBackOr, because a notification can open this screen with nothing
+            behind it. */}
+        <Pressable
+          onPress={() => goBackOr()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          className="w-11 h-11 items-center justify-center active:opacity-60"
+        >
+          <ArrowLeftIcon size={22} className="text-foreground" />
+        </Pressable>
+        <Pressable
+          onPress={() => router.push({ pathname: '/schedule/create', params: { eventId } })}
+          accessibilityRole="button"
+          accessibilityLabel="Edit event"
+          className="h-11 px-4 justify-center active:opacity-60"
+        >
+          <Text className="text-primary text-[15px] font-semibold">Edit</Text>
+        </Pressable>
+      </View>
 
-        {/* Hero color block */}
-        <View style={{ backgroundColor: `${color}14`, paddingTop: 4, paddingBottom: 24, paddingHorizontal: 20 }}>
-          {/* bg-card, not bg-white with a fixed dark arrow: that was a white
-              slab on the dark theme. goBackOr, because a notification can
-              open this screen with nothing behind it. */}
-          <Pressable onPress={() => goBackOr()} accessibilityRole="button" accessibilityLabel="Go back"
-            className="w-11 h-11 rounded-2xl bg-card items-center justify-center mb-4 active:scale-[0.94]"
-            style={{ shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <ArrowLeftIcon size={18} className="text-foreground" />
-          </Pressable>
-          <View className="flex-row items-center gap-4">
-            <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: `${color}22`, alignItems: 'center', justifyContent: 'center' }}>
-              <IconComp size={26} color={color} />
-            </View>
-            <View className="flex-1">
-              <Text className="text-foreground text-[20px] font-bold tracking-tight">{event.title}</Text>
-              <View className="flex-row items-center gap-2 mt-1.5">
-                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${color}22` }}>
-                  <Text numberOfLines={1} style={{ color, fontSize: 11, fontWeight: '700', textTransform: event.event_type_other ? 'none' : 'uppercase', letterSpacing: 0.4 }}>{eventTypeLabel(event)}</Text>
-                </View>
-                {workspace && (
-                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: `${wsAccent}15` }}>
-                    <Text style={{ color: wsAccent, fontSize: 11, fontWeight: '600' }}>{workspace.name}</Text>
-                  </View>
-                )}
-                {!isOwner && (
-                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: '#5B7B9A18' }}>
-                    <Text style={{ color: '#5B7B9A', fontSize: 11, fontWeight: '600' }}>Guest</Text>
-                  </View>
-                )}
+      <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}>
+
+        {/* What and when: the date tile, at its largest. */}
+        <View className="flex-row items-start gap-4 px-5 pt-2">
+          <View className="w-16 rounded-2xl bg-muted items-center py-2.5">
+            <Text allowFontScaling={false} className="text-muted-foreground text-[11px] leading-[14px] font-bold tracking-wider">
+              {day.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+            </Text>
+            <Text allowFontScaling={false} className="text-foreground text-[28px] leading-8 font-bold tracking-tight">
+              {day.getDate()}
+            </Text>
+            <Text allowFontScaling={false} className="text-muted-foreground text-[11px] leading-[14px] font-semibold">
+              {day.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+            </Text>
+          </View>
+          <View className="flex-1 min-w-0 gap-1.5">
+            <Text accessibilityRole="header" className="text-foreground text-[24px] leading-[30px] font-bold tracking-tight">
+              {event.title}
+            </Text>
+            <View className="flex-row flex-wrap items-center gap-2">
+              {/* The type's colour, once, as a dot. */}
+              <View className="flex-row items-center gap-1.5">
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: eventColor(event.event_type) }} />
+                <Text className="text-secondary-foreground text-[14px] leading-5">{eventTypeLabel(event)}</Text>
               </View>
+              {!isOwner && (
+                <View className="rounded-full bg-muted px-2.5 py-0.5">
+                  <Text className="text-secondary-foreground text-[12px] font-semibold">Guest</Text>
+                </View>
+              )}
+              {countdown && (
+                <View className="rounded-full bg-action px-2.5 py-0.5">
+                  <Text className="text-action-foreground text-[12px] leading-4 font-bold">Starts {countdown}</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
 
-        {/* Details card */}
-        <View className="mx-5 -mt-3 bg-card rounded-2xl p-4 flex-row items-center gap-4" style={{ shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
-          <View className="flex-row items-center gap-2 flex-1">
-            <CalendarDaysIcon size={14} color={color} />
-            <View>
-              <Text className="text-muted-foreground text-[10px] font-semibold uppercase">Date</Text>
-              <Text className="text-foreground text-sm font-bold">{formatDateFull(event.event_date)}</Text>
+        {/* The facts, a row each. */}
+        <View className={`mx-5 mt-7 ${CARD}`}>
+          <View className="min-h-14 flex-row items-center gap-3 px-4 py-2">
+            <ClockIcon size={18} className="text-secondary-foreground" />
+            <View className="flex-1 min-w-0">
+              <Text className="text-foreground text-[15px] leading-5 font-semibold">
+                {event.event_time ? formatTime(event.event_time) : 'All day'}
+              </Text>
+              <Text className="text-muted-foreground text-[13px] leading-[18px]">{formatDateFull(event.event_date)}</Text>
             </View>
           </View>
-          {event.event_time && (
-            <View className="flex-row items-center gap-2">
-              <ClockIcon size={14} color={color} />
-              <View>
-                <Text className="text-muted-foreground text-[10px] font-semibold uppercase">Time</Text>
-                <Text className="text-foreground text-sm font-bold">{formatTime(event.event_time)}</Text>
-              </View>
-            </View>
+          {location && (
+            <Pressable
+              onPress={openMap}
+              accessibilityRole="link"
+              accessibilityLabel={`${location}. Open in Maps`}
+              className="min-h-14 flex-row items-center gap-3 px-4 py-2 border-t border-border/30 active:bg-muted/40"
+            >
+              <MapPinIcon size={18} className="text-secondary-foreground" />
+              <Text className="flex-1 text-foreground text-[15px] leading-5 font-semibold">{location}</Text>
+              <Text className={LINK}>Map</Text>
+            </Pressable>
+          )}
+          {workspace && (
+            <Pressable
+              onPress={() => router.push(`/workspaces/${workspace.id}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${workspace.name}`}
+              className="min-h-14 flex-row items-center gap-3 pl-4 pr-3 py-2 border-t border-border/30 active:bg-muted/40"
+            >
+              <FolderIcon size={18} className="text-secondary-foreground" />
+              <Text className="flex-1 text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>
+                {workspace.name}
+              </Text>
+              <ChevronRightIcon size={16} className="text-muted-foreground" />
+            </Pressable>
           )}
         </View>
 
-        {/* Where */}
-        {event.location && (
-          <View className="mx-5 mt-4 bg-card rounded-2xl p-4 flex-row items-center gap-3" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <MapPinIcon size={14} color={color} />
-            <View className="flex-1 min-w-0">
-              <Text className="text-muted-foreground text-[10px] font-semibold uppercase">Where</Text>
-              <Text className="text-foreground text-sm font-bold">{event.location}</Text>
-            </View>
+        {/* Notes, to be read: on the page, at reading size. */}
+        {event.description ? (
+          <View className="px-5 mt-7">
+            <Text accessibilityRole="header" className={TITLE}>Notes</Text>
+            <Text className="text-foreground text-[15px] leading-[22px] mt-2">{event.description}</Text>
           </View>
-        )}
-
-        {/* Description */}
-        {event.description && (
-          <View className="mx-5 mt-4 bg-card rounded-2xl p-4" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            <Text className="text-muted-foreground text-[10px] font-bold uppercase tracking-[1.5px] mb-2">Description</Text>
-            <Text className="text-foreground text-sm leading-relaxed">{event.description}</Text>
-          </View>
-        )}
+        ) : null}
 
         {/* Attendees — only the organiser can change who is invited. A guest
             sees who organised it and who else is going, which they were
@@ -263,60 +320,67 @@ export default function EventDetailScreen() {
         )}
 
         {/* Reminders */}
-        <View className="px-5 mt-5">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-foreground text-base font-bold tracking-tight">Reminders</Text>
-            <Pressable onPress={() => router.push(`/schedule/reminders/create?eventId=${eventId}`)} accessibilityRole="button" className="flex-row items-center gap-1 min-h-[44px] px-1 -mr-1 active:opacity-60">
-              <PlusIcon size={13} className="text-primary" />
-              <Text className="text-primary text-sm font-semibold">Add</Text>
+        <View className="px-5 mt-7">
+          <View className="flex-row items-center justify-between mb-2.5">
+            <Text accessibilityRole="header" className={TITLE}>Reminders</Text>
+            <Pressable
+              onPress={() => router.push(`/schedule/reminders/create?eventId=${eventId}`)}
+              accessibilityRole="button"
+              accessibilityLabel="Add a reminder"
+              hitSlop={12}
+              className="active:opacity-60"
+            >
+              <Text className={LINK}>Add</Text>
             </Pressable>
           </View>
           {reminders.length === 0 ? (
-            <View className="bg-card rounded-2xl p-6 items-center gap-2">
-              <BellIcon size={18} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-sm">No reminders set</Text>
+            // One row, not a block: most events have none.
+            <View className={`${CARD} min-h-[60px] justify-center px-4`}>
+              <Text className="text-muted-foreground text-[15px]">No reminders set</Text>
             </View>
           ) : (
-            <View className="bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+            <View className={CARD}>
               {reminders.map((rem, i) => (
                 <Pressable key={rem.id} onPress={() => router.push(`/schedule/reminders/${rem.id}`)}
-                  className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
-                  style={i < reminders.length - 1 ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' } : undefined}>
-                  <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: rem.is_completed }} accessibilityLabel={`${rem.title}, done`} onPress={() => toggleReminder(rem.id, !rem.is_completed)} className="w-11 h-11 -m-3 items-center justify-center active:scale-[0.85]">
-                    {rem.is_completed ? <CheckCircleIcon size={18} className="text-[#6B8E4E]" /> : <CircleIcon size={18} className="text-muted-foreground" />}
-                  </Pressable>
-                  <View className="flex-1 min-w-0">
-                    <Text className={`text-sm font-semibold ${rem.is_completed ? 'text-muted-foreground line-through' : 'text-foreground'}`} numberOfLines={1}>{rem.title}</Text>
-                    <View className="flex-row items-center gap-2 mt-0.5">
-                      <Text className="text-muted-foreground text-xs">{formatTime(new Date(rem.reminder_time).toTimeString().slice(0, 5))}</Text>
-                      {rem.is_alarm_enabled && <BellIcon size={9} className="text-primary" />}
-                      {rem.has_push_notification && <View style={{ paddingHorizontal: 3, paddingVertical: 1, borderRadius: 3, backgroundColor: '#5B7B9A18' }}><Text style={{ color: '#5B7B9A', fontSize: 11, fontWeight: '700' }}>Push</Text></View>}
-                    </View>
+                  accessibilityRole="button"
+                  accessibilityLabel={rem.title}
+                  className={`min-h-[60px] flex-row items-center gap-3 pl-4 pr-1 active:bg-muted/40 ${i > 0 ? 'border-t border-border/30' : ''}`}>
+                  <View className="w-9 h-9 rounded-xl bg-muted items-center justify-center">
+                    {rem.is_alarm_enabled ? <BellIcon size={18} className="text-secondary-foreground" /> : <BellOffIcon size={18} className="text-muted-foreground" />}
                   </View>
+                  <View className="flex-1 min-w-0">
+                    <Text className={`text-[15px] leading-5 font-semibold ${rem.is_completed ? 'text-muted-foreground line-through' : 'text-foreground'}`} numberOfLines={1}>{rem.title}</Text>
+                    <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+                      {new Date(rem.reminder_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {' · '}
+                      {new Date(rem.reminder_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      {rem.has_push_notification ? ' · Push' : ''}
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: rem.is_completed }}
+                    accessibilityLabel={`${rem.title}, done`}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      toggleReminder(rem.id, !rem.is_completed);
+                    }}
+                    className="w-11 h-11 items-center justify-center active:scale-[0.9]"
+                  >
+                    {rem.is_completed ? <CheckCircleIcon size={20} className="text-success" /> : <CircleIcon size={20} className="text-muted-foreground" />}
+                  </Pressable>
                 </Pressable>
               ))}
             </View>
           )}
         </View>
 
-        {/* Edit is open to anyone on the event: if this screen loaded at all
-            you either own it or accepted an invitation to it, which is exactly
-            who the API lets write. Delete stays with whoever created it — it
-            cannot be undone, and it takes the event off everybody's calendar.
-
-            Edit reuses the create form, which carries exactly the fields the
-            API accepts on a PATCH. */}
-        <View className="px-5 mt-8">
-          <Pressable
-            onPress={() => router.push({ pathname: '/schedule/create', params: { eventId } })}
-            className="flex-row items-center justify-center gap-2 py-3 rounded-2xl bg-card active:scale-[0.97]"
-            style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-          >
-            <PencilIcon size={15} className="text-primary" />
-            <Text className="text-primary text-sm font-semibold">Edit event</Text>
-          </Pressable>
+        {/* Leaving or deleting, alone at the foot. Delete stays with whoever
+            created it: it cannot be undone, and it takes the event off
+            everybody's calendar. */}
+        <View className="px-5 mt-7">
           {!isOwner && (
-            <Text className="text-muted-foreground text-[11px] text-center mt-2 leading-4">
+            <Text className="text-muted-foreground text-[13px] text-center leading-[18px]">
               This is not your event. The organiser and everyone going will be
               told what you change.
             </Text>
@@ -326,17 +390,20 @@ export default function EventDetailScreen() {
               onPress={cantMakeIt}
               disabled={respond.isPending}
               accessibilityRole="button"
-              className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]"
+              className="min-h-11 items-center justify-center mt-2 active:opacity-60"
             >
-              <Text className="text-destructive text-sm font-semibold">
+              <Text className="text-destructive text-[15px] font-semibold">
                 {respond.isPending ? 'Leaving…' : "Can't make it"}
               </Text>
             </Pressable>
           )}
           {isOwner && (
-            <Pressable onPress={confirmDelete} className="flex-row items-center justify-center gap-2 py-3 mt-2 active:scale-[0.97]">
-              <Trash2Icon size={15} className="text-destructive" />
-              <Text className="text-destructive text-sm font-semibold">Delete event</Text>
+            <Pressable
+              onPress={confirmDelete}
+              accessibilityRole="button"
+              className="min-h-11 items-center justify-center active:opacity-60"
+            >
+              <Text className="text-destructive text-[15px] font-semibold">Delete event</Text>
             </Pressable>
           )}
         </View>

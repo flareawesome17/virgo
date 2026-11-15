@@ -485,7 +485,7 @@ export default function ConversationScreen() {
       >
         {/* Header */}
         <View
-          className="px-5 pt-2 pb-3 flex-row items-center gap-3 border-b"
+          className="px-3 pt-1 pb-2 flex-row items-center gap-2 border-b border-border/50"
           style={{ borderBottomColor: border }}
         >
           <Pressable
@@ -494,7 +494,7 @@ export default function ConversationScreen() {
             onPress={() => router.back()}
             className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
           >
-            <ArrowLeftIcon size={18} className="text-foreground" />
+            <ArrowLeftIcon size={22} className="text-foreground" />
           </Pressable>
           {/* The whole title opens info, the way a chat header usually does. */}
           <Pressable
@@ -505,7 +505,7 @@ export default function ConversationScreen() {
             className="flex-1 min-w-0 min-h-[44px] justify-center active:opacity-70"
           >
             <View className="flex-row items-center gap-1.5">
-              <Text className="text-foreground text-base font-bold" numberOfLines={1}>
+              <Text className="text-foreground text-[16px] leading-5 font-bold" numberOfLines={1}>
                 {title}
               </Text>
               {conversation?.muted && <BellOffIcon size={12} className="text-muted-foreground" />}
@@ -529,7 +529,7 @@ export default function ConversationScreen() {
             onPress={() => router.push(`/chat/${id}/info`)}
             className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
           >
-            <InfoIcon size={17} className="text-foreground" />
+            <InfoIcon size={20} className="text-foreground" />
           </Pressable>
         </View>
 

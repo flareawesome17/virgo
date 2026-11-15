@@ -209,10 +209,10 @@ export const Composer = memo(function Composer({
       )}
 
       <View
-        className="px-4 pt-2 flex-row items-end gap-2 border-t bg-background"
+        className="px-3 pt-2 flex-row items-end gap-2 border-t border-border/50 bg-background"
         style={{ paddingBottom: (keyboardUp ? 0 : insets.bottom) + 8, borderTopColor: border }}
       >
-        <View className="flex-1 bg-card rounded-2xl px-4 py-2.5 min-h-[44px] justify-center">
+        <View className="flex-1 bg-muted rounded-[22px] px-4 py-2.5 min-h-[44px] justify-center">
           <TextInput
             value={draft}
             onChangeText={(value) => {

@@ -145,8 +145,8 @@ export function buildThreadRows({
 export const DaySeparator = memo(function DaySeparator({ label }: { label: string }) {
   return (
     <View className="items-center py-2" accessibilityRole="header">
-      <View className="bg-muted rounded-full px-3 py-1">
-        <Text className="text-muted-foreground text-[11px] font-semibold">{label}</Text>
+      <View className="px-3 py-1">
+        <Text className="text-muted-foreground text-[12px] font-semibold">{label}</Text>
       </View>
     </View>
   );
@@ -298,7 +298,7 @@ export const MessageBubble = memo(function MessageBubble({
           accessibilityLabel={`${words}, ${time}`}
           accessibilityActions={actions}
           onAccessibilityAction={onAction}
-          className="rounded-2xl px-3.5 py-2.5 bg-muted active:opacity-80"
+          className="rounded-[20px] px-3.5 py-2.5 bg-muted active:opacity-80"
           style={{ maxWidth: '80%' }}
         >
           <Text className="text-muted-foreground text-sm italic">{words}</Text>
@@ -335,7 +335,7 @@ export const MessageBubble = memo(function MessageBubble({
         accessibilityHint="Long press for reply, copy and delete"
         accessibilityActions={actions}
         onAccessibilityAction={onAction}
-        className={`rounded-2xl px-3.5 py-2.5 active:opacity-80 ${mine ? 'bg-action' : 'bg-card'}`}
+        className={`rounded-[20px] px-3.5 py-2.5 active:opacity-80 ${mine ? 'bg-action' : 'bg-card border border-border/40'}`}
         style={{ maxWidth: '80%' }}
       >
         {/* What this message answers. Shown even when the original was
@@ -417,7 +417,7 @@ export const OutgoingBubble = memo(function OutgoingBubble({
         onLongPress={failed || refused || waiting ? () => onLongPress(item) : undefined}
         accessibilityRole={tappable ? 'button' : undefined}
         accessibilityLabel={`You: ${item.body}, ${status}`}
-        className="rounded-2xl px-3.5 py-2.5 bg-action active:opacity-80"
+        className="rounded-[20px] px-3.5 py-2.5 bg-action active:opacity-80"
         style={{ maxWidth: '80%' }}
       >
         {item.replyToBody != null && (
