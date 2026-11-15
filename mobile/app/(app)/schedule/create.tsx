@@ -1,6 +1,5 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+import { ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { DetailFallback } from '@/components/DetailFallback';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InsetFrame } from '@/components/InsetFrame';
 import {
   useAuth,
@@ -9,7 +8,6 @@ import {
   useScheduleEvent,
   useUpdateScheduleEvent,
   useWorkspaces,
-  useTheme,
 } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
@@ -17,11 +15,16 @@ import { FormHeader } from '@/components/FormHeader';
 import { useEffect, useRef, useState } from 'react';
 import {
   TagIcon, ScissorsIcon, EyeIcon, PackageIcon, PresentationIcon,
-  CalendarDaysIcon, ClockIcon, CheckIcon,
+  CalendarDaysIcon, ClockIcon, FolderIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { DateTimeField, InvitePeoplePicker } from '@/components';
 import { LocationField } from '@/components/LocationField';
+import {
+  ChoiceChip, ChoiceChips, FormCard, FormField, FormFooter, FormHint, FormInput, FormRow, FormSection,
+  FormSwitchRow,
+} from '@/components/Form';
+import { ChoiceSheet } from '@/components/WorkspaceBits';
 import type { EventType } from '@/src/api';
 import {
   combineDateAndTime,
@@ -38,7 +41,6 @@ cssInterop(PackageIcon, { className: { target: 'style', nativeStyleToProp: { col
 cssInterop(PresentationIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const EVENT_TYPES: { key: EventType; label: string; icon: typeof TagIcon }[] = [
   { key: 'event', label: 'Event', icon: CalendarDaysIcon },
@@ -52,12 +54,13 @@ const EVENT_TYPES: { key: EventType; label: string; icon: typeof TagIcon }[] = [
 /** Matches the column, so a longer label cannot be typed and then rejected. */
 const OTHER_LABEL_MAX = 40;
 
+/** The sheet's value for no workspace: it chooses among strings. */
+const NO_WORKSPACE = 'none';
+
 
 export default function CreateEventScreen() {
   // A code fetched from email, or a form half filled: see useHoldUpdates.
   useHoldUpdates();
-  const { isDark } = useTheme();
-  const insets = useSafeAreaInsets();
   // workspaceId arrives when this is opened from a workspace's quick actions,
   // so that workspace starts selected. eventId turns the same form into an
   // edit — the field set is identical, so a second screen would only be this
@@ -275,7 +278,7 @@ export default function CreateEventScreen() {
   }
 
   return (
-    <InsetFrame>
+    <InsetFrame edges={['top']}>
       <FormHeader title={editing ? 'Edit event' : 'New event'} />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
@@ -283,181 +286,145 @@ export default function CreateEventScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
       >
-
-      <ScrollView keyboardDismissMode="on-drag" className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
-
-        {/* Event Type */}
-        <View className="px-5 mt-5">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">Event type</Text>
-          <View className="flex-row flex-wrap gap-2">
-            {EVENT_TYPES.map(t => {
-              const Icon = t.icon;
-              return (
-                <Pressable key={t.key} onPress={() => setEventType(t.key)}
-                  className={`rounded-xl px-4 py-2.5 flex-row items-center gap-2 active:scale-[0.96] ${eventType === t.key ? 'bg-action' : 'bg-card'}`}
-                  style={eventType !== t.key ? { shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 } : undefined}>
-                  <Icon size={14} className={eventType === t.key ? 'text-white' : 'text-foreground'} />
-                  <Text className={`text-sm font-semibold ${eventType === t.key ? 'text-white' : 'text-foreground'}`}>{t.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {eventType === 'other' && (
-            <TextInput
-              value={otherLabel}
-              onChangeText={setOtherLabel}
-              placeholder="e.g. Client viewing"
-              placeholderTextColor="#A89489"
-              maxLength={OTHER_LABEL_MAX}
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base mt-3"
-              style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+        <ScrollView
+          keyboardDismissMode="on-drag"
+          className="flex-1"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* What it is, first: it was third, under a row of chips. */}
+          <FormField label="What is it?">
+            <FormInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Prenup shoot, Ana & Marco"
+              autoFocus={!editing}
+              returnKeyType="done"
             />
-          )}
-        </View>
+          </FormField>
 
-        {/* Title */}
-        <View className="px-5 mt-5">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Title</Text>
-          <TextInput value={title} onChangeText={setTitle} placeholder="e.g. Look 2 — Studio Session" placeholderTextColor="#A89489"
-            className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }} autoFocus={!editing} />
-        </View>
-
-        {/* Description */}
-        <View className="px-5 mt-4">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Description <Text className="font-medium normal-case tracking-normal">(optional)</Text></Text>
-          <TextInput value={description} onChangeText={setDescription} placeholder="Details, notes, what to bring..." placeholderTextColor="#A89489"
-            multiline numberOfLines={3} textAlignVertical="top"
-            className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base" style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2, minHeight: 72 }} />
-        </View>
-
-        {/* Date & Time — native pickers. These were free-text fields that
-            required typing YYYY-MM-DD and HH:MM by hand. */}
-        <View className="px-5 mt-5 flex-row gap-3">
-          <DateTimeField
-            label="Date"
-            mode="date"
-            value={when}
-            onChange={(next) => setWhen(next)}
-          />
-          {hasTime && (
-            <DateTimeField
-              label="Time"
-              mode="time"
-              value={when}
-              onChange={(next) => {
-                setWhen(next);
-                setHasTime(true);
-              }}
-            />
-          )}
-        </View>
-        {/* All day, said and chosen. Only an event made on the web could be
-            one; here every new event got 9:00 whether it had a time or not. */}
-        <View className="px-5 mt-3">
-          <View className="bg-card rounded-2xl px-4 min-h-[52px] flex-row items-center justify-between">
-            <Text className="text-foreground text-[15px] font-semibold">All day</Text>
-            <Switch
-              value={!hasTime}
-              onValueChange={(allDay) => setHasTime(!allDay)}
-              accessibilityLabel="All day"
-            />
-          </View>
-        </View>
-
-        {/* Where */}
-        <View className="px-5 mt-5">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Where <Text className="font-medium normal-case tracking-normal">(optional)</Text></Text>
-          <LocationField
-            value={location}
-            onChange={setLocation}
-            placeholder="Cebu City, or the venue"
-          />
-        </View>
-
-        {/* Workspace — the organiser's to decide, so hidden when editing
-            somebody else's event rather than shown and rejected. */}
-        {!guestEdit && (
-        <View className="px-5 mt-5">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Workspace <Text className="font-medium normal-case tracking-normal">(optional)</Text></Text>
-          <Pressable onPress={() => setShowWsPicker(!showWsPicker)}
-            className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:scale-[0.98]"
-            style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-            {selectedWs ? (
-              <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: `${selectedWs.accent_color}22`, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: selectedWs.accent_color }}>{selectedWs.name.charAt(0)}</Text>
-              </View>
-            ) : null}
-            <Text className="text-foreground text-sm flex-1">{selectedWs ? selectedWs.name : 'None'}</Text>
-          </Pressable>
-          {showWsPicker && (
-            <View className="mt-2 bg-card rounded-2xl overflow-hidden" style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-              <Pressable onPress={() => { setSelectedWsId(null); setShowWsPicker(false); }} className="px-4 py-3 active:bg-muted/30 flex-row items-center gap-3" style={{ borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }}>
-                <Text className="text-muted-foreground text-sm flex-1">None</Text>
-                {!selectedWsId && <CheckIcon size={14} className="text-primary" />}
-              </Pressable>
-              {workspaces.map(w => (
-                <Pressable key={w.id} onPress={() => { setSelectedWsId(w.id); setShowWsPicker(false); }} className="px-4 py-3 active:bg-muted/30 flex-row items-center gap-3">
-                  <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: `${w.accent_color}22`, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: w.accent_color }}>{w.name.charAt(0)}</Text>
-                  </View>
-                  <Text className="text-foreground text-sm flex-1">{w.name}</Text>
-                  {w.id === selectedWsId && <CheckIcon size={14} className="text-primary" />}
-                </Pressable>
+          <FormField label="Kind">
+            <ChoiceChips>
+              {EVENT_TYPES.map((t) => (
+                <ChoiceChip
+                  key={t.key}
+                  label={t.label}
+                  icon={t.icon}
+                  selected={eventType === t.key}
+                  onPress={() => setEventType(t.key)}
+                />
               ))}
-            </View>
+            </ChoiceChips>
+            {eventType === 'other' && (
+              <FormInput
+                value={otherLabel}
+                onChangeText={setOtherLabel}
+                placeholder="Client viewing"
+                maxLength={OTHER_LABEL_MAX}
+                accessibilityLabel="What kind of event"
+              />
+            )}
+          </FormField>
+
+          {/* Date & Time — native pickers. These were free-text fields that
+              required typing YYYY-MM-DD and HH:MM by hand. */}
+          <FormSection title="When">
+            <FormCard>
+              <DateTimeField row first label="Date" mode="date" value={when} onChange={(next) => next && setWhen(next)} />
+              {hasTime && (
+                <DateTimeField
+                  row
+                  label="Time"
+                  mode="time"
+                  value={when}
+                  onChange={(next) => {
+                    if (!next) return;
+                    setWhen(next);
+                    setHasTime(true);
+                  }}
+                />
+              )}
+              {/* All day, said and chosen. Only an event made on the web
+                  could be one; here every new event got 9:00 whether it had a
+                  time or not. */}
+              <FormSwitchRow
+                icon={ClockIcon}
+                label="All day"
+                value={!hasTime}
+                onValueChange={(allDay) => setHasTime(!allDay)}
+              />
+            </FormCard>
+          </FormSection>
+
+          <FormField label="Where" optional>
+            <LocationField form value={location} onChange={setLocation} placeholder="Cebu City, or the venue" />
+          </FormField>
+
+          {/* Workspace — the organiser's to decide, so hidden when editing
+              somebody else's event rather than shown and rejected. */}
+          {!guestEdit && (
+            <FormCard>
+              <FormRow
+                first
+                icon={FolderIcon}
+                label="Workspace"
+                value={selectedWs ? selectedWs.name : 'None'}
+                empty={!selectedWs}
+                onPress={() => setShowWsPicker(true)}
+              />
+            </FormCard>
           )}
-        </View>
-        )}
 
-        {guestEdit && (
-          <View className="px-5 mt-5">
-            <Text className="text-muted-foreground text-xs leading-4">
-              This is not your event. The organiser and everyone going will be
-              told what you change.
-            </Text>
-          </View>
-        )}
+          {guestEdit && (
+            <FormHint>
+              This is not your event. The organiser and everyone going will be told what you change.
+            </FormHint>
+          )}
 
-        {/* Invitations. Absent when editing: an existing event manages its
-            guests from the detail screen, which can also uninvite. */}
-        {!editing && (
-          <View className="px-5 mt-5">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-              Invite{' '}
-              <Text className="font-medium normal-case tracking-normal">
-                {guests.length > 0 ? `(${guests.length} selected)` : '(optional)'}
-              </Text>
-            </Text>
-            <Text className="text-muted-foreground text-xs mb-2 ml-1">
-              They choose whether to join. Accepting puts it on their calendar.
-            </Text>
-            <InvitePeoplePicker selected={guests} onChange={setGuests} />
-          </View>
-        )}
+          {/* Invitations. Absent when editing: an existing event manages its
+              guests from the detail screen, which can also uninvite. */}
+          {!editing && (
+            <FormField
+              label={guests.length > 0 ? `Invite · ${guests.length} chosen` : 'Invite'}
+              optional={guests.length === 0}
+              hint="They choose whether to join. Accepting puts it on their calendar."
+            >
+              <InvitePeoplePicker selected={guests} onChange={setGuests} />
+            </FormField>
+          )}
 
-        {editing && (
-          <View className="px-5 mt-5">
-            <Text className="text-muted-foreground text-xs ml-1">
-              Anyone who accepted sees these changes on their own calendar.
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+          <FormField label="Notes" optional>
+            <FormInput
+              value={description}
+              onChangeText={setDescription}
+              placeholder="What to bring, where to park…"
+              multiline
+            />
+          </FormField>
 
-      {/* Bottom actions */}
-      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background flex-row gap-3" style={{ paddingBottom: insets.bottom + 16 }}>
-        <Pressable onPress={() => router.back()} className="flex-1 bg-card rounded-2xl py-3.5 items-center active:scale-[0.97]"
-          style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
-          <Text className="text-foreground text-base font-semibold">Cancel</Text>
-        </Pressable>
-        <Pressable onPress={() => canSave && (editing ? handleUpdate() : handleCreate())} className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${canSave ? 'bg-action' : 'bg-muted'}`} disabled={!canSave || saving}>
-          <Text className={`text-base font-bold ${canSave ? 'text-white' : 'text-muted-foreground'}`}>
-            {saving ? (editing ? 'Saving...' : 'Creating...') : editing ? 'Save changes' : 'Create event'}
-          </Text>
-        </Pressable>
-      </View>
-          </KeyboardAvoidingView>
+          {editing && <FormHint>Anyone who accepted sees these changes on their own calendar.</FormHint>}
+        </ScrollView>
+
+        {/* One button. There was a Cancel beside it, and an X above that
+            already did the same thing. */}
+        <FormFooter
+          label={editing ? 'Save changes' : 'Create event'}
+          onPress={() => (editing ? handleUpdate() : handleCreate())}
+          disabled={!canSave}
+          busy={saving}
+        />
+      </KeyboardAvoidingView>
+
+      <ChoiceSheet
+        visible={showWsPicker}
+        title="Workspace"
+        hint="File this event under one of your workspaces."
+        options={[{ value: NO_WORKSPACE, label: 'None' }, ...workspaces.map((w) => ({ value: w.id, label: w.name }))]}
+        value={selectedWsId ?? NO_WORKSPACE}
+        onChoose={(next) => setSelectedWsId(next === NO_WORKSPACE ? null : next)}
+        onClose={() => setShowWsPicker(false)}
+      />
     </InsetFrame>
   );
 }

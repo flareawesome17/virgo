@@ -1,25 +1,13 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PALETTES } from '@/theme';
+import { View, ScrollView, Pressable, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { InsetFrame } from '@/components/InsetFrame';
-import { useCreateWorkspace,
-  usePlanLimits,
-  useTheme,
-} from '@/src/hooks';
+import { useCreateWorkspace, usePlanLimits } from '@/src/hooks';
 import { router } from 'expo-router';
 import { ApiError } from '@/src/api';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { FormHeader } from '@/components/FormHeader';
 import { useState } from 'react';
-import {
-  PaletteIcon,
-  CheckIcon,
-} from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
+import { FormField, FormFooter, FormInput, FormNotice } from '@/components/Form';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
-
-cssInterop(PaletteIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const ACCENT_COLORS = [
   { name: 'Copper', hex: '#B66A40' },
@@ -33,9 +21,7 @@ const ACCENT_COLORS = [
 ];
 
 export default function CreateWorkspaceScreen() {
-  const placeholderColor = (useTheme().isDark ? PALETTES.dark : PALETTES.light).mutedForeground;
   const { atWorkspaceLimit, workspaceLimit, plan } = usePlanLimits();
-  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [accentColor, setAccentColor] = useState('#B66A40');
@@ -79,7 +65,7 @@ export default function CreateWorkspaceScreen() {
   const canSave = name.trim().length > 0 && !atWorkspaceLimit;
 
   return (
-    <InsetFrame>
+    <InsetFrame edges={['top']}>
       <FormHeader title="New workspace" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
@@ -87,187 +73,76 @@ export default function CreateWorkspaceScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
       >
+        <ScrollView
+          keyboardDismissMode="on-drag"
+          className="flex-1"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Explains the disabled Create button. Without this the form simply
+              refuses to submit with no stated reason. */}
+          {atWorkspaceLimit && (
+            <FormNotice
+              title="You have every workspace your plan includes."
+              body={`The ${plan} plan includes ${workspaceLimit} workspace${workspaceLimit === 1 ? '' : 's'}. Archived ones count too, so delete one you have finished with to add another.`}
+              // Only where a plan can be bought: see SELLS_PLANS_HERE.
+              action={SELLS_PLANS_HERE ? { label: 'Plans', onPress: () => router.push('/settings/storage/plans') } : undefined}
+            />
+          )}
 
-      <ScrollView keyboardDismissMode="on-drag"
-        className="flex-1"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        keyboardShouldPersistTaps="handled"
-      >
-
-        {/* Explains the disabled Create button. Without this the form simply
-            refuses to submit with no stated reason. */}
-        {atWorkspaceLimit && (
-          <View className="mx-5 mt-4 rounded-2xl p-4 bg-warning/10">
-            <Text className="text-warning text-sm font-bold">Workspace limit reached</Text>
-            <Text className="text-warning text-xs mt-1">
-              The {plan} plan includes {workspaceLimit} workspace
-              {workspaceLimit === 1 ? '' : 's'}. Archived ones count too, so delete one you
-              have finished with to add another.
-            </Text>
-            {/* Only where a plan can be bought: see SELLS_PLANS_HERE. */}
-            {SELLS_PLANS_HERE && (
-              <Pressable
-                onPress={() => router.push('/settings/storage/plans')}
-                className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
-              >
-                <Text className="text-white text-xs font-bold">See plans</Text>
-              </Pressable>
-            )}
-          </View>
-        )}
-
-        {/* Form */}
-        <View className="px-5 mt-5 gap-5">
-          {/* Name */}
-          <View>
-            <Text className="text-foreground text-sm font-semibold mb-2 ml-1">
-              Workspace name
-            </Text>
-            <TextInput
+          <FormField label="Name" hint="Usually the client or the shoot. You can change it later.">
+            <FormInput
               value={name}
               onChangeText={setName}
-              placeholder="e.g. Spring Collection 2026"
-              placeholderTextColor={placeholderColor}
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.03,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 2,
-              }}
+              placeholder="Ana & Marco Wedding"
               autoFocus
+              returnKeyType="done"
             />
-          </View>
+          </FormField>
 
-          {/* Description */}
-          <View>
-            <Text className="text-foreground text-sm font-semibold mb-2 ml-1">
-              Description <Text className="text-muted-foreground font-normal">(optional)</Text>
-            </Text>
-            <TextInput
+          <FormField label="About it" optional>
+            <FormInput
               value={description}
               onChangeText={setDescription}
-              placeholder="Brief description of this workspace..."
-              placeholderTextColor={placeholderColor}
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.03,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 2,
-                minHeight: 80,
-              }}
+              placeholder="December wedding at Carcar. Two shooters, same-day edit."
               multiline
-              numberOfLines={3}
-              textAlignVertical="top"
             />
-          </View>
+          </FormField>
 
-          {/* Accent Color */}
-          <View>
-            <View className="flex-row items-center gap-2 mb-2 ml-1">
-              <PaletteIcon size={14} className="text-muted-foreground" />
-              <Text className="text-foreground text-sm font-semibold">Workspace color</Text>
-            </View>
-            <View className="flex-row flex-wrap gap-3">
-              {ACCENT_COLORS.map((c) => (
-                <Pressable
-                  key={c.hex}
-                  onPress={() => setAccentColor(c.hex)}
-                  className="items-center gap-1.5 active:scale-[0.94]"
-                >
-                  <View
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 14,
-                      backgroundColor: c.hex,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
+          {/* The swatch alone, ringed when chosen. Each had its name under it
+              in ten-point type, and a preview card below repeated the choice. */}
+          <FormField label="Colour" hint="Shown on its tile until it has a cover photo.">
+            <View className="flex-row flex-wrap gap-3.5 py-1" accessibilityRole="radiogroup">
+              {ACCENT_COLORS.map((c) => {
+                const on = accentColor === c.hex;
+                return (
+                  <Pressable
+                    key={c.hex}
+                    onPress={() => setAccentColor(c.hex)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: on }}
+                    accessibilityLabel={c.name}
+                    hitSlop={4}
+                    className={`w-11 h-11 rounded-full items-center justify-center border-2 active:opacity-80 ${
+                      on ? 'border-foreground' : 'border-transparent'
+                    }`}
                   >
-                    {accentColor === c.hex && <CheckIcon size={18} className="text-white" />}
-                  </View>
-                  <Text className="text-muted-foreground text-[10px] font-medium">{c.name}</Text>
-                </Pressable>
-              ))}
+                    <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: c.hex }} />
+                  </Pressable>
+                );
+              })}
             </View>
-          </View>
-        </View>
+          </FormField>
+        </ScrollView>
 
-        {/* Preview card */}
-        {name.trim().length > 0 && (
-          <View className="px-5 mt-6">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">
-              Preview
-            </Text>
-            <View
-              className="bg-card rounded-2xl p-4 flex-row items-center gap-4"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.06,
-                shadowRadius: 12,
-                shadowOffset: { width: 0, height: 4 },
-                elevation: 4,
-              }}
-            >
-              <View
-                style={{
-                  width: 52,
-                  height: 52,
-                  borderRadius: 16,
-                  backgroundColor: `${accentColor}22`,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text
-                  style={{ fontSize: 20, fontWeight: '700', color: accentColor }}
-                >
-                  {name.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-              <View className="flex-1 min-w-0">
-                <Text className="text-foreground text-base font-semibold" numberOfLines={1}>
-                  {name}
-                </Text>
-                {description.trim() ? (
-                  <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-                    {description}
-                  </Text>
-                ) : (
-                  <Text className="text-muted-foreground text-xs mt-0.5 italic">
-                    No description
-                  </Text>
-                )}
-              </View>
-            </View>
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Save button */}
-      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
-        <Pressable
-          onPress={() => canSave && handleCreate()}
-          className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${
-            canSave ? 'bg-action' : 'bg-muted'
-          }`}
-          disabled={!canSave || createWorkspace.isPending}
-        >
-          <Text
-            className={`text-base font-bold ${
-              canSave ? 'text-white' : 'text-muted-foreground'
-            }`}
-          >
-            {createWorkspace.isPending ? 'Creating...' : 'Create Workspace'}
-          </Text>
-        </Pressable>
-      </View>
-          </KeyboardAvoidingView>
+        <FormFooter
+          label="Create workspace"
+          onPress={handleCreate}
+          disabled={!canSave}
+          busy={createWorkspace.isPending}
+        />
+      </KeyboardAvoidingView>
     </InsetFrame>
   );
 }

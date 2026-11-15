@@ -5,23 +5,22 @@ import { PressableScale } from '@/components/PressableScale';
 import { useKeyboardUp } from '@/src/lib/keyboard';
 import { useWindowInsets } from '@/src/lib/window-insets';
 
-/** The soft lift every field card in the money forms has. */
+/**
+ * The edge every field in the money forms has: a hairline, as every other
+ * form's fields have. It was a soft shadow, which is where the name comes
+ * from; the colour is the muted ink at a quarter, so it holds in both themes.
+ */
 export const CARD_SHADOW = {
-  shadowColor: '#000',
-  shadowOpacity: 0.03,
-  shadowRadius: 6,
-  shadowOffset: { width: 0, height: 2 },
-  elevation: 2,
+  borderWidth: 1,
+  borderColor: 'rgba(123,103,93,0.25)',
 } as const;
 
 /** A field's caption, with "(optional)" when it is. */
 export function Label({ children, optional }: { children: string; optional?: boolean }) {
   return (
-    <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+    <Text className="text-foreground text-[15px] leading-5 font-semibold mb-2">
       {children}
-      {optional ? (
-        <Text className="font-medium normal-case tracking-normal"> (optional)</Text>
-      ) : null}
+      {optional ? <Text className="text-muted-foreground font-normal"> optional</Text> : null}
     </Text>
   );
 }
@@ -45,12 +44,10 @@ export function Choice({
       hitSlop={{ top: 4, bottom: 4 }}
       accessibilityRole="button"
       accessibilityState={{ selected: on }}
-      className={`h-10 flex-row items-center gap-1.5 rounded-full px-3.5 ${
-        on ? 'bg-foreground' : 'bg-card border border-border'
-      }`}
+      className={`h-10 flex-row items-center gap-1.5 rounded-full px-4 ${on ? 'bg-foreground' : 'bg-muted'}`}
     >
-      {Icon ? <Icon size={15} className={on ? 'text-background' : 'text-muted-foreground'} /> : null}
-      <Text className={`text-[13px] ${on ? 'text-background font-bold' : 'text-foreground font-medium'}`}>
+      {Icon ? <Icon size={15} className={on ? 'text-background' : 'text-foreground'} /> : null}
+      <Text className={`text-[14px] font-semibold ${on ? 'text-background' : 'text-foreground'}`}>
         {label}
       </Text>
     </PressableScale>
@@ -84,15 +81,15 @@ export function FormSaveBar({
   const bottom = Platform.OS === 'ios' ? window.bottom : local.bottom;
   if (keyboardUp) return null;
   return (
-    <View className="px-5 pt-3 bg-background border-t border-border/40" style={{ paddingBottom: bottom + 16 }}>
+    <View className="px-5 pt-3 bg-background border-t border-border/50" style={{ paddingBottom: Math.max(bottom, 12) }}>
       <Pressable
         onPress={onPress}
         disabled={busy}
         accessibilityRole="button"
-        className="rounded-2xl py-3.5 items-center bg-action active:scale-[0.97]"
+        className="h-[52px] rounded-[14px] items-center justify-center bg-action active:opacity-85"
         style={{ opacity: busy ? 0.6 : 1 }}
       >
-        <Text className="text-white text-base font-bold">{label}</Text>
+        <Text className="text-action-foreground text-[16px] font-semibold">{label}</Text>
       </Pressable>
     </View>
   );
