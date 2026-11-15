@@ -29,8 +29,10 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import {
   DownloadIcon,
+  HeartIcon,
   InfoIcon,
   Share2Icon,
   Trash2Icon,
@@ -38,7 +40,8 @@ import {
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAlbumFiles, usageQueryKey } from '@/src/hooks';
+import { useAlbum, useAlbumFiles, useAuth, useUpdateAlbum, usageQueryKey } from '@/src/hooks';
+import { ActionSheet } from '@/components/WorkspaceBits';
 import {
   displaySourceAtLeast,
   formatBytes,
@@ -48,7 +51,7 @@ import {
   type StoredFile,
 } from '@/src/api';
 
-for (const Icon of [DownloadIcon, InfoIcon, Share2Icon, Trash2Icon, XIcon]) {
+for (const Icon of [DownloadIcon, HeartIcon, InfoIcon, Share2Icon, Trash2Icon, XIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -79,6 +82,12 @@ const IOS_ALSO_DRAWS = ['image/heic', 'image/heif'];
 /** Vertical travel that commits to closing. Below it, the photo springs back. */
 const DISMISS_AT = 130;
 const THUMB = 46;
+/** Upward travel that opens Info. Shorter than closing: it undoes with a flick. */
+const INFO_AT = 56;
+/** A client's pick, and Remove, on black: the brand colours are too dark there. */
+const PICK = '#E79A6F';
+const REMOVE = '#F2A9A0';
+const SHEET = '#1C1917';
 
 /**
  * One photo, zoomable, inside a paged carousel.
@@ -99,6 +108,8 @@ function ZoomablePhoto({
   onZoomChange,
   onTap,
   onDismiss,
+  onInfo,
+  onHold,
 }: {
   photo: StoredFile;
   width: number;
@@ -106,6 +117,10 @@ function ZoomablePhoto({
   onZoomChange: (zoomed: boolean) => void;
   onTap: () => void;
   onDismiss: () => void;
+  /** Swiped up, at rest. */
+  onInfo: () => void;
+  /** Pressed and held, at rest. */
+  onHold: () => void;
 }) {
   const scale = useSharedValue(1);
   const startScale = useSharedValue(1);
@@ -186,29 +201,37 @@ function ZoomablePhoto({
     });
 
   /**
-   * Drag down to close, the way Photos does.
+   * Drag down to close, the way Photos does; up, for Info.
    *
    * `failOffsetX` hands sideways drags to the carousel, so the two gestures do
    * not argue over the same finger. Only active at rest: while zoomed, a
-   * downward drag is panning the photo, not closing it.
+   * vertical drag is panning the photo.
+   *
+   * Up used to close as well, which left no direction for anything else and
+   * made the photo leave towards the top of the screen for no reason.
    */
   const dragToDismiss = Gesture.Pan()
     .activeOffsetY([-14, 14])
     .failOffsetX([-18, 18])
     .onUpdate((event) => {
       if (scale.value > 1.01) return;
-      dismissY.value = event.translationY;
+      // Upwards it only leans: the photo is staying, and Info is coming.
+      dismissY.value = event.translationY < 0 ? event.translationY * 0.3 : event.translationY;
     })
     .onEnd((event) => {
       if (scale.value > 1.01) return;
-      if (Math.abs(event.translationY) > DISMISS_AT || Math.abs(event.velocityY) > 900) {
+      if (event.translationY < 0) {
+        if (event.translationY < -INFO_AT || event.velocityY < -700) runOnJS(onInfo)();
+        dismissY.value = withSpring(0, SPRING);
+        return;
+      }
+      if (event.translationY > DISMISS_AT || event.velocityY > 900) {
         // It carries on the way it was thrown, at the speed it was thrown,
         // while the screen fades out under it. It used to stop where the
         // finger let go and the whole screen then slid away sideways.
-        const direction = event.translationY < 0 ? -1 : 1;
-        const remaining = height - Math.abs(event.translationY);
-        const speed = Math.max(Math.abs(event.velocityY), 1200) / 1000;
-        dismissY.value = withTiming(direction * height, {
+        const remaining = height - event.translationY;
+        const speed = Math.max(event.velocityY, 1200) / 1000;
+        dismissY.value = withTiming(height, {
           duration: Math.min(Math.max(remaining / speed, 120), 280),
         });
         runOnJS(onDismiss)();
@@ -217,16 +240,35 @@ function ZoomablePhoto({
       }
     });
 
+  /**
+   * Twice on a spot zooms in on that spot. It zoomed on the centre, so a face
+   * at the edge of the frame left the screen as it grew.
+   */
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
-    .onEnd(() => {
+    .onEnd((event) => {
       if (scale.value > 1.01) {
         reset();
         runOnJS(onZoomChange)(false);
       } else {
-        scale.value = withSpring(2.4, SPRING);
+        const to = 2.4;
+        const maxX = (width * (to - 1)) / 2;
+        const maxY = (height * (to - 1)) / 2;
+        const dx = -(event.x - width / 2) * (to - 1);
+        const dy = -(event.y - height / 2) * (to - 1);
+        scale.value = withSpring(to, SPRING);
+        x.value = withSpring(Math.max(-maxX, Math.min(maxX, dx)), SPRING);
+        y.value = withSpring(Math.max(-maxY, Math.min(maxY, dy)), SPRING);
         runOnJS(onZoomChange)(true);
       }
+    });
+
+  /** Held still, at rest. Zoomed, a resting finger is somebody looking. */
+  const hold = Gesture.LongPress()
+    .minDuration(380)
+    .onStart(() => {
+      if (scale.value > 1.01) return;
+      runOnJS(onHold)();
     });
 
   const singleTap = Gesture.Tap()
@@ -236,7 +278,9 @@ function ZoomablePhoto({
   const gesture = Gesture.Simultaneous(
     pinch,
     Gesture.Race(panZoomed, dragToDismiss),
-    Gesture.Exclusive(doubleTap, singleTap),
+    // The hold first: without that a press of half a second was a tap as well,
+    // and the bars vanished under the sheet it had just opened.
+    Gesture.Exclusive(hold, doubleTap, singleTap),
   );
 
   const style = useAnimatedStyle(() => ({
@@ -329,6 +373,10 @@ export default function PhotoViewerScreen() {
   const { albumId, index: routeIndex } = params;
   const { width, height } = useWindowDimensions();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const { data: album } = useAlbum(albumId);
+  const updateAlbum = useUpdateAlbum();
+  const isOwner = !!album && !!user && album.user_id === user.id;
   // The same filter as the grid that opened this, which is what makes it the
   // same query: the viewer then holds every page the grid had already loaded,
   // rather than starting over at page one and not containing the photograph
@@ -363,6 +411,7 @@ export default function PhotoViewerScreen() {
   }, [photos, params.key]);
   const [zoomed, setZoomed] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [holding, setHolding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sharing, setSharing] = useState(false);
   const chrome = useSharedValue(1);
@@ -374,12 +423,42 @@ export default function PhotoViewerScreen() {
   const photo = photos[currentIndex] ?? photos[0];
 
   const toggleChrome = useCallback(() => {
+    // With Info open a tap on the photo puts Info away, as a tap outside any
+    // sheet does; it took the whole chrome with it.
+    if (showInfoRef.current) {
+      setShowInfo(false);
+      return;
+    }
     const next = chrome.value > 0.5 ? 0 : 1;
     chrome.value = withTiming(next, { duration: 180 });
     setChromeShown(next === 1);
   }, [chrome]);
 
   const chromeStyle = useAnimatedStyle(() => ({ opacity: chrome.value }));
+
+  const showInfoRef = useRef(showInfo);
+  useEffect(() => {
+    showInfoRef.current = showInfo;
+  }, [showInfo]);
+
+  /** Swiped up: Info, and the bars with it if a tap had hidden them. */
+  const openInfo = useCallback(() => {
+    chrome.value = withTiming(1, { duration: 180 });
+    setChromeShown(true);
+    setShowInfo(true);
+  }, [chrome]);
+
+  const openHold = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setHolding(true);
+  }, []);
+
+  /** Info goes back down the way it came. */
+  const closeInfo = Gesture.Pan()
+    .activeOffsetY(12)
+    .onEnd((event) => {
+      if (event.translationY > 36) runOnJS(setShowInfo)(false);
+    });
 
   /** Keeps the filmstrip centred on whatever the pager settled on. */
   useEffect(() => {
@@ -389,7 +468,8 @@ export default function PhotoViewerScreen() {
       animated: true,
       viewPosition: 0.5,
     });
-  }, [currentIndex, photos.length]);
+    // And again when the strip returns from under Info: it remounts at zero.
+  }, [currentIndex, photos.length, showInfo]);
 
   useEffect(() => {
     if (currentIndex >= photos.length && photos.length) {
@@ -536,6 +616,24 @@ export default function PhotoViewerScreen() {
     );
   };
 
+  const makeCover = () => {
+    if (!photo) return;
+    updateAlbum.mutate(
+      { id: albumId, cover_key: photo.key },
+      {
+        onSuccess: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+        onError: () => Alert.alert('Could not set the cover', 'Please try again.'),
+      },
+    );
+  };
+
+  const holdActions = [
+    ...(canShare ? [{ label: 'Share', onPress: () => void sharePhoto() }] : []),
+    ...(photo?.capabilities.download ? [{ label: 'Save to Photos', onPress: () => void savePhoto() }] : []),
+    ...(isOwner ? [{ label: 'Set as album cover', onPress: makeCover }] : []),
+    { label: 'Info', onPress: openInfo },
+  ];
+
   if (!photo) {
     // "No photos yet" was the answer to every way of having none to show: a
     // load still running, or one that failed, said the album was empty.
@@ -622,6 +720,8 @@ export default function PhotoViewerScreen() {
             onZoomChange={setZoomed}
             onTap={toggleChrome}
             onDismiss={() => router.back()}
+            onInfo={openInfo}
+            onHold={openHold}
           />
         )}
       />
@@ -636,37 +736,42 @@ export default function PhotoViewerScreen() {
           style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 160 }}
           pointerEvents="none"
         />
-        <LinearGradient
-          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.82)']}
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 260,
-          }}
-          pointerEvents="none"
-        />
+        {!showInfo && (
+          <LinearGradient
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.85)']}
+            style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 260 }}
+            pointerEvents="none"
+          />
+        )}
 
+        {/* When it was taken, not what the camera called it. "DSC_0421.JPG"
+            led the screen; the name is in Info for whoever needs it. */}
         <SafeAreaView edges={['top']} className="absolute top-0 left-0 right-0">
-          <View className="px-4 pt-2 flex-row items-center gap-3">
-            <Pressable accessibilityRole="button" accessibilityLabel="Close"
+          <View className="px-2 pt-1 flex-row items-center">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close"
               onPress={() => router.back()}
-              hitSlop={8}
-              className="w-11 h-11 rounded-full bg-black/45 items-center justify-center active:opacity-70"
+              hitSlop={6}
+              className="w-11 h-11 items-center justify-center active:opacity-60"
             >
-              <XIcon size={19} color="#fff" />
+              <XIcon size={24} color="#fff" />
             </Pressable>
-            <View className="flex-1 min-w-0">
-              <Text
-                className="text-white text-[15px] font-semibold"
-                numberOfLines={1}
-              >
-                {photo.originalName}
+            <View className="flex-1 min-w-0 items-center">
+              <Text className="text-white text-[15px] leading-5 font-semibold" numberOfLines={1}>
+                {whenLabel(photo)}
               </Text>
-              <Text className="text-white/45 text-[11px] mt-0.5">
+              <Text className="text-white/60 text-[12px] leading-4">
                 {currentIndex + 1} of {filesQuery.counts.image}
               </Text>
+            </View>
+            {/* The client's pick, which this screen never showed. */}
+            <View
+              className="w-11 h-11 items-center justify-center"
+              accessible={!!photo.picked}
+              accessibilityLabel={photo.picked ? 'Picked by your client' : undefined}
+            >
+              {photo.picked ? <HeartIcon size={22} color={PICK} fill={PICK} /> : null}
             </View>
           </View>
         </SafeAreaView>
@@ -674,106 +779,125 @@ export default function PhotoViewerScreen() {
         <SafeAreaView
           edges={['bottom']}
           className="absolute bottom-0 left-0 right-0"
+          style={
+            showInfo
+              ? { backgroundColor: SHEET, borderTopLeftRadius: 24, borderTopRightRadius: 24 }
+              : undefined
+          }
         >
-          {showInfo && (
-            <View className="mx-4 mb-3 rounded-2xl bg-black/55 px-4 py-3">
-              {/* When it was taken, from the camera. It showed the upload
-                  date under that label. */}
-              {photo.takenAt ? <InfoRow label="Taken" value={takenLabel(photo.takenAt)} /> : null}
-              <InfoRow
-                label="Uploaded"
-                value={new Date(photo.createdAt).toLocaleDateString('en-GB', {
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric',
-                })}
-              />
-              <InfoRow label="Size" value={formatBytes(photo.sizeBytes)} />
-              <InfoRow
-                label="Dimensions"
-                value={
-                  photo.width && photo.height
-                    ? `${photo.width} x ${photo.height}`
-                    : 'Not available'
-                }
-              />
-            </View>
+          {showInfo ? (
+            <GestureDetector gesture={closeInfo}>
+              <View className="px-5 pt-2.5" accessibilityViewIsModal>
+                <View className="self-center w-9 h-1 rounded-full bg-white/25 mb-3.5" />
+                <Text className="text-white text-[17px] leading-6 font-bold" numberOfLines={2}>
+                  {photo.originalName}
+                </Text>
+                {photo.picked ? (
+                  <View className="flex-row items-center gap-1.5 mt-0.5">
+                    <HeartIcon size={12} color={PICK} fill={PICK} />
+                    <Text style={{ color: PICK }} className="text-[13px] leading-[18px]">
+                      Picked by your client
+                    </Text>
+                  </View>
+                ) : null}
+                <View className="mt-3">
+                  {/* When it was taken, from the camera. It showed the upload
+                      date under that label. */}
+                  {photo.takenAt ? <InfoRow label="Taken" value={takenLabel(photo.takenAt)} /> : null}
+                  <InfoRow
+                    label="Uploaded"
+                    value={new Date(photo.createdAt).toLocaleDateString('en-GB', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                    })}
+                  />
+                  <InfoRow label="Size" value={formatBytes(photo.sizeBytes)} />
+                  <InfoRow
+                    label="Dimensions"
+                    value={
+                      photo.width && photo.height
+                        ? `${photo.width.toLocaleString()} × ${photo.height.toLocaleString()}`
+                        : 'Not available'
+                    }
+                  />
+                </View>
+              </View>
+            </GestureDetector>
+          ) : (
+            /* One continuous strip, not a sliding window over a slice. It scrolls
+               with the pager and can be dragged independently. */
+            <FlatList
+              ref={strip}
+              data={photos}
+              keyExtractor={(item) => `strip-${item.key}`}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 6, alignItems: 'center' }}
+              getItemLayout={(_, index) => ({
+                length: THUMB + 6,
+                offset: (THUMB + 6) * index,
+                index,
+              })}
+              onScrollToIndexFailed={() => {}}
+              renderItem={({ item, index }) => (
+                <Pressable
+                  onPress={() => goTo(index)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Photo ${index + 1}`}
+                  style={{ width: THUMB, height: THUMB }}
+                  className={
+                    index === currentIndex
+                      ? 'rounded-[9px] overflow-hidden border-2 border-white'
+                      : 'rounded-[9px] overflow-hidden opacity-45'
+                  }
+                >
+                  <RemoteImage
+                    source={{ uri: item.thumbnailUrl ?? item.url ?? undefined }}
+                    placeholder={item.blurDataUrl ? { uri: item.blurDataUrl } : undefined}
+                    placeholderContentFit="cover"
+                    style={{ width: '100%', height: '100%' }}
+                    contentFit="cover"
+                    recyclingKey={item.key}
+                  />
+                </Pressable>
+              )}
+            />
           )}
 
-          {/* One continuous strip, not a sliding window over a slice. It scrolls
-              with the pager and can be dragged independently. */}
-          <FlatList
-            ref={strip}
-            data={photos}
-            keyExtractor={(item) => `strip-${item.key}`}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 6 }}
-            getItemLayout={(_, index) => ({
-              length: THUMB + 6,
-              offset: (THUMB + 6) * index,
-              index,
-            })}
-            onScrollToIndexFailed={() => {}}
-            renderItem={({ item, index }) => (
-              <Pressable
-                onPress={() => goTo(index)}
-                style={{ width: THUMB, height: THUMB }}
-                className={
-                  index === currentIndex
-                    ? 'rounded-[9px] overflow-hidden border-2 border-white'
-                    : 'rounded-[9px] overflow-hidden opacity-45'
-                }
-              >
-                <RemoteImage
-                  source={{ uri: item.thumbnailUrl ?? item.url ?? undefined }}
-                  placeholder={
-                    item.blurDataUrl ? { uri: item.blurDataUrl } : undefined
-                  }
-                  placeholderContentFit="cover"
-                  style={{ width: '100%', height: '100%' }}
-                  contentFit="cover"
-                  recyclingKey={item.key}
-                />
-              </Pressable>
-            )}
-          />
-
-          <View className="flex-row items-center gap-2 px-4 pt-4 pb-2">
+          {/* Each with its word. They were four unlabelled grey circles, and
+              Info and Share are not glyphs everybody reads. */}
+          <View className={`flex-row px-2 pb-1 ${showInfo ? 'mt-2 border-t border-white/10' : 'pt-2'}`}>
             {canShare && (
               <Action onPress={sharePhoto} label="Share" disabled={sharing}>
-                {sharing ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Share2Icon size={19} color="#fff" />
-                )}
+                {sharing ? <ActivityIndicator size="small" color="#fff" /> : <Share2Icon size={22} color="#fff" />}
               </Action>
             )}
             {photo.capabilities.download && (
               <Action onPress={savePhoto} label="Save" disabled={saving}>
-                {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <DownloadIcon size={19} color="#fff" />
-                )}
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <DownloadIcon size={22} color="#fff" />}
               </Action>
             )}
-            <Action
-              onPress={() => setShowInfo((value) => !value)}
-              label="Info"
-              active={showInfo}
-            >
-              <InfoIcon size={19} color="#fff" />
+            <Action onPress={() => setShowInfo((value) => !value)} label="Info" active={showInfo}>
+              <InfoIcon size={22} color="#fff" />
             </Action>
-            <View className="flex-1" />
             {photo.capabilities.delete && (
               <Action onPress={deletePhoto} label="Remove">
-                <Trash2Icon size={19} color="#F2A9A0" />
+                <Trash2Icon size={22} color={REMOVE} />
               </Action>
             )}
           </View>
         </SafeAreaView>
       </Animated.View>
+
+      {/* Press and hold: the two or three things done to one photograph,
+          without hunting along the bar for them. */}
+      <ActionSheet
+        visible={holding}
+        title={photo.originalName}
+        actions={holdActions}
+        onClose={() => setHolding(false)}
+      />
     </View>
   );
 }
@@ -795,15 +919,36 @@ function Action({
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole="button"
       accessibilityLabel={label}
-      hitSlop={6}
-      className={`w-11 h-11 rounded-full items-center justify-center active:opacity-70 ${
-        active ? 'bg-white/25' : 'bg-white/10'
-      }`}
+      accessibilityState={{ selected: !!active, disabled: !!disabled }}
+      className="flex-1 h-14 items-center justify-center gap-1 active:opacity-60"
     >
       {children}
+      <Text className={`text-[12px] leading-4 font-medium ${active ? 'text-white' : 'text-white/75'}`}>
+        {label}
+      </Text>
     </Pressable>
   );
+}
+
+/** "21 December, 4:12 PM" from the camera; the upload day when it wrote none. */
+function whenLabel(photo: StoredFile): string {
+  if (!photo.takenAt) {
+    return new Date(photo.createdAt).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+  }
+  // From its parts, as takenLabel does and for the same reason.
+  const [date, time = '00:00:00'] = photo.takenAt.split('T');
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  const at = new Date(y, m - 1, d, hh, mm);
+  const day = at.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+  const clockTime = at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `${day}, ${clockTime}`;
 }
 
 /**
@@ -817,20 +962,17 @@ function takenLabel(takenAt: string): string {
   const [date, time = '00:00:00'] = takenAt.split('T');
   const [y, m, d] = date.split('-').map(Number);
   const [hh, mm] = time.split(':').map(Number);
-  return new Date(y, m - 1, d, hh, mm).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  const at = new Date(y, m - 1, d, hh, mm);
+  const day = at.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  // The clock the rest of the app shows: it read "at 15:35" here alone.
+  return `${day}, ${at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <View className="flex-row justify-between gap-4 py-1">
-      <Text className="text-white/45 text-xs">{label}</Text>
-      <Text className="text-white text-xs font-medium">{value}</Text>
+    <View className="min-h-[44px] flex-row items-center justify-between gap-4 border-t border-white/10">
+      <Text className="text-white/60 text-[14px]">{label}</Text>
+      <Text className="text-white text-[14px] font-medium flex-shrink text-right">{value}</Text>
     </View>
   );
 }

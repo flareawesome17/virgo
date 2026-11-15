@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,26 +29,28 @@ import {
   type VideoView as VideoViewType,
 } from 'expo-video';
 import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
   ChevronDownIcon,
   DownloadIcon,
   FilmIcon,
+  HeartIcon,
   Maximize2Icon,
   PauseIcon,
   PictureInPicture2Icon,
   PlayIcon,
+  RotateCcwIcon,
+  RotateCwIcon,
   Volume2Icon,
   VolumeXIcon,
   XIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { MediaScrubber } from '@/components/MediaScrubber';
+import { clock } from '@/src/lib/media-grid';
 import { type StoredFile } from '@/src/api';
 
 for (const Icon of [
-  ArrowLeftIcon, ArrowRightIcon, ChevronDownIcon, DownloadIcon, FilmIcon,
-  Maximize2Icon, PauseIcon, PictureInPicture2Icon, PlayIcon, Volume2Icon,
+  ChevronDownIcon, DownloadIcon, FilmIcon, HeartIcon, Maximize2Icon, PauseIcon,
+  PictureInPicture2Icon, PlayIcon, RotateCcwIcon, RotateCwIcon, Volume2Icon,
   VolumeXIcon, XIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -68,6 +70,8 @@ for (const Icon of [
  */
 
 const SKIP = 10;
+/** A client's pick, on black: the brand terracotta is too dark there. */
+const PICK = '#E79A6F';
 
 /**
  * How long a video may sit in `loading` before we call it.
@@ -284,23 +288,156 @@ export function VideoPlayer({
     [toggleControls],
   );
 
-  /**
-   * Swipe down to put the film in the corner.
-   *
-   * Only downward, and only past a distance a scroll would not travel, so it
-   * cannot be triggered by the small vertical drift in a horizontal swipe.
-   * `activeOffsetY` keeps the gesture from claiming the touch until it is
-   * clearly a downward drag, which leaves taps to the recogniser above.
-   */
-  const swipeDown = useMemo(
+  // ── Gestures that belong to a film: all of them move through time or sound ──
+
+  /** Where a sideways drag began, and where it has reached, in seconds. */
+  const scrubFrom = useRef(0);
+  const [scrub, setScrub] = useState<number | null>(null);
+  // A full sweep of the screen is the whole film, or two minutes of a long
+  // one: across a forty-minute ceremony the whole film would make a thumb's
+  // width ten minutes, and nothing could be found.
+  const sweep = Math.min(Math.max(duration, 1), 120);
+  const scrubTo = useCallback(
+    (dx: number) => Math.max(0, Math.min(scrubFrom.current + (dx / width) * sweep, duration || 0)),
+    [duration, sweep, width],
+  );
+  const beginScrub = useCallback(() => {
+    try {
+      scrubFrom.current = player.currentTime;
+    } catch {
+      scrubFrom.current = 0;
+    }
+    setScrub(scrubFrom.current);
+  }, [player]);
+  const dragScrub = useCallback((dx: number) => setScrub(scrubTo(dx)), [scrubTo]);
+  const endScrub = useCallback(
+    (dx: number) => {
+      const to = scrubTo(dx);
+      try {
+        player.currentTime = to;
+      } catch {
+        // Released: there is nothing to seek.
+      }
+      setPosition(to);
+      setScrub(null);
+      void Haptics.selectionAsync();
+    },
+    [player, scrubTo],
+  );
+  const scrubPan = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetY(18)
-        .failOffsetY(-18)
-        .onEnd((event) => {
-          if (event.translationY > 90 && onMinimise) runOnJS(onMinimise)();
+        .maxPointers(1)
+        .activeOffsetX([-16, 16])
+        .failOffsetY([-14, 14])
+        .onStart(() => runOnJS(beginScrub)())
+        .onUpdate((event) => runOnJS(dragScrub)(event.translationX))
+        .onEnd((event) => runOnJS(endScrub)(event.translationX))
+        .onFinalize((_event, finished) => {
+          if (!finished) runOnJS(setScrub)(null);
         }),
-    [onMinimise],
+    [beginScrub, dragScrub, endScrub],
+  );
+
+  /** The film's own loudness, 0 to 1, while the right edge is being dragged. */
+  const volumeFrom = useRef(1);
+  const [volume, setVolume] = useState<number | null>(null);
+  const beginVolume = useCallback(() => {
+    try {
+      volumeFrom.current = player.muted ? 0 : player.volume;
+    } catch {
+      volumeFrom.current = 1;
+    }
+    setVolume(volumeFrom.current);
+  }, [player]);
+  const dragVolume = useCallback(
+    (dy: number) => {
+      const next = Math.max(0, Math.min(volumeFrom.current - dy / (height * 0.35), 1));
+      try {
+        player.volume = next;
+        player.muted = next === 0;
+      } catch {
+        // Released.
+      }
+      setMuted(next === 0);
+      setVolume(next);
+    },
+    [height, player],
+  );
+  const endVolume = useCallback(() => setVolume(null), []);
+
+  /**
+   * One vertical drag, and where it began decides what it is: the right third
+   * is loudness, up and down; anywhere else, down puts the film in the corner.
+   *
+   * One recogniser rather than two racing: two vertical pans over the same
+   * picture each waited on the other, and neither began.
+   */
+  const onRight = useSharedValue(false);
+  const vertical = useMemo(
+    () =>
+      Gesture.Pan()
+        .maxPointers(1)
+        .activeOffsetY([-16, 16])
+        .failOffsetX([-18, 18])
+        .onStart((event) => {
+          onRight.value = event.x > width * 0.66;
+          if (onRight.value) runOnJS(beginVolume)();
+        })
+        .onUpdate((event) => {
+          if (onRight.value) runOnJS(dragVolume)(event.translationY);
+        })
+        .onEnd((event) => {
+          if (!onRight.value && event.translationY > 90 && onMinimise) runOnJS(onMinimise)();
+        })
+        .onFinalize(() => {
+          if (onRight.value) runOnJS(endVolume)();
+        }),
+    [beginVolume, dragVolume, endVolume, onMinimise, onRight, width],
+  );
+
+  /** Held: twice the speed, for as long as the finger stays. */
+  const [fast, setFast] = useState(false);
+  const isFast = useRef(false);
+  const beginFast = useCallback(() => {
+    try {
+      player.playbackRate = 2;
+    } catch {
+      return;
+    }
+    isFast.current = true;
+    setFast(true);
+    void Haptics.selectionAsync();
+  }, [player]);
+  const endFast = useCallback(() => {
+    if (!isFast.current) return;
+    isFast.current = false;
+    try {
+      player.playbackRate = 1;
+    } catch {
+      // Released.
+    }
+    setFast(false);
+  }, [player]);
+  const hold = useMemo(
+    () =>
+      Gesture.LongPress()
+        .minDuration(350)
+        .maxDistance(12)
+        .onStart(() => runOnJS(beginFast)())
+        .onFinalize(() => runOnJS(endFast)()),
+    [beginFast, endFast],
+  );
+
+  /** Pinched out, the picture fills the screen; in, it fits again. */
+  const [fill, setFill] = useState(false);
+  const pinch = useMemo(
+    () =>
+      Gesture.Pinch().onEnd((event) => {
+        if (event.scale > 1.15) runOnJS(setFill)(true);
+        else if (event.scale < 0.87) runOnJS(setFill)(false);
+      }),
+    [],
   );
 
   /**
@@ -308,7 +445,8 @@ export function VideoPlayer({
    *
    * Exclusive, so a double tap does not also fire the single tap that toggles
    * the controls — without that, jumping forward would hide the chrome at the
-   * same moment somebody is looking at it.
+   * same moment somebody is looking at it. The hold comes first for the same
+   * reason: half a second of holding was a tap as well.
    */
   const doubleTap = useMemo(
     () =>
@@ -321,8 +459,12 @@ export function VideoPlayer({
   );
 
   const surfaceGesture = useMemo(
-    () => Gesture.Race(swipeDown, Gesture.Exclusive(doubleTap, tap)),
-    [swipeDown, doubleTap, tap],
+    () =>
+      Gesture.Simultaneous(
+        pinch,
+        Gesture.Race(vertical, scrubPan, Gesture.Exclusive(hold, doubleTap, tap)),
+      ),
+    [pinch, vertical, scrubPan, hold, doubleTap, tap],
   );
 
   const controlsStyle = useAnimatedStyle(() => ({ opacity: controls.value }));
@@ -486,7 +628,7 @@ export function VideoPlayer({
             ref={viewRef}
             player={player}
             style={{ width, height }}
-            contentFit="contain"
+            contentFit={fill ? 'cover' : 'contain'}
             nativeControls={false}
             allowsFullscreen
             allowsPictureInPicture
@@ -505,6 +647,40 @@ export function VideoPlayer({
         </View>
       )}
 
+      {/* What a gesture is doing, said where the finger is not. Outside the
+          fading chrome: these belong to the gesture, and go when it does. */}
+      {fast && (
+        <View pointerEvents="none" className="absolute left-0 right-0 items-center" style={{ top: insets.top + 60 }}>
+          <View className="rounded-full bg-black/60 px-3.5 py-1.5">
+            <Text className="text-white text-[13px] font-semibold">2× speed</Text>
+          </View>
+        </View>
+      )}
+      {scrub !== null && (
+        <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
+          <View className="rounded-2xl bg-black/65 px-5 py-3 items-center">
+            <Text className="text-white text-[22px] font-bold" style={{ fontVariant: ['tabular-nums'] }}>
+              {clock(scrub)}
+            </Text>
+            <Text className="text-white/65 text-[12px]" style={{ fontVariant: ['tabular-nums'] }}>
+              of {clock(duration)}
+            </Text>
+          </View>
+        </View>
+      )}
+      {volume !== null && (
+        <View
+          pointerEvents="none"
+          className="absolute right-5 items-center gap-2"
+          style={{ top: height * 0.3, height: height * 0.35 }}
+        >
+          <View className="flex-1 w-1.5 rounded-full bg-white/25 overflow-hidden justify-end">
+            <View className="w-full rounded-full bg-white" style={{ height: `${Math.round(volume * 100)}%` }} />
+          </View>
+          {volume === 0 ? <VolumeXIcon size={18} color="#fff" /> : <Volume2Icon size={18} color="#fff" />}
+        </View>
+      )}
+
       {/*
         `none` while hidden, not `box-none`.
 
@@ -517,28 +693,22 @@ export function VideoPlayer({
       */}
       <Animated.View
         style={controlsStyle}
-        pointerEvents={shown ? 'box-none' : 'none'}
+        pointerEvents={shown && scrub === null && volume === null ? 'box-none' : 'none'}
         className="absolute inset-0"
       >
         <LinearGradient
-          colors={['rgba(0,0,0,0.65)', 'rgba(0,0,0,0)']}
+          colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']}
           style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 150 }}
           pointerEvents="none"
         />
         <LinearGradient
-          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.78)']}
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 200,
-          }}
+          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.82)']}
+          style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 230 }}
           pointerEvents="none"
         />
 
         <SafeAreaView edges={['top']} className="absolute top-0 left-0 right-0">
-          <View className="px-4 pt-2 flex-row items-center gap-3">
+          <View className="px-2 pt-1 flex-row items-center">
             {/* Down, not a cross. The gesture is a swipe down and the icon
                 should say the same thing — this puts the film in the corner
                 and leaves it playing, which a cross would promise to stop. */}
@@ -546,27 +716,35 @@ export function VideoPlayer({
               onPress={onMinimise ?? onClose}
               accessibilityRole="button"
               accessibilityLabel={onMinimise ? 'Minimise' : 'Close'}
-              className="w-11 h-11 rounded-full bg-black/45 items-center justify-center active:opacity-70"
+              className="w-11 h-11 items-center justify-center active:opacity-60"
             >
-              <ChevronDownIcon size={20} color="#fff" />
+              <ChevronDownIcon size={26} color="#fff" />
             </Pressable>
-            <Text
-              className="text-white text-[15px] font-semibold flex-1"
-              numberOfLines={1}
-            >
-              {file.mediaTitle || file.originalName}
-            </Text>
+            <View className="flex-1 min-w-0 items-center">
+              <Text className="text-white text-[15px] leading-5 font-semibold" numberOfLines={1}>
+                {file.mediaTitle || file.originalName}
+              </Text>
+              <View className="flex-row items-center gap-1.5">
+                {file.picked ? <HeartIcon size={11} color={PICK} fill={PICK} /> : null}
+                <Text className="text-white/60 text-[12px] leading-4" numberOfLines={1}>
+                  {file.picked ? 'Picked by your client · ' : ''}
+                  {dayLabel(file)}
+                </Text>
+              </View>
+            </View>
             {/* And a way to stop it. There was only minimise, so the film went
                 on playing in the corner whether you wanted it or not. */}
-            {onMinimise && (
+            {onMinimise ? (
               <Pressable
                 onPress={onClose}
                 accessibilityRole="button"
                 accessibilityLabel="Close"
-                className="w-11 h-11 rounded-full bg-black/45 items-center justify-center active:opacity-70"
+                className="w-11 h-11 items-center justify-center active:opacity-60"
               >
-                <XIcon size={18} color="#fff" />
+                <XIcon size={22} color="#fff" />
               </Pressable>
+            ) : (
+              <View className="w-11" />
             )}
           </View>
         </SafeAreaView>
@@ -576,19 +754,17 @@ export function VideoPlayer({
             loading so the spinner has the centre to itself. */}
         <View
           className="flex-1 flex-row items-center justify-center gap-9"
-          pointerEvents={status === 'loading' ? 'none' : 'auto'}
+          pointerEvents={status === 'loading' ? 'none' : 'box-none'}
           style={{ opacity: status === 'loading' ? 0 : 1 }}
         >
           <Pressable
             onPress={() => skip(-SKIP)}
-            hitSlop={10}
+            hitSlop={8}
+            accessibilityRole="button"
             accessibilityLabel={`Back ${SKIP} seconds`}
-            className="items-center active:opacity-70"
+            className="w-12 h-12 rounded-full bg-black/40 items-center justify-center active:opacity-70"
           >
-            <ArrowLeftIcon size={26} color="#fff" />
-            <Text className="text-white/70 text-[10px] font-mono mt-0.5">
-              {SKIP}
-            </Text>
+            <RotateCcwIcon size={22} color="#fff" />
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={playing ? 'Pause' : 'Play'}
             onPress={() => {
@@ -596,24 +772,22 @@ export function VideoPlayer({
               else player.play();
               reveal();
             }}
-            className="w-[72px] h-[72px] rounded-full bg-black/50 items-center justify-center active:opacity-70"
+            className="w-[68px] h-[68px] rounded-full bg-black/50 items-center justify-center active:opacity-70"
           >
             {playing ? (
-              <PauseIcon size={30} color="#fff" fill="#fff" />
+              <PauseIcon size={28} color="#fff" fill="#fff" />
             ) : (
-              <PlayIcon size={30} color="#fff" fill="#fff" />
+              <PlayIcon size={28} color="#fff" fill="#fff" />
             )}
           </Pressable>
           <Pressable
             onPress={() => skip(SKIP)}
-            hitSlop={10}
+            hitSlop={8}
+            accessibilityRole="button"
             accessibilityLabel={`Forward ${SKIP} seconds`}
-            className="items-center active:opacity-70"
+            className="w-12 h-12 rounded-full bg-black/40 items-center justify-center active:opacity-70"
           >
-            <ArrowRightIcon size={26} color="#fff" />
-            <Text className="text-white/70 text-[10px] font-mono mt-0.5">
-              {SKIP}
-            </Text>
+            <RotateCwIcon size={22} color="#fff" />
           </Pressable>
         </View>
 
@@ -621,70 +795,78 @@ export function VideoPlayer({
           edges={['bottom']}
           className="absolute bottom-0 left-0 right-0"
         >
-          <View className="px-5 pb-2">
+          <View className="px-5">
             <MediaScrubber
               position={position}
               duration={duration}
+              accent="#FFFFFF"
               onSeek={(seconds) => {
                 player.currentTime = seconds;
                 setPosition(seconds);
                 reveal();
               }}
             />
-            <View className="flex-row items-center gap-6 mt-2">
-              <Pressable
-                onPress={() => {
-                  const next = !muted;
-                  player.muted = next;
-                  setMuted(next);
-                  reveal();
-                }}
-                hitSlop={8}
-                accessibilityLabel={muted ? 'Unmute' : 'Mute'}
-                className="active:opacity-70"
-              >
-                {muted ? (
-                  <VolumeXIcon size={19} color="#fff" />
-                ) : (
-                  <Volume2Icon size={19} color="#fff" />
-                )}
-              </Pressable>
-              <View className="flex-1" />
-              {file.capabilities.download && (
-                <Pressable
-                  onPress={saveOriginal}
-                  disabled={saving}
-                  hitSlop={8}
-                  accessibilityLabel="Save to library"
-                  className="active:opacity-70"
-                >
-                  {saving ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <DownloadIcon size={19} color="#fff" />
-                  )}
-                </Pressable>
-              )}
-              <Pressable
-                onPress={() => viewRef.current?.startPictureInPicture()}
-                hitSlop={8}
-                accessibilityLabel="Picture in picture"
-                className="active:opacity-70"
-              >
-                <PictureInPicture2Icon size={19} color="#fff" />
-              </Pressable>
-              <Pressable
-                onPress={() => viewRef.current?.enterFullscreen()}
-                hitSlop={8}
-                accessibilityLabel="Full screen"
-                className="active:opacity-70"
-              >
-                <Maximize2Icon size={19} color="#fff" />
-              </Pressable>
-            </View>
+          </View>
+          {/* Each with its word, as on a photo. They were four bare glyphs in a
+              row, two of them rectangles with arrows. */}
+          <View className="flex-row px-2 pt-1 pb-1">
+            <FilmAction
+              label={muted ? 'Sound off' : 'Sound'}
+              onPress={() => {
+                const next = !muted;
+                player.muted = next;
+                if (!next && player.volume === 0) player.volume = 1;
+                setMuted(next);
+                reveal();
+              }}
+            >
+              {muted ? <VolumeXIcon size={22} color="#fff" /> : <Volume2Icon size={22} color="#fff" />}
+            </FilmAction>
+            {file.capabilities.download && (
+              <FilmAction label="Save" onPress={saveOriginal} disabled={saving}>
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <DownloadIcon size={22} color="#fff" />}
+              </FilmAction>
+            )}
+            <FilmAction label="Pop out" onPress={() => viewRef.current?.startPictureInPicture()}>
+              <PictureInPicture2Icon size={22} color="#fff" />
+            </FilmAction>
+            <FilmAction label="Full screen" onPress={() => viewRef.current?.enterFullscreen()}>
+              <Maximize2Icon size={22} color="#fff" />
+            </FilmAction>
           </View>
         </SafeAreaView>
       </Animated.View>
     </View>
   );
+}
+
+function FilmAction({
+  children,
+  label,
+  onPress,
+  disabled,
+}: {
+  children: ReactNode;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      className="flex-1 h-14 items-center justify-center gap-1 active:opacity-60"
+    >
+      {children}
+      <Text className="text-white/75 text-[12px] leading-4 font-medium">{label}</Text>
+    </Pressable>
+  );
+}
+
+/** "21 December", from the camera when it wrote a date, else the upload day. */
+function dayLabel(file: StoredFile): string {
+  const [y, m, d] = (file.takenAt ?? file.createdAt).slice(0, 10).split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
 }

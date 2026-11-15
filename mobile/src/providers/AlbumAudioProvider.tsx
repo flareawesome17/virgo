@@ -41,6 +41,9 @@ interface AlbumAudioContextValue {
   queue: StoredFile[];
   current: StoredFile | null;
   currentIndex: number;
+  /** The album the queue came from, and its cover: for a player with no album screen under it. */
+  albumName: string;
+  artworkUrl: string | null;
   playing: boolean;
   /**
    * The track is chosen but not yet audible — still loading, or rebuffering
@@ -316,6 +319,8 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
       queue,
       current,
       currentIndex,
+      albumName,
+      artworkUrl,
       playing: status.playing,
       loading:
         currentIndex >= 0 &&
@@ -353,6 +358,8 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
       stop,
     }),
     [
+      albumName,
+      artworkUrl,
       current,
       currentIndex,
       next,
