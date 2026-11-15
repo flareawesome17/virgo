@@ -269,6 +269,8 @@ export default function AlbumScreen() {
   const selection = useSelection();
   const [selecting, setSelecting] = useState(false);
   const [moving, setMoving] = useState(false);
+  // The recording whose menu is open: pressed and held in the list.
+  const [recordingMenu, setRecordingMenu] = useState<StoredFile | null>(null);
   const [naming, setNaming] = useState<{ id?: string; initial: string } | null>(null);
   // "New section…" in the move sheet, waiting for that sheet to finish closing.
   const [nameAfterMove, setNameAfterMove] = useState(false);
@@ -440,12 +442,20 @@ export default function AlbumScreen() {
 
   const onLongTile = useCallback(
     (file: StoredFile) => {
+      // A recording, held: a menu about that recording. It went into
+      // selecting, where the row changed its number for a ring and nothing
+      // said what could be done with it.
+      if (!selecting && kindOf(file.contentType) === 'audio') {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        setRecordingMenu(file);
+        return;
+      }
       if (!canSelect) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setSelecting(true);
       selection.toggle(file.key);
     },
-    [selection, canSelect],
+    [selection, canSelect, selecting],
   );
 
   const selectedFiles = useMemo(
@@ -998,6 +1008,43 @@ export default function AlbumScreen() {
 
   const status = STATUS[album.status] ?? STATUS.draft;
   const albumCounts = sectionsQuery.counts;
+
+  // What can be done with the one recording that was pressed and held.
+  const held = recordingMenu;
+  const recordingActions = held
+    ? [
+        {
+          label: playingKey === held.key && audio.playing ? 'Pause it' : 'Play it',
+          onPress: () => onTile(held),
+        },
+        ...(canShare
+          ? [{ label: 'Make a client link to it', onPress: () => void sharePart({ keys: [held.key] }) }]
+          : []),
+        ...(canManage
+          ? [
+              {
+                label: 'Move it to a section…',
+                onPress: () => {
+                  selection.setMany([held.key], true);
+                  setSelecting(true);
+                  setMoving(true);
+                },
+              },
+            ]
+          : []),
+        ...(canSelect
+          ? [
+              {
+                label: 'Select it, to pick more',
+                onPress: () => {
+                  selection.setMany([held.key], true);
+                  setSelecting(true);
+                },
+              },
+            ]
+          : []),
+      ]
+    : [];
   const retention = retentionBadge(retentionOf(album));
   const countsLine =
     [
@@ -1581,6 +1628,12 @@ export default function AlbumScreen() {
         saving={updateAlbum.isPending}
         onCancel={() => setEditingDetails(false)}
         onSave={saveDetails}
+      />
+      <ActionSheet
+        visible={!!held}
+        title={held ? held.mediaTitle || held.originalName : ''}
+        actions={recordingActions}
+        onClose={() => setRecordingMenu(null)}
       />
       <ActionSheet
         visible={!!menuSection}

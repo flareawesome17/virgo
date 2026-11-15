@@ -153,6 +153,23 @@ function ZoomablePhoto({
     },
   );
 
+  /*
+   * Whether this photo is magnified, as state the gestures can be switched by.
+   *
+   * The pan that moves a magnified photo began after two points of travel in
+   * any direction, magnified or not, and merely did nothing when it was not.
+   * But beginning is what counts: on iOS a recogniser that has begun stops
+   * the carousel's own scroll from ever starting, which needs ten points, and
+   * in the race below it also cancelled the drag that closes the photo. So a
+   * resting photo could not be swiped to the next one, nor dragged away. The
+   * pan now exists only while there is something for it to move.
+   */
+  const [isZoomed, setIsZoomed] = useState(false);
+  const reportZoom = (zoomed: boolean) => {
+    setIsZoomed(zoomed);
+    onZoomChange(zoomed);
+  };
+
   const reset = () => {
     'worklet';
     scale.value = withSpring(1, SPRING);
@@ -160,27 +177,64 @@ function ZoomablePhoto({
     y.value = withSpring(0, SPRING);
   };
 
+  // Where the pinch began: the point between the fingers, and the photo as it was.
+  const focalX = useSharedValue(0);
+  const focalY = useSharedValue(0);
+
+  /**
+   * The pinch grows the photo from between the fingers, and carries it with
+   * them.
+   *
+   * It grew from the middle of the screen whatever was pinched, so a face in
+   * a corner slid off as it got larger and had to be dragged back afterwards;
+   * and it stopped dead at each end. The point under the fingers now stays
+   * under them, two fingers moving together move the photo, and it gives a
+   * little past both ends before settling.
+   */
   const pinch = Gesture.Pinch()
-    .onStart(() => {
+    .onStart((event) => {
       startScale.value = scale.value;
+      startX.value = x.value;
+      startY.value = y.value;
+      focalX.value = event.focalX;
+      focalY.value = event.focalY;
     })
     .onUpdate((event) => {
-      scale.value = Math.max(
-        1,
-        Math.min(MAX_SCALE, startScale.value * event.scale),
-      );
+      const next = Math.max(0.8, Math.min(MAX_SCALE * 1.15, startScale.value * event.scale));
+      const ratio = next / startScale.value;
+      // The point that was under the fingers, kept under where they are now.
+      const cx = width / 2;
+      const cy = height / 2;
+      let nextX = event.focalX - cx - ratio * (focalX.value - cx - startX.value);
+      let nextY = event.focalY - cy - ratio * (focalY.value - cy - startY.value);
+      const maxX = Math.max((width * (next - 1)) / 2, 0);
+      const maxY = Math.max((height * (next - 1)) / 2, 0);
+      nextX = Math.max(-maxX, Math.min(maxX, nextX));
+      nextY = Math.max(-maxY, Math.min(maxY, nextY));
+      scale.value = next;
+      x.value = nextX;
+      y.value = nextY;
     })
     .onEnd(() => {
       if (scale.value < 1.05) {
         reset();
-        runOnJS(onZoomChange)(false);
-      } else {
-        runOnJS(onZoomChange)(true);
+        runOnJS(reportZoom)(false);
+        return;
       }
+      if (scale.value > MAX_SCALE) {
+        // Back to the most it goes, keeping what is in view inside the frame.
+        const maxX = (width * (MAX_SCALE - 1)) / 2;
+        const maxY = (height * (MAX_SCALE - 1)) / 2;
+        scale.value = withSpring(MAX_SCALE, SPRING);
+        x.value = withSpring(Math.max(-maxX, Math.min(maxX, x.value)), SPRING);
+        y.value = withSpring(Math.max(-maxY, Math.min(maxY, y.value)), SPRING);
+      }
+      runOnJS(reportZoom)(true);
     });
 
   /** Only while zoomed. Unzoomed horizontal drags belong to the carousel. */
   const panZoomed = Gesture.Pan()
+    .enabled(isZoomed)
     .minDistance(2)
     .onStart(() => {
       startX.value = x.value;
@@ -211,6 +265,10 @@ function ZoomablePhoto({
    * made the photo leave towards the top of the screen for no reason.
    */
   const dragToDismiss = Gesture.Pan()
+    .enabled(!isZoomed)
+    // One finger: the second finger of a pinch that has not ended yet is not
+    // somebody dragging the photo away.
+    .maxPointers(1)
     .activeOffsetY([-14, 14])
     .failOffsetX([-18, 18])
     .onUpdate((event) => {
@@ -249,7 +307,7 @@ function ZoomablePhoto({
     .onEnd((event) => {
       if (scale.value > 1.01) {
         reset();
-        runOnJS(onZoomChange)(false);
+        runOnJS(reportZoom)(false);
       } else {
         const to = 2.4;
         const maxX = (width * (to - 1)) / 2;
@@ -259,12 +317,13 @@ function ZoomablePhoto({
         scale.value = withSpring(to, SPRING);
         x.value = withSpring(Math.max(-maxX, Math.min(maxX, dx)), SPRING);
         y.value = withSpring(Math.max(-maxY, Math.min(maxY, dy)), SPRING);
-        runOnJS(onZoomChange)(true);
+        runOnJS(reportZoom)(true);
       }
     });
 
   /** Held still, at rest. Zoomed, a resting finger is somebody looking. */
   const hold = Gesture.LongPress()
+    .enabled(!isZoomed)
     .minDuration(380)
     .onStart(() => {
       if (scale.value > 1.01) return;
@@ -628,10 +687,10 @@ export default function PhotoViewerScreen() {
   };
 
   const holdActions = [
-    ...(canShare ? [{ label: 'Share', onPress: () => void sharePhoto() }] : []),
-    ...(photo?.capabilities.download ? [{ label: 'Save to Photos', onPress: () => void savePhoto() }] : []),
-    ...(isOwner ? [{ label: 'Set as album cover', onPress: makeCover }] : []),
-    { label: 'Info', onPress: openInfo },
+    ...(canShare ? [{ label: 'Share this photo', onPress: () => void sharePhoto() }] : []),
+    ...(photo?.capabilities.download ? [{ label: 'Save it to this phone', onPress: () => void savePhoto() }] : []),
+    ...(isOwner ? [{ label: 'Make it the album’s cover', onPress: makeCover }] : []),
+    { label: 'See its details', onPress: openInfo },
   ];
 
   if (!photo) {
@@ -727,9 +786,10 @@ export default function PhotoViewerScreen() {
       />
 
       <Animated.View
-        style={chromeStyle}
+        // Placed by a style: beside an animated style the class is dropped on
+        // the web, and the bars landed below the screen.
+        style={[StyleSheet.absoluteFill, chromeStyle]}
         pointerEvents={zoomed || !chromeShown ? 'none' : 'box-none'}
-        className="absolute inset-0"
       >
         <LinearGradient
           colors={['rgba(0,0,0,0.72)', 'rgba(0,0,0,0)']}
@@ -894,7 +954,9 @@ export default function PhotoViewerScreen() {
           without hunting along the bar for them. */}
       <ActionSheet
         visible={holding}
-        title={photo.originalName}
+        // Says where in the album it is: the camera's file name told nobody
+        // which photograph the menu was about.
+        title={`Photo ${currentIndex + 1} of ${filesQuery.counts.image} · ${whenLabel(photo)}`}
         actions={holdActions}
         onClose={() => setHolding(false)}
       />
