@@ -1,21 +1,25 @@
-import { useCallback, useMemo, useState } from 'react';
-import { Alert, Linking, Pressable, RefreshControl, SectionList, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, SectionList, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import {
-  ChartColumnIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ClockAlertIcon,
   DownloadIcon,
-  MinusIcon,
+  PackagePlusIcon,
   PlusIcon,
+  QrCodeIcon,
   WalletIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   ApiError,
+  categoryLabel,
   dayLabel,
   formatMoney,
+  isOverdue,
   monthLabel,
   monthOf,
   monthRange,
@@ -29,61 +33,110 @@ import {
 import {
   useDismissMoneySuggestion,
   useMoneyEntries,
-  useMoneyPackages,
   useMoneyExport,
+  useMoneyPackages,
+  useMoneySavings,
   useMoneySuggestions,
   useMoneySummary,
   useTheme,
   useUpdateMoneyEntry,
 } from '@/src/hooks';
-import { CardListSkeleton, EmptyState, FilterChip, PressableScale, ScreenHeader } from '@/components';
+import { CardListSkeleton, EmptyState, FilterChip, ScreenHeader } from '@/components';
+import { DateTile } from '@/components/DateTile';
 import { LoadFailed } from '@/components/LoadFailed';
+import { PageTabs } from '@/components/PageTabs';
+import { InsightsPage } from '@/components/money/InsightsPage';
 import { MoneyRow, rowOf, rowOfQueued } from '@/components/money/MoneyRow';
-import { SuggestionRow } from '@/components/money/SuggestionRow';
 import { PackageRow } from '@/components/money/PackageRow';
+import { SetAsideSheet } from '@/components/money/SavingBits';
+import { SavingsPage } from '@/components/money/SavingsPage';
+import { SuggestionRow } from '@/components/money/SuggestionRow';
 import { discardQueuedMoneyEntry, useMoneyOutbox, type QueuedMoneyEntry } from '@/src/lib/money-outbox';
+import { setAsidePrompt, useSetAsideOffer } from '@/src/lib/set-aside-prompt';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ChartColumnIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MinusIcon, PlusIcon, WalletIcon]) {
+for (const Icon of [
+  ChevronLeftIcon, ChevronRightIcon, ClockAlertIcon, DownloadIcon, PackagePlusIcon, PlusIcon, QrCodeIcon, WalletIcon,
+]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
+type Tab = 'activity' | 'owed' | 'savings' | 'insights';
+const TABS: Tab[] = ['activity', 'owed', 'savings', 'insights'];
 type Filter = 'all' | MoneyKind;
 
 type Item =
   | { type: 'entry'; entry: MoneyEntry }
   | { type: 'queued'; queued: QueuedMoneyEntry }
-  | { type: 'suggestion'; suggestion: MoneySuggestion }
-  | { type: 'package'; pkg: MoneyPackage };
+  | { type: 'suggestion'; suggestion: MoneySuggestion };
 
 interface Section {
   key: string;
   title: string;
-  tone?: 'warn';
+  /** Beside the title, in grey: "2 entries". */
+  note?: string;
   data: Item[];
 }
 
-/**
- * One of the month's figures, a row each: three peso amounts with centavos
- * do not fit side by side on a phone, and shrinking them to fit drew the
- * three at different sizes.
- */
-function Figure({ label, minor, tone }: { label: string; minor: number; tone?: 'in' | 'total' }) {
-  const total = tone === 'total';
+const MONTH_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+/** Whole days from `from` to `to`, both YYYY-MM-DD; negative when `to` is earlier. */
+function daysBetween(from: string, to: string): number {
+  const [y1, m1, d1] = from.split('-').map(Number);
+  const [y2, m2, d2] = to.split('-').map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000);
+}
+
+/** "5 days late", "Due today", "Due in 6 days". */
+function dueLine(day: string, today: string): { text: string; late: boolean } {
+  const days = daysBetween(today, day);
+  if (days < 0) return { text: `${-days} ${days === -1 ? 'day' : 'days'} late`, late: true };
+  if (days === 0) return { text: 'Due today', late: false };
+  return { text: `Due in ${days} ${days === 1 ? 'day' : 'days'}`, late: false };
+}
+
+/** What an unpaid entry is still worth to the person: the fee less what the client withholds. */
+const netOf = (entry: MoneyEntry) => entry.amountMinor - (entry.withheldMinor ?? 0);
+const nameOf = (entry: MoneyEntry) => entry.counterparty || categoryLabel(entry.kind, entry.category);
+
+/** A section's title: 17 bold, with a quiet note or an action beside it. */
+function SectionTitle({
+  title,
+  note,
+  action,
+}: {
+  title: string;
+  note?: string;
+  action?: { label: string; onPress: () => void };
+}) {
   return (
-    <View
-      className={`flex-row items-baseline justify-between gap-3 ${total ? 'border-t border-border pt-2.5 mt-1' : ''}`}
-    >
-      <Text
-        className={`text-[14px] ${total ? 'text-foreground font-bold' : 'text-muted-foreground font-semibold'}`}
-      >
+    <View className="flex-row items-center justify-between gap-3 mt-7 mb-2.5">
+      <Text className="text-foreground text-[17px] leading-6 font-bold" accessibilityRole="header">
+        {title}
+      </Text>
+      {action ? (
+        <Pressable onPress={action.onPress} accessibilityRole="button" hitSlop={10} className="active:opacity-60">
+          <Text className="text-primary text-[15px] font-semibold">{action.label}</Text>
+        </Pressable>
+      ) : note ? (
+        <Text className="text-muted-foreground text-[13px] leading-[18px]">{note}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** One of the three figures under the month's lead. */
+function Figure({ label, minor, tone }: { label: string; minor: number; tone?: 'in' }) {
+  return (
+    <View className="flex-1 min-w-0">
+      <Text className="text-muted-foreground text-[12px] leading-4" numberOfLines={1}>
         {label}
       </Text>
       <Text
+        className={`text-[15px] leading-5 font-semibold mt-0.5 ${tone === 'in' ? 'text-success' : 'text-foreground'}`}
         numberOfLines={1}
-        className={`font-bold tracking-tight ${total ? 'text-[22px]' : 'text-[18px]'} ${
-          tone === 'in' ? 'text-success' : minor < 0 ? 'text-destructive' : 'text-foreground'
-        }`}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
         style={{ fontVariant: ['tabular-nums'] }}
       >
         {formatMoney(minor)}
@@ -92,19 +145,81 @@ function Figure({ label, minor, tone }: { label: string; minor: number; tone?: '
   );
 }
 
+/** A payment still waiting: its day on a tile, how late or how soon, and the way to say it came. */
+function OwedRow({
+  entry,
+  today,
+  first,
+  last,
+  onPress,
+  onPaid,
+}: {
+  entry: MoneyEntry;
+  today: string;
+  first: boolean;
+  last: boolean;
+  onPress: () => void;
+  onPaid: () => void;
+}) {
+  const due = dueLine(entry.occurredOn, today);
+  const income = entry.kind === 'income';
+  const name = nameOf(entry);
+  return (
+    <View
+      className={`bg-card border-x border-b border-border/40 flex-row items-center gap-3 pl-4 pr-3 ${
+        first ? 'rounded-t-[20px] border-t' : ''
+      } ${last ? 'rounded-b-[20px]' : ''}`}
+    >
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${name}, ${formatMoney(netOf(entry))}, ${due.text}`}
+        className="flex-1 min-w-0 flex-row items-center gap-3 py-3 min-h-[68px] active:opacity-70"
+      >
+        <DateTile small={MONTH_SHORT[Number(entry.occurredOn.slice(5, 7)) - 1]} large={entry.occurredOn.slice(8, 10)} />
+        <View className="flex-1 min-w-0">
+          <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={2}>
+            {name}
+          </Text>
+          <Text
+            className={`text-[13px] leading-[18px] mt-0.5 ${due.late ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}
+            numberOfLines={1}
+          >
+            {due.text}
+          </Text>
+        </View>
+        <Text className="text-foreground text-[15px] font-semibold" style={{ fontVariant: ['tabular-nums'] }}>
+          {formatMoney(netOf(entry))}
+        </Text>
+      </Pressable>
+      <Pressable
+        onPress={onPaid}
+        accessibilityRole="button"
+        accessibilityLabel={income ? `Mark ${name} as received` : `Mark ${name} as paid`}
+        className="min-h-[36px] rounded-full bg-secondary px-3.5 justify-center active:opacity-70"
+      >
+        <Text className="text-foreground text-[13px] font-semibold">{income ? 'Got it' : 'Paid'}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 /**
- * Money: one person's own ledger, a month at a time.
+ * Money: one person's own ledger, in four pages.
  *
- * What is still owed sits on top whatever the month, because a client who
- * owes from August still owes in October. Below it, the month's paid
- * entries by day, and anything written offline that hasn't reached the
- * server yet.
+ * Activity is the month: what was kept, then what moved, by day. Owed is what
+ * has not been paid yet, whatever the month, because a client who owes from
+ * August still owes in October. Savings is what has been put aside. Insights
+ * is the year. They used to be one long screen with a second screen behind an
+ * icon; nothing on it said which number mattered.
  */
 export default function MoneyScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
+  const params = useLocalSearchParams<{ tab?: string }>();
   const today = todayIso();
+  const [tab, setTab] = useState<Tab>(() => (TABS.includes(params.tab as Tab) ? (params.tab as Tab) : 'activity'));
   const [month, setMonth] = useState(() => monthOf(today));
   const [filter, setFilter] = useState<Filter>('all');
   const [refreshing, setRefreshing] = useState(false);
@@ -113,18 +228,30 @@ export default function MoneyScreen() {
 
   const summary = useMoneySummary(range.from, range.to);
   const list = useMoneyEntries({ from: range.from, to: range.to, kind, limit: 200 });
-  const unpaid = useMoneyEntries({ unpaid: true, kind, limit: 100 });
+  const unpaid = useMoneyEntries({ unpaid: true, limit: 100 });
   const queued = useMoneyOutbox();
   const offers = useMoneySuggestions();
   const owed = useMoneyPackages('open');
+  const saved = useMoneySavings(month);
   const dismiss = useDismissMoneySuggestion();
   const update = useUpdateMoneyEntry();
   const exporter = useMoneyExport();
 
+  // Soonest due first; the list arrives newest first.
+  const waiting = useMemo(
+    () => [...unpaid.entries].sort((a, b) => a.occurredOn.localeCompare(b.occurredOn)),
+    [unpaid.entries],
+  );
+  const owedToMe = useMemo(() => waiting.filter((entry) => entry.kind === 'income'), [waiting]);
+  const iOwe = useMemo(() => waiting.filter((entry) => entry.kind === 'expense'), [waiting]);
+  const late = useMemo(() => owedToMe.filter((entry) => isOverdue(entry, today)), [owedToMe, today]);
+  const owedMinor = owedToMe.reduce((sum, entry) => sum + netOf(entry), 0);
+  const lateMinor = late.reduce((sum, entry) => sum + netOf(entry), 0);
+
   const sections = useMemo<Section[]>(() => {
     const out: Section[] = [];
     // Agreed bookings not recorded yet: first, because each is a tap away
-    // from being right, and the longest-lived thing on the screen otherwise.
+    // from being right, and the longest-lived thing on the page otherwise.
     const offered = offers.suggestions.filter((s) => !kind || s.kind === kind);
     if (offered.length > 0) {
       out.push({
@@ -133,57 +260,44 @@ export default function MoneyScreen() {
         data: offered.map((suggestion) => ({ type: 'suggestion' as const, suggestion })),
       });
     }
-    const waiting = queued.filter((q) => !kind || q.input.kind === kind);
-    if (waiting.length > 0) {
+    const held = queued.filter((q) => !kind || q.input.kind === kind);
+    if (held.length > 0) {
       out.push({
         key: 'queued',
         title: 'Saved on this phone',
-        data: waiting.map((q) => ({ type: 'queued' as const, queued: q })),
+        data: held.map((q) => ({ type: 'queued' as const, queued: q })),
       });
     }
-    // Packages with something still owed: what each client has left to pay.
-    // Income only, so not under Expenses.
-    if (kind !== 'expense' && owed.packages.length > 0) {
-      out.push({
-        key: 'packages',
-        title: 'Who owes you',
-        data: owed.packages.map((pkg) => ({ type: 'package' as const, pkg })),
-      });
-    }
-    if (unpaid.entries.length > 0) {
-      // Soonest due first; the list arrives newest first.
-      const owed = [...unpaid.entries].sort((a, b) => a.occurredOn.localeCompare(b.occurredOn));
-      out.push({
-        key: 'unpaid',
-        title: `Not paid yet · ${unpaid.total}`,
-        tone: 'warn',
-        data: owed.map((entry) => ({ type: 'entry' as const, entry })),
-      });
-    }
-    // Unpaid entries are listed above, not again under their due day.
+    // What is not paid yet is on Owed, not under its due day here.
     const byDay = new Map<string, MoneyEntry[]>();
     for (const entry of list.entries) {
       if (entry.paidOn === null) continue;
-      const day = entry.paidOn;
-      const bucket = byDay.get(day);
+      const bucket = byDay.get(entry.paidOn);
       if (bucket) bucket.push(entry);
-      else byDay.set(day, [entry]);
+      else byDay.set(entry.paidOn, [entry]);
     }
     for (const [day, entries] of byDay) {
       out.push({
         key: day,
         title: dayLabel(day, today),
+        note: `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`,
         data: entries.map((entry) => ({ type: 'entry' as const, entry })),
       });
     }
     return out;
-  }, [offers.suggestions, owed.packages, queued, unpaid.entries, unpaid.total, list.entries, kind, today]);
+  }, [offers.suggestions, queued, list.entries, kind, today]);
 
   const markPaid = useCallback(
     (entry: MoneyEntry) =>
       update.mutate(
         { id: entry.id, paidOn: todayIso() },
         {
+          onSuccess: () => {
+            // Money that has just arrived is the moment to put some aside.
+            if (entry.kind === 'income') {
+              setAsidePrompt.offer({ amountMinor: netOf(entry), from: entry.counterparty ?? null });
+            }
+          },
           onError: (error) =>
             Alert.alert(
               "Couldn't mark it paid",
@@ -222,114 +336,150 @@ export default function MoneyScreen() {
 
   const refresh = async () => {
     setRefreshing(true);
-    await Promise.all([summary.refetch(), list.refetch(), unpaid.refetch(), offers.refetch(), owed.refetch()]);
+    await Promise.all([
+      summary.refetch(), list.refetch(), unpaid.refetch(), offers.refetch(), owed.refetch(), saved.refetch(),
+    ]);
     setRefreshing(false);
   };
+  const refreshControl = (
+    <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />
+  );
 
-  const add = (k: MoneyKind) => router.push(`/money/new?kind=${k}`);
+  // "Set some of it aside?": asked here once a payment has been recorded,
+  // when there is a saving to put it in and this screen is the one in front.
+  const focused = useIsFocused();
+  const offer = useSetAsideOffer();
+  const asking = focused && offer !== null && saved.savings.length > 0 ? offer : null;
+  useEffect(() => {
+    // Nothing to put it in: the question is dropped, not kept for later.
+    if (focused && offer !== null && !saved.isLoading && saved.savings.length === 0) setAsidePrompt.clear();
+  }, [focused, offer, saved.isLoading, saved.savings.length]);
+
   const isThisMonth = month === monthOf(today);
   const s = summary.summary;
   const inMinor = s?.incomeMinor ?? 0;
   const outMinor = s?.expenseMinor ?? 0;
+  const keptMinor = inMinor - outMinor;
+  const moved = inMinor + outMinor;
+  const worst = late[0];
 
-  const header = (
+  const activityHeader = (
     <View>
-      {/* The month, and the way to the next and the last. */}
-      <View className="px-5 mt-1 flex-row items-center gap-2">
-        <Pressable
-          onPress={() => setMonth((m) => shiftMonth(m, -1))}
-          accessibilityRole="button"
-          accessibilityLabel="Previous month"
-          className="w-10 h-10 rounded-xl bg-secondary items-center justify-center active:opacity-70"
-        >
-          <ChevronLeftIcon size={18} className="text-foreground" />
-        </Pressable>
-        <Text className="flex-1 text-center text-foreground text-[17px] font-bold" accessibilityRole="header">
-          {monthLabel(month, today)}
-        </Text>
-        {!isThisMonth ? (
+      {/* The month: what was kept leads, and the rest explains it. */}
+      <View className="rounded-[20px] border border-border/40 bg-card p-5">
+        <View className="flex-row items-center gap-2">
+          <Text className="flex-1 text-muted-foreground text-[13px] leading-[18px] font-semibold" numberOfLines={1}>
+            Kept in {monthLabel(month, today)}
+          </Text>
+          {!isThisMonth ? (
+            <Pressable
+              onPress={() => setMonth(monthOf(today))}
+              accessibilityRole="button"
+              hitSlop={8}
+              className="px-1 active:opacity-60"
+            >
+              <Text className="text-primary text-[13px] font-semibold">This month</Text>
+            </Pressable>
+          ) : null}
           <Pressable
-            onPress={() => setMonth(monthOf(today))}
+            onPress={() => setMonth((m) => shiftMonth(m, -1))}
             accessibilityRole="button"
-            className="min-h-10 px-2 justify-center active:opacity-60"
+            accessibilityLabel="Previous month"
+            hitSlop={6}
+            className="w-9 h-9 rounded-full bg-muted items-center justify-center active:opacity-70"
           >
-            <Text className="text-primary text-[13px] font-bold">This month</Text>
+            <ChevronLeftIcon size={18} className="text-foreground" />
           </Pressable>
-        ) : null}
-        <Pressable
-          onPress={() => setMonth((m) => shiftMonth(m, 1))}
-          accessibilityRole="button"
-          accessibilityLabel="Next month"
-          className="w-10 h-10 rounded-xl bg-secondary items-center justify-center active:opacity-70"
+          <Pressable
+            onPress={() => setMonth((m) => shiftMonth(m, 1))}
+            disabled={isThisMonth}
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
+            hitSlop={6}
+            className="w-9 h-9 rounded-full bg-muted items-center justify-center active:opacity-70"
+            style={{ opacity: isThisMonth ? 0.4 : 1 }}
+          >
+            <ChevronRightIcon size={18} className="text-foreground" />
+          </Pressable>
+        </View>
+        <Text
+          className={`text-[26px] leading-8 font-bold tracking-tight mt-1 ${keptMinor < 0 ? 'text-destructive' : 'text-foreground'}`}
+          style={{ fontVariant: ['tabular-nums'] }}
+          accessibilityRole="header"
         >
-          <ChevronRightIcon size={18} className="text-foreground" />
-        </Pressable>
-      </View>
-
-      {/* What moved this month, by when it was paid. */}
-      <View className="mx-5 mt-4 bg-card rounded-3xl border border-border/40 p-5">
-        <View className="gap-2">
+          {formatMoney(keptMinor)}
+        </Text>
+        {/* In against out, as one bar: how much of what came in is still here. */}
+        <View className="h-2 rounded-full bg-muted overflow-hidden flex-row mt-4" accessibilityElementsHidden>
+          {moved > 0 ? (
+            <>
+              <View className="h-full bg-success" style={{ flex: inMinor }} />
+              <View className="h-full bg-muted-foreground/40" style={{ flex: outMinor }} />
+            </>
+          ) : null}
+        </View>
+        <View className="flex-row gap-3 mt-3.5">
           <Figure label="In" minor={inMinor} tone="in" />
           <Figure label="Out" minor={outMinor} />
-          <Figure label="Kept" minor={inMinor - outMinor} tone="total" />
+          <Figure label="Set aside" minor={saved.monthMinor} />
         </View>
         {s && s.withheldMinor > 0 ? (
-          <Text className="text-muted-foreground text-xs mt-3 leading-[17px]">
+          <Text className="text-muted-foreground text-[12px] leading-[17px] mt-3.5">
             {formatMoney(s.withheldMinor)} of the income was withheld by clients as tax. Keep their 2307s.
           </Text>
         ) : null}
-        {s && s.owedToYouMinor > 0 ? (
-          <Text className="text-foreground text-[13px] font-semibold mt-3">
-            Owed to you: {formatMoney(s.owedToYouMinor)}
-            <Text className="text-muted-foreground font-normal">
-              {' '}· {s.owedToYouCount} {s.owedToYouCount === 1 ? 'entry' : 'entries'}
+      </View>
+
+      {/* The one thing that is late, said once, and the way to the rest. */}
+      {worst ? (
+        <Pressable
+          onPress={() => setTab('owed')}
+          accessibilityRole="button"
+          accessibilityHint="Opens what is owed to you"
+          className="mt-3 rounded-[20px] border border-border/40 bg-card pl-4 pr-3 min-h-[60px] flex-row items-center gap-3 active:opacity-70"
+        >
+          <ClockAlertIcon size={20} className="text-destructive" />
+          <View className="flex-1 min-w-0 py-2.5">
+            <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>
+              {formatMoney(lateMinor)} is {dueLine(worst.occurredOn, today).text}.
             </Text>
-          </Text>
-        ) : null}
-      </View>
+            <Text className="text-muted-foreground text-[13px] leading-[18px] mt-0.5" numberOfLines={1}>
+              {late.length === 1 ? nameOf(worst) : `${nameOf(worst)} and ${late.length - 1} more`}
+            </Text>
+          </View>
+          <ChevronRightIcon size={16} className="text-muted-foreground" />
+        </Pressable>
+      ) : null}
 
-      {/* Adding is the point of the screen, so it sits right here. */}
-      <View className="px-5 mt-3 flex-row gap-3">
-        <PressableScale
-          onPress={() => add('income')}
+      {/* Adding is the point of the page: one filled button, two quiet ones. */}
+      <View className="flex-row gap-2.5 mt-3">
+        <Pressable
+          onPress={() => router.push(`/money/new?kind=${filter === 'expense' ? 'expense' : 'income'}`)}
           accessibilityRole="button"
-          scaleTo={0.97}
-          style={{ flex: 1 }}
-          className="min-h-12 flex-row items-center justify-center gap-2 rounded-2xl bg-success/15"
+          className="flex-1 h-11 rounded-[14px] bg-action flex-row items-center justify-center gap-2 active:opacity-85"
         >
-          <PlusIcon size={17} className="text-success" />
-          <Text className="text-success text-[15px] font-bold">Income</Text>
-        </PressableScale>
-        <PressableScale
-          onPress={() => add('expense')}
-          accessibilityRole="button"
-          scaleTo={0.97}
-          style={{ flex: 1 }}
-          className="min-h-12 flex-row items-center justify-center gap-2 rounded-2xl bg-primary/10"
-        >
-          <MinusIcon size={17} className="text-primary" />
-          <Text className="text-primary text-[15px] font-bold">Expense</Text>
-        </PressableScale>
-      </View>
-
-      <View className="px-5 mt-2 flex-row items-center justify-between">
+          <PlusIcon size={18} className="text-action-foreground" />
+          <Text className="text-action-foreground text-[15px] font-semibold">Add entry</Text>
+        </Pressable>
         <Pressable
           onPress={() => router.push('/money/packages/new')}
           accessibilityRole="button"
-          className="min-h-10 justify-center active:opacity-60"
+          accessibilityLabel="New package: a total, a deposit and a balance"
+          className="w-11 h-11 rounded-[14px] bg-secondary items-center justify-center active:opacity-70"
         >
-          <Text className="text-primary text-[13px] font-bold">New package — total, deposit, balance</Text>
+          <PackagePlusIcon size={19} className="text-foreground" />
         </Pressable>
         <Pressable
           onPress={() => router.push('/money/pay-methods')}
           accessibilityRole="button"
-          className="min-h-10 justify-center active:opacity-60"
+          accessibilityLabel="How clients pay you"
+          className="w-11 h-11 rounded-[14px] bg-secondary items-center justify-center active:opacity-70"
         >
-          <Text className="text-muted-foreground text-[13px] font-semibold">How clients pay</Text>
+          <QrCodeIcon size={19} className="text-foreground" />
         </Pressable>
       </View>
 
-      <View className="px-5 mt-2 flex-row gap-2">
+      <View className="flex-row gap-2 mt-5">
         <FilterChip label="All" on={filter === 'all'} onPress={() => setFilter('all')} />
         <FilterChip label="Income" on={filter === 'income'} onPress={() => setFilter('income')} />
         <FilterChip label="Expenses" on={filter === 'expense'} onPress={() => setFilter('expense')} />
@@ -337,9 +487,195 @@ export default function MoneyScreen() {
     </View>
   );
 
-  const loading = list.isLoading && unpaid.isLoading;
-  const failed = list.loadFailed && list.entries.length === 0 && unpaid.entries.length === 0;
+  const loading = list.isLoading;
+  const failed = list.loadFailed && list.entries.length === 0;
   const empty = !loading && !failed && sections.length === 0;
+
+  const activity = (
+    <SectionList
+      sections={sections}
+      keyExtractor={(item) =>
+        item.type === 'entry'
+          ? item.entry.id
+          : item.type === 'queued'
+            ? `q-${item.queued.input.id}`
+            : `s-${item.suggestion.bookingId}`
+      }
+      stickySectionHeadersEnabled={false}
+      ListHeaderComponent={activityHeader}
+      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: insets.bottom + 32 }}
+      refreshControl={refreshControl}
+      renderSectionHeader={({ section }) => <SectionTitle title={section.title} note={section.note} />}
+      renderItem={({ item, index, section }) => {
+        const first = index === 0;
+        const last = index === section.data.length - 1;
+        if (item.type === 'suggestion') {
+          const booking = item.suggestion;
+          return (
+            <SuggestionRow
+              suggestion={booking}
+              first={first}
+              last={last}
+              onRecord={() => router.push(`/money/new?booking=${booking.bookingId}`)}
+              onDismiss={() => dismiss.mutate(booking.bookingId)}
+            />
+          );
+        }
+        if (item.type === 'queued') {
+          const q = item.queued;
+          return (
+            <MoneyRow
+              row={rowOfQueued(q.input)}
+              first={first}
+              last={last}
+              waiting={!q.error}
+              refused={q.error}
+              onPress={
+                q.error
+                  ? () =>
+                      Alert.alert("This entry couldn't be saved", q.error ?? undefined, [
+                        { text: 'Keep it', style: 'cancel' },
+                        { text: 'Discard', style: 'destructive', onPress: () => discardQueuedMoneyEntry(q.input.id) },
+                      ])
+                  : undefined
+              }
+            />
+          );
+        }
+        const entry = item.entry;
+        return (
+          <MoneyRow
+            row={rowOf(entry)}
+            first={first}
+            last={last}
+            onPress={() => router.push(`/money/new?edit=${entry.id}`)}
+          />
+        );
+      }}
+      ListEmptyComponent={
+        loading ? (
+          <View className="-mx-5 mt-6">
+            <CardListSkeleton count={3} />
+          </View>
+        ) : failed ? (
+          <View className="mt-8">
+            <LoadFailed what="your money entries" onRetry={() => void refresh()} />
+          </View>
+        ) : empty ? (
+          <View className="mt-8">
+            <EmptyState
+              icon={WalletIcon}
+              title={`Nothing in ${monthLabel(month, today)} yet`}
+              body="Log a job fee or an expense as it happens — the pamasahe, the meal, the second shooter. It takes a few seconds, and only you can see it."
+            />
+          </View>
+        ) : null
+      }
+      ListFooterComponent={
+        <Text className="mt-8 px-2 text-muted-foreground text-[12px] leading-[17px] text-center">
+          Totals are what you’ve recorded, counted on the day each was paid. They are for planning — not tax
+          advice, and not a BIR book of accounts.
+        </Text>
+      }
+    />
+  );
+
+  const nothingOwed = owedToMe.length === 0 && iOwe.length === 0 && owed.packages.length === 0;
+  const owedPage = (
+    <ScrollView
+      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: insets.bottom + 32 }}
+      refreshControl={refreshControl}
+    >
+      {/* The one dark card on the screen: the number a freelancer chases. */}
+      <View className="rounded-[20px] bg-foreground p-5">
+        <Text className="text-background/70 text-[13px] leading-[18px] font-semibold">Owed to you</Text>
+        <Text
+          className="text-background text-[26px] leading-8 font-bold tracking-tight mt-0.5"
+          style={{ fontVariant: ['tabular-nums'] }}
+          accessibilityRole="header"
+        >
+          {formatMoney(owedMinor)}
+        </Text>
+        <Text className="text-background/70 text-[13px] leading-[18px] mt-1.5">
+          {owedToMe.length === 0
+            ? 'Nobody owes you anything right now.'
+            : lateMinor > 0
+              ? `${formatMoney(lateMinor)} of it is past its due date`
+              : 'None of it is late'}
+        </Text>
+      </View>
+
+      {unpaid.isLoading && waiting.length === 0 ? (
+        <View className="-mx-5 mt-6">
+          <CardListSkeleton count={2} />
+        </View>
+      ) : unpaid.loadFailed && waiting.length === 0 ? (
+        <View className="mt-8">
+          <LoadFailed what="what is owed" onRetry={() => void refresh()} compact />
+        </View>
+      ) : null}
+
+      {owedToMe.length > 0 ? (
+        <>
+          <SectionTitle title="Waiting for payment" />
+          {owedToMe.map((entry, at) => (
+            <OwedRow
+              key={entry.id}
+              entry={entry}
+              today={today}
+              first={at === 0}
+              last={at === owedToMe.length - 1}
+              onPress={() => router.push(`/money/new?edit=${entry.id}`)}
+              onPaid={() => markPaid(entry)}
+            />
+          ))}
+        </>
+      ) : null}
+
+      <SectionTitle title="Packages" action={{ label: 'New', onPress: () => router.push('/money/packages/new') }} />
+      {owed.packages.length > 0 ? (
+        owed.packages.map((pkg: MoneyPackage, at) => (
+          <PackageRow
+            key={pkg.id}
+            pkg={pkg}
+            first={at === 0}
+            last={at === owed.packages.length - 1}
+            onPress={() => router.push(`/money/packages/${pkg.id}`)}
+          />
+        ))
+      ) : (
+        <View className="rounded-[20px] border border-border/40 bg-card p-4">
+          <Text className="text-muted-foreground text-[13px] leading-[19px]">
+            A package is one job paid in parts: the total, the deposit and the balance. Virgo keeps track of what is
+            left and when it is due.
+          </Text>
+        </View>
+      )}
+
+      {iOwe.length > 0 ? (
+        <>
+          <SectionTitle title="You still owe" />
+          {iOwe.map((entry, at) => (
+            <OwedRow
+              key={entry.id}
+              entry={entry}
+              today={today}
+              first={at === 0}
+              last={at === iOwe.length - 1}
+              onPress={() => router.push(`/money/new?edit=${entry.id}`)}
+              onPaid={() => markPaid(entry)}
+            />
+          ))}
+        </>
+      ) : null}
+
+      {nothingOwed && !unpaid.isLoading ? (
+        <Text className="mt-6 px-2 text-muted-foreground text-[13px] leading-[19px] text-center">
+          When you record income that has not been paid yet, it waits here until you mark it as received.
+        </Text>
+      ) : null}
+    </ScrollView>
+  );
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
@@ -347,149 +683,40 @@ export default function MoneyScreen() {
         title="Money"
         subtitle="Only you can see this"
         right={
-          <View className="flex-row gap-2">
-            <Pressable
-              onPress={() => router.push(`/money/insights?year=${month.slice(0, 4)}&month=${month}`)}
-              accessibilityRole="button"
-              accessibilityLabel="Insights"
-              className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:opacity-70"
-            >
-              <ChartColumnIcon size={18} className="text-foreground" />
-            </Pressable>
-            <Pressable
-              onPress={askExport}
-              disabled={exporter.isPending}
-              accessibilityRole="button"
-              accessibilityLabel="Export as a spreadsheet"
-              className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:opacity-70"
-              style={{ opacity: exporter.isPending ? 0.5 : 1 }}
-            >
-              <DownloadIcon size={18} className="text-foreground" />
-            </Pressable>
-          </View>
-        }
-      />
-      <SectionList
-        sections={sections}
-        keyExtractor={(item) =>
-          item.type === 'entry'
-            ? item.entry.id
-            : item.type === 'queued'
-              ? `q-${item.queued.input.id}`
-              : item.type === 'suggestion'
-                ? `s-${item.suggestion.bookingId}`
-                : `p-${item.pkg.id}`
-        }
-        stickySectionHeadersEnabled={false}
-        ListHeaderComponent={header}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}
-        renderSectionHeader={({ section }) => (
-          <Text
-            accessibilityRole="header"
-            className={`px-6 text-[12px] font-bold uppercase tracking-[1.5px] mt-6 mb-2 ${
-              section.tone === 'warn' ? 'text-warning' : 'text-muted-foreground'
-            }`}
+          <Pressable
+            onPress={askExport}
+            disabled={exporter.isPending}
+            accessibilityRole="button"
+            accessibilityLabel="Export as a spreadsheet"
+            className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:opacity-70"
+            style={{ opacity: exporter.isPending ? 0.5 : 1 }}
           >
-            {section.title}
-          </Text>
-        )}
-        renderItem={({ item, index, section }) => {
-          const first = index === 0;
-          const last = index === section.data.length - 1;
-          if (item.type === 'package') {
-            const pkg = item.pkg;
-            return (
-              <View className="px-5">
-                <PackageRow
-                  pkg={pkg}
-                  first={first}
-                  last={last}
-                  onPress={() => router.push(`/money/packages/${pkg.id}`)}
-                />
-              </View>
-            );
-          }
-          if (item.type === 'suggestion') {
-            const offer = item.suggestion;
-            return (
-              <View className="px-5">
-                <SuggestionRow
-                  suggestion={offer}
-                  first={first}
-                  last={last}
-                  onRecord={() => router.push(`/money/new?booking=${offer.bookingId}`)}
-                  onDismiss={() => dismiss.mutate(offer.bookingId)}
-                />
-              </View>
-            );
-          }
-          if (item.type === 'queued') {
-            const q = item.queued;
-            return (
-              <View className="px-5">
-                <MoneyRow
-                  row={rowOfQueued(q.input)}
-                  first={first}
-                  last={last}
-                  waiting={!q.error}
-                  refused={q.error}
-                  onPress={
-                    q.error
-                      ? () =>
-                          Alert.alert("This entry couldn't be saved", q.error ?? undefined, [
-                            { text: 'Keep it', style: 'cancel' },
-                            {
-                              text: 'Discard',
-                              style: 'destructive',
-                              onPress: () => discardQueuedMoneyEntry(q.input.id),
-                            },
-                          ])
-                      : undefined
-                  }
-                />
-              </View>
-            );
-          }
-          const entry = item.entry;
-          return (
-            <View className="px-5">
-              <MoneyRow
-                row={rowOf(entry)}
-                first={first}
-                last={last}
-                onPress={() => router.push(`/money/new?edit=${entry.id}`)}
-                onMarkPaid={entry.paidOn === null ? () => markPaid(entry) : undefined}
-              />
-            </View>
-          );
-        }}
-        ListEmptyComponent={
-          loading ? (
-            <View className="px-5 mt-6">
-              <CardListSkeleton count={3} />
-            </View>
-          ) : failed ? (
-            <View className="mt-6">
-              <LoadFailed what="your money entries" onRetry={() => void refresh()} />
-            </View>
-          ) : empty ? (
-            <View className="mt-6">
-              <EmptyState
-                icon={WalletIcon}
-                title={`Nothing in ${monthLabel(month, today)} yet`}
-                body="Log a job fee or an expense as it happens — the pamasahe, the meal, the second shooter. It takes a few seconds, and only you can see it."
-              />
-            </View>
-          ) : null
-        }
-        ListFooterComponent={
-          <Text className="px-6 mt-8 text-muted-foreground text-[12px] leading-[17px] text-center">
-            Totals are what you’ve recorded, counted on the day each was paid. They are for planning
-            — not tax advice, and not a BIR book of accounts.
-          </Text>
+            <DownloadIcon size={18} className="text-foreground" />
+          </Pressable>
         }
       />
+      <PageTabs<Tab>
+        tabs={[
+          { key: 'activity', label: 'Activity' },
+          { key: 'owed', label: 'Owed', badge: owedToMe.length },
+          { key: 'savings', label: 'Savings' },
+          { key: 'insights', label: 'Insights' },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
+      <View className="flex-1">
+        {tab === 'activity' ? (
+          activity
+        ) : tab === 'owed' ? (
+          owedPage
+        ) : tab === 'savings' ? (
+          <SavingsPage month={month} today={today} keptMinor={s ? keptMinor : null} />
+        ) : (
+          <InsightsPage year={month.slice(0, 4)} month={month} />
+        )}
+      </View>
+      <SetAsideSheet offer={asking} savings={saved.savings} onClose={setAsidePrompt.clear} />
     </SafeAreaView>
   );
 }

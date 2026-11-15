@@ -99,24 +99,22 @@ export const MoneyRow = memo(function MoneyRow({
 
   return (
     <View
-      className={`bg-card flex-row items-center gap-3 pl-4 pr-3 ${first ? 'rounded-t-2xl' : ''} ${
-        last ? 'rounded-b-2xl' : 'border-b border-border'
-      }`}
+      className={`bg-card border-x border-b border-border/40 flex-row items-center gap-3 pl-4 pr-3 ${first ? 'rounded-t-[20px] border-t' : ''} ${last ? 'rounded-b-[20px]' : ''}`}
     >
       <Pressable
         onPress={onPress}
         disabled={!onPress}
         accessibilityRole="button"
         accessibilityLabel={`${title}, ${signedAmount(row.kind, row.amountMinor)}${unpaid ? ', not paid yet' : ''}`}
-        className="flex-1 flex-row items-center gap-3 py-3 min-h-[60px] active:opacity-70"
+        className="flex-1 flex-row items-center gap-3 py-3 min-h-[64px] active:opacity-70"
       >
         <View
-          className={`w-9 h-9 rounded-xl items-center justify-center ${income ? 'bg-success/15' : 'bg-primary/10'}`}
+          className="w-10 h-10 rounded-xl bg-muted items-center justify-center"
         >
           {waiting ? (
             <CloudOffIcon size={16} className="text-muted-foreground" />
           ) : (
-            <Icon size={16} className={income ? 'text-success' : 'text-primary'} />
+            <Icon size={18} className="text-foreground" />
           )}
         </View>
         <View className="flex-1 min-w-0">
@@ -137,10 +135,10 @@ export const MoneyRow = memo(function MoneyRow({
           ) : null}
         </View>
         <Text
-          className={`text-[15px] font-bold ${income ? 'text-success' : 'text-foreground'}`}
+          className={`text-[15px] font-semibold ${income ? 'text-success' : 'text-foreground'}`}
           style={{ fontVariant: ['tabular-nums'] }}
         >
-          {signedAmount(row.kind, row.amountMinor)}
+          {income ? signedAmount(row.kind, row.amountMinor) : formatMoney(row.amountMinor)}
         </Text>
       </Pressable>
       {onMarkPaid ? (
@@ -148,9 +146,9 @@ export const MoneyRow = memo(function MoneyRow({
           onPress={onMarkPaid}
           accessibilityRole="button"
           accessibilityLabel={income ? `Mark ${title} as received` : `Mark ${title} as paid`}
-          className="min-h-[36px] rounded-full bg-primary/10 px-3 justify-center active:opacity-70"
+          className="min-h-[36px] rounded-full bg-secondary px-3.5 justify-center active:opacity-70"
         >
-          <Text className="text-primary text-[12px] font-bold">{income ? 'Got it' : 'Paid'}</Text>
+          <Text className="text-foreground text-[13px] font-semibold">{income ? 'Got it' : 'Paid'}</Text>
         </Pressable>
       ) : null}
     </View>

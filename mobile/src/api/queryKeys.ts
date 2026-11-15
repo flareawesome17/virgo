@@ -145,6 +145,8 @@ export const queryKeys = {
     insights: (year: number) => ['money', 'insights', year] as const,
     tax: (year: number) => ['money', 'tax', year] as const,
     recurring: ['money', 'recurring'] as const,
+    savings: (month: string) => ['money', 'savings', month] as const,
+    saving: (id: string) => ['money', 'saving', id] as const,
   },
   portfolio: {
     all: ['portfolio'] as const,

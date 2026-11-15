@@ -13,6 +13,11 @@ import {
   type MoneyPayMethodInput,
   type MoneyRecurring,
   type MoneyRecurringPatch,
+  type MoneySaving,
+  type MoneySavingInput,
+  type MoneySavingMove,
+  type MoneySavingMoveInput,
+  type MoneySavingPatch,
   type MoneySuggestion,
 } from '@/api';
 
@@ -348,4 +353,56 @@ export function useMoneyExport() {
   return useMutation({
     mutationFn: ({ from, to }: { from: string; to: string }) => moneyApi.exportUrl(from, to),
   });
+}
+
+/** Every saving, with the total set aside and what moved in `month` (YYYY-MM). */
+export function useMoneySavings(month?: string, options: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: queryKeys.money.savings(month ?? ''),
+    queryFn: () => moneyApi.savings(month),
+    enabled: options.enabled ?? true,
+  });
+  return {
+    ...query,
+    savings: query.data?.data ?? ([] as MoneySaving[]),
+    totalMinor: query.data?.totalMinor ?? 0,
+    monthMinor: query.data?.monthMinor ?? 0,
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+/** One saving and its history. */
+export function useMoneySaving(id: string | undefined) {
+  const query = useQuery({
+    queryKey: queryKeys.money.saving(id ?? ''),
+    queryFn: () => moneyApi.getSaving(id as string),
+    enabled: !!id,
+  });
+  return {
+    ...query,
+    saving: query.data,
+    moves: query.data?.moves ?? ([] as MoneySavingMove[]),
+    loadFailed: query.isError || query.isPaused,
+  };
+}
+
+export function useCreateMoneySaving() {
+  return useMoneyWrite((input: MoneySavingInput) => moneyApi.createSaving(input));
+}
+
+export function useUpdateMoneySaving() {
+  return useMoneyWrite(({ id, ...patch }: MoneySavingPatch & { id: string }) => moneyApi.updateSaving(id, patch));
+}
+
+export function useDeleteMoneySaving() {
+  return useMoneyWrite((id: string) => moneyApi.deleteSaving(id));
+}
+
+/** Puts money into a saving, or takes it out. */
+export function useMoveMoneySaving() {
+  return useMoneyWrite(({ id, ...input }: MoneySavingMoveInput & { id: string }) => moneyApi.moveSaving(id, input));
+}
+
+export function useDeleteMoneySavingMove() {
+  return useMoneyWrite(({ id, moveId }: { id: string; moveId: string }) => moneyApi.deleteSavingMove(id, moveId));
 }

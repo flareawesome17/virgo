@@ -11,6 +11,8 @@ import { MoneyInsightsController } from './money-insights.controller';
 import { MoneyInsightsService } from './money-insights.service';
 import { MoneyRecurringService } from './money-recurring.service';
 import { MoneyTaxService } from './money-tax.service';
+import { MoneySavingsController } from './money-savings.controller';
+import { MoneySavingsService } from './money-savings.service';
 
 @Module({
   imports: [StorageModule],
@@ -19,6 +21,7 @@ import { MoneyTaxService } from './money-tax.service';
     MoneyPackagesController,
     PublicStatementController,
     MoneyInsightsController,
+    MoneySavingsController,
   ],
   providers: [
     MoneyService,
@@ -29,6 +32,7 @@ import { MoneyTaxService } from './money-tax.service';
     MoneyInsightsService,
     MoneyRecurringService,
     MoneyTaxService,
+    MoneySavingsService,
   ],
 })
 export class MoneyModule {}
